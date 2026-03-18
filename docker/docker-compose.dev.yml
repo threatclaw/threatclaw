@@ -1,0 +1,41 @@
+# ThreatClaw — Dev Stack (lightweight)
+# Only core + db + essential scanners
+version: "3.9"
+
+services:
+  threatclaw-db:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: threatclaw
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threatclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nuclei:
+    image: projectdiscovery/nuclei:latest
+    volumes:
+      - nuclei-data-dev:/root/.local/nuclei
+    entrypoint: ["tail", "-f", "/dev/null"]
+    mem_limit: 128m
+
+  trivy:
+    image: aquasec/trivy:latest
+    ports:
+      - "127.0.0.1:4954:4954"
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    volumes:
+      - trivy-cache-dev:/root/.cache/trivy
+    mem_limit: 128m
+
+volumes:
+  pgdata-dev:
+  nuclei-data-dev:
+  trivy-cache-dev:

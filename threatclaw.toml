@@ -1,0 +1,57 @@
+# ThreatClaw — Configuration client
+# Documentation : https://github.com/threatclaw/threatclaw
+
+[general]
+instance_name = "threatclaw-default"
+permission_level = "ALERT_ONLY"  # READ_ONLY | ALERT_ONLY | REMEDIATE_WITH_APPROVAL | FULL_AUTO
+language = "fr"
+
+[llm]
+# Option 1 : 100% local (recommandé pour données sensibles)
+backend = "ollama"
+model = "mistral:7b"
+base_url = "http://localhost:11434"
+
+# Option 2 : Souveraineté française
+# backend = "mistral"
+# api_key = "env:MISTRAL_API_KEY"
+
+# Option 3 : Meilleure qualité rapports
+# backend = "anthropic"
+# model = "claude-sonnet-4-20250514"
+# api_key = "env:ANTHROPIC_API_KEY"
+
+[llm.routing]
+# Tâches toujours traitées en local (jamais vers cloud)
+local_only = ["log_analysis", "alert_triage", "vuln_scoring"]
+# Tâches pouvant aller vers cloud (après anonymisation)
+cloud_allowed = ["report_generation", "compliance_analysis", "phishing_templates"]
+
+[anonymizer]
+enabled = true
+strip_internal_ips = true
+strip_usernames = true
+strip_credentials = true
+strip_hostnames = true
+
+[scheduler]
+vuln_scan_daily = "0 2 * * *"         # Scan réseau quotidien 02h00
+phishing_monthly = "0 10 1 * *"       # Campagne phishing mensuelle
+darkweb_check = "0 */6 * * *"         # Dark web toutes les 6h
+cloud_posture_weekly = "0 3 * * 1"    # Audit cloud lundi 03h00
+log_analysis = "*/5 * * * *"          # Analyse logs toutes les 5 min
+report_weekly = "0 8 * * 5"           # Rapport vendredi 08h00
+
+[notifications]
+# Slack
+# slack_webhook = "env:SLACK_WEBHOOK_URL"
+# slack_channel = "#threatclaw-alerts"
+
+# Email
+# smtp_host = "smtp.example.com"
+# smtp_port = 587
+# smtp_from = "threatclaw@example.com"
+# smtp_to = ["rssi@example.com"]
+
+[database]
+url = "postgres://threatclaw:threatclaw@localhost:5432/threatclaw"

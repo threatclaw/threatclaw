@@ -1,0 +1,151 @@
+# ThreatClaw — Production Stack
+# All data stays on-premise (Model B+)
+version: "3.9"
+
+services:
+  # ── Core ──────────────────────────────────────────────
+  threatclaw-core:
+    image: threatclaw/core:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:18789:18789"
+    environment:
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
+      RUST_LOG: info
+      TC_PERMISSION_LEVEL: ${TC_PERMISSION_LEVEL:-ALERT_ONLY}
+    volumes:
+      - ../threatclaw.toml:/app/threatclaw.toml:ro
+      - core-data:/app/data
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+
+  # ── Database ──────────────────────────────────────────
+  threatclaw-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: ${TC_DB_PASSWORD:-threatclaw}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threatclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 512m
+
+  # ── Dashboard RSSI ────────────────────────────────────
+  threatclaw-dashboard:
+    image: threatclaw/dashboard:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://threatclaw-core:18789
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
+    depends_on:
+      - threatclaw-core
+    restart: unless-stopped
+    mem_limit: 256m
+
+  # ── Nuclei — CVE Scanner ──────────────────────────────
+  nuclei:
+    image: projectdiscovery/nuclei:latest
+    volumes:
+      - nuclei-data:/root/.local/nuclei
+      - nuclei-results:/results
+    entrypoint: ["tail", "-f", "/dev/null"]  # Kept alive, invoked by skill
+    restart: unless-stopped
+    mem_limit: 128m
+
+  # ── Trivy — Container/Dependency Scanner ──────────────
+  trivy:
+    image: aquasec/trivy:latest
+    ports:
+      - "127.0.0.1:4954:4954"
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    volumes:
+      - trivy-cache:/root/.cache/trivy
+    restart: unless-stopped
+    mem_limit: 128m
+
+  # ── Grype — Image Vulnerability Scanner ───────────────
+  grype:
+    image: anchore/grype:latest
+    volumes:
+      - grype-db:/root/.grype
+    entrypoint: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+    mem_limit: 128m
+
+  # ── Gitleaks — Secret Detection ───────────────────────
+  gitleaks:
+    image: zricethezav/gitleaks:latest
+    volumes:
+      - gitleaks-results:/results
+    entrypoint: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+    mem_limit: 64m
+
+  # ── GoPhish — Phishing Simulation ────────────────────
+  gophish:
+    image: gophish/gophish:latest
+    ports:
+      - "127.0.0.1:3333:3333"
+      - "127.0.0.1:8083:80"
+    volumes:
+      - gophish-data:/opt/gophish/data
+    restart: unless-stopped
+    mem_limit: 64m
+
+  # ── Prowler — Cloud Security Posture ──────────────────
+  prowler:
+    image: prowlercloud/prowler:latest
+    volumes:
+      - prowler-output:/home/prowler/output
+    entrypoint: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+    mem_limit: 128m
+
+  # ── Falco — Runtime Anomaly Detection ─────────────────
+  falco:
+    image: falcosecurity/falco-no-driver:latest
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock:ro
+      - falco-config:/etc/falco
+    restart: unless-stopped
+    mem_limit: 128m
+    privileged: true
+
+  # ── Fluent Bit — Log Collector ────────────────────────
+  fluent-bit:
+    image: fluent/fluent-bit:latest
+    ports:
+      - "127.0.0.1:24224:24224"
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 32m
+
+volumes:
+  pgdata:
+  core-data:
+  nuclei-data:
+  nuclei-results:
+  trivy-cache:
+  grype-db:
+  gitleaks-results:
+  gophish-data:
+  prowler-output:
+  falco-config:
