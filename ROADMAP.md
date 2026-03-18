@@ -12,16 +12,16 @@
 - [x] 1.8 Créer le CLAUDE.md projet (copie depuis docs/)
 - [x] 1.9 Créer README.md professionnel
 - [x] 1.10 Initialiser le repo Git local
-- [ ] 1.11 Premier commit structuré
+- [x] 1.11 Premier commit structuré (828 fichiers, 313K lignes)
 
 ## Phase 2 — Skills Core V1
 
-- [ ] 2.1 skill-vuln-scan (Nuclei + Grype + EPSS scoring)
-- [ ] 2.2 skill-secrets (Gitleaks — Git history complet)
-- [ ] 2.3 skill-email-audit (checkdmarc — DMARC/SPF/DKIM)
-- [ ] 2.4 skill-darkweb (HIBP API + PasteHunter)
-- [ ] 2.5 skill-phishing (GoPhish API + LLM templates)
-- [ ] 2.6 Tests unitaires pour chaque skill
+- [x] 2.1 skill-vuln-scan (Nuclei + Grype + EPSS scoring) — 20 tests ✅
+- [x] 2.2 skill-secrets (Gitleaks — Git history complet) — 21 tests ✅
+- [x] 2.3 skill-email-audit (checkdmarc — DMARC/SPF/DKIM) — 12 tests ✅
+- [x] 2.4 skill-darkweb (HIBP API + PasteHunter) — 15 tests ✅
+- [x] 2.5 skill-phishing (GoPhish API + LLM templates) — 14 tests ✅
+- [x] 2.6 Tests unitaires pour chaque skill — 82/82 ✅
 
 ## Phase 3 — SOC & Logs
 
