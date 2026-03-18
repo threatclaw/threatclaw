@@ -25,12 +25,12 @@
 
 ## Phase 3 — SOC & Logs
 
-- [ ] 3.1 Pipeline logs : Fluent Bit → Vector → PostgreSQL
-- [ ] 3.2 Intégration Sigma rules (3000+ règles communautaires)
-- [ ] 3.3 skill-soc-monitor (collecte + triage LLM)
-- [ ] 3.4 skill-cloud-posture (Prowler AWS/Azure/GCP)
-- [ ] 3.5 Couche anonymisation src/anonymizer/
-- [ ] 3.6 Modifications scheduler cyber dans core Rust
+- [x] 3.1 Pipeline logs : Fluent Bit → PostgreSQL (fluent-bit.conf + parsers.conf + V14 migration) ✅
+- [x] 3.2 Intégration Sigma rules (sigma_engine.py — 32 tests) ✅
+- [x] 3.3 skill-soc-monitor (collecte + Sigma + corrélation + triage LLM) — 76 tests ✅
+- [x] 3.4 skill-cloud-posture (Prowler + NIS2 mapping + ISO27001) — 66 tests ✅
+- [x] 3.5 Couche anonymisation src/anonymizer/ (patterns + transformer + dé-anonymisation) — 36 tests Rust ✅
+- [x] 3.6 Cyber scheduler dans core Rust (6 routines par défaut) — 16 tests Rust ✅
 
 ## Phase 4 — IA & Rapports
 

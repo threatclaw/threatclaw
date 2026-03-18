@@ -39,6 +39,7 @@
 //! - **Continuous learning** - Improve estimates from historical data
 
 pub mod agent;
+pub mod anonymizer;
 pub mod app;
 pub mod boot_screen;
 pub mod bootstrap;
