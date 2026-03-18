@@ -34,11 +34,11 @@
 
 ## Phase 4 — IA & Rapports
 
-- [ ] 4.1 skill-report-gen (PDF NIS2 français via LLM)
-- [ ] 4.2 skill-compliance-nis2 (mapping Art.21 §1-10)
-- [ ] 4.3 skill-compliance-iso27001 (93 contrôles Annexe A)
-- [ ] 4.4 Dashboard RSSI Next.js v1 (score + findings + rapport)
-- [ ] 4.5 Human-in-the-loop validation Slack
+- [x] 4.1 skill-report-gen (HTML/PDF NIS2 français, agrégation multi-sources, scoring pondéré) — 69 tests ✅
+- [x] 4.2 skill-compliance-nis2 (mapping Art.21 §1-10, scoring, gap analysis, plan d'action) — 70 tests ✅
+- [x] 4.3 skill-compliance-iso27001 (93 contrôles Annexe A, SoA, maturity assessment) — 44 tests ✅
+- [x] 4.4 Dashboard RSSI Next.js v1 (score, NIS2 radar, alertes SOC, rapports, dark theme) — 18 fichiers ✅
+- [x] 4.5 Human-in-the-loop Slack (Block Kit, approval workflows, urgency levels) — 26 Rust + 32 Python tests ✅
 
 ## Phase 5 — Docker & Release
 
