@@ -1,0 +1,128 @@
+version: 2
+updates:
+  # Rust (Cargo) dependencies
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "deps(rust):"
+
+  # Python (pip) dependencies — skills
+  - package-ecosystem: pip
+    directory: /skills/skill-vuln-scan
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-secrets
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-email-audit
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-darkweb
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-phishing
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-soc-monitor
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-cloud-posture
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-report-gen
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-compliance-nis2
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  - package-ecosystem: pip
+    directory: /skills/skill-compliance-iso27001
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "deps(actions):"

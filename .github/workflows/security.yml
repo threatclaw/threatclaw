@@ -1,0 +1,74 @@
+name: Security Scan
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays at 06:00
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit Python dependencies
+        run: |
+          EXIT_CODE=0
+          for skill_dir in skills/skill-*/; do
+            if [ -f "$skill_dir/requirements.txt" ]; then
+              echo "Auditing $skill_dir"
+              pip-audit -r "$skill_dir/requirements.txt" || EXIT_CODE=1
+            fi
+          done
+          exit $EXIT_CODE
+
+  docker-scan:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build core image
+        run: docker build -t threatclaw/core:scan -f Dockerfile .
+
+      - name: Build dashboard image
+        run: docker build -t threatclaw/dashboard:scan -f dashboard/Dockerfile ./dashboard
+
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: threatclaw/core:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Scan dashboard image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: threatclaw/dashboard:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH

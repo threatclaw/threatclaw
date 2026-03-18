@@ -1,0 +1,24 @@
+[Unit]
+Description=ThreatClaw Cybersecurity Agent
+Documentation=https://github.com/threatclaw/threatclaw
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/threatclaw/docker
+EnvironmentFile=/opt/threatclaw/.env
+ExecStartPre=/usr/bin/docker compose --env-file /opt/threatclaw/.env pull --ignore-pull-failures
+ExecStart=/usr/bin/docker compose --env-file /opt/threatclaw/.env up -d
+ExecStop=/usr/bin/docker compose --env-file /opt/threatclaw/.env down
+ExecReload=/usr/bin/docker compose --env-file /opt/threatclaw/.env up -d --force-recreate
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+# Restart policy — restart after 30s if the oneshot fails
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
