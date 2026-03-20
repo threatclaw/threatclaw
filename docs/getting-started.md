@@ -2,15 +2,27 @@
 
 ## Requirements
 
-- **OS**: Linux (Debian 12+, Ubuntu 22.04+)
-- **Rust**: 1.90+ with `wasm32-wasip2` target
-- **Docker**: Docker Engine 24+ and Docker Compose v2
+- **OS**: Linux (Debian 12+, Ubuntu 22.04+), macOS (13+), Windows (10/11)
+- **Rust**: 1.90+ with `wasm32-wasip2` target (for building from source)
+- **Docker**: Docker Engine 24+ / Docker Desktop
 - **RAM**: 8GB minimum, 16GB+ recommended for local LLM
 - **Disk**: 20GB minimum, 50GB+ if using Ollama models
 
 ## Installation
 
-### 1. Clone and build
+### Quick install (recommended)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://get.threatclaw.io | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://get.threatclaw.io/windows | iex
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/threatclaw/threatclaw.git

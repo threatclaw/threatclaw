@@ -15,6 +15,17 @@ All data stays on your infrastructure. No cloud dependency required.
 
 ## Quick Start
 
+**Linux / macOS:**
+```bash
+curl -fsSL https://get.threatclaw.io | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://get.threatclaw.io/windows | iex
+```
+
+**From source:**
 ```bash
 git clone https://github.com/threatclaw/threatclaw.git && cd threatclaw
 docker compose -f docker/docker-compose.core.yml up -d
