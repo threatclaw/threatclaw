@@ -146,7 +146,7 @@ function SkillRow({ skill }: { skill: Skill }) {
               <span style={{ fontSize: "9px" }}>Configurer</span>
             </ChromeButton>
           ) : (
-            <ChromeButton>
+            <ChromeButton onClick={() => alert(`Installation de ${skill.id} — disponible prochainement via "threatclaw skill install ${skill.id}"`)}>
               <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "9px" }}>
                 <Download size={10} /> Installer
               </span>
