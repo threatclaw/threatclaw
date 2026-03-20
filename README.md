@@ -1,9 +1,9 @@
+<h1 align="center">ThreatClaw</h1>
 <p align="center">
-  <img src="docs/THREATCLAW-3.png" alt="ThreatClaw" width="200">
-  <h1 align="center">ThreatClaw</h1>
-  <p align="center"><strong>Autonomous cybersecurity agent</strong></p>
-  <p align="center">Self-hosted · AI-powered · WASM-sandboxed · 100% on-premise</p>
+  <img src="docs/THREATCLAW-3.png" alt="ThreatClaw" width="300">
 </p>
+<p align="center"><strong>Autonomous cybersecurity agent</strong></p>
+<p align="center">Self-hosted · AI-powered · WASM-sandboxed · 100% on-premise</p>
 
 ---
 
