@@ -143,15 +143,26 @@ pub async fn run_react_cycle(
     tracing::info!("REACT: {} observations collected", obs_count);
 
     // ════════════════════════════════════════════════════════════════
-    // NIVEAU 1 — IA locale rapide
+    // NIVEAU 1 — IA principale (locale ou cloud anonymisée)
     // ════════════════════════════════════════════════════════════════
-    let prompt_l1 = if obs.len() > 10 {
+    let prompt_l1_raw = if obs.len() > 10 {
         prompt_builder::build_analyst_prompt(&soul, &obs)
     } else {
         prompt_builder::build_react_prompt(&soul, &mode_cfg, &obs, &empty_entries)
     };
 
-    let analysis_l1 = match call_and_parse(&config.llm.primary.base_url, &config.llm.primary.model, &prompt_l1).await {
+    // Si les données quittent l'infra, anonymiser avant envoi
+    let anonymize_primary = config.llm.primary_requires_anonymization();
+    let mut primary_anon_map = AnonymizationMap::new();
+    let prompt_l1 = if anonymize_primary {
+        let anonymized = primary_anon_map.anonymize(&prompt_l1_raw);
+        tracing::info!("REACT L1: Anonymized {} data points (data leaves infrastructure)", primary_anon_map.mapping_count());
+        anonymized
+    } else {
+        prompt_l1_raw.clone()
+    };
+
+    let analysis_l1_raw = match call_primary(&config.llm, &prompt_l1).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("REACT L1: LLM call failed: {e}");
@@ -162,6 +173,13 @@ pub async fn run_react_cycle(
                 escalation_level: 1, error: Some(e),
             };
         }
+    };
+
+    // Dé-anonymiser la réponse si on avait anonymisé
+    let analysis_l1 = if anonymize_primary {
+        deanonymize_analysis(analysis_l1_raw, &primary_anon_map)
+    } else {
+        analysis_l1_raw
     };
 
     tracing::info!(
@@ -181,20 +199,36 @@ pub async fn run_react_cycle(
     // NIVEAU 2 — IA locale enrichie (plus de contexte)
     // ════════════════════════════════════════════════════════════════
     if decision_l1 == EscalationDecision::RetryLocal {
-        tracing::info!("REACT L2: Retrying local with enriched context");
+        tracing::info!("REACT L2: Retrying with enriched context");
 
         // Enrichir le prompt avec l'analyse L1 comme contexte
-        let enriched_prompt = format!(
+        let enriched_prompt_raw = format!(
             "{}\n\n# ANALYSE PRÉCÉDENTE (confiance insuffisante — réanalyse demandée)\n{}\nCorrélations identifiées: {:?}\n\nRéanalyse avec plus d'attention aux détails. Augmente ta confiance si l'analyse est correcte.",
-            prompt_l1, analysis_l1.analysis, analysis_l1.correlations
+            prompt_l1_raw, analysis_l1.analysis, analysis_l1.correlations
         );
 
-        let analysis_l2 = match call_and_parse(&config.llm.primary.base_url, &config.llm.primary.model, &enriched_prompt).await {
+        // Anonymiser L2 si données quittent l'infra
+        let enriched_prompt = if anonymize_primary {
+            let mut l2_anon = AnonymizationMap::new();
+            let anon = l2_anon.anonymize(&enriched_prompt_raw);
+            tracing::info!("REACT L2: Anonymized {} data points", l2_anon.mapping_count());
+            anon
+        } else {
+            enriched_prompt_raw
+        };
+
+        let analysis_l2_raw = match call_primary(&config.llm, &enriched_prompt).await {
             Ok(a) => a,
             Err(_) => {
                 // L2 failed, use L1 result
                 return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
             }
+        };
+
+        let analysis_l2 = if anonymize_primary {
+            deanonymize_analysis(analysis_l2_raw, &primary_anon_map)
+        } else {
+            analysis_l2_raw
         };
 
         tracing::info!(
@@ -229,14 +263,14 @@ pub async fn run_react_cycle(
 
     tracing::info!("REACT L3: Escalating to cloud ({}/{})", cloud_config.backend, cloud_config.model);
 
-    // Anonymiser le prompt
+    // Anonymiser le prompt (utiliser prompt_l1_raw pour éviter la double-anonymisation)
     let mut anon_map = AnonymizationMap::new();
     let cloud_prompt = if config.llm.requires_anonymization() {
-        let anonymized = anon_map.anonymize(&prompt_l1);
+        let anonymized = anon_map.anonymize(&prompt_l1_raw);
         tracing::info!("REACT L3: Anonymized {} data points", anon_map.mapping_count());
         anonymized
     } else {
-        prompt_l1.clone()
+        prompt_l1_raw.clone()
     };
 
     let cloud_result = match cloud_caller::call_cloud_llm(cloud_config, &cloud_prompt).await {
@@ -322,6 +356,47 @@ async fn finalize_cycle(
         cycle_result: "success".to_string(),
         escalation_level: level, error: None,
     }
+}
+
+/// Appelle l'IA principale (Ollama ou API cloud) et parse la réponse JSON.
+async fn call_primary(llm: &LlmRouterConfig, prompt: &str) -> Result<LlmAnalysis, String> {
+    if llm.primary_uses_cloud_api() {
+        // Primary is cloud — use cloud_caller via a CloudLlmConfig adapter
+        let cloud_cfg = crate::agent::llm_router::CloudLlmConfig {
+            backend: llm.primary.backend.clone(),
+            model: llm.primary.model.clone(),
+            base_url: Some(llm.primary.base_url.clone()),
+            api_key: llm.primary.api_key.clone().unwrap_or_default(),
+        };
+        let result = cloud_caller::call_cloud_llm(&cloud_cfg, prompt).await?;
+        react_cycle::parse_llm_response(&result.response)
+            .map_err(|e| format!("JSON parse failed: {e}"))
+    } else {
+        // Local Ollama
+        let response = call_ollama(&llm.primary.base_url, &llm.primary.model, prompt).await?;
+        react_cycle::parse_llm_response(&response)
+            .map_err(|e| format!("JSON parse failed: {e}"))
+    }
+}
+
+/// Dé-anonymise les champs texte d'une analyse LLM.
+fn deanonymize_analysis(mut analysis: LlmAnalysis, anon_map: &AnonymizationMap) -> LlmAnalysis {
+    analysis.analysis = anon_map.deanonymize(&analysis.analysis);
+    analysis.correlations = analysis.correlations.iter()
+        .map(|c| anon_map.deanonymize(c))
+        .collect();
+    analysis.proposed_actions = analysis.proposed_actions.iter()
+        .map(|a| {
+            let mut action = a.clone();
+            action.rationale = anon_map.deanonymize(&action.rationale);
+            action.cmd_id = anon_map.deanonymize(&action.cmd_id);
+            action.params = action.params.iter()
+                .map(|(k, v)| (k.clone(), anon_map.deanonymize(v)))
+                .collect();
+            action
+        })
+        .collect();
+    analysis
 }
 
 /// Appelle Ollama et parse la réponse JSON.

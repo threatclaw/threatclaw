@@ -82,6 +82,11 @@ pub struct LlmRouterConfig {
     pub cloud: Option<CloudLlmConfig>,
     /// Politique d'escalade.
     pub cloud_escalation: CloudEscalation,
+    /// Anonymiser les données envoyées à l'IA principale.
+    /// True si les données quittent l'infrastructure (cloud provider, API externe).
+    /// False si l'IA tourne en local (Ollama, vLLM sur le réseau local).
+    #[serde(default)]
+    pub anonymize_primary: bool,
     /// Seuil de confiance pour accepter l'analyse locale (0.0-1.0).
     pub confidence_accept: f64,
     /// Seuil de confiance pour l'escalade au niveau 2 (0.0-1.0).
@@ -94,6 +99,7 @@ impl Default for LlmRouterConfig {
             primary: PrimaryLlmConfig::default(),
             cloud: None,
             cloud_escalation: CloudEscalation::Anonymized,
+            anonymize_primary: false, // Ollama local par défaut
             confidence_accept: 0.70,
             confidence_retry: 0.50,
         }
@@ -163,6 +169,19 @@ impl LlmRouterConfig {
     /// Vérifie si l'anonymisation est requise pour le cloud.
     pub fn requires_anonymization(&self) -> bool {
         self.cloud_escalation == CloudEscalation::Anonymized
+    }
+
+    /// Vérifie si l'anonymisation est requise pour l'IA principale.
+    /// Basé sur le flag `anonymize_primary` défini par l'utilisateur dans le wizard.
+    /// True = les données quittent l'infrastructure → anonymiser avant envoi.
+    pub fn primary_requires_anonymization(&self) -> bool {
+        self.anonymize_primary
+    }
+
+    /// Vérifie si l'IA principale utilise une API cloud (pas Ollama local).
+    /// Utilisé pour router les appels vers cloud_caller au lieu d'Ollama.
+    pub fn primary_uses_cloud_api(&self) -> bool {
+        self.primary.backend != "ollama"
     }
 
     /// Retourne le modèle principal pour une tâche.
@@ -310,6 +329,60 @@ mod tests {
         assert_eq!(LlmRouterConfig::recommend_model(29), "qwen3:14b");
         assert_eq!(LlmRouterConfig::recommend_model(48), "qwen3:32b");
         assert_eq!(LlmRouterConfig::recommend_model(128), "qwen3:72b");
+    }
+
+    #[test]
+    fn test_primary_uses_cloud_api() {
+        let local = LlmRouterConfig::default(); // ollama
+        assert!(!local.primary_uses_cloud_api());
+
+        let cloud = LlmRouterConfig {
+            primary: PrimaryLlmConfig {
+                backend: "anthropic".to_string(),
+                model: "claude-sonnet-4-20250514".to_string(),
+                base_url: "https://api.anthropic.com".to_string(),
+                api_key: Some("sk-test".to_string()),
+            },
+            ..Default::default()
+        };
+        assert!(cloud.primary_uses_cloud_api());
+
+        let compatible = LlmRouterConfig {
+            primary: PrimaryLlmConfig {
+                backend: "openai_compatible".to_string(),
+                model: "my-model".to_string(),
+                base_url: "http://localhost:8000".to_string(),
+                api_key: None,
+            },
+            ..Default::default()
+        };
+        assert!(compatible.primary_uses_cloud_api()); // routed via cloud_caller even if local
+    }
+
+    #[test]
+    fn test_primary_requires_anonymization_flag() {
+        // Flag true → anonymise
+        let anon = LlmRouterConfig {
+            anonymize_primary: true,
+            ..Default::default()
+        };
+        assert!(anon.primary_requires_anonymization());
+
+        // Flag false → no anonymization (default)
+        let local = LlmRouterConfig::default();
+        assert!(!local.primary_requires_anonymization());
+
+        // Flag works regardless of backend
+        let ollama_anon = LlmRouterConfig {
+            anonymize_primary: true,
+            primary: PrimaryLlmConfig {
+                backend: "ollama".to_string(),
+                base_url: "http://remote-server:11434".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(ollama_anon.primary_requires_anonymization());
     }
 
     #[test]

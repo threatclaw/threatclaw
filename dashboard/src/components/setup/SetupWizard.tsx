@@ -65,6 +65,7 @@ export default function SetupWizard() {
     detectedRam: 0,
     recommendedModel: "",
   });
+  const [anonymizePrimary, setAnonymizePrimary] = useState(false);
 
   const [cloud, setCloud] = useState<CloudLlm>({
     enabled: false,
@@ -123,7 +124,7 @@ export default function SetupWizard() {
   const handleSave = () => {
     setSaving(true);
     const config = {
-      llm: { backend: primary.backend, url: primary.url, model: primary.model, apiKey: primary.apiKey },
+      llm: { backend: primary.backend, url: primary.url, model: primary.model, apiKey: primary.apiKey, anonymize: anonymizePrimary },
       cloud: cloud.enabled ? { backend: cloud.backend, model: cloud.model, baseUrl: cloud.baseUrl, apiKey: cloud.apiKey, escalation: cloud.escalation } : null,
       channels, permLevel, schedules,
     };
@@ -226,12 +227,12 @@ export default function SetupWizard() {
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "12px" }}>
               {[
-                { id: "ollama", label: "Ollama Local", desc: "100% on-premise", icon: Server },
-                { id: "ollama_remote", label: "Ollama Distant", desc: "Serveur existant", icon: Link2 },
-                { id: "mistral", label: "Mistral AI", desc: "Souveraineté FR", icon: Shield },
-                { id: "anthropic", label: "Anthropic", desc: "Claude", icon: Cpu },
+                { id: "ollama", label: "Ollama Local", desc: "100% on-premise", icon: Server, cloud: false },
+                { id: "ollama_remote", label: "Ollama Distant", desc: "Serveur existant", icon: Link2, cloud: false },
+                { id: "mistral", label: "Mistral AI", desc: "Souveraineté FR", icon: Shield, cloud: true },
+                { id: "anthropic", label: "Anthropic", desc: "Claude", icon: Cpu, cloud: true },
               ].map(b => (
-                <button key={b.id} onClick={() => setPrimary(p => ({ ...p, backend: b.id, connected: false, models: [] }))}
+                <button key={b.id} onClick={() => { setPrimary(p => ({ ...p, backend: b.id, connected: false, models: [] })); setAnonymizePrimary(b.cloud); }}
                   className={primary.backend === b.id ? "pit" : "pit-xs"}
                   style={{ border: "none", cursor: "pointer", textAlign: "left", outline: primary.backend === b.id ? "1px solid var(--border-accent)" : "none", outlineOffset: "-1px" }}>
                   <b.icon size={14} color={primary.backend === b.id ? "var(--accent-danger)" : "var(--text-muted)"} />
@@ -294,6 +295,23 @@ export default function SetupWizard() {
                 </div>
               </div>
             )}
+
+            {/* Anonymization toggle */}
+            <div className="pit-sm" style={{ marginTop: "12px" }}>
+              <button onClick={() => setAnonymizePrimary(a => !a)}
+                style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                <Lock size={14} color={anonymizePrimary ? "var(--accent-ok)" : "var(--text-muted)"} />
+                <div style={{ flex: 1, textAlign: "left" }}>
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Vos données quittent-elles votre infrastructure ?
+                  </div>
+                  <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>
+                    Si oui, les IPs, hostnames, emails et usernames seront anonymisés avant envoi
+                  </div>
+                </div>
+                <div className={`toggle-track${anonymizePrimary ? " active" : ""}`}><div className="toggle-thumb" /></div>
+              </button>
+            </div>
           </div>
         )}
 
@@ -302,7 +320,7 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
               <Cloud size={18} color="var(--accent-info)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>IA Cloud de secours</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>IA de secours</span>
             </div>
             <p style={{ fontSize: "9px", color: "var(--text-muted)", marginBottom: "12px" }}>
               Optionnel — pour les analyses complexes, ThreatClaw peut escalader vers un LLM cloud.

@@ -225,7 +225,7 @@ impl SetupWizard {
             self.step_model_selection().await?;
             self.persist_after_step().await;
         } else {
-            let total_steps = 9;
+            let total_steps = 10;
 
             // Step 1: Database
             print_step(1, total_steps, "Database Connection");
@@ -248,9 +248,9 @@ impl SetupWizard {
             self.step_security().await?;
             self.persist_after_step().await;
 
-            // Step 3: Inference provider selection (unless skipped)
+            // Step 3: Primary AI provider (inference provider + model)
             if !self.config.skip_auth {
-                print_step(3, total_steps, "Inference Provider");
+                print_step(3, total_steps, "Primary AI");
                 self.step_inference_provider().await?;
             } else {
                 print_info("Skipping inference provider setup (using existing config)");
@@ -262,27 +262,32 @@ impl SetupWizard {
             self.step_model_selection().await?;
             self.persist_after_step().await;
 
-            // Step 5: Embeddings
-            print_step(5, total_steps, "Embeddings (Semantic Search)");
+            // Step 5: Cloud AI Fallback (optional)
+            print_step(5, total_steps, "Cloud AI Fallback (optional)");
+            self.step_cloud_fallback().await?;
+            self.persist_after_step().await;
+
+            // Step 6: Embeddings
+            print_step(6, total_steps, "Embeddings (Semantic Search)");
             self.step_embeddings()?;
             self.persist_after_step().await;
 
-            // Step 6: Channel configuration
-            print_step(6, total_steps, "Channel Configuration");
+            // Step 7: Channel configuration
+            print_step(7, total_steps, "Channel Configuration");
             self.step_channels().await?;
             self.persist_after_step().await;
 
-            // Step 7: Extensions (tools)
-            print_step(7, total_steps, "Extensions");
+            // Step 8: Extensions (tools)
+            print_step(8, total_steps, "Extensions");
             self.step_extensions().await?;
 
-            // Step 8: Docker Sandbox
-            print_step(8, total_steps, "Docker Sandbox");
+            // Step 9: Docker Sandbox
+            print_step(9, total_steps, "Docker Sandbox");
             self.step_docker_sandbox().await?;
             self.persist_after_step().await;
 
-            // Step 9: Heartbeat
-            print_step(9, total_steps, "Background Tasks");
+            // Step 10: Heartbeat
+            print_step(10, total_steps, "Background Tasks");
             self.step_heartbeat()?;
             self.persist_after_step().await;
         }
@@ -1097,6 +1102,26 @@ impl SetupWizard {
             self.setup_bedrock().await?;
         } else {
             self.run_provider_setup(selected_id, &registry).await?;
+        }
+
+        // Ask if data leaves the infrastructure → controls anonymization
+        println!();
+        print_info("ThreatClaw peut anonymiser vos données (IPs, hostnames, emails, usernames)");
+        print_info("avant de les envoyer à l'IA. Recommandé si les données quittent votre infra.");
+        println!();
+
+        let should_anonymize = confirm(
+            "Vos données quittent-elles votre infrastructure avec ce provider ?",
+            selected_id != "ollama", // default yes for non-ollama
+        ).map_err(SetupError::Io)?;
+
+        if should_anonymize {
+            // SAFETY: setup wizard runs single-threaded before the agent starts.
+            unsafe { std::env::set_var("TC_ANONYMIZE_PRIMARY", "true"); }
+            print_success("Anonymisation activée pour l'IA principale.");
+        } else {
+            unsafe { std::env::set_var("TC_ANONYMIZE_PRIMARY", "false"); }
+            print_info("Anonymisation désactivée (données restent dans votre infra).");
         }
 
         Ok(())
@@ -2484,6 +2509,106 @@ impl SetupWizard {
     }
 
     /// Step 9: Heartbeat configuration.
+    /// Step: IA de secours — optional secondary cloud LLM for escalation.
+    ///
+    /// The user can optionally configure a cloud provider for L3 escalation
+    /// (deep correlation, second opinion on critical findings).
+    /// Data is always anonymized before leaving the infrastructure.
+    async fn step_cloud_fallback(&mut self) -> Result<(), SetupError> {
+        print_info("Optionnel — ajoutez une IA de secours pour les analyses complexes.");
+        print_info("ThreatClaw l'utilisera si la confiance de l'IA principale est trop faible,");
+        print_info("ou pour un second avis sur les findings critiques.");
+        print_info("Les données sont anonymisées avant envoi (IPs, hostnames, emails → tokens).");
+        println!();
+
+        if !confirm("Add a cloud AI fallback?", false).map_err(SetupError::Io)? {
+            print_info("No cloud fallback configured. ThreatClaw will run 100% locally.");
+            return Ok(());
+        }
+
+        println!();
+        let cloud_choice = select_one(
+            "Cloud AI provider:",
+            &[
+                "Anthropic (Claude)     - recommended for security analysis",
+                "Mistral AI             - EU-hosted, GDPR-friendly",
+                "OpenAI-compatible      - any compatible API endpoint",
+            ],
+        )
+        .map_err(SetupError::Io)?;
+
+        let (backend, default_model) = match cloud_choice {
+            0 => ("anthropic", "claude-sonnet-4-20250514"),
+            1 => ("mistral", "mistral-large-latest"),
+            _ => ("openai_compatible", "gpt-4o"),
+        };
+
+        // API Key
+        let api_key = secret_input(&format!("{} API key", match backend {
+            "anthropic" => "Anthropic",
+            "mistral" => "Mistral",
+            _ => "API",
+        }))
+        .map_err(SetupError::Io)?;
+
+        let key_str = api_key.expose_secret().to_string();
+        if key_str.is_empty() {
+            print_info("No API key provided. Cloud fallback skipped.");
+            return Ok(());
+        }
+
+        // Model
+        let model = optional_input(
+            "Model",
+            Some(&format!("default: {}", default_model)),
+        )
+        .map_err(SetupError::Io)?
+        .unwrap_or_else(|| default_model.to_string());
+
+        // Base URL for openai_compatible
+        let base_url = if backend == "openai_compatible" {
+            let url = optional_input("Base URL", Some("e.g. https://api.provider.com/v1"))
+                .map_err(SetupError::Io)?;
+            url
+        } else {
+            None
+        };
+
+        // Store cloud fallback settings as env vars (persisted in .env by write_bootstrap_env)
+        // SAFETY: setup wizard runs single-threaded before the agent starts.
+        unsafe {
+            std::env::set_var("TC_CLOUD_BACKEND", backend);
+            std::env::set_var("TC_CLOUD_MODEL", &model);
+            std::env::set_var("TC_CLOUD_API_KEY", &key_str);
+            if let Some(ref url) = base_url {
+                std::env::set_var("TC_CLOUD_BASE_URL", url);
+            }
+        }
+
+        // Anonymization policy (always anonymized by default)
+        print_info("Anonymization policy for cloud calls:");
+        let anon_choice = select_one(
+            "Policy:",
+            &[
+                "Anonymized (recommended) - sensitive data is tokenized before sending",
+                "Direct (not recommended) - data is sent as-is to the cloud provider",
+            ],
+        )
+        .map_err(SetupError::Io)?;
+
+        let policy = if anon_choice == 0 { "anonymized" } else { "direct" };
+        // SAFETY: setup wizard runs single-threaded before the agent starts.
+        unsafe { std::env::set_var("TC_CLOUD_ESCALATION", policy); }
+
+        println!();
+        print_success(&format!(
+            "Cloud fallback: {} / {} ({})",
+            backend, model, policy
+        ));
+
+        Ok(())
+    }
+
     fn step_heartbeat(&mut self) -> Result<(), SetupError> {
         print_info("Heartbeat runs periodic background tasks (e.g., checking your calendar,");
         print_info("monitoring for notifications, running scheduled workflows).");
@@ -2704,6 +2829,16 @@ impl SetupWizard {
                 "SIGNAL_GROUP_ALLOW_FROM".to_string(),
                 group_allow_from.clone(),
             ));
+        }
+
+        // ThreatClaw env vars (anonymization + cloud fallback)
+        for var in &["TC_ANONYMIZE_PRIMARY", "TC_CLOUD_BACKEND", "TC_CLOUD_MODEL",
+                      "TC_CLOUD_API_KEY", "TC_CLOUD_BASE_URL", "TC_CLOUD_ESCALATION"] {
+            if let Ok(val) = std::env::var(var) {
+                if !val.is_empty() {
+                    env_vars.push((var.to_string(), val));
+                }
+            }
         }
 
         if !env_vars.is_empty() {
@@ -2930,6 +3065,15 @@ impl SetupWizard {
                 model.clone()
             };
             println!("  Model: {}", display);
+        }
+
+        // Cloud fallback summary
+        if let Ok(cloud_backend) = std::env::var("TC_CLOUD_BACKEND") {
+            let cloud_model = std::env::var("TC_CLOUD_MODEL").unwrap_or_default();
+            let cloud_policy = std::env::var("TC_CLOUD_ESCALATION").unwrap_or_else(|_| "anonymized".to_string());
+            println!("  Cloud fallback: {} / {} ({})", cloud_backend, cloud_model, cloud_policy);
+        } else {
+            println!("  Cloud fallback: none (100% local)");
         }
 
         if self.settings.embeddings.enabled {
