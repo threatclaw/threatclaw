@@ -11,6 +11,9 @@ config/filebrowser.db
 threatclaw.local.toml
 ~/.threatclaw/
 
+# Internal docs (drafts, not for public)
+docs/internal/
+
 # FileBrowser
 filebrowser.db
 
