@@ -1,0 +1,10 @@
+{
+  "id": "skill-cti-crowdsec",
+  "name": "CrowdSec CTI",
+  "version": "1.0.0",
+  "description": "Enrichissement IP via CrowdSec CTI communautaire",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "monitoring",
+  "runtime": "wasm"
+}

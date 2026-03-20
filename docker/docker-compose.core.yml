@@ -1,0 +1,116 @@
+# ThreatClaw — Core Stack (léger)
+# Seulement les 4 services essentiels.
+# Les scanners et outils sont installés via les skills.
+
+services:
+  threatclaw-core:
+    image: threatclaw/core:latest
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "${TC_CORE_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
+      REDIS_URL: redis://redis:6379/0
+      LLM_BACKEND: ollama
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-qwen3:14b}
+      OLLAMA_BASE_URL: ${TC_OLLAMA_URL:-http://host.docker.internal:11434}
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "3000"
+      WASM_CHANNELS_ENABLED: "true"
+      RUST_LOG: info
+    volumes:
+      - ../AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
+      - ../threatclaw.toml:/app/threatclaw.toml:ro
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - threatclaw-internal
+      - threatclaw-frontend
+
+  threatclaw-dashboard:
+    image: threatclaw/dashboard:latest
+    build:
+      context: ../dashboard
+      dockerfile: ../docker/Dockerfile.dashboard
+    ports:
+      - "${TC_DASHBOARD_PORT:-3001}:3000"
+    environment:
+      TC_CORE_URL: http://threatclaw-core:3000
+      TC_CORE_TOKEN: ${TC_CORE_TOKEN:-}
+    depends_on:
+      - threatclaw-core
+    restart: unless-stopped
+    networks:
+      - threatclaw-internal
+      - threatclaw-frontend
+
+  threatclaw-db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: ${TC_DB_PASSWORD:-threatclaw}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threatclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - threatclaw-internal
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - threatclaw-internal
+
+  # ── Fluent Bit — Log Pipeline ──
+  fluent-bit:
+    image: fluent/fluent-bit:latest
+    ports:
+      - "${TC_SYSLOG_PORT:-514}:514/udp"
+      - "${TC_SYSLOG_PORT:-514}:514/tcp"
+      - "24224:24224"
+      - "9880:9880"
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - /var/log:/var/log/host:ro
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+    networks:
+      - threatclaw-internal
+
+networks:
+  threatclaw-internal:
+    driver: bridge
+    internal: true
+  threatclaw-frontend:
+    driver: bridge
+
+volumes:
+  pgdata:

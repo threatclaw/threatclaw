@@ -1,0 +1,36 @@
+name: Skill Submission
+description: Submit a new community skill
+title: "[Skill] "
+labels: ["skill", "community"]
+body:
+  - type: input
+    id: skill_name
+    attributes:
+      label: Skill name
+      placeholder: skill-my-scanner
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What does this skill do?
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - scanning
+        - monitoring
+        - compliance
+        - rapports
+        - infrastructure
+    validations:
+      required: true
+  - type: input
+    id: repo
+    attributes:
+      label: Repository URL
+      placeholder: https://github.com/user/skill-my-scanner

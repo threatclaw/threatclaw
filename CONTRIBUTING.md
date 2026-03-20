@@ -1,60 +1,47 @@
-# Contributing
+# Contributing to ThreatClaw
 
-## Getting Started
+Thank you for your interest in contributing to ThreatClaw!
+
+## How to Contribute
+
+### Report a Bug
+Open an issue using the [Bug Report template](.github/ISSUE_TEMPLATE/bug_report.yml).
+
+### Request a Feature
+Open an issue using the [Feature Request template](.github/ISSUE_TEMPLATE/feature_request.yml).
+
+### Submit a Skill
+See the [Skill Development Guide](docs/SKILL_DEVELOPMENT_GUIDE.md) and use the [Skill Submission template](.github/ISSUE_TEMPLATE/skill_submission.yml).
+
+### Submit Code
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feat/my-feature`)
+3. Write tests for your changes
+4. Ensure `cargo test` passes with 0 failures
+5. Submit a Pull Request
+
+## Development Setup
 
 ```bash
-git clone https://github.com/nearai/threatclaw.git
-cd threatclaw
-./scripts/dev-setup.sh
-```
+# Install Rust + WASM target
+rustup target add wasm32-wasip2
 
-This installs the Rust toolchain, WASM targets, git hooks, and runs initial checks.
+# Start infrastructure
+docker compose -f docker/docker-compose.core.yml up -d
 
-## Development Workflow
-
-```bash
-cargo fmt                                                    # format
-cargo clippy --all --benches --tests --examples --all-features  # lint (zero warnings)
-cargo test                                                   # unit tests
-cargo test --features integration                            # + PostgreSQL tests
+# Build and test
+cargo build
+cargo test
 ```
 
 ## Code Style
+- Rust: follow `rustfmt` defaults
+- TypeScript: follow project ESLint config
+- Commit messages: `feat:`, `fix:`, `docs:`, `test:`, `chore:`
 
-- Zero clippy warnings policy
-- No `.unwrap()` or `.expect()` in production code (tests are fine)
-- Use `thiserror` for error types, map errors with context
-- Prefer `crate::` for cross-module imports
-- Comments for non-obvious logic only
+## Security
+**DO NOT** open public issues for security vulnerabilities.
+See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
 
-See `CLAUDE.md` for full style guidelines.
-
-## Feature Parity Requirement
-
-When your change affects a tracked capability, update `FEATURE_PARITY.md` in the same branch.
-
-### Required before opening a PR
-
-1. Review the relevant parity rows in `FEATURE_PARITY.md`.
-2. Update status/notes if behavior changed.
-3. Include the `FEATURE_PARITY.md` diff in your commit when applicable.
-
-## Review Tracks
-
-All PRs follow a risk-based review process:
-
-| Track | Scope | Requirements |
-|-------|-------|-------------|
-| **A** | Docs, tests, chore, dependency bumps | 1 approval + CI green |
-| **B** | Features, refactors, new tools/channels | 1 approval + CI green + test evidence |
-| **C** | Security (`src/safety/`, `src/secrets/`), runtime (`src/agent/`, `src/worker/`), database schema, CI workflows | 2 approvals + rollback plan documented |
-
-Select the appropriate track in the PR template based on what your changes touch.
-
-## Database Changes
-
-ThreatClaw uses dual-backend persistence (PostgreSQL + libSQL). All new persistence features must support both backends. See `src/db/CLAUDE.md`.
-
-## Adding Dependencies
-
-Run `cargo deny check` before adding new dependencies to verify license compatibility and check for known advisories.
+## License
+By contributing, you agree that your contributions will be licensed under Apache License 2.0.

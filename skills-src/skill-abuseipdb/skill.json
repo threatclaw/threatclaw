@@ -1,0 +1,10 @@
+{
+  "id": "skill-abuseipdb",
+  "name": "AbuseIPDB",
+  "version": "1.0.0",
+  "description": "Vérification réputation IP collaborative",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "monitoring",
+  "runtime": "wasm"
+}

@@ -17,6 +17,9 @@ fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let root = PathBuf::from(&manifest_dir);
 
+    // ── Compute AGENT_SOUL.toml hash (Pilier I — immuable) ──────────────
+    compute_soul_hash(&root);
+
     // ── Embed registry manifests ────────────────────────────────────────
     embed_registry_catalog(&root);
 
@@ -178,6 +181,30 @@ fn embed_registry_catalog(root: &Path) {
     );
 
     fs::write(&out_path, catalog).unwrap();
+}
+
+/// Compute SHA-256 hash of AGENT_SOUL.toml and write it to OUT_DIR/soul_hash.txt.
+/// The hash is included at compile time via include_str! in soul.rs.
+fn compute_soul_hash(root: &Path) {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let soul_path = root.join("AGENT_SOUL.toml");
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let hash_path = out_dir.join("soul_hash.txt");
+
+    println!("cargo:rerun-if-changed=AGENT_SOUL.toml");
+
+    if soul_path.is_file() {
+        let content = fs::read(&soul_path).expect("Failed to read AGENT_SOUL.toml");
+        let mut hasher = Sha256::new();
+        hasher.update(&content);
+        let hash = format!("{:x}", hasher.finalize());
+        fs::write(&hash_path, &hash).expect("Failed to write soul_hash.txt");
+    } else {
+        // No soul file: write empty hash (agent will refuse to start)
+        fs::write(&hash_path, "NO_SOUL_FILE").expect("Failed to write soul_hash.txt");
+    }
 }
 
 /// Read all .json files from a directory and push their raw contents into `out`.

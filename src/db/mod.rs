@@ -21,6 +21,14 @@ pub mod libsql;
 #[cfg(feature = "libsql")]
 pub mod libsql_migrations;
 
+pub mod threatclaw_store;
+
+#[cfg(feature = "postgres")]
+pub mod pg_threatclaw;
+
+#[cfg(feature = "libsql")]
+pub mod libsql_threatclaw;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -651,6 +659,7 @@ pub trait Database:
     + ToolFailureStore
     + SettingsStore
     + WorkspaceStore
+    + threatclaw_store::ThreatClawStore
     + Send
     + Sync
 {

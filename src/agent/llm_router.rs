@@ -1,0 +1,321 @@
+//! LLM Router — orchestration multi-niveaux local + cloud.
+//!
+//! Niveau 1 : IA locale rapide (triage, corrélation simple)
+//! Niveau 2 : IA locale enrichie (plus de contexte, 2ème chance)
+//! Niveau 3 : IA cloud anonymisée (corrélation profonde, fallback)
+//!
+//! Le client configure son IA principale (obligatoire) et son IA cloud (optionnel)
+//! via le wizard d'onboarding. Le router décide automatiquement quand escalader.
+
+use serde::{Deserialize, Serialize};
+
+/// Type de tâche LLM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LlmTask {
+    Chat,
+    Correlation,
+    Report,
+    Triage,
+}
+
+/// Politique d'escalade vers le cloud.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudEscalation {
+    /// Jamais de cloud — 100% local.
+    Never,
+    /// Cloud avec anonymisation des données (défaut recommandé).
+    Anonymized,
+    /// Cloud sans anonymisation (déconseillé, données sensibles exposées).
+    Direct,
+}
+
+impl Default for CloudEscalation {
+    fn default() -> Self {
+        Self::Anonymized
+    }
+}
+
+/// Configuration de l'IA principale (obligatoire).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimaryLlmConfig {
+    /// Backend : ollama, mistral, anthropic, openai_compatible.
+    pub backend: String,
+    /// Modèle principal.
+    pub model: String,
+    /// URL de base (Ollama ou compatible).
+    pub base_url: String,
+    /// Clé API (pour Mistral/Anthropic/OpenAI).
+    pub api_key: Option<String>,
+}
+
+impl Default for PrimaryLlmConfig {
+    fn default() -> Self {
+        Self {
+            backend: "ollama".to_string(),
+            model: "qwen3:14b".to_string(),
+            base_url: "http://localhost:11434".to_string(),
+            api_key: None,
+        }
+    }
+}
+
+/// Configuration de l'IA cloud de secours (optionnel).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudLlmConfig {
+    /// Backend cloud : mistral, anthropic, openai_compatible.
+    pub backend: String,
+    /// Modèle cloud.
+    pub model: String,
+    /// URL de base (si openai_compatible).
+    pub base_url: Option<String>,
+    /// Clé API (obligatoire pour le cloud).
+    pub api_key: String,
+}
+
+/// Configuration complète du routeur LLM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmRouterConfig {
+    /// IA principale (obligatoire).
+    pub primary: PrimaryLlmConfig,
+    /// IA cloud de secours (optionnel).
+    pub cloud: Option<CloudLlmConfig>,
+    /// Politique d'escalade.
+    pub cloud_escalation: CloudEscalation,
+    /// Seuil de confiance pour accepter l'analyse locale (0.0-1.0).
+    pub confidence_accept: f64,
+    /// Seuil de confiance pour l'escalade au niveau 2 (0.0-1.0).
+    pub confidence_retry: f64,
+}
+
+impl Default for LlmRouterConfig {
+    fn default() -> Self {
+        Self {
+            primary: PrimaryLlmConfig::default(),
+            cloud: None,
+            cloud_escalation: CloudEscalation::Anonymized,
+            confidence_accept: 0.70,
+            confidence_retry: 0.50,
+        }
+    }
+}
+
+/// Décision d'escalade après une analyse.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EscalationDecision {
+    /// Analyse acceptée, pas d'escalade.
+    Accept,
+    /// Réessayer en local avec plus de contexte (Niveau 2).
+    RetryLocal,
+    /// Escalader vers le cloud (Niveau 3).
+    EscalateCloud,
+    /// Cloud non configuré, garder l'analyse locale en mode dégradé.
+    AcceptDegraded,
+}
+
+impl LlmRouterConfig {
+    /// Détermine s'il faut escalader après une analyse.
+    pub fn decide_escalation(
+        &self,
+        confidence: f64,
+        severity: &str,
+        injection_detected: bool,
+        is_retry: bool,
+    ) -> EscalationDecision {
+        // Injection détectée → toujours escalader pour deuxième avis
+        if injection_detected && self.cloud_available() {
+            return EscalationDecision::EscalateCloud;
+        }
+
+        // Confiance suffisante → accepter
+        if confidence >= self.confidence_accept && severity != "CRITICAL" {
+            return EscalationDecision::Accept;
+        }
+
+        // CRITICAL avec actions proposées → escalader pour validation
+        if severity == "CRITICAL" && !is_retry && self.cloud_available() {
+            return EscalationDecision::EscalateCloud;
+        }
+
+        // Confiance entre retry et accept → réessayer en local (si pas déjà fait)
+        if confidence >= self.confidence_retry && !is_retry {
+            return EscalationDecision::RetryLocal;
+        }
+
+        // Confiance trop basse après retry → escalader au cloud
+        if confidence < self.confidence_retry && self.cloud_available() {
+            return EscalationDecision::EscalateCloud;
+        }
+
+        // Pas de cloud configuré → garder l'analyse locale
+        if confidence >= self.confidence_accept {
+            EscalationDecision::Accept
+        } else {
+            EscalationDecision::AcceptDegraded
+        }
+    }
+
+    /// Vérifie si le cloud est disponible et autorisé.
+    pub fn cloud_available(&self) -> bool {
+        self.cloud.is_some() && self.cloud_escalation != CloudEscalation::Never
+    }
+
+    /// Vérifie si l'anonymisation est requise pour le cloud.
+    pub fn requires_anonymization(&self) -> bool {
+        self.cloud_escalation == CloudEscalation::Anonymized
+    }
+
+    /// Retourne le modèle principal pour une tâche.
+    pub fn model_for_task(&self, _task: LlmTask) -> &str {
+        &self.primary.model
+    }
+
+    /// Détecte automatiquement le modèle recommandé selon la RAM disponible.
+    pub fn recommend_model(available_ram_gb: u64) -> &'static str {
+        match available_ram_gb {
+            0..=7 => "qwen3:4b",
+            8..=15 => "qwen3:8b",
+            16..=31 => "qwen3:14b",
+            32..=63 => "qwen3:32b",
+            _ => "qwen3:72b",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = LlmRouterConfig::default();
+        assert_eq!(config.primary.model, "qwen3:14b");
+        assert_eq!(config.primary.backend, "ollama");
+        assert!(config.cloud.is_none());
+        assert_eq!(config.cloud_escalation, CloudEscalation::Anonymized);
+    }
+
+    #[test]
+    fn test_high_confidence_accepted() {
+        let config = LlmRouterConfig::default();
+        let decision = config.decide_escalation(0.85, "LOW", false, false);
+        assert_eq!(decision, EscalationDecision::Accept);
+    }
+
+    #[test]
+    fn test_medium_confidence_retry() {
+        let config = LlmRouterConfig::default();
+        let decision = config.decide_escalation(0.55, "MEDIUM", false, false);
+        assert_eq!(decision, EscalationDecision::RetryLocal);
+    }
+
+    #[test]
+    fn test_medium_confidence_after_retry_no_cloud() {
+        let config = LlmRouterConfig::default(); // no cloud
+        let decision = config.decide_escalation(0.55, "MEDIUM", false, true);
+        assert_eq!(decision, EscalationDecision::AcceptDegraded);
+    }
+
+    #[test]
+    fn test_low_confidence_escalate_cloud() {
+        let config = LlmRouterConfig {
+            cloud: Some(CloudLlmConfig {
+                backend: "anthropic".to_string(),
+                model: "claude-sonnet-4-20250514".to_string(),
+                base_url: None,
+                api_key: "sk-test".to_string(),
+            }),
+            ..Default::default()
+        };
+        let decision = config.decide_escalation(0.30, "HIGH", false, true);
+        assert_eq!(decision, EscalationDecision::EscalateCloud);
+    }
+
+    #[test]
+    fn test_critical_escalates_to_cloud() {
+        let config = LlmRouterConfig {
+            cloud: Some(CloudLlmConfig {
+                backend: "mistral".to_string(),
+                model: "mistral-large".to_string(),
+                base_url: None,
+                api_key: "key".to_string(),
+            }),
+            ..Default::default()
+        };
+        let decision = config.decide_escalation(0.90, "CRITICAL", false, false);
+        assert_eq!(decision, EscalationDecision::EscalateCloud);
+    }
+
+    #[test]
+    fn test_critical_no_cloud_accepts() {
+        let config = LlmRouterConfig::default(); // no cloud
+        // CRITICAL with high confidence and no cloud → Accept (can't escalate)
+        let decision = config.decide_escalation(0.90, "CRITICAL", false, true);
+        assert_eq!(decision, EscalationDecision::Accept);
+    }
+
+    #[test]
+    fn test_injection_escalates() {
+        let config = LlmRouterConfig {
+            cloud: Some(CloudLlmConfig {
+                backend: "anthropic".to_string(),
+                model: "claude-sonnet-4-20250514".to_string(),
+                base_url: None,
+                api_key: "key".to_string(),
+            }),
+            ..Default::default()
+        };
+        let decision = config.decide_escalation(0.95, "LOW", true, false);
+        assert_eq!(decision, EscalationDecision::EscalateCloud);
+    }
+
+    #[test]
+    fn test_injection_no_cloud_accepts() {
+        let config = LlmRouterConfig::default();
+        let decision = config.decide_escalation(0.95, "LOW", true, false);
+        assert_eq!(decision, EscalationDecision::Accept);
+    }
+
+    #[test]
+    fn test_cloud_never_blocks() {
+        let config = LlmRouterConfig {
+            cloud: Some(CloudLlmConfig {
+                backend: "anthropic".to_string(),
+                model: "claude".to_string(),
+                base_url: None,
+                api_key: "key".to_string(),
+            }),
+            cloud_escalation: CloudEscalation::Never,
+            ..Default::default()
+        };
+        assert!(!config.cloud_available());
+        let decision = config.decide_escalation(0.30, "CRITICAL", true, true);
+        assert_eq!(decision, EscalationDecision::AcceptDegraded);
+    }
+
+    #[test]
+    fn test_requires_anonymization() {
+        let anon = LlmRouterConfig { cloud_escalation: CloudEscalation::Anonymized, ..Default::default() };
+        assert!(anon.requires_anonymization());
+
+        let direct = LlmRouterConfig { cloud_escalation: CloudEscalation::Direct, ..Default::default() };
+        assert!(!direct.requires_anonymization());
+    }
+
+    #[test]
+    fn test_recommend_model() {
+        assert_eq!(LlmRouterConfig::recommend_model(4), "qwen3:4b");
+        assert_eq!(LlmRouterConfig::recommend_model(8), "qwen3:8b");
+        assert_eq!(LlmRouterConfig::recommend_model(16), "qwen3:14b");
+        assert_eq!(LlmRouterConfig::recommend_model(29), "qwen3:14b");
+        assert_eq!(LlmRouterConfig::recommend_model(48), "qwen3:32b");
+        assert_eq!(LlmRouterConfig::recommend_model(128), "qwen3:72b");
+    }
+
+    #[test]
+    fn test_model_for_task() {
+        let config = LlmRouterConfig::default();
+        assert_eq!(config.model_for_task(LlmTask::Correlation), "qwen3:14b");
+        assert_eq!(config.model_for_task(LlmTask::Chat), "qwen3:14b");
+    }
+}

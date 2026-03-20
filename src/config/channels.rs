@@ -101,7 +101,7 @@ impl ChannelsConfig {
                 host: optional_env("HTTP_HOST")?
                     .or_else(|| cs.http_host.clone())
                     .unwrap_or_else(|| "0.0.0.0".to_string()),
-                port: parse_optional_env("HTTP_PORT", cs.http_port.unwrap_or(8080))?,
+                port: parse_optional_env("HTTP_PORT", cs.http_port.unwrap_or(18080))?,
                 webhook_secret: optional_env("HTTP_WEBHOOK_SECRET")?.map(SecretString::from),
                 user_id: owner_id.to_string(),
             })
@@ -248,12 +248,12 @@ mod tests {
     fn http_config_fields() {
         let cfg = HttpConfig {
             host: "0.0.0.0".to_string(),
-            port: 8080,
+            port: 18080,
             webhook_secret: None,
             user_id: "http".to_string(),
         };
         assert_eq!(cfg.host, "0.0.0.0");
-        assert_eq!(cfg.port, 8080);
+        assert_eq!(cfg.port, 18080);
         assert!(cfg.webhook_secret.is_none());
         assert_eq!(cfg.user_id, "http");
     }

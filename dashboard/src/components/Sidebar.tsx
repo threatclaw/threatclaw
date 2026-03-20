@@ -10,6 +10,8 @@ import {
   FileText,
   Settings,
   Shield,
+  Puzzle,
+  Wrench,
 } from "lucide-react";
 
 interface NavItem {
@@ -21,9 +23,11 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Compliance NIS2", href: "/compliance", icon: ShieldCheck },
-  { label: "Alerts SOC", href: "/alerts", icon: Bell },
-  { label: "Reports", href: "/reports", icon: FileText },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Alertes SOC", href: "/alerts", icon: Bell },
+  { label: "Rapports", href: "/reports", icon: FileText },
+  { label: "Marketplace", href: "/marketplace", icon: Puzzle },
+  { label: "Configuration", href: "/setup", icon: Wrench },
+  { label: "Paramètres", href: "/settings", icon: Settings },
 ];
 
 export default function Sidebar() {

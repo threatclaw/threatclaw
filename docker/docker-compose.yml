@@ -14,19 +14,24 @@ services:
     image: threatclaw/core:latest
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     ports:
-      - "127.0.0.1:18789:18789"
+      - "${TC_CORE_PORT:-3000}:3000"
     environment:
       DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
       REDIS_URL: redis://redis:6379/0
+      LLM_BACKEND: ollama
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-qwen3:8b}
+      OLLAMA_BASE_URL: http://ollama:11434
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "3000"
+      HTTP_HOST: "0.0.0.0"
       RUST_LOG: info
       TC_PERMISSION_LEVEL: ${TC_PERMISSION_LEVEL:-ALERT_ONLY}
       TC_INSTANCE_NAME: ${TC_INSTANCE_NAME:-threatclaw-prod}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
     volumes:
+      - ../AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
       - ../threatclaw.toml:/app/threatclaw.toml:ro
       - core-data:/app/data
     depends_on:
@@ -34,12 +39,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 256M
-          cpus: "1.0"
+          memory: 512M
+          cpus: "2.0"
     networks:
       - threatclaw-internal
       - threatclaw-frontend
@@ -47,6 +54,32 @@ services:
     labels:
       - "com.threatclaw.role=core"
       - "com.threatclaw.security=high"
+
+  # ── Dashboard ────────────────────────────────────────
+  threatclaw-dashboard:
+    image: threatclaw/dashboard:latest
+    build:
+      context: ../dashboard
+      dockerfile: ../docker/Dockerfile.dashboard
+    ports:
+      - "${TC_DASHBOARD_PORT:-3001}:3000"
+    environment:
+      TC_CORE_URL: http://threatclaw-core:3000
+      TC_CORE_TOKEN: ${TC_CORE_TOKEN:-}
+    depends_on:
+      - threatclaw-core
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    networks:
+      - threatclaw-internal
+      - threatclaw-frontend
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=dashboard"
 
   # ── Database ──────────────────────────────────────────
   threatclaw-db:
@@ -72,36 +105,8 @@ services:
     networks:
       - threatclaw-internal
     logging: *default-logging
-    labels:
-      - "com.threatclaw.role=database"
-      - "com.threatclaw.security=critical"
 
-  # ── Dashboard ────────────────────────────────────────
-  threatclaw-dashboard:
-    image: threatclaw/dashboard:latest
-    ports:
-      - "127.0.0.1:3000:3000"
-    environment:
-      NEXT_PUBLIC_API_URL: http://threatclaw-core:18789
-      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
-      REDIS_URL: redis://redis:6379/1
-    depends_on:
-      - threatclaw-core
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
-    networks:
-      - threatclaw-internal
-      - threatclaw-frontend
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=dashboard"
-      - "com.threatclaw.security=high"
-
-  # ── Redis — Caching / Rate Limiting ──────────────────
+  # ── Redis ───────────────────────────────────────────
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "yes"]
@@ -112,7 +117,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
     restart: unless-stopped
     deploy:
       resources:
@@ -122,31 +126,50 @@ services:
     networks:
       - threatclaw-internal
     logging: *default-logging
-    labels:
-      - "com.threatclaw.role=cache"
-      - "com.threatclaw.security=medium"
 
-  # ── Nuclei — CVE Scanner ──────────────────────────────
+  # ── Ollama — LLM local ──────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: "4.0"
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - threatclaw-internal
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=llm"
+
+  # ── Nuclei — CVE Scanner ────────────────────────────
   nuclei:
     image: projectdiscovery/nuclei:latest
     volumes:
       - nuclei-data:/root/.local/nuclei
-      - nuclei-results:/results
     entrypoint: ["tail", "-f", "/dev/null"]
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 128M
-          cpus: "0.5"
+          memory: 256M
+          cpus: "1.0"
     networks:
       - threatclaw-internal
     logging: *default-logging
-    labels:
-      - "com.threatclaw.role=scanner"
-      - "com.threatclaw.security=medium"
 
-  # ── Trivy — Container/Dependency Scanner ──────────────
+  # ── Trivy — Container Scanner ───────────────────────
   trivy:
     image: aquasec/trivy:latest
     command: ["server", "--listen", "0.0.0.0:4954"]
@@ -156,130 +179,24 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 256M
           cpus: "0.5"
     networks:
       - threatclaw-internal
     logging: *default-logging
-    labels:
-      - "com.threatclaw.role=scanner"
-      - "com.threatclaw.security=medium"
 
-  # ── Grype — Image Vulnerability Scanner ───────────────
-  grype:
-    image: anchore/grype:latest
-    volumes:
-      - grype-db:/root/.grype
-    entrypoint: ["tail", "-f", "/dev/null"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-    networks:
-      - threatclaw-internal
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=scanner"
-      - "com.threatclaw.security=medium"
-
-  # ── Gitleaks — Secret Detection ───────────────────────
-  gitleaks:
-    image: zricethezav/gitleaks:latest
-    volumes:
-      - gitleaks-results:/results
-    entrypoint: ["tail", "-f", "/dev/null"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: "0.25"
-    networks:
-      - threatclaw-internal
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=scanner"
-      - "com.threatclaw.security=medium"
-
-  # ── GoPhish — Phishing Simulation ────────────────────
-  gophish:
-    image: gophish/gophish:latest
-    ports:
-      - "127.0.0.1:3333:3333"
-      - "127.0.0.1:8083:80"
-    volumes:
-      - gophish-data:/opt/gophish/data
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-          cpus: "0.25"
-    networks:
-      - threatclaw-internal
-      - threatclaw-frontend
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=phishing-sim"
-      - "com.threatclaw.security=high"
-
-  # ── Prowler — Cloud Security Posture ──────────────────
-  prowler:
-    image: prowlercloud/prowler:latest
-    volumes:
-      - prowler-output:/home/prowler/output
-    entrypoint: ["tail", "-f", "/dev/null"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-    networks:
-      - threatclaw-internal
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=scanner"
-      - "com.threatclaw.security=medium"
-
-  # ── Falco — Runtime Anomaly Detection ─────────────────
-  falco:
-    image: falcosecurity/falco-no-driver:latest
-    privileged: true
-    ports:
-      - "127.0.0.1:8765:8765"
-    volumes:
-      - /var/run/docker.sock:/host/var/run/docker.sock:ro
-      - falco-config:/etc/falco
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.5"
-    networks:
-      - threatclaw-internal
-    logging: *default-logging
-    labels:
-      - "com.threatclaw.role=runtime-security"
-      - "com.threatclaw.security=critical"
-
-  # ── Fluent Bit — Log Collector ────────────────────────
+  # ── Fluent Bit — Log Collector ──────────────────────
   fluent-bit:
     image: fluent/fluent-bit:latest
     ports:
       - "127.0.0.1:5140:5140/udp"
       - "127.0.0.1:24224:24224"
-      - "127.0.0.1:8888:8888"
     environment:
       TC_DB_PASSWORD: ${TC_DB_PASSWORD:-threatclaw}
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
       - /var/log:/var/log/host:ro
-      - fluentbit-db:/var/log
     depends_on:
       threatclaw-db:
         condition: service_healthy
@@ -292,9 +209,6 @@ services:
     networks:
       - threatclaw-internal
     logging: *default-logging
-    labels:
-      - "com.threatclaw.role=log-collector"
-      - "com.threatclaw.security=high"
 
 networks:
   threatclaw-internal:
@@ -307,12 +221,6 @@ volumes:
   pgdata:
   core-data:
   redis-data:
+  ollama-data:
   nuclei-data:
-  nuclei-results:
   trivy-cache:
-  grype-db:
-  gitleaks-results:
-  gophish-data:
-  prowler-output:
-  falco-config:
-  fluentbit-db:

@@ -2,120 +2,320 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --color-primary: #1a1a2e;
-    --color-secondary: #16213e;
-    --color-accent: #e94560;
-    --color-success-blue: #0f3460;
-    --color-warning: #e8a838;
-  }
+/* ─── LIGHT THEME ─── */
+:root[data-theme="light"] {
+  --bg-base:       #e2dbd4;
+  --bg-pit:        #ddd6ce;
+  --bg-nav:        #dbd4cc;
 
-  body {
-    @apply bg-primary text-gray-100 antialiased;
-  }
+  --shadow-pit:
+    inset 5px 5px 14px #c8c2ba,
+    inset -3px -3px 8px #f8f2ec,
+    inset 1px 1px 3px #bfb9b1;
+  --shadow-pit-sm:
+    inset 4px 4px 10px #c8c2ba,
+    inset -2px -2px 6px #f8f2ec;
+  --shadow-pit-xs:
+    inset 3px 3px 7px #c8c2ba,
+    inset -1px -1px 4px #f8f2ec;
+  --shadow-bump:
+    3px 3px 6px #c8c2ba,
+    -2px -2px 5px #f8f2ec;
+  --shadow-track:
+    inset 3px 3px 5px #c2bcb4,
+    inset -1px -1px 3px #f0eae4;
 
-  * {
-    @apply border-gray-700/50;
-  }
+  --text-primary:    #2a1a10;
+  --text-secondary:  #907060;
+  --text-muted:      #c0b0a0;
+  --text-logo:       #2a1a10;
+
+  --accent-danger:   #a03020;
+  --accent-warning:  #a07020;
+  --accent-ok:       #2d6a40;
+  --accent-info:     #3a5080;
+
+  --border-subtle:   rgba(160, 80, 40, 0.15);
+  --border-accent:   rgba(160, 48, 32, 0.30);
+
+  --nav-border:      #c8c0b8;
+  --nav-icon-off:    #c0b0a0;
+  --nav-icon-on:     #a03020;
+
+  --pill-ok-bg:      rgba(45, 106, 64, 0.12);
+  --pill-ok-text:    #2d6a40;
+  --pill-ok-border:  rgba(45, 106, 64, 0.25);
 }
 
-@layer components {
-  .card {
-    @apply rounded-xl border border-gray-700/30 bg-secondary/60 p-6 shadow-lg backdrop-blur-sm;
-  }
+/* ─── DARK THEME ─── */
+:root[data-theme="dark"] {
+  --bg-base:       #18100e;
+  --bg-pit:        #141008;
+  --bg-nav:        #120e0c;
 
-  .card-hover {
-    @apply card transition-all duration-200 hover:border-accent/30 hover:shadow-accent/5;
-  }
+  --shadow-pit:
+    inset 5px 5px 14px #0a0806,
+    inset -3px -3px 8px #241a14,
+    inset 1px 1px 3px #060402;
+  --shadow-pit-sm:
+    inset 4px 4px 10px #0a0806,
+    inset -2px -2px 6px #241a14;
+  --shadow-pit-xs:
+    inset 3px 3px 7px #0a0806,
+    inset -1px -1px 4px #241a14;
+  --shadow-bump:
+    2px 2px 5px #0a0806,
+    -1px -1px 4px #241a14;
+  --shadow-track:
+    inset 3px 3px 6px #080604,
+    inset -1px -1px 3px #1e1610;
 
-  .badge {
-    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
-  }
+  --text-primary:    #c0a090;
+  --text-secondary:  #6a4030;
+  --text-muted:      #3a2018;
+  --text-logo:       #b09080;
 
-  .badge-critical {
-    @apply badge bg-red-500/20 text-red-400;
-  }
+  --accent-danger:   #c84030;
+  --accent-warning:  #b87030;
+  --accent-ok:       #386028;
+  --accent-info:     #3a5888;
 
-  .badge-high {
-    @apply badge bg-orange-500/20 text-orange-400;
-  }
+  --border-subtle:   rgba(200, 64, 48, 0.12);
+  --border-accent:   rgba(200, 64, 48, 0.25);
 
-  .badge-medium {
-    @apply badge bg-yellow-500/20 text-yellow-400;
-  }
+  --nav-border:      #201408;
+  --nav-icon-off:    #3a2018;
+  --nav-icon-on:     #c84030;
 
-  .badge-low {
-    @apply badge bg-blue-500/20 text-blue-400;
-  }
-
-  .badge-info {
-    @apply badge bg-gray-500/20 text-gray-400;
-  }
-
-  .btn-primary {
-    @apply inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:ring-offset-2 focus:ring-offset-primary;
-  }
-
-  .btn-secondary {
-    @apply inline-flex items-center gap-2 rounded-lg border border-gray-600 bg-secondary px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-primary;
-  }
-
-  .input {
-    @apply block w-full rounded-lg border border-gray-600 bg-primary/50 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
-  }
-
-  .table-row {
-    @apply border-b border-gray-700/30 transition-colors hover:bg-white/5;
-  }
+  --pill-ok-bg:      rgba(56, 96, 40, 0.20);
+  --pill-ok-text:    #386028;
+  --pill-ok-border:  rgba(56, 96, 40, 0.30);
 }
 
-@layer utilities {
-  .text-gradient {
-    @apply bg-gradient-to-r from-accent to-warning bg-clip-text text-transparent;
-  }
-
-  .glow-accent {
-    box-shadow: 0 0 20px rgba(233, 69, 96, 0.15);
-  }
-
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: #374151 transparent;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: #374151;
-    border-radius: 3px;
-  }
+/* ─── TRANSITIONS THÈME ─── */
+*, *::before, *::after {
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
-/* Recharts overrides for dark theme */
-.recharts-cartesian-grid line {
-  stroke: #374151 !important;
-  stroke-opacity: 0.3 !important;
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  margin: 0;
 }
 
-.recharts-text {
-  fill: #9ca3af !important;
-  font-size: 12px !important;
+/* ─── PUITS (éléments creusés) ─── */
+.pit {
+  background: var(--bg-pit);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pit);
+  padding: 14px;
+}
+.pit-sm {
+  background: var(--bg-pit);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pit-sm);
+  padding: 10px;
+}
+.pit-xs {
+  background: var(--bg-pit);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pit-xs);
+  padding: 8px;
 }
 
-.recharts-tooltip-wrapper .recharts-default-tooltip {
-  background-color: #16213e !important;
-  border: 1px solid rgba(107, 114, 128, 0.3) !important;
-  border-radius: 8px !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3) !important;
+/* ─── BOUTON RAISED ─── */
+.btn-raised {
+  background: var(--bg-base);
+  border: none;
+  border-radius: 8px;
+  box-shadow: var(--shadow-bump);
+  padding: 4px 10px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-danger);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+.btn-raised:hover {
+  box-shadow:
+    4px 4px 8px rgba(0,0,0,0.3),
+    -2px -2px 6px rgba(255,255,255,0.05);
+}
+.btn-raised:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-pit-xs);
 }
 
-.recharts-tooltip-item {
-  color: #e5e7eb !important;
+.btn-raised-ok {
+  composes: btn-raised;
+  color: var(--accent-ok);
+}
+
+.btn-raised-lg {
+  background: var(--bg-base);
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--shadow-bump);
+  padding: 10px 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-danger);
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
+}
+.btn-raised-lg:hover {
+  box-shadow:
+    4px 4px 8px rgba(0,0,0,0.3),
+    -2px -2px 6px rgba(255,255,255,0.05);
+}
+.btn-raised-lg:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-pit-xs);
+}
+
+/* ─── BARRE DE PROGRESSION ─── */
+.bar-track {
+  height: 5px;
+  background: var(--bg-pit);
+  border-radius: 3px;
+  box-shadow: var(--shadow-track);
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─── LABELS & VALEURS ─── */
+.label-caps {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.metric-val {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+/* ─── STATUT ─── */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-ok);
+  flex-shrink: 0;
+}
+.pill-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--pill-ok-text);
+  background: var(--pill-ok-bg);
+  border: 1px solid var(--pill-ok-border);
+  border-radius: 20px;
+  padding: 3px 10px;
+}
+
+/* ─── ALERT DOTS ─── */
+.alert-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.alert-dot.danger { background: var(--accent-danger); box-shadow: 0 0 5px var(--accent-danger); }
+.alert-dot.warning { background: var(--accent-warning); box-shadow: 0 0 4px var(--accent-warning); }
+.alert-dot.ok { background: var(--accent-ok); }
+
+/* ─── INPUT EMBOSSED ─── */
+.input-pit {
+  background: var(--bg-pit);
+  border: none;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pit-sm);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-primary);
+  width: 100%;
+  outline: none;
+}
+.input-pit::placeholder {
+  color: var(--text-muted);
+}
+.input-pit:focus {
+  box-shadow: var(--shadow-pit), 0 0 0 2px var(--border-accent);
+}
+
+/* ─── TOGGLE SWITCH ─── */
+.toggle-track {
+  width: 36px;
+  height: 20px;
+  background: var(--bg-pit);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pit-xs);
+  position: relative;
+  cursor: pointer;
+  padding: 3px;
+}
+.toggle-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-base);
+  box-shadow: var(--shadow-bump);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toggle-track.active .toggle-thumb {
+  transform: translateX(16px);
+}
+.toggle-track.active {
+  background: var(--accent-danger);
+  box-shadow: var(--shadow-pit-xs), inset 0 0 8px rgba(200, 64, 48, 0.3);
+}
+
+/* ─── SCROLLBAR ─── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--text-muted);
+  border-radius: 2px;
+}
+
+/* ─── REACT-GRID-LAYOUT ─── */
+.react-grid-layout {
+  position: relative;
+}
+.react-grid-item {
+  transition: all 200ms ease;
+}
+.react-grid-item.react-draggable-dragging {
+  z-index: 100;
+  opacity: 0.9;
+}
+.react-grid-placeholder {
+  background: var(--accent-danger) !important;
+  opacity: 0.1 !important;
+  border-radius: 14px !important;
 }

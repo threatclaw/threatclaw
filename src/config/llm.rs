@@ -57,13 +57,13 @@ impl LlmConfig {
     pub(crate) fn resolve(settings: &Settings) -> Result<Self, ConfigError> {
         let registry = ProviderRegistry::load();
 
-        // Determine backend: env var > settings > default ("nearai")
+        // Determine backend: env var > settings > default ("ollama")
         let backend = if let Some(b) = optional_env("LLM_BACKEND")? {
             b
         } else if let Some(ref b) = settings.llm_backend {
             b.clone()
         } else {
-            "nearai".to_string()
+            "ollama".to_string()
         };
 
         // Validate the backend is known

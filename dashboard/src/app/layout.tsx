@@ -1,28 +1,31 @@
-import type { Metadata } from "next";
+"use client";
+
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import TopNav from "@/components/chrome/TopNav";
+import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
-
-export const metadata: Metadata = {
-  title: "ThreatClaw - Security Dashboard",
-  description:
-    "RSSI Security Posture Dashboard - Monitor vulnerabilities, compliance, and threats in real-time.",
-};
 
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const isSetupWizard = pathname === "/setup" && typeof window !== "undefined" && !localStorage.getItem("threatclaw_onboarded");
+
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} min-h-screen bg-primary`}>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="ml-64 flex-1">
-            <div className="p-8">{children}</div>
+    <html lang="fr">
+      <head>
+        <title>ThreatClaw</title>
+        <meta name="description" content="Agent de cybersécurité autonome" />
+      </head>
+      <body className={inter.className} style={{ background: "#e2dbd4", margin: 0 }}>
+        <div style={{ minHeight: "100vh", maxWidth: "900px", margin: "0 auto" }}>
+          {!isSetupWizard && <TopNav />}
+          <main style={{ padding: "0 20px 40px" }}>
+            {children}
           </main>
         </div>
       </body>

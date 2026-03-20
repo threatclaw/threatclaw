@@ -1,0 +1,35 @@
+# skill-vuln-scan — Docker dependencies
+# Started by: threatclaw skill install skill-vuln-scan
+
+services:
+  nuclei:
+    image: projectdiscovery/nuclei:latest
+    volumes:
+      - nuclei-data:/root/.local/nuclei
+    entrypoint: ["tail", "-f", "/dev/null"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1.0"
+    labels:
+      - "com.threatclaw.skill=skill-vuln-scan"
+
+  trivy:
+    image: aquasec/trivy:latest
+    command: ["server", "--listen", "0.0.0.0:4954"]
+    volumes:
+      - trivy-cache:/root/.cache/trivy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    labels:
+      - "com.threatclaw.skill=skill-vuln-scan"
+
+volumes:
+  nuclei-data:
+  trivy-cache:

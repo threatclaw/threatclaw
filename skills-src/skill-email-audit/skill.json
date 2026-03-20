@@ -1,0 +1,24 @@
+{
+  "id": "skill-email-audit",
+  "name": "Audit Email",
+  "version": "1.0.0",
+  "description": "Audit sécurité email — vérifie SPF, DKIM et DMARC des domaines",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "compliance",
+  "runtime": "wasm",
+  "docker_deps": {},
+  "requires_network": true,
+  "timeout_seconds": 60,
+  "memory_mb": 32,
+  "api_key_required": false,
+  "config_fields": [
+    { "key": "domains", "label": "Domaines à auditer", "type": "text", "default": "", "placeholder": "example.com, corp.fr" }
+  ],
+  "capabilities": {
+    "http_allowed": true,
+    "http_allowlist": ["https://cloudflare-dns.com/dns-query*"],
+    "workspace_read": false,
+    "secrets": []
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "id": "skill-wazuh",
+  "name": "Connexion Wazuh",
+  "version": "1.0.0",
+  "description": "Connexion Wazuh SIEM — récupère alertes pour corrélation IA",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "monitoring",
+  "runtime": "wasm",
+  "docker_deps": {},
+  "requires_network": true,
+  "timeout_seconds": 120,
+  "memory_mb": 32,
+  "api_key_required": true,
+  "secrets": ["wazuh_api_user", "wazuh_api_password"],
+  "capabilities": {
+    "http_allowed": true,
+    "workspace_read": false
+  }
+}

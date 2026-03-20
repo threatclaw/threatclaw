@@ -1,0 +1,10 @@
+{
+  "id": "skill-compliance-nis2",
+  "name": "Conformité NIS2",
+  "version": "1.0.0",
+  "description": "Mapping findings vers directive 2022/2555 Art.21",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "compliance",
+  "runtime": "wasm"
+}

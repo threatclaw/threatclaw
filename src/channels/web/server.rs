@@ -301,6 +301,39 @@ pub async fn start_server(
             "/api/settings/{key}",
             axum::routing::delete(settings_delete_handler),
         )
+        // ── ThreatClaw API ──
+        // OpenAPI spec
+        .route("/api/tc/openapi.json", get(|| async {
+            let spec = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/openapi.json"));
+            (axum::http::StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "application/json")], spec)
+        }))
+        .route("/api/tc/health", get(super::handlers::threatclaw_api::tc_health_handler))
+        .route("/api/tc/findings", get(super::handlers::threatclaw_api::findings_list_handler))
+        .route("/api/tc/findings", post(super::handlers::threatclaw_api::findings_create_handler))
+        .route("/api/tc/findings/counts", get(super::handlers::threatclaw_api::findings_counts_handler))
+        .route("/api/tc/findings/{id}", get(super::handlers::threatclaw_api::findings_detail_handler))
+        .route("/api/tc/findings/{id}/status", axum::routing::put(super::handlers::threatclaw_api::findings_update_status_handler))
+        .route("/api/tc/alerts", get(super::handlers::threatclaw_api::alerts_list_handler))
+        .route("/api/tc/alerts/counts", get(super::handlers::threatclaw_api::alerts_counts_handler))
+        .route("/api/tc/alerts/{id}/status", axum::routing::put(super::handlers::threatclaw_api::alerts_update_status_handler))
+        .route("/api/tc/config/{skill_id}", get(super::handlers::threatclaw_api::skill_config_get_handler))
+        .route("/api/tc/config/{skill_id}", post(super::handlers::threatclaw_api::skill_config_set_handler))
+        .route("/api/tc/metrics", get(super::handlers::threatclaw_api::dashboard_metrics_handler))
+        // Agent control
+        .route("/api/tc/agent/mode", get(super::handlers::threatclaw_api::agent_mode_get_handler))
+        .route("/api/tc/agent/mode", post(super::handlers::threatclaw_api::agent_mode_set_handler))
+        .route("/api/tc/agent/kill-switch", get(super::handlers::threatclaw_api::kill_switch_status_handler))
+        .route("/api/tc/agent/kill-switch", post(super::handlers::threatclaw_api::kill_switch_trigger_handler))
+        .route("/api/tc/agent/audit", get(super::handlers::threatclaw_api::audit_entries_handler))
+        .route("/api/tc/agent/soul", get(super::handlers::threatclaw_api::soul_info_handler))
+        .route("/api/tc/agent/react-cycle", post(super::handlers::threatclaw_api::react_cycle_trigger_handler))
+        .route("/api/tc/agent/hitl-callback", post(super::handlers::threatclaw_api::hitl_callback_handler))
+        // Skills catalog
+        .route("/api/tc/skills/catalog", get(super::handlers::threatclaw_api::skills_catalog_handler))
+        // Targets / Infrastructure
+        .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
+        .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))
+        .route("/api/tc/targets/{id}", axum::routing::delete(super::handlers::threatclaw_api::targets_delete_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API

@@ -65,6 +65,7 @@ pub mod pairing;
 pub mod registry;
 pub mod safety;
 pub mod sandbox;
+pub mod scanners;
 pub mod secrets;
 pub mod service;
 pub mod settings;

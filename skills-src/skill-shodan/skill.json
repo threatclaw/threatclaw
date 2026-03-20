@@ -1,0 +1,20 @@
+{
+  "id": "skill-shodan",
+  "name": "Surface Shodan",
+  "version": "1.0.0",
+  "description": "Surface d attaque externe — vérifie exposition Internet",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "scanning",
+  "runtime": "wasm",
+  "docker_deps": {},
+  "requires_network": true,
+  "timeout_seconds": 120,
+  "memory_mb": 32,
+  "api_key_required": true,
+  "secrets": ["shodan_api_key"],
+  "capabilities": {
+    "http_allowed": true,
+    "workspace_read": false
+  }
+}

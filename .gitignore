@@ -1,14 +1,23 @@
-
+# Secrets and local config — NEVER commit
 .env
 .env.local
 .env.*
 !.env.example
+docker/.env
+dashboard/.env.local
+config/filebrowser.db
 
 # ThreatClaw local config
 threatclaw.local.toml
+~/.threatclaw/
 
 # FileBrowser
 filebrowser.db
+
+# Node modules
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
 
 # Claude Code worktrees and lock files
 .claude/worktrees/

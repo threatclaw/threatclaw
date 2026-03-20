@@ -31,13 +31,29 @@ pub async fn run_doctor_command() -> anyhow::Result<()> {
         &mut skipped,
     );
 
-    check(
-        "NEAR AI session",
-        check_nearai_session().await,
-        &mut passed,
-        &mut failed,
-        &mut skipped,
-    );
+    // Only check NEAR AI session if the backend is nearai
+    {
+        let is_nearai = settings
+            .llm_backend
+            .as_deref()
+            .map(|b| {
+                let b = b.to_lowercase();
+                b == "nearai" || b == "near_ai" || b == "near"
+            })
+            .unwrap_or(false);
+        let nearai_result = if is_nearai {
+            check_nearai_session().await
+        } else {
+            CheckResult::Skip("not using NEAR AI backend".into())
+        };
+        check(
+            "NEAR AI session",
+            nearai_result,
+            &mut passed,
+            &mut failed,
+            &mut skipped,
+        );
+    }
 
     check(
         "LLM configuration",

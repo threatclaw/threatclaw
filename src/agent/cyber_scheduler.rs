@@ -196,6 +196,37 @@ Report format: PDF-ready with sections for each NIS2 article."#,
         max_iterations: 10,
         cooldown_secs: 3600,
     },
+    CyberRoutineTemplate {
+        name: "threatclaw-retention-cleanup",
+        title: "Nettoyage rétention données",
+        description: "Nettoyage nocturne des données expirées selon la politique de rétention",
+        schedule_fn: |_| "30 3 * * *",  // 03h30 chaque nuit
+        prompt: r#"Run data retention cleanup:
+1. Execute SELECT * FROM run_retention_cleanup() to clean expired data
+2. Report the number of rows deleted per table
+3. Check database size and alert if > 80% of configured limit
+
+This is a maintenance task — no user interaction needed."#,
+        max_iterations: 3,
+        cooldown_secs: 43200, // 12h cooldown
+    },
+    CyberRoutineTemplate {
+        name: "threatclaw-heartbeat",
+        title: "Heartbeat — surveillance proactive",
+        description: "Vérification proactive toutes les 30 minutes",
+        schedule_fn: |_| "*/30 * * * *",
+        prompt: r#"Run heartbeat checks as defined in HEARTBEAT.md:
+1. Check for critical findings with status=open
+2. Verify AGENT_SOUL.toml integrity (hash check)
+3. Test connectivity to configured targets
+4. Check service health (PostgreSQL, Redis, Ollama, Fluent Bit)
+5. Check log volume anomalies
+
+Report findings as alerts. Never execute corrective actions.
+If critical issues found, notify RSSI via configured channel."#,
+        max_iterations: 3,
+        cooldown_secs: 900,
+    },
 ];
 
 /// Build a Routine from a template and schedule config.
@@ -426,7 +457,7 @@ mod tests {
     #[test]
     fn test_default_routine_names() {
         let names = default_routine_names();
-        assert_eq!(names.len(), 6);
+        assert_eq!(names.len(), 8);
         assert!(names.contains(&"threatclaw-vuln-scan"));
         assert!(names.contains(&"threatclaw-darkweb-monitor"));
         assert!(names.contains(&"threatclaw-cloud-posture"));
@@ -437,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_default_routine_count() {
-        assert_eq!(default_routine_count(), 6);
+        assert_eq!(default_routine_count(), 8);
     }
 
     #[test]

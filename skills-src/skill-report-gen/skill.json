@@ -1,0 +1,10 @@
+{
+  "id": "skill-report-gen",
+  "name": "Rapports Sécurité",
+  "version": "1.0.0",
+  "description": "Génération rapports HTML sécurité en français",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "rapports",
+  "runtime": "wasm"
+}

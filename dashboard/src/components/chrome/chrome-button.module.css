@@ -1,0 +1,131 @@
+.button {
+  all: unset;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  position: relative;
+  border-radius: 0.5em;
+  background: linear-gradient(135deg, #3a2820 0%, #1a0a08 50%, #2a1a14 100%);
+  box-shadow:
+    -0.15em -0.15em 0.15em -0.075em rgba(40, 15, 5, 0.25),
+    0.0375em 0.0375em 0.0675em 0 rgba(40, 15, 5, 0.1);
+  font-size: 14px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.button::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: calc(100% + 0.3em);
+  height: calc(100% + 0.3em);
+  top: -0.15em;
+  left: -0.15em;
+  border-radius: inherit;
+  background: linear-gradient(
+    -135deg,
+    rgba(40, 15, 5, 0.5),
+    transparent 20%,
+    transparent 100%
+  );
+  filter: blur(0.0125em);
+  opacity: 0.25;
+  mix-blend-mode: multiply;
+}
+
+.buttonOuter {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  transition: box-shadow 300ms ease;
+  will-change: box-shadow;
+  box-shadow:
+    0 0.05em 0.05em -0.01em rgba(40, 15, 5, 0.8),
+    0 0.01em 0.01em -0.01em rgba(40, 15, 5, 0.5),
+    0.1em 0.2em 0.08em -0.01em rgba(40, 15, 5, 0.2);
+}
+
+.button:hover .buttonOuter {
+  box-shadow:
+    0 0 0 0 rgba(40, 15, 5, 0.8),
+    0 0 0 0 rgba(40, 15, 5, 0.5),
+    0 0 0 0 rgba(40, 15, 5, 0.2);
+}
+
+.buttonInner {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 0.7em 1.5em;
+  background: linear-gradient(
+    180deg,
+    #e6ddd6 0%,
+    #ddd4cc 40%,
+    #d8cfc7 70%,
+    #ddd4cc 100%
+  );
+  transition:
+    box-shadow 300ms ease,
+    clip-path 250ms ease,
+    transform 250ms ease;
+  will-change: box-shadow, clip-path, transform;
+  overflow: clip;
+  clip-path: inset(0 0 0 0 round 0.5em);
+  box-shadow:
+    0 0 0 0 inset rgba(40, 15, 5, 0.1),
+    -0.05em -0.05em 0.05em 0 inset rgba(40, 15, 5, 0.15),
+    0 0 0.05em 0.15em inset rgba(255, 245, 240, 0.2),
+    0.02em 0.04em 0.08em 0 inset rgba(255, 245, 240, 0.6),
+    0.1em 0.1em 0.1em inset rgba(255, 245, 240, 0.15),
+    -0.05em -0.15em 0.2em 0.08em inset rgba(40, 15, 5, 0.15);
+}
+
+.button:hover .buttonInner {
+  clip-path: inset(
+    clamp(1px, 0.0625em, 2px) clamp(1px, 0.0625em, 2px)
+      clamp(1px, 0.0625em, 2px) clamp(1px, 0.0625em, 2px) round 0.5em
+  );
+  box-shadow:
+    0.08em 0.12em 0.04em 0 inset rgba(40, 15, 5, 0.5),
+    -0.02em -0.02em 0.04em 0.02em inset rgba(40, 15, 5, 0.35),
+    0.2em 0.2em 0.15em 0 inset rgba(40, 15, 5, 0.35),
+    0 0 0.04em 0.4em inset rgba(255, 245, 240, 0.1),
+    0 0 0 0 inset rgba(255, 245, 240, 0.6),
+    0.1em 0.1em 0.1em inset rgba(255, 245, 240, 0.15),
+    -0.05em -0.1em 0.15em 0.08em inset rgba(40, 15, 5, 0.15);
+}
+
+.button:active .buttonInner {
+  transform: scale(0.975);
+}
+
+.buttonInner span {
+  position: relative;
+  z-index: 4;
+  font-family: "Inter", sans-serif;
+  letter-spacing: -0.01em;
+  font-weight: 700;
+  color: #903020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+  text-shadow:
+    0 1px 0 rgba(255,245,240,0.4),
+    0 -1px 1px rgba(100,30,15,0.1);
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 250ms ease;
+}
+
+.button:hover .buttonInner span {
+  transform: scale(0.975);
+}
+
+.rect {
+  border-radius: 0.5em;
+}

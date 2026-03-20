@@ -5,124 +5,52 @@ updates:
     directory: /
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
     labels:
       - dependencies
       - rust
-    commit-message:
-      prefix: "deps(rust):"
+    groups:
+      security-critical:
+        patterns:
+          - "wasmtime*"
+          - "ring"
+          - "argon2"
+          - "axum*"
+          - "aes-gcm"
+          - "sha2"
+          - "hmac"
 
-  # Python (pip) dependencies — skills
+  # Python skill dependencies
   - package-ecosystem: pip
     directory: /skills/skill-vuln-scan
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - python
 
-  - package-ecosystem: pip
-    directory: /skills/skill-secrets
+  # Dashboard (npm)
+  - package-ecosystem: npm
+    directory: /dashboard
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
     labels:
       - dependencies
-      - python
+      - npm
 
-  - package-ecosystem: pip
-    directory: /skills/skill-email-audit
+  # Docker images
+  - package-ecosystem: docker
+    directory: /docker
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
     labels:
       - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-darkweb
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-phishing
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-soc-monitor
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-cloud-posture
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-report-gen
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-compliance-nis2
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
-
-  - package-ecosystem: pip
-    directory: /skills/skill-compliance-iso27001
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - python
+      - docker
 
   # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - ci
-    commit-message:
-      prefix: "deps(actions):"

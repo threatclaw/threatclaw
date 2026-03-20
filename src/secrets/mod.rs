@@ -58,8 +58,10 @@
 //! let decrypted = store.get_decrypted("user_123", "openai_key").await?;
 //! ```
 
-mod crypto;
+pub mod credential_types;
+pub mod crypto;
 pub mod keychain;
+pub mod master_password;
 mod store;
 mod types;
 

@@ -9,6 +9,7 @@
 //! handlers; their functions are not yet wired up, hence the `dead_code` allow.
 
 pub mod skills;
+pub mod threatclaw_api;
 
 // Modules not yet wired into server.rs router -- suppress dead_code until
 // they replace their inline counterparts.

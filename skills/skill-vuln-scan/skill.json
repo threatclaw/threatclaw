@@ -1,0 +1,30 @@
+{
+  "id": "skill-vuln-scan",
+  "name": "Scanner de vulnérabilités",
+  "version": "1.0.0",
+  "description": "Scan réseau avec Nuclei et analyse de dépendances avec Trivy",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "scanning",
+  "docker_deps": {
+    "nuclei": {
+      "image": "projectdiscovery/nuclei:latest",
+      "default_mode": "docker",
+      "supports": ["docker", "local_binary"]
+    },
+    "trivy": {
+      "image": "aquasec/trivy:latest",
+      "default_mode": "docker",
+      "supports": ["docker", "local_binary", "remote_api"],
+      "server_port": 4954
+    }
+  },
+  "requires_network": true,
+  "timeout_seconds": 600,
+  "memory_mb": 512,
+  "config_fields": [
+    { "key": "targets", "label": "Cibles réseau", "type": "text", "default": "", "placeholder": "192.168.1.0/24" },
+    { "key": "severity_filter", "label": "Sévérité minimum", "type": "select", "options": ["critical", "high", "medium", "low"], "default": "medium" },
+    { "key": "templates", "label": "Templates Nuclei", "type": "select", "options": ["default", "custom", "all"], "default": "default" }
+  ]
+}
