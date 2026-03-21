@@ -55,6 +55,12 @@ See [Getting Started](docs/getting-started.md) for detailed instructions.
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — How to contribute
 
+## Support ThreatClaw
+
+ThreatClaw is and will remain open source. If this project is useful to you, you can support its development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-ThreatClaw-red?logo=github-sponsors)](https://github.com/sponsors/0xyli)
+
 ## License
 
 [Apache License 2.0](LICENSE)
