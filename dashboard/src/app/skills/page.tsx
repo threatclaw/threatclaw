@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
-import { CheckCircle2, Search, AlertTriangle, Settings, Save, X, Loader2, Key } from "lucide-react";
+import { CheckCircle2, Search, AlertTriangle, Settings, Save, X, Loader2, Key, Wifi, XCircle } from "lucide-react";
 
 interface Skill {
   id: string;
@@ -266,6 +266,22 @@ function SkillConfigPanel({ skillId, fields, configData, setConfigData, onSave, 
   saving: boolean;
   saved: boolean;
 }) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; detail?: string; error?: string } | null>(null);
+
+  const testSkill = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`/api/tc/skills/${skillId}/test`, { method: "POST" });
+      const data = await res.json();
+      setTestResult(data);
+    } catch {
+      setTestResult({ ok: false, error: "Impossible de contacter le backend" });
+    }
+    setTesting(false);
+  };
+
   const inputStyle: React.CSSProperties = {
     width: "100%", border: "none", borderRadius: "6px", padding: "8px 10px",
     fontSize: "11px", color: "var(--text-primary)", fontFamily: "Inter, sans-serif",
@@ -277,9 +293,12 @@ function SkillConfigPanel({ skillId, fields, configData, setConfigData, onSave, 
     return (
       <ChromeInsetCard>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <ChromeEmbossedText as="span" style={{ fontSize: "9px", opacity: 0.5 }}>
-            Ce skill ne nécessite aucune configuration.
-          </ChromeEmbossedText>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <CheckCircle2 size={12} color="#2d6a40" />
+            <ChromeEmbossedText as="span" style={{ fontSize: "9px" }}>
+              Ce skill fonctionne sans configuration — analyse locale uniquement.
+            </ChromeEmbossedText>
+          </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
             <X size={12} color="#907060" />
           </button>
@@ -316,7 +335,27 @@ function SkillConfigPanel({ skillId, fields, configData, setConfigData, onSave, 
         ))}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "12px" }}>
+      {/* Test result */}
+      {testResult && (
+        <div style={{
+          marginTop: "8px", padding: "8px 10px", borderRadius: "6px", fontSize: "9px",
+          background: testResult.ok ? "rgba(45,106,64,0.08)" : "rgba(144,48,32,0.08)",
+          color: testResult.ok ? "#2d6a40" : "#903020",
+          display: "flex", alignItems: "center", gap: "6px",
+        }}>
+          {testResult.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+          <span>{testResult.ok ? testResult.detail : testResult.error}</span>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+        <ChromeButton onClick={testSkill} disabled={testing}>
+          <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "9px" }}>
+            {testing ? <><Loader2 size={10} className="animate-spin" /> Test...</>
+              : <><Wifi size={10} /> Tester la connexion</>}
+          </span>
+        </ChromeButton>
         <ChromeButton onClick={onSave} disabled={saving}>
           <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "9px" }}>
             {saving ? <><Loader2 size={10} className="animate-spin" /> Sauvegarde...</>

@@ -629,6 +629,188 @@ pub async fn skills_catalog_handler(
     Ok(Json(serde_json::json!({ "skills": skills, "total": skills.len() })))
 }
 
+// ── Skill Test ──
+
+/// POST /api/tc/skills/{id}/test — test a skill's API connection with saved config.
+pub async fn skill_test_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(skill_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Load skill config from DB
+    let config = store.get_skill_config(&skill_id).await.map_err(db_err)?;
+    let cfg: std::collections::HashMap<String, String> = config.iter()
+        .map(|c| (c.key.clone(), c.value.clone()))
+        .collect();
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let result = match skill_id.as_str() {
+        "skill-abuseipdb" => {
+            let api_key = cfg.get("api_key").cloned().unwrap_or_default();
+            if api_key.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+            }
+            match client.get("https://api.abuseipdb.com/api/v2/check")
+                .header("Key", &api_key).header("Accept", "application/json")
+                .query(&[("ipAddress", "8.8.8.8"), ("maxAgeInDays", "1")])
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        let data: serde_json::Value = r.json().await.unwrap_or_default();
+                        serde_json::json!({ "ok": true, "detail": format!("API OK — IP 8.8.8.8 score: {}", data["data"]["abuseConfidenceScore"]) })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez votre clé API", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-shodan" => {
+            let api_key = cfg.get("api_key").cloned().unwrap_or_default();
+            if api_key.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+            }
+            match client.get("https://api.shodan.io/api-info")
+                .query(&[("key", api_key.as_str())])
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        let data: serde_json::Value = r.json().await.unwrap_or_default();
+                        serde_json::json!({ "ok": true, "detail": format!("API OK — plan: {}, crédits: {}", data["plan"], data["query_credits"]) })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez votre clé API", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-virustotal" => {
+            let api_key = cfg.get("api_key").cloned().unwrap_or_default();
+            if api_key.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+            }
+            match client.get("https://www.virustotal.com/api/v3/users/me")
+                .header("x-apikey", &api_key)
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        serde_json::json!({ "ok": true, "detail": "API OK — clé valide" })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez votre clé API", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-cti-crowdsec" => {
+            let api_key = cfg.get("api_key").cloned().unwrap_or_default();
+            if api_key.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+            }
+            match client.get("https://cti.api.crowdsec.net/v2/smoke/8.8.8.8")
+                .header("x-api-key", &api_key)
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        serde_json::json!({ "ok": true, "detail": "API OK — connexion CrowdSec CTI réussie" })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez votre clé API", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-darkweb-monitor" => {
+            let api_key = cfg.get("api_key").cloned().unwrap_or_default();
+            if api_key.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API HIBP non configurée" })));
+            }
+            match client.get("https://haveibeenpwned.com/api/v3/subscription/status")
+                .header("hibp-api-key", &api_key)
+                .header("user-agent", "ThreatClaw")
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        serde_json::json!({ "ok": true, "detail": "API OK — abonnement HIBP actif" })
+                    } else if r.status().as_u16() == 401 {
+                        serde_json::json!({ "ok": false, "error": "Clé API invalide" })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {}", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-wazuh" => {
+            let url = cfg.get("url").cloned().unwrap_or_default();
+            let username = cfg.get("username").cloned().unwrap_or_default();
+            let password = cfg.get("password").cloned().unwrap_or_default();
+            if url.is_empty() || username.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "URL et utilisateur requis" })));
+            }
+            let wazuh_client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .danger_accept_invalid_certs(true)
+                .build()
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            match wazuh_client.post(format!("{}/security/user/authenticate", url))
+                .basic_auth(&username, Some(&password))
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        serde_json::json!({ "ok": true, "detail": "API OK — authentification Wazuh réussie" })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez vos identifiants", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": format!("Connexion échouée: {} — vérifiez l'URL", e) }),
+            }
+        }
+        "skill-email-audit" => {
+            let domains = cfg.get("domains").cloned().unwrap_or_default();
+            if domains.is_empty() {
+                return Ok(Json(serde_json::json!({ "ok": false, "error": "Aucun domaine configuré" })));
+            }
+            let first_domain = domains.split(',').next().unwrap_or("").trim();
+            // Test DNS lookup via public resolver
+            match client.get(format!("https://dns.google/resolve?name={first_domain}&type=TXT"))
+                .send().await {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        let data: serde_json::Value = r.json().await.unwrap_or_default();
+                        let has_spf = data["Answer"].as_array()
+                            .map(|a| a.iter().any(|r| r["data"].as_str().map(|s| s.contains("v=spf1")).unwrap_or(false)))
+                            .unwrap_or(false);
+                        serde_json::json!({
+                            "ok": true,
+                            "detail": format!("DNS OK — {} {}", first_domain, if has_spf { "(SPF trouvé)" } else { "(pas de SPF)" })
+                        })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": "Résolution DNS échouée" })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "skill-compliance-nis2" | "skill-compliance-iso27001" => {
+            serde_json::json!({ "ok": true, "detail": "Analyse locale — aucune API externe requise" })
+        }
+        "skill-report-gen" => {
+            serde_json::json!({ "ok": true, "detail": "Génération locale — aucune API externe requise" })
+        }
+        _ => {
+            serde_json::json!({ "ok": false, "error": format!("Test non disponible pour {}", skill_id) })
+        }
+    };
+
+    Ok(Json(result))
+}
+
 // ── Soul Info ──
 
 pub async fn soul_info_handler(

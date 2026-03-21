@@ -24,7 +24,48 @@ const TYPE_ICONS: Record<string, React.ElementType> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  linux: "Linux", windows: "Windows", firewall: "Firewall", network: "Réseau", local: "Local",
+  linux: "Linux", windows: "Windows", macos: "macOS", firewall: "Firewall",
+  network: "Réseau", cloud: "Cloud", container: "Container", local: "Local",
+};
+
+const ACCESS_BY_TYPE: Record<string, { value: string; label: string; port: string }[]> = {
+  linux: [
+    { value: "ssh", label: "SSH (clé ou mot de passe)", port: "22" },
+    { value: "agent", label: "Agent Wazuh installé", port: "1514" },
+    { value: "syslog", label: "Syslog (réception logs)", port: "514" },
+  ],
+  windows: [
+    { value: "winrm", label: "WinRM (PowerShell distant)", port: "5985" },
+    { value: "winrm_https", label: "WinRM HTTPS", port: "5986" },
+    { value: "ssh", label: "SSH (OpenSSH Windows)", port: "22" },
+    { value: "agent", label: "Agent Wazuh installé", port: "1514" },
+    { value: "wef", label: "Windows Event Forwarding", port: "5985" },
+  ],
+  macos: [
+    { value: "ssh", label: "SSH", port: "22" },
+    { value: "agent", label: "Agent (osquery)", port: "443" },
+  ],
+  firewall: [
+    { value: "api", label: "API REST", port: "443" },
+    { value: "syslog", label: "Syslog (réception logs)", port: "514" },
+    { value: "snmp", label: "SNMP v3", port: "161" },
+    { value: "ssh", label: "SSH", port: "22" },
+  ],
+  network: [
+    { value: "snmp", label: "SNMP v3", port: "161" },
+    { value: "syslog", label: "Syslog", port: "514" },
+    { value: "ssh", label: "SSH", port: "22" },
+  ],
+  cloud: [
+    { value: "api", label: "API (IAM / Service Account)", port: "443" },
+  ],
+  container: [
+    { value: "api", label: "Docker API", port: "2376" },
+    { value: "kubectl", label: "Kubernetes API", port: "6443" },
+  ],
+  local: [
+    { value: "local", label: "Machine locale", port: "0" },
+  ],
 };
 
 export default function InfrastructurePage() {
@@ -109,19 +150,27 @@ export default function InfrastructurePage() {
             </div>
             <div>
               <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Type</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.target_type} onChange={e => setNewTarget(p => ({ ...p, target_type: e.target.value }))}>
-                <option value="linux">Linux</option>
-                <option value="windows">Windows</option>
-                <option value="firewall">Firewall</option>
-                <option value="network">Réseau</option>
+              <select style={inputStyle} value={newTarget.target_type} onChange={e => {
+                const type = e.target.value;
+                const accessOpts = ACCESS_BY_TYPE[type] || [];
+                const firstAccess = accessOpts[0];
+                setNewTarget(p => ({ ...p, target_type: type, access_type: firstAccess?.value || "ssh", port: firstAccess?.port || "22" }));
+              }}>
+                {Object.entries(TYPE_LABELS).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
               </select>
             </div>
             <div>
               <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Accès</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.access_type} onChange={e => setNewTarget(p => ({ ...p, access_type: e.target.value }))}>
-                <option value="ssh">SSH</option>
-                <option value="winrm">WinRM</option>
-                <option value="api">API REST</option>
+              <select style={inputStyle} value={newTarget.access_type} onChange={e => {
+                const access = e.target.value;
+                const opt = (ACCESS_BY_TYPE[newTarget.target_type] || []).find(a => a.value === access);
+                setNewTarget(p => ({ ...p, access_type: access, port: opt?.port || p.port }));
+              }}>
+                {(ACCESS_BY_TYPE[newTarget.target_type] || []).map(a => (
+                  <option key={a.value} value={a.value}>{a.label}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -144,8 +193,23 @@ export default function InfrastructurePage() {
                 <option value="">Sélectionner...</option>
                 <option value="pfsense">pfSense / OPNsense</option>
                 <option value="stormshield">Stormshield</option>
-                <option value="fortinet">Fortinet</option>
-                <option value="sophos">Sophos</option>
+                <option value="fortinet">Fortinet FortiGate</option>
+                <option value="paloalto">Palo Alto (PAN-OS)</option>
+                <option value="sophos">Sophos XG/XGS</option>
+                <option value="checkpoint">Check Point</option>
+              </select>
+            </div>
+          )}
+          {newTarget.target_type === "cloud" && (
+            <div style={{ marginTop: "8px" }}>
+              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Provider cloud</ChromeEmbossedText>
+              <select style={inputStyle} value={newTarget.driver} onChange={e => setNewTarget(p => ({ ...p, driver: e.target.value }))}>
+                <option value="">Sélectionner...</option>
+                <option value="aws">Amazon Web Services</option>
+                <option value="azure">Microsoft Azure</option>
+                <option value="gcp">Google Cloud Platform</option>
+                <option value="ovh">OVHcloud</option>
+                <option value="scaleway">Scaleway</option>
               </select>
             </div>
           )}
