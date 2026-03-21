@@ -213,7 +213,7 @@ name = "safety_pipeline"
 harness = false
 
 [features]
-default = ["postgres", "libsql", "html-to-markdown"]
+default = ["postgres", "html-to-markdown"]
 postgres = [
     "dep:deadpool-postgres",
     "dep:tokio-postgres",
