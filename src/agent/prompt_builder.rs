@@ -121,6 +121,28 @@ pub fn build_react_prompt(
         ));
     }
 
+    // ── Section 8: Skills installées ──
+    prompt.push_str("\n# SKILLS INSTALLÉES (sources de données disponibles)\n");
+    let skills_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/skills-src"));
+    if let Ok(entries) = std::fs::read_dir(skills_dir) {
+        for entry in entries.flatten() {
+            let skill_json = entry.path().join("skill.json");
+            if let Ok(content) = std::fs::read_to_string(&skill_json) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    let name = val["name"].as_str().unwrap_or("?");
+                    let desc = val["description"].as_str().unwrap_or("");
+                    let id = val["id"].as_str().unwrap_or("?");
+                    prompt.push_str(&format!("- {} ({}) : {}\n", name, id, desc));
+                }
+            }
+        }
+    }
+
+    // ── Section 9: Cibles configurées ──
+    prompt.push_str("\n# CIBLES CONFIGURÉES (infrastructure supervisée)\n");
+    prompt.push_str("Les cibles sont dans la base de données. Utilise les IPs/hostnames des observations pour les identifier.\n");
+    prompt.push_str("Pour scanner une cible, utilise scan-001 (Nuclei), scan-003 (Nmap) ou scan-005 (SSL) avec le paramètre TARGET.\n");
+
     // Truncate if too long — keep the beginning (soul + mode) and end (schema + whitelist)
     truncate_prompt(prompt)
 }
