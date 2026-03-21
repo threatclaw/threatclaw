@@ -395,6 +395,72 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         forbidden_paths: &[],
         param_keys: &["USERNAME", "SSHKEY"],
     },
+    // === SCANNING (réseau — s'exécute localement, scanne la cible à distance) ===
+    RemediationCommand {
+        id: "scan-001",
+        cmd_template: "nuclei -u {TARGET} -severity critical,high -jsonl -silent -rate-limit 50",
+        description: "Scanner les vulnérabilités web/réseau d'une cible (Nuclei)",
+        risk: RiskLevel::Low,
+        reversible: false,
+        undo_template: None,
+        requires_hitl: false,
+        max_targets: 5,
+        forbidden_targets: &["127.0.0.1", "::1", "localhost"],
+        forbidden_paths: &[],
+        param_keys: &["TARGET"],
+    },
+    RemediationCommand {
+        id: "scan-002",
+        cmd_template: "trivy image --format json --severity CRITICAL,HIGH {IMAGE}",
+        description: "Scanner les vulnérabilités d'une image Docker (Trivy)",
+        risk: RiskLevel::Low,
+        reversible: false,
+        undo_template: None,
+        requires_hitl: false,
+        max_targets: 10,
+        forbidden_targets: &[],
+        forbidden_paths: &[],
+        param_keys: &["IMAGE"],
+    },
+    RemediationCommand {
+        id: "scan-003",
+        cmd_template: "nmap -sV --top-ports 1000 -T3 --open {TARGET}",
+        description: "Scanner les ports ouverts et services d'une cible (Nmap)",
+        risk: RiskLevel::Low,
+        reversible: false,
+        undo_template: None,
+        requires_hitl: false,
+        max_targets: 3,
+        forbidden_targets: &["127.0.0.1", "::1", "localhost"],
+        forbidden_paths: &[],
+        param_keys: &["TARGET"],
+    },
+    RemediationCommand {
+        id: "scan-004",
+        cmd_template: "nuclei -u {TARGET} -t dns/ -jsonl -silent",
+        description: "Scanner les misconfigurations DNS d'un domaine (Nuclei DNS)",
+        risk: RiskLevel::Low,
+        reversible: false,
+        undo_template: None,
+        requires_hitl: false,
+        max_targets: 10,
+        forbidden_targets: &[],
+        forbidden_paths: &[],
+        param_keys: &["TARGET"],
+    },
+    RemediationCommand {
+        id: "scan-005",
+        cmd_template: "nuclei -u {TARGET} -t ssl/ -jsonl -silent",
+        description: "Vérifier les certificats SSL/TLS d'une cible (Nuclei SSL)",
+        risk: RiskLevel::Low,
+        reversible: false,
+        undo_template: None,
+        requires_hitl: false,
+        max_targets: 10,
+        forbidden_targets: &[],
+        forbidden_paths: &[],
+        param_keys: &["TARGET"],
+    },
 ];
 
 // ── Caractères interdits dans les paramètres (anti-injection de commande) ──
@@ -426,13 +492,135 @@ fn validate_param(key: &str, value: &str) -> Result<(), RemediationError> {
     Ok(())
 }
 
-/// Recherche une commande dans la whitelist.
+/// Commande dynamique (chargée depuis skill.json ou DB).
+/// Même structure que RemediationCommand mais avec des String owned.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct DynamicCommand {
+    pub id: String,
+    pub cmd_template: String,
+    pub description: String,
+    #[serde(default = "default_risk")]
+    pub risk: String,
+    #[serde(default)]
+    pub reversible: bool,
+    pub undo_template: Option<String>,
+    #[serde(default = "default_true")]
+    pub requires_hitl: bool,
+    #[serde(default = "default_max_targets")]
+    pub max_targets: u32,
+    #[serde(default)]
+    pub forbidden_targets: Vec<String>,
+    #[serde(default)]
+    pub forbidden_paths: Vec<String>,
+    #[serde(default)]
+    pub param_keys: Vec<String>,
+}
+
+fn default_risk() -> String { "low".to_string() }
+fn default_true() -> bool { true }
+fn default_max_targets() -> u32 { 5 }
+
+impl DynamicCommand {
+    fn risk_level(&self) -> RiskLevel {
+        match self.risk.to_lowercase().as_str() {
+            "low" => RiskLevel::Low,
+            "medium" => RiskLevel::Medium,
+            "high" => RiskLevel::High,
+            "critical" => RiskLevel::Critical,
+            _ => RiskLevel::Medium,
+        }
+    }
+}
+
+/// Registre extensible de commandes — core + dynamiques.
+pub struct CommandRegistry {
+    dynamic_commands: Vec<DynamicCommand>,
+}
+
+impl CommandRegistry {
+    pub fn new() -> Self {
+        Self { dynamic_commands: Vec::new() }
+    }
+
+    /// Charge les actions déclarées par les skills depuis leurs skill.json.
+    pub fn load_skill_actions(&mut self, skills_dir: &std::path::Path) {
+        if let Ok(entries) = std::fs::read_dir(skills_dir) {
+            for entry in entries.flatten() {
+                let skill_json = entry.path().join("skill.json");
+                if skill_json.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&skill_json) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(actions) = val.get("actions").and_then(|a| a.as_array()) {
+                                for action in actions {
+                                    if let Ok(cmd) = serde_json::from_value::<DynamicCommand>(action.clone()) {
+                                        tracing::info!("Loaded skill action: {} from {}", cmd.id, entry.path().display());
+                                        self.dynamic_commands.push(cmd);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tracing::info!("CommandRegistry: {} core + {} skill actions loaded",
+            REMEDIATION_WHITELIST.len(), self.dynamic_commands.len());
+    }
+
+    /// Recherche une commande (core d'abord, puis dynamiques).
+    pub fn find(&self, cmd_id: &str) -> Option<CommandRef<'_>> {
+        // Core whitelist first
+        if let Some(cmd) = REMEDIATION_WHITELIST.iter().find(|c| c.id == cmd_id) {
+            return Some(CommandRef::Core(cmd));
+        }
+        // Dynamic skill commands
+        if let Some(cmd) = self.dynamic_commands.iter().find(|c| c.id == cmd_id) {
+            return Some(CommandRef::Dynamic(cmd));
+        }
+        None
+    }
+
+    /// Liste toutes les commandes disponibles (pour le prompt builder).
+    pub fn all_command_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = REMEDIATION_WHITELIST.iter().map(|c| c.id).collect();
+        ids.extend(self.dynamic_commands.iter().map(|c| c.id.as_str()));
+        ids
+    }
+
+    /// Nombre total de commandes disponibles.
+    pub fn len(&self) -> usize {
+        REMEDIATION_WHITELIST.len() + self.dynamic_commands.len()
+    }
+}
+
+/// Référence vers une commande (core ou dynamique).
+pub enum CommandRef<'a> {
+    Core(&'a RemediationCommand),
+    Dynamic(&'a DynamicCommand),
+}
+
+/// Recherche une commande dans la whitelist core (rétro-compatible).
 pub fn find_command(cmd_id: &str) -> Option<&'static RemediationCommand> {
     REMEDIATION_WHITELIST.iter().find(|c| c.id == cmd_id)
 }
 
 /// Valide et rend une commande prête à l'exécution.
+/// Cherche dans la whitelist core ET les commandes dynamiques des skills.
 pub fn validate_remediation(
+    cmd_id: &str,
+    params: &HashMap<String, String>,
+) -> Result<ValidatedCommand, RemediationError> {
+    // Try core whitelist first
+    if let Some(cmd) = find_command(cmd_id) {
+        return validate_core_command(cmd, cmd_id, params);
+    }
+    // Not in core — reject for now (dynamic validation via CommandRegistry)
+    Err(RemediationError::NotInWhitelist(cmd_id.to_string()))
+}
+
+/// Valide une commande core.
+fn validate_core_command(
+    cmd: &RemediationCommand,
     cmd_id: &str,
     params: &HashMap<String, String>,
 ) -> Result<ValidatedCommand, RemediationError> {
