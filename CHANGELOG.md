@@ -26,6 +26,15 @@ All notable changes to ThreatClaw are documented here.
 ## [0.2.0-beta] — 2026-03-20
 
 ### Added
+- **Whitelist upgrade** — 12 → 22 commands: anti-exfiltration (outbound IP block, DNS sinkhole),
+  forensics (SHA-256 hash, lsof, quarantine copy, network snapshot), services (systemctl stop/disable),
+  files (quarantine move, chattr immutable), SSH key revocation
+- **International anonymizer** — 17 pattern categories + custom RSSI rules via API
+- **FAQ page** — 17 questions/réponses bilingues FR/EN pour RSSI
+
+## [0.2.0-beta] — 2026-03-20
+
+### Added
 - **Zero Trust Agent Architecture** — 5 immutable security pillars (OWASP ASI 2026)
 - **ReAct reasoning loop** with 3-level AI escalation (local → enriched → cloud anonymized)
 - **10 official WASM skills** — email audit, CrowdSec CTI, AbuseIPDB, HIBP, NIS2, ISO 27001, reports, Wazuh, VirusTotal, Shodan
@@ -45,7 +54,7 @@ All notable changes to ThreatClaw are documented here.
 
 ### Security
 - Soul hash SHA-256 compiled into binary (tampering detection)
-- Command whitelist with anti-injection (12 commands, forbidden targets)
+- Command whitelist with anti-injection (22 commands, forbidden targets)
 - XML wrapper on all tool outputs (25+ cyber injection patterns)
 - Memory HMAC integrity verification
 - Kill switch with 8 automatic triggers
