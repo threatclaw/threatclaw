@@ -13,7 +13,7 @@
 
 use std::path::{Path, PathBuf};
 
-use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 /// Minimal store data that satisfies WasiView for component instantiation.
 struct TestStoreData {
@@ -31,12 +31,11 @@ impl TestStoreData {
 }
 
 impl WasiView for TestStoreData {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
-
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -209,7 +208,7 @@ fn instantiate_tool_component(
 
     let mut linker: Linker<TestStoreData> = Linker::new(engine);
 
-    wasmtime_wasi::add_to_linker_sync(&mut linker)
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
         .map_err(|e| format!("WASI linker failed: {e}"))?;
 
     // If the WIT added/removed/renamed a function, stub registration
@@ -249,7 +248,7 @@ fn instantiate_channel_component(
 
     let mut linker: Linker<TestStoreData> = Linker::new(engine);
 
-    wasmtime_wasi::add_to_linker_sync(&mut linker)
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
         .map_err(|e| format!("WASI linker failed: {e}"))?;
 
     // Register stubs for both versioned (0.3.0+) and unversioned (pre-0.3.0) interface

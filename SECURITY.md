@@ -36,6 +36,19 @@ ThreatClaw implements a **Zero Trust Agent** architecture:
 
 See `docs/THREATCLAW_V2_ARCHITECTURE.md` for the complete security model.
 
+## Known CVE Status
+
+Last audit: 2026-03-21 (`cargo audit`)
+
+| Status | Count | Details |
+|--------|-------|---------|
+| **Patched** | 8 | aws-lc-sys, rustls-webpki 0.103, wasmtime (4 CVEs), serde_yml, tokio-tar |
+| **Tracked** | 2 | rustls-webpki 0.101/0.102 — transitive deps pinned by libsql/aws-sdk upstream |
+| **Critical** | 0 | — |
+
+Remaining tracked CVEs (`deny.toml`):
+- **RUSTSEC-2026-0049** — `rustls-webpki` 0.101.7/0.102.8: CRL Distribution Point bypass. Transitive deps from `libsql` and `aws-smithy`. Our direct dependency (0.103.10) is patched. Will be fixed when upstream releases new versions.
+
 ## Planned Audit
 
 A third-party security audit is planned before the official v1.0.0 release.

@@ -38,7 +38,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 use wasmtime::Store;
 use wasmtime::component::Linker;
-use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::channels::wasm::capabilities::ChannelCapabilities;
 use crate::channels::wasm::error::WasmChannelError;
@@ -63,10 +63,6 @@ use crate::tools::wasm::credential_injector::{
 wasmtime::component::bindgen!({
     path: "wit/channel.wit",
     world: "sandboxed-channel",
-    async: false,
-    with: {
-        // Use our own store data type
-    },
 });
 
 /// Pre-resolved credential for host-based injection.
@@ -257,12 +253,11 @@ impl ChannelStoreData {
 
 // Implement WasiView to provide WASI context and resource table
 impl WasiView for ChannelStoreData {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi
-    }
-
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -1050,12 +1045,12 @@ impl WasmChannel {
     /// to properly register all host functions with correct component model signatures.
     fn add_host_functions(linker: &mut Linker<ChannelStoreData>) -> Result<(), WasmChannelError> {
         // Add WASI support (required by the component adapter)
-        wasmtime_wasi::add_to_linker_sync(linker).map_err(|e| {
+        wasmtime_wasi::p2::add_to_linker_sync(linker).map_err(|e| {
             WasmChannelError::Config(format!("Failed to add WASI functions: {}", e))
         })?;
 
         // Use the generated add_to_linker function from bindgen for our custom interface
-        near::agent::channel_host::add_to_linker(linker, |state| state).map_err(|e| {
+        SandboxedChannel::add_to_linker::<_, wasmtime::component::HasSelf<ChannelStoreData>>(linker, |state| state).map_err(|e| {
             WasmChannelError::Config(format!("Failed to add host functions: {}", e))
         })?;
 
