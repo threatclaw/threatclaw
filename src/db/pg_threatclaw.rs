@@ -254,4 +254,61 @@ impl ThreatClawStore for PgBackend {
             darkweb_leaks: darkweb as i64,
         })
     }
+
+    async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, label, pattern, token_prefix, capture_group, enabled
+                 FROM anonymizer_rules WHERE enabled = true ORDER BY created_at",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let rules: Vec<serde_json::Value> = rows.iter().map(|r| {
+            serde_json::json!({
+                "id": r.get::<_, uuid::Uuid>(0).to_string(),
+                "label": r.get::<_, String>(1),
+                "pattern": r.get::<_, String>(2),
+                "token_prefix": r.get::<_, String>(3),
+                "capture_group": r.get::<_, i32>(4),
+                "enabled": r.get::<_, bool>(5),
+            })
+        }).collect();
+
+        Ok(rules)
+    }
+
+    async fn create_anonymizer_rule(
+        &self,
+        label: &str,
+        pattern: &str,
+        token_prefix: &str,
+        capture_group: i32,
+    ) -> Result<String, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO anonymizer_rules (label, pattern, token_prefix, capture_group)
+                 VALUES ($1, $2, $3, $4) RETURNING id",
+                &[&label, &pattern, &token_prefix, &capture_group],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let id: uuid::Uuid = row.get(0);
+        Ok(id.to_string())
+    }
+
+    async fn delete_anonymizer_rule(&self, id: &str) -> Result<(), DatabaseError> {
+        let uuid = uuid::Uuid::parse_str(id)
+            .map_err(|e| DatabaseError::Query(format!("Invalid UUID: {e}")))?;
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn
+            .execute("DELETE FROM anonymizer_rules WHERE id = $1", &[&uuid])
+            .await
+            .map_err(query_err)?;
+        Ok(())
+    }
 }

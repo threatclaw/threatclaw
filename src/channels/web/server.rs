@@ -334,6 +334,10 @@ pub async fn start_server(
         .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
         .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))
         .route("/api/tc/targets/{id}", axum::routing::delete(super::handlers::threatclaw_api::targets_delete_handler))
+        // Anonymizer custom rules
+        .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
+        .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))
+        .route("/api/tc/anonymizer/rules/{id}", axum::routing::delete(super::handlers::threatclaw_api::anonymizer_rules_delete_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API

@@ -649,3 +649,61 @@ pub async fn soul_info_handler(
         }))),
     }
 }
+
+// ══════════════════════════════════════════════════════════
+// ANONYMIZER CUSTOM RULES
+// ══════════════════════════════════════════════════════════
+
+#[derive(Debug, Deserialize)]
+pub struct NewAnonymizerRule {
+    pub label: String,
+    pub pattern: String,
+    pub token_prefix: Option<String>,
+    pub capture_group: Option<i32>,
+}
+
+/// GET /api/tc/anonymizer/rules — list all custom anonymization rules.
+pub async fn anonymizer_rules_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.list_anonymizer_rules().await {
+        Ok(rules) => Ok(Json(serde_json::json!({ "rules": rules }))),
+        Err(e) => {
+            tracing::error!("Failed to list anonymizer rules: {e}");
+            Ok(Json(serde_json::json!({ "rules": [], "error": e.to_string() })))
+        }
+    }
+}
+
+/// POST /api/tc/anonymizer/rules — create a new custom anonymization rule.
+pub async fn anonymizer_rules_create_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<NewAnonymizerRule>,
+) -> ApiResult<serde_json::Value> {
+    if regex::Regex::new(&body.pattern).is_err() {
+        return Ok(Json(serde_json::json!({ "error": "Invalid regex pattern" })));
+    }
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.create_anonymizer_rule(
+        &body.label,
+        &body.pattern,
+        body.token_prefix.as_deref().unwrap_or("CUSTOM"),
+        body.capture_group.unwrap_or(0),
+    ).await {
+        Ok(id) => Ok(Json(serde_json::json!({ "id": id, "status": "created" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() })))
+    }
+}
+
+/// DELETE /api/tc/anonymizer/rules/:id — delete a custom anonymization rule.
+pub async fn anonymizer_rules_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.delete_anonymizer_rule(&id).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "deleted" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() })))
+    }
+}

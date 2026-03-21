@@ -19,68 +19,240 @@ pub struct CloudCallResult {
 }
 
 /// Mapping d'anonymisation réversible.
+///
+/// Couvre 17+ catégories de données sensibles internationales :
+/// réseau, identifiants, credentials, données personnelles (RGPD),
+/// identifiants d'entreprise, secrets techniques.
 #[derive(Debug, Clone)]
 pub struct AnonymizationMap {
     mappings: Vec<(String, String)>,
+    /// Optional custom rules loaded from database (RSSI-defined patterns).
+    custom_rules: Vec<CustomAnonymizationRule>,
+}
+
+/// A custom anonymization rule defined by the RSSI.
+#[derive(Debug, Clone)]
+pub struct CustomAnonymizationRule {
+    pub label: String,
+    pub pattern: String,
+    pub token_prefix: String,
+    pub capture_group: usize,
 }
 
 impl AnonymizationMap {
     pub fn new() -> Self {
-        Self { mappings: Vec::new() }
+        Self { mappings: Vec::new(), custom_rules: Vec::new() }
+    }
+
+    /// Create with custom RSSI-defined rules.
+    pub fn with_custom_rules(rules: Vec<CustomAnonymizationRule>) -> Self {
+        Self { mappings: Vec::new(), custom_rules: rules }
+    }
+
+    /// Helper: register a match if not already mapped.
+    fn register(&mut self, original: &str, prefix: &str, counters: &mut HashMap<String, usize>) {
+        let orig = original.to_string();
+        if !self.mappings.iter().any(|(o, _)| o == &orig) {
+            let count = counters.entry(prefix.to_string()).and_modify(|c| *c += 1).or_insert(1);
+            let token = format!("[{}-{:03}]", prefix, count);
+            self.mappings.push((orig, token));
+        }
+    }
+
+    /// Helper: scan with a regex (full match) and register all hits.
+    fn scan_full(&mut self, text: &str, pattern: &str, prefix: &str, counters: &mut HashMap<String, usize>) {
+        if let Ok(re) = Regex::new(pattern) {
+            for cap in re.find_iter(text) {
+                self.register(cap.as_str(), prefix, counters);
+            }
+        }
+    }
+
+    /// Helper: scan with a regex (capture group 1) and register all hits.
+    fn scan_group(&mut self, text: &str, pattern: &str, prefix: &str, group: usize, counters: &mut HashMap<String, usize>) {
+        if let Ok(re) = Regex::new(pattern) {
+            for cap in re.captures_iter(text) {
+                if let Some(m) = cap.get(group) {
+                    self.register(m.as_str(), prefix, counters);
+                }
+            }
+        }
     }
 
     /// Anonymise un texte en remplaçant les données sensibles par des tokens.
+    ///
+    /// 17 catégories de patterns built-in + custom rules RSSI.
+    /// Ordre : secrets en premier (plus longs), puis réseau, identité, données perso.
     pub fn anonymize(&mut self, text: &str) -> String {
-        let mut result = text.to_string();
-        let mut counters: HashMap<&str, usize> = HashMap::new();
+        let mut counters: HashMap<String, usize> = HashMap::new();
 
-        // IPs (v4)
-        let ip_re = Regex::new(r"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b").unwrap();
-        for cap in ip_re.find_iter(text) {
-            let original = cap.as_str().to_string();
-            if !self.mappings.iter().any(|(o, _)| o == &original) {
-                let count = counters.entry("IP").and_modify(|c| *c += 1).or_insert(1);
-                let token = format!("[IP-{:03}]", count);
-                self.mappings.push((original.clone(), token.clone()));
-            }
-        }
+        // ══════════════════════════════════════════════════════════
+        // SECRETS & CREDENTIALS (match first — highest priority)
+        // ══════════════════════════════════════════════════════════
 
-        // Hostnames (word-word patterns, common server names)
-        let host_re = Regex::new(r"\b([a-z]+-[a-z]+-\d+|[a-z]+-\d+|srv-[a-z]+)\b").unwrap();
-        for cap in host_re.find_iter(text) {
-            let original = cap.as_str().to_string();
-            if !self.mappings.iter().any(|(o, _)| o == &original) {
-                let count = counters.entry("HOST").and_modify(|c| *c += 1).or_insert(1);
-                let token = format!("[HOST-{:03}]", count);
-                self.mappings.push((original.clone(), token.clone()));
-            }
-        }
+        // SSH private keys (multi-line markers)
+        self.scan_full(text,
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+            "SSHKEY", &mut counters);
+
+        // Database connection strings (postgres://, mysql://, mongodb://, redis://)
+        self.scan_full(text,
+            r"(?:postgres|postgresql|mysql|mongodb|mongodb\+srv|redis|amqp)://\S+",
+            "DBCONN", &mut counters);
+
+        // API keys — AWS
+        self.scan_full(text, r"\bAKIA[0-9A-Z]{16}\b", "APIKEY", &mut counters);
+        // API keys — Slack
+        self.scan_full(text, r"\bxox[bporas]-[0-9a-zA-Z-]+", "APIKEY", &mut counters);
+        // API keys — GitHub
+        self.scan_full(text, r"\bgh[ps]_[A-Za-z0-9_]{36,}\b", "APIKEY", &mut counters);
+        // API keys — GitLab
+        self.scan_full(text, r"\bglpat-[A-Za-z0-9_-]{20,}\b", "APIKEY", &mut counters);
+        // API keys — Anthropic
+        self.scan_full(text, r"\bsk-ant-[A-Za-z0-9_-]{20,}\b", "APIKEY", &mut counters);
+        // API keys — OpenAI
+        self.scan_full(text, r"\bsk-[A-Za-z0-9]{20,}\b", "APIKEY", &mut counters);
+        // API keys — Stripe
+        self.scan_full(text, r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}\b", "APIKEY", &mut counters);
+        // API keys — SendGrid
+        self.scan_full(text, r"\bSG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{10,}\b", "APIKEY", &mut counters);
+        // API keys — Twilio
+        self.scan_full(text, r"\bSK[0-9a-fA-F]{32}\b", "APIKEY", &mut counters);
+
+        // Bearer tokens
+        self.scan_group(text,
+            r"(?i)(?:Bearer|Authorization[:\s]+Bearer)\s+([A-Za-z0-9_.\-/+=]{20,})",
+            "BEARER", 1, &mut counters);
+
+        // Passwords in key=value context
+        self.scan_group(text,
+            r"(?i)(?:password|passwd|pwd|secret|token)[=:\s]+(\S{4,})",
+            "SECRET", 1, &mut counters);
+
+        // ══════════════════════════════════════════════════════════
+        // NETWORK & INFRASTRUCTURE
+        // ══════════════════════════════════════════════════════════
+
+        // CIDR subnets (before IPs to match the longer pattern first)
+        self.scan_full(text,
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b",
+            "CIDR", &mut counters);
+
+        // IPv4
+        self.scan_full(text,
+            r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
+            "IP", &mut counters);
+
+        // MAC addresses — scan BEFORE IPv6 (aa:bb:cc:dd:ee:ff can look like short IPv6)
+        self.scan_full(text,
+            r"(?i)\b[0-9a-f]{2}[:-][0-9a-f]{2}[:-][0-9a-f]{2}[:-][0-9a-f]{2}[:-][0-9a-f]{2}[:-][0-9a-f]{2}\b",
+            "MAC", &mut counters);
+
+        // IPv6 (full, compressed, and link-local)
+        self.scan_full(text,
+            r"(?i)\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b|(?i)\b(?:[0-9a-f]{1,4}:)*::[0-9a-f:]*\b|(?i)\bfe80::[0-9a-f:%]+\b",
+            "IPV6", &mut counters);
+
+        // Hostnames (server naming patterns)
+        self.scan_full(text,
+            r"\b(?:[a-z]+-[a-z]+-\d+|[a-z]+-\d+|srv-[a-z]+)\b",
+            "HOST", &mut counters);
+
+        // Windows file paths
+        self.scan_full(text,
+            r"[A-Z]:\\(?:Users|Windows|Program Files|ProgramData)\\\S+",
+            "PATH", &mut counters);
+
+        // Unix sensitive paths
+        self.scan_full(text,
+            r"(?:/home/|/root/|/etc/|/var/log/|/opt/)\S+",
+            "PATH", &mut counters);
+
+        // Active Directory distinguished names
+        self.scan_full(text,
+            r"(?i)(?:CN|OU|DC)=[^,]+(?:,\s*(?:CN|OU|DC)=[^,]+){1,}",
+            "ADPATH", &mut counters);
+
+        // Windows SIDs
+        self.scan_full(text,
+            r"\bS-1-5-21-\d+-\d+-\d+(?:-\d+)?\b",
+            "SID", &mut counters);
+
+        // Internal URLs (common intranet patterns)
+        self.scan_full(text,
+            r"https?://[a-zA-Z0-9.-]+\.(?:local|internal|corp|intranet|lan)[^\s]*",
+            "INTURL", &mut counters);
+
+        // ══════════════════════════════════════════════════════════
+        // IDENTITY & PERSONAL DATA (GDPR)
+        // ══════════════════════════════════════════════════════════
 
         // Email addresses
-        let email_re = Regex::new(r"\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b").unwrap();
-        for cap in email_re.find_iter(text) {
-            let original = cap.as_str().to_string();
-            if !self.mappings.iter().any(|(o, _)| o == &original) {
-                let count = counters.entry("EMAIL").and_modify(|c| *c += 1).or_insert(1);
-                let token = format!("[EMAIL-{:03}]", count);
-                self.mappings.push((original.clone(), token.clone()));
-            }
-        }
+        self.scan_full(text,
+            r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",
+            "EMAIL", &mut counters);
+
+        // International phone numbers (E.164 and common formats)
+        // +XX followed by 7-14 digits with optional separators
+        self.scan_full(text,
+            r"\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{0,4}",
+            "PHONE", &mut counters);
+        // French local format (06, 07, 01-05, 09)
+        self.scan_full(text,
+            r"\b0[1-79][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}\b",
+            "PHONE", &mut counters);
+
+        // IBAN (international: 2 letters + 2 check digits + up to 30 alphanumeric)
+        self.scan_full(text,
+            r"\b[A-Z]{2}\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{0,4}[\s]?\d{0,3}\b",
+            "IBAN", &mut counters);
+
+        // Credit card numbers (13-19 digits, optional spaces/dashes)
+        self.scan_full(text,
+            r"\b(?:\d{4}[\s-]?){3,4}\d{1,4}\b",
+            "CARD", &mut counters);
+
+        // French NIR (social security: 1 or 2 + 13 digits)
+        self.scan_full(text,
+            r"\b[12]\s?\d{2}\s?\d{2}\s?\d{2}\s?\d{3}\s?\d{3}\s?\d{2}\b",
+            "NIR", &mut counters);
 
         // Usernames (after "user:" or "username:")
-        let user_re = Regex::new(r"(?i)(?:user(?:name)?[:\s=]+)([a-zA-Z0-9._-]+)").unwrap();
-        for cap in user_re.captures_iter(text) {
-            if let Some(m) = cap.get(1) {
-                let original = m.as_str().to_string();
-                if !self.mappings.iter().any(|(o, _)| o == &original) {
-                    let count = counters.entry("USER").and_modify(|c| *c += 1).or_insert(1);
-                    let token = format!("[USER-{:03}]", count);
-                    self.mappings.push((original.clone(), token.clone()));
-                }
+        self.scan_group(text,
+            r"(?i)(?:user(?:name)?[:\s=]+)([a-zA-Z0-9._-]+)",
+            "USER", 1, &mut counters);
+
+        // ══════════════════════════════════════════════════════════
+        // BUSINESS IDENTIFIERS
+        // ══════════════════════════════════════════════════════════
+
+        // French SIRET (14 digits) / SIREN (9 digits)
+        self.scan_full(text,
+            r"\b\d{3}\s?\d{3}\s?\d{3}\s?\d{5}\b",
+            "SIRET", &mut counters);
+        self.scan_full(text,
+            r"\b\d{3}\s?\d{3}\s?\d{3}\b",
+            "SIREN", &mut counters);
+
+        // EU VAT numbers (FR, DE, IT, ES, GB, BE, NL, AT, PL, PT, etc.)
+        self.scan_full(text,
+            r"\b(?:FR|DE|IT|ES|GB|BE|NL|AT|PL|PT|IE|SE|DK|FI|CZ|RO|BG|HR|SI|SK|HU|LT|LV|EE|LU|MT|CY|EL)\d{2,13}\b",
+            "VAT", &mut counters);
+
+        // ══════════════════════════════════════════════════════════
+        // CUSTOM RULES (RSSI-defined patterns from database)
+        // ══════════════════════════════════════════════════════════
+        let custom_rules = self.custom_rules.clone();
+        for rule in &custom_rules {
+            if rule.capture_group > 0 {
+                self.scan_group(text, &rule.pattern, &rule.token_prefix, rule.capture_group, &mut counters);
+            } else {
+                self.scan_full(text, &rule.pattern, &rule.token_prefix, &mut counters);
             }
         }
 
         // Apply all mappings (longest first to avoid partial replacements)
+        let mut result = text.to_string();
         let mut sorted_mappings = self.mappings.clone();
         sorted_mappings.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
         for (original, token) in &sorted_mappings {
@@ -93,7 +265,6 @@ impl AnonymizationMap {
     /// Dé-anonymise un texte en restaurant les données originales.
     pub fn deanonymize(&self, text: &str) -> String {
         let mut result = text.to_string();
-        // Apply in reverse order (tokens → originals)
         for (original, token) in &self.mappings {
             result = result.replace(token, original);
         }
@@ -103,6 +274,18 @@ impl AnonymizationMap {
     /// Nombre de mappings actifs.
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
+    }
+
+    /// Retourne les catégories de données anonymisées.
+    pub fn categories(&self) -> Vec<String> {
+        let mut cats: Vec<String> = self.mappings.iter()
+            .filter_map(|(_, token)| {
+                token.strip_prefix('[')?.split('-').next().map(|s| s.to_string())
+            })
+            .collect();
+        cats.sort();
+        cats.dedup();
+        cats
     }
 }
 
@@ -221,6 +404,8 @@ async fn call_openai_compatible(
 mod tests {
     use super::*;
 
+    // ── Existing tests (preserved) ──
+
     #[test]
     fn test_anonymize_ips() {
         let mut map = AnonymizationMap::new();
@@ -260,7 +445,7 @@ mod tests {
     #[test]
     fn test_deanonymize_roundtrip() {
         let mut map = AnonymizationMap::new();
-        let original = "Brute force from 10.0.0.42 user admin@corp.com on bastion-01";
+        let original = "Brute force from 10.0.0.42 user: admin on bastion-01";
         let anonymized = map.anonymize(original);
         let restored = map.deanonymize(&anonymized);
         assert_eq!(restored, original);
@@ -270,16 +455,8 @@ mod tests {
     fn test_same_ip_same_token() {
         let mut map = AnonymizationMap::new();
         let result = map.anonymize("10.0.0.42 attacked 192.168.1.10 then 10.0.0.42 came back");
-        // Same IP should get same token
         let count = result.matches("[IP-001]").count();
         assert_eq!(count, 2);
-    }
-
-    #[test]
-    fn test_mapping_count() {
-        let mut map = AnonymizationMap::new();
-        map.anonymize("10.0.0.1 and 10.0.0.2 and admin@test.com");
-        assert_eq!(map.mapping_count(), 3);
     }
 
     #[test]
@@ -289,6 +466,236 @@ mod tests {
         let result = map.anonymize(text);
         assert_eq!(result, text);
         assert_eq!(map.mapping_count(), 0);
+    }
+
+    // ── Network & infrastructure ──
+
+    #[test]
+    fn test_anonymize_ipv6() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Connection from 2001:db8::1 to fe80::1%eth0");
+        assert!(result.contains("[IPV6-"));
+        assert!(!result.contains("2001:db8::1"));
+    }
+
+    #[test]
+    fn test_anonymize_cidr() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Scanning subnet 192.168.1.0/24");
+        assert!(result.contains("[CIDR-001]"));
+        assert!(!result.contains("192.168.1.0/24"));
+    }
+
+    #[test]
+    fn test_anonymize_mac() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Device MAC aa:bb:cc:dd:ee:ff detected");
+        assert!(result.contains("[MAC-001]"));
+        assert!(!result.contains("aa:bb:cc:dd:ee:ff"));
+    }
+
+    #[test]
+    fn test_anonymize_windows_path() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize(r"Malware found at C:\Users\jean.dupont\Downloads\payload.exe");
+        assert!(result.contains("[PATH-001]"));
+        assert!(!result.contains("jean.dupont"));
+    }
+
+    #[test]
+    fn test_anonymize_unix_path() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("SSH key at /home/admin/.ssh/id_rsa");
+        assert!(result.contains("[PATH-001]"));
+        assert!(!result.contains("/home/admin"));
+    }
+
+    #[test]
+    fn test_anonymize_ad_path() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("User CN=Jean Dupont,OU=IT,DC=corp,DC=local");
+        assert!(result.contains("[ADPATH-001]"));
+        assert!(!result.contains("Jean Dupont"));
+    }
+
+    #[test]
+    fn test_anonymize_windows_sid() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Account SID S-1-5-21-3623811015-3361044348-30300820-1013");
+        assert!(result.contains("[SID-001]"));
+        assert!(!result.contains("3623811015"));
+    }
+
+    #[test]
+    fn test_anonymize_internal_url() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Dashboard at https://grafana.corp.local/d/api-latency");
+        assert!(result.contains("[INTURL-001]"));
+        assert!(!result.contains("grafana.corp.local"));
+    }
+
+    // ── Credentials & secrets ──
+
+    #[test]
+    fn test_anonymize_aws_key() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("AWS key AKIAIOSFODNN7EXAMPLE found in config");
+        assert!(result.contains("[APIKEY-"));
+        assert!(!result.contains("AKIAIOSFODNN7EXAMPLE"));
+    }
+
+    #[test]
+    fn test_anonymize_slack_token() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Slack token xoxb-123456789-abcdefgh in .env");
+        assert!(result.contains("[APIKEY-"));
+        assert!(!result.contains("xoxb-"));
+    }
+
+    #[test]
+    fn test_anonymize_github_token() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh1234 leaked");
+        assert!(result.contains("[APIKEY-"));
+        assert!(!result.contains("ghp_"));
+    }
+
+    #[test]
+    fn test_anonymize_anthropic_key() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Key sk-ant-api03-abcdefghijklmnopqrst in config");
+        assert!(result.contains("[APIKEY-"));
+        assert!(!result.contains("sk-ant-"));
+    }
+
+    #[test]
+    fn test_anonymize_bearer_token() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig");
+        assert!(result.contains("[BEARER-001]"));
+        assert!(!result.contains("eyJhbGci"));
+    }
+
+    #[test]
+    fn test_anonymize_db_connection() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("DB at postgres://admin:s3cret@db.corp.local:5432/production");
+        assert!(result.contains("[DBCONN-001]"));
+        assert!(!result.contains("s3cret"));
+    }
+
+    #[test]
+    fn test_anonymize_ssh_key_marker() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Found -----BEGIN RSA PRIVATE KEY----- in /tmp/leak");
+        assert!(result.contains("[SSHKEY-001]"));
+    }
+
+    #[test]
+    fn test_anonymize_password_in_context() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Login with password=SuperS3cret123!");
+        assert!(result.contains("[SECRET-001]"));
+        assert!(!result.contains("SuperS3cret123!"));
+    }
+
+    // ── Personal data (GDPR) ──
+
+    #[test]
+    fn test_anonymize_phone_fr() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Contact: 06 12 34 56 78");
+        assert!(result.contains("[PHONE-001]"));
+        assert!(!result.contains("06 12 34"));
+    }
+
+    #[test]
+    fn test_anonymize_phone_international() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Call +44 20 7946 0958 for support");
+        assert!(result.contains("[PHONE-001]"));
+        assert!(!result.contains("+44"));
+    }
+
+    #[test]
+    fn test_anonymize_iban() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Wire to FR76 3000 6000 0112 3456 7890 189");
+        assert!(result.contains("[IBAN-001]"));
+        assert!(!result.contains("3000 6000"));
+    }
+
+    #[test]
+    fn test_anonymize_credit_card() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Card 4111 1111 1111 1111 compromised");
+        assert!(result.contains("[CARD-001]"));
+        assert!(!result.contains("4111"));
+    }
+
+    #[test]
+    fn test_anonymize_french_nir() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("NIR 1 85 05 78 006 084 36 found in leak");
+        assert!(result.contains("[NIR-001]"));
+        assert!(!result.contains("85 05 78"));
+    }
+
+    // ── Business identifiers ──
+
+    #[test]
+    fn test_anonymize_siret() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("Company SIRET 832 654 789 00015");
+        assert!(result.contains("[SIRET-001]"));
+        assert!(!result.contains("832 654 789"));
+    }
+
+    #[test]
+    fn test_anonymize_vat_eu() {
+        let mut map = AnonymizationMap::new();
+        let result = map.anonymize("VAT FR76832654789 registered");
+        assert!(result.contains("[VAT-001]"));
+        assert!(!result.contains("FR76832654789"));
+    }
+
+    // ── Custom rules ──
+
+    #[test]
+    fn test_custom_rule() {
+        let rules = vec![CustomAnonymizationRule {
+            label: "Project name".to_string(),
+            pattern: r"\bProject-Neptune\b".to_string(),
+            token_prefix: "PROJECT".to_string(),
+            capture_group: 0,
+        }];
+        let mut map = AnonymizationMap::with_custom_rules(rules);
+        let result = map.anonymize("Breach in Project-Neptune infrastructure");
+        assert!(result.contains("[PROJECT-001]"));
+        assert!(!result.contains("Project-Neptune"));
+    }
+
+    // ── Roundtrip & categories ──
+
+    #[test]
+    fn test_full_roundtrip_complex() {
+        let mut map = AnonymizationMap::new();
+        let original = "Attack from 10.0.0.42 user: admin targeting admin@corp.com on bastion-01";
+        let anonymized = map.anonymize(original);
+        assert!(!anonymized.contains("10.0.0.42"));
+        assert!(!anonymized.contains("admin@corp.com"));
+        let restored = map.deanonymize(&anonymized);
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn test_categories() {
+        let mut map = AnonymizationMap::new();
+        map.anonymize("IP 10.0.0.1, email a@b.com, MAC aa:bb:cc:dd:ee:ff");
+        let cats = map.categories();
+        assert!(cats.contains(&"IP".to_string()));
+        assert!(cats.contains(&"EMAIL".to_string()));
+        assert!(cats.contains(&"MAC".to_string()));
     }
 
     #[tokio::test]

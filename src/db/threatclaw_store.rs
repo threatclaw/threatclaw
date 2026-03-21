@@ -135,4 +135,15 @@ pub trait ThreatClawStore: Send + Sync {
         labels: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
     async fn get_dashboard_metrics(&self) -> Result<DashboardMetrics, DatabaseError>;
+
+    // Anonymizer custom rules
+    async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn create_anonymizer_rule(
+        &self,
+        label: &str,
+        pattern: &str,
+        token_prefix: &str,
+        capture_group: i32,
+    ) -> Result<String, DatabaseError>;
+    async fn delete_anonymizer_rule(&self, id: &str) -> Result<(), DatabaseError>;
 }
