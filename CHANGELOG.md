@@ -2,6 +2,27 @@
 
 All notable changes to ThreatClaw are documented here.
 
+## [0.2.1-beta] — 2026-03-21
+
+### Security
+- Patch 10 CVEs — 0 known CVE in default binary
+- Upgrade `wasmtime` 28 → 36.0.6 (4 CVEs fixed)
+- Upgrade `aws-lc-sys` 0.38.0 → 0.39.0 (2 CVEs fixed, including HIGH 7.4)
+- Upgrade `rustls-webpki` 0.103.9 → 0.103.10 (1 CVE fixed)
+- Replace `serde_yml` with `serde_yaml_ng` (unsound crate eliminated)
+- Remove unused `testcontainers-modules` (eliminates `tokio-tar` CVE)
+- Remove `libsql` from default features (CVE no longer in binary)
+
+### Added
+- **Cloud anonymization** — data is anonymized before sending to any cloud LLM provider (user-controlled flag)
+- **CLI wizard: Cloud Fallback step** — separate Primary AI and IA de secours configuration
+- **Multi-platform installers** — Linux, macOS (launchd), Windows (PowerShell + PATH)
+- **Dashboard anonymization toggle** — "Do your data leave your infrastructure?" on setup
+
+### Changed
+- Wizard step count: 9 → 10 (added cloud fallback step)
+- `LlmRouterConfig` now has `anonymize_primary` flag instead of backend-guessing
+
 ## [0.2.0-beta] — 2026-03-20
 
 ### Added
