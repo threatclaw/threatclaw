@@ -51,9 +51,15 @@ impl std::error::Error for ExecutorError {}
 
 /// Exécute une commande validée.
 ///
-/// La commande est décomposée en programme + arguments.
+/// Les commandes `skill-*` sont routées vers l'API interne (HTTP localhost).
+/// Les autres commandes sont exécutées en subprocess natif.
 /// Jamais de shell=true — pas d'injection possible.
 pub fn execute_validated(cmd: &ValidatedCommand) -> Result<ExecutionResult, ExecutorError> {
+    // Route skill commands to internal API
+    if cmd.id.starts_with("skill-") {
+        return execute_skill_command(cmd);
+    }
+
     let parts = split_command(&cmd.rendered_cmd);
     if parts.is_empty() {
         return Err(ExecutorError::ExecutionFailed("Empty command".to_string()));
@@ -93,6 +99,76 @@ pub fn execute_validated(cmd: &ValidatedCommand) -> Result<ExecutionResult, Exec
     }
 
     Ok(result)
+}
+
+/// Exécute une commande skill via l'API de test interne.
+///
+/// Les skills officielles sont des lookups API en lecture seule.
+/// On les exécute via POST /api/tc/skills/{id}/test qui fait le vrai appel API.
+/// Le résultat est retourné comme stdout pour que le ReAct cycle puisse l'analyser.
+fn execute_skill_command(cmd: &ValidatedCommand) -> Result<ExecutionResult, ExecutorError> {
+    // Extract skill ID from cmd_id: "skill-abuseipdb-check" → "skill-abuseipdb"
+    let skill_id = extract_skill_id(&cmd.id);
+
+    tracing::info!("EXECUTOR: Skill lookup {} — params: {:?}", skill_id, cmd.params);
+
+    // Build the API call synchronously (we're in a blocking context)
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| ExecutorError::ExecutionFailed(format!("HTTP client: {e}")))?;
+
+    let resp = client
+        .post(format!("http://127.0.0.1:3000/api/tc/skills/{}/test", skill_id))
+        .json(&cmd.params)
+        .send()
+        .map_err(|e| ExecutorError::ExecutionFailed(format!("Skill API call failed: {e}")))?;
+
+    let status_ok = resp.status().is_success();
+    let body = resp.text().unwrap_or_default();
+
+    let result = ExecutionResult {
+        cmd_id: cmd.id.clone(),
+        success: status_ok,
+        exit_code: if status_ok { Some(0) } else { Some(1) },
+        stdout: body,
+        stderr: String::new(),
+        rendered_cmd: format!("skill-exec {} {:?}", skill_id, cmd.params),
+    };
+
+    if status_ok {
+        tracing::info!("EXECUTOR: Skill {} lookup completed", skill_id);
+    } else {
+        tracing::warn!("EXECUTOR: Skill {} lookup failed", skill_id);
+    }
+
+    Ok(result)
+}
+
+/// Extrait l'ID du skill depuis l'ID de commande.
+/// "skill-abuseipdb-check" → "skill-abuseipdb"
+/// "skill-virustotal-url" → "skill-virustotal"
+/// "skill-email-audit" → "skill-email-audit"
+fn extract_skill_id(cmd_id: &str) -> String {
+    // Known skill IDs
+    let known = [
+        "skill-abuseipdb", "skill-cti-crowdsec", "skill-shodan",
+        "skill-virustotal", "skill-darkweb-monitor", "skill-email-audit",
+        "skill-wazuh", "skill-compliance-nis2", "skill-compliance-iso27001",
+        "skill-report-gen",
+    ];
+    for kid in &known {
+        if cmd_id.starts_with(kid) {
+            return kid.to_string();
+        }
+    }
+    // Fallback: take first two parts
+    let parts: Vec<&str> = cmd_id.splitn(3, '-').collect();
+    if parts.len() >= 2 {
+        format!("{}-{}", parts[0], parts[1])
+    } else {
+        cmd_id.to_string()
+    }
 }
 
 /// Valide et exécute en une étape (convenience function).

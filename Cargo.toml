@@ -43,7 +43,7 @@ futures = "0.3"
 eventsource-stream = "0.2"
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots", "stream", "blocking"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
