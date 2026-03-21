@@ -10,10 +10,9 @@ import {
 const STEPS = [
   { id: "welcome", label: "Bienvenue" },
   { id: "llm-primary", label: "IA Principale" },
-  { id: "llm-cloud", label: "IA Cloud" },
+  { id: "llm-cloud", label: "IA de secours" },
   { id: "communication", label: "Communication" },
   { id: "security", label: "Sécurité" },
-  { id: "schedule", label: "Planning" },
   { id: "confirm", label: "Lancement" },
 ];
 
@@ -98,6 +97,24 @@ export default function SetupWizard() {
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [channelTest, setChannelTest] = useState<Record<string, { testing: boolean; result?: { ok: boolean; error?: string; username?: string; team?: string } }>>({});
+
+  const testChannel = async (channelKey: string) => {
+    const ch = channels[channelKey];
+    const token = (ch.botToken || ch.accessToken || "") as string;
+    setChannelTest(p => ({ ...p, [channelKey]: { testing: true } }));
+    try {
+      const res = await fetch("/api/tc/config/test-channel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: channelKey, token }),
+      });
+      const data = await res.json();
+      setChannelTest(p => ({ ...p, [channelKey]: { testing: false, result: data } }));
+    } catch {
+      setChannelTest(p => ({ ...p, [channelKey]: { testing: false, result: { ok: false, error: "Connection failed" } } }));
+    }
+  };
 
   // Auto-detect RAM on mount
   useEffect(() => {
@@ -121,16 +138,35 @@ export default function SetupWizard() {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
     const config = {
-      llm: { backend: primary.backend, url: primary.url, model: primary.model, apiKey: primary.apiKey, anonymize: anonymizePrimary },
+      llm: { backend: primary.backend, url: primary.url, model: primary.model, apiKey: primary.apiKey },
+      anonymize_primary: anonymizePrimary,
       cloud: cloud.enabled ? { backend: cloud.backend, model: cloud.model, baseUrl: cloud.baseUrl, apiKey: cloud.apiKey, escalation: cloud.escalation } : null,
-      channels, permLevel, schedules,
+      channels,
+      permissions: permLevel,
+      general: { instanceName: "threatclaw", language: "fr" },
     };
-    localStorage.setItem("threatclaw_config", JSON.stringify(config));
-    localStorage.setItem("threatclaw_onboarded", "true");
-    setTimeout(() => { setSaving(false); setSaved(true); }, 1500);
+    try {
+      const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
+      const data = await res.json();
+      if (data.status === "saved") {
+        localStorage.setItem("threatclaw_onboarded", "true");
+        setSaving(false);
+        setSaved(true);
+      } else {
+        console.error("Config save failed:", data);
+        setSaving(false);
+      }
+    } catch (e) {
+      console.error("Config save error:", e);
+      // Fallback to localStorage if backend is down
+      localStorage.setItem("threatclaw_config", JSON.stringify(config));
+      localStorage.setItem("threatclaw_onboarded", "true");
+      setSaving(false);
+      setSaved(true);
+    }
   };
 
   const next = () => setStep(s => Math.min(s + 1, STEPS.length - 1));
@@ -274,8 +310,20 @@ export default function SetupWizard() {
                   </div>
                 )}
                 {primary.backend === "ollama" && !primary.connected && (
-                  <div className="pit-xs" style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+                  <div className="pit-xs" style={{ fontSize: "9px", color: "var(--text-secondary)" }}>
                     Si Ollama n{"'"}est pas installé, ThreatClaw le téléchargera automatiquement avec le modèle recommandé pour votre machine.
+                  </div>
+                )}
+                {primary.connected && primary.models.length === 0 && (
+                  <div className="pit-xs" style={{ fontSize: "9px", color: "var(--accent-warning)", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ fontWeight: 700 }}>Aucun modèle installé sur Ollama</div>
+                    <div style={{ color: "var(--text-secondary)" }}>Ouvrez un terminal et lancez :</div>
+                    <code style={{ background: "var(--bg-pit)", padding: "6px 8px", borderRadius: "6px", fontSize: "10px", fontFamily: "monospace", color: "var(--text-primary)", boxShadow: "var(--shadow-pit-xs)" }}>
+                      ollama pull qwen3:14b
+                    </code>
+                    <div style={{ color: "var(--text-secondary)", fontSize: "8px" }}>
+                      Puis re-cliquez sur Tester. Modèles recommandés : qwen3:8b (8 Go RAM), qwen3:14b (16 Go), qwen3:32b (32 Go).
+                    </div>
                   </div>
                 )}
               </div>
@@ -436,6 +484,29 @@ export default function SetupWizard() {
                             className="input-pit" style={{ fontSize: "10px", padding: "6px 8px" }} />
                         </div>
                       ))}
+                      {["slack", "telegram", "discord"].includes(ch.key) && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
+                          <button onClick={() => testChannel(ch.key)} className="btn-raised"
+                            disabled={channelTest[ch.key]?.testing}
+                            style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "9px", padding: "5px 10px" }}>
+                            {channelTest[ch.key]?.testing
+                              ? <><Loader2 size={10} className="animate-spin" /> Test...</>
+                              : channelTest[ch.key]?.result?.ok
+                                ? <><CheckCircle2 size={10} color="var(--accent-ok)" /> Connecté</>
+                                : <><Wifi size={10} /> Tester la connexion</>}
+                          </button>
+                          {channelTest[ch.key]?.result && !channelTest[ch.key]?.result?.ok && (
+                            <span style={{ fontSize: "8px", color: "var(--accent-danger)" }}>
+                              {channelTest[ch.key]?.result?.error}
+                            </span>
+                          )}
+                          {channelTest[ch.key]?.result?.ok && (
+                            <span style={{ fontSize: "8px", color: "var(--accent-ok)" }}>
+                              {channelTest[ch.key]?.result?.username || channelTest[ch.key]?.result?.team || "OK"}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -476,32 +547,8 @@ export default function SetupWizard() {
           </div>
         )}
 
-        {/* ── Step 5: Schedule ── */}
+        {/* ── Step 5: Confirm ── */}
         {step === 5 && (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <Calendar size={18} color="var(--accent-danger)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>Planning des scans</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {Object.entries(schedules).map(([key, sched]) => (
-                <div key={key} className="pit-sm" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--text-primary)" }}>{sched.label}</div>
-                    <div style={{ fontSize: "8px", color: "var(--text-muted)", fontFamily: "monospace" }}>{sched.default}</div>
-                  </div>
-                  <button onClick={() => setSchedules(p => ({ ...p, [key]: { ...p[key], enabled: !p[key].enabled } }))}
-                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
-                    <div className={`toggle-track${sched.enabled ? " active" : ""}`}><div className="toggle-thumb" /></div>
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 6: Confirm ── */}
-        {step === 6 && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <CheckCircle2 size={18} color="var(--accent-danger)" />
@@ -514,7 +561,6 @@ export default function SetupWizard() {
                 { label: "IA Cloud", value: cloud.enabled ? `${cloud.backend} (${cloud.escalation})` : "Désactivé — 100% local" },
                 { label: "Communication", value: Object.entries(channels).filter(([, v]) => v.enabled).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ") || "Aucun canal" },
                 { label: "Sécurité", value: permLevels.find(l => l.id === permLevel)?.label || permLevel },
-                { label: "Scans", value: `${Object.values(schedules).filter(s => s.enabled).length} / ${Object.values(schedules).length} actifs` },
               ].map(item => (
                 <div key={item.label} className="pit-xs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span className="label-caps">{item.label}</span>
@@ -527,8 +573,8 @@ export default function SetupWizard() {
               <div style={{ textAlign: "center" }}>
                 <CheckCircle2 size={28} color="var(--accent-ok)" style={{ margin: "0 auto 8px" }} />
                 <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--accent-ok)", marginBottom: "12px" }}>Configuration sauvegardée !</div>
-                <a href="/marketplace" className="btn-raised-lg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", textDecoration: "none", background: "var(--accent-danger)", color: "#fff" }}>
-                  <Puzzle size={14} /> Explorer le Marketplace
+                <a href="/skills" className="btn-raised-lg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", textDecoration: "none", background: "var(--accent-danger)", color: "#fff" }}>
+                  <Puzzle size={14} /> Explorer les Skills
                 </a>
                 <a href="/" style={{ display: "block", fontSize: "9px", color: "var(--text-muted)", textDecoration: "none", textAlign: "center", marginTop: "8px" }}>Aller au Dashboard</a>
               </div>
@@ -541,13 +587,13 @@ export default function SetupWizard() {
         )}
 
         {/* Navigation */}
-        {step > 0 && step < 6 && (
+        {step > 0 && step < 5 && (
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px" }}>
             <button onClick={prev} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px" }}><ChevronLeft size={12} /> Précédent</button>
             <button onClick={next} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px", color: "var(--accent-danger)" }}>Suivant <ChevronRight size={12} /></button>
           </div>
         )}
-        {step === 6 && !saved && (
+        {step === 5 && !saved && (
           <button onClick={prev} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px", marginTop: "8px" }}><ChevronLeft size={12} /> Modifier</button>
         )}
       </div>

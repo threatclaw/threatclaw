@@ -42,32 +42,64 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   });
   const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: "fr" });
 
+  // Load config from backend on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("threatclaw_config");
-      if (raw) {
-        const cfg = JSON.parse(raw);
+    (async () => {
+      try {
+        const res = await fetch("/api/tc/config");
+        const cfg = await res.json();
         if (cfg.llm) setLlm(p => ({ ...p, ...cfg.llm }));
-        if (cfg.channels) setChannels(cfg.channels);
-        if (cfg.permLevel) setPermLevel(cfg.permLevel);
-        if (cfg.schedules) {
-          setSchedules(prev => {
-            const merged = { ...prev };
-            Object.keys(cfg.schedules).forEach(k => {
-              if (merged[k]) merged[k] = { ...merged[k], enabled: cfg.schedules[k].enabled, ...(cfg.schedules[k].cron && { cron: cfg.schedules[k].cron }) };
-            });
-            return merged;
+        if (cfg.channels) setChannels(p => {
+          const merged = { ...p };
+          Object.keys(cfg.channels).forEach(k => {
+            if (merged[k]) merged[k] = { ...merged[k], ...cfg.channels[k] };
           });
-        }
-        if (cfg.general) setGeneral(cfg.general);
+          return merged;
+        });
+        if (cfg.permissions) setPermLevel(cfg.permissions);
+        if (cfg.general) setGeneral(p => ({ ...p, ...cfg.general }));
+      } catch {
+        // Fallback to localStorage
+        try {
+          const raw = localStorage.getItem("threatclaw_config");
+          if (raw) {
+            const cfg = JSON.parse(raw);
+            if (cfg.llm) setLlm(p => ({ ...p, ...cfg.llm }));
+            if (cfg.channels) setChannels(p => {
+              const merged = { ...p };
+              Object.keys(cfg.channels).forEach(k => {
+                if (merged[k]) merged[k] = { ...merged[k], ...cfg.channels[k] };
+              });
+              return merged;
+            });
+            if (cfg.permLevel) setPermLevel(cfg.permLevel);
+            if (cfg.general) setGeneral(p => ({ ...p, ...cfg.general }));
+          }
+        } catch { /* */ }
       }
-    } catch { /* */ }
+    })();
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem("threatclaw_config", JSON.stringify({ llm, channels, permLevel, schedules, general }));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    const config = {
+      llm: { backend: llm.backend, url: llm.url, model: llm.model, apiKey: llm.apiKey },
+      channels,
+      permissions: permLevel,
+      general,
+    };
+    try {
+      const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
+      const data = await res.json();
+      if (data.status === "saved") {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } catch {
+      // Fallback localStorage
+      localStorage.setItem("threatclaw_config", JSON.stringify(config));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
   };
 
   const testOllama = async () => {
@@ -95,7 +127,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "llm", label: "IA Principale", icon: Cpu, summary: `${llm.backend} · ${llm.model || "non configuré"}` },
     { id: "communication", label: "Communication", icon: MessageSquare, summary: `${Object.values(channels).filter(c => c.enabled).length} canal(aux) actif(s)` },
     { id: "security", label: "Niveau de sécurité", icon: ShieldAlert, summary: PERM_LEVELS.find(l => l.id === permLevel)?.label || permLevel },
-    { id: "schedule", label: "Planning des scans", icon: Calendar, summary: `${Object.values(schedules).filter(s => s.enabled).length}/${Object.values(schedules).length} actifs` },
+    // Planning retiré — sera configurable par skill
   ];
 
   const channelDefs = [

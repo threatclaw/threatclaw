@@ -651,6 +651,130 @@ pub async fn soul_info_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// CONFIGURATION (LLM, channels, permissions, anonymizer)
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/config — get all ThreatClaw configuration.
+pub async fn config_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let mut config = serde_json::json!({});
+    for key in &["llm", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+        let setting_key = format!("tc_config_{}", key);
+        if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
+            config[*key] = val;
+        }
+    }
+    Ok(Json(config))
+}
+
+/// POST /api/tc/config — save all ThreatClaw configuration.
+pub async fn config_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Save each config section
+    for key in &["llm", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+        if let Some(val) = body.get(*key) {
+            let setting_key = format!("tc_config_{}", key);
+            store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;
+        }
+    }
+
+    // Also update agent_mode if permissions changed
+    if let Some(perm) = body.get("permissions").and_then(|v| v.as_str()) {
+        let mode = match perm {
+            "READ_ONLY" => "analyst",
+            "ALERT_ONLY" => "investigator",
+            "REMEDIATE_WITH_APPROVAL" => "responder",
+            "FULL_AUTO" => "autonomous_low",
+            _ => "investigator",
+        };
+        store.set_setting("_system", "agent_mode", &serde_json::json!(mode)).await.map_err(db_err)?;
+    }
+
+    // Set onboard completed
+    store.set_setting("_system", "tc_onboarded", &serde_json::json!(true)).await.map_err(db_err)?;
+
+    tracing::info!("ThreatClaw configuration saved via dashboard");
+    Ok(Json(serde_json::json!({ "status": "saved" })))
+}
+
+/// POST /api/tc/config/test-channel — test a channel connection.
+pub async fn config_test_channel_handler(
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let channel = body.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+    let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("");
+
+    if token.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Token is empty" })));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let result = match channel {
+        "slack" => {
+            let resp = client.get("https://slack.com/api/auth.test")
+                .header("Authorization", format!("Bearer {}", token))
+                .send().await;
+            match resp {
+                Ok(r) => {
+                    let data: serde_json::Value = r.json().await.unwrap_or_default();
+                    if data["ok"].as_bool() == Some(true) {
+                        serde_json::json!({ "ok": true, "team": data["team"], "user": data["user"] })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": data["error"] })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "telegram" => {
+            let resp = client.get(format!("https://api.telegram.org/bot{}/getMe", token))
+                .send().await;
+            match resp {
+                Ok(r) => {
+                    let data: serde_json::Value = r.json().await.unwrap_or_default();
+                    if data["ok"].as_bool() == Some(true) {
+                        serde_json::json!({ "ok": true, "username": data["result"]["username"] })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": data["description"] })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        "discord" => {
+            let resp = client.get("https://discord.com/api/v10/users/@me")
+                .header("Authorization", format!("Bot {}", token))
+                .send().await;
+            match resp {
+                Ok(r) => {
+                    if r.status().is_success() {
+                        let data: serde_json::Value = r.json().await.unwrap_or_default();
+                        serde_json::json!({ "ok": true, "username": data["username"] })
+                    } else {
+                        serde_json::json!({ "ok": false, "error": format!("HTTP {}", r.status()) })
+                    }
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
+        _ => serde_json::json!({ "ok": false, "error": format!("Test not available for channel: {}", channel) }),
+    };
+
+    Ok(Json(result))
+}
+
+// ══════════════════════════════════════════════════════════
 // ANONYMIZER CUSTOM RULES
 // ══════════════════════════════════════════════════════════
 

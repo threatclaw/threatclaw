@@ -16,7 +16,7 @@ export default function RootLayout({
   const isSetupWizard = pathname === "/setup" && typeof window !== "undefined" && !localStorage.getItem("threatclaw_onboarded");
 
   return (
-    <html lang="fr">
+    <html lang="fr" data-theme="light">
       <head>
         <title>ThreatClaw</title>
         <meta name="description" content="Agent de cybersécurité autonome" />
