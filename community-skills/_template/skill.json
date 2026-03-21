@@ -1,0 +1,51 @@
+{
+  "id": "skill-CHANGEME",
+  "name": "CHANGEME — Short Name",
+  "version": "0.1.0",
+  "description": "One-line description of what this skill does",
+  "author": "Your Name <you@example.com>",
+  "license": "Apache-2.0",
+  "trust": "community",
+  "category": "monitoring",
+  "runtime": "docker",
+
+  "requires_network": true,
+  "timeout_seconds": 300,
+  "memory_mb": 256,
+
+  "config_fields": [
+    {
+      "key": "api_key",
+      "label": "API Key",
+      "type": "password",
+      "required": true,
+      "placeholder": "Your API key",
+      "help_url": "https://example.com/get-api-key"
+    },
+    {
+      "key": "targets",
+      "label": "Targets",
+      "type": "text",
+      "required": false,
+      "placeholder": "example.com, example.org",
+      "description": "Comma-separated list"
+    }
+  ],
+
+  "capabilities": {
+    "http_allowed": true,
+    "http_allowlist": [
+      "https://api.example.com/*"
+    ],
+    "workspace_read": false,
+    "secrets": ["api_key"]
+  },
+
+  "test": {
+    "endpoint": "https://api.example.com/v1/status",
+    "method": "GET",
+    "auth_header": "Authorization",
+    "auth_format": "Bearer {api_key}",
+    "expected_status": 200
+  }
+}
