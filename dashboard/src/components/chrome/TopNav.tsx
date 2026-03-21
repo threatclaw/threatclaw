@@ -3,12 +3,11 @@
 import React from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Bell, Puzzle, Settings, Activity, Server } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Accueil", icon: Shield },
-  { href: "/alertes", label: "Alertes", icon: Bell },
-  { href: "/infrastructure", label: "Infra", icon: Server },
+  { href: "/", label: "Status", icon: Shield },
+  { href: "/infrastructure", label: "Cibles", icon: Server },
   { href: "/skills", label: "Skills", icon: Puzzle },
   { href: "/agent", label: "Agent", icon: Activity },
   { href: "/setup", label: "Config", icon: Settings },
