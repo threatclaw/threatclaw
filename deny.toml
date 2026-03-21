@@ -2,19 +2,30 @@
 unmaintained = "workspace"
 yanked = "deny"
 ignore = [
-    # Pre-existing advisories — tracked for upgrade in separate PRs
-    # serde_yml unsound/unmaintained — direct dep, upgrade tracked separately
+    # ── serde_yml ──
+    # Unsound/unmaintained — direct dep, upgrade tracked separately
     "RUSTSEC-2025-0068",
-    # tokio-tar PAX header parsing — sandbox containers only
+
+    # ── tokio-tar ──
+    # PAX header parsing — only used in testcontainers (dev/test), not production
     "RUSTSEC-2025-0111",
-    # wasmtime fd_renumber host panic — WASIp1, mitigated by fuel limits
+
+    # ── wasmtime 28.x (pinned by IronClaw upstream) ──
+    # fd_renumber host panic — WASIp1 only, mitigated by fuel limits
     "RUSTSEC-2025-0046",
-    # wasmtime shared linear memory unsoundness — no shared memory in our guests
+    # Shared linear memory unsoundness — no shared memory in our WASM guests
     "RUSTSEC-2025-0118",
-    # wasmtime guest-controlled resource exhaustion — mitigated by fuel/memory limits
+    # Guest-controlled resource exhaustion — mitigated by fuel + memory limits
     "RUSTSEC-2026-0020",
-    # wasmtime wasi:http/types.fields panic — mitigated by fuel limits
+    # wasi:http/types.fields panic — mitigated by fuel limits
     "RUSTSEC-2026-0021",
+
+    # ── rustls-webpki 0.101.7 / 0.102.8 (transitive, pinned by upstream) ──
+    # CRL Distribution Point matching bypass — affects old rustls versions
+    # pulled by libsql 0.6.0 (rustls 0.22) and aws-smithy (rustls 0.21).
+    # Our direct rustls-webpki 0.103.10 is patched. These old versions cannot
+    # be upgraded without upstream releasing new libsql/aws-sdk versions.
+    "RUSTSEC-2026-0049",
 ]
 
 [licenses]
