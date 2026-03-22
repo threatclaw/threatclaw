@@ -5,7 +5,7 @@ import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
   Plus, Trash2, Send, Bot, ArrowRight, Database, Key, Radio, Mail,
-  Download, Play, XCircle, Cloud,
+  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight,
 } from "lucide-react";
 
 // ── Channel SVG icons (no emojis) ──
@@ -294,9 +294,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               </div>
               <div>
                 <div style={labelStyle}>Langue</div>
-                <select style={inputStyle} value={general.language} onChange={e => setGeneral(p => ({ ...p, language: e.target.value }))}>
-                  <option value="fr">Français</option><option value="en">English</option>
-                </select>
+                <GlassSelect value={general.language} onChange={v => setGeneral(p => ({ ...p, language: v }))} options={[
+                  { value: "fr", label: "Français" }, { value: "en", label: "English" },
+                ]} />
               </div>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
@@ -478,7 +478,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 }
 
 // ═══════════════════════════════════════
-// LLM TAB — 3 levels with model management
+// LLM TAB — 4-level AI architecture
 // ═══════════════════════════════════════
 
 interface LlmTabProps {
@@ -497,14 +497,40 @@ interface LlmTabProps {
   labelStyle: React.CSSProperties;
 }
 
+// Custom styled select matching glass design
+function GlassSelect({ value, onChange, options, placeholder }: {
+  value: string; onChange: (v: string) => void;
+  options: { value: string; label: string; detail?: string }[];
+  placeholder?: string;
+}) {
+  return (
+    <div style={{ position: "relative" }}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{
+        width: "100%", appearance: "none", WebkitAppearance: "none",
+        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: "10px", padding: "12px 36px 12px 14px", fontSize: "13px",
+        color: value ? "#e8e4e0" : "#5a534e", fontFamily: "inherit", cursor: "pointer",
+        outline: "none", transition: "border-color 0.2s",
+        boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
+      }}>
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}{o.detail ? ` — ${o.detail}` : ""}</option>)}
+      </select>
+      <ChevronDown size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "#5a534e", pointerEvents: "none" }} />
+    </div>
+  );
+}
+
 function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
   const [pullModel, setPullModel] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<string | null>(null);
+  const [showModels, setShowModels] = useState(false);
   const [testingModel, setTestingModel] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; msg: string }>>({});
   const [cloudTesting, setCloudTesting] = useState(false);
   const [cloudTestResult, setCloudTestResult] = useState<{ ok: boolean; models?: string[]; error?: string } | null>(null);
+  const [changingLevel, setChangingLevel] = useState<string | null>(null);
 
   const pullOllamaModel = async () => {
     if (!pullModel) return;
@@ -570,31 +596,37 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
     setCloudTesting(false);
   };
 
+  const modelOptions = llmModels.map(m => ({ value: m.name, label: m.name, detail: m.size }));
+
   const LevelBadge = ({ level, color, bg, border }: { level: string; color: string; bg: string; border: string }) => (
-    <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: bg, border: `1px solid ${border}`,
-      display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 800, color, flexShrink: 0 }}>
+    <div style={{ minWidth: "32px", height: "32px", borderRadius: "8px", background: bg, border: `1px solid ${border}`,
+      display: "flex", alignItems: "center", justifyContent: "center", fontSize: level.length > 2 ? "10px" : "13px", fontWeight: 800, color, flexShrink: 0, padding: "0 6px" }}>
       {level}
     </div>
   );
+
+  // AI level definitions
+  const aiLevels = [
+    { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
+    { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
+    { id: "l25", level: "L2.5", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
+  ];
 
   return (
     <>
       {/* Architecture overview */}
       <ChromeInsetCard>
-        <div style={{ fontSize: "13px", color: "#9a918a", lineHeight: 1.7 }}>
-          <strong style={{ color: "#e8e4e0" }}>Architecture 4 niveaux</strong> — Pipeline auto (L1→L2→L4) + actions RSSI (L3) :
-        </div>
-        <div style={{ display: "flex", gap: "8px", marginTop: "14px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L1", label: "Triage", desc: "Alertes, JSON structuré", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "L2", label: "Forensique", desc: "Critical/High, MITRE", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L2.5", label: "Instruct", desc: "Playbooks SOAR, Sigma, HITL", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "L2.5", label: "Instruct", desc: "Playbooks, HITL", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
             { level: "L3", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
-            <div key={l.level} style={{ flex: 1, padding: "10px 12px", borderRadius: "10px", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
+            <div key={l.level} style={{ flex: 1, minWidth: "100px", padding: "10px 12px", borderRadius: "10px", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "18px", fontWeight: 800, color: l.color }}>{l.level}</div>
-              <div style={{ fontSize: "12px", fontWeight: 600, color: "#e8e4e0", marginTop: "2px" }}>{l.label}</div>
-              <div style={{ fontSize: "10px", color: "#5a534e", marginTop: "2px" }}>{l.desc}</div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "#e8e4e0", marginTop: "2px" }}>{l.label}</div>
+              <div style={{ fontSize: "9px", color: "#5a534e", marginTop: "2px" }}>{l.desc}</div>
             </div>
           ))}
         </div>
@@ -687,16 +719,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
         <div>
           <div style={labelStyle}>Modèle L1</div>
           {llm.connected && llm.models.length > 0 ? (
-            <select style={inputStyle} value={llm.model} onChange={e => setLlm(p => ({ ...p, model: e.target.value }))}>
-              <option value="">— Sélectionner un modèle —</option>
-              {llm.models.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <GlassSelect value={llm.model} onChange={v => setLlm(p => ({ ...p, model: v }))}
+              options={modelOptions} placeholder="— Sélectionner un modèle —" />
           ) : (
             <input style={inputStyle} value={llm.model} onChange={e => setLlm(p => ({ ...p, model: e.target.value }))}
-              placeholder="Connectez Ollama pour voir les modèles disponibles" />
+              placeholder="Connectez Ollama pour voir les modèles" />
           )}
           <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#3080d0" }}>threatclaw-l1</strong> (qwen3:8b + system prompt SOC français)
+            Recommandé : <strong style={{ color: "#3080d0" }}>threatclaw-l1</strong> — ThreatClaw AI 8B Triage
           </div>
         </div>
       </ChromeInsetCard>
@@ -713,16 +743,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
         <div>
           <div style={labelStyle}>Modèle L2</div>
           {llm.connected && llm.models.length > 0 ? (
-            <select style={inputStyle} value={forensic.model} onChange={e => setForensic(p => ({ ...p, model: e.target.value }))}>
-              <option value="">— Sélectionner un modèle —</option>
-              {llm.models.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <GlassSelect value={forensic.model} onChange={v => setForensic(p => ({ ...p, model: v }))}
+              options={modelOptions} placeholder="— Sélectionner un modèle —" />
           ) : (
             <input style={inputStyle} value={forensic.model} onChange={e => setForensic(p => ({ ...p, model: e.target.value }))}
               placeholder="threatclaw-l2" />
           )}
           <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#d09020" }}>threatclaw-l2</strong> (Foundation-Sec Reasoning Q8_0)
+            Recommandé : <strong style={{ color: "#d09020" }}>threatclaw-l2</strong> — ThreatClaw AI 8B Reasoning
           </div>
         </div>
       </ChromeInsetCard>
@@ -740,16 +768,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
         <div>
           <div style={labelStyle}>Modèle Instruct</div>
           {llm.connected && llm.models.length > 0 ? (
-            <select style={inputStyle} value={instruct.model} onChange={e => setInstruct(p => ({ ...p, model: e.target.value }))}>
-              <option value="">— Sélectionner —</option>
-              {llm.models.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <GlassSelect value={instruct.model} onChange={v => setInstruct(p => ({ ...p, model: v }))}
+              options={modelOptions} placeholder="— Sélectionner un modèle —" />
           ) : (
             <input style={inputStyle} value={instruct.model} onChange={e => setInstruct(p => ({ ...p, model: e.target.value }))}
               placeholder="threatclaw-l3" />
           )}
           <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#30a050" }}>threatclaw-l3</strong> (Foundation-Sec Instruct Q4_K_M ~5GB)
+            Recommandé : <strong style={{ color: "#30a050" }}>threatclaw-l3</strong> — ThreatClaw AI 8B Instruct
           </div>
           <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
             Jamais chargé en même temps que L2 Forensique (mutual exclusion RAM). Déchargement auto après 5 min.
@@ -787,11 +813,11 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
           <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
             <div>
               <div style={labelStyle}>Provider</div>
-              <select style={inputStyle} value={cloud.backend} onChange={e => setCloud(p => ({ ...p, backend: e.target.value }))}>
-                <option value="anthropic">Anthropic Claude</option>
-                <option value="mistral">Mistral AI (souverain FR)</option>
-                <option value="openai_compatible">OpenAI / Compatible</option>
-              </select>
+              <GlassSelect value={cloud.backend} onChange={v => setCloud(p => ({ ...p, backend: v }))} options={[
+                { value: "anthropic", label: "Anthropic Claude" },
+                { value: "mistral", label: "Mistral AI (souverain FR)" },
+                { value: "openai_compatible", label: "OpenAI / Compatible" },
+              ]} />
             </div>
             <div>
               <div style={labelStyle}>Clé API</div>
@@ -816,10 +842,8 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             <div>
               <div style={labelStyle}>Modèle</div>
               {cloudTestResult?.ok && cloudTestResult.models && cloudTestResult.models.length > 0 ? (
-                <select style={inputStyle} value={cloud.model} onChange={e => setCloud(p => ({ ...p, model: e.target.value }))}>
-                  <option value="">— Sélectionner —</option>
-                  {cloudTestResult.models.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <GlassSelect value={cloud.model} onChange={v => setCloud(p => ({ ...p, model: v }))}
+                  options={cloudTestResult.models.map(m => ({ value: m, label: m }))} placeholder="— Sélectionner —" />
               ) : (
                 <input style={inputStyle} value={cloud.model} onChange={e => setCloud(p => ({ ...p, model: e.target.value }))}
                   placeholder={cloud.backend === "anthropic" ? "claude-sonnet-4-20250514" : cloud.backend === "mistral" ? "mistral-large-latest" : "gpt-4o"} />
@@ -827,11 +851,11 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             </div>
             <div>
               <div style={labelStyle}>Anonymisation</div>
-              <select style={inputStyle} value={cloud.escalation} onChange={e => setCloud(p => ({ ...p, escalation: e.target.value }))}>
-                <option value="anonymized">Anonymisé — IPs, hostnames, users remplacés avant envoi</option>
-                <option value="direct">Direct — données brutes (déconseillé)</option>
-                <option value="never">Désactivé — jamais d{"'"}escalade cloud</option>
-              </select>
+              <GlassSelect value={cloud.escalation} onChange={v => setCloud(p => ({ ...p, escalation: v }))} options={[
+                { value: "anonymized", label: "Anonymisé", detail: "IPs, hostnames, users remplacés" },
+                { value: "direct", label: "Direct", detail: "données brutes (déconseillé)" },
+                { value: "never", label: "Désactivé", detail: "jamais d'escalade cloud" },
+              ]} />
             </div>
           </div>
         )}
