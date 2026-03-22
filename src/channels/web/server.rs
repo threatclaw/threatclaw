@@ -346,6 +346,8 @@ pub async fn start_server(
         .route("/api/tc/enrichment/certfr/sync", post(super::handlers::threatclaw_api::certfr_sync_handler))
         .route("/api/tc/enrichment/certfr/recent", get(super::handlers::threatclaw_api::certfr_recent_handler))
         .route("/api/tc/enrichment/status", get(super::handlers::threatclaw_api::enrichment_status_handler))
+        // Instruct AI — SOAR playbooks, reports, Sigma rules (on-demand RSSI)
+        .route("/api/tc/instruct/generate", post(super::handlers::threatclaw_api::instruct_generate_handler))
         // Telegram direct API
         .route("/api/tc/telegram/send", post(super::handlers::threatclaw_api::telegram_send_handler))
         .route("/api/tc/telegram/poll", post(super::handlers::threatclaw_api::telegram_poll_handler))

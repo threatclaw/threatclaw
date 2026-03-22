@@ -54,6 +54,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 
   const [llm, setLlm] = useState({ backend: "ollama", url: "http://ollama:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
   const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
+  const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
   const [channels, setChannels] = useState<Record<string, { enabled: boolean; [k: string]: string | boolean }>>({
     slack: { enabled: false, botToken: "", signingSecret: "" },
@@ -83,6 +84,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         const cfg = await res.json();
         if (cfg.llm) setLlm(p => ({ ...p, ...cfg.llm }));
         if (cfg.forensic) setForensic(p => ({ ...p, ...cfg.forensic }));
+        if (cfg.instruct) setInstruct(p => ({ ...p, ...cfg.instruct }));
         if (cfg.cloud) setCloud(p => ({ ...p, enabled: true, ...cfg.cloud }));
         if (cfg.channels) setChannels(p => {
           const merged = { ...p };
@@ -159,6 +161,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     const config: Record<string, unknown> = {
       llm: { backend: llm.backend, url: llm.url, model: llm.model, apiKey: llm.apiKey },
       forensic: { model: forensic.model, url: forensic.url || llm.url },
+      instruct: { model: instruct.model, url: instruct.url || llm.url },
       channels,
       permissions: permLevel,
       general,
@@ -317,6 +320,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {/* ═══ LLM — 3 niveaux ═══ */}
         {activeTab === "llm" && (<LlmTab
           llm={llm} setLlm={setLlm} forensic={forensic} setForensic={setForensic}
+          instruct={instruct} setInstruct={setInstruct}
           cloud={cloud} setCloud={setCloud} llmModels={llmModels} setLlmModels={setLlmModels}
           testOllama={testOllama} inputStyle={inputStyle} labelStyle={labelStyle}
         />)}
@@ -482,6 +486,8 @@ interface LlmTabProps {
   setLlm: React.Dispatch<React.SetStateAction<LlmTabProps["llm"]>>;
   forensic: { model: string; url: string };
   setForensic: React.Dispatch<React.SetStateAction<LlmTabProps["forensic"]>>;
+  instruct: { model: string; url: string };
+  setInstruct: React.Dispatch<React.SetStateAction<LlmTabProps["instruct"]>>;
   cloud: { enabled: boolean; backend: string; model: string; apiKey: string; escalation: string };
   setCloud: React.Dispatch<React.SetStateAction<LlmTabProps["cloud"]>>;
   llmModels: { name: string; size: string }[];
@@ -491,7 +497,7 @@ interface LlmTabProps {
   labelStyle: React.CSSProperties;
 }
 
-function LlmTab({ llm, setLlm, forensic, setForensic, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
+function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
   const [pullModel, setPullModel] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<string | null>(null);
@@ -576,13 +582,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, cloud, setCloud, llmModels
       {/* Architecture overview */}
       <ChromeInsetCard>
         <div style={{ fontSize: "13px", color: "#9a918a", lineHeight: 1.7 }}>
-          <strong style={{ color: "#e8e4e0" }}>Architecture 3 niveaux</strong> — Le routeur décide automatiquement :
+          <strong style={{ color: "#e8e4e0" }}>Architecture 4 niveaux</strong> — Pipeline auto (L1→L2→L4) + actions RSSI (L3) :
         </div>
-        <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+        <div style={{ display: "flex", gap: "8px", marginTop: "14px", flexWrap: "wrap" }}>
           {[
-            { level: "L1", label: "Triage", desc: "Alertes courantes, confiance ≥70%", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "L2", label: "Forensique", desc: "Critical/High, chain-of-thought", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L3", label: "Cloud", desc: "Rapports, escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L1", label: "Triage", desc: "Alertes, JSON structuré", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "L2", label: "Forensique", desc: "Critical/High, MITRE", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "L3", label: "Instruct", desc: "Playbooks, Sigma, rapports", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L4", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, padding: "10px 12px", borderRadius: "10px", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "18px", fontWeight: 800, color: l.color }}>{l.level}</div>
@@ -720,10 +727,40 @@ function LlmTab({ llm, setLlm, forensic, setForensic, cloud, setCloud, llmModels
         </div>
       </ChromeInsetCard>
 
-      {/* ── L3 — Cloud ── */}
+      {/* ── L3 — Instruct (SOAR playbooks) ── */}
+      <ChromeInsetCard>
+        {/* L3 Instruct content */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+          <LevelBadge level="L3" color="#30a050" bg="rgba(48,160,80,0.12)" border="rgba(48,160,80,0.25)" />
+          <div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Instruct — Playbooks SOAR</ChromeEmbossedText>
+            <div style={{ fontSize: "11px", color: "#5a534e" }}>Playbooks, rapports incident, règles Sigma, threat modeling. À la demande RSSI.</div>
+          </div>
+        </div>
+        <div>
+          <div style={labelStyle}>Modèle Instruct</div>
+          {llm.connected && llm.models.length > 0 ? (
+            <select style={inputStyle} value={instruct.model} onChange={e => setInstruct(p => ({ ...p, model: e.target.value }))}>
+              <option value="">— Sélectionner —</option>
+              {llm.models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : (
+            <input style={inputStyle} value={instruct.model} onChange={e => setInstruct(p => ({ ...p, model: e.target.value }))}
+              placeholder="threatclaw-l3" />
+          )}
+          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
+            Recommandé : <strong style={{ color: "#30a050" }}>threatclaw-l3</strong> (Foundation-Sec Instruct Q4_K_M ~5GB)
+          </div>
+          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+            Jamais chargé en même temps que L2 Forensique (mutual exclusion RAM). Déchargement auto après 5 min.
+          </div>
+        </div>
+      </ChromeInsetCard>
+
+      {/* ── L4 — Cloud ── */}
       <ChromeInsetCard glow={cloud.enabled}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: cloud.enabled ? "16px" : 0 }}>
-          <LevelBadge level="L3" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
+          <LevelBadge level="L4" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
           <div style={{ flex: 1 }}>
             <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Cloud — Escalade anonymisée</ChromeEmbossedText>
             <div style={{ fontSize: "11px", color: "#5a534e" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>

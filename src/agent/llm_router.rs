@@ -83,6 +83,29 @@ impl Default for ForensicLlmConfig {
     }
 }
 
+/// Configuration de l'IA Instruct (playbooks SOAR, rapports, Sigma rules).
+/// Foundation-sec-8B-Instruct — chargé à la demande uniquement, jamais en même temps que Forensic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstructLlmConfig {
+    /// Modèle Instruct (Foundation-sec Instruct ou équivalent).
+    pub model: String,
+    /// URL Ollama (même instance que primary par défaut).
+    pub base_url: String,
+    /// Timeout d'inactivité avant déchargement (secondes).
+    /// Court (5min) car on ne l'utilise qu'à la demande.
+    pub idle_timeout_secs: u64,
+}
+
+impl Default for InstructLlmConfig {
+    fn default() -> Self {
+        Self {
+            model: std::env::var("INSTRUCT_MODEL").unwrap_or_else(|_| "threatclaw-l3".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            idle_timeout_secs: 300, // 5 minutes — déchargement rapide
+        }
+    }
+}
+
 /// Configuration de l'IA cloud de secours (optionnel).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudLlmConfig {
@@ -101,10 +124,14 @@ pub struct CloudLlmConfig {
 pub struct LlmRouterConfig {
     /// IA principale L1/L2 — triage et corrélation (obligatoire).
     pub primary: PrimaryLlmConfig,
-    /// IA forensique L2+ — analyse approfondie (optionnel, chargé à la demande).
+    /// IA forensique L2 — analyse approfondie (chargé à la demande).
     #[serde(default)]
     pub forensic: ForensicLlmConfig,
-    /// IA cloud L3 — rapports et incidents critiques (optionnel).
+    /// IA instruct L3 — playbooks SOAR, rapports, Sigma rules (à la demande RSSI).
+    /// Mutual exclusion avec forensic (jamais chargés simultanément).
+    #[serde(default)]
+    pub instruct: InstructLlmConfig,
+    /// IA cloud L4 — rapports NIS2 finaux et incidents critiques (optionnel).
     pub cloud: Option<CloudLlmConfig>,
     /// Politique d'escalade.
     pub cloud_escalation: CloudEscalation,
@@ -124,6 +151,7 @@ impl Default for LlmRouterConfig {
         Self {
             primary: PrimaryLlmConfig::default(),
             forensic: ForensicLlmConfig::default(),
+            instruct: InstructLlmConfig::default(),
             cloud: None,
             cloud_escalation: CloudEscalation::Anonymized,
             anonymize_primary: false, // Ollama local par défaut
@@ -203,6 +231,20 @@ impl LlmRouterConfig {
             if let Some(url) = forensic_val["url"].as_str() {
                 if !url.is_empty() {
                     config.forensic.base_url = url.to_string();
+                }
+            }
+        }
+
+        // ── Instruct LLM (tc_config_instruct) ──
+        if let Ok(Some(instruct_val)) = store.get_setting("_system", "tc_config_instruct").await {
+            if let Some(model) = instruct_val["model"].as_str() {
+                if !model.is_empty() && std::env::var("INSTRUCT_MODEL").is_err() {
+                    config.instruct.model = model.to_string();
+                }
+            }
+            if let Some(url) = instruct_val["url"].as_str() {
+                if !url.is_empty() {
+                    config.instruct.base_url = url.to_string();
                 }
             }
         }

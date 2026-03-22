@@ -843,7 +843,7 @@ pub async fn config_get_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let mut config = serde_json::json!({});
-    for key in &["llm", "forensic", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
             config[*key] = val;
@@ -860,7 +860,7 @@ pub async fn config_set_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Save each config section
-    for key in &["llm", "forensic", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
         if let Some(val) = body.get(*key) {
             let setting_key = format!("tc_config_{}", key);
             store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;
@@ -1063,6 +1063,106 @@ pub async fn enrichment_status_handler(
         "mitre": mitre_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
         "certfr": certfr_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
     })))
+}
+
+// ══════════════════════════════════════════════════════════
+// INSTRUCT AI — Playbooks SOAR, rapports, Sigma rules
+// À la demande RSSI uniquement (pas dans le pipeline auto)
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/instruct/generate — generate playbook, report, or sigma rule.
+/// Body: { "type": "playbook|report|sigma|threat_model", "context": "..." }
+pub async fn instruct_generate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let gen_type = body["type"].as_str().unwrap_or("playbook");
+    let context = body["context"].as_str().unwrap_or("");
+
+    if context.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing context" })));
+    }
+
+    // Load instruct model config from DB
+    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let instruct = &llm_config.instruct;
+
+    // Build prompt based on type
+    let prompt = match gen_type {
+        "playbook" => format!(
+            "Génère un playbook SOAR complet pour l'incident suivant. Structure avec : Actions immédiates (<15min), Investigation (<1h), Remédiation (<4h), Notification NIS2 si applicable, Post-incident.\n\nContexte de l'incident :\n{context}"
+        ),
+        "report" => format!(
+            "Génère un rapport d'incident de sécurité professionnel en français. Inclus : Résumé exécutif, Timeline, Impact, Analyse technique (MITRE ATT&CK), Recommandations, Conformité NIS2.\n\nDonnées de l'incident :\n{context}"
+        ),
+        "sigma" => format!(
+            "Génère une ou plusieurs règles Sigma (format YAML standard SigmaHQ) pour détecter ce type d'attaque. Inclus le titre, la description, les sources de données, et la logique de détection.\n\nType d'attaque à détecter :\n{context}"
+        ),
+        "threat_model" => format!(
+            "Réalise une analyse de menaces (threat modeling) pour l'architecture suivante. Identifie les vecteurs d'attaque, les risques principaux (MITRE ATT&CK), et les recommandations de hardening.\n\nArchitecture :\n{context}"
+        ),
+        _ => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Unknown type: {gen_type}") }))),
+    };
+
+    // Call Ollama with instruct model
+    let url = format!("{}/api/chat", instruct.base_url);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .danger_accept_invalid_certs(true)
+        .no_proxy()
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let ollama_body = serde_json::json!({
+        "model": instruct.model,
+        "messages": [{ "role": "user", "content": prompt }],
+        "stream": false,
+        "options": { "temperature": 0.3, "num_predict": 4096 }
+    });
+
+    tracing::info!("Instruct: Generating {} with model {}", gen_type, instruct.model);
+
+    let resp = client.post(&url).json(&ollama_body).send().await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let data: serde_json::Value = r.json().await.unwrap_or_default();
+            let content = data["message"]["content"].as_str()
+                .or_else(|| data["response"].as_str())
+                .unwrap_or("Erreur: pas de réponse du modèle");
+
+            // Write audit entry
+            let audit_key = format!("instruct_{}_{}", gen_type, chrono::Utc::now().timestamp());
+            let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
+                "type": gen_type, "model": instruct.model,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            })).await;
+
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "type": gen_type,
+                "model": instruct.model,
+                "content": content,
+                "generated_at": chrono::Utc::now().to_rfc3339(),
+            })))
+        }
+        Ok(r) => {
+            let status = r.status();
+            let text = r.text().await.unwrap_or_default();
+            Ok(Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Ollama returned {}: {}", status, text.chars().take(200).collect::<String>()),
+                "hint": format!("Vérifiez que le modèle {} est installé (ollama pull {})", instruct.model, instruct.model),
+            })))
+        }
+        Err(e) => {
+            Ok(Json(serde_json::json!({
+                "ok": false,
+                "error": format!("Ollama unreachable: {e}"),
+                "hint": "Vérifiez que Ollama est démarré et accessible",
+            })))
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════
