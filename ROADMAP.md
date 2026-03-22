@@ -86,13 +86,46 @@
 - [x] Healthchecks sur tous les services (8/8 : core, dashboard, db, redis, ollama, nuclei, trivy, fluent-bit)
 - [x] Docker-compose.yml documenté (commentaires, sections, ports, variables)
 
+## v0.6.0 — Architecture 4 IA + HITL Instruct + Dashboard UX (mars 2026) ✅
+
+### Architecture LLM 4 niveaux (nommage final)
+- [x] **L1 — ThreatClaw AI 8B Triage** : qwen3:8b + system prompt SOC, pipeline auto permanent
+- [x] **L2 — ThreatClaw AI 8B Reasoning** : Foundation-Sec Reasoning Q8_0, pipeline auto High/Critical
+- [x] **L2.5 — ThreatClaw AI 8B Instruct** : Foundation-Sec Instruct Q4_K_M, enrichissement HITL + à la demande
+- [x] **L3 — ThreatClaw AI Cloud** : Claude/Mistral API, escalade anonymisée
+- [x] Modelfile.threatclaw-l3 (Instruct avec prompt SOC français)
+- [x] InstructLlmConfig dans LlmRouterConfig (model, base_url, idle_timeout 5min)
+- [x] Mutual exclusion L2/L3 (jamais chargés simultanément, RAM constraint)
+
+### HITL enrichi par Instruct (L2.5)
+- [x] `enrich_hitl_with_instruct()` — quand L2 Reasoning dit HITL=true, L2.5 enrichit le message
+- [x] Résumé langage naturel + playbook suggéré (3-5 étapes) + impact NIS2
+- [x] Timeout 30s — fallback message basique si Instruct indisponible
+- [x] `send_hitl_to_telegram()` — HITL via Telegram (en plus de Slack)
+- [x] Logs : `hitl_enriched_by: threatclaw_ai_8b_instruct`
+
+### Instruct à la demande RSSI
+- [x] `POST /api/tc/instruct/generate` — 4 types : playbook, report, sigma, threat_model
+- [x] Audit trail dans settings DB pour chaque génération
+
+### Dashboard UX amélioré
+- [x] GlassSelect custom (remplace tous les `<select>` natifs du navigateur)
+- [x] SVG logos canaux (Slack, Telegram, Discord) au lieu d'emojis
+- [x] Skills catégorisées (5 catégories avec icônes) + config inline + bouton test
+- [x] Tab IA : cartes compactes L1/L2/L2.5 avec bouton "Changer" + modèle affiché
+- [x] Ollama model install depuis le dashboard + test par modèle
+- [x] Cloud API key test (Mistral/Anthropic/OpenAI) avec liste modèles
+- [x] Nettoyage Ollama : 4 modèles propres (L1, L2, L3, qwen3:8b base)
+
+---
+
 ## v1.0.0 — Production Ready
 
 - [ ] Exécution SSH distante (executor_ssh.rs) — agir sur les cibles
 - [ ] Lookup cible par nom dans le ReAct (resolve "srv-prod-01" → IP + credentials)
 - [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
 - [ ] Planning par skill (au lieu du scheduler global)
-- [ ] Page alertes/findings (quand le scheduler produit des findings réels)
+- [ ] Page alertes/findings dans le dashboard
 - [ ] Tests e2e automatisés du cycle complet
 - [ ] Détection comportementale ML (compléter Sigma)
 - [ ] mTLS entre containers Docker
@@ -112,4 +145,4 @@
 ---
 
 *Dernière mise à jour : 22 mars 2026*
-*Version actuelle : 0.5.0-beta*
+*Version actuelle : 0.6.0-beta*
