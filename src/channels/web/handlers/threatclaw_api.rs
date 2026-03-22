@@ -1361,7 +1361,7 @@ pub async fn telegram_status_handler(
 }
 
 /// Helper: get Telegram bot token from env var or DB config.
-async fn get_telegram_token(store: &dyn crate::db::Database) -> Option<String> {
+pub async fn get_telegram_token(store: &dyn crate::db::Database) -> Option<String> {
     // 1. Env var (highest priority)
     if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
         if !token.is_empty() {

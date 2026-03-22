@@ -588,8 +588,8 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
           {[
             { level: "L1", label: "Triage", desc: "Alertes, JSON structuré", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
             { level: "L2", label: "Forensique", desc: "Critical/High, MITRE", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L3", label: "Instruct", desc: "Playbooks, Sigma, rapports", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
-            { level: "L4", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L2.5", label: "Instruct", desc: "Playbooks SOAR, Sigma, HITL", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L3", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, padding: "10px 12px", borderRadius: "10px", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "18px", fontWeight: 800, color: l.color }}>{l.level}</div>
@@ -731,10 +731,10 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
       <ChromeInsetCard>
         {/* L3 Instruct content */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-          <LevelBadge level="L3" color="#30a050" bg="rgba(48,160,80,0.12)" border="rgba(48,160,80,0.25)" />
+          <LevelBadge level="L2.5" color="#30a050" bg="rgba(48,160,80,0.12)" border="rgba(48,160,80,0.25)" />
           <div>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Instruct — Playbooks SOAR</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "#5a534e" }}>Playbooks, rapports incident, règles Sigma, threat modeling. À la demande RSSI.</div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Instruct — Playbooks SOAR + HITL</ChromeEmbossedText>
+            <div style={{ fontSize: "11px", color: "#5a534e" }}>Enrichit les messages HITL avec playbook suggéré. Aussi : rapports, Sigma rules, threat modeling (à la demande RSSI).</div>
           </div>
         </div>
         <div>
@@ -760,7 +760,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
       {/* ── L4 — Cloud ── */}
       <ChromeInsetCard glow={cloud.enabled}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: cloud.enabled ? "16px" : 0 }}>
-          <LevelBadge level="L4" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
+          <LevelBadge level="L3" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
           <div style={{ flex: 1 }}>
             <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Cloud — Escalade anonymisée</ChromeEmbossedText>
             <div style={{ fontSize: "11px", color: "#5a534e" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>
