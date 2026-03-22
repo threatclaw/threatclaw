@@ -49,13 +49,19 @@
 
 ---
 
-## v0.3.0-beta — Dashboard Redesign & UX (À FAIRE)
+## v0.3.0-beta — Config fonctionnelle & Telegram (À FAIRE — PRIO ABSOLUE)
 
-- [ ] **Redesign dashboard** — design identique au site vitrine (dark, glass cards, rouge #d03020)
+### La config dashboard doit avoir un effet réel
+- [ ] **Bridge config DB → backend** : le backend Rust lit les tokens canaux depuis la table `settings` (pas seulement le credential vault IronClaw)
+- [ ] **Telegram interactif** : token configuré dans le dashboard → canal actif → commandes via chat ("scan 192.168.1.107") → résultats renvoyés
+- [ ] **LLM config dynamique** : changer le modèle/URL dans le dashboard → change le modèle utilisé par le ReAct cycle (pas seulement les env vars)
+- [ ] **NVD API key fonctionnel** : configuré dans dashboard → lu par cve_lookup.rs
+- [ ] **Tous les champs de config** doivent être lus par le backend, pas juste sauvés en DB
+
+### Dashboard redesign
+- [ ] **Design identique au site vitrine** (dark, glass cards, rouge #d03020)
 - [ ] **Pages de config dédiées** au lieu d'accordéons (bouton Configurer → page séparée)
 - [ ] **Anonymizer UX** — page scrollable pour 50+ règles, pas d'ascenseur
-- [ ] **API key fields** fonctionnels (sauvegarde en DB via POST /api/tc/config)
-- [ ] **NVD API key** dans la config dashboard
 - [ ] **Indicateur connectivité** dans le header (Full/Degraded/Offline)
 - [ ] **Status des modèles LLM** (L1 chargé, L2 disponible, L3 config)
 
