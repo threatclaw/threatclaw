@@ -168,8 +168,15 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                     <div>
                       <ChromeEmbossedText as="div" style={{ fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px", opacity: 0.5 }}>Langue</ChromeEmbossedText>
                       <select style={inputStyle} value={general.language} onChange={e => setGeneral(p => ({ ...p, language: e.target.value }))}>
-                        <option value="fr">Français</option><option value="en">English</option>
+                        <option value="fr">Fran{"ç"}ais</option><option value="en">English</option>
                       </select>
+                    </div>
+                    <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: "8px", marginTop: "4px" }}>
+                      <ChromeEmbossedText as="div" style={{ fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px", opacity: 0.5 }}>{"Clé API NVD (optionnel)"}</ChromeEmbossedText>
+                      <input style={inputStyle} type="password" value={general.language === "fr" ? "" : ""} placeholder="Gratuit sur nvd.nist.gov" />
+                      <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.3, marginTop: "4px" }}>
+                        {"Sans clé : 5 req/30s. Avec clé : 50 req/30s. Améliore l'enrichissement CVE."}
+                      </ChromeEmbossedText>
                     </div>
                   </>)}
 
@@ -361,56 +368,79 @@ function AnonymizerSection({ inputStyle }: { inputStyle: React.CSSProperties }) 
 
   return (
     <div>
-      <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.5, marginBottom: "8px" }}>
-        17 catégories de données sont anonymisées automatiquement (IPs, MAC, emails, clés API, IBAN, etc.).
-        Ajoutez ici vos propres mots-clés ou patterns sensibles.
+      <ChromeEmbossedText as="div" style={{ fontSize: "10px", lineHeight: 1.5, marginBottom: "10px" }}>
+        <strong>{"17 catégories automatiques"}</strong>{" : IPs, MAC, emails, téléphones, clés API, IBAN, SIRET, chemins fichiers, Active Directory, etc."}
       </ChromeEmbossedText>
 
       {/* Existing rules */}
-      {rules.map(rule => (
-        <div key={rule.id} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", padding: "4px 0" }}>
-          <ChromeEmbossedText as="span" style={{ fontSize: "10px", fontWeight: 600, flex: 1 }}>
-            {rule.label}
+      {rules.length > 0 && (
+        <div style={{ marginBottom: "12px" }}>
+          <ChromeEmbossedText as="div" style={{ fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px", opacity: 0.5 }}>
+            {"Vos règles (" + rules.length + ")"}
           </ChromeEmbossedText>
-          <ChromeEmbossedText as="span" style={{ fontSize: "8px", fontFamily: "monospace", opacity: 0.4 }}>
-            [{rule.token_prefix}]
-          </ChromeEmbossedText>
-          <ChromeEmbossedText as="span" style={{ fontSize: "8px", fontFamily: "monospace", opacity: 0.3 }}>
-            {rule.pattern.length > 30 ? rule.pattern.slice(0, 30) + "..." : rule.pattern}
-          </ChromeEmbossedText>
-          <button onClick={() => deleteRule(rule.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
-            <Trash2 size={10} color="#903020" />
-          </button>
+          {rules.map(rule => (
+            <div key={rule.id} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", padding: "6px 8px", background: "rgba(0,0,0,0.02)", borderRadius: "6px" }}>
+              <Shield size={10} color="#5a7a4a" />
+              <div style={{ flex: 1 }}>
+                <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 700 }}>{rule.label}</ChromeEmbossedText>
+                <ChromeEmbossedText as="div" style={{ fontSize: "8px", fontFamily: "monospace", opacity: 0.4 }}>
+                  {rule.pattern} {"→ [" + rule.token_prefix + "-001]"}
+                </ChromeEmbossedText>
+              </div>
+              <button onClick={() => deleteRule(rule.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px" }}>
+                <Trash2 size={12} color="#903020" />
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+
+      {rules.length === 0 && (
+        <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.4, marginBottom: "10px", textAlign: "center", padding: "8px" }}>
+          {"Aucune règle personnalisée. Les 17 catégories automatiques protègent déjà vos données."}
+        </ChromeEmbossedText>
+      )}
 
       {/* Add new rule */}
-      <div style={{ marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: "8px" }}>
-        <ChromeEmbossedText as="div" style={{ fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px", opacity: 0.4 }}>
-          Ajouter une règle
+      <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", paddingTop: "10px" }}>
+        <ChromeEmbossedText as="div" style={{ fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px", opacity: 0.5 }}>
+          {"Ajouter une règle"}
         </ChromeEmbossedText>
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <input style={{ ...inputStyle, fontSize: "10px", padding: "6px 8px" }}
-            value={newLabel} onChange={e => setNewLabel(e.target.value)}
-            placeholder="Nom (ex: Nom du projet secret)" />
-          <input style={{ ...inputStyle, fontSize: "10px", padding: "6px 8px", fontFamily: "monospace" }}
-            value={newPattern} onChange={e => setNewPattern(e.target.value)}
-            placeholder="Pattern regex (ex: \bProjet-Neptune\b)" />
-          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <input style={{ ...inputStyle, fontSize: "10px", padding: "6px 8px", width: "120px" }}
-              value={newPrefix} onChange={e => setNewPrefix(e.target.value.toUpperCase())}
-              placeholder="Préfixe token" />
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.4, marginBottom: "3px" }}>{"Nom de la règle"}</ChromeEmbossedText>
+            <input style={{ ...inputStyle, fontSize: "11px", padding: "8px 10px" }}
+              value={newLabel} onChange={e => setNewLabel(e.target.value)}
+              placeholder="Ex: Nom du projet confidentiel" />
+          </div>
+          <div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.4, marginBottom: "3px" }}>{"Mot ou pattern à anonymiser"}</ChromeEmbossedText>
+            <input style={{ ...inputStyle, fontSize: "11px", padding: "8px 10px", fontFamily: "monospace" }}
+              value={newPattern} onChange={e => setNewPattern(e.target.value)}
+              placeholder="Ex: Projet-Neptune ou SRV-\d+" />
+            <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.3, marginTop: "4px", lineHeight: 1.5 }}>
+              {"Exemples : mot exact (Projet-Neptune), "}
+              {"insensible casse ((?i)confidentiel), "}
+              {"pattern (SRV-\\d+ pour SRV-001, SRV-042...)"}
+            </ChromeEmbossedText>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+            <div style={{ width: "120px" }}>
+              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.4, marginBottom: "3px" }}>{"Préfixe"}</ChromeEmbossedText>
+              <input style={{ ...inputStyle, fontSize: "11px", padding: "8px 10px", textTransform: "uppercase" }}
+                value={newPrefix} onChange={e => setNewPrefix(e.target.value.toUpperCase())} />
+            </div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.3, flex: 1, paddingBottom: "10px" }}>
+              {"→ Le LLM verra [" + (newPrefix || "CUSTOM") + "-001]"}
+            </ChromeEmbossedText>
             <ChromeButton onClick={addRule} disabled={adding || !newLabel || !newPattern}>
-              <span style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "9px" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px" }}>
                 {adding ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
-                Ajouter
+                {"Ajouter"}
               </span>
             </ChromeButton>
           </div>
         </div>
-        <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.3, marginTop: "4px" }}>
-          Les données matchées seront remplacées par [{newPrefix || "CUSTOM"}-001] avant tout envoi cloud.
-        </ChromeEmbossedText>
       </div>
     </div>
   );

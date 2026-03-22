@@ -1,8 +1,31 @@
-# ThreatClaw — Core Stack (léger)
-# Seulement les 4 services essentiels.
-# Les scanners et outils sont installés via les skills.
+# ThreatClaw — Core Stack
+# docker compose up -d → everything starts
+# Dashboard: http://localhost:3001
+# API: http://localhost:3000
 
 services:
+  # ── Ollama (local LLM) ──
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${TC_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - threatclaw-internal
+
+  # ── ThreatClaw Core (Rust API) ──
   threatclaw-core:
     image: threatclaw/core:latest
     build:
@@ -14,11 +37,12 @@ services:
       DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
       REDIS_URL: redis://redis:6379/0
       LLM_BACKEND: ollama
-      OLLAMA_MODEL: ${TC_LLM_MODEL:-qwen3:14b}
-      OLLAMA_BASE_URL: ${TC_OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
+      OLLAMA_BASE_URL: http://ollama:11434
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "3000"
       WASM_CHANNELS_ENABLED: "true"
+      ONBOARD_COMPLETED: "true"
       RUST_LOG: info
     volumes:
       - ../AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
@@ -28,9 +52,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - threatclaw-internal
       - threatclaw-frontend
@@ -114,3 +138,4 @@ networks:
 
 volumes:
   pgdata:
+  ollama-data:

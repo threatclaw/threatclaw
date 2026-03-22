@@ -957,6 +957,32 @@ pub async fn config_test_channel_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// CVE ENRICHMENT (NVD API)
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/enrichment/cve?id=CVE-2021-44228
+pub async fn cve_lookup_handler(
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let cve_id = q.get("id").ok_or((StatusCode::BAD_REQUEST, "Missing 'id' parameter".to_string()))?;
+
+    let config = crate::enrichment::cve_lookup::NvdConfig::default();
+    match crate::enrichment::cve_lookup::lookup_cve(cve_id, &config).await {
+        Ok(cve) => Ok(Json(serde_json::json!({
+            "cve_id": cve.cve_id,
+            "description": cve.description,
+            "cvss_score": cve.cvss_score,
+            "cvss_severity": cve.cvss_severity,
+            "published": cve.published,
+            "exploited_in_wild": cve.exploited_in_wild,
+            "patch_urls": cve.patch_urls,
+            "prompt_format": crate::enrichment::cve_lookup::format_for_prompt(&cve),
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+// ══════════════════════════════════════════════════════════
 // ANONYMIZER CUSTOM RULES
 // ══════════════════════════════════════════════════════════
 

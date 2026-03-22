@@ -339,6 +339,8 @@ pub async fn start_server(
         .route("/api/tc/config", get(super::handlers::threatclaw_api::config_get_handler))
         .route("/api/tc/config", post(super::handlers::threatclaw_api::config_set_handler))
         .route("/api/tc/config/test-channel", post(super::handlers::threatclaw_api::config_test_channel_handler))
+        // CVE enrichment
+        .route("/api/tc/enrichment/cve", get(super::handlers::threatclaw_api::cve_lookup_handler))
         // Anonymizer custom rules
         .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
         .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))

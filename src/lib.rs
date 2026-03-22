@@ -80,6 +80,7 @@ pub mod util;
 pub mod webhooks;
 pub mod worker;
 pub mod workspace;
+pub mod enrichment;
 
 #[cfg(test)]
 pub mod testing;
