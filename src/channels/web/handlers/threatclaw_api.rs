@@ -1544,6 +1544,73 @@ pub async fn binary_verify_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// CONVERSATIONAL BOT + COMMAND INTERPRETER
+// ══════════════════════════════════════════════════════════
+
+/// Shared bot handle — stores the JoinHandle of the polling bot.
+static BOT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// POST /api/tc/bot/start — start the Telegram polling bot.
+pub async fn bot_start_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    if BOT_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_running" })));
+    }
+
+    BOT_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
+    crate::agent::conversational_bot::spawn_telegram_bot(
+        store.clone(),
+        std::time::Duration::from_secs(3),
+    );
+
+    tracing::info!("CONV_BOT: Started via API");
+    Ok(Json(serde_json::json!({ "ok": true, "status": "started" })))
+}
+
+/// GET /api/tc/bot/status — check if bot is running.
+pub async fn bot_status_handler() -> ApiResult<serde_json::Value> {
+    Ok(Json(serde_json::json!({
+        "running": BOT_RUNNING.load(std::sync::atomic::Ordering::Relaxed),
+    })))
+}
+
+/// POST /api/tc/command — execute a natural language command (channel-agnostic).
+/// Body: { "message": "scan de port sur 192.168.1.50", "channel": "api" }
+pub async fn command_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let message = body["message"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing message".to_string()))?;
+
+    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+
+    // Parse
+    let cmd = crate::agent::command_interpreter::parse_command(message, &llm_config).await;
+
+    // Execute (for API, no confirmation needed — RSSI is already authenticated)
+    let result = crate::agent::command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
+
+    Ok(Json(serde_json::json!({
+        "parsed": {
+            "action": cmd.action,
+            "target": cmd.target,
+            "confidence": cmd.confidence,
+            "summary": cmd.summary,
+        },
+        "result": {
+            "success": result.success,
+            "message": result.message,
+            "data": result.data,
+        },
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // ANONYMIZER CUSTOM RULES
 // ══════════════════════════════════════════════════════════
 

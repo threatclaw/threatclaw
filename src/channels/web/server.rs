@@ -337,6 +337,11 @@ pub async fn start_server(
         .route("/api/tc/targets/resolve/{ref}", get(super::handlers::threatclaw_api::target_resolve_handler))
         // Binary integrity
         .route("/api/tc/security/verify-binary", get(super::handlers::threatclaw_api::binary_verify_handler))
+        // Conversational bot
+        .route("/api/tc/bot/start", post(super::handlers::threatclaw_api::bot_start_handler))
+        .route("/api/tc/bot/status", get(super::handlers::threatclaw_api::bot_status_handler))
+        // Command interpreter (direct API — for dashboard or any channel)
+        .route("/api/tc/command", post(super::handlers::threatclaw_api::command_handler))
         // Targets / Infrastructure
         .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
         .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))

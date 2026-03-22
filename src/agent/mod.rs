@@ -21,6 +21,8 @@ pub mod cyber_scheduler;
 mod dispatcher;
 pub mod cloud_caller;
 pub mod binary_verify;
+pub mod command_interpreter;
+pub mod conversational_bot;
 pub mod executor;
 pub mod executor_ssh;
 pub mod hitl_bridge;
