@@ -332,6 +332,11 @@ pub async fn start_server(
         .route("/api/tc/skills/catalog", get(super::handlers::threatclaw_api::skills_catalog_handler))
         .route("/api/tc/skills/{id}/test", post(super::handlers::threatclaw_api::skill_test_handler))
         .route("/api/tc/skills/{id}/install", post(super::handlers::threatclaw_api::skill_install_handler))
+        // SSH remote execution
+        .route("/api/tc/ssh/execute", post(super::handlers::threatclaw_api::ssh_execute_handler))
+        .route("/api/tc/targets/resolve/{ref}", get(super::handlers::threatclaw_api::target_resolve_handler))
+        // Binary integrity
+        .route("/api/tc/security/verify-binary", get(super::handlers::threatclaw_api::binary_verify_handler))
         // Targets / Infrastructure
         .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
         .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))

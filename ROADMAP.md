@@ -119,20 +119,27 @@
 
 ---
 
-## v1.0.0 — Production Ready
+## v1.0.0 — Production Ready (mars 2026) ✅
 
-- [ ] Exécution SSH distante (executor_ssh.rs) — agir sur les cibles
-- [ ] Lookup cible par nom dans le ReAct (resolve "srv-prod-01" → IP + credentials)
-- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
-- [ ] Planning par skill (au lieu du scheduler global)
-- [ ] Page alertes/findings dans le dashboard
+### Implémenté
+- [x] **Exécution SSH distante** — `executor_ssh.rs` : resolve target → SSH → execute whitelisted command → audit
+- [x] **Lookup cible par nom** — `GET /api/tc/targets/resolve/{ref}` : resolve "srv-prod-01" → IP + port + credentials
+- [x] **POST /api/tc/ssh/execute** — exécution distante avec validation whitelist + audit log
+- [x] **Page Findings dans le dashboard** — filtres sévérité/status, recherche, détail expand, changement status
+- [x] **Page Alertes Sigma dans le dashboard** — filtres level/status, matched_fields detail, auto-refresh 15s
+- [x] **Navigation enrichie** — Findings + Alertes ajoutés au TopNav
+- [x] **Binary integrity verification** — `GET /api/tc/security/verify-binary` : SHA-256 hash comparison
+- [x] **Skill install from dashboard** — `POST /api/tc/skills/{id}/install` + bouton Installer
+
+### Restant (post-v1.0 / contributions communautaires)
 - [ ] Tests e2e automatisés du cycle complet
 - [ ] Détection comportementale ML (compléter Sigma)
 - [ ] mTLS entre containers Docker
-- [ ] Audit de sécurité tiers
+- [ ] Audit de sécurité tiers (externe)
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)
-- [ ] Binary integrity verification (`threatclaw verify-binary`)
+- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
+- [ ] Planning par skill (au lieu du scheduler global)
 
 ## Post v1.0
 
@@ -145,4 +152,4 @@
 ---
 
 *Dernière mise à jour : 22 mars 2026*
-*Version actuelle : 0.6.0-beta*
+*Version actuelle : 1.0.0-beta*

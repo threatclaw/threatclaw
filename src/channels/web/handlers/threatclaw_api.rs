@@ -1467,6 +1467,83 @@ pub async fn get_telegram_token(store: &dyn crate::db::Database) -> Option<Strin
 }
 
 // ══════════════════════════════════════════════════════════
+// SSH REMOTE EXECUTION + TARGET LOOKUP + BINARY VERIFY
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/ssh/execute — execute a whitelisted command on a remote target via SSH.
+pub async fn ssh_execute_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let target_ref = body["target"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing target".to_string()))?;
+    let cmd_id = body["cmd_id"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing cmd_id".to_string()))?;
+
+    let params: std::collections::HashMap<String, String> = body["params"]
+        .as_object()
+        .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+        .unwrap_or_default();
+
+    // Validate command via whitelist
+    let validated = match crate::agent::remediation_whitelist::validate_remediation(cmd_id, &params) {
+        Ok(v) => v,
+        Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Validation failed: {e}") }))),
+    };
+
+    // Resolve target and execute
+    match crate::agent::executor_ssh::execute_on_target(store.as_ref(), target_ref, &validated).await {
+        Ok(result) => {
+            // Audit log
+            let audit_key = format!("ssh_exec_{}_{}", cmd_id, chrono::Utc::now().timestamp());
+            let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
+                "target": target_ref, "cmd_id": cmd_id, "success": result.success,
+                "exit_code": result.exit_code, "timestamp": chrono::Utc::now().to_rfc3339(),
+            })).await;
+
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "success": result.success,
+                "exit_code": result.exit_code,
+                "stdout": result.stdout.chars().take(2000).collect::<String>(),
+                "stderr": result.stderr.chars().take(500).collect::<String>(),
+                "rendered_cmd": result.rendered_cmd,
+            })))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/tc/targets/resolve/{ref} — resolve a target by ID or hostname.
+pub async fn target_resolve_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(target_ref): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    match crate::agent::executor_ssh::resolve_target(store.as_ref(), &target_ref).await {
+        Ok(target) => Ok(Json(serde_json::json!({
+            "ok": true,
+            "target_id": target.target_id,
+            "host": target.host,
+            "port": target.port,
+            "username": target.username,
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/tc/security/verify-binary — verify binary integrity.
+pub async fn binary_verify_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let result = crate::agent::binary_verify::verify_binary(store.as_ref()).await;
+    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+// ══════════════════════════════════════════════════════════
 // ANONYMIZER CUSTOM RULES
 // ══════════════════════════════════════════════════════════
 
