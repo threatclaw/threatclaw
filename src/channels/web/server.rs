@@ -339,8 +339,13 @@ pub async fn start_server(
         .route("/api/tc/config", get(super::handlers::threatclaw_api::config_get_handler))
         .route("/api/tc/config", post(super::handlers::threatclaw_api::config_set_handler))
         .route("/api/tc/config/test-channel", post(super::handlers::threatclaw_api::config_test_channel_handler))
-        // CVE enrichment
+        // Enrichment APIs (CVE, MITRE, CERT-FR, offline)
         .route("/api/tc/enrichment/cve", get(super::handlers::threatclaw_api::cve_lookup_handler))
+        .route("/api/tc/enrichment/mitre/sync", post(super::handlers::threatclaw_api::mitre_sync_handler))
+        .route("/api/tc/enrichment/mitre/{id}", get(super::handlers::threatclaw_api::mitre_lookup_handler))
+        .route("/api/tc/enrichment/certfr/sync", post(super::handlers::threatclaw_api::certfr_sync_handler))
+        .route("/api/tc/enrichment/certfr/recent", get(super::handlers::threatclaw_api::certfr_recent_handler))
+        .route("/api/tc/enrichment/status", get(super::handlers::threatclaw_api::enrichment_status_handler))
         // Telegram direct API
         .route("/api/tc/telegram/send", post(super::handlers::threatclaw_api::telegram_send_handler))
         .route("/api/tc/telegram/poll", post(super::handlers::threatclaw_api::telegram_poll_handler))

@@ -67,24 +67,24 @@
 - [x] **Status des modèles LLM** — affichage L1/L2 avec taille, auto-détection dans le panneau IA
 - [x] **Telegram intégré** — status bot, envoi message test, dans le panneau Canaux
 
-## v0.4.0 — Enrichissement & Offline
+## v0.4.0 — Enrichissement & Offline (mars 2026) ✅
 
-- [ ] Cache CVE pgvector (7 jours)
-- [ ] MITRE ATT&CK JSON sync (mensuelle)
-- [ ] CERT-FR RSS (quotidienne)
-- [ ] Mode offline complet (Full/Degraded/Offline/AirGap)
-- [ ] Bundle offline (CVEs CVSS≥7, ATT&CK, CrowdSec IPs, Sigma rules)
-- [ ] Script download-offline-bundle.sh
-- [ ] Dashboard indicateur offline + âge du bundle
+- [x] Cache CVE PostgreSQL (7 jours TTL) — `lookup_cve_cached()` avec settings store
+- [x] MITRE ATT&CK JSON sync — `sync_attack_techniques()` depuis STIX bundle GitHub
+- [x] CERT-FR RSS (avis + alertes) — `sync_certfr_alerts()` avec extraction CVE IDs
+- [x] Mode offline (Full/Degraded/Offline/AirGap) — indicateur dans TopNav + bundle metadata DB
+- [x] Bundle offline script — `scripts/download-offline-bundle.sh` (NVD, CISA KEV, MITRE, Sigma, CrowdSec)
+- [x] API enrichissement — `/api/tc/enrichment/{mitre,certfr,status}` endpoints
+- [x] Migration V21 — tables cve_cache, mitre_techniques, certfr_alerts, offline_bundle
 
-## v0.5.0 — Docker Plug-and-Play
+## v0.5.0 — Docker Plug-and-Play (mars 2026) ✅
 
-- [ ] `docker compose up` → tout démarre sans configuration
-- [ ] Auto-pull des modèles Ollama au premier démarrage
-- [ ] Migrations Refinery robustes (IF NOT EXISTS)
-- [ ] Auth token transparent (généré et injecté automatiquement)
-- [ ] Healthchecks sur tous les services
-- [ ] Documentation docker-compose.yml commentée
+- [x] `docker compose up` → tout démarre sans configuration
+- [x] Auto-pull des modèles Ollama (L1 qwen3:8b + threatclaw-l1 Modelfile)
+- [x] `entrypoint.sh` — attend PostgreSQL, génère/récupère auth token, pull models
+- [x] Auth token transparent — généré auto, persisté en DB, partagé via volume `/shared`
+- [x] Healthchecks sur tous les services (8/8 : core, dashboard, db, redis, ollama, nuclei, trivy, fluent-bit)
+- [x] Docker-compose.yml documenté (commentaires, sections, ports, variables)
 
 ## v1.0.0 — Production Ready
 
@@ -112,4 +112,4 @@
 ---
 
 *Dernière mise à jour : 22 mars 2026*
-*Version actuelle : 0.3.0-beta*
+*Version actuelle : 0.5.0-beta*

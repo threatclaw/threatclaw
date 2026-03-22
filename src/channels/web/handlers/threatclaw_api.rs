@@ -977,7 +977,13 @@ pub async fn cve_lookup_handler(
     } else {
         crate::enrichment::cve_lookup::NvdConfig::default()
     };
-    match crate::enrichment::cve_lookup::lookup_cve(cve_id, &config).await {
+    // Use cached lookup if DB available, direct otherwise
+    let result = if let Some(store) = state.store.as_ref() {
+        crate::enrichment::cve_lookup::lookup_cve_cached(cve_id, &config, store.as_ref()).await
+    } else {
+        crate::enrichment::cve_lookup::lookup_cve(cve_id, &config).await
+    };
+    match result {
         Ok(cve) => Ok(Json(serde_json::json!({
             "cve_id": cve.cve_id,
             "description": cve.description,
@@ -990,6 +996,73 @@ pub async fn cve_lookup_handler(
         }))),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
+}
+
+// ══════════════════════════════════════════════════════════
+// ENRICHMENT — MITRE ATT&CK + CERT-FR + Offline status
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/enrichment/mitre/sync — sync MITRE ATT&CK techniques from STIX JSON.
+pub async fn mitre_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::mitre_attack::sync_attack_techniques(store.as_ref()).await {
+        Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/mitre/{id} — lookup a MITRE technique.
+pub async fn mitre_lookup_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::mitre_attack::lookup_technique(store.as_ref(), &id).await {
+        Some(t) => Ok(Json(serde_json::to_value(t).unwrap_or_default())),
+        None => Ok(Json(serde_json::json!({ "error": format!("Technique {} not found", id) }))),
+    }
+}
+
+/// POST /api/tc/enrichment/certfr/sync — sync CERT-FR alerts from RSS.
+pub async fn certfr_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::certfr::sync_certfr_alerts(store.as_ref()).await {
+        Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/certfr/recent — get recent CERT-FR alerts.
+pub async fn certfr_recent_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let alerts = crate::enrichment::certfr::get_recent_alerts(store.as_ref(), 20).await;
+    Ok(Json(serde_json::json!({ "alerts": alerts, "total": alerts.len() })))
+}
+
+/// GET /api/tc/enrichment/status — overall enrichment status.
+pub async fn enrichment_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let mitre_meta = crate::enrichment::mitre_attack::get_sync_meta(store.as_ref()).await;
+    let certfr_meta = crate::enrichment::certfr::get_sync_meta(store.as_ref()).await;
+
+    // Count cached CVEs
+    let cve_settings = store.list_settings("_cve_cache").await.unwrap_or_default();
+    let cve_count = cve_settings.len();
+
+    Ok(Json(serde_json::json!({
+        "cve_cache": { "count": cve_count },
+        "mitre": mitre_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "certfr": certfr_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
+    })))
 }
 
 // ══════════════════════════════════════════════════════════

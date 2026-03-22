@@ -64,7 +64,48 @@ impl NvdConfig {
     }
 }
 
-/// Lookup a CVE from NVD API v2.
+/// Lookup a CVE with PostgreSQL cache (7-day TTL).
+/// Checks cache first, then NVD API, then stores result.
+pub async fn lookup_cve_cached(
+    cve_id: &str,
+    config: &NvdConfig,
+    store: &dyn crate::db::Database,
+) -> Result<CveInfo, String> {
+    // 1. Check cache
+    if let Ok(Some(cached)) = store.get_setting("_cve_cache", cve_id).await {
+        if let Some(expires) = cached["expires_at"].as_str() {
+            if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(expires) {
+                if exp > chrono::Utc::now() {
+                    // Cache hit
+                    if let Ok(info) = serde_json::from_value::<CveInfo>(cached["data"].clone()) {
+                        tracing::debug!("CVE cache hit: {cve_id}");
+                        return Ok(info);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fetch from NVD
+    let info = lookup_cve(cve_id, config).await?;
+
+    // 3. Store in cache (7-day TTL)
+    let expires = chrono::Utc::now() + chrono::Duration::days(config.cache_days as i64);
+    let cache_entry = serde_json::json!({
+        "data": info,
+        "expires_at": expires.to_rfc3339(),
+        "fetched_at": chrono::Utc::now().to_rfc3339(),
+    });
+    if let Err(e) = store.set_setting("_cve_cache", cve_id, &cache_entry).await {
+        tracing::warn!("Failed to cache CVE {cve_id}: {e}");
+    } else {
+        tracing::debug!("CVE cached: {cve_id} (expires {})", expires.format("%Y-%m-%d"));
+    }
+
+    Ok(info)
+}
+
+/// Lookup a CVE from NVD API v2 (no cache).
 /// Returns enrichment data for injection into the LLM prompt.
 pub async fn lookup_cve(cve_id: &str, config: &NvdConfig) -> Result<CveInfo, String> {
     let client = reqwest::Client::builder()

@@ -1,6 +1,13 @@
-# ThreatClaw — Production Stack
-# All data stays on-premise (Model B+)
-# Docker Compose V2 — no version field required
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  ThreatClaw v0.5.0 — Plug-and-Play Docker Stack            ║
+# ║                                                              ║
+# ║  Usage:  docker compose up -d                                ║
+# ║  That's it. Everything starts, configures, and connects.     ║
+# ║                                                              ║
+# ║  Dashboard: http://localhost:3001                             ║
+# ║  API:       http://localhost:3000                             ║
+# ║  All data stays on-premise (Model B+)                        ║
+# ╚══════════════════════════════════════════════════════════════╝
 
 x-logging: &default-logging
   driver: json-file
@@ -9,31 +16,54 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # ── Core ──────────────────────────────────────────────
+  # ── Core API (Rust) ──────────────────────────────────────
+  # The brain: ReAct reasoning, LLM orchestration, skill execution
   threatclaw-core:
     image: threatclaw/core:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    entrypoint: ["/app/docker/entrypoint.sh"]
     ports:
       - "${TC_CORE_PORT:-3000}:3000"
     environment:
+      # Database
       DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: ${TC_DB_PASSWORD:-threatclaw}
+      POSTGRES_DB: threatclaw
+      TC_DB_HOST: threatclaw-db
+      TC_DB_PORT: "5432"
       REDIS_URL: redis://redis:6379/0
+      # LLM
       LLM_BACKEND: ollama
-      OLLAMA_MODEL: ${TC_LLM_MODEL:-qwen3:8b}
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
       OLLAMA_BASE_URL: http://ollama:11434
+      FORENSIC_MODEL: ${TC_FORENSIC_MODEL:-threatclaw-l2}
+      TC_AUTO_PULL_MODELS: "${TC_AUTO_PULL_MODELS:-true}"
+      TC_L1_MODEL: ${TC_L1_BASE_MODEL:-qwen3:8b}
+      # Gateway
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "3000"
+      GATEWAY_AUTH_TOKEN: ${TC_AUTH_TOKEN:-}
       HTTP_HOST: "0.0.0.0"
+      ONBOARD_COMPLETED: "true"
+      # App config
       RUST_LOG: info
       TC_PERMISSION_LEVEL: ${TC_PERMISSION_LEVEL:-ALERT_ONLY}
-      TC_INSTANCE_NAME: ${TC_INSTANCE_NAME:-threatclaw-prod}
+      TC_INSTANCE_NAME: ${TC_INSTANCE_NAME:-threatclaw}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      # Cloud LLM (optional)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
     volumes:
       - ../AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
       - ../threatclaw.toml:/app/threatclaw.toml:ro
+      - ./Modelfile.threatclaw-l1:/app/docker/Modelfile.threatclaw-l1:ro
+      - ./Modelfile.threatclaw-l2:/app/docker/Modelfile.threatclaw-l2:ro
+      - ./entrypoint.sh:/app/docker/entrypoint.sh:ro
       - core-data:/app/data
+      - shared-config:/shared
     depends_on:
       threatclaw-db:
         condition: service_healthy
@@ -41,6 +71,12 @@ services:
         condition: service_healthy
       ollama:
         condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     deploy:
       resources:
@@ -55,7 +91,8 @@ services:
       - "com.threatclaw.role=core"
       - "com.threatclaw.security=high"
 
-  # ── Dashboard ────────────────────────────────────────
+  # ── Dashboard (Next.js) ──────────────────────────────────
+  # Web UI: config, monitoring, skills, agent control
   threatclaw-dashboard:
     image: threatclaw/dashboard:latest
     build:
@@ -65,9 +102,18 @@ services:
       - "${TC_DASHBOARD_PORT:-3001}:3000"
     environment:
       TC_CORE_URL: http://threatclaw-core:3000
-      TC_CORE_TOKEN: ${TC_CORE_TOKEN:-}
+      TC_CORE_TOKEN: ${TC_AUTH_TOKEN:-}
+    volumes:
+      - shared-config:/shared:ro
     depends_on:
-      - threatclaw-core
+      threatclaw-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     deploy:
       resources:
@@ -81,7 +127,8 @@ services:
     labels:
       - "com.threatclaw.role=dashboard"
 
-  # ── Database ──────────────────────────────────────────
+  # ── PostgreSQL + pgvector ────────────────────────────────
+  # Data: settings, findings, alerts, audit, memory, CVE cache
   threatclaw-db:
     image: pgvector/pgvector:pg16
     environment:
@@ -91,7 +138,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U threatclaw"]
+      test: ["CMD-SHELL", "pg_isready -U threatclaw -d threatclaw"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -106,10 +153,15 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
-  # ── Redis ───────────────────────────────────────────
+  # ── Redis ────────────────────────────────────────────────
+  # Cache, rate limiting, pub/sub for real-time events
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "yes"]
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
     volumes:
       - redis-data:/data
     healthcheck:
@@ -127,7 +179,8 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
-  # ── Ollama — LLM local ──────────────────────────────
+  # ── Ollama — Local LLM ──────────────────────────────────
+  # L1 (triage) + L2 (forensic) models, GPU accelerated
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -136,6 +189,12 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_HOST: "0.0.0.0"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     restart: unless-stopped
     deploy:
       resources:
@@ -153,12 +212,19 @@ services:
     labels:
       - "com.threatclaw.role=llm"
 
-  # ── Nuclei — CVE Scanner ────────────────────────────
+  # ── Nuclei — CVE Scanner ────────────────────────────────
+  # On-demand vulnerability scanning via exec
   nuclei:
     image: projectdiscovery/nuclei:latest
     volumes:
       - nuclei-data:/root/.local/nuclei
     entrypoint: ["tail", "-f", "/dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "nuclei --version || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
@@ -169,12 +235,19 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
-  # ── Trivy — Container Scanner ───────────────────────
+  # ── Trivy — Container/Image Scanner ─────────────────────
+  # Server mode: receives scan requests from core
   trivy:
     image: aquasec/trivy:latest
     command: ["server", "--listen", "0.0.0.0:4954"]
     volumes:
       - trivy-cache:/root/.cache/trivy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4954/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     deploy:
       resources:
@@ -185,10 +258,13 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
-  # ── Fluent Bit — Log Collector ──────────────────────
+  # ── Fluent Bit — Syslog & Log Collector ─────────────────
+  # Ingests syslog (514), Docker logs (24224), forwards to PostgreSQL
   fluent-bit:
     image: fluent/fluent-bit:latest
     ports:
+      - "${TC_SYSLOG_PORT:-514}:514/udp"
+      - "${TC_SYSLOG_PORT:-514}:514/tcp"
       - "127.0.0.1:5140:5140/udp"
       - "127.0.0.1:24224:24224"
     environment:
@@ -200,6 +276,12 @@ services:
     depends_on:
       threatclaw-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:2020/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
     deploy:
       resources:
@@ -210,17 +292,20 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
+# ── Networks ────────────────────────────────────────────────
 networks:
   threatclaw-internal:
     driver: bridge
-    internal: true
+    internal: true    # No external access — all inter-service communication
   threatclaw-frontend:
-    driver: bridge
+    driver: bridge    # Dashboard + Core exposed to host
 
+# ── Volumes ─────────────────────────────────────────────────
 volumes:
-  pgdata:
-  core-data:
-  redis-data:
-  ollama-data:
-  nuclei-data:
-  trivy-cache:
+  pgdata:             # PostgreSQL data (persist across restarts)
+  core-data:          # Core runtime data (memory, workspace)
+  redis-data:         # Redis AOF persistence
+  ollama-data:        # LLM model weights (~5-20GB per model)
+  nuclei-data:        # Nuclei templates cache
+  trivy-cache:        # Trivy vulnerability DB cache
+  shared-config:      # Auth token shared between core and dashboard
