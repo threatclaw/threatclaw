@@ -406,15 +406,19 @@ async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<Llm
         .map_err(|e| format!("JSON parse failed: {e}"))
 }
 
-/// Appelle Ollama via HTTP.
+/// Appelle Ollama via l'API Chat (plus fiable que generate pour le JSON structuré).
 async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
-    let url = format!("{}/api/generate", base_url);
-    let full_prompt = format!("{prompt}\n/no_think");
+    let url = format!("{}/api/chat", base_url);
     let body = json!({
         "model": model,
-        "prompt": full_prompt,
+        "messages": [
+            {
+                "role": "user",
+                "content": format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON. Pas de markdown. /no_think")
+            }
+        ],
         "stream": false,
-        "options": { "temperature": 0.3, "num_predict": 2048 }
+        "options": { "temperature": 0.1, "num_predict": 2048 }
     });
 
     let client = reqwest::Client::builder()
@@ -434,8 +438,30 @@ async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Result<String
     }
 
     let data: serde_json::Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
-    data["response"].as_str().map(|s| s.to_string())
-        .ok_or_else(|| "No 'response' field in Ollama response".to_string())
+
+    // Chat API: response is in message.content
+    if let Some(content) = data["message"]["content"].as_str() {
+        if !content.is_empty() {
+            return Ok(content.to_string());
+        }
+    }
+
+    // Fallback: try generate API format (response field)
+    if let Some(response) = data["response"].as_str() {
+        if !response.is_empty() {
+            return Ok(response.to_string());
+        }
+    }
+
+    // Fallback: some models put content in thinking field
+    if let Some(thinking) = data["message"]["thinking"].as_str() {
+        if !thinking.is_empty() {
+            tracing::warn!("LLM responded in thinking field instead of content — using thinking as response");
+            return Ok(thinking.to_string());
+        }
+    }
+
+    Err(format!("No usable response from Ollama. Raw: {}", serde_json::to_string(&data).unwrap_or_default()))
 }
 
 /// Écrit une entrée dans l'audit log.

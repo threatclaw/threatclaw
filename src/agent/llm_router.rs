@@ -37,11 +37,12 @@ impl Default for CloudEscalation {
 }
 
 /// Configuration de l'IA principale (obligatoire).
+/// Par défaut : threatclaw-redsage (modèle cyber spécialisé RedSage).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrimaryLlmConfig {
     /// Backend : ollama, mistral, anthropic, openai_compatible.
     pub backend: String,
-    /// Modèle principal.
+    /// Modèle principal (L1/L2 — triage, corrélation, actions).
     pub model: String,
     /// URL de base (Ollama ou compatible).
     pub base_url: String,
@@ -53,9 +54,31 @@ impl Default for PrimaryLlmConfig {
     fn default() -> Self {
         Self {
             backend: "ollama".to_string(),
-            model: "qwen3:14b".to_string(),
-            base_url: "http://localhost:11434".to_string(),
+            model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             api_key: None,
+        }
+    }
+}
+
+/// Configuration du LLM forensique (L2+ — chargé à la demande).
+/// Utilisé pour les analyses approfondies sur les incidents Critical/High.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ForensicLlmConfig {
+    /// Modèle forensique (Foundation-sec ou équivalent).
+    pub model: String,
+    /// URL Ollama (même instance que primary par défaut).
+    pub base_url: String,
+    /// Timeout d'inactivité avant déchargement (secondes).
+    pub idle_timeout_secs: u64,
+}
+
+impl Default for ForensicLlmConfig {
+    fn default() -> Self {
+        Self {
+            model: std::env::var("FORENSIC_MODEL").unwrap_or_else(|_| "threatclaw-forensic".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            idle_timeout_secs: 600, // 10 minutes
         }
     }
 }
@@ -76,9 +99,12 @@ pub struct CloudLlmConfig {
 /// Configuration complète du routeur LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRouterConfig {
-    /// IA principale (obligatoire).
+    /// IA principale L1/L2 — triage et corrélation (obligatoire).
     pub primary: PrimaryLlmConfig,
-    /// IA cloud de secours (optionnel).
+    /// IA forensique L2+ — analyse approfondie (optionnel, chargé à la demande).
+    #[serde(default)]
+    pub forensic: ForensicLlmConfig,
+    /// IA cloud L3 — rapports et incidents critiques (optionnel).
     pub cloud: Option<CloudLlmConfig>,
     /// Politique d'escalade.
     pub cloud_escalation: CloudEscalation,
@@ -97,6 +123,7 @@ impl Default for LlmRouterConfig {
     fn default() -> Self {
         Self {
             primary: PrimaryLlmConfig::default(),
+            forensic: ForensicLlmConfig::default(),
             cloud: None,
             cloud_escalation: CloudEscalation::Anonymized,
             anonymize_primary: false, // Ollama local par défaut

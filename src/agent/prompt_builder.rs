@@ -112,36 +112,18 @@ pub fn build_react_prompt(
     prompt.push_str(RESPONSE_SCHEMA);
     prompt.push_str("\n```\n");
 
-    // ── Section 7: Whitelist des actions disponibles ──
-    prompt.push_str("\n# ACTIONS DISPONIBLES (whitelist uniquement)\n");
-    for cmd in crate::agent::remediation_whitelist::REMEDIATION_WHITELIST {
-        prompt.push_str(&format!(
-            "- `{}` : {} [Risque: {}] [Réversible: {}]\n",
-            cmd.id, cmd.description, cmd.risk, cmd.reversible
-        ));
-    }
-
-    // ── Section 8: Skills installées ──
-    prompt.push_str("\n# SKILLS INSTALLÉES (sources de données disponibles)\n");
-    let skills_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/skills-src"));
-    if let Ok(entries) = std::fs::read_dir(skills_dir) {
-        for entry in entries.flatten() {
-            let skill_json = entry.path().join("skill.json");
-            if let Ok(content) = std::fs::read_to_string(&skill_json) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let name = val["name"].as_str().unwrap_or("?");
-                    let desc = val["description"].as_str().unwrap_or("");
-                    let id = val["id"].as_str().unwrap_or("?");
-                    prompt.push_str(&format!("- {} ({}) : {}\n", name, id, desc));
-                }
-            }
-        }
-    }
-
-    // ── Section 9: Cibles configurées ──
-    prompt.push_str("\n# CIBLES CONFIGURÉES (infrastructure supervisée)\n");
-    prompt.push_str("Les cibles sont dans la base de données. Utilise les IPs/hostnames des observations pour les identifier.\n");
-    prompt.push_str("Pour scanner une cible, utilise scan-001 (Nuclei), scan-003 (Nmap) ou scan-005 (SSL) avec le paramètre TARGET.\n");
+    // ── Section 7: Whitelist (compact — catégories uniquement) ──
+    prompt.push_str(
+        r#"
+# ACTIONS DISPONIBLES (cmd_id à utiliser dans proposed_actions)
+Réseau: net-001 (bloquer IP entrant), net-002 (fail2ban), net-004 (bloquer IP sortant), net-005 (sinkhole DNS)
+Scan: scan-001 (Nuclei vuln), scan-003 (Nmap ports), scan-005 (SSL check)
+Forensique: forensic-001 (hash fichier), forensic-004 (snapshot réseau)
+Utilisateurs: usr-001 (verrouiller compte), proc-001 (kill process)
+Services: svc-001 (stop service), docker-001 (stop container)
+Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)
+"#,
+    );
 
     // Truncate if too long — keep the beginning (soul + mode) and end (schema + whitelist)
     truncate_prompt(prompt)
