@@ -2,6 +2,36 @@
 
 All notable changes to ThreatClaw are documented here.
 
+## [0.3.0-beta] — 2026-03-22
+
+### Added — Config Bridge (Axe 1)
+- **LLM config from DB** — `LlmRouterConfig::from_db_settings()` reads `tc_config_llm` and `tc_config_cloud` from settings table at each ReAct cycle; env vars still override
+- **NVD API key from DB** — `NvdConfig::from_db()` reads from `tc_config_general.nvdApiKey`; enables 50 req/30s rate limit
+- **Channel token bridge** — `config_set_handler` writes channel tokens as process env vars for immediate credential injection
+- **Telegram direct API** — `POST /api/tc/telegram/send`, `POST /api/tc/telegram/poll`, `GET /api/tc/telegram/status` endpoints reading token from DB config
+- **NVD API key field** in dashboard General config (was non-functional placeholder before)
+
+### Added — Dashboard Redesign (Axe 2)
+- **Dark glass theme** — new design system: `#0a0a0f` base, glass cards with `backdrop-blur`, `#d03020` red accent, gradient overlay
+- **Tab-based config** — 5 dedicated tabs (Général, IA/LLM, Canaux, Sécurité, Anonymisation) replacing accordion layout
+- **Connectivity indicator** — nav bar shows Full/Degraded/Offline status with 30s auto-refresh
+- **LLM model status** — shows loaded models with L1/L2 badges and sizes in the IA/LLM tab
+- **Telegram integration panel** — bot status indicator, test message sending, Chat ID field in Channels tab
+- **Scrollable anonymizer** — `maxHeight: 400px` scrollable list for 50+ rules
+- **Sticky save bar** — bottom-fixed save button with glass backdrop
+- **Updated glass components** — `ChromeInsetCard`, `ChromeButton` (primary/glass/danger variants), `ChromeEmbossedText` adapted for dark theme
+
+### Changed
+- `run_react_cycle()` now reloads LLM config from DB at each cycle start (dynamic config without restart)
+- `cve_lookup_handler()` now reads NVD config from DB store
+- Home page redesigned: 3-column service grid, dark theme, prominent CTA
+- TopNav: red shield logo, glass indicator pills
+- Max layout width: 900px → 1100px
+
+### Fixed
+- NVD API key input was bound to `general.language` instead of `general.nvdApiKey` (non-functional)
+- Test assertions for `LlmRouterConfig::default()` and `ReactRunnerConfig::default()` now match actual defaults
+
 ## [0.2.1-beta] — 2026-03-21
 
 ### Security

@@ -39,6 +39,29 @@ impl NvdConfig {
     pub fn rate_limit_ms(&self) -> u64 {
         if self.api_key.is_some() { 600 } else { 6000 }
     }
+
+    /// Charge la config NVD depuis la base de données (settings du dashboard).
+    /// Priorité : env var NVD_API_KEY > DB setting tc_config_general.nvdApiKey > None.
+    pub async fn from_db(store: &dyn crate::db::Database) -> Self {
+        let mut config = Self::default();
+
+        // Si déjà défini par env var, ne pas écraser
+        if config.api_key.is_some() {
+            return config;
+        }
+
+        // Lire depuis tc_config_general
+        if let Ok(Some(general)) = store.get_setting("_system", "tc_config_general").await {
+            if let Some(key) = general["nvdApiKey"].as_str() {
+                if !key.is_empty() {
+                    config.api_key = Some(key.to_string());
+                    tracing::debug!("NVD API key loaded from dashboard config");
+                }
+            }
+        }
+
+        config
+    }
 }
 
 /// Lookup a CVE from NVD API v2.

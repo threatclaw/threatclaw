@@ -1,9 +1,9 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Status", icon: Shield },
@@ -13,31 +13,89 @@ const NAV_ITEMS = [
   { href: "/setup", label: "Config", icon: Settings },
 ];
 
+type ConnStatus = "full" | "degraded" | "offline";
+
 export default function TopNav() {
   const pathname = usePathname();
+  const [connStatus, setConnStatus] = useState<ConnStatus>("offline");
+  const [llmStatus, setLlmStatus] = useState<string>("");
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const res = await fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          setConnStatus("full");
+        } else {
+          setConnStatus("degraded");
+        }
+      } catch {
+        // Try just the dashboard API proxy
+        try {
+          const res2 = await fetch("/api/tc/config", { signal: AbortSignal.timeout(3000) });
+          setConnStatus(res2.ok ? "degraded" : "offline");
+        } catch {
+          setConnStatus("offline");
+        }
+      }
+
+      // Check LLM status
+      try {
+        const res = await fetch("/api/ollama?url=http://ollama:11434", { signal: AbortSignal.timeout(5000) });
+        const data = await res.json();
+        if (data.models && data.models.length > 0) {
+          const names = data.models.map((m: { name: string }) => m.name.split(":")[0]);
+          const hasL1 = names.some((n: string) => n.includes("threatclaw-l1") || n.includes("qwen3"));
+          const hasL2 = names.some((n: string) => n.includes("threatclaw-l2") || n.includes("foundation"));
+          if (hasL1 && hasL2) setLlmStatus("L1+L2");
+          else if (hasL1) setLlmStatus("L1");
+          else setLlmStatus(`${data.models.length}m`);
+        }
+      } catch {
+        setLlmStatus("");
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const connColor = connStatus === "full" ? "#30a050" : connStatus === "degraded" ? "#d09020" : "#5a534e";
+  const connLabel = connStatus === "full" ? "Full" : connStatus === "degraded" ? "Degraded" : "Offline";
 
   return (
     <nav style={{
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      padding: "12px 20px",
-      marginBottom: "16px",
+      padding: "14px 24px",
+      marginBottom: "8px",
+      borderBottom: "1px solid rgba(255,255,255,0.04)",
     }}>
       {/* Logo */}
-      <span style={{
-        fontSize: "11px",
-        fontWeight: 800,
-        letterSpacing: "0.25em",
-        textTransform: "uppercase",
-        color: "#5a3a2a",
-        textShadow: "0 1px 1px rgba(255,255,255,0.4)",
-      }}>
-        THREATCLAW
-      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{
+          width: "28px", height: "28px", borderRadius: "8px",
+          background: "linear-gradient(135deg, #d03020 0%, #a02018 100%)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 2px 8px rgba(208,48,32,0.3)",
+        }}>
+          <Shield size={14} color="#fff" />
+        </div>
+        <span style={{
+          fontSize: "13px",
+          fontWeight: 800,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: "#e8e4e0",
+        }}>
+          THREATCLAW
+        </span>
+      </div>
 
       {/* Nav buttons */}
-      <div style={{ display: "flex", gap: "4px" }}>
+      <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
         {NAV_ITEMS.map((item) => {
           const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
@@ -47,30 +105,52 @@ export default function TopNav() {
               <div style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "5px",
-                padding: "6px 12px",
-                borderRadius: "0.5em",
-                fontSize: "10px",
-                fontWeight: 700,
-                letterSpacing: "0.04em",
+                gap: "6px",
+                padding: "7px 14px",
+                borderRadius: "8px",
+                fontSize: "11px",
+                fontWeight: 600,
+                letterSpacing: "0.03em",
                 textTransform: "uppercase",
-                color: isActive ? "#903020" : "#907060",
-                background: isActive ? "#e2dbd4" : "transparent",
-                boxShadow: isActive
-                  ? "inset 0 2px 6px rgba(60,30,15,0.2), inset 0 1px 2px rgba(60,30,15,0.15), inset 0 -1px 1px rgba(255,255,255,0.3)"
-                  : "none",
-                textShadow: isActive
-                  ? "0 1px 0 rgba(255,245,240,0.4), 0 -1px 1px rgba(100,30,15,0.1)"
-                  : "none",
+                color: isActive ? "#d03020" : "#6a625c",
+                background: isActive ? "rgba(208,48,32,0.08)" : "transparent",
+                border: isActive ? "1px solid rgba(208,48,32,0.15)" : "1px solid transparent",
                 transition: "all 200ms ease",
                 cursor: "pointer",
               }}>
-                <Icon size={13} />
+                <Icon size={14} />
                 {item.label}
               </div>
             </Link>
           );
         })}
+
+        {/* Separator */}
+        <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.06)", margin: "0 8px" }} />
+
+        {/* Connectivity indicator */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: "6px",
+          padding: "5px 10px", borderRadius: "6px",
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)",
+          fontSize: "10px", fontWeight: 500, color: connColor,
+        }}>
+          {connStatus === "offline" ? <WifiOff size={11} /> : <Wifi size={11} />}
+          {connLabel}
+        </div>
+
+        {/* LLM status */}
+        {llmStatus && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: "5px",
+            padding: "5px 10px", borderRadius: "6px",
+            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)",
+            fontSize: "10px", fontWeight: 500, color: "#30a050",
+          }}>
+            <Cpu size={11} />
+            {llmStatus}
+          </div>
+        )}
       </div>
     </nav>
   );

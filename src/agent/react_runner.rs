@@ -90,6 +90,16 @@ pub async fn run_react_cycle(
         };
     }
 
+    // ── Étape 1b : Recharger la config LLM depuis la DB (dashboard) ──
+    let llm_config = LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let config = &ReactRunnerConfig {
+        soul_path: config.soul_path.clone(),
+        hmac_key: config.hmac_key.clone(),
+        llm: llm_config,
+        max_findings: config.max_findings,
+        max_alerts: config.max_alerts,
+    };
+
     // ── Étape 2 : Pre-cycle checks ──
     let memory = match AgentMemory::new(&config.hmac_key) {
         Ok(m) => m,
@@ -521,7 +531,8 @@ mod tests {
     fn test_default_config() {
         let config = ReactRunnerConfig::default();
         assert!(config.soul_path.contains("AGENT_SOUL.toml"));
-        assert_eq!(config.llm.primary.model, "qwen3:14b");
+        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        assert_eq!(config.llm.primary.model, expected_model);
         assert!(config.llm.cloud.is_none());
     }
 

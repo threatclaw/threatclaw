@@ -49,21 +49,23 @@
 
 ---
 
-## v0.3.0-beta — Config fonctionnelle & Telegram (À FAIRE — PRIO ABSOLUE)
+## v0.3.0-beta — Config fonctionnelle & Telegram (mars 2026) ✅
 
-### La config dashboard doit avoir un effet réel
-- [ ] **Bridge config DB → backend** : le backend Rust lit les tokens canaux depuis la table `settings` (pas seulement le credential vault IronClaw)
-- [ ] **Telegram interactif** : token configuré dans le dashboard → canal actif → commandes via chat ("scan 192.168.1.107") → résultats renvoyés
-- [ ] **LLM config dynamique** : changer le modèle/URL dans le dashboard → change le modèle utilisé par le ReAct cycle (pas seulement les env vars)
-- [ ] **NVD API key fonctionnel** : configuré dans dashboard → lu par cve_lookup.rs
-- [ ] **Tous les champs de config** doivent être lus par le backend, pas juste sauvés en DB
+### La config dashboard a un effet réel
+- [x] **Bridge config DB → backend** : `LlmRouterConfig::from_db_settings()` lit la config LLM depuis la table `settings` à chaque cycle ReAct
+- [x] **Bridge channels → env vars** : `config_set_handler` écrit les tokens canaux en env vars pour `inject_channel_credentials`
+- [x] **Telegram API directe** : endpoints `/api/tc/telegram/send`, `/poll`, `/status` — lecture token depuis DB ou env var
+- [x] **LLM config dynamique** : changer le modèle/URL dans le dashboard → change le modèle au prochain cycle ReAct (plus besoin de restart)
+- [x] **NVD API key fonctionnel** : `NvdConfig::from_db()` lit depuis `tc_config_general.nvdApiKey` — 50 req/30s avec clé
+- [x] **Tous les champs de config** lus par le backend via DB settings (priorité : env > DB > TOML > défaut)
 
 ### Dashboard redesign
-- [ ] **Design identique au site vitrine** (dark, glass cards, rouge #d03020)
-- [ ] **Pages de config dédiées** au lieu d'accordéons (bouton Configurer → page séparée)
-- [ ] **Anonymizer UX** — page scrollable pour 50+ règles, pas d'ascenseur
-- [ ] **Indicateur connectivité** dans le header (Full/Degraded/Offline)
-- [ ] **Status des modèles LLM** (L1 chargé, L2 disponible, L3 config)
+- [x] **Dark glass theme** — fond #0a0a0f, glass cards avec backdrop-blur, rouge #d03020
+- [x] **Tabs de config dédiés** — 5 onglets (Général, IA/LLM, Canaux, Sécurité, Anonymisation) au lieu d'accordéons
+- [x] **Anonymizer UX** — liste scrollable avec maxHeight 400px pour 50+ règles
+- [x] **Indicateur connectivité** dans le header (Full/Degraded/Offline) avec auto-refresh 30s
+- [x] **Status des modèles LLM** — affichage L1/L2 avec taille, auto-détection dans le panneau IA
+- [x] **Telegram intégré** — status bot, envoi message test, dans le panneau Canaux
 
 ## v0.4.0 — Enrichissement & Offline
 
@@ -110,4 +112,4 @@
 ---
 
 *Dernière mise à jour : 22 mars 2026*
-*Version actuelle : 0.2.2-beta*
+*Version actuelle : 0.3.0-beta*

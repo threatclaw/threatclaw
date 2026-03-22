@@ -341,6 +341,10 @@ pub async fn start_server(
         .route("/api/tc/config/test-channel", post(super::handlers::threatclaw_api::config_test_channel_handler))
         // CVE enrichment
         .route("/api/tc/enrichment/cve", get(super::handlers::threatclaw_api::cve_lookup_handler))
+        // Telegram direct API
+        .route("/api/tc/telegram/send", post(super::handlers::threatclaw_api::telegram_send_handler))
+        .route("/api/tc/telegram/poll", post(super::handlers::threatclaw_api::telegram_poll_handler))
+        .route("/api/tc/telegram/status", get(super::handlers::threatclaw_api::telegram_status_handler))
         // Anonymizer custom rules
         .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
         .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))

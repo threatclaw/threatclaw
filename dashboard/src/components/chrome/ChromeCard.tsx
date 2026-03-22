@@ -5,38 +5,29 @@ import React from "react";
 interface ChromeInsetCardProps {
   children: React.ReactNode;
   className?: string;
+  glow?: boolean;
+  style?: React.CSSProperties;
 }
 
-export function ChromeInsetCard({ children, className = "" }: ChromeInsetCardProps) {
+export function ChromeInsetCard({ children, className = "", glow = false, style }: ChromeInsetCardProps) {
   return (
     <div
-      className={`rounded-xl overflow-visible relative ${className}`}
+      className={`${className}`}
       style={{
-        padding: "2px",
-        backgroundColor: "#c8c0b8",
-        boxShadow: `
-          inset 0 3px 8px rgba(0,0,0,0.5),
-          inset 0 1px 3px rgba(0,0,0,0.4),
-          inset 0 -1px 1px rgba(255,255,255,0.08),
-          0 1px 0 rgba(255,255,255,0.15)
-        `,
+        background: "rgba(18, 18, 26, 0.7)",
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        border: "1px solid rgba(255, 255, 255, 0.06)",
+        borderRadius: "16px",
+        boxShadow: glow
+          ? "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02), 0 0 30px rgba(208,48,32,0.05)"
+          : "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02)",
+        padding: "20px",
+        transition: "box-shadow 0.25s ease, border-color 0.25s ease",
+        ...style,
       }}
     >
-      <div
-        className="rounded-[10px] h-full flex flex-col"
-        style={{
-          backgroundColor: "#ece5de",
-          boxShadow: `
-            inset 0 4px 10px rgba(0,0,0,0.45),
-            inset 0 2px 4px rgba(0,0,0,0.35),
-            inset 0 -2px 4px rgba(255,255,255,0.05)
-          `,
-        }}
-      >
-        <div style={{ position: "relative", padding: "16px", flex: 1, display: "flex", flexDirection: "column" }}>
-          {children}
-        </div>
-      </div>
+      {children}
     </div>
   );
 }
@@ -53,8 +44,7 @@ export function ChromeEmbossedText({ children, as: Tag = "span", className = "",
     <Tag
       className={className}
       style={{
-        color: "#1a1a22",
-        textShadow: "0 1px 1px rgba(255,255,255,0.4), 0 -1px 1px rgba(0,0,0,0.15)",
+        color: "#e8e4e0",
         ...style,
       }}
     >

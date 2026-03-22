@@ -147,6 +147,82 @@ pub enum EscalationDecision {
 }
 
 impl LlmRouterConfig {
+    /// Charge la config LLM depuis la base de données (settings du dashboard).
+    /// Priorité : env vars > DB settings > défauts.
+    pub async fn from_db_settings(store: &dyn crate::db::Database) -> Self {
+        let mut config = Self::default();
+
+        // ── Primary LLM (tc_config_llm) ──
+        if let Ok(Some(llm_val)) = store.get_setting("_system", "tc_config_llm").await {
+            if let Some(backend) = llm_val["backend"].as_str() {
+                if !backend.is_empty() && std::env::var("LLM_BACKEND").is_err() {
+                    config.primary.backend = backend.to_string();
+                }
+            }
+            if let Some(url) = llm_val["url"].as_str() {
+                if !url.is_empty() && std::env::var("OLLAMA_BASE_URL").is_err() {
+                    config.primary.base_url = url.to_string();
+                }
+            }
+            if let Some(model) = llm_val["model"].as_str() {
+                if !model.is_empty() && std::env::var("OLLAMA_MODEL").is_err() {
+                    config.primary.model = model.to_string();
+                }
+            }
+            if let Some(key) = llm_val["apiKey"].as_str() {
+                if !key.is_empty() {
+                    config.primary.api_key = Some(key.to_string());
+                }
+            }
+        }
+
+        // ── Cloud LLM (tc_config_cloud) ──
+        if let Ok(Some(cloud_val)) = store.get_setting("_system", "tc_config_cloud").await {
+            let backend = cloud_val["backend"].as_str().unwrap_or("").to_string();
+            let model = cloud_val["model"].as_str().unwrap_or("").to_string();
+            let api_key = cloud_val["apiKey"].as_str().unwrap_or("").to_string();
+            let base_url = cloud_val["url"].as_str().map(|s| s.to_string());
+
+            if !backend.is_empty() && !api_key.is_empty() {
+                config.cloud = Some(CloudLlmConfig {
+                    backend,
+                    model: if model.is_empty() { "claude-sonnet-4-20250514".to_string() } else { model },
+                    base_url,
+                    api_key,
+                });
+            }
+        }
+
+        // ── Forensic LLM L2 (tc_config_forensic) ──
+        if let Ok(Some(forensic_val)) = store.get_setting("_system", "tc_config_forensic").await {
+            if let Some(model) = forensic_val["model"].as_str() {
+                if !model.is_empty() && std::env::var("FORENSIC_MODEL").is_err() {
+                    config.forensic.model = model.to_string();
+                }
+            }
+            if let Some(url) = forensic_val["url"].as_str() {
+                if !url.is_empty() {
+                    config.forensic.base_url = url.to_string();
+                }
+            }
+        }
+
+        // ── Anonymize primary (tc_config_anonymize_primary) ──
+        if let Ok(Some(anon_val)) = store.get_setting("_system", "tc_config_anonymize_primary").await {
+            if let Some(anon) = anon_val.as_bool() {
+                config.anonymize_primary = anon;
+            }
+        }
+
+        tracing::debug!(
+            "LLM config loaded: primary={}/{} cloud={}",
+            config.primary.backend, config.primary.model,
+            config.cloud.as_ref().map(|c| format!("{}/{}", c.backend, c.model)).unwrap_or("none".into())
+        );
+
+        config
+    }
+
     /// Détermine s'il faut escalader après une analyse.
     pub fn decide_escalation(
         &self,
@@ -235,7 +311,9 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = LlmRouterConfig::default();
-        assert_eq!(config.primary.model, "qwen3:14b");
+        // Default model depends on OLLAMA_MODEL env var; without it, "threatclaw-redsage"
+        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        assert_eq!(config.primary.model, expected_model);
         assert_eq!(config.primary.backend, "ollama");
         assert!(config.cloud.is_none());
         assert_eq!(config.cloud_escalation, CloudEscalation::Anonymized);
@@ -415,7 +493,8 @@ mod tests {
     #[test]
     fn test_model_for_task() {
         let config = LlmRouterConfig::default();
-        assert_eq!(config.model_for_task(LlmTask::Correlation), "qwen3:14b");
-        assert_eq!(config.model_for_task(LlmTask::Chat), "qwen3:14b");
+        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        assert_eq!(config.model_for_task(LlmTask::Correlation), expected_model);
+        assert_eq!(config.model_for_task(LlmTask::Chat), expected_model);
     }
 }

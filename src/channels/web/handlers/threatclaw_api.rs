@@ -843,7 +843,7 @@ pub async fn config_get_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let mut config = serde_json::json!({});
-    for key in &["llm", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
             config[*key] = val;
@@ -860,7 +860,7 @@ pub async fn config_set_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Save each config section
-    for key in &["llm", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
         if let Some(val) = body.get(*key) {
             let setting_key = format!("tc_config_{}", key);
             store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;
@@ -877,6 +877,11 @@ pub async fn config_set_handler(
             _ => "investigator",
         };
         store.set_setting("_system", "agent_mode", &serde_json::json!(mode)).await.map_err(db_err)?;
+    }
+
+    // ── Bridge channel tokens to env vars for credential injection ──
+    if let Some(channels_val) = body.get("channels") {
+        bridge_channel_tokens(channels_val);
     }
 
     // Set onboard completed
@@ -962,11 +967,16 @@ pub async fn config_test_channel_handler(
 
 /// GET /api/tc/enrichment/cve?id=CVE-2021-44228
 pub async fn cve_lookup_handler(
+    State(state): State<Arc<GatewayState>>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
     let cve_id = q.get("id").ok_or((StatusCode::BAD_REQUEST, "Missing 'id' parameter".to_string()))?;
 
-    let config = crate::enrichment::cve_lookup::NvdConfig::default();
+    let config = if let Some(store) = state.store.as_ref() {
+        crate::enrichment::cve_lookup::NvdConfig::from_db(store.as_ref()).await
+    } else {
+        crate::enrichment::cve_lookup::NvdConfig::default()
+    };
     match crate::enrichment::cve_lookup::lookup_cve(cve_id, &config).await {
         Ok(cve) => Ok(Json(serde_json::json!({
             "cve_id": cve.cve_id,
@@ -980,6 +990,222 @@ pub async fn cve_lookup_handler(
         }))),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
+}
+
+// ══════════════════════════════════════════════════════════
+// CONFIG BRIDGE — Channel tokens → env vars
+// ══════════════════════════════════════════════════════════
+
+/// Bridge channel tokens from dashboard config to process env vars.
+/// This allows the existing credential injection system (which reads env vars
+/// as a fallback) to pick up tokens configured via the dashboard.
+fn bridge_channel_tokens(channels: &serde_json::Value) {
+    let mappings: &[(&str, &[(&str, &str)])] = &[
+        ("telegram", &[("botToken", "TELEGRAM_BOT_TOKEN")]),
+        ("slack", &[("botToken", "SLACK_BOT_TOKEN"), ("signingSecret", "SLACK_SIGNING_SECRET")]),
+        ("discord", &[("botToken", "DISCORD_BOT_TOKEN")]),
+        ("whatsapp", &[("accessToken", "WHATSAPP_ACCESS_TOKEN")]),
+    ];
+
+    for (channel, fields) in mappings {
+        if let Some(ch) = channels.get(*channel) {
+            let enabled = ch["enabled"].as_bool().unwrap_or(false);
+            for (json_key, env_key) in *fields {
+                if let Some(token) = ch[*json_key].as_str() {
+                    if !token.is_empty() && enabled {
+                        // SAFETY: acceptable for config — single writer (dashboard save)
+                        unsafe { std::env::set_var(env_key, token); }
+                        tracing::info!("Bridge: {} → env {} ({})", channel, env_key,
+                            if token.len() > 8 { format!("{}...{}", &token[..4], &token[token.len()-4..]) }
+                            else { "****".to_string() }
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+// TELEGRAM DIRECT API — Send messages / bot info
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/telegram/send — send a message via Telegram bot.
+/// Reads token from DB config (tc_config_channels.telegram.botToken).
+pub async fn telegram_send_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let chat_id = body["chat_id"].as_str()
+        .or_else(|| body["chat_id"].as_i64().map(|_| ""))
+        .ok_or((StatusCode::BAD_REQUEST, "Missing chat_id".to_string()))?;
+    let chat_id_str = if chat_id.is_empty() {
+        body["chat_id"].as_i64().unwrap().to_string()
+    } else {
+        chat_id.to_string()
+    };
+
+    let text = body["text"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing text".to_string()))?;
+    let parse_mode = body["parse_mode"].as_str().unwrap_or("Markdown");
+
+    // Get bot token: env var > DB config
+    let token = std::env::var("TELEGRAM_BOT_TOKEN").ok()
+        .filter(|t| !t.is_empty())
+        .or_else(|| {
+            // Synchronous context — we need a blocking approach
+            None
+        });
+
+    // If not in env, read from DB
+    let token = if let Some(t) = token {
+        t
+    } else {
+        match store.get_setting("_system", "tc_config_channels").await {
+            Ok(Some(channels)) => {
+                channels["telegram"]["botToken"].as_str()
+                    .filter(|t| !t.is_empty())
+                    .map(|t| t.to_string())
+                    .ok_or((StatusCode::BAD_REQUEST, "Telegram bot token not configured".to_string()))?
+            }
+            _ => return Ok(Json(serde_json::json!({ "ok": false, "error": "Telegram bot token not configured" }))),
+        }
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let resp = client.post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+        .json(&serde_json::json!({
+            "chat_id": chat_id_str,
+            "text": text,
+            "parse_mode": parse_mode,
+        }))
+        .send().await;
+
+    match resp {
+        Ok(r) => {
+            let data: serde_json::Value = r.json().await.unwrap_or_default();
+            if data["ok"].as_bool() == Some(true) {
+                tracing::info!("Telegram message sent to chat_id={}", chat_id_str);
+                Ok(Json(serde_json::json!({ "ok": true, "message_id": data["result"]["message_id"] })))
+            } else {
+                Ok(Json(serde_json::json!({ "ok": false, "error": data["description"] })))
+            }
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/tc/telegram/poll — poll for new messages (one-shot).
+/// Used for interactive Telegram bot: receive commands, return them.
+pub async fn telegram_poll_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let offset = body["offset"].as_i64().unwrap_or(0);
+
+    // Get bot token from env or DB
+    let token = get_telegram_token(store.as_ref()).await
+        .ok_or((StatusCode::BAD_REQUEST, "Telegram bot token not configured".to_string()))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let resp = client.get(format!("https://api.telegram.org/bot{}/getUpdates", token))
+        .query(&[
+            ("offset", offset.to_string()),
+            ("timeout", "10".to_string()),
+            ("allowed_updates", "[\"message\"]".to_string()),
+        ])
+        .send().await;
+
+    match resp {
+        Ok(r) => {
+            let data: serde_json::Value = r.json().await.unwrap_or_default();
+            Ok(Json(data))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/tc/telegram/status — check Telegram bot status.
+pub async fn telegram_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let token = match get_telegram_token(store.as_ref()).await {
+        Some(t) => t,
+        None => return Ok(Json(serde_json::json!({
+            "configured": false,
+            "ok": false,
+            "error": "No Telegram bot token configured"
+        }))),
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let resp = client.get(format!("https://api.telegram.org/bot{}/getMe", token))
+        .send().await;
+
+    match resp {
+        Ok(r) => {
+            let data: serde_json::Value = r.json().await.unwrap_or_default();
+            if data["ok"].as_bool() == Some(true) {
+                Ok(Json(serde_json::json!({
+                    "configured": true,
+                    "ok": true,
+                    "username": data["result"]["username"],
+                    "first_name": data["result"]["first_name"],
+                    "id": data["result"]["id"],
+                })))
+            } else {
+                Ok(Json(serde_json::json!({
+                    "configured": true,
+                    "ok": false,
+                    "error": data["description"],
+                })))
+            }
+        }
+        Err(e) => Ok(Json(serde_json::json!({
+            "configured": true,
+            "ok": false,
+            "error": e.to_string(),
+        }))),
+    }
+}
+
+/// Helper: get Telegram bot token from env var or DB config.
+async fn get_telegram_token(store: &dyn crate::db::Database) -> Option<String> {
+    // 1. Env var (highest priority)
+    if let Ok(token) = std::env::var("TELEGRAM_BOT_TOKEN") {
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+
+    // 2. DB config (dashboard setting)
+    if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
+        if let Some(token) = channels["telegram"]["botToken"].as_str() {
+            if !token.is_empty() {
+                return Some(token.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 // ══════════════════════════════════════════════════════════
