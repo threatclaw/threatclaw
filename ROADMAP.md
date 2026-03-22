@@ -1,65 +1,107 @@
 # ThreatClaw — Roadmap
 
-## Phase 1 — Fork & Setup
+## v0.1.0 — Fork & Foundation (mars 2026) ✅
 
-- [x] 1.1 Cloner IronClaw depuis GitHub
-- [x] 1.2 Renommage branding (ironclaw → threatclaw)
-- [x] 1.3 Mettre à jour Cargo.toml et fichiers de config
-- [x] 1.4 Vérifier que `cargo check` compile (OK — 0 erreurs)
-- [x] 1.5 Créer docker-compose.yml (core + db + tous services)
-- [x] 1.6 Créer docker-compose.dev.yml (stack dev allégée)
-- [x] 1.7 Créer la structure dossiers skills/ avec interface standard (10 skills)
-- [x] 1.8 Créer le CLAUDE.md projet (copie depuis docs/)
-- [x] 1.9 Créer README.md professionnel
-- [x] 1.10 Initialiser le repo Git local
-- [x] 1.11 Premier commit structuré (828 fichiers, 313K lignes)
+- [x] Fork IronClaw, rebranding complet
+- [x] 10 skills Python (vuln-scan, secrets, email-audit, darkweb, phishing, soc-monitor, cloud-posture, report-gen, compliance-nis2, compliance-iso27001)
+- [x] Docker composition (13 services)
+- [x] 439 tests Python + 3275 tests Rust
 
-## Phase 2 — Skills Core V1
+## v0.2.0-beta — Architecture Sécurité (mars 2026) ✅
 
-- [x] 2.1 skill-vuln-scan (Nuclei + Grype + EPSS scoring) — 20 tests ✅
-- [x] 2.2 skill-secrets (Gitleaks — Git history complet) — 21 tests ✅
-- [x] 2.3 skill-email-audit (checkdmarc — DMARC/SPF/DKIM) — 12 tests ✅
-- [x] 2.4 skill-darkweb (HIBP API + PasteHunter) — 15 tests ✅
-- [x] 2.5 skill-phishing (GoPhish API + LLM templates) — 14 tests ✅
-- [x] 2.6 Tests unitaires pour chaque skill — 82/82 ✅
+- [x] 5 piliers de sécurité compilés dans le binaire (Soul, Whitelist, XML wrapper, HMAC memory, Kill switch)
+- [x] ReAct reasoning loop avec escalade 3 niveaux
+- [x] 10 skills officielles en Rust/WASM (sandbox BLAKE3 signé)
+- [x] 4 canaux de communication WASM (Slack, Telegram, Discord, WhatsApp)
+- [x] Dashboard Next.js (Chrome embossed design)
+- [x] Scanner abstraction (Nuclei, Trivy — Docker/local/remote API)
+- [x] Multi-target infrastructure (per-server mode/permissions)
+- [x] Credential vault (Argon2id + AES-256-GCM + HKDF)
+- [x] HITL Slack avec nonce anti-replay
+- [x] Fluent Bit syslog (port 514)
+- [x] CI/CD (GitHub Actions)
 
-## Phase 3 — SOC & Logs
+## v0.2.1-beta — Sécurité & Anonymisation (mars 2026) ✅
 
-- [x] 3.1 Pipeline logs : Fluent Bit → PostgreSQL (fluent-bit.conf + parsers.conf + V14 migration) ✅
-- [x] 3.2 Intégration Sigma rules (sigma_engine.py — 32 tests) ✅
-- [x] 3.3 skill-soc-monitor (collecte + Sigma + corrélation + triage LLM) — 76 tests ✅
-- [x] 3.4 skill-cloud-posture (Prowler + NIS2 mapping + ISO27001) — 66 tests ✅
-- [x] 3.5 Couche anonymisation src/anonymizer/ (patterns + transformer + dé-anonymisation) — 36 tests Rust ✅
-- [x] 3.6 Cyber scheduler dans core Rust (6 routines par défaut) — 16 tests Rust ✅
+- [x] 0 CVE dans le binaire (10 patchées : wasmtime 36, aws-lc-sys, serde_yaml_ng)
+- [x] Anonymiseur international 17 catégories + custom RSSI rules API
+- [x] Whitelist étendue : 12 → 35 commandes (scan, forensique, skill API lookups)
+- [x] Dashboard connecté au vrai backend (plus de localStorage)
+- [x] Tests connexion canaux (Slack auth.test, Telegram getMe, Discord users/@me)
+- [x] Tests connexion skills (AbuseIPDB, Shodan, VirusTotal, CrowdSec, HIBP, Wazuh, DNS)
+- [x] Multi-plateforme (Linux, macOS, Windows — installers)
+- [x] FAQ 17 questions bilingues FR/EN
+- [x] Page Skills vitrine
+- [x] Threat Model MITRE ATLAS v2.0 (trust.threatclaw.io)
+- [x] Skill Development Guide + template communautaire
+- [x] GitHub Sponsors configuré
 
-## Phase 4 — IA & Rapports
+## v0.2.2-beta — LLM Cyber + Cycle ReAct fonctionnel (mars 2026) ✅
 
-- [x] 4.1 skill-report-gen (HTML/PDF NIS2 français, agrégation multi-sources, scoring pondéré) — 69 tests ✅
-- [x] 4.2 skill-compliance-nis2 (mapping Art.21 §1-10, scoring, gap analysis, plan d'action) — 70 tests ✅
-- [x] 4.3 skill-compliance-iso27001 (93 contrôles Annexe A, SoA, maturity assessment) — 44 tests ✅
-- [x] 4.4 Dashboard RSSI Next.js v1 (score, NIS2 radar, alertes SOC, rapports, dark theme) — 18 fichiers ✅
-- [x] 4.5 Human-in-the-loop Slack (Block Kit, approval workflows, urgency levels) — 26 Rust + 32 Python tests ✅
-
-## Phase 5 — Docker & Release
-
-- [x] 5.1 docker-compose.yml production (13 services, 2 réseaux, Redis, logging, resource limits) ✅
-- [x] 5.2 installer/install.sh one-liner (Docker, .env, TLS, systemd, --update/--uninstall) ✅
-- [x] 5.3 CI/CD GitHub Actions (ci.yml + release.yml + security.yml + dependabot) ✅
-- [x] 5.4 Dockerfiles multi-stage (core Rust + dashboard Next.js + nginx reverse proxy) ✅
-- [x] 5.5 Documentation utilisateur (USER_GUIDE.md fr + ARCHITECTURE.md en + CHANGELOG.md) ✅
-- [x] 5.6 Tag v0.1.0 — Release prête ✅
+- [x] Stack LLM 3 niveaux : L1 (qwen3:8b SOC), L2 (Foundation-Sec Reasoning), L3 (Cloud)
+- [x] Premier cycle ReAct end-to-end réussi (6 observations → CRITICAL 85%)
+- [x] Foundation-Sec Reasoning validé pour forensique (MITRE ATT&CK mapping)
+- [x] NVD CVE enrichment API (cve_lookup.rs)
+- [x] Prompt builder compact (categories au lieu de 35 lignes)
+- [x] Fix call_ollama (chat API, thinking mode fallback)
+- [x] Docker compose avec Ollama intégré
+- [x] Modelfiles custom (Modelfile.threatclaw-l1, Modelfile.threatclaw-l2)
 
 ---
-*Dernière mise à jour : 2026-03-18*
-*Version : 0.1.0*
 
-## Statistiques finales
+## v0.3.0-beta — Dashboard Redesign & UX (À FAIRE)
 
-| Métrique | Valeur |
-|----------|--------|
-| Tests Python | 439 |
-| Tests Rust | 3 275+ |
-| Skills implémentés | 10/10 |
-| Services Docker | 13 |
-| Lignes de code ajoutées | ~25 000 |
-| Commits | 5 |
+- [ ] **Redesign dashboard** — design identique au site vitrine (dark, glass cards, rouge #d03020)
+- [ ] **Pages de config dédiées** au lieu d'accordéons (bouton Configurer → page séparée)
+- [ ] **Anonymizer UX** — page scrollable pour 50+ règles, pas d'ascenseur
+- [ ] **API key fields** fonctionnels (sauvegarde en DB via POST /api/tc/config)
+- [ ] **NVD API key** dans la config dashboard
+- [ ] **Indicateur connectivité** dans le header (Full/Degraded/Offline)
+- [ ] **Status des modèles LLM** (L1 chargé, L2 disponible, L3 config)
+
+## v0.4.0 — Enrichissement & Offline
+
+- [ ] Cache CVE pgvector (7 jours)
+- [ ] MITRE ATT&CK JSON sync (mensuelle)
+- [ ] CERT-FR RSS (quotidienne)
+- [ ] Mode offline complet (Full/Degraded/Offline/AirGap)
+- [ ] Bundle offline (CVEs CVSS≥7, ATT&CK, CrowdSec IPs, Sigma rules)
+- [ ] Script download-offline-bundle.sh
+- [ ] Dashboard indicateur offline + âge du bundle
+
+## v0.5.0 — Docker Plug-and-Play
+
+- [ ] `docker compose up` → tout démarre sans configuration
+- [ ] Auto-pull des modèles Ollama au premier démarrage
+- [ ] Migrations Refinery robustes (IF NOT EXISTS)
+- [ ] Auth token transparent (généré et injecté automatiquement)
+- [ ] Healthchecks sur tous les services
+- [ ] Documentation docker-compose.yml commentée
+
+## v1.0.0 — Production Ready
+
+- [ ] Exécution SSH distante (executor_ssh.rs) — agir sur les cibles
+- [ ] Lookup cible par nom dans le ReAct (resolve "srv-prod-01" → IP + credentials)
+- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
+- [ ] Planning par skill (au lieu du scheduler global)
+- [ ] Page alertes/findings (quand le scheduler produit des findings réels)
+- [ ] Tests e2e automatisés du cycle complet
+- [ ] Détection comportementale ML (compléter Sigma)
+- [ ] mTLS entre containers Docker
+- [ ] Audit de sécurité tiers
+- [ ] CLI scaffolding (`threatclaw create-skill`)
+- [ ] SDK Python sur PyPI (`threatclaw-sdk`)
+- [ ] Binary integrity verification (`threatclaw verify-binary`)
+
+## Post v1.0
+
+- [ ] Marketplace/registry de skills (distribution OCI)
+- [ ] Leaderboard contributeurs
+- [ ] Skills premium (EDR, SIEM avancé, threat intel premium)
+- [ ] Anonymiseur base64/hex (contournement encodage)
+- [ ] Rate limiting API (tower-governor)
+
+---
+
+*Dernière mise à jour : 22 mars 2026*
+*Version actuelle : 0.2.2-beta*
