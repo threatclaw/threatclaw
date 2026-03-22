@@ -5,7 +5,7 @@ import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
   Plus, Trash2, Send, Bot, ArrowRight, Database, Key, Radio, Mail,
-  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight,
+  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings,
 } from "lucide-react";
 
 // ── Channel SVG icons (no emojis) ──
@@ -52,7 +52,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [llm, setLlm] = useState({ backend: "ollama", url: "http://ollama:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
+  const [llm, setLlm] = useState({ backend: "ollama", url: "http://127.0.0.1:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
   const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
   const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
@@ -707,81 +707,44 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
         )}
       </ChromeInsetCard>
 
-      {/* ── L1 — Triage ── */}
-      <ChromeInsetCard>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-          <LevelBadge level="L1" color="#3080d0" bg="rgba(48,128,208,0.12)" border="rgba(48,128,208,0.25)" />
-          <div>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Triage — IA locale rapide</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "#5a534e" }}>Corrélation, scoring CVSS, JSON structuré</div>
+      {/* ── AI Levels ── */}
+      {aiLevels.map(ai => (
+        <ChromeInsetCard key={ai.id}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <LevelBadge level={ai.level} color={ai.color} bg={ai.bg} border={ai.border} />
+            <div style={{ flex: 1 }}>
+              <ChromeEmbossedText as="div" style={{ fontSize: "14px", fontWeight: 700 }}>{ai.name}</ChromeEmbossedText>
+              <div style={{ fontSize: "11px", color: "#5a534e" }}>{ai.desc}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: ai.model ? ai.color : "#5a534e", fontFamily: "monospace" }}>
+                {ai.model || ai.defaultModel}
+              </span>
+              <ChromeButton onClick={() => setChangingLevel(changingLevel === ai.id ? null : ai.id)} variant="glass">
+                {changingLevel === ai.id ? <X size={12} /> : <Settings size={12} />}
+                {changingLevel === ai.id ? "Fermer" : "Changer"}
+              </ChromeButton>
+            </div>
           </div>
-        </div>
-        <div>
-          <div style={labelStyle}>Modèle L1</div>
-          {llm.connected && llm.models.length > 0 ? (
-            <GlassSelect value={llm.model} onChange={v => setLlm(p => ({ ...p, model: v }))}
-              options={modelOptions} placeholder="— Sélectionner un modèle —" />
-          ) : (
-            <input style={inputStyle} value={llm.model} onChange={e => setLlm(p => ({ ...p, model: e.target.value }))}
-              placeholder="Connectez Ollama pour voir les modèles" />
+          {changingLevel === ai.id && (
+            <div style={{ marginTop: "14px", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "14px" }}>
+              {llm.connected && modelOptions.length > 0 ? (
+                <GlassSelect value={ai.model} onChange={v => ai.setModel(v)}
+                  options={modelOptions} placeholder="— Sélectionner un modèle —" />
+              ) : (
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input style={{ ...inputStyle, flex: 1 }} value={ai.model}
+                    onChange={e => ai.setModel(e.target.value)}
+                    placeholder={`${ai.defaultModel} (connectez Ollama pour voir la liste)`} />
+                </div>
+              )}
+              <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
+                Recommandé : <strong style={{ color: ai.color }}>{ai.defaultModel}</strong>
+              </div>
+            </div>
           )}
-          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#3080d0" }}>threatclaw-l1</strong> — ThreatClaw AI 8B Triage
-          </div>
-        </div>
-      </ChromeInsetCard>
-
-      {/* ── L2 — Forensique ── */}
-      <ChromeInsetCard>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-          <LevelBadge level="L2" color="#d09020" bg="rgba(208,144,32,0.12)" border="rgba(208,144,32,0.25)" />
-          <div>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Forensique — Analyse approfondie</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "#5a534e" }}>Chain-of-thought, root cause, MITRE ATT&CK</div>
-          </div>
-        </div>
-        <div>
-          <div style={labelStyle}>Modèle L2</div>
-          {llm.connected && llm.models.length > 0 ? (
-            <GlassSelect value={forensic.model} onChange={v => setForensic(p => ({ ...p, model: v }))}
-              options={modelOptions} placeholder="— Sélectionner un modèle —" />
-          ) : (
-            <input style={inputStyle} value={forensic.model} onChange={e => setForensic(p => ({ ...p, model: e.target.value }))}
-              placeholder="threatclaw-l2" />
-          )}
-          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#d09020" }}>threatclaw-l2</strong> — ThreatClaw AI 8B Reasoning
-          </div>
-        </div>
-      </ChromeInsetCard>
-
-      {/* ── L3 — Instruct (SOAR playbooks) ── */}
-      <ChromeInsetCard>
-        {/* L3 Instruct content */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-          <LevelBadge level="L2.5" color="#30a050" bg="rgba(48,160,80,0.12)" border="rgba(48,160,80,0.25)" />
-          <div>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Instruct — Playbooks SOAR + HITL</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "#5a534e" }}>Enrichit les messages HITL avec playbook suggéré. Aussi : rapports, Sigma rules, threat modeling (à la demande RSSI).</div>
-          </div>
-        </div>
-        <div>
-          <div style={labelStyle}>Modèle Instruct</div>
-          {llm.connected && llm.models.length > 0 ? (
-            <GlassSelect value={instruct.model} onChange={v => setInstruct(p => ({ ...p, model: v }))}
-              options={modelOptions} placeholder="— Sélectionner un modèle —" />
-          ) : (
-            <input style={inputStyle} value={instruct.model} onChange={e => setInstruct(p => ({ ...p, model: e.target.value }))}
-              placeholder="threatclaw-l3" />
-          )}
-          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
-            Recommandé : <strong style={{ color: "#30a050" }}>threatclaw-l3</strong> — ThreatClaw AI 8B Instruct
-          </div>
-          <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "4px", padding: "8px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
-            Jamais chargé en même temps que L2 Forensique (mutual exclusion RAM). Déchargement auto après 5 min.
-          </div>
-        </div>
-      </ChromeInsetCard>
+        </ChromeInsetCard>
+      ))}
 
       {/* ── L4 — Cloud ── */}
       <ChromeInsetCard glow={cloud.enabled}>
