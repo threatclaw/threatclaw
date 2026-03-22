@@ -331,6 +331,7 @@ pub async fn start_server(
         // Skills catalog + test
         .route("/api/tc/skills/catalog", get(super::handlers::threatclaw_api::skills_catalog_handler))
         .route("/api/tc/skills/{id}/test", post(super::handlers::threatclaw_api::skill_test_handler))
+        .route("/api/tc/skills/{id}/install", post(super::handlers::threatclaw_api::skill_install_handler))
         // Targets / Infrastructure
         .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
         .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))

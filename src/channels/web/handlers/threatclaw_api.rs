@@ -595,10 +595,12 @@ pub async fn skills_catalog_handler(
                 if let Ok(content) = std::fs::read_to_string(&skill_json) {
                     if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
                         // Check if WASM is compiled
-                        let wasm_path = format!("{}/.threatclaw/channels/{}.wasm",
-                            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
-                            val["id"].as_str().unwrap_or(""));
-                        val["installed"] = serde_json::json!(std::path::Path::new(&wasm_path).exists());
+                        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+                        let skill_id = val["id"].as_str().unwrap_or("");
+                        // Check both tools/ (compiled) and channels/ (legacy) directories
+                        let installed = std::path::Path::new(&format!("{}/.threatclaw/tools/{}.wasm", home, skill_id)).exists()
+                            || std::path::Path::new(&format!("{}/.threatclaw/channels/{}.wasm", home, skill_id)).exists();
+                        val["installed"] = serde_json::json!(installed);
                         val["runtime"] = serde_json::json!("wasm");
                         skills.push(val);
                     }
@@ -627,6 +629,89 @@ pub async fn skills_catalog_handler(
     }
 
     Ok(Json(serde_json::json!({ "skills": skills, "total": skills.len() })))
+}
+
+// ── Skill Install ──
+
+/// POST /api/tc/skills/{id}/install — install a WASM skill.
+/// Looks for the compiled .wasm in the build output and copies it to ~/.threatclaw/tools/.
+pub async fn skill_install_handler(
+    Path(skill_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+    let tools_dir = format!("{}/.threatclaw/tools", home);
+
+    // Ensure tools directory exists
+    let _ = std::fs::create_dir_all(&tools_dir);
+
+    let target_path = format!("{}/{}.wasm", tools_dir, skill_id);
+
+    // Already installed?
+    if std::path::Path::new(&target_path).exists() {
+        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_installed" })));
+    }
+
+    // Look for pre-compiled WASM in build output
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let search_paths = [
+        format!("{}/target/wasm32-wasip2/release/{}.wasm", manifest_dir, skill_id),
+        format!("{}/target/wasm32-wasip2/debug/{}.wasm", manifest_dir, skill_id),
+        format!("{}/skills-src/{}/target/wasm32-wasip2/release/{}.wasm", manifest_dir, skill_id, skill_id.replace('-', "_")),
+    ];
+
+    for path in &search_paths {
+        if std::path::Path::new(path).exists() {
+            match std::fs::copy(path, &target_path) {
+                Ok(_) => {
+                    tracing::info!("Skill installed: {} → {}", skill_id, target_path);
+                    return Ok(Json(serde_json::json!({ "ok": true, "status": "installed", "source": "pre_compiled" })));
+                }
+                Err(e) => {
+                    return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") })));
+                }
+            }
+        }
+    }
+
+    // Try to compile from source if skill-src exists
+    let skill_src = format!("{}/skills-src/{}", manifest_dir, skill_id);
+    if std::path::Path::new(&skill_src).exists() {
+        tracing::info!("Skill source found, attempting WASM compilation: {}", skill_id);
+
+        // Run cargo build for the skill
+        let output = std::process::Command::new("cargo")
+            .args(["build", "--release", "--target", "wasm32-wasip2"])
+            .current_dir(&skill_src)
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                // Find the compiled .wasm
+                let crate_name = skill_id.replace('-', "_");
+                let compiled = format!("{}/target/wasm32-wasip2/release/{}.wasm", skill_src, crate_name);
+                if std::path::Path::new(&compiled).exists() {
+                    match std::fs::copy(&compiled, &target_path) {
+                        Ok(_) => {
+                            tracing::info!("Skill compiled and installed: {}", skill_id);
+                            return Ok(Json(serde_json::json!({ "ok": true, "status": "compiled_and_installed" })));
+                        }
+                        Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") }))),
+                    }
+                }
+                Ok(Json(serde_json::json!({ "ok": false, "error": "Compiled but WASM not found in output" })))
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                Ok(Json(serde_json::json!({ "ok": false, "error": format!("Compilation failed: {}", stderr.chars().take(300).collect::<String>()) })))
+            }
+            Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": format!("Cannot run cargo: {e}") }))),
+        }
+    } else {
+        Ok(Json(serde_json::json!({
+            "ok": false,
+            "error": format!("Skill {} not found — no pre-compiled WASM and no source directory", skill_id),
+        })))
+    }
 }
 
 // ── Skill Test ──

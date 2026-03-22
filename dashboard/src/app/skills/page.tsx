@@ -5,7 +5,7 @@ import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeC
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   CheckCircle2, Search, Settings, Save, X, Loader2, Key, Wifi, XCircle,
-  Shield, Scan, BarChart3, FileText, Server, Eye, Play, ChevronDown, ChevronRight,
+  Shield, Scan, BarChart3, FileText, Server, Eye, Play, ChevronDown, ChevronRight, Download,
 } from "lucide-react";
 
 interface Skill {
@@ -95,6 +95,13 @@ export default function SkillsPage() {
   const [configSaving, setConfigSaving] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(CATEGORIES.map(c => c.id)));
+
+  const reloadSkills = () => {
+    fetch("/api/tc/skills/catalog")
+      .then(r => r.json())
+      .then(d => setSkills(d.skills || []))
+      .catch(() => {});
+  };
 
   useEffect(() => {
     fetch("/api/tc/skills/catalog")
@@ -231,6 +238,7 @@ export default function SkillsPage() {
                       hasConfig={getConfigFields(skill.id).length > 0}
                       onToggleConfig={() => loadSkillConfig(skill.id)}
                       catColor={cat.color}
+                      onInstalled={reloadSkills}
                     />
                     {configOpen === skill.id && (
                       <SkillConfigPanel
@@ -263,7 +271,7 @@ export default function SkillsPage() {
             {filtered.filter(s => !CATEGORIES.some(c => c.id === s.category)).map(skill => (
               <React.Fragment key={skill.id}>
                 <SkillCard skill={skill} isConfigOpen={configOpen === skill.id} hasConfig={getConfigFields(skill.id).length > 0}
-                  onToggleConfig={() => loadSkillConfig(skill.id)} catColor="#5a534e" />
+                  onToggleConfig={() => loadSkillConfig(skill.id)} catColor="#5a534e" onInstalled={reloadSkills} />
                 {configOpen === skill.id && (
                   <SkillConfigPanel skillId={skill.id} skillName={skill.name} fields={getConfigFields(skill.id)}
                     configData={configData} setConfigData={setConfigData} onSave={() => saveSkillConfig(skill.id)}
@@ -282,10 +290,28 @@ export default function SkillsPage() {
 // SKILL CARD
 // ═══════════════════════════════════════
 
-function SkillCard({ skill, isConfigOpen, hasConfig, onToggleConfig, catColor }: {
-  skill: Skill; isConfigOpen: boolean; hasConfig: boolean; onToggleConfig: () => void; catColor: string;
+function SkillCard({ skill, isConfigOpen, hasConfig, onToggleConfig, catColor, onInstalled }: {
+  skill: Skill; isConfigOpen: boolean; hasConfig: boolean; onToggleConfig: () => void; catColor: string; onInstalled?: () => void;
 }) {
   const needsApiKey = skill.api_key_required || (SKILL_CONFIG_FIELDS[skill.id] || []).some(f => f.secret);
+  const [installing, setInstalling] = useState(false);
+  const [installResult, setInstallResult] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  const installSkill = async () => {
+    setInstalling(true);
+    setInstallResult(null);
+    try {
+      const res = await fetch(`/api/tc/skills/${skill.id}/install`, { method: "POST" });
+      const data = await res.json();
+      setInstallResult(data);
+      if (data.ok && onInstalled) {
+        setTimeout(() => onInstalled(), 500);
+      }
+    } catch {
+      setInstallResult({ ok: false, error: "Erreur réseau" });
+    }
+    setInstalling(false);
+  };
 
   return (
     <ChromeInsetCard style={{
@@ -326,6 +352,11 @@ function SkillCard({ skill, isConfigOpen, hasConfig, onToggleConfig, catColor }:
             )}
           </div>
           <div style={{ fontSize: "12px", color: "#7a7470", lineHeight: 1.4 }}>{skill.description}</div>
+          {installResult && !installResult.ok && (
+            <div style={{ fontSize: "11px", color: "#d03020", marginTop: "6px" }}>
+              {installResult.error}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -342,12 +373,10 @@ function SkillCard({ skill, isConfigOpen, hasConfig, onToggleConfig, catColor }:
             </span>
           )}
           {!skill.installed && (
-            <span style={{
-              fontSize: "11px", color: "#5a534e", padding: "6px 12px", borderRadius: "8px",
-              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
-            }}>
-              Non installé
-            </span>
+            <ChromeButton onClick={installSkill} disabled={installing} variant="primary">
+              {installing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {installing ? "Installation..." : "Installer"}
+            </ChromeButton>
           )}
         </div>
       </div>
