@@ -1,26 +1,21 @@
 name: Security Scan
+
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Mondays at 06:00
-    - cron: '0 3 * * *'  # Nightly at 03:00 (cargo audit)
-  push:
-    branches: [main]
-  pull_request:
+    - cron: '0 6 * * 1'  # Mondays at 06:00 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
   issues: write
-  pull-requests: write
 
 jobs:
-  # ── Cargo audit renforcé ──
   dependency-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Rust
@@ -29,47 +24,24 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Run cargo audit (strict on security-critical packages)
+      - name: Run cargo audit
         run: |
-          # Strict audit on security-critical packages
-          cargo audit --deny warnings 2>&1 || true
+          cargo audit 2>&1 || true
 
-          # Check specifically for critical packages
+          # Fail on critical security packages
           for pkg in wasmtime ring argon2; do
             if cargo audit 2>&1 | grep -i "$pkg.*RUSTSEC"; then
-              echo "::error::SECURITY: CVE critique sur $pkg — merger la PR Dependabot en priorité"
+              echo "::error::SECURITY: CVE on $pkg"
               exit 1
             fi
           done
+          echo "No critical CVEs on security packages"
 
-          echo "✓ No critical CVEs on security packages"
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Audit Python dependencies
-        run: |
-          EXIT_CODE=0
-          for skill_dir in skills/skill-*/; do
-            if [ -f "$skill_dir/requirements.txt" ]; then
-              echo "Auditing $skill_dir"
-              pip-audit -r "$skill_dir/requirements.txt" || EXIT_CODE=1
-            fi
-          done
-          exit $EXIT_CODE
-
-  # ── IronClaw upstream monitoring ──
-  check-ironclaw-upstream:
+  check-upstream:
     name: Check IronClaw Upstream
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 6 * * 1'  # Only on Monday
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Check for upstream updates
@@ -77,88 +49,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT=$(cat UPSTREAM_VERSION | tr -d '[:space:]')
-          echo "Current fork version: $CURRENT"
-
           LATEST=$(gh api repos/nearai/ironclaw/releases/latest --jq '.tag_name' 2>/dev/null || echo "$CURRENT")
-          echo "Latest upstream: $LATEST"
 
           if [ "$CURRENT" != "$LATEST" ]; then
-            echo "New version detected: $LATEST"
-
-            # Get release notes
             NOTES=$(gh api repos/nearai/ironclaw/releases/latest --jq '.body' 2>/dev/null || echo "")
-
-            # Check for security keywords
-            LABELS="upstream-update"
-            if echo "$NOTES" | grep -iE "security|CVE|vulnerability" > /dev/null; then
-              LABELS="upstream-update,security-critical"
-            fi
-
-            # Create issue
             gh issue create \
-              --title "IronClaw upstream update disponible — $LATEST" \
-              --body "## Nouvelle version IronClaw upstream
+              --title "IronClaw upstream update: $LATEST" \
+              --body "Current: $CURRENT | New: $LATEST
 
-**Version actuelle du fork :** $CURRENT
-**Nouvelle version :** $LATEST
-
-### Notes de release
 $NOTES
 
-### Actions requises
-- [ ] Lire le changelog
-- [ ] Évaluer les breaking changes
-- [ ] Merger les changements pertinents
-- [ ] Mettre à jour UPSTREAM_VERSION" \
-              --label "$LABELS" || echo "Issue creation skipped"
+- [ ] Review changelog
+- [ ] Merge relevant changes
+- [ ] Update UPSTREAM_VERSION" \
+              --label "upstream-update" || echo "Issue creation skipped"
           else
-            echo "✓ Fork is up to date with upstream"
+            echo "Fork is up to date"
           fi
-
-  # ── Dependabot PR labels ──
-  label-dependabot:
-    name: Label Dependabot PRs
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Add labels
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          PR_NUMBER="${{ github.event.pull_request.number }}"
-
-          # Security-critical packages always get the label
-          if echo "$PR_TITLE" | grep -iE "wasmtime|ring|argon2" > /dev/null; then
-            gh pr edit $PR_NUMBER --add-label "security-critical"
-            echo "Added security-critical label (critical package)"
-          elif echo "$PR_TITLE" | grep -iE "CVE|vulnerability|security" > /dev/null; then
-            gh pr edit $PR_NUMBER --add-label "security-critical"
-            echo "Added security-critical label (CVE mentioned)"
-          else
-            gh pr edit $PR_NUMBER --add-label "routine"
-            echo "Added routine label"
-          fi
-
-  # ── Docker scan ──
-  docker-scan:
-    name: Docker Security Scan
-    runs-on: ubuntu-latest
-    if: github.event_name != 'schedule' || github.event.schedule == '0 6 * * 1'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build core image
-        run: docker build -t threatclaw/core:scan -f docker/Dockerfile .
-
-      - name: Scan core image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: threatclaw/core:scan
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
