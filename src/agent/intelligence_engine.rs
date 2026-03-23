@@ -186,31 +186,40 @@ pub async fn run_intelligence_cycle(
     }
 
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
-    // All enrichment is wrapped in catch_unwind-style error handling.
+    // All enrichment is wrapped in timeout + rate limiting.
     // External API failures must NEVER crash the engine.
     let mut enrichment_lines: Vec<String> = vec![];
+    let mut rate_limiter = crate::agent::production_safeguards::CycleRateLimiter::new(15); // Max 15 external lookups per cycle
 
     // Enrich CVEs from critical findings with EPSS + KEV
     for f in &findings {
         if f.severity.to_lowercase() != "critical" { continue; }
+        if !rate_limiter.can_lookup() { break; }
         if let Some(cve) = f.metadata.as_object().and_then(|m| m.get("cve")).and_then(|v| v.as_str()) {
-            // EPSS — wrapped in timeout
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                crate::enrichment::epss::lookup_epss(cve)
-            ).await {
-                Ok(Ok(Some(epss))) => {
-                    let pct = epss.epss * 100.0;
-                    if pct > 50.0 {
-                        enrichment_lines.push(format!("EPSS {}: {:.0}% probabilité exploitation 30j", cve, pct));
+            // EPSS — check cache first, then API with timeout
+            let epss_cached = crate::agent::production_safeguards::get_cached_ioc(store.as_ref(), "epss", cve).await;
+            let epss_result = if let Some(cached) = epss_cached {
+                cached["epss"].as_f64()
+            } else {
+                rate_limiter.record_lookup();
+                match tokio::time::timeout(std::time::Duration::from_secs(10), crate::enrichment::epss::lookup_epss(cve)).await {
+                    Ok(Ok(Some(ref epss))) => {
+                        crate::agent::production_safeguards::cache_ioc(store.as_ref(), "epss", cve, &json!({"epss": epss.epss})).await;
+                        Some(epss.epss)
                     }
-                    let asset_name = f.asset.as_deref().unwrap_or("unknown");
-                    if let Some(entry) = asset_map.get_mut(asset_name) {
-                        if epss.epss > 0.9 { entry.score = (entry.score + 20.0).min(100.0); }
-                    }
+                    _ => None,
                 }
-                Ok(Err(e)) => tracing::debug!("ENRICHMENT: EPSS failed for {cve}: {e}"),
-                _ => tracing::debug!("ENRICHMENT: EPSS timeout for {cve}"),
+            };
+
+            if let Some(epss_val) = epss_result {
+                let pct = epss_val * 100.0;
+                if pct > 50.0 {
+                    enrichment_lines.push(format!("EPSS {}: {:.0}% probabilité exploitation 30j", cve, pct));
+                }
+                let asset_name = f.asset.as_deref().unwrap_or("unknown");
+                if let Some(entry) = asset_map.get_mut(asset_name) {
+                    if epss_val > 0.9 { entry.score = (entry.score + 20.0).min(100.0); }
+                }
             }
 
             // KEV check (local DB only — no external call, fast)
@@ -225,41 +234,53 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // Enrich alert source IPs with GreyNoise + IPinfo
+    // Enrich alert source IPs with GreyNoise + IPinfo (with rate limiting + caching)
     for a in &alerts {
+        if !rate_limiter.can_lookup() { break; }
         if let Some(ref raw_ip) = a.source_ip {
-            // Clean IP (remove /32 CIDR suffix, trim whitespace)
             let ip_str = raw_ip.split('/').next().unwrap_or("").trim();
             if ip_str.is_empty() || ip_str.starts_with("10.") || ip_str.starts_with("192.168.") || ip_str.starts_with("127.") {
                 continue;
             }
+            // Skip if already looked up this cycle
+            if rate_limiter.ip_already_seen(ip_str) { continue; }
 
-            // GreyNoise — with timeout
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(8),
-                crate::enrichment::greynoise::lookup_ip(ip_str, None)
-            ).await {
-                Ok(Ok(gn)) => {
-                    let label = if gn.classification == "malicious" { "attaque ciblée" }
-                        else if gn.noise { "scanner de masse" }
-                        else { "inconnu" };
-                    enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, gn.classification, label));
+            // GreyNoise — cache first
+            let gn_cached = crate::agent::production_safeguards::get_cached_ioc(store.as_ref(), "greynoise", ip_str).await;
+            if let Some(cached) = gn_cached {
+                let classification = cached["classification"].as_str().unwrap_or("?");
+                let label = if classification == "malicious" { "attaque ciblée" } else if cached["noise"].as_bool() == Some(true) { "scanner de masse" } else { "inconnu" };
+                enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, classification, label));
+            } else {
+                rate_limiter.record_lookup();
+                match tokio::time::timeout(std::time::Duration::from_secs(8), crate::enrichment::greynoise::lookup_ip(ip_str, None)).await {
+                    Ok(Ok(gn)) => {
+                        crate::agent::production_safeguards::cache_ioc(store.as_ref(), "greynoise", ip_str, &json!({"classification": gn.classification, "noise": gn.noise, "riot": gn.riot})).await;
+                        let label = if gn.classification == "malicious" { "attaque ciblée" } else if gn.noise { "scanner de masse" } else { "inconnu" };
+                        enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, gn.classification, label));
+                    }
+                    Ok(Err(e)) => tracing::debug!("ENRICHMENT: GreyNoise failed for {ip_str}: {e}"),
+                    Err(_) => tracing::debug!("ENRICHMENT: GreyNoise timeout for {ip_str}"),
                 }
-                Ok(Err(e)) => tracing::debug!("ENRICHMENT: GreyNoise failed for {ip_str}: {e}"),
-                Err(_) => tracing::debug!("ENRICHMENT: GreyNoise timeout for {ip_str}"),
             }
 
-            // IPinfo — with timeout
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                crate::enrichment::ipinfo::lookup_ip(ip_str)
-            ).await {
-                Ok(Ok(geo)) => {
-                    let ctx = crate::enrichment::ipinfo::format_for_context(&geo);
-                    enrichment_lines.push(format!("Origine: {}", ctx));
+            // IPinfo — cache first
+            if !rate_limiter.can_lookup() { continue; }
+            let geo_cached = crate::agent::production_safeguards::get_cached_ioc(store.as_ref(), "ipinfo", ip_str).await;
+            if let Some(cached) = geo_cached {
+                let country = cached["country"].as_str().unwrap_or("?");
+                let org = cached["org"].as_str().unwrap_or("?");
+                enrichment_lines.push(format!("Origine: {} · {} · {}", ip_str, country, org));
+            } else {
+                rate_limiter.record_lookup();
+                match tokio::time::timeout(std::time::Duration::from_secs(5), crate::enrichment::ipinfo::lookup_ip(ip_str)).await {
+                    Ok(Ok(geo)) => {
+                        crate::agent::production_safeguards::cache_ioc(store.as_ref(), "ipinfo", ip_str, &json!({"country": geo.country, "org": geo.org})).await;
+                        enrichment_lines.push(format!("Origine: {}", crate::enrichment::ipinfo::format_for_context(&geo)));
+                    }
+                    Ok(Err(e)) => tracing::debug!("ENRICHMENT: IPinfo failed for {ip_str}: {e}"),
+                    Err(_) => tracing::debug!("ENRICHMENT: IPinfo timeout for {ip_str}"),
                 }
-                Ok(Err(e)) => tracing::debug!("ENRICHMENT: IPinfo failed for {ip_str}: {e}"),
-                Err(_) => tracing::debug!("ENRICHMENT: IPinfo timeout for {ip_str}"),
             }
         }
     }
@@ -606,16 +627,25 @@ pub fn spawn_intelligence_ticker(
 
             let situation = run_intelligence_cycle(store.clone()).await;
 
-            // Route notifications based on level
+            // Route notifications based on level (with cooldown)
             if situation.notification_level >= NotificationLevel::Alert {
-                if let Some(ref alert_msg) = situation.alert_message {
-                    // Send via notification router
-                    let _ = crate::agent::notification_router::route_notification(
-                        store.as_ref(),
-                        situation.notification_level,
-                        alert_msg,
-                        &situation.digest_message,
-                    ).await;
+                let level_str = format!("{:?}", situation.notification_level);
+                if crate::agent::production_safeguards::should_notify(store.as_ref(), &level_str).await {
+                    if let Some(ref alert_msg) = situation.alert_message {
+                        let results = crate::agent::notification_router::route_notification(
+                            store.as_ref(),
+                            situation.notification_level,
+                            alert_msg,
+                            &situation.digest_message,
+                        ).await;
+                        if results.iter().any(|(_, r)| r.is_ok()) {
+                            crate::agent::production_safeguards::record_notification_sent(
+                                store.as_ref(), &level_str, situation.global_score
+                            ).await;
+                        }
+                    }
+                } else {
+                    tracing::debug!("INTELLIGENCE: Notification suppressed (cooldown active)");
                 }
             }
         }

@@ -33,6 +33,7 @@ pub mod llm_router;
 pub mod memory;
 pub mod mode_manager;
 pub mod notification_router;
+pub mod production_safeguards;
 pub mod observation_collector;
 pub mod prompt_builder;
 pub mod react_cycle;
