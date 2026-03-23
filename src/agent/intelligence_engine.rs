@@ -279,7 +279,7 @@ pub async fn run_intelligence_cycle(
 
     let digest_message = build_digest_message(&assets, global_score, findings.len(), alerts.len());
     let alert_message = if notification_level >= NotificationLevel::Alert {
-        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines))
+        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines, &findings))
     } else {
         None
     };
@@ -430,8 +430,9 @@ fn build_digest_message(
 fn build_alert_message(
     assets: &[AssetSituation],
     alerts: &[crate::db::threatclaw_store::AlertRecord],
+    findings: &[crate::db::threatclaw_store::FindingRecord],
 ) -> String {
-    build_enriched_alert_message(assets, alerts, &[])
+    build_enriched_alert_message(assets, alerts, &[], findings)
 }
 
 /// Build an enriched alert message with all intelligence data.
@@ -439,6 +440,7 @@ fn build_enriched_alert_message(
     assets: &[AssetSituation],
     alerts: &[crate::db::threatclaw_store::AlertRecord],
     enrichment: &[String],
+    findings: &[crate::db::threatclaw_store::FindingRecord],
 ) -> String {
     let critical_assets: Vec<&AssetSituation> = assets.iter()
         .filter(|a| a.score >= 30.0)
@@ -453,7 +455,32 @@ fn build_enriched_alert_message(
 
     let mut msg = format!("{}\n\n", header);
 
-    // Assets at risk
+    // ── LLM Analysis (from the most recent AI-generated finding) ──
+    let ai_finding = findings.iter().rev()
+        .find(|f| f.source.as_deref() == Some("threatclaw-l1") || f.source.as_deref() == Some("threatclaw-l2"));
+    if let Some(f) = ai_finding {
+        if let Some(ref desc) = f.description {
+            // Extract just the analysis text (before "Corrélations :")
+            let analysis = desc.split("Corrélations :").next().unwrap_or(desc)
+                .replace("Analyse automatique par ThreatClaw AI :\n", "")
+                .trim().to_string();
+            if !analysis.is_empty() {
+                msg.push_str(&format!("*Analyse IA ({} — {})*\n{}\n\n",
+                    f.source.as_deref().unwrap_or("L1"),
+                    f.title.split(" — ").last().unwrap_or(""),
+                    analysis));
+            }
+            // Add correlations if present
+            if let Some(corr_part) = desc.split("Corrélations : ").nth(1) {
+                let corr = corr_part.split("Actions proposées").next().unwrap_or(corr_part).trim();
+                if !corr.is_empty() {
+                    msg.push_str(&format!("*Corrélations :* {}\n\n", corr));
+                }
+            }
+        }
+    }
+
+    // ── Assets at risk ──
     for asset in critical_assets.iter().take(3) {
         let flags = [
             if asset.has_kill_chain { Some("kill chain") } else { None },
@@ -462,33 +489,48 @@ fn build_enriched_alert_message(
         ].into_iter().flatten().collect::<Vec<_>>().join(", ");
 
         msg.push_str(&format!("*{}* — score {:.0}/100\n", asset.asset, asset.score));
-        msg.push_str(&format!("{}\n", asset.summary));
         if !flags.is_empty() {
-            msg.push_str(&format!("Indicateurs: {}\n", flags));
+            msg.push_str(&format!("{}\n", flags));
         }
-        msg.push('\n');
     }
+    if !critical_assets.is_empty() { msg.push('\n'); }
 
-    // Sigma alerts
+    // ── Sigma alerts (top 4) ──
     if !alerts.is_empty() {
-        msg.push_str("*Alertes actives :*\n");
-        for a in alerts.iter().take(3) {
-            let src = a.source_ip.as_deref().map(|ip| format!(" depuis {}", ip)).unwrap_or_default();
-            msg.push_str(&format!("[{}] {}{}\n", a.level.to_uppercase(), a.title, src));
+        msg.push_str(&format!("*{} alertes Sigma :*\n", alerts.len()));
+        for a in alerts.iter().take(4) {
+            let src = a.source_ip.as_deref().map(|ip| format!(" ({})", ip.split('/').next().unwrap_or(ip))).unwrap_or_default();
+            msg.push_str(&format!("  [{}] {}{}\n", a.level.to_uppercase(), a.title, src));
+        }
+        if alerts.len() > 4 {
+            msg.push_str(&format!("  ... et {} autres\n", alerts.len() - 4));
         }
         msg.push('\n');
     }
 
-    // Enrichment intelligence
+    // ── Enrichment (deduplicated) ──
     if !enrichment.is_empty() {
-        msg.push_str("*Enrichissement :*\n");
-        for line in enrichment.iter().take(6) {
-            msg.push_str(&format!("  {}\n", line));
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<&String> = enrichment.iter()
+            .filter(|line| seen.insert(line.as_str()))
+            .collect();
+        if !deduped.is_empty() {
+            msg.push_str("*Enrichissement :*\n");
+            for line in deduped.iter().take(4) {
+                msg.push_str(&format!("  {}\n", line));
+            }
+            msg.push('\n');
         }
-        msg.push('\n');
     }
 
-    msg.push_str("_Intelligence Engine — cycle automatique_");
+    msg.push_str("_ThreatClaw Intelligence Engine_");
+
+    // Telegram limit is 4096 chars
+    if msg.len() > 4000 {
+        msg.truncate(3950);
+        msg.push_str("...\n_[tronqué — voir dashboard]_");
+    }
+
     msg
 }
 
