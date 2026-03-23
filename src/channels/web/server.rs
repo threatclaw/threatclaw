@@ -357,6 +357,13 @@ pub async fn start_server(
         .route("/api/tc/enrichment/certfr/sync", post(super::handlers::threatclaw_api::certfr_sync_handler))
         .route("/api/tc/enrichment/certfr/recent", get(super::handlers::threatclaw_api::certfr_recent_handler))
         .route("/api/tc/enrichment/status", get(super::handlers::threatclaw_api::enrichment_status_handler))
+        .route("/api/tc/enrichment/kev/sync", post(super::handlers::threatclaw_api::kev_sync_handler))
+        .route("/api/tc/enrichment/kev/{cve_id}", get(super::handlers::threatclaw_api::kev_check_handler))
+        .route("/api/tc/enrichment/greynoise/{ip}", get(super::handlers::threatclaw_api::greynoise_handler))
+        .route("/api/tc/enrichment/threatfox/{ioc}", get(super::handlers::threatclaw_api::threatfox_handler))
+        .route("/api/tc/enrichment/malware/{hash}", get(super::handlers::threatclaw_api::malware_handler))
+        .route("/api/tc/enrichment/openphish/sync", post(super::handlers::threatclaw_api::openphish_sync_handler))
+        .route("/api/tc/enrichment/sync-all", post(super::handlers::threatclaw_api::enrichment_sync_all_handler))
         // Instruct AI — SOAR playbooks, reports, Sigma rules (on-demand RSSI)
         .route("/api/tc/instruct/generate", post(super::handlers::threatclaw_api::instruct_generate_handler))
         // Telegram direct API

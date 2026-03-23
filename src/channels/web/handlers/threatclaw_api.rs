@@ -1167,10 +1167,21 @@ pub async fn enrichment_status_handler(
     let cve_settings = store.list_settings("_cve_cache").await.unwrap_or_default();
     let cve_count = cve_settings.len();
 
+    // KEV
+    let kev_meta = store.get_setting("_system", "kev_sync_meta").await.ok().flatten();
+    // OpenPhish
+    let openphish_meta = store.get_setting("_enrichment", "openphish_urls").await.ok().flatten();
+
     Ok(Json(serde_json::json!({
-        "cve_cache": { "count": cve_count },
-        "mitre": mitre_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
-        "certfr": certfr_meta.unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "nvd": { "cache_count": cve_count, "status": "active" },
+        "cisa_kev": kev_meta.map(|m| serde_json::json!({"status": "synced", "meta": m})).unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "mitre": mitre_meta.map(|m| serde_json::json!({"status": "synced", "meta": m})).unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "certfr": certfr_meta.map(|m| serde_json::json!({"status": "synced", "meta": m})).unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "openphish": openphish_meta.map(|m| serde_json::json!({"status": "synced", "count": m["count"], "synced_at": m["synced_at"]})).unwrap_or(serde_json::json!({"status": "not_synced"})),
+        "greynoise": { "status": "active", "type": "on_demand" },
+        "threatfox": { "status": "active", "type": "on_demand" },
+        "malware_bazaar": { "status": "active", "type": "on_demand" },
+        "urlhaus": { "status": "active", "type": "on_demand" },
     })))
 }
 
@@ -1565,6 +1576,91 @@ pub async fn binary_verify_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let result = crate::agent::binary_verify::verify_binary(store.as_ref()).await;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+// ══════════════════════════════════════════════════════════
+// ENRICHMENT SOURCES — CISA KEV, GreyNoise, ThreatFox, etc.
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/enrichment/kev/sync — sync CISA KEV catalog.
+pub async fn kev_sync_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
+        Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/kev/{cve_id} — check if CVE is in KEV.
+pub async fn kev_check_handler(State(state): State<Arc<GatewayState>>, Path(cve_id): Path<String>) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::cisa_kev::is_exploited(store.as_ref(), &cve_id).await {
+        Some(entry) => Ok(Json(serde_json::json!({ "exploited": true, "entry": serde_json::to_value(entry).unwrap_or_default() }))),
+        None => Ok(Json(serde_json::json!({ "exploited": false }))),
+    }
+}
+
+/// GET /api/tc/enrichment/greynoise/{ip} — GreyNoise IP lookup.
+pub async fn greynoise_handler(Path(ip): Path<String>) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::greynoise::lookup_ip(&ip, None).await {
+        Ok(r) => Ok(Json(serde_json::to_value(r).unwrap_or_default())),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/threatfox/{ioc} — ThreatFox IoC lookup.
+pub async fn threatfox_handler(Path(ioc): Path<String>) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::threatfox::lookup_ioc(&ioc, None).await {
+        Ok(results) => Ok(Json(serde_json::json!({ "results": results, "count": results.len() }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/malware/{hash} — MalwareBazaar hash lookup.
+pub async fn malware_handler(Path(hash): Path<String>) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::malware_bazaar::lookup_hash(&hash, None).await {
+        Ok(Some(info)) => Ok(Json(serde_json::json!({ "found": true, "info": serde_json::to_value(info).unwrap_or_default() }))),
+        Ok(None) => Ok(Json(serde_json::json!({ "found": false }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// POST /api/tc/enrichment/openphish/sync — sync OpenPhish feed.
+pub async fn openphish_sync_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::enrichment::openphish::sync_feed(store.as_ref()).await {
+        Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// POST /api/tc/enrichment/sync-all — sync all enrichment sources.
+pub async fn enrichment_sync_all_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let mut results = serde_json::json!({});
+
+    // KEV
+    results["kev"] = match crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
+        Ok(n) => serde_json::json!({ "ok": true, "count": n }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+    // MITRE
+    results["mitre"] = match crate::enrichment::mitre_attack::sync_attack_techniques(store.as_ref()).await {
+        Ok(n) => serde_json::json!({ "ok": true, "count": n }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+    // CERT-FR
+    results["certfr"] = match crate::enrichment::certfr::sync_certfr_alerts(store.as_ref()).await {
+        Ok(n) => serde_json::json!({ "ok": true, "count": n }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+    // OpenPhish
+    results["openphish"] = match crate::enrichment::openphish::sync_feed(store.as_ref()).await {
+        Ok(n) => serde_json::json!({ "ok": true, "count": n }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+
+    Ok(Json(results))
 }
 
 // ══════════════════════════════════════════════════════════

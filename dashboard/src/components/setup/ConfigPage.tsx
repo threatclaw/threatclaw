@@ -5,7 +5,7 @@ import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
   Plus, Trash2, Send, Bot, ArrowRight, Database, Key, Radio, Mail,
-  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings,
+  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle,
 } from "lucide-react";
 
 // ── Channel SVG icons (no emojis) ──
@@ -246,6 +246,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "channels", label: "Canaux", icon: MessageSquare },
     { id: "security", label: "Sécurité", icon: ShieldAlert },
     { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "enrichment", label: "Enrichissement", icon: Database },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
   ];
 
@@ -460,6 +461,11 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {/* ═══ NOTIFICATIONS ═══ */}
         {activeTab === "notifications" && (
           <NotificationsTab inputStyle={inputStyle} labelStyle={labelStyle} />
+        )}
+
+        {/* ═══ ENRICHMENT ═══ */}
+        {activeTab === "enrichment" && (
+          <EnrichmentTab />
         )}
 
         {/* ═══ ANONYMIZER ═══ */}
@@ -834,6 +840,152 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             </div>
           </div>
         )}
+      </ChromeInsetCard>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════
+// ENRICHMENT TAB — sources status + sync
+// ═══════════════════════════════════════
+
+const ENRICHMENT_SOURCES = [
+  { id: "nvd", name: "NVD NIST", desc: "Base CVE officielle (260 000+)", enriches: "CVEs, scores CVSS, patches", free: true, noKey: true, syncable: false,
+    help: "Gratuit, sans inscription. API publique du NIST. Clé optionnelle pour 50 req/30s au lieu de 5.\nhttps://nvd.nist.gov/developers/request-an-api-key" },
+  { id: "cisa_kev", name: "CISA KEV", desc: "CVEs activement exploitées in-the-wild", enriches: "Transforme un High en Critical si la CVE est exploitée", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/kev/sync",
+    help: "Gratuit, sans inscription. Catalogue officiel US des vulnérabilités exploitées.\nSi une CVE est dans la KEV → patch obligatoire.\nhttps://www.cisa.gov/known-exploited-vulnerabilities-catalog" },
+  { id: "mitre", name: "MITRE ATT&CK", desc: "Techniques et tactiques des attaquants (700+)", enriches: "Mapping MITRE dans les analyses L2, kill chain detection", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/mitre/sync",
+    help: "Gratuit, sans inscription. Base de connaissances des techniques d'attaque.\nTéléchargé depuis GitHub (STIX JSON).\nhttps://attack.mitre.org/" },
+  { id: "certfr", name: "CERT-FR", desc: "Alertes sécurité françaises (ANSSI)", enriches: "Alertes spécifiques au marché français, avis ANSSI", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/certfr/sync",
+    help: "Gratuit, sans inscription. Flux RSS officiel de l'ANSSI.\nAlertes et avis de sécurité pour la France.\nhttps://www.cert.ssi.gouv.fr/" },
+  { id: "openphish", name: "OpenPhish", desc: "URLs de phishing en temps réel (~500)", enriches: "Détection phishing dans les logs et URLs suspectes", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/openphish/sync",
+    help: "Gratuit, sans inscription. Liste de ~500 URLs de phishing actives.\nMise à jour toutes les 6h.\nhttps://openphish.com/" },
+  { id: "greynoise", name: "GreyNoise", desc: "Filtre le bruit — scanner bénin vs attaque ciblée", enriches: "Réduit les faux positifs IP, identifie les scanners de masse", free: true, noKey: true, syncable: false,
+    help: "API Community gratuite sans clé. Clé optionnelle pour plus de détails.\nDistingue un scanner bénin (Shodan, Censys) d'une attaque ciblée.\nhttps://viz.greynoise.io/account/api-key" },
+  { id: "threatfox", name: "ThreatFox", desc: "IoCs : C2 servers, domaines malveillants", enriches: "Corrélation IP/domaines avec des campagnes C2 connues", free: true, noKey: false, syncable: false,
+    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nLookup IoCs : IP, domaine, URL, hash.\nhttps://threatfox.abuse.ch/account/" },
+  { id: "malware_bazaar", name: "MalwareBazaar", desc: "Lookup hash de fichier suspect", enriches: "Vérifie si un hash est un malware connu, avec signature et tags", free: true, noKey: false, syncable: false,
+    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nVérifie SHA-256/MD5 d'un fichier suspect.\nhttps://bazaar.abuse.ch/account/" },
+  { id: "urlhaus", name: "URLhaus", desc: "URLs distribuant des malwares", enriches: "Vérifie si une URL sert à distribuer des malwares", free: true, noKey: false, syncable: false,
+    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nhttps://urlhaus.abuse.ch/account/" },
+];
+
+function EnrichmentTab() {
+  const [status, setStatus] = useState<Record<string, { status: string; meta?: Record<string, unknown>; cache_count?: number; count?: number; synced_at?: string }>>({});
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncAllRunning, setSyncAllRunning] = useState(false);
+  const [helpOpen, setHelpOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/tc/enrichment/status").then(r => r.json()).then(d => setStatus(d)).catch(() => {});
+  }, []);
+
+  const syncSource = async (id: string, url: string) => {
+    setSyncing(id);
+    try {
+      await fetch(url, { method: "POST" });
+      const res = await fetch("/api/tc/enrichment/status");
+      const d = await res.json();
+      setStatus(d);
+    } catch { /* */ }
+    setSyncing(null);
+  };
+
+  const syncAll = async () => {
+    setSyncAllRunning(true);
+    try {
+      await fetch("/api/tc/enrichment/sync-all", { method: "POST" });
+      const res = await fetch("/api/tc/enrichment/status");
+      const d = await res.json();
+      setStatus(d);
+    } catch { /* */ }
+    setSyncAllRunning(false);
+  };
+
+  return (
+    <>
+      <ChromeInsetCard>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+          <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, display: "flex", alignItems: "center", gap: "10px" }}>
+            <Database size={18} color="#d03020" /> Sources d{"'"}enrichissement
+          </ChromeEmbossedText>
+          <ChromeButton onClick={syncAll} disabled={syncAllRunning} variant="primary">
+            {syncAllRunning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {syncAllRunning ? "Synchronisation..." : "Tout synchroniser"}
+          </ChromeButton>
+        </div>
+        <div style={{ fontSize: "12px", color: "#5a534e", marginBottom: "20px", lineHeight: 1.6 }}>
+          Ces sources enrichissent automatiquement les analyses de l{"'"}Intelligence Engine.
+          Plus de sources = meilleure corrélation = moins de faux positifs.
+          <br />Toutes les sources ci-dessous sont <strong style={{ color: "#30a050" }}>gratuites et sans clé API</strong>.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {ENRICHMENT_SOURCES.map(src => {
+            const st = status[src.id];
+            const isSynced = st?.status === "synced" || st?.status === "active";
+            const count = st?.cache_count || st?.count || (st?.meta as Record<string, unknown>)?.count || (st?.meta as Record<string, unknown>)?.technique_count;
+
+            return (
+              <div key={src.id} style={{
+                padding: "12px 14px", borderRadius: "10px",
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <div style={{
+                  width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+                  background: isSynced ? "#30a050" : "#5a534e",
+                  boxShadow: isSynced ? "0 0 6px rgba(48,160,80,0.4)" : "none",
+                }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{src.name}</span>
+                    {!src.noKey && <span style={{ fontSize: "9px", color: "#d09020", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
+                    <button onClick={() => setHelpOpen(helpOpen === src.id ? null : src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
+                      <HelpCircle size={13} color="#5a534e" />
+                    </button>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#5a534e" }}>{src.desc}</div>
+                  <div style={{ fontSize: "10px", color: "#3080d0", marginTop: "2px" }}>{src.enriches}</div>
+                </div>
+                {count !== undefined && count !== null && (
+                  <span style={{ fontSize: "11px", color: "#30a050", fontFamily: "monospace" }}>
+                    {String(count)} entries
+                  </span>
+                )}
+                <span style={{
+                  fontSize: "9px", fontWeight: 600, padding: "2px 6px", borderRadius: "4px",
+                  background: isSynced ? "rgba(48,160,80,0.08)" : "rgba(255,255,255,0.03)",
+                  color: isSynced ? "#30a050" : "#5a534e",
+                  border: `1px solid ${isSynced ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.04)"}`,
+                }}>
+                  {isSynced ? (st?.status === "active" ? "Actif" : "Synchronisé") : "Non synchronisé"}
+                </span>
+                {src.syncable && (
+                  <ChromeButton onClick={() => syncSource(src.id, src.syncUrl!)} disabled={syncing === src.id} variant="glass">
+                    {syncing === src.id ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  </ChromeButton>
+                )}
+                </div>
+                {helpOpen === src.id && (
+                  <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(48,128,208,0.04)", border: "1px solid rgba(48,128,208,0.1)", fontSize: "11px", color: "#9a918a", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                    {src.help}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </ChromeInsetCard>
+
+      <ChromeInsetCard>
+        <div style={{ fontSize: "12px", color: "#5a534e", lineHeight: 1.7 }}>
+          <strong style={{ color: "#e8e4e0" }}>Enrichissement vs Skills</strong>
+          <br /><br />
+          {"Les sources d'enrichissement sont passives — elles enrichissent le contexte de l'IA sans action sur l'infrastructure. Les skills sont actives — elles scannent, détectent, génèrent."}
+          <br /><br />
+          {"Enrichissement = ce que ThreatClaw sait. Skills = ce que ThreatClaw fait."}
+        </div>
       </ChromeInsetCard>
     </>
   );
