@@ -928,7 +928,7 @@ pub async fn config_get_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let mut config = serde_json::json!({});
-    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled"] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
             config[*key] = val;
@@ -945,7 +945,7 @@ pub async fn config_set_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Save each config section
-    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled"] {
         if let Some(val) = body.get(*key) {
             let setting_key = format!("tc_config_{}", key);
             store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;

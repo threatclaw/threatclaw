@@ -879,10 +879,40 @@ function EnrichmentTab() {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncAllRunning, setSyncAllRunning] = useState(false);
   const [helpOpen, setHelpOpen] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [savingEnabled, setSavingEnabled] = useState(false);
 
   useEffect(() => {
     fetch("/api/tc/enrichment/status").then(r => r.json()).then(d => setStatus(d)).catch(() => {});
+    // Load enabled state
+    fetch("/api/tc/config").then(r => r.json()).then(cfg => {
+      if (cfg.enrichment_enabled) {
+        setEnabled(cfg.enrichment_enabled);
+      } else {
+        // Default: all free sources enabled
+        const defaults: Record<string, boolean> = {};
+        ENRICHMENT_SOURCES.forEach(s => { defaults[s.id] = s.noKey; });
+        setEnabled(defaults);
+      }
+    }).catch(() => {
+      const defaults: Record<string, boolean> = {};
+      ENRICHMENT_SOURCES.forEach(s => { defaults[s.id] = s.noKey; });
+      setEnabled(defaults);
+    });
   }, []);
+
+  const toggleSource = async (id: string) => {
+    const next = { ...enabled, [id]: !enabled[id] };
+    setEnabled(next);
+    setSavingEnabled(true);
+    try {
+      await fetch("/api/tc/config", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enrichment_enabled: next }),
+      });
+    } catch { /* */ }
+    setSavingEnabled(false);
+  };
 
   const syncSource = async (id: string, url: string) => {
     setSyncing(id);
@@ -936,11 +966,22 @@ function EnrichmentTab() {
                 background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <div style={{
-                  width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
-                  background: isSynced ? "#30a050" : "#5a534e",
-                  boxShadow: isSynced ? "0 0 6px rgba(48,160,80,0.4)" : "none",
-                }} />
+                {/* Toggle */}
+                <button onClick={() => toggleSource(src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}>
+                  <div style={{
+                    width: "36px", height: "20px", borderRadius: "10px", position: "relative",
+                    background: enabled[src.id] ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.06)",
+                    border: enabled[src.id] ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                    transition: "all 0.25s ease",
+                  }}>
+                    <div style={{
+                      width: "14px", height: "14px", borderRadius: "50%", position: "absolute", top: "2px",
+                      left: enabled[src.id] ? "19px" : "2px",
+                      background: enabled[src.id] ? "#30a050" : "#5a534e",
+                      transition: "all 0.25s ease",
+                    }} />
+                  </div>
+                </button>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{src.name}</span>
