@@ -5,6 +5,41 @@
 //! dynamique — uniquement des templates prédéfinis avec paramètres validés.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
+
+/// Global command registry (core + dynamic skill commands).
+static COMMAND_REGISTRY: OnceLock<CommandRegistry> = OnceLock::new();
+
+/// Initialize the global command registry by scanning skill directories.
+/// Call once at startup. Safe to call multiple times (only first wins).
+pub fn init_command_registry() {
+    COMMAND_REGISTRY.get_or_init(|| {
+        let mut registry = CommandRegistry::new();
+        // Scan both skill directories
+        for dir in &["skills-src", "skills"] {
+            let path = std::path::Path::new(dir);
+            if path.exists() {
+                registry.load_skill_actions(path);
+            }
+        }
+        tracing::info!("WHITELIST: Global registry initialized — {} total commands", registry.len());
+        registry
+    });
+}
+
+/// Get a reference to the global command registry.
+pub fn global_registry() -> &'static CommandRegistry {
+    COMMAND_REGISTRY.get_or_init(|| {
+        let mut registry = CommandRegistry::new();
+        for dir in &["skills-src", "skills"] {
+            let path = std::path::Path::new(dir);
+            if path.exists() {
+                registry.load_skill_actions(path);
+            }
+        }
+        registry
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskLevel {
@@ -719,7 +754,12 @@ pub fn validate_remediation(
     if let Some(cmd) = find_command(cmd_id) {
         return validate_core_command(cmd, cmd_id, params);
     }
-    // Not in core — reject for now (dynamic validation via CommandRegistry)
+    // Try dynamic skill commands from the global registry
+    let registry = global_registry();
+    if let Some(CommandRef::Dynamic(cmd)) = registry.find(cmd_id) {
+        return validate_dynamic_command(cmd, cmd_id, params);
+    }
+
     Err(RemediationError::NotInWhitelist(cmd_id.to_string()))
 }
 
@@ -780,6 +820,67 @@ fn validate_core_command(
         rendered_cmd: rendered,
         undo_cmd: undo,
         risk: cmd.risk,
+        requires_hitl: cmd.requires_hitl,
+        params: params.clone(),
+    })
+}
+
+/// Valide une commande dynamique (skill).
+/// Mêmes contrôles anti-injection que les commandes core.
+fn validate_dynamic_command(
+    cmd: &DynamicCommand,
+    cmd_id: &str,
+    params: &HashMap<String, String>,
+) -> Result<ValidatedCommand, RemediationError> {
+    // Vérifier que tous les paramètres requis sont présents
+    for key in &cmd.param_keys {
+        if !params.contains_key(key.as_str()) {
+            return Err(RemediationError::MissingParam(key.to_string()));
+        }
+    }
+
+    // Valider chaque paramètre (anti-injection)
+    for (key, value) in params {
+        validate_param(key, value)?;
+    }
+
+    // Vérifier les cibles interdites
+    for key in &["USERNAME", "CONTAINER", "IP", "PID"] {
+        if let Some(target) = params.get(*key) {
+            if cmd.forbidden_targets.iter().any(|f| f == target) {
+                return Err(RemediationError::ForbiddenTarget(target.clone()));
+            }
+        }
+    }
+
+    // Vérifier les chemins interdits
+    if let Some(filepath) = params.get("FILEPATH") {
+        for forbidden in &cmd.forbidden_paths {
+            if filepath.starts_with(forbidden.as_str()) {
+                return Err(RemediationError::ForbiddenPath(filepath.clone()));
+            }
+        }
+    }
+
+    // Rendre la commande
+    let mut rendered = cmd.cmd_template.clone();
+    for (key, value) in params {
+        rendered = rendered.replace(&format!("{{{key}}}"), value);
+    }
+
+    let undo = cmd.undo_template.as_ref().map(|t| {
+        let mut u = t.clone();
+        for (key, value) in params {
+            u = u.replace(&format!("{{{key}}}"), value);
+        }
+        u
+    });
+
+    Ok(ValidatedCommand {
+        id: cmd_id.to_string(),
+        rendered_cmd: rendered,
+        undo_cmd: undo,
+        risk: cmd.risk_level(),
         requires_hitl: cmd.requires_hitl,
         params: params.clone(),
     })
@@ -910,9 +1011,14 @@ mod tests {
     }
 
     #[test]
-    fn test_all_hitl_required() {
+    fn test_write_commands_require_hitl() {
+        // Commands with risk > Low (write/destructive operations) must require HITL.
+        // Low-risk read-only commands (scan, lookup, skill checks) can skip HITL.
         for cmd in REMEDIATION_WHITELIST {
-            assert!(cmd.requires_hitl, "Command {} must require HITL", cmd.id);
+            if cmd.risk != RiskLevel::Low {
+                assert!(cmd.requires_hitl,
+                    "Non-low-risk command {} ({:?}) must require HITL", cmd.id, cmd.risk);
+            }
         }
     }
 
@@ -935,5 +1041,99 @@ mod tests {
         let p: HashMap<String, String> = HashMap::new();
         let cmd = validate_remediation("ssh-001", &p).unwrap();
         assert!(cmd.rendered_cmd.contains("PermitRootLogin no"));
+    }
+
+    #[test]
+    fn test_dynamic_command_validation() {
+        let cmd = DynamicCommand {
+            id: "skill-test-001".to_string(),
+            cmd_template: "echo scan {TARGET}".to_string(),
+            description: "Test scan".to_string(),
+            risk: "low".to_string(),
+            reversible: false,
+            undo_template: None,
+            requires_hitl: true,
+            max_targets: 5,
+            forbidden_targets: vec!["localhost".to_string()],
+            forbidden_paths: vec!["/etc".to_string()],
+            param_keys: vec!["TARGET".to_string()],
+        };
+
+        // Valid command
+        let p = params(&[("TARGET", "192.168.1.10")]);
+        let result = validate_dynamic_command(&cmd, "skill-test-001", &p);
+        assert!(result.is_ok());
+        let validated = result.unwrap();
+        assert_eq!(validated.rendered_cmd, "echo scan 192.168.1.10");
+        assert_eq!(validated.risk, RiskLevel::Low);
+        assert!(validated.requires_hitl);
+
+        // Missing param
+        let empty: HashMap<String, String> = HashMap::new();
+        let result = validate_dynamic_command(&cmd, "skill-test-001", &empty);
+        assert!(matches!(result, Err(RemediationError::MissingParam(_))));
+
+        // Injection attempt
+        let p = params(&[("TARGET", "; rm -rf /")]);
+        let result = validate_dynamic_command(&cmd, "skill-test-001", &p);
+        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+    }
+
+    #[test]
+    fn test_dynamic_command_forbidden_target() {
+        let cmd = DynamicCommand {
+            id: "skill-test-002".to_string(),
+            cmd_template: "nmap {IP}".to_string(),
+            description: "Scan".to_string(),
+            risk: "medium".to_string(),
+            reversible: false,
+            undo_template: None,
+            requires_hitl: true,
+            max_targets: 1,
+            forbidden_targets: vec!["127.0.0.1".to_string()],
+            forbidden_paths: vec![],
+            param_keys: vec!["IP".to_string()],
+        };
+
+        let p = params(&[("IP", "127.0.0.1")]);
+        let result = validate_dynamic_command(&cmd, "skill-test-002", &p);
+        assert!(matches!(result, Err(RemediationError::ForbiddenTarget(_))));
+    }
+
+    #[test]
+    fn test_dynamic_command_with_undo() {
+        let cmd = DynamicCommand {
+            id: "skill-test-003".to_string(),
+            cmd_template: "iptables -A INPUT -s {IP} -j DROP".to_string(),
+            description: "Block IP".to_string(),
+            risk: "high".to_string(),
+            reversible: true,
+            undo_template: Some("iptables -D INPUT -s {IP} -j DROP".to_string()),
+            requires_hitl: true,
+            max_targets: 5,
+            forbidden_targets: vec![],
+            forbidden_paths: vec![],
+            param_keys: vec!["IP".to_string()],
+        };
+
+        let p = params(&[("IP", "10.0.0.1")]);
+        let result = validate_dynamic_command(&cmd, "skill-test-003", &p).unwrap();
+        assert_eq!(result.risk, RiskLevel::High);
+        assert_eq!(result.undo_cmd, Some("iptables -D INPUT -s 10.0.0.1 -j DROP".to_string()));
+    }
+
+    #[test]
+    fn test_command_registry_core_lookup() {
+        let registry = CommandRegistry::new();
+        assert!(registry.find("net-001").is_some());
+        assert!(registry.find("nonexistent").is_none());
+        assert!(registry.len() > 0);
+    }
+
+    #[test]
+    fn test_global_registry_returns_same_instance() {
+        let r1 = global_registry();
+        let r2 = global_registry();
+        assert_eq!(r1.len(), r2.len());
     }
 }

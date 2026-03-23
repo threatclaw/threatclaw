@@ -112,7 +112,7 @@ pub fn build_react_prompt(
     prompt.push_str(RESPONSE_SCHEMA);
     prompt.push_str("\n```\n");
 
-    // ── Section 7: Whitelist (compact — catégories uniquement) ──
+    // ── Section 7: Whitelist (core + dynamic skill actions) ──
     prompt.push_str(
         r#"
 # ACTIONS DISPONIBLES (cmd_id à utiliser dans proposed_actions)
@@ -124,6 +124,22 @@ Services: svc-001 (stop service), docker-001 (stop container)
 Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)
 "#,
     );
+
+    // Append dynamic skill commands from the global registry
+    let registry = crate::agent::remediation_whitelist::global_registry();
+    let dynamic_ids: Vec<&str> = registry.all_command_ids().into_iter()
+        .filter(|id| !id.starts_with("net-") && !id.starts_with("scan-") &&
+                !id.starts_with("forensic-") && !id.starts_with("usr-") &&
+                !id.starts_with("proc-") && !id.starts_with("svc-") &&
+                !id.starts_with("docker-") && !id.starts_with("skill-") &&
+                !id.starts_with("ssh-") && !id.starts_with("file-") &&
+                !id.starts_with("log-") && !id.starts_with("pkg-"))
+        .collect();
+    if !dynamic_ids.is_empty() {
+        prompt.push_str("Skills dynamiques: ");
+        prompt.push_str(&dynamic_ids.join(", "));
+        prompt.push('\n');
+    }
 
     // Truncate if too long — keep the beginning (soul + mode) and end (schema + whitelist)
     truncate_prompt(prompt)

@@ -245,6 +245,7 @@
 - [ ] **Permanents** : suricata (IDS/IPS réseau), falco (runtime security containers)
 - [ ] **Connecteurs** : defectdojo (vuln mgmt), dependency-track (SBOM lifecycle)
 - [ ] **Éphémères P2** : httpx, subfinder, docker-bench-security
+- [x] **Whitelist dynamique** : `CommandRegistry` (core + skill.json), `validate_remediation()` unifié, anti-injection sur dynamiques
 - [ ] Système de modes d'exécution dans skill.json : `ephemeral` / `persistent` / `connector`
 - [ ] Dashboard : badges mode, "Activer" simplifié, technique cachée par défaut
 - [x] ~~Corriger `skill-appsec`~~ (pas de skill.json, déjà absent du catalog)

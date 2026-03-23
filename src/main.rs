@@ -239,6 +239,9 @@ async fn async_main() -> anyhow::Result<()> {
     tracing::debug!("Loaded configuration for agent: {}", config.agent.name);
     tracing::debug!("LLM backend: {}", config.llm.backend);
 
+    // Initialize dynamic command registry (core whitelist + skill.json actions)
+    threatclaw::agent::remediation_whitelist::init_command_registry();
+
     // ── Phase 1-5: Build all core components via AppBuilder ────────────
 
     let flags = AppBuilderFlags { no_db: cli.no_db };
