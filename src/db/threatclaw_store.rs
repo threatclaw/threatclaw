@@ -177,6 +177,24 @@ pub trait ThreatClawStore: Send + Sync {
         username: Option<&str>,
     ) -> Result<i64, DatabaseError>;
 
+    // LLM training data collection
+    async fn log_llm_call(
+        &self,
+        model: &str,
+        prompt_hash: &str,
+        prompt_length: i32,
+        response_json: Option<&serde_json::Value>,
+        raw_response: Option<&str>,
+        parsing_ok: bool,
+        parsing_method: &str,
+        severity: Option<&str>,
+        confidence: Option<f64>,
+        actions_count: i32,
+        escalation: &str,
+        cycle_duration_ms: i32,
+        observations_count: i32,
+    ) -> Result<(), DatabaseError>;
+
     // Anonymizer custom rules
     async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
     async fn create_anonymizer_rule(

@@ -192,6 +192,28 @@ pub async fn run_react_cycle(
         analysis_l1_raw
     };
 
+    // ── Log L1 call for future fine-tuning dataset ──
+    {
+        use crate::db::threatclaw_store::ThreatClawStore;
+        use sha2::{Sha256, Digest};
+        let prompt_hash = format!("{:x}", Sha256::digest(prompt_l1.as_bytes()));
+        let _ = store.log_llm_call(
+            &config.llm.primary.model,
+            &prompt_hash[..16],
+            prompt_l1.len() as i32 / 4, // rough token estimate
+            Some(&serde_json::to_value(&analysis_l1).unwrap_or_default()),
+            None,
+            true, // parsed OK (we got here)
+            "strict_or_flexible",
+            Some(&analysis_l1.severity),
+            Some(analysis_l1.confidence),
+            analysis_l1.proposed_actions.len() as i32,
+            "pending",
+            0, // duration not tracked yet
+            obs_count as i32,
+        ).await;
+    }
+
     tracing::info!(
         "REACT L1: {} | confiance {:.0}% | {} corrélations",
         analysis_l1.severity, analysis_l1.confidence * 100.0, analysis_l1.correlations.len()

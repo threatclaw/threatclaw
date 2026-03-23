@@ -428,4 +428,42 @@ impl ThreatClawStore for PgBackend {
         ).await.map_err(query_err)?;
         Ok(row.get::<_, i64>(0))
     }
+
+    async fn log_llm_call(
+        &self,
+        model: &str,
+        prompt_hash: &str,
+        prompt_length: i32,
+        response_json: Option<&serde_json::Value>,
+        raw_response: Option<&str>,
+        parsing_ok: bool,
+        parsing_method: &str,
+        severity: Option<&str>,
+        confidence: Option<f64>,
+        actions_count: i32,
+        escalation: &str,
+        cycle_duration_ms: i32,
+        observations_count: i32,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let response_str = response_json.map(|v| serde_json::to_string(v).unwrap_or_default());
+        let esc = |s: &str| s.replace('\'', "''");
+
+        let response_jsonb = response_str.as_deref().unwrap_or("null");
+        let raw = raw_response.map(|r| esc(&r.chars().take(2000).collect::<String>())).unwrap_or_default();
+        let sev = severity.unwrap_or("");
+        let conf = confidence.unwrap_or(0.0);
+
+        let sql = format!(
+            "INSERT INTO llm_training_data (model, prompt_hash, prompt_length, response_json, raw_response, parsing_ok, parsing_method, severity, confidence, actions_count, escalation, cycle_duration_ms, observations_count) \
+             VALUES ('{}', '{}', {}, '{}'::jsonb, '{}', {}, '{}', '{}', {}, {}, '{}', {}, {})",
+            esc(model), esc(prompt_hash), prompt_length,
+            esc(response_jsonb), raw,
+            parsing_ok, esc(parsing_method), esc(sev), conf,
+            actions_count, esc(escalation), cycle_duration_ms, observations_count,
+        );
+
+        conn.execute(&*sql, &[]).await.map_err(query_err)?;
+        Ok(())
+    }
 }
