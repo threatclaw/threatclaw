@@ -868,6 +868,10 @@ const ENRICHMENT_SOURCES = [
     help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nVérifie SHA-256/MD5 d'un fichier suspect.\nhttps://bazaar.abuse.ch/account/" },
   { id: "urlhaus", name: "URLhaus", desc: "URLs distribuant des malwares", enriches: "Vérifie si une URL sert à distribuer des malwares", free: true, noKey: false, syncable: false,
     help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nhttps://urlhaus.abuse.ch/account/" },
+  { id: "epss", name: "EPSS (FIRST.org)", desc: "Probabilité d'exploitation d'une CVE dans les 30 prochains jours", enriches: "Transforme la priorisation — EPSS 94% + CVSS 5.5 = CRITICAL", free: true, noKey: true, syncable: false,
+    help: "Gratuit, sans inscription. API officielle de FIRST.org.\nScore mis à jour quotidiennement par machine learning.\nhttps://www.first.org/epss/" },
+  { id: "ipinfo", name: "IPinfo", desc: "Géolocalisation IP + ASN / organisation", enriches: "Contextualise l'origine des alertes (pays, opérateur, cloud provider)", free: true, noKey: true, syncable: false,
+    help: "Gratuit sans clé pour les lookups basiques (50k/mois).\nRetourne : pays, ville, ASN, organisation.\nhttps://ipinfo.io/" },
 ];
 
 function EnrichmentTab() {
@@ -917,7 +921,7 @@ function EnrichmentTab() {
         <div style={{ fontSize: "12px", color: "#5a534e", marginBottom: "20px", lineHeight: 1.6 }}>
           Ces sources enrichissent automatiquement les analyses de l{"'"}Intelligence Engine.
           Plus de sources = meilleure corrélation = moins de faux positifs.
-          <br />Toutes les sources ci-dessous sont <strong style={{ color: "#30a050" }}>gratuites et sans clé API</strong>.
+          <br />La plupart sont <strong style={{ color: "#30a050" }}>gratuites sans inscription</strong>. Celles marquées <span style={{ color: "#d09020" }}>Clé requise</span> nécessitent une inscription gratuite.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
