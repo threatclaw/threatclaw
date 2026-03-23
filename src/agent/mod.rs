@@ -39,6 +39,7 @@ pub mod prompt_builder;
 pub mod react_cycle;
 pub mod react_runner;
 pub mod remediation_whitelist;
+pub mod skill_scheduler;
 pub mod soul;
 pub mod test_scenarios;
 pub mod tool_output_wrapper;

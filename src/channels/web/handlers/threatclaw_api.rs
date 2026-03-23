@@ -1622,6 +1622,33 @@ pub async fn binary_verify_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// SKILL SCHEDULER
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/scheduler — list skill schedules.
+pub async fn scheduler_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let schedules = crate::agent::skill_scheduler::load_schedules(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "schedules": schedules })))
+}
+
+/// POST /api/tc/scheduler — save skill schedules.
+pub async fn scheduler_save_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let schedules: Vec<crate::agent::skill_scheduler::SkillSchedule> = serde_json::from_value(
+        body["schedules"].clone()
+    ).map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid schedules: {e}")))?;
+    crate::agent::skill_scheduler::save_schedules(store.as_ref(), &schedules).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "status": "saved", "count": schedules.len() })))
+}
+
+// ══════════════════════════════════════════════════════════
 // TEST SCENARIOS — Demo & E2E testing
 // ══════════════════════════════════════════════════════════
 
