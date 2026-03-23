@@ -364,6 +364,9 @@ pub async fn start_server(
         .route("/api/tc/enrichment/malware/{hash}", get(super::handlers::threatclaw_api::malware_handler))
         .route("/api/tc/enrichment/openphish/sync", post(super::handlers::threatclaw_api::openphish_sync_handler))
         .route("/api/tc/enrichment/sync-all", post(super::handlers::threatclaw_api::enrichment_sync_all_handler))
+        .route("/api/tc/enrichment/epss/{cve_id}", get(super::handlers::threatclaw_api::epss_handler))
+        .route("/api/tc/enrichment/ipinfo/{ip}", get(super::handlers::threatclaw_api::ipinfo_handler))
+        .route("/api/tc/enrichment/priority", post(super::handlers::threatclaw_api::priority_score_handler))
         // Instruct AI — SOAR playbooks, reports, Sigma rules (on-demand RSSI)
         .route("/api/tc/instruct/generate", post(super::handlers::threatclaw_api::instruct_generate_handler))
         // Telegram direct API

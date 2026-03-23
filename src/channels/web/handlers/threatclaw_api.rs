@@ -1663,6 +1663,70 @@ pub async fn enrichment_sync_all_handler(State(state): State<Arc<GatewayState>>)
     Ok(Json(results))
 }
 
+/// GET /api/tc/enrichment/epss/{cve_id} — EPSS score lookup.
+pub async fn epss_handler(Path(cve_id): Path<String>) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::epss::lookup_epss(&cve_id).await {
+        Ok(Some(score)) => Ok(Json(serde_json::to_value(score).unwrap_or_default())),
+        Ok(None) => Ok(Json(serde_json::json!({ "error": "CVE not found in EPSS" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/ipinfo/{ip} — IP geolocation + ASN.
+pub async fn ipinfo_handler(Path(ip): Path<String>) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::ipinfo::lookup_ip(&ip).await {
+        Ok(info) => Ok(Json(serde_json::to_value(info).unwrap_or_default())),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// POST /api/tc/enrichment/priority — compute ThreatClaw priority score.
+/// Body: { "cvss": 7.5, "cve_id": "CVE-2023-44487" }
+pub async fn priority_score_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let cvss = body["cvss"].as_f64().unwrap_or(0.0);
+    let cve_id = body["cve_id"].as_str().unwrap_or("");
+
+    // Enrich from all sources
+    let in_kev = if !cve_id.is_empty() {
+        crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve_id).await.is_some()
+    } else { false };
+
+    let epss = if !cve_id.is_empty() {
+        crate::enrichment::epss::lookup_epss(cve_id).await.ok().flatten().map(|s| s.epss).unwrap_or(0.0)
+    } else { 0.0 };
+
+    let ip = body["ip"].as_str().unwrap_or("");
+    let (gn_noise, gn_malicious) = if !ip.is_empty() {
+        match crate::enrichment::greynoise::lookup_ip(ip, None).await {
+            Ok(r) => (r.noise, r.classification == "malicious"),
+            Err(_) => (false, false),
+        }
+    } else { (false, false) };
+
+    let tf_hits = if !ip.is_empty() {
+        crate::enrichment::threatfox::lookup_ioc(ip, None).await.map(|r| r.len()).unwrap_or(0)
+    } else { 0 };
+
+    let input = crate::enrichment::priority_score::PriorityInput {
+        cvss_score: cvss, in_kev, epss_score: epss,
+        greynoise_noise: gn_noise, greynoise_malicious: gn_malicious,
+        threatfox_hits: tf_hits,
+    };
+    let result = crate::enrichment::priority_score::compute_priority(&input);
+
+    Ok(Json(serde_json::json!({
+        "priority": result.priority,
+        "score": result.score,
+        "reason": result.reason,
+        "adjustments": result.adjustments,
+        "input": { "cvss": cvss, "kev": in_kev, "epss": epss, "greynoise_noise": gn_noise, "greynoise_malicious": gn_malicious, "threatfox_hits": tf_hits },
+    })))
+}
+
 // ══════════════════════════════════════════════════════════
 // INTELLIGENCE ENGINE + NOTIFICATION ROUTING
 // ══════════════════════════════════════════════════════════
