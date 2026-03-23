@@ -146,6 +146,45 @@ pub async fn run_intelligence_cycle(
         (100.0 - (worst_asset * 0.6 + avg_score * 0.4)).max(0.0)
     };
 
+    // ── 5b. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // This is where the engine becomes a true SOC brain — it reads raw logs,
+    // extracts indicators, and cross-references with enrichment sources.
+    let log_scan_results = scan_logs_for_threats(store.clone()).await;
+    for threat in &log_scan_results {
+        // Auto-create finding for each threat detected in logs
+        let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+            skill_id: "intelligence-engine".into(),
+            title: threat.title.clone(),
+            description: Some(threat.description.clone()),
+            severity: threat.severity.clone(),
+            category: Some("log-analysis".into()),
+            asset: threat.asset.clone(),
+            source: Some(threat.source.clone()),
+            metadata: Some(threat.metadata.clone()),
+        }).await;
+    }
+    if !log_scan_results.is_empty() {
+        tracing::info!("INTELLIGENCE: {} threat(s) detected from log scan", log_scan_results.len());
+        // Re-fetch findings after inserting new ones
+        let findings = store.list_findings(None, Some("open"), None, 500).await.unwrap_or_default();
+        // Rebuild asset map with new findings
+        for f in &findings {
+            let asset = f.asset.as_deref().unwrap_or("unknown").to_string();
+            let entry = asset_map.entry(asset.clone()).or_insert_with(|| AssetSituation {
+                asset: asset.clone(), score: 0.0,
+                findings_critical: 0, findings_high: 0, findings_medium: 0, findings_low: 0,
+                active_alerts: 0, has_kill_chain: false, has_known_exploit: false,
+                has_active_attack: false, summary: String::new(),
+            });
+            match f.severity.to_lowercase().as_str() {
+                "critical" => entry.findings_critical += 1,
+                "high" => entry.findings_high += 1,
+                "medium" => entry.findings_medium += 1,
+                _ => entry.findings_low += 1,
+            }
+        }
+    }
+
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
     // All enrichment is wrapped in catch_unwind-style error handling.
     // External API failures must NEVER crash the engine.
@@ -539,6 +578,140 @@ pub fn spawn_intelligence_ticker(
             }
         }
     })
+}
+
+// ══════════════════════════════════════════════════════════
+// LOG SCANNING — extract IoCs from raw logs and cross-reference
+// with ALL enrichment sources to auto-detect threats.
+// ══════════════════════════════════════════════════════════
+
+/// A threat detected from log analysis.
+#[derive(Debug, Clone)]
+struct DetectedThreat {
+    title: String,
+    description: String,
+    severity: String,
+    asset: Option<String>,
+    source: String,
+    metadata: serde_json::Value,
+}
+
+/// Scan recent logs for IoCs and cross-reference with enrichment sources.
+/// Creates findings for any threats detected.
+async fn scan_logs_for_threats(store: Arc<dyn Database>) -> Vec<DetectedThreat> {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    use crate::enrichment::ioc_extractor;
+
+    let mut threats = vec![];
+
+    // Query logs from last 10 minutes
+    let logs = match store.query_logs(10, None, None, 500).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::debug!("INTELLIGENCE: Log scan skipped — {e}");
+            return threats;
+        }
+    };
+
+    if logs.is_empty() {
+        return threats;
+    }
+
+    tracing::debug!("INTELLIGENCE: Scanning {} recent logs for IoCs", logs.len());
+
+    // Extract IoCs from logs
+    let iocs = ioc_extractor::extract_from_logs(&logs);
+
+    tracing::debug!(
+        "INTELLIGENCE: Extracted {} IPs, {} URLs, {} hashes, {} domains",
+        iocs.ips.len(), iocs.urls.len(), iocs.hashes.len(), iocs.domains.len()
+    );
+
+    // Cross-reference URLs with OpenPhish
+    for url in iocs.urls.iter().take(20) {
+        if crate::enrichment::openphish::is_phishing(store.as_ref(), url).await {
+            threats.push(DetectedThreat {
+                title: format!("URL de phishing détectée dans les logs : {}", truncate_str(url, 80)),
+                description: format!("L'URL {} a été trouvée dans les logs et correspond à une URL de phishing connue (OpenPhish).", url),
+                severity: "HIGH".into(),
+                asset: None,
+                source: "openphish".into(),
+                metadata: json!({ "url": url, "source": "openphish" }),
+            });
+        }
+    }
+
+    // Cross-reference IPs with ThreatFox (C2 servers)
+    for ip in iocs.ips.iter().take(10) {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            crate::enrichment::threatfox::lookup_ioc(ip, None),
+        ).await {
+            Ok(Ok(results)) if !results.is_empty() => {
+                let r = &results[0];
+                threats.push(DetectedThreat {
+                    title: format!("IP malveillante (C2) détectée dans les logs : {}", ip),
+                    description: format!("L'IP {} est un IoC connu dans ThreatFox : {} ({}). {} hit(s).",
+                        ip, r.threat_type, r.malware.as_deref().unwrap_or("?"), results.len()),
+                    severity: "CRITICAL".into(),
+                    asset: None,
+                    source: "threatfox".into(),
+                    metadata: json!({ "ip": ip, "threat_type": r.threat_type, "malware": r.malware, "hits": results.len() }),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // Cross-reference hashes with MalwareBazaar
+    for hash in iocs.hashes.iter().take(5) {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            crate::enrichment::malware_bazaar::lookup_hash(hash, None),
+        ).await {
+            Ok(Ok(Some(info))) => {
+                threats.push(DetectedThreat {
+                    title: format!("Hash de malware détecté dans les logs : {}", &hash[..16]),
+                    description: format!("Le hash {} correspond au malware {} ({}). Tags: {}.",
+                        hash, info.signature.as_deref().unwrap_or("?"),
+                        info.file_type.as_deref().unwrap_or("?"),
+                        info.tags.join(", ")),
+                    severity: "CRITICAL".into(),
+                    asset: None,
+                    source: "malware_bazaar".into(),
+                    metadata: json!({ "hash": hash, "signature": info.signature, "tags": info.tags }),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // Cross-reference URLs with URLhaus
+    for url in iocs.urls.iter().take(10) {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            crate::enrichment::urlhaus::lookup_url(url, None),
+        ).await {
+            Ok(Ok(Some(result))) if result.url_status == "online" => {
+                threats.push(DetectedThreat {
+                    title: format!("URL malveillante (malware) dans les logs : {}", truncate_str(url, 80)),
+                    description: format!("L'URL {} distribue du malware ({}) selon URLhaus. Status: {}.",
+                        url, result.threat.as_deref().unwrap_or("?"), result.url_status),
+                    severity: "HIGH".into(),
+                    asset: None,
+                    source: "urlhaus".into(),
+                    metadata: json!({ "url": url, "threat": result.threat, "status": result.url_status }),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    threats
+}
+
+fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { format!("{}...", &s[..max]) }
 }
 
 #[cfg(test)]

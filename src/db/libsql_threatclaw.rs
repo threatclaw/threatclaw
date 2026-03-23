@@ -30,4 +30,6 @@ impl ThreatClawStore for LibSqlBackend {
     async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError> { Err(not_supported()) }
     async fn create_anonymizer_rule(&self, _: &str, _: &str, _: &str, _: i32) -> Result<String, DatabaseError> { Err(not_supported()) }
     async fn delete_anonymizer_rule(&self, _: &str) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn query_logs(&self, _: i64, _: Option<&str>, _: Option<&str>, _: i64) -> Result<Vec<LogRecord>, DatabaseError> { Err(not_supported()) }
+    async fn count_logs(&self, _: i64) -> Result<i64, DatabaseError> { Err(not_supported()) }
 }

@@ -311,4 +311,63 @@ impl ThreatClawStore for PgBackend {
             .map_err(query_err)?;
         Ok(())
     }
+
+    // ── Logs (raw log records from Fluent Bit) ──
+
+    async fn query_logs(
+        &self,
+        minutes_back: i64,
+        hostname: Option<&str>,
+        tag: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<LogRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let interval = format!("{} minutes", minutes_back);
+
+        // Build query with static params to avoid Send issues with dynamic Box<dyn>
+        let rows = match (hostname, tag) {
+            (Some(h), Some(t)) => {
+                conn.query(
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND hostname = $2 AND tag = $3 ORDER BY time DESC LIMIT {}", limit),
+                    &[&interval, &h, &t],
+                ).await.map_err(query_err)?
+            }
+            (Some(h), None) => {
+                conn.query(
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND hostname = $2 ORDER BY time DESC LIMIT {}", limit),
+                    &[&interval, &h],
+                ).await.map_err(query_err)?
+            }
+            (None, Some(t)) => {
+                conn.query(
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND tag = $2 ORDER BY time DESC LIMIT {}", limit),
+                    &[&interval, &t],
+                ).await.map_err(query_err)?
+            }
+            (None, None) => {
+                conn.query(
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval ORDER BY time DESC LIMIT {}", limit),
+                    &[&interval],
+                ).await.map_err(query_err)?
+            }
+        };
+
+        Ok(rows.iter().map(|r| LogRecord {
+            id: r.get(0),
+            tag: r.try_get(1).ok(),
+            time: r.get(2),
+            hostname: r.try_get(3).ok(),
+            data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
+        }).collect())
+    }
+
+    async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let interval = format!("{} minutes", minutes_back);
+        let row = conn.query_one(
+            "SELECT COUNT(*) FROM logs WHERE time >= NOW() - $1::interval",
+            &[&interval],
+        ).await.map_err(query_err)?;
+        Ok(row.get::<_, i64>(0))
+    }
 }

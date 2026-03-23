@@ -1,5 +1,6 @@
 pub mod certfr;
 pub mod cisa_kev;
+pub mod ioc_extractor;
 pub mod cve_lookup;
 pub mod epss;
 pub mod greynoise;

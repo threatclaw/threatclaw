@@ -79,6 +79,16 @@ pub struct DashboardMetrics {
     pub darkweb_leaks: i64,
 }
 
+/// A raw log record from the logs table (ingested by Fluent Bit).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRecord {
+    pub id: i64,
+    pub tag: Option<String>,
+    pub time: String,
+    pub hostname: Option<String>,
+    pub data: serde_json::Value,
+}
+
 // ── Store trait ──
 
 #[async_trait]
@@ -135,6 +145,17 @@ pub trait ThreatClawStore: Send + Sync {
         labels: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
     async fn get_dashboard_metrics(&self) -> Result<DashboardMetrics, DatabaseError>;
+
+    // Logs (raw log records from Fluent Bit ingestion)
+    async fn query_logs(
+        &self,
+        minutes_back: i64,
+        hostname: Option<&str>,
+        tag: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<LogRecord>, DatabaseError>;
+
+    async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError>;
 
     // Anonymizer custom rules
     async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
