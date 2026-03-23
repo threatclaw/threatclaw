@@ -78,13 +78,55 @@ if [ "${TC_AUTO_PULL_MODELS:-true}" = "true" ]; then
       if [ -f "/app/docker/Modelfile.threatclaw-l1" ]; then
         echo "[init] Creating threatclaw-l1 from Modelfile..."
         curl -s -X POST "${OLLAMA_URL}/api/create" \
-          -d "{\"name\":\"threatclaw-l1\",\"modelfile\":\"$(cat /app/docker/Modelfile.threatclaw-l1 | sed 's/"/\\"/g' | tr '\n' '\\' | sed 's/\\/\\n/g')\"}" > /dev/null 2>&1 && \
+          -d "{\"name\":\"threatclaw-l1\",\"from\":\"${L1_MODEL}\",\"system\":\"$(head -20 /app/docker/Modelfile.threatclaw-l1 | grep -A999 'SYSTEM' | grep -v 'SYSTEM\|PARAMETER' | tr '\n' ' ' | sed 's/"/\\"/g')\"}" > /dev/null 2>&1 && \
           echo "[init] threatclaw-l1 created" || \
           echo "[init] WARNING: Failed to create threatclaw-l1"
       fi
     fi
 
-    echo "[init] Ollama models: $(curl -s "${OLLAMA_URL}/api/tags" | python3 -c "import sys,json; print(', '.join(m['name'] for m in json.load(sys.stdin).get('models',[])))" 2>/dev/null || echo "unknown")"
+    # Pull L2 Forensic model (Foundation-Sec Reasoning)
+    L2_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Reasoning-Q8_0-GGUF"
+    if ! echo "$MODELS" | grep -q "threatclaw-l2"; then
+      echo "[init] Pulling L2 forensic base model (this may take a while — ~8.5 GB)..."
+      curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$L2_BASE\",\"stream\":false}" > /dev/null 2>&1 && \
+        echo "[init] L2 base model pulled" || \
+        echo "[init] WARNING: Failed to pull L2 base model"
+      # Create threatclaw-l2
+      echo "[init] Creating threatclaw-l2..."
+      curl -s -X POST "${OLLAMA_URL}/api/create" \
+        -d "{\"name\":\"threatclaw-l2\",\"from\":\"$L2_BASE\",\"system\":\"Tu es un analyste forensique expert de ThreatClaw. Tu montres ton raisonnement étape par étape. Réponds en JSON structuré.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192}}" --max-time 30 > /dev/null 2>&1 && \
+        echo "[init] threatclaw-l2 created" || \
+        echo "[init] WARNING: Failed to create threatclaw-l2"
+    else
+      echo "[init] L2 model already present: threatclaw-l2"
+    fi
+
+    # Pull L3 Instruct model (Foundation-Sec Instruct)
+    L3_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Q4_K_M-GGUF"
+    if ! echo "$MODELS" | grep -q "threatclaw-l3"; then
+      echo "[init] Pulling L3 instruct base model (~4.9 GB)..."
+      curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$L3_BASE\",\"stream\":false}" > /dev/null 2>&1 && \
+        echo "[init] L3 base model pulled" || \
+        echo "[init] WARNING: Failed to pull L3 base model"
+      # Create threatclaw-l3
+      echo "[init] Creating threatclaw-l3..."
+      curl -s -X POST "${OLLAMA_URL}/api/create" \
+        -d "{\"name\":\"threatclaw-l3\",\"from\":\"$L3_BASE\",\"system\":\"Tu es un expert SOC senior. Tu génères des playbooks SOAR, rapports d'incident, règles Sigma. En français, adapté PME NIS2/ANSSI.\",\"parameters\":{\"temperature\":0.3,\"num_ctx\":8192}}" --max-time 30 > /dev/null 2>&1 && \
+        echo "[init] threatclaw-l3 created" || \
+        echo "[init] WARNING: Failed to create threatclaw-l3"
+    else
+      echo "[init] L3 model already present: threatclaw-l3"
+    fi
+
+    echo "[init] Ollama models ready:"
+    curl -s "${OLLAMA_URL}/api/tags" | python3 -c "
+import sys,json
+models = json.load(sys.stdin).get('models',[])
+for m in models:
+    size_gb = m.get('size',0) / 1e9
+    print(f'  {m[\"name\"]:30s} {size_gb:.1f} GB')
+print(f'  Total: {len(models)} models')
+" 2>/dev/null || echo "  (could not list models)"
   fi
 fi
 
