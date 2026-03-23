@@ -387,6 +387,9 @@ pub async fn start_server(
         .route("/api/tc/notifications/routing", get(super::handlers::threatclaw_api::notification_routing_get_handler))
         .route("/api/tc/notifications/routing", post(super::handlers::threatclaw_api::notification_routing_set_handler))
         .route("/api/tc/notifications/test", post(super::handlers::threatclaw_api::notification_test_handler))
+        // Test scenarios (demo + E2E testing)
+        .route("/api/tc/test/scenarios", get(super::handlers::threatclaw_api::test_scenarios_list_handler))
+        .route("/api/tc/test/run/{id}", post(super::handlers::threatclaw_api::test_scenario_run_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API

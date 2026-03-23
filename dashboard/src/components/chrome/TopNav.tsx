@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Status", icon: Shield },
@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/skills", label: "Skills", icon: Puzzle },
   { href: "/agent", label: "Agent", icon: Activity },
   { href: "/setup", label: "Config", icon: Settings },
+  { href: "/test", label: "Tests", icon: Play },
 ];
 
 type ConnStatus = "full" | "degraded" | "offline";

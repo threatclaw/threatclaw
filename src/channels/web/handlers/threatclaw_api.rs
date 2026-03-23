@@ -1579,6 +1579,50 @@ pub async fn binary_verify_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// TEST SCENARIOS — Demo & E2E testing
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/test/scenarios — list available test scenarios.
+pub async fn test_scenarios_list_handler() -> ApiResult<serde_json::Value> {
+    let scenarios = crate::agent::test_scenarios::list_scenarios();
+    Ok(Json(serde_json::json!({ "scenarios": scenarios })))
+}
+
+/// POST /api/tc/test/run/{id} — run a test scenario.
+/// Query param: ?notify=true to trigger notifications.
+pub async fn test_scenario_run_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(scenario_id): Path<String>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let trigger = params.get("notify").map(|v| v == "true").unwrap_or(true);
+
+    tracing::info!("TEST: Running scenario '{}' (notify={})", scenario_id, trigger);
+
+    // Run in background (scenarios can take time with enrichment)
+    let store_clone = store.clone();
+    let scenario_id_clone = scenario_id.clone();
+    tokio::spawn(async move {
+        let result = crate::agent::test_scenarios::run_scenario(
+            store_clone, &scenario_id_clone, trigger,
+        ).await;
+        tracing::info!(
+            "TEST: Scenario '{}' complete — {} logs, {} findings, {} alerts, score={:?}, level={:?}",
+            result.scenario_id, result.logs_injected, result.findings_created,
+            result.alerts_created, result.intelligence_score, result.notification_level
+        );
+    });
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "scenario": scenario_id,
+        "status": "running",
+        "message": "Scénario lancé en arrière-plan. Les logs, findings et alertes sont injectés dans le vrai pipeline. Vérifiez Telegram et le dashboard.",
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // ENRICHMENT SOURCES — CISA KEV, GreyNoise, ThreatFox, etc.
 // ══════════════════════════════════════════════════════════
 

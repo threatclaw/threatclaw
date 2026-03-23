@@ -361,6 +361,64 @@ impl ThreatClawStore for PgBackend {
         }).collect())
     }
 
+    async fn insert_log(
+        &self,
+        tag: &str,
+        hostname: &str,
+        data: &serde_json::Value,
+        time: &str,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let data_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
+        // Full raw SQL — avoid all parameter serialization issues
+        let sql = format!(
+            "INSERT INTO logs (tag, hostname, data, time) VALUES ('{}', '{}', '{}'::jsonb, '{}'::timestamptz) RETURNING id",
+            tag.replace('\'', "''"),
+            hostname.replace('\'', "''"),
+            data_str.replace('\'', "''"),
+            time.replace('\'', "''"),
+        );
+        let row = conn.query_one(&*sql, &[]).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn insert_sigma_alert(
+        &self,
+        rule_id: &str,
+        level: &str,
+        title: &str,
+        hostname: &str,
+        source_ip: Option<&str>,
+        username: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Ensure the rule exists (create a stub if not)
+        let esc = |s: &str| s.replace('\'', "''");
+        let rule_sql = format!(
+            "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) VALUES ('{}', '{}', '{}', 'title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test', '{{}}'::jsonb, true) ON CONFLICT (id) DO NOTHING",
+            esc(rule_id), esc(title), esc(level), esc(title), esc(level),
+        );
+        conn.execute(&*rule_sql, &[]).await.map_err(query_err)?;
+
+        // Full raw SQL to avoid parameter serialization issues
+        let esc = |s: &str| s.replace('\'', "''");
+        let ip_part = match source_ip {
+            Some(ip) if !ip.is_empty() => format!(", source_ip") ,
+            _ => String::new(),
+        };
+        let ip_val = match source_ip {
+            Some(ip) if !ip.is_empty() => format!(", '{}'::inet", esc(ip)),
+            _ => String::new(),
+        };
+        let user_str = username.unwrap_or("");
+        let sql = format!(
+            "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status{}) VALUES ('{}', '{}', '{}', '{}', '{}', 'new'{}) RETURNING id",
+            ip_part, esc(rule_id), esc(level), esc(title), esc(hostname), esc(user_str), ip_val,
+        );
+        let row = conn.query_one(&*sql, &[]).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let interval = format!("{} minutes", minutes_back);

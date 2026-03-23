@@ -157,6 +157,26 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError>;
 
+    /// Insert a log record directly (for testing/simulation).
+    async fn insert_log(
+        &self,
+        tag: &str,
+        hostname: &str,
+        data: &serde_json::Value,
+        time: &str,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Insert a sigma alert directly (for testing/simulation).
+    async fn insert_sigma_alert(
+        &self,
+        rule_id: &str,
+        level: &str,
+        title: &str,
+        hostname: &str,
+        source_ip: Option<&str>,
+        username: Option<&str>,
+    ) -> Result<i64, DatabaseError>;
+
     // Anonymizer custom rules
     async fn list_anonymizer_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
     async fn create_anonymizer_rule(

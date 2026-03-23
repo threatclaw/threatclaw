@@ -39,6 +39,7 @@ pub mod react_cycle;
 pub mod react_runner;
 pub mod remediation_whitelist;
 pub mod soul;
+pub mod test_scenarios;
 pub mod tool_output_wrapper;
 mod heartbeat;
 pub mod job_monitor;
