@@ -846,18 +846,20 @@ const ENRICHMENT_SOURCES = [
     help: "Gratuit, sans inscription. Flux RSS officiel de l'ANSSI.\nAlertes et avis de sécurité pour la France.\nhttps://www.cert.ssi.gouv.fr/" },
   { id: "openphish", name: "OpenPhish", desc: "URLs de phishing en temps réel (~500)", enriches: "Détection phishing dans les logs et URLs suspectes", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/openphish/sync",
     help: "Gratuit, sans inscription. Liste de ~500 URLs de phishing actives.\nMise à jour toutes les 6h.\nhttps://openphish.com/" },
-  { id: "greynoise", name: "GreyNoise", desc: "Filtre le bruit — scanner bénin vs attaque ciblée", enriches: "Réduit les faux positifs IP, identifie les scanners de masse", free: true, noKey: true, syncable: false,
+  { id: "greynoise", name: "GreyNoise", desc: "Filtre le bruit — scanner bénin vs attaque ciblée", enriches: "Réduit les faux positifs IP, identifie les scanners de masse", free: true, noKey: true, syncable: false, onDemand: true,
     help: "API Community gratuite sans clé. Clé optionnelle pour plus de détails.\nDistingue un scanner bénin (Shodan, Censys) d'une attaque ciblée.\nhttps://viz.greynoise.io/account/api-key" },
-  { id: "threatfox", name: "ThreatFox", desc: "IoCs : C2 servers, domaines malveillants", enriches: "Corrélation IP/domaines avec des campagnes C2 connues", free: true, noKey: false, syncable: false,
+  { id: "threatfox", name: "ThreatFox", desc: "IoCs : C2 servers, domaines malveillants", enriches: "Corrélation IP/domaines avec des campagnes C2 connues", free: true, noKey: false, syncable: false, onDemand: true,
     help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nLookup IoCs : IP, domaine, URL, hash.\nhttps://threatfox.abuse.ch/account/" },
-  { id: "malware_bazaar", name: "MalwareBazaar", desc: "Lookup hash de fichier suspect", enriches: "Vérifie si un hash est un malware connu, avec signature et tags", free: true, noKey: false, syncable: false,
+  { id: "malware_bazaar", name: "MalwareBazaar", desc: "Lookup hash de fichier suspect", enriches: "Vérifie si un hash est un malware connu, avec signature et tags", free: true, noKey: false, syncable: false, onDemand: true,
     help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nVérifie SHA-256/MD5 d'un fichier suspect.\nhttps://bazaar.abuse.ch/account/" },
-  { id: "urlhaus", name: "URLhaus", desc: "URLs distribuant des malwares", enriches: "Vérifie si une URL sert à distribuer des malwares", free: true, noKey: false, syncable: false,
+  { id: "urlhaus", name: "URLhaus", desc: "URLs distribuant des malwares", enriches: "Vérifie si une URL sert à distribuer des malwares", free: true, noKey: false, syncable: false, onDemand: true,
     help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nhttps://urlhaus.abuse.ch/account/" },
-  { id: "epss", name: "EPSS (FIRST.org)", desc: "Probabilité d'exploitation d'une CVE dans les 30 prochains jours", enriches: "Transforme la priorisation — EPSS 94% + CVSS 5.5 = CRITICAL", free: true, noKey: true, syncable: false,
+  { id: "epss", name: "EPSS (FIRST.org)", desc: "Probabilité d'exploitation d'une CVE dans les 30 prochains jours", enriches: "Transforme la priorisation — EPSS 94% + CVSS 5.5 = CRITICAL", free: true, noKey: true, syncable: false, onDemand: true,
     help: "Gratuit, sans inscription. API officielle de FIRST.org.\nScore mis à jour quotidiennement par machine learning.\nhttps://www.first.org/epss/" },
-  { id: "ipinfo", name: "IPinfo", desc: "Géolocalisation IP + ASN / organisation", enriches: "Contextualise l'origine des alertes (pays, opérateur, cloud provider)", free: true, noKey: true, syncable: false,
+  { id: "ipinfo", name: "IPinfo", desc: "Géolocalisation IP + ASN / organisation", enriches: "Contextualise l'origine des alertes (pays, opérateur, cloud provider)", free: true, noKey: true, syncable: false, onDemand: true,
     help: "Gratuit sans clé pour les lookups basiques (50k/mois).\nRetourne : pays, ville, ASN, organisation.\nhttps://ipinfo.io/" },
+  { id: "crowdsec", name: "CrowdSec CTI", desc: "Réputation IP communautaire — blocklists collaboratives", enriches: "Score de réputation IP, signalements communautaires, catégories d'attaque", free: true, noKey: false, syncable: false, onDemand: true,
+    help: "Gratuit avec inscription. API communautaire de réputation IP.\n1. Créez un compte sur https://app.crowdsec.net\n2. Allez dans Settings > API Keys\n3. Copiez votre clé CTI" },
 ];
 
 function EnrichmentTab() {
@@ -1001,11 +1003,11 @@ function EnrichmentTab() {
                 )}
                 <span style={{
                   fontSize: "9px", fontWeight: 600, padding: "2px 6px", borderRadius: "4px",
-                  background: isSynced ? "rgba(48,160,80,0.08)" : "rgba(255,255,255,0.03)",
-                  color: isSynced ? "#30a050" : "#5a534e",
-                  border: `1px solid ${isSynced ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.04)"}`,
+                  background: (isSynced || src.onDemand) ? "rgba(48,160,80,0.08)" : "rgba(255,255,255,0.03)",
+                  color: (isSynced || src.onDemand) ? "#30a050" : "#5a534e",
+                  border: `1px solid ${(isSynced || src.onDemand) ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.04)"}`,
                 }}>
-                  {isSynced ? (st?.status === "active" ? "Actif" : "Synchronisé") : "Non synchronisé"}
+                  {src.onDemand ? "Actif (à la demande)" : isSynced ? "Synchronisé" : "Non synchronisé"}
                 </span>
                 {src.syncable && (
                   <ChromeButton onClick={() => syncSource(src.id, src.syncUrl!)} disabled={syncing === src.id} variant="glass">

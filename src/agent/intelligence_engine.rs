@@ -487,11 +487,42 @@ pub fn spawn_intelligence_ticker(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tracing::info!("INTELLIGENCE: Engine started — cycle every {}s", interval.as_secs());
+
+        // ── Initial sync of enrichment sources at startup ──
+        tracing::info!("INTELLIGENCE: Initial enrichment sync...");
+        if let Err(e) = crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
+            tracing::warn!("INTELLIGENCE: KEV sync failed: {e}");
+        }
+        // MITRE and CERT-FR are bigger — sync in background
+        let store_sync = store.clone();
+        tokio::spawn(async move {
+            let _ = crate::enrichment::mitre_attack::sync_attack_techniques(store_sync.as_ref()).await;
+            let _ = crate::enrichment::certfr::sync_certfr_alerts(store_sync.as_ref()).await;
+            let _ = crate::enrichment::openphish::sync_feed(store_sync.as_ref()).await;
+            tracing::info!("INTELLIGENCE: Background enrichment sync complete");
+        });
+
         let mut ticker = tokio::time::interval(interval);
         ticker.tick().await; // skip first immediate tick
 
+        // ── Daily re-sync counter (every 288 cycles at 5min = 24h) ──
+        let mut cycle_count: u64 = 0;
+
         loop {
             ticker.tick().await;
+            cycle_count += 1;
+
+            // Daily re-sync (every 288 cycles × 5min = 24h)
+            if cycle_count % 288 == 0 {
+                tracing::info!("INTELLIGENCE: Daily enrichment re-sync");
+                let store_resync = store.clone();
+                tokio::spawn(async move {
+                    let _ = crate::enrichment::cisa_kev::sync_kev(store_resync.as_ref()).await;
+                    let _ = crate::enrichment::certfr::sync_certfr_alerts(store_resync.as_ref()).await;
+                    let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;
+                });
+            }
+
             let situation = run_intelligence_cycle(store.clone()).await;
 
             // Route notifications based on level
