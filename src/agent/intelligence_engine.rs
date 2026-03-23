@@ -146,16 +146,73 @@ pub async fn run_intelligence_cycle(
         (100.0 - (worst_asset * 0.6 + avg_score * 0.4)).max(0.0)
     };
 
-    // ── 6. Decide notification level ──
+    // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
+    let mut enrichment_lines: Vec<String> = vec![];
+
+    // Enrich CVEs from critical findings with EPSS + KEV
+    for f in &findings {
+        if f.severity.to_lowercase() != "critical" { continue; }
+        if let Some(cve) = f.metadata.as_object().and_then(|m| m.get("cve")).and_then(|v| v.as_str()) {
+            // EPSS
+            if let Ok(Some(epss)) = crate::enrichment::epss::lookup_epss(cve).await {
+                let pct = epss.epss * 100.0;
+                if pct > 50.0 {
+                    enrichment_lines.push(format!("EPSS {}: {:.0}% probabilité exploitation 30j", cve, pct));
+                }
+                // Update asset score if EPSS is very high
+                let asset_name = f.asset.as_deref().unwrap_or("unknown");
+                if let Some(entry) = asset_map.get_mut(asset_name) {
+                    if epss.epss > 0.9 { entry.score = (entry.score + 20.0).min(100.0); }
+                }
+            }
+            // KEV check
+            if let Some(kev) = crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve).await {
+                enrichment_lines.push(format!("CISA KEV: {} activement exploitée — action requise avant {}", cve, kev.due_date));
+                let asset_name = f.asset.as_deref().unwrap_or("unknown");
+                if let Some(entry) = asset_map.get_mut(asset_name) {
+                    entry.has_known_exploit = true;
+                    entry.score = (entry.score + 25.0).min(100.0);
+                }
+            }
+        }
+    }
+
+    // Enrich alert source IPs with GreyNoise + IPinfo
+    for a in &alerts {
+        if let Some(ref ip) = a.source_ip {
+            let ip_str = ip.trim();
+            if ip_str.is_empty() || ip_str.starts_with("10.") || ip_str.starts_with("192.168.") || ip_str.starts_with("127.") {
+                continue; // Skip private IPs
+            }
+            // GreyNoise
+            if let Ok(gn) = crate::enrichment::greynoise::lookup_ip(ip_str, None).await {
+                let label = if gn.classification == "malicious" { "attaque ciblée" }
+                    else if gn.noise { "scanner de masse" }
+                    else { "inconnu" };
+                enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, gn.classification, label));
+            }
+            // IPinfo
+            if let Ok(geo) = crate::enrichment::ipinfo::lookup_ip(ip_str).await {
+                let ctx = crate::enrichment::ipinfo::format_for_context(&geo);
+                enrichment_lines.push(format!("Origine: {}", ctx));
+            }
+        }
+    }
+
+    // ── 7. Decide notification level (after enrichment may have changed scores) ──
+    // Recompute summaries after enrichment
+    for entry in asset_map.values_mut() {
+        entry.summary = build_asset_summary(entry);
+    }
     let notification_level = decide_notification_level(&asset_map, global_score);
 
-    // ── 7. Build messages ──
+    // ── 8. Build messages (enriched) ──
     let mut assets: Vec<AssetSituation> = asset_map.into_values().collect();
     assets.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     let digest_message = build_digest_message(&assets, global_score, findings.len(), alerts.len());
     let alert_message = if notification_level >= NotificationLevel::Alert {
-        Some(build_alert_message(&assets, &alerts))
+        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines))
     } else {
         None
     };
@@ -302,31 +359,69 @@ fn build_digest_message(
     msg
 }
 
-/// Build an immediate alert message.
+/// Build an immediate alert message (basic, without enrichment).
 fn build_alert_message(
     assets: &[AssetSituation],
     alerts: &[crate::db::threatclaw_store::AlertRecord],
+) -> String {
+    build_enriched_alert_message(assets, alerts, &[])
+}
+
+/// Build an enriched alert message with all intelligence data.
+fn build_enriched_alert_message(
+    assets: &[AssetSituation],
+    alerts: &[crate::db::threatclaw_store::AlertRecord],
+    enrichment: &[String],
 ) -> String {
     let critical_assets: Vec<&AssetSituation> = assets.iter()
         .filter(|a| a.score >= 30.0)
         .collect();
 
-    let mut msg = String::from("*ThreatClaw — Alerte sécurité*\n\n");
+    let is_critical = critical_assets.iter().any(|a| a.has_kill_chain || a.has_known_exploit || a.findings_critical > 0);
+    let header = if is_critical {
+        "*ThreatClaw — ALERTE CRITIQUE*"
+    } else {
+        "*ThreatClaw — Alerte sécurité*"
+    };
 
+    let mut msg = format!("{}\n\n", header);
+
+    // Assets at risk
     for asset in critical_assets.iter().take(3) {
-        msg.push_str(&format!("*{}* (score: {:.0})\n{}\n\n", asset.asset, asset.score, asset.summary));
-    }
+        let flags = [
+            if asset.has_kill_chain { Some("kill chain") } else { None },
+            if asset.has_known_exploit { Some("exploit connu") } else { None },
+            if asset.has_active_attack { Some("attaque active") } else { None },
+        ].into_iter().flatten().collect::<Vec<_>>().join(", ");
 
-    if !alerts.is_empty() {
-        msg.push_str("*Alertes Sigma actives :*\n");
-        for a in alerts.iter().take(3) {
-            msg.push_str(&format!(
-                "  [{}] {} — {}\n",
-                a.level, a.title, a.hostname.as_deref().unwrap_or("?")
-            ));
+        msg.push_str(&format!("*{}* — score {:.0}/100\n", asset.asset, asset.score));
+        msg.push_str(&format!("{}\n", asset.summary));
+        if !flags.is_empty() {
+            msg.push_str(&format!("Indicateurs: {}\n", flags));
         }
+        msg.push('\n');
     }
 
+    // Sigma alerts
+    if !alerts.is_empty() {
+        msg.push_str("*Alertes actives :*\n");
+        for a in alerts.iter().take(3) {
+            let src = a.source_ip.as_deref().map(|ip| format!(" depuis {}", ip)).unwrap_or_default();
+            msg.push_str(&format!("[{}] {}{}\n", a.level.to_uppercase(), a.title, src));
+        }
+        msg.push('\n');
+    }
+
+    // Enrichment intelligence
+    if !enrichment.is_empty() {
+        msg.push_str("*Enrichissement :*\n");
+        for line in enrichment.iter().take(6) {
+            msg.push_str(&format!("  {}\n", line));
+        }
+        msg.push('\n');
+    }
+
+    msg.push_str("_Intelligence Engine — cycle automatique_");
     msg
 }
 
