@@ -22,10 +22,27 @@ use crate::agent::command_interpreter::{
 use crate::agent::llm_router::LlmRouterConfig;
 use crate::db::Database;
 
+/// A conversation message (for context memory).
+#[derive(Debug, Clone)]
+struct ConvMessage {
+    role: String,      // "user" or "assistant"
+    content: String,
+    timestamp: chrono::DateTime<chrono::Utc>,
+}
+
+/// Conversation history per chat (keeps last N exchanges).
+const MAX_HISTORY: usize = 10;
+
 /// State for the conversational bot.
 struct BotState {
     /// Pending confirmations per chat_id.
     pending: HashMap<String, PendingConfirmation>,
+    /// Conversation history per chat_id (for context).
+    history: HashMap<String, Vec<ConvMessage>>,
+    /// Last mentioned target per chat_id (for pronoun resolution).
+    last_target: HashMap<String, String>,
+    /// Last action per chat_id (for follow-up suggestions).
+    last_action: HashMap<String, String>,
     /// Last processed Telegram update_id (for offset).
     last_update_id: i64,
 }
@@ -41,6 +58,9 @@ pub fn spawn_telegram_bot(
 
         let state = Arc::new(Mutex::new(BotState {
             pending: HashMap::new(),
+            history: HashMap::new(),
+            last_target: HashMap::new(),
+            last_action: HashMap::new(),
             last_update_id: 0,
         }));
 
@@ -191,30 +211,85 @@ async fn handle_new_command(
     store: &Arc<dyn Database>,
     state: &Arc<Mutex<BotState>>,
 ) {
+    // Record user message in history
+    {
+        let mut s = state.lock().await;
+        let history = s.history.entry(chat_id.to_string()).or_default();
+        history.push(ConvMessage {
+            role: "user".into(),
+            content: text.to_string(),
+            timestamp: chrono::Utc::now(),
+        });
+        // Trim to max history
+        if history.len() > MAX_HISTORY * 2 {
+            *history = history.split_off(history.len() - MAX_HISTORY * 2);
+        }
+    }
+
+    // Resolve pronouns: "bloque la", "scanne le", "vérifie la" → use last_target
+    let resolved_text = {
+        let s = state.lock().await;
+        resolve_pronouns(text, s.last_target.get(chat_id), s.last_action.get(chat_id))
+    };
+
+    // Build conversation context for LLM
+    let context = {
+        let s = state.lock().await;
+        build_conversation_context(s.history.get(chat_id), s.last_target.get(chat_id))
+    };
+
     // Load LLM config
     let llm_config = LlmRouterConfig::from_db_settings(store.as_ref()).await;
 
-    // Parse the command
-    let cmd = command_interpreter::parse_command(text, &llm_config).await;
+    // Parse with context
+    let mut cmd = command_interpreter::parse_command_with_context(&resolved_text, &context, &llm_config).await;
+
+    // If no target found but we have a last_target, inject it
+    if cmd.target.is_none() {
+        let s = state.lock().await;
+        if let Some(last) = s.last_target.get(chat_id) {
+            // Only inject if the action typically needs a target
+            if matches!(cmd.execution_type,
+                ExecutionType::Skill { .. } | ExecutionType::Remediation { .. }) {
+                cmd.target = Some(last.clone());
+                cmd.summary = format!("{} (cible: {})", cmd.summary, last);
+            }
+        }
+    }
+
+    // Update last_target if command has a target
+    if let Some(ref target) = cmd.target {
+        let mut s = state.lock().await;
+        s.last_target.insert(chat_id.to_string(), target.clone());
+    }
 
     match &cmd.execution_type {
         ExecutionType::Unknown => {
-            send_telegram(token, chat_id, &format!(
-                "Commande non reconnue.\n\nCommandes disponibles :\n\
-                - *scan* [IP] — scanner une cible\n\
-                - *status* — état du système\n\
-                - *findings* — findings ouverts\n\
-                - *alerts* — alertes Sigma\n\
-                - *playbook* [contexte] — générer un playbook\n\
-                - *rapport* — générer un rapport\n\
-                - *block* [IP] — bloquer une IP\n\
-                - *react* — lancer une analyse"
-            )).await;
+            let help = "Je n'ai pas compris. Voici ce que je peux faire :\n\n\
+                *Scan & Lookup*\n\
+                `scan 192.168.1.50` — scanner une cible\n\
+                `vérifie 10.0.0.42` — réputation IP\n\n\
+                *Monitoring*\n\
+                `status` — état du système\n\
+                `findings` — vulnérabilités ouvertes\n\
+                `alertes` — alertes Sigma\n\n\
+                *Actions*\n\
+                `bloque 10.0.0.42` — bloquer une IP\n\
+                `analyse` — lancer un cycle ReAct\n\n\
+                *Génération*\n\
+                `playbook [contexte]` — playbook SOAR\n\
+                `rapport` — rapport de sécurité\n\
+                `sigma [attaque]` — règle Sigma";
+            send_telegram(token, chat_id, help).await;
+            record_history(state, chat_id, help).await;
         }
         ExecutionType::Remediation { .. } => {
             // Need confirmation for remediation actions
-            send_telegram(token, chat_id, &format_confirmation_request(&cmd)).await;
+            let confirm_msg = format_confirmation_request(&cmd);
+            send_telegram(token, chat_id, &confirm_msg).await;
+            record_history(state, chat_id, &confirm_msg).await;
             let mut s = state.lock().await;
+            s.last_action.insert(chat_id.to_string(), cmd.action.clone());
             s.pending.insert(chat_id.to_string(), PendingConfirmation {
                 command: cmd,
                 channel: "telegram".into(),
@@ -226,7 +301,24 @@ async fn handle_new_command(
             // Execute directly (queries, skills, instruct)
             send_telegram(token, chat_id, &format!("⏳ {}", cmd.summary)).await;
             let result = command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
-            send_telegram(token, chat_id, &format_for_telegram(&result)).await;
+
+            // Build response with follow-up suggestion
+            let response = format_for_telegram(&result);
+            let suggestion = suggest_followup(&cmd, &result);
+            let full_response = if let Some(sug) = &suggestion {
+                format!("{}\n\n💡 _{}_", response, sug)
+            } else {
+                response.clone()
+            };
+
+            send_telegram(token, chat_id, &full_response).await;
+            record_history(state, chat_id, &response).await;
+
+            // Update state
+            {
+                let mut s = state.lock().await;
+                s.last_action.insert(chat_id.to_string(), cmd.action.clone());
+            }
 
             // Audit
             let audit_key = format!("conv_bot_{}_{}", cmd.action, chrono::Utc::now().timestamp());
@@ -235,6 +327,92 @@ async fn handle_new_command(
                 "success": result.success, "timestamp": chrono::Utc::now().to_rfc3339(),
             })).await;
         }
+    }
+}
+
+/// Record a bot response in conversation history.
+async fn record_history(state: &Arc<Mutex<BotState>>, chat_id: &str, content: &str) {
+    let mut s = state.lock().await;
+    let history = s.history.entry(chat_id.to_string()).or_default();
+    history.push(ConvMessage {
+        role: "assistant".into(),
+        content: content.chars().take(300).collect(),
+        timestamp: chrono::Utc::now(),
+    });
+}
+
+/// Resolve pronouns using conversation context.
+/// "bloque la" → "bloque 192.168.1.50" (if last target was 192.168.1.50)
+fn resolve_pronouns(text: &str, last_target: Option<&String>, _last_action: Option<&String>) -> String {
+    let lower = text.to_lowercase();
+    let pronouns = ["la", "le", "l'", "cette ip", "cette cible", "ce serveur", "lui", "dessus"];
+
+    if let Some(target) = last_target {
+        for pronoun in &pronouns {
+            // Check if text ends with or contains the pronoun as a reference
+            if lower.ends_with(pronoun) || lower.contains(&format!(" {} ", pronoun)) || lower.contains(&format!(" {}", pronoun)) {
+                let resolved = text.to_string().replace(pronoun, target);
+                // Also try with capitalized
+                let resolved = resolved.replace(&pronoun.chars().next().unwrap().to_uppercase().to_string(), target);
+                tracing::debug!("CONV_BOT: Pronoun resolved '{}' → '{}'", text, resolved);
+                return resolved;
+            }
+        }
+    }
+
+    text.to_string()
+}
+
+/// Build conversation context string for LLM prompt.
+fn build_conversation_context(history: Option<&Vec<ConvMessage>>, last_target: Option<&String>) -> String {
+    let mut ctx = String::new();
+
+    if let Some(target) = last_target {
+        ctx.push_str(&format!("Dernière cible mentionnée: {}\n", target));
+    }
+
+    if let Some(hist) = history {
+        let recent: Vec<&ConvMessage> = hist.iter().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
+        if !recent.is_empty() {
+            ctx.push_str("Conversation récente:\n");
+            for msg in recent {
+                let role = if msg.role == "user" { "RSSI" } else { "Bot" };
+                ctx.push_str(&format!("{}: {}\n", role, msg.content.chars().take(150).collect::<String>()));
+            }
+        }
+    }
+
+    ctx
+}
+
+/// Suggest a follow-up action based on what was just done.
+fn suggest_followup(cmd: &ParsedCommand, result: &command_interpreter::CommandResult) -> Option<String> {
+    if !result.success { return None; }
+
+    match cmd.action.as_str() {
+        "lookup_ip" => {
+            if let Some(ref target) = cmd.target {
+                Some(format!("Bloquer cette IP ? Tapez `bloque {}`", target))
+            } else {
+                None
+            }
+        }
+        "scan_port" | "scan_vuln" => {
+            Some("Générer un playbook pour les vulnérabilités trouvées ? Tapez `playbook`".into())
+        }
+        "findings" => {
+            Some("Lancer une analyse ReAct ? Tapez `analyse`".into())
+        }
+        "alerts" => {
+            Some("Voir les findings associés ? Tapez `findings`".into())
+        }
+        "block_ip" => {
+            Some("Vérifier que le blocage est effectif ? Tapez `status`".into())
+        }
+        "react" => {
+            Some("Générer un rapport ? Tapez `rapport`".into())
+        }
+        _ => None,
     }
 }
 
@@ -275,7 +453,17 @@ async fn handle_confirmation(
     send_telegram(token, chat_id, &format!("⏳ Exécution : {}", pending.command.summary)).await;
     let llm_config = LlmRouterConfig::from_db_settings(store.as_ref()).await;
     let result = command_interpreter::execute_command(&pending.command, store.as_ref(), &llm_config).await;
-    send_telegram(token, chat_id, &format_for_telegram(&result)).await;
+
+    let response = format_for_telegram(&result);
+    let suggestion = suggest_followup(&pending.command, &result);
+    let full_response = if let Some(sug) = &suggestion {
+        format!("{}\n\n💡 _{}_", response, sug)
+    } else {
+        response.clone()
+    };
+
+    send_telegram(token, chat_id, &full_response).await;
+    record_history(state, chat_id, &response).await;
 
     // Audit
     let audit_key = format!("conv_bot_confirmed_{}_{}", pending.command.action, chrono::Utc::now().timestamp());

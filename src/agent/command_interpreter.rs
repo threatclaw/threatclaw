@@ -70,6 +70,24 @@ pub struct PendingConfirmation {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Parse a natural language message with conversation context.
+pub async fn parse_command_with_context(
+    message: &str,
+    context: &str,
+    llm_config: &crate::agent::llm_router::LlmRouterConfig,
+) -> ParsedCommand {
+    if context.is_empty() {
+        return parse_command(message, llm_config).await;
+    }
+
+    // Enhanced prompt with context
+    let contextual_message = format!(
+        "Contexte de la conversation :\n{context}\n\nNouveau message du RSSI : {message}"
+    );
+
+    parse_command(&contextual_message, llm_config).await
+}
+
 /// Parse a natural language message into a structured command using L1 LLM.
 pub async fn parse_command(
     message: &str,
