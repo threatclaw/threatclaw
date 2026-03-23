@@ -116,12 +116,82 @@ pub fn pre_cycle_checks(
 }
 
 /// Valide la réponse JSON du LLM.
+/// Robust parsing: handles common LLM JSON mistakes (wrong types, missing fields, etc.)
 pub fn parse_llm_response(response: &str) -> Result<LlmAnalysis, String> {
     // Extraire le JSON du texte (le LLM peut ajouter du texte autour)
     let json_str = extract_json(response).ok_or_else(|| "No JSON found in LLM response".to_string())?;
 
-    serde_json::from_str::<LlmAnalysis>(&json_str)
-        .map_err(|e| format!("Failed to parse LLM JSON: {e}"))
+    // Try strict parsing first
+    if let Ok(analysis) = serde_json::from_str::<LlmAnalysis>(&json_str) {
+        return Ok(sanitize_analysis(analysis));
+    }
+
+    // Strict failed — try flexible parsing from raw Value
+    let val: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse LLM JSON: {e}"))?;
+
+    // Extract fields with type coercion
+    let analysis_text = match &val["analysis"] {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(m) => serde_json::to_string(m).unwrap_or_default(),
+        other => other.to_string(),
+    };
+
+    let severity_raw = val["severity"].as_str().unwrap_or("MEDIUM").to_string();
+    let severity = crate::agent::production_safeguards::validate_severity(&severity_raw)
+        .unwrap_or_else(|| "MEDIUM".to_string());
+
+    let confidence_raw = val["confidence"].as_f64()
+        .or_else(|| val["confidence"].as_str().and_then(|s| s.parse().ok()))
+        .unwrap_or(0.5);
+    let confidence = crate::agent::production_safeguards::validate_confidence(confidence_raw);
+
+    // Correlations: accept strings, arrays of strings, or arrays of objects
+    let correlations = match &val["correlations"] {
+        serde_json::Value::Array(arr) => arr.iter().map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string().trim_matches('"').to_string(),
+        }).collect(),
+        serde_json::Value::String(s) => s.split(',').map(|s| s.trim().to_string()).collect(),
+        _ => vec![],
+    };
+
+    // Proposed actions: try parsing, ignore if malformed
+    let proposed_actions = val["proposed_actions"].as_array()
+        .map(|arr| arr.iter().filter_map(|a| {
+            Some(ProposedAction {
+                cmd_id: a["cmd_id"].as_str()?.to_string(),
+                params: a["params"].as_object().map(|obj|
+                    obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()
+                ).unwrap_or_default(),
+                rationale: a["rationale"].as_str().unwrap_or("").to_string(),
+            })
+        }).collect())
+        .unwrap_or_default();
+
+    let injection_detected = val["injection_detected"].as_bool().unwrap_or(false);
+
+    tracing::debug!("LLM_PARSE: Flexible parsing succeeded — severity={}, confidence={:.0}%", severity, confidence * 100.0);
+
+    Ok(LlmAnalysis {
+        analysis: analysis_text,
+        severity,
+        correlations,
+        proposed_actions,
+        injection_detected,
+        confidence,
+    })
+}
+
+/// Sanitize an already-parsed analysis (fix common issues).
+fn sanitize_analysis(mut analysis: LlmAnalysis) -> LlmAnalysis {
+    // Fix severity
+    if let Some(valid) = crate::agent::production_safeguards::validate_severity(&analysis.severity) {
+        analysis.severity = valid;
+    }
+    // Fix confidence
+    analysis.confidence = crate::agent::production_safeguards::validate_confidence(analysis.confidence);
+    analysis
 }
 
 /// Valide les actions proposées contre la whitelist (Pilier II).
