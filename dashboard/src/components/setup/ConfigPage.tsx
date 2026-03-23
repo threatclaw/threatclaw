@@ -63,6 +63,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     whatsapp: { enabled: false, accessToken: "", phoneNumberId: "" },
     signal: { enabled: false, httpUrl: "http://localhost:8080", account: "" },
     email: { enabled: false, host: "", port: "587", from: "", to: "" },
+    mattermost: { enabled: false, webhookUrl: "" },
+    ntfy: { enabled: false, server: "https://ntfy.sh", topic: "" },
+    gotify: { enabled: false, url: "", appToken: "" },
   });
   const [permLevel, setPermLevel] = useState("ALERT_ONLY");
   const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: "fr", nvdApiKey: "" });
@@ -252,6 +255,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { key: "whatsapp", label: "WhatsApp", icon: <MessageSquare size={18} color="#30a050" />, fields: [{ id: "accessToken", label: "Access Token", secret: true }, { id: "phoneNumberId", label: "Phone Number ID", secret: false }] },
     { key: "signal", label: "Signal", icon: <Shield size={18} color="#3080d0" />, fields: [{ id: "httpUrl", label: "URL signal-cli", secret: false }, { id: "account", label: "Numéro (+33...)", secret: false }] },
     { key: "email", label: "Email", icon: <Mail size={18} color="#9a918a" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", label: "De", secret: false }, { id: "to", label: "À", secret: false }] },
+    { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
+    { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", label: "Serveur Ntfy", secret: false }, { id: "topic", label: "Topic", secret: false }] },
+    { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", label: "URL Gotify", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
   ];
 
   return (

@@ -1040,6 +1040,30 @@ pub async fn config_test_channel_handler(
                 Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
             }
         }
+        "mattermost" => {
+            // Test Mattermost webhook by sending a test message
+            let webhook = body.get("webhookUrl").and_then(|v| v.as_str()).unwrap_or(token);
+            match crate::integrations::mattermost_hitl::test_connection(webhook).await {
+                Ok(msg) => serde_json::json!({ "ok": true, "detail": msg }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            }
+        }
+        "ntfy" => {
+            let server = body.get("server").and_then(|v| v.as_str()).unwrap_or("https://ntfy.sh");
+            let topic = body.get("topic").and_then(|v| v.as_str()).unwrap_or(token);
+            let auth = body.get("authToken").and_then(|v| v.as_str());
+            match crate::integrations::ntfy_hitl::test_connection(server, topic, auth).await {
+                Ok(msg) => serde_json::json!({ "ok": true, "detail": msg }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            }
+        }
+        "gotify" => {
+            let url = body.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            match crate::integrations::gotify_notify::test_connection(url, token).await {
+                Ok(msg) => serde_json::json!({ "ok": true, "detail": msg }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            }
+        }
         _ => serde_json::json!({ "ok": false, "error": format!("Test not available for channel: {}", channel) }),
     };
 
@@ -1541,6 +1565,45 @@ pub async fn binary_verify_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let result = crate::agent::binary_verify::verify_binary(store.as_ref()).await;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+}
+
+// ══════════════════════════════════════════════════════════
+// HITL CALLBACK (for Mattermost/Ntfy button actions)
+// ══════════════════════════════════════════════════════════
+
+/// GET/POST /api/tc/hitl/callback — universal callback for HITL buttons.
+/// Called when user clicks Approve/Reject in Mattermost or Ntfy.
+/// Query params or JSON body: action=approve|reject, nonce=xxx
+pub async fn hitl_button_callback_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let action = params.get("action").map(String::as_str).unwrap_or("");
+    let nonce = params.get("nonce").map(String::as_str).unwrap_or("");
+
+    if nonce.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing nonce" })));
+    }
+
+    let approved = action == "approve";
+
+    // Log the callback
+    let audit_key = format!("hitl_callback_{}_{}", if approved { "approve" } else { "reject" }, chrono::Utc::now().timestamp());
+    let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
+        "action": action, "nonce": nonce,
+        "source": "button_callback",
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+    })).await;
+
+    tracing::info!("HITL: Callback received — action={}, nonce={}", action, &nonce[..8.min(nonce.len())]);
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "action": action,
+        "message": if approved { "Action approuvée" } else { "Action rejetée" },
+    })))
 }
 
 // ══════════════════════════════════════════════════════════

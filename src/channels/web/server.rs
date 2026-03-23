@@ -367,6 +367,9 @@ pub async fn start_server(
         .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
         .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))
         .route("/api/tc/anonymizer/rules/{id}", axum::routing::delete(super::handlers::threatclaw_api::anonymizer_rules_delete_handler))
+        // HITL callback (Mattermost/Ntfy button actions — both GET and POST)
+        .route("/api/tc/hitl/callback", get(super::handlers::threatclaw_api::hitl_button_callback_handler))
+        .route("/api/tc/hitl/callback", post(super::handlers::threatclaw_api::hitl_button_callback_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API
