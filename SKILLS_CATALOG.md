@@ -41,45 +41,69 @@
 
 ### Mode éphémère (docker run --rm) — Scans à la demande
 
-| Skill ID | Outil Docker | Description | Taille image | Config min | Priorité |
-|----------|-------------|-------------|--------------|------------|----------|
-| skill-sast | returntocorp/semgrep | Analyse statique code (SAST multi-langage) | ~800 MB | chemin code | V2 |
-| skill-iac-security | bridgecrew/checkov | Sécurité IaC (Terraform, CloudFormation, K8s) | ~500 MB | chemin IaC | V2 |
-| skill-git-secrets | trufflesecurity/trufflehog | Secrets dans l'historique Git | ~200 MB | repo URL | V2 |
-| skill-sbom | anchore/syft | Générateur SBOM (Software Bill of Materials) | ~100 MB | image/path | V2 |
-| skill-sca | owasp/dependency-check | Analyse dépendances (SCA) | ~1.2 GB | chemin projet | V2 |
-| skill-container-vuln | anchore/grype | Vulnérabilités containers/images | ~100 MB | image name | V2 |
-| skill-web-scanner | zaproxy/zap-stable | Scanner DAST web (XSS, SQLi, etc.) | ~1.5 GB | URL cible | V2 |
-| skill-iac-kics | checkmarx/kics | Sécurité IaC (alternative Checkov) | ~300 MB | chemin IaC | V3 |
-| skill-dast-wapiti | wapiti-scanner/wapiti | Scanner DAST web (alternative ZAP) | ~200 MB | URL cible | V3 |
-| skill-http-probe | projectdiscovery/httpx | HTTP probing rapide | ~50 MB | domaines | V3 |
-| skill-subdomain | projectdiscovery/subfinder | Découverte sous-domaines | ~50 MB | domaine | V3 |
-| skill-port-scan | projectdiscovery/naabu | Scanner de ports rapide | ~30 MB | IP/range | V3 |
-| skill-web-crawl | projectdiscovery/katana | Web crawler | ~50 MB | URL | V3 |
-| skill-k8s-bench | aquasec/kube-bench | CIS Kubernetes benchmark | ~50 MB | — (auto) | V3 |
-| skill-docker-bench | docker/docker-bench-security | CIS Docker benchmark | ~20 MB | — (auto) | V3 |
-| skill-antivirus | clamav/clamav | Antivirus fichiers (malware connu) | ~300 MB | chemin | V4 |
+#### Priorité 1 — Implémenter maintenant
+
+| Skill ID | Docker image | Commande | Taille | Licence | Config | Pertinence NIS2 |
+|----------|-------------|----------|--------|---------|--------|-----------------|
+| skill-sast | `semgrep/semgrep` | `docker run --rm -v "$PWD:/src" semgrep/semgrep semgrep scan --config auto --json` | 800 MB | LGPL-2.1 | chemin code | Art.21 dev sécurisé |
+| skill-iac-security | `bridgecrew/checkov` | `docker run --rm -v "$PWD:/tf" bridgecrew/checkov -d /tf -o json` | 550 MB | Apache 2.0 | chemin IaC | Art.21 infra sécurisée |
+| skill-git-secrets | `trufflesecurity/trufflehog` | `docker run --rm -v "$PWD:/pwd" trufflesecurity/trufflehog git file:///pwd --json` | 120 MB | AGPL-3.0 | repo path | #1 vecteur breach PME |
+| skill-sbom | `anchore/syft` | `docker run --rm -v "$PWD:/src" anchore/syft /src -o spdx-json` | 75 MB | Apache 2.0 | path/image | Art.21 supply chain |
+| skill-container-vuln | `anchore/grype` | `docker run --rm anchore/grype alpine:latest -o json` | 70 MB | Apache 2.0 | image name | CVE containers |
+| skill-web-scanner | `zaproxy/zap-stable` | `docker run --rm zaproxy/zap-stable zap-baseline.py -t https://target -J report.json` | 1.5 GB | Apache 2.0 | URL cible | DAST web essentiel |
+| skill-network-scan | `instrumentisto/nmap` | `docker run --rm instrumentisto/nmap -sV -oX - target` | 20 MB | NPSL (GPLv2-like) | IP/host | Inventaire réseau |
+
+#### Priorité 2 — Après premiers clients
+
+| Skill ID | Docker image | Commande | Taille | Licence | Config |
+|----------|-------------|----------|--------|---------|--------|
+| skill-http-probe | `projectdiscovery/httpx` | `echo "target" \| docker run --rm -i projectdiscovery/httpx -json` | 270 MB | MIT | domaines |
+| skill-subdomain | `projectdiscovery/subfinder` | `docker run --rm projectdiscovery/subfinder -d target -json` | 50 MB | MIT | domaine |
+| skill-docker-bench | `docker/docker-bench-security` | `docker run --rm ... docker-bench-security` | 15 MB | Apache 2.0 | Docker socket |
+
+#### Rejetés (avec justification)
+
+| Outil | Raison du rejet |
+|-------|----------------|
+| owasp/dependency-check | Trop lourd (1 GB Java), lent. Grype+Syft fait mieux |
+| projectdiscovery/naabu | Doublon avec nmap |
+| projectdiscovery/katana | ZAP fait déjà le crawl |
+| checkmarx/kics | Doublon avec Checkov |
+| wapiti-scanner/wapiti | Pas d'image Docker officielle, GPL, ZAP est meilleur |
+| aquasec/kube-bench | PME n'utilisent pas K8s (V3+ si besoin) |
+| cisecurity/cis-cat-lite | Pas de Docker, propriétaire, scope limité |
+| clamav/clamav | MalwareBazaar couvre 95% des cas (V4 si air-gap) |
 
 ### Mode permanent (service continu)
 
-| Skill ID | Outil Docker | Description | RAM | Priorité |
-|----------|-------------|-------------|-----|----------|
-| skill-network-ids | jasonish/suricata | IDS/IPS réseau temps réel | ~512 MB | V2 |
-| skill-network-analysis | zeek/zeek | Analyse trafic réseau | ~256 MB | V3 |
-| skill-runtime-security | falcosecurity/falco | Sécurité runtime containers | ~128 MB | V2 |
+| Skill ID | Docker image | Commande | Taille | Licence | RAM | Pertinence |
+|----------|-------------|----------|--------|---------|-----|------------|
+| skill-network-ids | `jasonish/suricata` | `docker run --net=host --cap-add=net_raw jasonish/suricata -i eth0` | 190 MB | GPL-2.0 | 512 MB | IDS/IPS NIS2 core |
+| skill-runtime-security | `falcosecurity/falco` | `docker run --privileged falcosecurity/falco` | 200 MB | Apache 2.0 | 128 MB | Runtime threats |
+
+#### Rejetés
+
+| Outil | Raison |
+|-------|--------|
+| zeek/zeek | Complexe, Suricata couvre l'IDS. V2+ pour clients avancés |
 
 ### Mode connecteur (API externe)
 
-| Skill ID | Plateforme | Description | Config | Priorité |
-|----------|-----------|-------------|--------|----------|
-| skill-wazuh-siem | Wazuh Manager | SIEM/XDR complet | url, user, pass | V2 (déjà partiel) |
-| skill-sonarqube | SonarQube | Qualité + sécurité code | url, token | V2 |
-| skill-defectdojo | DefectDojo | Gestion des vulnérabilités | url, token | V3 |
-| skill-misp | MISP | Threat Intelligence | url, api_key | V3 |
-| skill-thehive | TheHive | Incident Response | url, api_key | V3 |
-| skill-cortex | Cortex | Analyseur d'observables | url, api_key | V3 |
-| skill-opencti | OpenCTI | Cyber Threat Intelligence | url, token | V4 |
-| skill-dependency-track | Dependency-Track | SBOM + vulns management | url, api_key | V3 |
+| Skill ID | Plateforme | API | Config | Priorité | Pertinence |
+|----------|-----------|-----|--------|----------|------------|
+| skill-wazuh-siem | Wazuh Manager | REST `/security/user/authenticate` | url, user, pass | P2 | SIEM NIS2 |
+| skill-defectdojo | DefectDojo | REST `/api/v2/import-scan/` | url, token | P2 | Agrégation vulns |
+| skill-dependency-track | Dependency-Track | REST `/api/v1/bom` | url, api_key | P2 | SBOM lifecycle |
+
+#### Rejetés
+
+| Outil | Raison |
+|-------|--------|
+| SonarQube | Trop lourd, Semgrep couvre le SAST |
+| MISP | Trop complexe pour PME self-hosted |
+| TheHive | Licence propriétaire depuis v5 |
+| Cortex | ThreatClaw enrichment le remplace |
+| OpenCTI | 16 GB RAM, 8 containers, overkill PME |
 
 ---
 
