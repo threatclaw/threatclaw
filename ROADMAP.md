@@ -295,6 +295,33 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 
 **Timeline** : Après implémentation des skills V2 (les outils doivent exister pour que le modèle les connaisse).
 
+### Graph Intelligence — Investigation déterministe (voir docs/GRAPH_INTELLIGENCE.md)
+
+**Phase 1 — Fondation Graph (V2.0)**
+- [ ] Apache AGE extension dans PostgreSQL (migration V23, zéro container supplémentaire)
+- [ ] Modèle STIX 2.1 dans AGE (nœuds : IP, Asset, CVE, Alert, Technique, User, Domain, Hash)
+- [ ] Charger MITRE ATT&CK (700+ techniques) comme graph navigable dans AGE
+- [ ] Requêtes Cypher : corrélation alertes, historique IP, attack path discovery
+- [ ] petgraph dans le core Rust (connected components, shortest path en mémoire)
+
+**Phase 2 — Investigation Graphs (V2.1)**
+- [ ] 7 graphes d'investigation prédéfinis par type d'alerte (SSH brute, CVE, phishing, C2, lateral, malware, DNS exfil)
+- [ ] Orchestration déterministe : étapes fixes et obligatoires, pas d'improvisation LLM
+- [ ] L2 Reasoning reçoit le sous-graph factualisé (pas des alertes brutes)
+- [ ] Audit trail : chaque investigation = sous-graph reproductible dans AGE
+- [ ] Même alerte = même investigation = même résultat (zéro hallucination)
+
+**Phase 3 — Intelligence CTI (V2.2)**
+- [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
+- [ ] Connecteur TAXII pour feeds CTI communautaires
+- [ ] Prédiction d'étape suivante via traversal du graph ATT&CK
+- [ ] Suggestions mitigation auto via MITRE D3FEND
+- [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
+
+**Phase 4 — GNN expérimental (V3.0)**
+- [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
+- [ ] Détection anomalies comportementales (complémente Sigma)
+
 ### Communauté / Business
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)
