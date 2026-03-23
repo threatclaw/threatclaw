@@ -131,25 +131,124 @@
 - [x] **Binary integrity verification** — `GET /api/tc/security/verify-binary` : SHA-256 hash comparison
 - [x] **Skill install from dashboard** — `POST /api/tc/skills/{id}/install` + bouton Installer
 
-### Restant (post-v1.0 / contributions communautaires)
-- [ ] Tests e2e automatisés du cycle complet
-- [ ] Détection comportementale ML (compléter Sigma)
-- [ ] mTLS entre containers Docker
-- [ ] Audit de sécurité tiers (externe)
-- [ ] CLI scaffolding (`threatclaw create-skill`)
-- [ ] SDK Python sur PyPI (`threatclaw-sdk`)
-- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
-- [ ] Planning par skill (au lieu du scheduler global)
+---
 
-## Post v1.0
+## v1.1.0 — Bot conversationnel + Canaux on-premise (mars 2026) ✅
 
-- [ ] Marketplace/registry de skills (distribution OCI)
-- [ ] Leaderboard contributeurs
-- [ ] Skills premium (EDR, SIEM avancé, threat intel premium)
-- [ ] Anonymiseur base64/hex (contournement encodage)
-- [ ] Rate limiting API (tower-governor)
+### Bot conversationnel Telegram
+- [x] **Command Interpreter** : parse langage naturel → action structurée via L1 LLM
+- [x] **14 actions** : scan, lookup, block, playbook, report, sigma, react, status, findings, alerts...
+- [x] **Fallback keyword** : si LLM indispo, parsing par mots-clés
+- [x] **Mémoire conversationnelle** : historique 10 échanges par chat, contexte injecté dans L1
+- [x] **Résolution de pronoms** : "bloque la" → "bloque 192.168.1.50" (depuis last_target)
+- [x] **Suggestions follow-up** : après lookup → "Bloquer cette IP ?", après scan → "Générer un playbook ?"
+- [x] **HITL confirmation** : actions de remédiation demandent oui/non avant exécution
+- [x] **`POST /api/tc/command`** : API channel-agnostic (réutilisable pour Slack, Signal)
+
+### Canaux on-premise (NIS2/souveraineté)
+- [x] **Mattermost** : webhooks Slack-compatible + boutons interactifs Approve/Reject
+- [x] **Ntfy** : push notifications ultra-léger (~3MB) + 3 boutons HTTP actions
+- [x] **Gotify** : notifications push only (pas de HITL)
+- [x] **HITL callback** : `POST /api/tc/hitl/callback` universel pour boutons Mattermost/Ntfy
+
+## v1.2.0 — Intelligence Engine + Notification Router (mars 2026) ✅
+
+### Intelligence Engine (le cerveau SOC)
+- [x] **Cycle automatique 5 min** : collecte findings + alertes → groupe par asset → score → décide
+- [x] **Score de situation global** (0-100) avec 4 niveaux : Silence / Digest / Alert / Critical
+- [x] **Corrélation** : kill chain (finding + alert même asset), exploit connu, attaque active
+- [x] **Scan logs pour IoCs** : extrait IPs/URLs/hashes des logs bruts PostgreSQL
+- [x] **Cross-reference automatique** : OpenPhish, URLhaus, ThreatFox, MalwareBazaar
+- [x] **Auto-création findings** quand menace détectée dans les logs
+- [x] **Auto-start au boot** : démarre automatiquement au premier healthcheck
+
+### Enrichissement (12 sources)
+- [x] **NVD NIST** : CVE base + cache 7j (clé optionnelle 50 req/30s)
+- [x] **CISA KEV** : CVEs activement exploitées → auto-escalade CRITICAL
+- [x] **EPSS** : probabilité exploitation 30j → reprioritise les CVEs
+- [x] **MITRE ATT&CK** : 700+ techniques, sync STIX mensuelle
+- [x] **CERT-FR** : alertes ANSSI françaises, sync RSS quotidienne
+- [x] **GreyNoise** : bruit vs attaque ciblée (réduit faux positifs)
+- [x] **IPinfo** : géolocalisation + ASN des IPs source
+- [x] **OpenPhish** : URLs de phishing (~500, sync 6h)
+- [x] **ThreatFox** : IoCs C2/domaines malveillants (clé abuse.ch)
+- [x] **MalwareBazaar** : hash malware (clé abuse.ch)
+- [x] **URLhaus** : URLs malware (clé abuse.ch)
+- [x] **CrowdSec CTI** : réputation IP communautaire (clé)
+- [x] **OTX AlienVault** : IoCs communauté (clé gratuite)
+
+### Priority Score Engine
+- [x] **CVSS + KEV + EPSS + GreyNoise + ThreatFox** → score composite unique
+- [x] CVSS 9.8 + pas KEV + EPSS 2% → High (pas Critical — pas exploité)
+- [x] CVSS 5.5 + EPSS 94% → Critical (faible CVSS mais ciblé activement)
+
+### Notification Router
+- [x] **Matrice routing** : niveau × canal (digest→email, alert→telegram, critical→all)
+- [x] **Cooldown** : Critical 15min, Alert 30min, Digest 12h (pas de spam)
+- [x] **Dashboard Config > Notifications** : matrice cliquable, boutons test, situation live
+
+### Dashboard Enrichissement
+- [x] **Config > Enrichissement** : 12 sources avec toggle on/off, status, sync, aide contextuelle
+- [x] **Champ clé API** pour les sources qui en ont besoin
+- [x] **Badge "Clé optionnelle"** vs **"Clé requise"** vs **"Actif (à la demande)"**
+
+## v1.3.0 — Production Safeguards + Pipeline réel (mars 2026) ✅
+
+### Production Safeguards
+- [x] **Déduplication findings** : même titre + asset + 24h → pas de doublon
+- [x] **Notification cooldown** : escalade level always sends, même level = cooldown
+- [x] **IoC cache 24h** : GreyNoise/IPinfo/EPSS cachés, pas re-querys à chaque cycle
+- [x] **Rate limiter enrichissement** : max 15 lookups externes par cycle 5min
+- [x] **Validation LLM robuste** : "LOW|MEDIUM|HIGH|CRITICAL" → picks CRITICAL, 85.0 → 0.85
+
+### Parsing LLM robuste
+- [x] **Two-phase parsing** : strict serde d'abord, flexible Value ensuite
+- [x] **Coercion de types** : objets → strings, pourcentages → décimales, français → enum
+- [x] **Cloud JSON instruction** : Mistral/Anthropic reçoivent "Réponds en JSON"
+
+### Pipeline réel L1→L2→L3
+- [x] **CRITICAL → L2 obligatoire** : chain-of-thought forensique sur tout incident critique
+- [x] **L2 utilise le bon modèle** : threatclaw-l2 (Foundation-Sec Reasoning), pas L1
+- [x] **Prompt forensique enrichi** : root cause, kill chain, MITRE, impact, actions immédiates
+- [x] **L3 Cloud** : Mistral/Anthropic avec anonymisation 23 data points, instruction JSON
+
+### Test Scenarios (6 scénarios réalistes)
+- [x] **SSH Brute Force** : 13 auth logs depuis IP Tor réelle (185.220.101.42)
+- [x] **Log4Shell** : 3 HTTP logs avec JNDI payloads + CVE-2021-44228
+- [x] **Phishing** : 4 proxy/email logs avec URLs phishing
+- [x] **Mouvement latéral** : SSH + sudo escalade + payload download
+- [x] **C2 Communication** : 15 DNS/HTTP beacon pattern 60s
+- [x] **Intrusion complète** : kill chain 6 phases (recon → exploit → shell → creds → lateral → exfil)
+- [x] **Dashboard /test** : page dédiée, score live, pipeline réel (PAS de findings pré-écrits)
+- [x] **Vrais logs en DB** : `INSERT INTO logs` direct (même format que Fluent Bit)
+- [x] **Vrais alerts Sigma** : `INSERT INTO sigma_alerts` avec rule stubs
+
+### Auto-start + Docker
+- [x] **Intelligence Engine auto-start** au boot (premier healthcheck)
+- [x] **Bot Telegram auto-start** si configuré
+- [x] **Entrypoint pull les 3 modèles** : L1 (5.2GB) + L2 (8.5GB) + L3 (4.9GB)
 
 ---
 
-*Dernière mise à jour : 22 mars 2026*
-*Version actuelle : 1.0.0-beta*
+## Restant (post-release / contributions communautaires)
+
+### Technique
+- [ ] Tests e2e automatisés du cycle complet (CI)
+- [ ] Détection comportementale ML (compléter Sigma)
+- [ ] mTLS entre containers Docker
+- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
+- [ ] Planning par skill (au lieu du scheduler global)
+- [ ] Barre d'avancement download modèles dans le wizard onboarding
+
+### Communauté / Business
+- [ ] CLI scaffolding (`threatclaw create-skill`)
+- [ ] SDK Python sur PyPI (`threatclaw-sdk`)
+- [ ] Marketplace/registry de skills (distribution OCI)
+- [ ] Skills premium (EDR, SIEM avancé, threat intel premium)
+- [ ] Mirror modèles IA sur CloudFlare R2 (`models.threatclaw.io`)
+- [ ] Audit de sécurité tiers (externe)
+
+---
+
+*Dernière mise à jour : 23 mars 2026*
+*Version actuelle : 1.3.0-beta*
