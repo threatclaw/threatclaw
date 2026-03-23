@@ -306,21 +306,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                   { value: "fr", label: "Français" }, { value: "en", label: "English" },
                 ]} />
               </div>
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                  <Key size={14} color="#d09020" />
-                  <div style={labelStyle}>Clé API NVD (optionnel)</div>
-                </div>
-                <input style={inputStyle} type="password" value={general.nvdApiKey}
-                  onChange={e => setGeneral(p => ({ ...p, nvdApiKey: e.target.value }))}
-                  placeholder="Gratuit sur nvd.nist.gov — améliore la vitesse d'enrichissement CVE" />
-                <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
-                  <Database size={12} />
-                  {general.nvdApiKey
-                    ? <span style={{ color: "#30a050" }}>Clé configurée — 50 req/30s</span>
-                    : <span>Sans clé : 5 req/30s. Avec clé : 50 req/30s.</span>}
-                </div>
-              </div>
+              {/* NVD API key moved to Config > Enrichissement */}
             </div>
           </ChromeInsetCard>
         )}
@@ -850,8 +836,8 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
 // ═══════════════════════════════════════
 
 const ENRICHMENT_SOURCES = [
-  { id: "nvd", name: "NVD NIST", desc: "Base CVE officielle (260 000+)", enriches: "CVEs, scores CVSS, patches", free: true, noKey: true, syncable: false,
-    help: "Gratuit, sans inscription. API publique du NIST. Clé optionnelle pour 50 req/30s au lieu de 5.\nhttps://nvd.nist.gov/developers/request-an-api-key" },
+  { id: "nvd", name: "NVD NIST", desc: "Base CVE officielle (260 000+)", enriches: "CVEs, scores CVSS, patches, références", free: true, noKey: false, syncable: false,
+    help: "Fonctionne sans clé (5 req/30s). Clé GRATUITE pour 50 req/30s :\n1. Allez sur https://nvd.nist.gov/developers/request-an-api-key\n2. Renseignez votre email\n3. Recevez la clé par email immédiatement\n\nRecommandé pour un usage en production." },
   { id: "cisa_kev", name: "CISA KEV", desc: "CVEs activement exploitées in-the-wild", enriches: "Transforme un High en Critical si la CVE est exploitée", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/kev/sync",
     help: "Gratuit, sans inscription. Catalogue officiel US des vulnérabilités exploitées.\nSi une CVE est dans la KEV → patch obligatoire.\nhttps://www.cisa.gov/known-exploited-vulnerabilities-catalog" },
   { id: "mitre", name: "MITRE ATT&CK", desc: "Techniques et tactiques des attaquants (700+)", enriches: "Mapping MITRE dans les analyses L2, kill chain detection", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/mitre/sync",
@@ -999,7 +985,8 @@ function EnrichmentTab() {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{src.name}</span>
-                    {!src.noKey && <span style={{ fontSize: "9px", color: "#d09020", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
+                    {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "#3080d0", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>Clé optionnelle</span>}
+                    {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "#d09020", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
                     <button onClick={() => setHelpOpen(helpOpen === src.id ? null : src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
                       <HelpCircle size={13} color="#5a534e" />
                     </button>

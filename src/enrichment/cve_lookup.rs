@@ -50,12 +50,22 @@ impl NvdConfig {
             return config;
         }
 
-        // Lire depuis tc_config_general
+        // Try enrichment_keys first (new location), then general (legacy)
+        if let Ok(Some(keys)) = store.get_setting("_system", "tc_config_enrichment_keys").await {
+            if let Some(key) = keys["nvd"].as_str() {
+                if !key.is_empty() {
+                    config.api_key = Some(key.to_string());
+                    tracing::debug!("NVD API key loaded from enrichment config");
+                    return config;
+                }
+            }
+        }
+        // Legacy: read from general config
         if let Ok(Some(general)) = store.get_setting("_system", "tc_config_general").await {
             if let Some(key) = general["nvdApiKey"].as_str() {
                 if !key.is_empty() {
                     config.api_key = Some(key.to_string());
-                    tracing::debug!("NVD API key loaded from dashboard config");
+                    tracing::debug!("NVD API key loaded from general config (legacy)");
                 }
             }
         }
