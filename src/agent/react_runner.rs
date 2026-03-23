@@ -209,13 +209,33 @@ pub async fn run_react_cycle(
     // NIVEAU 2 — IA locale enrichie (plus de contexte)
     // ════════════════════════════════════════════════════════════════
     if decision_l1 == EscalationDecision::RetryLocal {
-        tracing::info!("REACT L2: Retrying with enriched context");
+        let is_critical = analysis_l1.severity == "CRITICAL";
+        if is_critical {
+            tracing::info!("REACT L2: CRITICAL detected — forensic analysis with L2 model ({})", config.llm.forensic.model);
+        } else {
+            tracing::info!("REACT L2: Retrying with enriched context");
+        }
 
         // Enrichir le prompt avec l'analyse L1 comme contexte
-        let enriched_prompt_raw = format!(
-            "{}\n\n# ANALYSE PRÉCÉDENTE (confiance insuffisante — réanalyse demandée)\n{}\nCorrélations identifiées: {:?}\n\nRéanalyse avec plus d'attention aux détails. Augmente ta confiance si l'analyse est correcte.",
-            prompt_l1_raw, analysis_l1.analysis, analysis_l1.correlations
-        );
+        let enriched_prompt_raw = if is_critical {
+            // CRITICAL: ask L2 for deep forensic analysis
+            format!(
+                "{}\n\n# ANALYSE L1 — INCIDENT CRITIQUE DÉTECTÉ\nSévérité: {} | Confiance: {:.0}%\nAnalyse L1: {}\nCorrélations: {:?}\n\n\
+                En tant qu'analyste forensique, réalise une analyse approfondie :\n\
+                1. Root cause analysis — quel est le vecteur d'attaque initial ?\n\
+                2. Kill chain mapping — quelles phases de l'attaque sont confirmées ?\n\
+                3. MITRE ATT&CK — quelles techniques sont utilisées ?\n\
+                4. Impact — quels systèmes et données sont compromis ?\n\
+                5. Actions immédiates — que doit faire le RSSI maintenant ?",
+                prompt_l1_raw, analysis_l1.severity, analysis_l1.confidence * 100.0,
+                analysis_l1.analysis, analysis_l1.correlations
+            )
+        } else {
+            format!(
+                "{}\n\n# ANALYSE PRÉCÉDENTE (confiance insuffisante — réanalyse demandée)\n{}\nCorrélations identifiées: {:?}\n\nRéanalyse avec plus d'attention aux détails. Augmente ta confiance si l'analyse est correcte.",
+                prompt_l1_raw, analysis_l1.analysis, analysis_l1.correlations
+            )
+        };
 
         // Anonymiser L2 si données quittent l'infra
         let enriched_prompt = if anonymize_primary {
@@ -227,11 +247,27 @@ pub async fn run_react_cycle(
             enriched_prompt_raw
         };
 
-        let analysis_l2_raw = match call_primary(&config.llm, &enriched_prompt).await {
-            Ok(a) => a,
-            Err(_) => {
-                // L2 failed, use L1 result
-                return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
+        // Use L2 forensic model for CRITICAL, L1 for retries
+        let analysis_l2_raw = if is_critical {
+            match call_ollama(&config.llm.forensic.base_url, &config.llm.forensic.model, &enriched_prompt).await {
+                Ok(response) => match react_cycle::parse_llm_response(&response) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!("REACT L2: Forensic JSON parse failed: {e} — falling back to L1");
+                        return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("REACT L2: Forensic model failed: {e} — falling back to L1");
+                    return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
+                }
+            }
+        } else {
+            match call_primary(&config.llm, &enriched_prompt).await {
+                Ok(a) => a,
+                Err(_) => {
+                    return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
+                }
             }
         };
 

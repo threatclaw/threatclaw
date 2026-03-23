@@ -278,14 +278,20 @@ impl LlmRouterConfig {
             return EscalationDecision::EscalateCloud;
         }
 
-        // Confiance suffisante → accepter
-        if confidence >= self.confidence_accept && severity != "CRITICAL" {
-            return EscalationDecision::Accept;
+        // CRITICAL → TOUJOURS passer par L2 Forensique d'abord (chain-of-thought obligatoire)
+        // Un incident critique mérite une analyse approfondie, pas juste un triage L1.
+        if severity == "CRITICAL" && !is_retry {
+            return EscalationDecision::RetryLocal; // → L2 Forensique
         }
 
-        // CRITICAL avec actions proposées → escalader pour validation
-        if severity == "CRITICAL" && !is_retry && self.cloud_available() {
+        // CRITICAL après L2 → escalader vers Cloud si disponible
+        if severity == "CRITICAL" && is_retry && self.cloud_available() {
             return EscalationDecision::EscalateCloud;
+        }
+
+        // Confiance suffisante (non-CRITICAL) → accepter
+        if confidence >= self.confidence_accept && severity != "CRITICAL" {
+            return EscalationDecision::Accept;
         }
 
         // Confiance entre retry et accept → réessayer en local (si pas déjà fait)
@@ -299,8 +305,8 @@ impl LlmRouterConfig {
         }
 
         // Pas de cloud configuré → garder l'analyse locale
-        if confidence >= self.confidence_accept {
-            EscalationDecision::Accept
+        if confidence >= self.confidence_accept || severity == "CRITICAL" {
+            EscalationDecision::Accept // CRITICAL after L2 without cloud = accept L2 analysis
         } else {
             EscalationDecision::AcceptDegraded
         }
