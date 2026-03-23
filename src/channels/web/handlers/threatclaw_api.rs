@@ -102,12 +102,55 @@ fn no_db() -> (StatusCode, String) {
     (StatusCode::SERVICE_UNAVAILABLE, "Database not available".to_string())
 }
 
-// ── Health ──
+// ── Health + Auto-start services ──
+
+static SERVICES_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 pub async fn tc_health_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<HealthResponse> {
     let db_ok = state.store.is_some();
+
+    // Auto-start Intelligence Engine + Bot on first health check
+    // This runs once after the gateway is fully ready.
+    if db_ok && !SERVICES_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        if let Some(store) = state.store.as_ref() {
+            let store_clone = store.clone();
+            tokio::spawn(async move {
+                // Wait a bit for all channels to initialize
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                // Start Intelligence Engine (cycle every 5 min)
+                if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    crate::agent::intelligence_engine::spawn_intelligence_ticker(
+                        store_clone.clone(),
+                        std::time::Duration::from_secs(300),
+                    );
+                    tracing::info!("AUTO-START: Intelligence Engine started (cycle every 5min)");
+                }
+
+                // Start Telegram Bot (if configured)
+                if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    // Check if Telegram is configured
+                    if let Ok(Some(channels)) = store_clone.get_setting("_system", "tc_config_channels").await {
+                        if channels["telegram"]["enabled"].as_bool() == Some(true)
+                            && channels["telegram"]["botToken"].as_str().map(|t| !t.is_empty()) == Some(true)
+                        {
+                            crate::agent::conversational_bot::spawn_telegram_bot(
+                                store_clone.clone(),
+                                std::time::Duration::from_secs(3),
+                            );
+                            tracing::info!("AUTO-START: Telegram bot started (poll every 3s)");
+                        } else {
+                            BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                            tracing::debug!("AUTO-START: Telegram bot skipped (not configured)");
+                        }
+                    }
+                }
+            });
+        }
+    }
+
     Ok(Json(HealthResponse {
         status: if db_ok { "ok" } else { "degraded" },
         version: env!("CARGO_PKG_VERSION"),
