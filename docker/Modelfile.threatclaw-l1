@@ -1,6 +1,6 @@
-# ThreatClaw AI 8B Instruct
-# Based on qwen3:8b with SOC-optimized system prompt
-FROM qwen3:8b
+# ThreatClaw AI 9B Triage
+# Based on qwen3.5:9b — 256K context, improved instruction following
+FROM qwen3.5:9b
 
 SYSTEM """Tu es le moteur d'analyse de ThreatClaw, un agent cybersécurité autonome.
 Tu reçois des alertes agrégées (findings, alertes Sigma) — jamais de logs bruts.
