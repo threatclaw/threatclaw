@@ -147,25 +147,34 @@ pub async fn run_intelligence_cycle(
     };
 
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
+    // All enrichment is wrapped in catch_unwind-style error handling.
+    // External API failures must NEVER crash the engine.
     let mut enrichment_lines: Vec<String> = vec![];
 
     // Enrich CVEs from critical findings with EPSS + KEV
     for f in &findings {
         if f.severity.to_lowercase() != "critical" { continue; }
         if let Some(cve) = f.metadata.as_object().and_then(|m| m.get("cve")).and_then(|v| v.as_str()) {
-            // EPSS
-            if let Ok(Some(epss)) = crate::enrichment::epss::lookup_epss(cve).await {
-                let pct = epss.epss * 100.0;
-                if pct > 50.0 {
-                    enrichment_lines.push(format!("EPSS {}: {:.0}% probabilité exploitation 30j", cve, pct));
+            // EPSS — wrapped in timeout
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                crate::enrichment::epss::lookup_epss(cve)
+            ).await {
+                Ok(Ok(Some(epss))) => {
+                    let pct = epss.epss * 100.0;
+                    if pct > 50.0 {
+                        enrichment_lines.push(format!("EPSS {}: {:.0}% probabilité exploitation 30j", cve, pct));
+                    }
+                    let asset_name = f.asset.as_deref().unwrap_or("unknown");
+                    if let Some(entry) = asset_map.get_mut(asset_name) {
+                        if epss.epss > 0.9 { entry.score = (entry.score + 20.0).min(100.0); }
+                    }
                 }
-                // Update asset score if EPSS is very high
-                let asset_name = f.asset.as_deref().unwrap_or("unknown");
-                if let Some(entry) = asset_map.get_mut(asset_name) {
-                    if epss.epss > 0.9 { entry.score = (entry.score + 20.0).min(100.0); }
-                }
+                Ok(Err(e)) => tracing::debug!("ENRICHMENT: EPSS failed for {cve}: {e}"),
+                _ => tracing::debug!("ENRICHMENT: EPSS timeout for {cve}"),
             }
-            // KEV check
+
+            // KEV check (local DB only — no external call, fast)
             if let Some(kev) = crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve).await {
                 enrichment_lines.push(format!("CISA KEV: {} activement exploitée — action requise avant {}", cve, kev.due_date));
                 let asset_name = f.asset.as_deref().unwrap_or("unknown");
@@ -179,25 +188,44 @@ pub async fn run_intelligence_cycle(
 
     // Enrich alert source IPs with GreyNoise + IPinfo
     for a in &alerts {
-        if let Some(ref ip) = a.source_ip {
-            let ip_str = ip.trim();
+        if let Some(ref raw_ip) = a.source_ip {
+            // Clean IP (remove /32 CIDR suffix, trim whitespace)
+            let ip_str = raw_ip.split('/').next().unwrap_or("").trim();
             if ip_str.is_empty() || ip_str.starts_with("10.") || ip_str.starts_with("192.168.") || ip_str.starts_with("127.") {
-                continue; // Skip private IPs
+                continue;
             }
-            // GreyNoise
-            if let Ok(gn) = crate::enrichment::greynoise::lookup_ip(ip_str, None).await {
-                let label = if gn.classification == "malicious" { "attaque ciblée" }
-                    else if gn.noise { "scanner de masse" }
-                    else { "inconnu" };
-                enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, gn.classification, label));
+
+            // GreyNoise — with timeout
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(8),
+                crate::enrichment::greynoise::lookup_ip(ip_str, None)
+            ).await {
+                Ok(Ok(gn)) => {
+                    let label = if gn.classification == "malicious" { "attaque ciblée" }
+                        else if gn.noise { "scanner de masse" }
+                        else { "inconnu" };
+                    enrichment_lines.push(format!("GreyNoise {}: {} ({})", ip_str, gn.classification, label));
+                }
+                Ok(Err(e)) => tracing::debug!("ENRICHMENT: GreyNoise failed for {ip_str}: {e}"),
+                Err(_) => tracing::debug!("ENRICHMENT: GreyNoise timeout for {ip_str}"),
             }
-            // IPinfo
-            if let Ok(geo) = crate::enrichment::ipinfo::lookup_ip(ip_str).await {
-                let ctx = crate::enrichment::ipinfo::format_for_context(&geo);
-                enrichment_lines.push(format!("Origine: {}", ctx));
+
+            // IPinfo — with timeout
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                crate::enrichment::ipinfo::lookup_ip(ip_str)
+            ).await {
+                Ok(Ok(geo)) => {
+                    let ctx = crate::enrichment::ipinfo::format_for_context(&geo);
+                    enrichment_lines.push(format!("Origine: {}", ctx));
+                }
+                Ok(Err(e)) => tracing::debug!("ENRICHMENT: IPinfo failed for {ip_str}: {e}"),
+                Err(_) => tracing::debug!("ENRICHMENT: IPinfo timeout for {ip_str}"),
             }
         }
     }
+
+    tracing::info!("ENRICHMENT: {} enrichment lines collected", enrichment_lines.len());
 
     // ── 7. Decide notification level (after enrichment may have changed scores) ──
     // Recompute summaries after enrichment

@@ -1746,18 +1746,36 @@ pub async fn intelligence_situation_handler(
 }
 
 /// POST /api/tc/intelligence/cycle — run one intelligence cycle manually.
+/// Spawns the cycle in background (enrichment can take 30s+) and returns immediately.
 pub async fn intelligence_cycle_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store.clone()).await;
+
+    // Spawn in background — enrichment calls external APIs (EPSS, GreyNoise, IPinfo)
+    let store_clone = store.clone();
+    tokio::spawn(async move {
+        let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store_clone.clone()).await;
+
+        // Route notification if level >= Alert
+        if situation.notification_level >= crate::agent::intelligence_engine::NotificationLevel::Alert {
+            if let Some(ref alert_msg) = situation.alert_message {
+                let results = crate::agent::notification_router::route_notification(
+                    store_clone.as_ref(), situation.notification_level, alert_msg, &situation.digest_message,
+                ).await;
+                for (ch, r) in &results {
+                    if r.is_ok() {
+                        tracing::info!("INTELLIGENCE: Notification sent to {} (level={:?})", ch, situation.notification_level);
+                    }
+                }
+            }
+        }
+    });
+
     Ok(Json(serde_json::json!({
-        "global_score": situation.global_score,
-        "notification_level": situation.notification_level,
-        "open_findings": situation.total_open_findings,
-        "active_alerts": situation.total_active_alerts,
-        "assets_at_risk": situation.assets.len(),
-        "digest": situation.digest_message,
+        "ok": true,
+        "status": "cycle_started",
+        "message": "Intelligence cycle running in background. Check /api/tc/intelligence/situation for results.",
     })))
 }
 
