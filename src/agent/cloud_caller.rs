@@ -321,10 +321,11 @@ async fn call_anthropic(
     config: &CloudLlmConfig,
     prompt: &str,
 ) -> Result<CloudCallResult, String> {
+    let full_prompt = format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON.");
     let body = json!({
         "model": config.model,
         "max_tokens": 2048,
-        "messages": [{ "role": "user", "content": prompt }],
+        "messages": [{ "role": "user", "content": full_prompt }],
         "temperature": 0.3,
     });
 
@@ -364,9 +365,11 @@ async fn call_openai_compatible(
     prompt: &str,
     base_url: &str,
 ) -> Result<CloudCallResult, String> {
+    // Ensure the prompt asks for JSON output
+    let full_prompt = format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON.");
     let body = json!({
         "model": config.model,
-        "messages": [{ "role": "user", "content": prompt }],
+        "messages": [{ "role": "user", "content": full_prompt }],
         "temperature": 0.3,
         "max_tokens": 2048,
     });
