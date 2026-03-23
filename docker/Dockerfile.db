@@ -1,0 +1,23 @@
+# ThreatClaw DB — PostgreSQL 16 + pgvector + Apache AGE
+# Combines vector search (pgvector) + graph queries (AGE/Cypher)
+# in a single PostgreSQL instance.
+
+FROM pgvector/pgvector:pg16
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential git postgresql-server-dev-16 \
+        libreadline-dev zlib1g-dev flex bison \
+    && git clone --branch PG16/v1.5.0 --depth 1 \
+        https://github.com/apache/age.git /tmp/age \
+    && cd /tmp/age \
+    && make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+    && make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config install \
+    && apt-get purge -y build-essential git postgresql-server-dev-16 \
+        libreadline-dev zlib1g-dev flex bison \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/age
+
+# Auto-create extensions on first boot
+RUN echo "CREATE EXTENSION IF NOT EXISTS vector;" > /docker-entrypoint-initdb.d/00-extensions.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS age;" >> /docker-entrypoint-initdb.d/00-extensions.sql \
+    && echo "LOAD 'age';" >> /docker-entrypoint-initdb.d/00-extensions.sql

@@ -127,10 +127,14 @@ services:
     labels:
       - "com.threatclaw.role=dashboard"
 
-  # ── PostgreSQL + pgvector ────────────────────────────────
+  # ── PostgreSQL + pgvector + Apache AGE ───────────────────
   # Data: settings, findings, alerts, audit, memory, CVE cache
+  # Graph: threat correlation, investigation paths, STIX data model
   threatclaw-db:
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+    image: threatclaw/db:latest
     environment:
       POSTGRES_DB: threatclaw
       POSTGRES_USER: threatclaw
