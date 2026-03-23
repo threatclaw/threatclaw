@@ -880,15 +880,16 @@ function EnrichmentTab() {
   const [syncAllRunning, setSyncAllRunning] = useState(false);
   const [helpOpen, setHelpOpen] = useState<string | null>(null);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [savingEnabled, setSavingEnabled] = useState(false);
 
   useEffect(() => {
     fetch("/api/tc/enrichment/status").then(r => r.json()).then(d => setStatus(d)).catch(() => {});
     // Load enabled state
     fetch("/api/tc/config").then(r => r.json()).then(cfg => {
-      if (cfg.enrichment_enabled) {
-        setEnabled(cfg.enrichment_enabled);
-      } else {
+      if (cfg.enrichment_enabled) setEnabled(cfg.enrichment_enabled);
+      if (cfg.enrichment_keys) setApiKeys(cfg.enrichment_keys);
+      if (!cfg.enrichment_enabled) {
         // Default: all free sources enabled
         const defaults: Record<string, boolean> = {};
         ENRICHMENT_SOURCES.forEach(s => { defaults[s.id] = s.noKey; });
@@ -904,11 +905,24 @@ function EnrichmentTab() {
   const toggleSource = async (id: string) => {
     const next = { ...enabled, [id]: !enabled[id] };
     setEnabled(next);
+    saveEnrichmentConfig(next, apiKeys);
+  };
+
+  const updateApiKey = async (id: string, key: string) => {
+    const next = { ...apiKeys, [id]: key };
+    setApiKeys(next);
+  };
+
+  const saveApiKey = async (id: string) => {
+    saveEnrichmentConfig(enabled, apiKeys);
+  };
+
+  const saveEnrichmentConfig = async (en: Record<string, boolean>, keys: Record<string, string>) => {
     setSavingEnabled(true);
     try {
       await fetch("/api/tc/config", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enrichment_enabled: next }),
+        body: JSON.stringify({ enrichment_enabled: en, enrichment_keys: keys }),
       });
     } catch { /* */ }
     setSavingEnabled(false);
@@ -1012,6 +1026,27 @@ function EnrichmentTab() {
                   </ChromeButton>
                 )}
                 </div>
+                {/* API key input for sources that need one */}
+                {!src.noKey && enabled[src.id] && (
+                  <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "center" }}>
+                    <Key size={14} color="#d09020" style={{ flexShrink: 0 }} />
+                    <input
+                      type="password"
+                      value={apiKeys[src.id] || ""}
+                      onChange={e => updateApiKey(src.id, e.target.value)}
+                      onBlur={() => saveApiKey(src.id)}
+                      placeholder={`Clé API ${src.name} (inscription gratuite)`}
+                      style={{
+                        flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+                        borderRadius: "8px", padding: "8px 12px", fontSize: "12px", color: "#e8e4e0",
+                        fontFamily: "inherit", outline: "none",
+                      }}
+                    />
+                    {apiKeys[src.id] && (
+                      <CheckCircle2 size={14} color="#30a050" style={{ flexShrink: 0 }} />
+                    )}
+                  </div>
+                )}
                 {helpOpen === src.id && (
                   <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(48,128,208,0.04)", border: "1px solid rgba(48,128,208,0.1)", fontSize: "11px", color: "#9a918a", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
                     {src.help}
