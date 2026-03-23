@@ -112,23 +112,126 @@ pub async fn run_scenario(
         }
     }
 
-    // Trigger intelligence cycle if requested
-    if trigger_intelligence {
-        let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store.clone()).await;
-        result.intelligence_score = Some(situation.global_score);
-        result.notification_level = Some(format!("{:?}", situation.notification_level));
-
-        // Send notification if level warrants it
-        if situation.notification_level >= crate::agent::intelligence_engine::NotificationLevel::Alert {
-            if let Some(ref msg) = situation.alert_message {
-                let _ = crate::agent::notification_router::route_notification(
-                    store.as_ref(), situation.notification_level, msg, &situation.digest_message,
-                ).await;
-                result.message.push_str(" → Notification envoyée au RSSI.");
-            }
-        }
+    if !trigger_intelligence {
+        result.message.push_str(" Données injectées. Pipeline non déclenché.");
+        return result;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // REAL PIPELINE — no shortcuts, no pre-written findings
+    // Each step is the actual production code path.
+    // ═══════════════════════════════════════════════════════════
+
+    result.message.push_str(" → Pipeline réel en cours...");
+
+    // ── STEP 1: ReAct Cycle L1 (LLM triage) ──
+    // The L1 LLM analyzes all open findings + alerts and produces
+    // a structured JSON analysis with severity, correlations, actions.
+    tracing::info!("TEST PIPELINE: Step 1 — ReAct cycle L1 (LLM triage)");
+    let react_config = crate::agent::react_runner::ReactRunnerConfig::default();
+    let react_result = crate::agent::react_runner::run_react_cycle(store.clone(), &react_config).await;
+    tracing::info!(
+        "TEST PIPELINE: ReAct L{} — {} | {} observations | {:?}",
+        react_result.escalation_level, react_result.cycle_result,
+        react_result.observations_count, react_result.error
+    );
+
+    // If ReAct produced an analysis, create a finding from it
+    if let Some(ref analysis) = react_result.analysis {
+        let severity = &analysis.severity;
+        let confidence = analysis.confidence;
+        let correlations = &analysis.correlations;
+        let actions_count = analysis.proposed_actions.len();
+
+        let _ = store.insert_finding(&NewFinding {
+            skill_id: "react-cycle".into(),
+            title: format!("Analyse IA L{} — {} ({:.0}% confiance)", react_result.escalation_level, severity, confidence * 100.0),
+            description: Some(format!(
+                "Analyse automatique par ThreatClaw AI :\n{}\n\nCorrélations : {}\nActions proposées : {}",
+                analysis.analysis, correlations.join(", "), actions_count
+            )),
+            severity: severity.clone(),
+            category: Some("ia-analysis".into()),
+            asset: None,
+            source: Some(format!("threatclaw-l{}", react_result.escalation_level)),
+            metadata: Some(json!({
+                "escalation_level": react_result.escalation_level,
+                "confidence": confidence,
+                "correlations": correlations,
+                "proposed_actions": actions_count,
+                "cycle_result": react_result.cycle_result,
+            })),
+        }).await;
+        result.findings_created += 1;
+        tracing::info!("TEST PIPELINE: Finding created from ReAct analysis — {} {:.0}%", severity, confidence * 100.0);
+    }
+
+    // ── STEP 2: Intelligence Engine (enrichment + scoring) ──
+    // Scans logs for IoCs, cross-references with enrichment sources,
+    // computes global score, decides notification level.
+    tracing::info!("TEST PIPELINE: Step 2 — Intelligence Engine (enrichment + scoring)");
+    let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store.clone()).await;
+    result.intelligence_score = Some(situation.global_score);
+    result.notification_level = Some(format!("{:?}", situation.notification_level));
+    tracing::info!(
+        "TEST PIPELINE: Score={:.0} Level={:?} Findings={} Alerts={} Assets={}",
+        situation.global_score, situation.notification_level,
+        situation.total_open_findings, situation.total_active_alerts,
+        situation.assets.len()
+    );
+
+    // ── STEP 3: Notification (enriched message via router) ──
+    if situation.notification_level >= crate::agent::intelligence_engine::NotificationLevel::Alert {
+        tracing::info!("TEST PIPELINE: Step 3 — Notification level {:?} → sending to RSSI", situation.notification_level);
+
+        // If HITL-level, try to enrich with L2.5 Instruct
+        let alert_msg = if situation.notification_level >= crate::agent::intelligence_engine::NotificationLevel::Critical {
+            if let Some(ref base_msg) = situation.alert_message {
+                // Try L2.5 enrichment
+                let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+                let enriched = crate::agent::hitl_bridge::enrich_hitl_with_instruct(
+                    base_msg, "CRITICAL", &[], &llm_config
+                ).await;
+                if enriched.enriched_by != "basic_fallback" {
+                    tracing::info!("TEST PIPELINE: HITL enriched by L2.5 Instruct — {} playbook steps", enriched.playbook.len());
+                    let mut msg = format!("*{}*\n\n{}\n", base_msg, enriched.summary);
+                    if !enriched.playbook.is_empty() {
+                        msg.push_str("\n*Playbook suggéré :*\n");
+                        for (i, step) in enriched.playbook.iter().enumerate() {
+                            msg.push_str(&format!("{}. {}\n", i + 1, step));
+                        }
+                    }
+                    msg.push_str(&format!("\n*Impact NIS2 :* {}\n", enriched.nis2_impact));
+                    msg.push_str(&format!("_enrichi par : {}_", enriched.enriched_by));
+                    Some(msg)
+                } else {
+                    situation.alert_message.clone()
+                }
+            } else {
+                situation.alert_message.clone()
+            }
+        } else {
+            situation.alert_message.clone()
+        };
+
+        if let Some(ref msg) = alert_msg {
+            let results = crate::agent::notification_router::route_notification(
+                store.as_ref(), situation.notification_level, msg, &situation.digest_message,
+            ).await;
+            for (ch, r) in &results {
+                if r.is_ok() {
+                    tracing::info!("TEST PIPELINE: ✅ Notification sent to {}", ch);
+                    result.message.push_str(&format!(" ✅ {}", ch));
+                } else {
+                    tracing::warn!("TEST PIPELINE: ❌ {} failed: {:?}", ch, r.as_ref().err());
+                }
+            }
+        }
+    } else {
+        result.message.push_str(&format!(" Score {:.0}/100 — niveau {:?}, pas de notification.", situation.global_score, situation.notification_level));
+    }
+
+    tracing::info!("TEST PIPELINE: Complete — {}", result.message);
     result
 }
 
@@ -172,13 +275,15 @@ async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioRes
         result.logs_injected += 1;
     }
 
-    // Create Sigma alert
+    // Create Sigma alert (real pipeline — detected by Sigma engine)
     inject_sigma_alert(store, "sshd-brute-001", "critical",
         &format!("Brute force SSH massif depuis {} — {} tentatives dont 3 réussies", attacker_ip, users.len() + 3),
         target, Some(attacker_ip), Some("backup")).await;
     result.alerts_created += 1;
 
-    result.message = format!("SSH brute force simulé : {} logs injectés, {} alerte Sigma créée. Attaquant : {} (Tor exit node DE).", result.logs_injected, result.alerts_created, attacker_ip);
+    // NO pre-written findings — the ReAct L1/L2 cycle will analyze the alerts
+    // and produce findings automatically based on LLM analysis.
+    result.message = format!("Logs bruts injectés : {} auth logs + 1 alerte Sigma. Pipeline IA en cours...", result.logs_injected);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -211,25 +316,14 @@ async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
         result.logs_injected += 1;
     }
 
-    // Create critical finding
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "scan-nuclei".into(),
-        title: "Log4Shell RCE (CVE-2021-44228) — exploitation active détectée".into(),
-        description: Some(format!("Tentatives d'exploitation Log4Shell détectées depuis {}. Payloads JNDI dans les headers HTTP User-Agent. CVE-2021-44228 CVSS 10.0. CISA KEV : activement exploitée. EPSS : 94.5%.", attacker_ip)),
-        severity: "CRITICAL".into(),
-        category: Some("exploitation".into()),
-        asset: Some(target.into()),
-        source: Some("nuclei".into()),
-        metadata: Some(json!({
-            "cve": "CVE-2021-44228", "cvss": 10.0, "port": 8080,
-            "template": "CVE-2021-44228", "exploited_in_wild": true,
-            "attacker_ip": attacker_ip,
-            "payloads_detected": payloads.len(),
-        })),
-    }).await;
-    result.findings_created += 1;
+    // Sigma alert for the exploit detection
+    inject_sigma_alert(store, "log4shell-001", "critical",
+        &format!("Exploitation Log4Shell détectée — JNDI injection depuis {}", attacker_ip),
+        target, Some(attacker_ip), None).await;
+    result.alerts_created += 1;
 
-    result.message = format!("Log4Shell simulé : {} logs HTTP avec JNDI payloads, 1 finding CRITICAL. Attaquant : {}.", result.logs_injected, attacker_ip);
+    // NO pre-written finding — L1/L2 will analyze and produce findings
+    result.message = format!("Logs bruts injectés : {} HTTP logs avec JNDI payloads + 1 alerte. Pipeline IA en cours...", result.logs_injected);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -272,19 +366,13 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
     }), &(now - chrono::Duration::minutes(15))).await;
     result.logs_injected += 1;
 
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "intelligence-engine".into(),
-        title: "Campagne de phishing détectée — utilisateur j.dupont compromis".into(),
-        description: Some(format!("L'utilisateur j.dupont a cliqué sur {} URLs de phishing en 5 minutes. Email d'origine : support@secure-login-microsoft365.com. Vérifier si des credentials ont été saisis.", phishing_urls.len())),
-        severity: "HIGH".into(),
-        category: Some("phishing".into()),
-        asset: Some(target.into()),
-        source: Some("proxy-logs".into()),
-        metadata: Some(json!({ "urls": phishing_urls, "user": "jdupont", "email_from": "support@secure-login-microsoft365.com" })),
-    }).await;
-    result.findings_created += 1;
+    inject_sigma_alert(store, "phishing-001", "high",
+        "Accès à des URLs de phishing connues — utilisateur jdupont",
+        target, None, Some("jdupont")).await;
+    result.alerts_created += 1;
 
-    result.message = format!("Phishing simulé : {} logs proxy/email, 1 finding HIGH. Utilisateur ciblé : jdupont.", result.logs_injected);
+    // NO pre-written finding — pipeline will detect phishing URLs in logs
+    result.message = format!("Logs bruts injectés : {} proxy/email logs. Pipeline IA en cours...", result.logs_injected);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -334,22 +422,8 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
         target, None, Some("www-data")).await;
     result.alerts_created += 1;
 
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "intelligence-engine".into(),
-        title: format!("Kill chain : mouvement latéral {} → {} + escalade root", compromised, target),
-        description: Some(format!("Séquence d'attaque détectée : 1) SSH depuis {} (poste compromis) vers {} 2) Escalade www-data → root via sudo 3) Téléchargement payload depuis IP Tor. Kill chain active.", compromised, target)),
-        severity: "CRITICAL".into(),
-        category: Some("kill-chain".into()),
-        asset: Some(target.into()),
-        source: Some("correlation".into()),
-        metadata: Some(json!({
-            "kill_chain": true, "source_host": compromised, "target_host": target,
-            "escalation": "www-data → root", "payload_url": "http://185.220.101.42:8443/payload.sh",
-        })),
-    }).await;
-    result.findings_created += 1;
-
-    result.message = format!("Mouvement latéral simulé : {} logs, {} alertes, 1 finding CRITICAL kill chain.", result.logs_injected, result.alerts_created);
+    // NO pre-written finding — L1/L2 will correlate alerts + logs
+    result.message = format!("Logs bruts injectés : {} logs + {} alertes. Pipeline IA en cours...", result.logs_injected, result.alerts_created);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -397,22 +471,8 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
         target, Some(c2_ip), None).await;
     result.alerts_created += 1;
 
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "intelligence-engine".into(),
-        title: format!("Communication C2 active : {} → {} ({})", target, c2_domain, c2_ip),
-        description: Some(format!("Beacon C2 détecté : 10 requêtes DNS + 5 HTTP POST vers {} ({}) avec intervalle régulier de 60s. Pattern typique de malware C2. Machine {} probablement compromise.", c2_domain, c2_ip, target)),
-        severity: "CRITICAL".into(),
-        category: Some("malware".into()),
-        asset: Some(target.into()),
-        source: Some("dns-analysis".into()),
-        metadata: Some(json!({
-            "c2_domain": c2_domain, "c2_ip": c2_ip, "beacon_interval": "60s",
-            "dns_queries": 10, "http_beacons": 5,
-        })),
-    }).await;
-    result.findings_created += 1;
-
-    result.message = format!("C2 simulé : {} logs DNS/HTTP, beacon 60s vers {}. Machine {} compromise.", result.logs_injected, c2_domain, target);
+    // NO pre-written finding — pipeline will detect C2 patterns
+    result.message = format!("Logs bruts injectés : {} DNS/HTTP logs + 1 alerte. Pipeline IA en cours...", result.logs_injected);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -493,33 +553,9 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "DNS tunneling détecté : requêtes TXT encodées base64 vers evil-exfil.com", target, None, None).await;
     result.alerts_created += 6;
 
-    // Create the big finding
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "intelligence-engine".into(),
-        title: "INTRUSION COMPLÈTE — Kill chain 6 phases confirmée".into(),
-        description: Some(format!(
-            "Intrusion complète détectée sur {} :\n\
-            1. Reconnaissance : scan de ports depuis {} (Tor exit node)\n\
-            2. Exploitation : Log4Shell CVE-2021-44228 sur port 8080\n\
-            3. Accès : reverse shell port 4444\n\
-            4. Credential dump : /etc/shadow exfiltré via HTTP\n\
-            5. Mouvement latéral : SSH root vers 192.168.1.108\n\
-            6. Exfiltration : DNS tunneling vers evil-exfil.com\n\
-            Action immédiate requise : isoler {} et 192.168.1.108 du réseau.", target, attacker, target)),
-        severity: "CRITICAL".into(),
-        category: Some("intrusion".into()),
-        asset: Some(target.into()),
-        source: Some("correlation".into()),
-        metadata: Some(json!({
-            "kill_chain": true, "phases": 6, "attacker_ip": attacker,
-            "cve": "CVE-2021-44228", "lateral_targets": ["192.168.1.108"],
-            "exfil_method": "dns_tunneling", "exfil_domain": "evil-exfil.com",
-            "credentials_compromised": true, "exploited_in_wild": true,
-        })),
-    }).await;
-    result.findings_created += 1;
-
-    result.message = format!("Intrusion complète simulée : {} logs, {} alertes, kill chain 6 phases. ISOLATION REQUISE.", result.logs_injected, result.alerts_created);
+    // NO pre-written finding — L1/L2 will analyze the 6-phase kill chain
+    // from the raw logs + 6 sigma alerts and produce the analysis
+    result.message = format!("Logs bruts injectés : {} logs + {} alertes Sigma. Pipeline IA L1→L2→enrichissement en cours...", result.logs_injected, result.alerts_created);
 }
 
 // ═══════════════════════════════════════════════════════════
