@@ -240,6 +240,60 @@
 - [ ] Planning par skill (au lieu du scheduler global)
 - [ ] Barre d'avancement download modèles dans le wizard onboarding
 
+### Skills V2 — Nouveaux outils (voir SKILLS_CATALOG.md)
+- [ ] **Éphémères P1** : semgrep (SAST), checkov (IaC), trufflehog (secrets git), syft (SBOM), grype (container CVE), ZAP (DAST web), nmap (réseau)
+- [ ] **Permanents** : suricata (IDS/IPS réseau), falco (runtime security containers)
+- [ ] **Connecteurs** : defectdojo (vuln mgmt), dependency-track (SBOM lifecycle)
+- [ ] **Éphémères P2** : httpx, subfinder, docker-bench-security
+- [ ] Système de modes d'exécution dans skill.json : `ephemeral` / `persistent` / `connector`
+- [ ] Dashboard : badges mode, "Activer" simplifié, technique cachée par défaut
+- [ ] Corriger `skill-appsec` (stub) et retirer `skill-secrets-audit` (vide)
+
+### Fine-tuning L1 — ThreatClaw AI 8B Triage spécialisé
+
+**Objectif** : Le L1 ne devient pas "meilleur en cyber" — il devient **expert ThreatClaw**.
+Un modèle d'orchestration qui sait piloter parfaitement l'application.
+
+**Ce que le fine-tuning enseigne au L1 :**
+- [ ] Les 44 commandes whitelist exactes (net-001, usr-001, ssh-001...)
+- [ ] Le format JSON ThreatClaw (severity enum, confidence float 0-1, action_ids valides)
+- [ ] Les 12 sources d'enrichissement et comment les référencer
+- [ ] Les modes RSSI et quand escalader vers L2
+- [ ] Les skills disponibles et quand les suggérer
+- [ ] Le champ `context_for_reasoning` structuré pour L2 Forensique
+- [ ] Le nommage ThreatClaw (pas de termes génériques)
+
+**Prérequis** : Les skills V2 doivent être implémentés d'abord (le modèle doit connaître les outils disponibles). Chaque ajout de skill = re-fine-tuning léger (LoRA incrémental).
+
+**Pipeline de fine-tuning :**
+1. Générer 500-1000 exemples synthétiques via Claude API
+   - Input : alertes brutes variées (SSH, CVE, phishing, C2, lateral...)
+   - Output : JSON ThreatClaw parfait avec context_for_reasoning
+   - Couvrir tous les action_ids, sévérités, skills
+2. Fine-tuning LoRA sur qwen3:8b
+   - Hardware : Mac M3 Pro (MLX) ou GPU cloud ~50€
+   - Durée : 4-8h
+   - Résultat : adapter GGUF ~50-200 MB
+3. Intégrer dans Ollama via Modelfile
+   - `FROM qwen3:8b` + `ADAPTER threatclaw-lora.gguf`
+   - Tester sur les 6 scénarios de test
+   - Mesurer : % JSON valide, % action_ids corrects, temps de réponse
+4. Distribuer via models.threatclaw.io (CloudFlare R2)
+
+**Gain attendu :**
+- JSON valide : 90% → 99%+ (moins de retries, pipeline plus stable)
+- Actions whitelist correctes : ~70% → 95%+ (moins de rejets)
+- Temps de réponse : -20% (moins de tokens perdus en formatting)
+- Qualité L2 : meilleure car reçoit un contexte structuré parfait
+
+**Collecte de données pour amélioration continue :**
+- [ ] Table `llm_training_data` : prompt, response, parsing_ok, rssi_validated
+- [ ] Logging automatique de chaque appel L1 (en local, on-premise)
+- [ ] Script `scripts/generate-training-data.py` (Claude API → JSONL)
+- [ ] Re-fine-tuning après chaque ajout majeur de skill
+
+**Timeline** : Après implémentation des skills V2 (les outils doivent exister pour que le modèle les connaisse).
+
 ### Communauté / Business
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)
