@@ -235,10 +235,10 @@
 ### Technique
 - [ ] Tests e2e automatisés du cycle complet (CI)
 - [ ] Détection comportementale ML (compléter Sigma)
-- [ ] mTLS entre containers Docker
-- [ ] Whitelist dynamique (skills déclarent leurs actions dans skill.json)
-- [ ] Planning par skill (au lieu du scheduler global)
+- [x] **mTLS** : script generate-certs.sh (CA + certs par service)
+- [x] **Skill scheduler** : planning par skill avec cron configurable (API GET/POST /api/tc/scheduler)
 - [ ] Barre d'avancement download modèles dans le wizard onboarding
+- [x] **L1 upgradé** : qwen3:8b → qwen3.5:9b (256K context, meilleur instruction following)
 
 ### Skills V2 — Nouveaux outils (voir SKILLS_CATALOG.md)
 - [ ] **Éphémères P1** : semgrep (SAST), checkov (IaC), trufflehog (secrets git), syft (SBOM), grype (container CVE), ZAP (DAST web), nmap (réseau)
@@ -271,12 +271,12 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
    - Input : alertes brutes variées (SSH, CVE, phishing, C2, lateral...)
    - Output : JSON ThreatClaw parfait avec context_for_reasoning
    - Couvrir tous les action_ids, sévérités, skills
-2. Fine-tuning LoRA sur qwen3:8b
+2. Fine-tuning LoRA sur qwen3.5:9b
    - Hardware : Mac M3 Pro (MLX) ou GPU cloud ~50€
    - Durée : 4-8h
    - Résultat : adapter GGUF ~50-200 MB
 3. Intégrer dans Ollama via Modelfile
-   - `FROM qwen3:8b` + `ADAPTER threatclaw-lora.gguf`
+   - `FROM qwen3.5:9b` + `ADAPTER threatclaw-lora.gguf`
    - Tester sur les 6 scénarios de test
    - Mesurer : % JSON valide, % action_ids corrects, temps de réponse
 4. Distribuer via models.threatclaw.io (CloudFlare R2)
@@ -297,19 +297,20 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 
 ### Graph Intelligence — Investigation déterministe (voir docs/GRAPH_INTELLIGENCE.md)
 
-**Phase 1 — Fondation Graph (V2.0)**
-- [ ] Apache AGE extension dans PostgreSQL (migration V23, zéro container supplémentaire)
-- [ ] Modèle STIX 2.1 dans AGE (nœuds : IP, Asset, CVE, Alert, Technique, User, Domain, Hash)
-- [ ] Charger MITRE ATT&CK (700+ techniques) comme graph navigable dans AGE
-- [ ] Requêtes Cypher : corrélation alertes, historique IP, attack path discovery
-- [ ] petgraph dans le core Rust (connected components, shortest path en mémoire)
+**Phase 1 — Fondation Graph (V2.0) ✅**
+- [x] **Apache AGE** compilé et installé dans PostgreSQL 16 (Cypher queries actives)
+- [x] **Schéma STIX 2.1** : 11 types de nœuds + 15 types d'arêtes dans `threat_graph`
+- [x] **Cypher queries** : attack paths, kill chain, corrélation, investigation context
+- [x] **Dockerfile.db** : image custom pgvector + AGE (build automatique Docker)
+- [x] **Graph sync** : `sync_graph_from_db()` synchronise targets/alerts/findings → graph à chaque cycle
+- [x] **API Graph** : `POST /api/tc/graph/query`, `GET /graph/context/{id}`, `GET /graph/attackers/{id}`
 
-**Phase 2 — Investigation Graphs (V2.1)**
-- [ ] 7 graphes d'investigation prédéfinis par type d'alerte (SSH brute, CVE, phishing, C2, lateral, malware, DNS exfil)
-- [ ] Orchestration déterministe : étapes fixes et obligatoires, pas d'improvisation LLM
-- [ ] L2 Reasoning reçoit le sous-graph factualisé (pas des alertes brutes)
-- [ ] Audit trail : chaque investigation = sous-graph reproductible dans AGE
-- [ ] Même alerte = même investigation = même résultat (zéro hallucination)
+**Phase 2 — Investigation Graphs (V2.1) ✅**
+- [x] **7 investigation graphs** prédéfinis (SSH brute, CVE, phishing, C2, lateral, malware, DNS exfil)
+- [x] **Executor déterministe** : chaque étape (enrich → correlate → map MITRE → find paths → reason)
+- [x] **13 mappings MITRE** automatiques (keyword → technique ID → nœud graph)
+- [x] **Câblé dans Intelligence Engine** : chaque alerte match un graph → investigation auto
+- [x] `GET /api/tc/graph/investigations` — liste les 7 templates
 
 **Phase 3 — Intelligence CTI (V2.2)**
 - [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
