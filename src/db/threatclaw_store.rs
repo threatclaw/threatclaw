@@ -177,6 +177,9 @@ pub trait ThreatClawStore: Send + Sync {
         username: Option<&str>,
     ) -> Result<i64, DatabaseError>;
 
+    // Graph operations (Apache AGE Cypher queries)
+    async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
     // LLM training data collection
     async fn log_llm_call(
         &self,

@@ -1622,6 +1622,49 @@ pub async fn binary_verify_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// GRAPH INTELLIGENCE (Apache AGE)
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/graph/query — execute a Cypher query on the threat graph.
+pub async fn graph_query_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let cypher = body["cypher"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing cypher query".to_string()))?;
+
+    let results = crate::graph::threat_graph::query(store.as_ref(), cypher).await;
+    Ok(Json(serde_json::json!({ "results": results, "count": results.len() })))
+}
+
+/// GET /api/tc/graph/context/{asset_id} — get full investigation context for an asset.
+pub async fn graph_context_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let context = crate::graph::threat_graph::build_investigation_context(store.as_ref(), &asset_id).await;
+    Ok(Json(context))
+}
+
+/// GET /api/tc/graph/attackers/{asset_id} — find all IPs attacking an asset.
+pub async fn graph_attackers_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let attackers = crate::graph::threat_graph::find_attackers(store.as_ref(), &asset_id).await;
+    Ok(Json(serde_json::json!({ "attackers": attackers })))
+}
+
+/// GET /api/tc/graph/investigations — list all investigation graph templates.
+pub async fn graph_investigations_handler() -> ApiResult<serde_json::Value> {
+    let graphs = crate::graph::investigation::get_investigation_graphs();
+    Ok(Json(serde_json::json!({ "investigations": graphs, "count": graphs.len() })))
+}
+
+// ══════════════════════════════════════════════════════════
 // SKILL SCHEDULER
 // ══════════════════════════════════════════════════════════
 

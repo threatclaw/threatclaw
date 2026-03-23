@@ -429,6 +429,27 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get::<_, i64>(0))
     }
 
+    async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+
+        // AGE requires loading + search_path set per session
+        conn.execute("LOAD 'age'", &[]).await.map_err(query_err)?;
+        conn.execute("SET search_path = ag_catalog, \"$user\", public", &[]).await.map_err(query_err)?;
+
+        // Wrap Cypher in SQL — return results as JSON
+        let sql = format!(
+            "SELECT row_to_json(r) FROM (SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS (result agtype)) r",
+            cypher.replace('\'', "''"),
+        );
+
+        let rows = conn.query(&*sql, &[]).await.map_err(query_err)?;
+        let results: Vec<serde_json::Value> = rows.iter()
+            .filter_map(|r| r.try_get::<_, serde_json::Value>(0).ok())
+            .collect();
+
+        Ok(results)
+    }
+
     async fn log_llm_call(
         &self,
         model: &str,

@@ -76,6 +76,9 @@ pub async fn run_intelligence_cycle(
 ) -> SecuritySituation {
     let now = chrono::Utc::now();
 
+    // ── 0. Sync the threat graph from DB ──
+    crate::graph::threat_graph::sync_graph_from_db(store.as_ref()).await;
+
     // ── 1. Collect all open findings ──
     let findings = store.list_findings(None, Some("open"), None, 500).await.unwrap_or_default();
     let alerts = store.list_alerts(None, Some("new"), 200).await.unwrap_or_default();

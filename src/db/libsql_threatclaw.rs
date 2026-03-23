@@ -34,5 +34,6 @@ impl ThreatClawStore for LibSqlBackend {
     async fn count_logs(&self, _: i64) -> Result<i64, DatabaseError> { Err(not_supported()) }
     async fn insert_log(&self, _: &str, _: &str, _: &serde_json::Value, _: &str) -> Result<i64, DatabaseError> { Err(not_supported()) }
     async fn insert_sigma_alert(&self, _: &str, _: &str, _: &str, _: &str, _: Option<&str>, _: Option<&str>) -> Result<i64, DatabaseError> { Err(not_supported()) }
+    async fn execute_cypher(&self, _: &str) -> Result<Vec<serde_json::Value>, DatabaseError> { Err(not_supported()) }
     async fn log_llm_call(&self, _: &str, _: &str, _: i32, _: Option<&serde_json::Value>, _: Option<&str>, _: bool, _: &str, _: Option<&str>, _: Option<f64>, _: i32, _: &str, _: i32, _: i32) -> Result<(), DatabaseError> { Err(not_supported()) }
 }

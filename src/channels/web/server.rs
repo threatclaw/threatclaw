@@ -387,6 +387,11 @@ pub async fn start_server(
         .route("/api/tc/notifications/routing", get(super::handlers::threatclaw_api::notification_routing_get_handler))
         .route("/api/tc/notifications/routing", post(super::handlers::threatclaw_api::notification_routing_set_handler))
         .route("/api/tc/notifications/test", post(super::handlers::threatclaw_api::notification_test_handler))
+        // Graph Intelligence (Apache AGE)
+        .route("/api/tc/graph/query", post(super::handlers::threatclaw_api::graph_query_handler))
+        .route("/api/tc/graph/context/{asset_id}", get(super::handlers::threatclaw_api::graph_context_handler))
+        .route("/api/tc/graph/attackers/{asset_id}", get(super::handlers::threatclaw_api::graph_attackers_handler))
+        .route("/api/tc/graph/investigations", get(super::handlers::threatclaw_api::graph_investigations_handler))
         // Skill scheduler
         .route("/api/tc/scheduler", get(super::handlers::threatclaw_api::scheduler_list_handler))
         .route("/api/tc/scheduler", post(super::handlers::threatclaw_api::scheduler_save_handler))
