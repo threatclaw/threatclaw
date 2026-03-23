@@ -1568,6 +1568,103 @@ pub async fn binary_verify_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// INTELLIGENCE ENGINE + NOTIFICATION ROUTING
+// ══════════════════════════════════════════════════════════
+
+/// Shared intelligence engine running flag.
+static INTELLIGENCE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// GET /api/tc/intelligence/situation — get current security situation.
+pub async fn intelligence_situation_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.get_setting("_system", "security_situation").await {
+        Ok(Some(val)) => Ok(Json(val)),
+        _ => Ok(Json(serde_json::json!({ "global_score": 100.0, "notification_level": "silence", "status": "not_computed" }))),
+    }
+}
+
+/// POST /api/tc/intelligence/cycle — run one intelligence cycle manually.
+pub async fn intelligence_cycle_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store.clone()).await;
+    Ok(Json(serde_json::json!({
+        "global_score": situation.global_score,
+        "notification_level": situation.notification_level,
+        "open_findings": situation.total_open_findings,
+        "active_alerts": situation.total_active_alerts,
+        "assets_at_risk": situation.assets.len(),
+        "digest": situation.digest_message,
+    })))
+}
+
+/// POST /api/tc/intelligence/start — start the background intelligence ticker.
+pub async fn intelligence_start_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    if INTELLIGENCE_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_running" })));
+    }
+
+    INTELLIGENCE_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
+    crate::agent::intelligence_engine::spawn_intelligence_ticker(
+        store.clone(),
+        std::time::Duration::from_secs(300), // 5 min
+    );
+
+    tracing::info!("INTELLIGENCE: Engine started via API (cycle every 5min)");
+    Ok(Json(serde_json::json!({ "ok": true, "status": "started", "interval": "5min" })))
+}
+
+/// GET /api/tc/notifications/routing — get notification routing config.
+pub async fn notification_routing_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let routing = crate::agent::notification_router::load_routing(store.as_ref()).await;
+    Ok(Json(serde_json::to_value(routing).unwrap_or_default()))
+}
+
+/// POST /api/tc/notifications/routing — save notification routing config.
+pub async fn notification_routing_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let routing: crate::agent::notification_router::NotificationRouting = serde_json::from_value(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid routing config: {e}")))?;
+    crate::agent::notification_router::save_routing(store.as_ref(), &routing).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "status": "saved" })))
+}
+
+/// POST /api/tc/notifications/test — send a test notification through the router.
+pub async fn notification_test_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let level = match body["level"].as_str().unwrap_or("alert") {
+        "digest" => crate::agent::intelligence_engine::NotificationLevel::Digest,
+        "critical" => crate::agent::intelligence_engine::NotificationLevel::Critical,
+        _ => crate::agent::intelligence_engine::NotificationLevel::Alert,
+    };
+    let message = body["message"].as_str().unwrap_or("ThreatClaw — Test de notification");
+    let results = crate::agent::notification_router::route_notification(
+        store.as_ref(), level, message, message,
+    ).await;
+    let summary: Vec<serde_json::Value> = results.iter().map(|(ch, r)| {
+        serde_json::json!({ "channel": ch, "ok": r.is_ok(), "error": r.as_ref().err().map(String::as_str) })
+    }).collect();
+    Ok(Json(serde_json::json!({ "results": summary })))
+}
+
+// ══════════════════════════════════════════════════════════
 // HITL CALLBACK (for Mattermost/Ntfy button actions)
 // ══════════════════════════════════════════════════════════
 

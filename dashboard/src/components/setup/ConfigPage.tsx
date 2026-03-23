@@ -245,6 +245,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "llm", label: "IA / LLM", icon: Cpu },
     { id: "channels", label: "Canaux", icon: MessageSquare },
     { id: "security", label: "Sécurité", icon: ShieldAlert },
+    { id: "notifications", label: "Notifications", icon: Bell },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
   ];
 
@@ -454,6 +455,11 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               })}
             </div>
           </ChromeInsetCard>
+        )}
+
+        {/* ═══ NOTIFICATIONS ═══ */}
+        {activeTab === "notifications" && (
+          <NotificationsTab inputStyle={inputStyle} labelStyle={labelStyle} />
         )}
 
         {/* ═══ ANONYMIZER ═══ */}
@@ -828,6 +834,230 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             </div>
           </div>
         )}
+      </ChromeInsetCard>
+    </>
+  );
+}
+
+// ═══════════════════════════════════════
+// NOTIFICATIONS TAB — routing matrix
+// ═══════════════════════════════════════
+
+const NOTIFICATION_LEVELS = [
+  { id: "digest", label: "Digest quotidien", desc: "Résumé journalier, findings low/medium", color: "#3080d0" },
+  { id: "alert", label: "Alerte", desc: "Nouveau High, corrélation suspecte", color: "#d09020" },
+  { id: "critical", label: "Critique", desc: "Kill chain, Critical confirmé, HITL", color: "#d03020" },
+];
+
+const ALL_CHANNELS = [
+  { id: "telegram", label: "Telegram" },
+  { id: "slack", label: "Slack" },
+  { id: "mattermost", label: "Mattermost" },
+  { id: "ntfy", label: "Ntfy" },
+  { id: "gotify", label: "Gotify" },
+  { id: "email", label: "Email" },
+];
+
+function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSProperties; labelStyle: React.CSSProperties }) {
+  const [routing, setRouting] = useState<Record<string, string[]>>({ digest: ["telegram"], alert: ["telegram"], critical: ["telegram", "ntfy"] });
+  const [configuredChannels, setConfiguredChannels] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [situation, setSituation] = useState<{ global_score?: number; notification_level?: string; open_findings?: number; active_alerts?: number } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<{ channel: string; ok: boolean; error?: string }[]>([]);
+
+  useEffect(() => {
+    // Load routing config
+    fetch("/api/tc/notifications/routing").then(r => r.json()).then(d => {
+      if (d.digest) setRouting(d);
+    }).catch(() => {});
+
+    // Load configured channels
+    fetch("/api/tc/config").then(r => r.json()).then(cfg => {
+      const channels = cfg.channels || {};
+      const configured: string[] = [];
+      if (channels.telegram?.enabled && channels.telegram?.botToken) configured.push("telegram");
+      if (channels.slack?.enabled && channels.slack?.botToken) configured.push("slack");
+      if (channels.mattermost?.enabled && channels.mattermost?.webhookUrl) configured.push("mattermost");
+      if (channels.ntfy?.enabled && channels.ntfy?.topic) configured.push("ntfy");
+      if (channels.gotify?.enabled && channels.gotify?.appToken) configured.push("gotify");
+      if (channels.email?.enabled && channels.email?.host) configured.push("email");
+      setConfiguredChannels(configured);
+    }).catch(() => {});
+
+    // Load current situation
+    fetch("/api/tc/intelligence/situation").then(r => r.json()).then(d => setSituation(d)).catch(() => {});
+  }, []);
+
+  const toggleChannel = (level: string, channel: string) => {
+    setRouting(prev => {
+      const current = prev[level] || [];
+      const next = current.includes(channel)
+        ? current.filter(c => c !== channel)
+        : [...current, channel];
+      return { ...prev, [level]: next };
+    });
+  };
+
+  const saveRouting = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/tc/notifications/routing", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(routing),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch { /* */ }
+    setSaving(false);
+  };
+
+  const testNotification = async (level: string) => {
+    setTesting(true);
+    setTestResults([]);
+    try {
+      const res = await fetch("/api/tc/notifications/test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level, message: `ThreatClaw — Test notification (${level})` }),
+      });
+      const data = await res.json();
+      setTestResults(data.results || []);
+    } catch { /* */ }
+    setTesting(false);
+  };
+
+  return (
+    <>
+      {/* Current situation */}
+      {situation && situation.global_score !== undefined && (
+        <ChromeInsetCard>
+          <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
+            <Shield size={18} color="#d03020" /> Situation actuelle
+          </ChromeEmbossedText>
+          <div style={{ display: "flex", gap: "16px" }}>
+            <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ fontSize: "28px", fontWeight: 800, color: (situation.global_score ?? 100) >= 70 ? "#30a050" : (situation.global_score ?? 100) >= 40 ? "#d09020" : "#d03020" }}>
+                {Math.round(situation.global_score ?? 100)}
+              </div>
+              <div style={{ fontSize: "10px", color: "#5a534e", textTransform: "uppercase" }}>Score</div>
+            </div>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "4px" }}>
+              <div style={{ fontSize: "13px", color: "#e8e4e0" }}>
+                Niveau : <strong style={{ color: situation.notification_level === "silence" ? "#30a050" : situation.notification_level === "digest" ? "#3080d0" : situation.notification_level === "alert" ? "#d09020" : "#d03020" }}>
+                  {situation.notification_level || "silence"}
+                </strong>
+              </div>
+              <div style={{ fontSize: "11px", color: "#5a534e" }}>
+                {situation.open_findings || 0} findings ouverts — {situation.active_alerts || 0} alertes actives
+              </div>
+            </div>
+          </div>
+        </ChromeInsetCard>
+      )}
+
+      {/* No channels warning */}
+      {configuredChannels.length === 0 && (
+        <ChromeInsetCard glow>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <AlertTriangle size={20} color="#d03020" />
+            <div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#d03020" }}>Aucun canal configuré</div>
+              <div style={{ fontSize: "12px", color: "#5a534e" }}>
+                {"Allez dans l'onglet Canaux pour configurer au moins un moyen de communication."}
+              </div>
+            </div>
+          </div>
+        </ChromeInsetCard>
+      )}
+
+      {/* Routing matrix */}
+      <ChromeInsetCard>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <Bell size={18} color="#d03020" /> Routing des notifications
+        </ChromeEmbossedText>
+        <div style={{ fontSize: "12px", color: "#5a534e", marginBottom: "20px" }}>
+          Choisissez quels canaux reçoivent quels types de notifications. Silence = rien envoyé.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          {NOTIFICATION_LEVELS.map(level => (
+            <div key={level.id} style={{ padding: "14px 16px", borderRadius: "12px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: level.color, boxShadow: `0 0 6px ${level.color}40` }} />
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{level.label}</span>
+                <span style={{ fontSize: "11px", color: "#5a534e" }}>— {level.desc}</span>
+              </div>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                {ALL_CHANNELS.map(ch => {
+                  const active = (routing[level.id] || []).includes(ch.id);
+                  const configured = configuredChannels.includes(ch.id);
+                  return (
+                    <button key={ch.id} onClick={() => configured && toggleChannel(level.id, ch.id)}
+                      disabled={!configured}
+                      style={{
+                        padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+                        fontFamily: "inherit", cursor: configured ? "pointer" : "not-allowed",
+                        background: active ? `${level.color}15` : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${active ? `${level.color}40` : "rgba(255,255,255,0.04)"}`,
+                        color: active ? level.color : configured ? "#5a534e" : "#3a3a3a",
+                        opacity: configured ? 1 : 0.4,
+                        transition: "all 0.2s",
+                      }}>
+                      {ch.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
+          <div style={{ display: "flex", gap: "6px" }}>
+            {NOTIFICATION_LEVELS.map(level => (
+              <ChromeButton key={level.id} onClick={() => testNotification(level.id)} disabled={testing} variant="glass">
+                <Play size={12} /> Test {level.label.toLowerCase()}
+              </ChromeButton>
+            ))}
+          </div>
+          <ChromeButton onClick={saveRouting} disabled={saving} variant="primary">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
+            {saved ? "Sauvegardé" : "Enregistrer"}
+          </ChromeButton>
+        </div>
+
+        {/* Test results */}
+        {testResults.length > 0 && (
+          <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "4px" }}>
+            {testResults.map((r, i) => (
+              <div key={i} style={{ fontSize: "11px", display: "flex", alignItems: "center", gap: "6px", color: r.ok ? "#30a050" : "#d03020" }}>
+                {r.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+                {r.channel}: {r.ok ? "OK" : r.error}
+              </div>
+            ))}
+          </div>
+        )}
+      </ChromeInsetCard>
+
+      {/* Explanation */}
+      <ChromeInsetCard>
+        <div style={{ fontSize: "12px", color: "#5a534e", lineHeight: 1.7 }}>
+          <strong style={{ color: "#e8e4e0" }}>Comment ça marche</strong>
+          <br /><br />
+          {"L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :"}
+          <br /><br />
+          {"• Silence (score ≥ 80) — rien à signaler, pas de notification"}
+          <br />
+          {"• Digest (score 50-80) — résumé quotidien des activités"}
+          <br />
+          {"• Alerte (score < 50) — notification immédiate, corrélation suspecte"}
+          <br />
+          {"• Critique (kill chain, exploit connu) — tous les canaux, HITL"}
+          <br /><br />
+          {"Le RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien."}
+        </div>
       </ChromeInsetCard>
     </>
   );

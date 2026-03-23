@@ -370,6 +370,13 @@ pub async fn start_server(
         // HITL callback (Mattermost/Ntfy button actions — both GET and POST)
         .route("/api/tc/hitl/callback", get(super::handlers::threatclaw_api::hitl_button_callback_handler))
         .route("/api/tc/hitl/callback", post(super::handlers::threatclaw_api::hitl_button_callback_handler))
+        // Intelligence engine + notification routing
+        .route("/api/tc/intelligence/situation", get(super::handlers::threatclaw_api::intelligence_situation_handler))
+        .route("/api/tc/intelligence/cycle", post(super::handlers::threatclaw_api::intelligence_cycle_handler))
+        .route("/api/tc/intelligence/start", post(super::handlers::threatclaw_api::intelligence_start_handler))
+        .route("/api/tc/notifications/routing", get(super::handlers::threatclaw_api::notification_routing_get_handler))
+        .route("/api/tc/notifications/routing", post(super::handlers::threatclaw_api::notification_routing_set_handler))
+        .route("/api/tc/notifications/test", post(super::handlers::threatclaw_api::notification_test_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API
