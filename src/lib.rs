@@ -51,6 +51,7 @@ pub mod db;
 pub mod document_extraction;
 pub mod error;
 pub mod estimation;
+pub mod graph;
 pub mod evaluation;
 pub mod extensions;
 pub mod history;
