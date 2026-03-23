@@ -149,7 +149,26 @@ pub async fn run_intelligence_cycle(
         (100.0 - (worst_asset * 0.6 + avg_score * 0.4)).max(0.0)
     };
 
-    // ── 5b. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // ── 5b. RUN INVESTIGATION GRAPHS for each alert ──
+    // Match alerts to investigation graphs and run deterministic investigation.
+    let all_graphs = crate::graph::investigation::get_investigation_graphs();
+    for a in alerts.iter().take(3) {
+        if let Some(graph_id) = crate::graph::investigation::match_investigation_graph(&a.title) {
+            if let Some(graph) = all_graphs.iter().find(|g| g.id == graph_id) {
+                let ip = a.source_ip.as_deref().map(|s| s.split('/').next().unwrap_or(s));
+                let host = a.hostname.as_deref();
+                let result = crate::graph::executor::run_investigation(
+                    store.clone(), graph, &a.title, ip, host,
+                ).await;
+                tracing::info!(
+                    "INVESTIGATION: '{}' → {} steps, {} ms",
+                    graph_id, result.steps_completed.len(), result.total_duration_ms
+                );
+            }
+        }
+    }
+
+    // ── 5c. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
     // This is where the engine becomes a true SOC brain — it reads raw logs,
     // extracts indicators, and cross-references with enrichment sources.
     let log_scan_results = scan_logs_for_threats(store.clone()).await;
