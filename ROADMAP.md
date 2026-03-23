@@ -247,7 +247,8 @@
 - [ ] **Éphémères P2** : httpx, subfinder, docker-bench-security
 - [ ] Système de modes d'exécution dans skill.json : `ephemeral` / `persistent` / `connector`
 - [ ] Dashboard : badges mode, "Activer" simplifié, technique cachée par défaut
-- [ ] Corriger `skill-appsec` (stub) et retirer `skill-secrets-audit` (vide)
+- [x] ~~Corriger `skill-appsec`~~ (pas de skill.json, déjà absent du catalog)
+- [x] ~~Retirer `skill-secrets-audit`~~ (skill.json.disabled — doublon de skill-secrets)
 
 ### Fine-tuning L1 — ThreatClaw AI 8B Triage spécialisé
 
@@ -287,8 +288,8 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 - Qualité L2 : meilleure car reçoit un contexte structuré parfait
 
 **Collecte de données pour amélioration continue :**
-- [ ] Table `llm_training_data` : prompt, response, parsing_ok, rssi_validated
-- [ ] Logging automatique de chaque appel L1 (en local, on-premise)
+- [x] **Table `llm_training_data`** : migration V22, prompt_hash, response_json, parsing_ok, severity, confidence, cycle_duration
+- [x] **Logging automatique** de chaque appel L1 dans le ReAct runner (on-premise, jamais envoyé)
 - [ ] Script `scripts/generate-training-data.py` (Claude API → JSONL)
 - [ ] Re-fine-tuning après chaque ajout majeur de skill
 
