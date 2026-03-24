@@ -297,6 +297,20 @@ body {
 .input-glass::placeholder { color: var(--tc-text-muted); }
 .input-glass:focus { border-color: var(--tc-border-accent); box-shadow: var(--shadow-input), 0 0 0 2px var(--tc-red-soft); }
 
+/* ─── SPIN LOADER (red ring — for running skills) ─── */
+.tc-spin-loader {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  animation: tcSpin 1s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes tcSpin {
+  0%   { transform: rotate(0deg);   box-shadow: 0 -1px 0 var(--tc-red); }
+  50%  { transform: rotate(180deg); box-shadow: 0 -1px 0 var(--tc-red); }
+  100% { transform: rotate(360deg); box-shadow: 0 -1px 0 var(--tc-red); }
+}
+
 /* ─── PILLS ─── */
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; border-radius: 20px; padding: 4px 12px; }
 .pill-ok { color: var(--tc-green); background: var(--tc-green-soft); border: 1px solid rgba(48,160,80,0.20); }

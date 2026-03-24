@@ -181,12 +181,20 @@ export default function SkillsPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px" }}>
             {mySkills.map(skill => {
               const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "var(--tc-text-muted)" };
+              const isRunning = running === skill.id;
+              const isDisabled = disabledSkills.has(skill.id);
               return (
                 <div key={skill.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px",
-                  borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)" }}>
-                  <input type="checkbox" className="tc-toggle" checked={!disabledSkills.has(skill.id)} onChange={() => toggleActive(skill.id)} />
+                  borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)",
+                  border: isRunning ? "1px solid var(--tc-red-border)" : "1px solid var(--tc-border)",
+                  opacity: isDisabled ? 0.5 : 1, transition: "all 200ms",
+                }}>
+                  <input type="checkbox" className="tc-toggle" checked={!isDisabled} onChange={() => toggleActive(skill.id)} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.name}</span>
+                      {isRunning && <div className="tc-spin-loader" />}
+                    </div>
                     <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", background: `${ti.color}15`, color: ti.color, textTransform: "uppercase" }}>{ti.label}</span>
                   </div>
                   <button onClick={() => { setRunResult(null); setModalSkill(skill); }} style={{ padding: "6px", borderRadius: "6px", background: "transparent", border: "none", color: "var(--tc-text-muted)", cursor: "pointer" }}>
@@ -378,7 +386,7 @@ export default function SkillsPage() {
                     <Play size={12} /> {running === modalSkill.id ? "..." : modalSkill.type === "connector" ? "Sync" : "Lancer"}
                   </button>
                 )}
-                <button className="tc-btn-embossed" onClick={() => setModalSkill(null)} style={{ fontSize: "11px", padding: "8px 14px" }}>Fermer</button>
+                <button className="tc-btn-embossed" onClick={() => setModalSkill(null)} style={{ fontSize: "11px", padding: "8px 14px" }}>Enregistrer</button>
               </div>
             </div>
           </div>
