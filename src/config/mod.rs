@@ -17,6 +17,7 @@ pub(crate) mod llm;
 pub mod relay;
 mod routines;
 mod safety;
+pub mod license;
 mod sandbox;
 mod search;
 mod secrets;

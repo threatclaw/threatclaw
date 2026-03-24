@@ -1860,6 +1860,93 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// LICENSE
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/license — get current license status + asset count.
+pub async fn license_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Get serial from DB settings
+    let serial = store.get_setting("tc_license", "serial").await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default();
+
+    let license = crate::config::license::verify_serial(&serial);
+
+    // Count assets in graph
+    let asset_stats = crate::graph::asset_resolution::asset_stats(store.as_ref()).await;
+    let asset_count = asset_stats["total_assets"].as_i64().unwrap_or(0) as usize;
+
+    Ok(Json(serde_json::json!({
+        "tier": license.tier,
+        "max_assets": license.max_assets,
+        "asset_count": asset_count,
+        "usage_percent": license.usage_percent(asset_count),
+        "over_limit": license.is_over_limit(asset_count),
+        "client_name": license.client_name,
+        "expires": license.expires,
+        "valid": license.valid,
+        "days_remaining": license.days_remaining,
+        "status_message": license.status_message(asset_count),
+    })))
+}
+
+/// POST /api/tc/license/activate — activate a serial.
+pub async fn license_activate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let serial = body["serial"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing serial".to_string()))?;
+
+    // Verify the serial
+    let license = crate::config::license::verify_serial(serial);
+
+    if !license.valid || license.tier == crate::config::license::LicenseTier::Community {
+        if serial.trim().is_empty() {
+            // Clear the serial
+            let _ = store.set_setting("tc_license", "serial", &serde_json::json!("")).await;
+            return Ok(Json(serde_json::json!({
+                "activated": false,
+                "tier": "community",
+                "message": "Licence reinitialisee — mode Community",
+            })));
+        }
+        return Ok(Json(serde_json::json!({
+            "activated": false,
+            "tier": "community",
+            "message": if license.days_remaining.map(|d| d < 0).unwrap_or(false) {
+                "Serial expire — veuillez renouveler"
+            } else {
+                "Serial invalide — verifiez et reessayez"
+            },
+        })));
+    }
+
+    // Store the serial in DB
+    let _ = store.set_setting("tc_license", "serial", &serde_json::json!(serial)).await;
+
+    tracing::info!("LICENSE: Activated {} for '{}' — {} assets max",
+        license.tier, license.client_name, license.max_assets);
+
+    Ok(Json(serde_json::json!({
+        "activated": true,
+        "tier": license.tier,
+        "max_assets": license.max_assets,
+        "client_name": license.client_name,
+        "expires": license.expires,
+        "message": format!("Licence {} activee pour {} — {} assets max",
+            license.tier, license.client_name, license.max_assets),
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // UNIFIED SKILL CATALOG
 // ══════════════════════════════════════════════════════════
 
