@@ -1,0 +1,44 @@
+{
+  "id": "skill-defectdojo",
+  "name": "DefectDojo",
+  "version": "1.0.0",
+  "description": "Exporte les findings ThreatClaw vers DefectDojo pour la gestion centralisee des vulnerabilites.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "compliance",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL DefectDojo (ex: https://defectdojo.corp.local)",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "API Token DefectDojo (Configuration > API v2 Key)",
+      "required": true
+    },
+    "product_id": {
+      "type": "number",
+      "description": "Product ID dans DefectDojo",
+      "required": true
+    },
+    "engagement_id": {
+      "type": "number",
+      "description": "Engagement ID (test associe)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "external"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "database"
+}

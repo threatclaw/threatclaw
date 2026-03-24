@@ -5,7 +5,9 @@
 //! assets/users into the ThreatClaw graph via the Asset Resolution Pipeline.
 
 pub mod active_directory;
+pub mod defectdojo;
 pub mod docker_executor;
+pub mod fortinet;
 pub mod glpi;
 pub mod nmap_discovery;
 pub mod pfsense;

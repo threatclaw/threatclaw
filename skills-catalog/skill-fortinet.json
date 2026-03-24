@@ -1,0 +1,39 @@
+{
+  "id": "skill-fortinet",
+  "name": "Fortinet FortiGate",
+  "version": "1.0.0",
+  "description": "Synchronise la table ARP, les interfaces et VLANs depuis FortiGate. Peut bloquer des IPs via l'API.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL FortiGate (ex: https://192.168.1.1)",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "API Key FortiGate (System > Administrators > REST API)",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "default": true
+    }
+  },
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "shield"
+}

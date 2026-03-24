@@ -2141,6 +2141,30 @@ pub async fn connector_glpi_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/connectors/fortinet/sync — sync FortiGate into graph.
+pub async fn connector_fortinet_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::fortinet::FortinetConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid fortinet config: {e}")))?;
+    let result = crate::connectors::fortinet::sync_fortinet(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/defectdojo/export — export findings to DefectDojo.
+pub async fn connector_defectdojo_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::defectdojo::DefectDojoConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid defectdojo config: {e}")))?;
+    let result = crate::connectors::defectdojo::export_findings(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/connectors/firewall/sync — sync pfSense/OPNsense into graph.
 pub async fn connector_firewall_sync_handler(
     State(state): State<Arc<GatewayState>>,

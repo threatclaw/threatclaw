@@ -298,9 +298,9 @@ Les outils du client auxquels ThreatClaw se branche.
 - [x] **Wazuh** : real REST API (JWT auth), import alertes level>=7, MITRE auto (le client a déjà un SIEM)
 - [ ] **Elastic SIEM** : import alertes
 - [x] **GLPI** : import assets depuis CMDB existant (le client a déjà un inventaire)
-- [ ] **DefectDojo** : export findings (vuln management)
+- [x] **DefectDojo** : export findings (vuln management)
 - [ ] **Dependency-Track** : SBOM lifecycle
-- [ ] **Fortinet API** : firewall enterprise
+- [x] **Fortinet API** : firewall enterprise
 
 **P3 — Actions (le client veut que ThreatClaw agisse) :**
 - [x] **pfSense write** : bloquer IP via REST API v2 (POST /firewall/rule), regle auto ThreatClaw, reversible
