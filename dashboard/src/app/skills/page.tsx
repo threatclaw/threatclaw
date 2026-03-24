@@ -5,6 +5,7 @@ import {
   Search, Settings, Shield, Network, Database, Code, Monitor,
   FileText, Eye, Crosshair, RefreshCw, CheckCircle2,
   Key, Clock, Zap, Power, Play, X, Trash2, Plus, Server,
+  ChevronDown, ChevronRight, Download,
 } from "lucide-react";
 
 interface SkillManifest {
@@ -68,6 +69,7 @@ export default function SkillsPage() {
   const [runResult, setRunResult] = useState<any>(null);
   const [installing, setInstalling] = useState<SkillManifest | null>(null);
   const [installDone, setInstallDone] = useState(false);
+  const [expandedCatalog, setExpandedCatalog] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -186,20 +188,41 @@ export default function SkillsPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "8px" }}>
                   {skills.map(skill => {
                     const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "var(--tc-text-muted)" };
+                    const isExp = expandedCatalog === skill.id;
                     return (
-                      <div key={skill.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px",
-                        borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)" }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                            <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
-                            <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", background: `${ti.color}15`, color: ti.color, textTransform: "uppercase" }}>{ti.label}</span>
-                            {skill.api_key_required && <Key size={10} color="var(--tc-amber)" />}
+                      <div key={skill.id} style={{
+                        borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", overflow: "hidden",
+                      }}>
+                        {/* Header — click to expand */}
+                        <div onClick={() => setExpandedCatalog(isExp ? null : skill.id)} style={{
+                          display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", cursor: "pointer",
+                        }}>
+                          {isExp ? <ChevronDown size={14} color="var(--tc-text-muted)" /> : <ChevronRight size={14} color="var(--tc-text-muted)" />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
+                              <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", background: `${ti.color}15`, color: ti.color, textTransform: "uppercase" }}>{ti.label}</span>
+                              {skill.api_key_required && <Key size={10} color="var(--tc-amber)" />}
+                            </div>
                           </div>
-                          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.description}</div>
                         </div>
-                        <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "10px", padding: "5px 12px" }}>
-                          <Plus size={11} /> Installer
-                        </button>
+                        {/* Expanded detail */}
+                        {isExp && (
+                          <div style={{ padding: "0 12px 12px", borderTop: "1px solid var(--tc-border)" }}>
+                            <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: "1.6", margin: "10px 0" }}>
+                              {skill.description}
+                            </p>
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+                              {skill.version && <span>v{skill.version}</span>}
+                              {skill.author && <span>{skill.author}</span>}
+                              {skill.execution?.mode && <span>{skill.execution.mode === "ephemeral" ? "Docker" : skill.execution.mode === "persistent" ? "Sync continue" : "API"}</span>}
+                              {skill.execution?.docker_image && <span style={{ fontFamily: "monospace", color: "var(--tc-blue)" }}>{skill.execution.docker_image}</span>}
+                            </div>
+                            <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "11px", padding: "6px 16px" }}>
+                              <Download size={12} /> Installer
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
