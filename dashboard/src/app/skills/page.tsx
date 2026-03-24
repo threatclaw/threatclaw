@@ -1,498 +1,416 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
-import { ChromeButton } from "@/components/chrome/ChromeButton";
+import React, { useState, useEffect, useCallback } from "react";
 import {
-  CheckCircle2, Search, Settings, Save, X, Loader2, Key, Wifi, XCircle,
-  Shield, Scan, BarChart3, FileText, Server, Eye, Play, ChevronDown, ChevronRight, Download,
+  Search, ChevronDown, ChevronRight, Play, Settings, Shield, Network,
+  Database, Code, Monitor, FileText, Radio, Globe, Server, Users,
+  Eye, Crosshair, AlertTriangle, RefreshCw, CheckCircle2, XCircle,
+  Key, Clock, Zap,
 } from "lucide-react";
 
-interface Skill {
+// ── Types ──
+
+interface SkillManifest {
   id: string;
   name: string;
   version: string;
   description: string;
   author: string;
-  trust: string;
+  skill_type: string; // "tool" | "connector" | "enrichment"
   category: string;
-  runtime: string;
-  installed: boolean;
-  api_key_required?: boolean;
-  requires_network?: boolean;
-  secrets?: string[];
-  config_fields?: { key: string; label: string; type: string; default?: string; placeholder?: string; options?: string[] }[];
+  execution: any;
+  config: Record<string, { type: string; description: string; required?: boolean; default?: any; options?: string[] }>;
+  default_active: boolean;
+  requires_config: boolean;
+  api_key_required: boolean;
+  icon: string;
 }
 
-interface SkillConfig {
-  skill_id: string;
-  config: { key: string; value: string }[];
+interface CatalogResponse {
+  skills: SkillManifest[];
+  total: number;
+  tools: number;
+  connectors: number;
+  enrichment: number;
 }
 
-// ── Categories with icons ──
-const CATEGORIES = [
-  { id: "scanning", label: "Scanning & Reconnaissance", icon: Scan, color: "#d03020" },
-  { id: "monitoring", label: "Monitoring & Threat Intel", icon: Eye, color: "#3080d0" },
-  { id: "compliance", label: "Conformité & Audit", icon: Shield, color: "#30a050" },
-  { id: "infrastructure", label: "Infrastructure & Cloud", icon: Server, color: "#d09020" },
-  { id: "rapports", label: "Rapports", icon: FileText, color: "#a040d0" },
-];
+// ── Category config ──
 
-// ── Config fields per skill (merge with config_fields from skill.json) ──
-const SKILL_CONFIG_FIELDS: Record<string, { key: string; label: string; placeholder: string; secret?: boolean; type?: string; options?: string[] }[]> = {
-  "skill-abuseipdb": [{ key: "api_key", label: "AbuseIPDB API Key", placeholder: "Clé depuis abuseipdb.com/account/api", secret: true }],
-  "skill-shodan": [{ key: "api_key", label: "Shodan API Key", placeholder: "Clé depuis account.shodan.io", secret: true }],
-  "skill-virustotal": [{ key: "api_key", label: "VirusTotal API Key", placeholder: "Clé depuis virustotal.com/gui/my-apikey", secret: true }],
-  "skill-cti-crowdsec": [{ key: "api_key", label: "CrowdSec CTI Key", placeholder: "Clé depuis app.crowdsec.net", secret: true }],
-  "skill-darkweb-monitor": [
-    { key: "api_key", label: "HIBP API Key", placeholder: "Clé depuis haveibeenpwned.com/API/Key", secret: true },
-    { key: "emails", label: "Emails à surveiller", placeholder: "admin@example.com, ceo@example.com" },
-  ],
-  "skill-wazuh": [
-    { key: "url", label: "URL Wazuh API", placeholder: "https://wazuh.local:55000" },
-    { key: "username", label: "Utilisateur API", placeholder: "wazuh-wui" },
-    { key: "password", label: "Mot de passe", placeholder: "Mot de passe Wazuh API", secret: true },
-  ],
-  "skill-email-audit": [{ key: "domains", label: "Domaines à auditer", placeholder: "example.com, corp.fr" }],
-  "skill-report-gen": [
-    { key: "company_name", label: "Nom de l'entreprise", placeholder: "Acme Corp" },
-    { key: "language", label: "Langue du rapport", placeholder: "fr" },
-  ],
-  "skill-vuln-scan": [
-    { key: "targets", label: "Cibles réseau", placeholder: "192.168.1.0/24" },
-    { key: "severity_filter", label: "Sévérité minimum", placeholder: "medium", type: "select", options: ["critical", "high", "medium", "low"] },
-    { key: "templates", label: "Templates Nuclei", placeholder: "default", type: "select", options: ["default", "custom", "all"] },
-  ],
-  "skill-secrets-audit": [
-    { key: "scan_path", label: "Chemin à scanner", placeholder: "/app/data" },
-  ],
-  "skill-cloud-posture": [
-    { key: "provider", label: "Cloud Provider", placeholder: "aws", type: "select", options: ["aws", "azure", "gcp", "all"] },
-    { key: "aws_profile", label: "AWS Profile", placeholder: "default" },
-    { key: "azure_tenant", label: "Azure Tenant ID", placeholder: "" },
-    { key: "gcp_project", label: "GCP Project", placeholder: "" },
-  ],
+const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  "discovery": { label: "Discovery", icon: Network, color: "#30a0d0" },
+  "threat-intel": { label: "Threat Intel", icon: Shield, color: "#d03020" },
+  "appsec": { label: "AppSec", icon: Code, color: "#d09020" },
+  "containers": { label: "Containers", icon: Server, color: "#3080d0" },
+  "monitoring": { label: "Monitoring", icon: Eye, color: "#30a050" },
+  "scanning": { label: "Scanning", icon: Crosshair, color: "#9060d0" },
+  "compliance": { label: "Compliance", icon: FileText, color: "#3080d0" },
+  "rapports": { label: "Rapports", icon: FileText, color: "#6a625c" },
 };
 
-const inputStyle: React.CSSProperties = {
-  width: "100%", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px",
-  padding: "10px 14px", fontSize: "13px", color: "#e8e4e0", fontFamily: "inherit",
-  background: "rgba(255,255,255,0.04)", outline: "none",
-  boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
+const TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  "tool": { label: "OUTIL", color: "#d09020" },
+  "connector": { label: "CONNECTEUR", color: "#3080d0" },
+  "enrichment": { label: "ENRICHISSEMENT", color: "#30a050" },
 };
 
-const labelStyle: React.CSSProperties = {
-  fontSize: "11px", fontWeight: 600, color: "#5a534e",
-  textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px",
-};
+// ── Main Page ──
 
 export default function SkillsPage() {
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [configOpen, setConfigOpen] = useState<string | null>(null);
-  const [configData, setConfigData] = useState<Record<string, string>>({});
-  const [configSaving, setConfigSaving] = useState(false);
-  const [configSaved, setConfigSaved] = useState(false);
-  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set(CATEGORIES.map(c => c.id)));
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterCat, setFilterCat] = useState<string>("all");
+  const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
+  const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});
+  const [running, setRunning] = useState<string | null>(null);
+  const [runResult, setRunResult] = useState<any>(null);
 
-  const reloadSkills = () => {
-    fetch("/api/tc/skills/catalog")
-      .then(r => r.json())
-      .then(d => setSkills(d.skills || []))
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    fetch("/api/tc/skills/catalog")
-      .then(r => r.json())
-      .then(d => { setSkills(d.skills || []); setLoading(false); })
-      .catch(() => setLoading(false));
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tc/catalog");
+      if (res.ok) setCatalog(await res.json());
+    } catch {}
   }, []);
 
-  const loadSkillConfig = async (skillId: string) => {
-    try {
-      const res = await fetch(`/api/tc/config/${skillId}`);
-      const data: SkillConfig = await res.json();
-      const configMap: Record<string, string> = {};
-      (data.config || []).forEach(c => { configMap[c.key] = c.value; });
-      setConfigData(configMap);
-    } catch {
-      setConfigData({});
-    }
-    setConfigOpen(configOpen === skillId ? null : skillId);
-    setConfigSaved(false);
-  };
+  useEffect(() => { refresh(); }, [refresh]);
 
-  const saveSkillConfig = async (skillId: string) => {
-    setConfigSaving(true);
-    const fields = getConfigFields(skillId);
+  if (!catalog) return <div style={{ padding: "40px", textAlign: "center", color: "#6a625c" }}>Chargement du catalogue...</div>;
+
+  // Filter + search
+  let filtered = catalog.skills;
+  if (filterType !== "all") filtered = filtered.filter(s => s.skill_type === filterType);
+  if (filterCat !== "all") filtered = filtered.filter(s => s.category === filterCat);
+  if (search.trim()) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q) ||
+      s.category.toLowerCase().includes(q)
+    );
+  }
+
+  // Group by category
+  const grouped: Record<string, SkillManifest[]> = {};
+  for (const s of filtered) {
+    const cat = s.category || "autre";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(s);
+  }
+
+  // Available categories from current filter
+  const availableCats = Array.from(new Set(catalog.skills.map(s => s.category))).sort();
+
+  const handleRun = async (skill: SkillManifest) => {
+    setRunning(skill.id);
+    setRunResult(null);
     try {
-      for (const field of fields) {
-        const value = configData[field.key] || "";
-        if (value) {
-          await fetch(`/api/tc/config/${skillId}`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key: field.key, value }),
-          });
-        }
+      const body: any = { target: configValues[skill.id]?.target_subnets || configValues[skill.id]?.target_path || configValues[skill.id]?.target_image || "." };
+      // Add all config values
+      if (configValues[skill.id]) {
+        Object.assign(body, configValues[skill.id]);
       }
-      setConfigSaved(true);
-      setTimeout(() => setConfigSaved(false), 3000);
-    } catch { /* */ }
-    setConfigSaving(false);
-  };
 
-  const getConfigFields = (skillId: string) => {
-    // Use hardcoded fields first, fall back to skill.json config_fields
-    if (SKILL_CONFIG_FIELDS[skillId]) return SKILL_CONFIG_FIELDS[skillId];
-    const skill = skills.find(s => s.id === skillId);
-    if (skill?.config_fields) {
-      return skill.config_fields.map(f => ({
-        key: f.key, label: f.label, placeholder: f.placeholder || f.default || "",
-        secret: false, type: f.type, options: f.options,
-      }));
+      let url = "";
+      if (skill.id === "skill-nmap-discovery") {
+        url = "/api/tc/connectors/nmap/scan";
+        body.targets = configValues[skill.id]?.target_subnets || "192.168.1.0/24";
+      } else if (skill.id === "skill-active-directory") {
+        url = "/api/tc/connectors/ad/sync";
+      } else if (skill.id === "skill-pfsense") {
+        url = "/api/tc/connectors/firewall/sync";
+      } else if (skill.id === "skill-proxmox") {
+        url = "/api/tc/connectors/proxmox/sync";
+      } else {
+        url = `/api/tc/skills/run/${skill.id}`;
+      }
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      setRunResult(data);
+    } catch (e: any) {
+      setRunResult({ error: e.message });
     }
-    return [];
+    setRunning(null);
   };
 
-  const filtered = search
-    ? skills.filter(s => s.name?.toLowerCase().includes(search.toLowerCase()) || s.description?.toLowerCase().includes(search.toLowerCase()) || s.category?.toLowerCase().includes(search.toLowerCase()))
-    : skills;
-
-  const toggleCat = (catId: string) => {
-    setExpandedCats(p => {
-      const next = new Set(p);
-      next.has(catId) ? next.delete(catId) : next.add(catId);
-      return next;
-    });
+  const setConfig = (skillId: string, key: string, value: string) => {
+    setConfigValues(prev => ({
+      ...prev,
+      [skillId]: { ...prev[skillId], [key]: value },
+    }));
   };
-
-  if (loading) return (
-    <ChromeInsetCard>
-      <div style={{ textAlign: "center", padding: "32px" }}>
-        <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 12px", color: "#d03020" }} />
-        <div style={{ fontSize: "13px", color: "#5a534e" }}>Chargement des skills...</div>
-      </div>
-    </ChromeInsetCard>
-  );
 
   return (
-    <div>
+    <div style={{ padding: "0 24px 40px" }}>
       {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#e8e4e0", letterSpacing: "-0.02em", margin: 0 }}>Skills</h1>
-        <p style={{ fontSize: "13px", color: "#5a534e", margin: "4px 0 0" }}>
-          {skills.length} skills disponibles — {skills.filter(s => s.installed).length} installées
-        </p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+        <div>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>Skills</h1>
+          <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
+            {catalog.total} skills &middot; {catalog.tools} outils &middot; {catalog.connectors} connecteurs &middot; {catalog.enrichment} enrichissement
+          </p>
+        </div>
+        <button onClick={refresh} style={{
+          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
+          borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(255,255,255,0.03)", color: "#6a625c",
+          fontSize: "11px", fontWeight: 600, cursor: "pointer",
+        }}>
+          <RefreshCw size={12} /> Actualiser
+        </button>
       </div>
 
-      {/* Search */}
-      <ChromeInsetCard style={{ marginBottom: "20px", padding: "12px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Search size={16} color="#5a534e" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher par nom, description ou catégorie..."
-            style={{ ...inputStyle, border: "none", boxShadow: "none", padding: 0, background: "transparent", fontSize: "14px" }} />
-          {search && (
-            <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
-              <X size={14} color="#5a534e" />
-            </button>
-          )}
+      {/* Search + filters */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "200px", position: "relative" }}>
+          <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "#6a625c" }} />
+          <input
+            type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher une skill..."
+            style={{
+              width: "100%", padding: "8px 10px 8px 32px", borderRadius: "8px", fontSize: "12px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              color: "#e8e4e0", outline: "none",
+            }}
+          />
         </div>
-      </ChromeInsetCard>
+        {/* Type filter */}
+        {[
+          { key: "all", label: "Tous" },
+          { key: "tool", label: "Outils" },
+          { key: "connector", label: "Connecteurs" },
+          { key: "enrichment", label: "Enrichissement" },
+        ].map(f => (
+          <button key={f.key} onClick={() => setFilterType(f.key)} style={{
+            padding: "8px 14px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+            border: filterType === f.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
+            background: filterType === f.key ? "rgba(208,48,32,0.1)" : "rgba(255,255,255,0.03)",
+            color: filterType === f.key ? "#d03020" : "#6a625c",
+            cursor: "pointer",
+          }}>{f.label}</button>
+        ))}
+        {/* Category filter */}
+        <select
+          value={filterCat} onChange={e => setFilterCat(e.target.value)}
+          style={{
+            padding: "8px 12px", borderRadius: "8px", fontSize: "11px",
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+            color: "#e8e4e0", outline: "none",
+          }}
+        >
+          <option value="all">Toutes categories</option>
+          {availableCats.map(c => (
+            <option key={c} value={c}>{CATEGORIES[c]?.label || c}</option>
+          ))}
+        </select>
+      </div>
 
-      {/* Skills by category */}
-      {CATEGORIES.map(cat => {
-        const catSkills = filtered.filter(s => s.category === cat.id);
-        if (catSkills.length === 0) return null;
-        const CatIcon = cat.icon;
-        const isExpanded = expandedCats.has(cat.id);
-        const installedCount = catSkills.filter(s => s.installed).length;
-
+      {/* Skills grouped by category */}
+      {Object.entries(grouped).map(([cat, skills]) => {
+        const catInfo = CATEGORIES[cat] || { label: cat, icon: Zap, color: "#6a625c" };
+        const CatIcon = catInfo.icon;
         return (
-          <div key={cat.id} style={{ marginBottom: "16px" }}>
-            {/* Category header */}
-            <button onClick={() => toggleCat(cat.id)} style={{
-              display: "flex", alignItems: "center", gap: "10px", width: "100%",
-              background: "none", border: "none", cursor: "pointer", padding: "8px 0",
-              fontFamily: "inherit", textAlign: "left", color: "inherit",
-            }}>
-              <CatIcon size={16} color={cat.color} />
-              <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0", flex: 1 }}>
-                {cat.label}
+          <div key={cat} style={{ marginBottom: "24px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+              <CatIcon size={16} color={catInfo.color} />
+              <span style={{ fontSize: "13px", fontWeight: 700, color: catInfo.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {catInfo.label}
               </span>
-              <span style={{ fontSize: "11px", color: "#5a534e" }}>
-                {installedCount}/{catSkills.length} actives
-              </span>
-              {isExpanded ? <ChevronDown size={14} color="#5a534e" /> : <ChevronRight size={14} color="#5a534e" />}
-            </button>
+              <span style={{ fontSize: "11px", color: "#6a625c" }}>({skills.length})</span>
+            </div>
 
-            {/* Skills in category */}
-            {isExpanded && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", paddingLeft: "0" }}>
-                {catSkills.map(skill => (
-                  <React.Fragment key={skill.id}>
-                    <SkillCard
-                      skill={skill}
-                      isConfigOpen={configOpen === skill.id}
-                      hasConfig={getConfigFields(skill.id).length > 0}
-                      onToggleConfig={() => loadSkillConfig(skill.id)}
-                      catColor={cat.color}
-                      onInstalled={reloadSkills}
-                    />
-                    {configOpen === skill.id && (
-                      <SkillConfigPanel
-                        skillId={skill.id}
-                        skillName={skill.name}
-                        fields={getConfigFields(skill.id)}
-                        configData={configData}
-                        setConfigData={setConfigData}
-                        onSave={() => saveSkillConfig(skill.id)}
-                        onClose={() => setConfigOpen(null)}
-                        saving={configSaving}
-                        saved={configSaved}
-                      />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "10px" }}>
+              {skills.map(skill => {
+                const isExpanded = expandedSkill === skill.id;
+                const typeInfo = TYPE_LABELS[skill.skill_type] || { label: skill.skill_type, color: "#6a625c" };
+                const configKeys = Object.keys(skill.config || {});
+                const hasConfig = configKeys.length > 0;
+
+                return (
+                  <div key={skill.id} style={{
+                    background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                    borderRadius: "10px", overflow: "hidden",
+                    borderLeft: skill.default_active ? `3px solid ${typeInfo.color}` : "3px solid transparent",
+                  }}>
+                    {/* Header — always visible */}
+                    <div
+                      onClick={() => setExpandedSkill(isExpanded ? null : skill.id)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px",
+                        cursor: "pointer", userSelect: "none",
+                      }}
+                    >
+                      {isExpanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{skill.name}</span>
+                          <span style={{
+                            fontSize: "8px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                            background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}30`,
+                            textTransform: "uppercase", letterSpacing: "0.05em",
+                          }}>{typeInfo.label}</span>
+                          {skill.default_active && (
+                            <CheckCircle2 size={12} color="#30a050" />
+                          )}
+                          {skill.api_key_required && (
+                            <Key size={11} color="#d09020" />
+                          )}
+                        </div>
+                        <div style={{ fontSize: "10px", color: "#6a625c", marginTop: "2px" }}>
+                          {skill.description.substring(0, 80)}{skill.description.length > 80 ? "..." : ""}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <div style={{ padding: "0 14px 14px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                        {/* Full description */}
+                        <p style={{ fontSize: "11px", color: "#a09080", margin: "10px 0", lineHeight: "1.6" }}>
+                          {skill.description}
+                        </p>
+
+                        {/* Metadata */}
+                        <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "10px", color: "#6a625c" }}>v{skill.version || "1.0.0"}</span>
+                          <span style={{ fontSize: "10px", color: "#6a625c" }}>par {skill.author || "ThreatClaw"}</span>
+                          {skill.execution?.mode && (
+                            <span style={{ fontSize: "10px", color: "#6a625c" }}>
+                              {skill.execution.mode === "ephemeral" ? "Docker ephemere" :
+                               skill.execution.mode === "persistent" ? "Synchronisation continue" :
+                               skill.execution.mode === "api" ? "API externe" : skill.execution.mode}
+                            </span>
+                          )}
+                          {skill.execution?.docker_image && (
+                            <span style={{ fontSize: "10px", color: "#3080d0", fontFamily: "monospace" }}>
+                              {skill.execution.docker_image}
+                            </span>
+                          )}
+                          {skill.execution?.sync_interval_minutes && (
+                            <span style={{ fontSize: "10px", color: "#6a625c" }}>
+                              <Clock size={9} style={{ display: "inline", verticalAlign: "middle" }} /> sync {skill.execution.sync_interval_minutes}min
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Config fields */}
+                        {hasConfig && (
+                          <div style={{ marginBottom: "12px" }}>
+                            <div style={{ fontSize: "10px", fontWeight: 700, color: "#6a625c", textTransform: "uppercase", marginBottom: "6px" }}>
+                              Configuration
+                            </div>
+                            {configKeys.map(key => {
+                              const field = (skill.config as any)[key];
+                              const val = configValues[skill.id]?.[key] || "";
+                              return (
+                                <div key={key} style={{ marginBottom: "8px" }}>
+                                  <label style={{ fontSize: "10px", color: "#a09080", display: "block", marginBottom: "3px" }}>
+                                    {field.description || key}
+                                    {field.required && <span style={{ color: "#d03020" }}> *</span>}
+                                  </label>
+                                  {field.type === "select" && field.options ? (
+                                    <select
+                                      value={val || field.default || ""}
+                                      onChange={e => setConfig(skill.id, key, e.target.value)}
+                                      style={{
+                                        width: "100%", padding: "6px 8px", borderRadius: "6px", fontSize: "11px",
+                                        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                                        color: "#e8e4e0", outline: "none",
+                                      }}
+                                    >
+                                      <option value="">Choisir...</option>
+                                      {field.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                  ) : field.type === "boolean" ? (
+                                    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#e8e4e0" }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={val === "true" || (!val && field.default === true)}
+                                        onChange={e => setConfig(skill.id, key, e.target.checked ? "true" : "false")}
+                                      />
+                                      {field.default === true ? "Actif par defaut" : "Desactive par defaut"}
+                                    </label>
+                                  ) : (
+                                    <input
+                                      type={field.type === "password" ? "password" : "text"}
+                                      value={val}
+                                      onChange={e => setConfig(skill.id, key, e.target.value)}
+                                      placeholder={field.default?.toString() || ""}
+                                      style={{
+                                        width: "100%", padding: "6px 8px", borderRadius: "6px", fontSize: "11px",
+                                        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                                        color: "#e8e4e0", outline: "none",
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Action buttons */}
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          {skill.skill_type !== "enrichment" && (
+                            <button
+                              onClick={() => handleRun(skill)}
+                              disabled={running === skill.id}
+                              style={{
+                                display: "flex", alignItems: "center", gap: "6px",
+                                padding: "7px 14px", borderRadius: "6px", fontSize: "11px", fontWeight: 600,
+                                background: "rgba(208,48,32,0.1)", border: "1px solid rgba(208,48,32,0.3)",
+                                color: "#d03020", cursor: running === skill.id ? "wait" : "pointer",
+                                opacity: running === skill.id ? 0.5 : 1,
+                              }}
+                            >
+                              <Play size={12} />
+                              {running === skill.id ? "En cours..." :
+                               skill.skill_type === "connector" ? "Synchroniser" : "Lancer le scan"}
+                            </button>
+                          )}
+                          {skill.default_active && (
+                            <span style={{
+                              display: "flex", alignItems: "center", gap: "4px",
+                              padding: "7px 12px", fontSize: "10px", color: "#30a050",
+                            }}>
+                              <CheckCircle2 size={12} /> Actif par defaut
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Run result */}
+                        {runResult && expandedSkill === skill.id && (
+                          <div style={{
+                            marginTop: "10px", padding: "10px", borderRadius: "6px",
+                            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+                            fontSize: "10px", fontFamily: "monospace", color: "#a09080",
+                            maxHeight: "150px", overflow: "auto",
+                          }}>
+                            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                              {JSON.stringify(runResult, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </React.Fragment>
-                ))}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })}
 
-      {/* Uncategorized skills */}
-      {filtered.filter(s => !CATEGORIES.some(c => c.id === s.category)).length > 0 && (
-        <div style={{ marginBottom: "16px" }}>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0", padding: "8px 0", display: "flex", alignItems: "center", gap: "10px" }}>
-            <BarChart3 size={16} color="#5a534e" /> Autres
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {filtered.filter(s => !CATEGORIES.some(c => c.id === s.category)).map(skill => (
-              <React.Fragment key={skill.id}>
-                <SkillCard skill={skill} isConfigOpen={configOpen === skill.id} hasConfig={getConfigFields(skill.id).length > 0}
-                  onToggleConfig={() => loadSkillConfig(skill.id)} catColor="#5a534e" onInstalled={reloadSkills} />
-                {configOpen === skill.id && (
-                  <SkillConfigPanel skillId={skill.id} skillName={skill.name} fields={getConfigFields(skill.id)}
-                    configData={configData} setConfigData={setConfigData} onSave={() => saveSkillConfig(skill.id)}
-                    onClose={() => setConfigOpen(null)} saving={configSaving} saved={configSaved} />
-                )}
-              </React.Fragment>
-            ))}
-          </div>
+      {filtered.length === 0 && (
+        <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+          Aucune skill ne correspond a votre recherche
         </div>
       )}
     </div>
-  );
-}
-
-// ═══════════════════════════════════════
-// SKILL CARD
-// ═══════════════════════════════════════
-
-function SkillCard({ skill, isConfigOpen, hasConfig, onToggleConfig, catColor, onInstalled }: {
-  skill: Skill; isConfigOpen: boolean; hasConfig: boolean; onToggleConfig: () => void; catColor: string; onInstalled?: () => void;
-}) {
-  const needsApiKey = skill.api_key_required || (SKILL_CONFIG_FIELDS[skill.id] || []).some(f => f.secret);
-  const [installing, setInstalling] = useState(false);
-  const [installResult, setInstallResult] = useState<{ ok: boolean; error?: string } | null>(null);
-
-  const installSkill = async () => {
-    setInstalling(true);
-    setInstallResult(null);
-    try {
-      const res = await fetch(`/api/tc/skills/${skill.id}/install`, { method: "POST" });
-      const data = await res.json();
-      setInstallResult(data);
-      if (data.ok && onInstalled) {
-        setTimeout(() => onInstalled(), 500);
-      }
-    } catch {
-      setInstallResult({ ok: false, error: "Erreur réseau" });
-    }
-    setInstalling(false);
-  };
-
-  return (
-    <ChromeInsetCard style={{
-      borderLeft: `3px solid ${skill.installed ? catColor : "rgba(255,255,255,0.04)"}`,
-      borderRadius: "12px",
-      padding: "16px",
-    }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
-        {/* Status indicator */}
-        <div style={{
-          width: "36px", height: "36px", borderRadius: "10px", flexShrink: 0,
-          background: skill.installed ? `${catColor}12` : "rgba(255,255,255,0.02)",
-          border: `1px solid ${skill.installed ? `${catColor}30` : "rgba(255,255,255,0.04)"}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          {skill.installed ? <CheckCircle2 size={16} color={catColor} /> : <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#3a3a3a" }} />}
-        </div>
-
-        {/* Info */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginBottom: "4px" }}>
-            <span style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0" }}>{skill.name || skill.id}</span>
-            <span style={{ fontSize: "10px", color: "#5a534e", fontFamily: "monospace" }}>v{skill.version || "1.0.0"}</span>
-            {skill.runtime && (
-              <span style={{
-                fontSize: "9px", fontWeight: 600, padding: "2px 6px", borderRadius: "4px",
-                background: skill.runtime === "wasm" ? "rgba(48,128,208,0.08)" : "rgba(208,144,32,0.08)",
-                color: skill.runtime === "wasm" ? "#3080d0" : "#d09020",
-                border: `1px solid ${skill.runtime === "wasm" ? "rgba(48,128,208,0.15)" : "rgba(208,144,32,0.15)"}`,
-              }}>
-                {skill.runtime === "wasm" ? "WASM" : "Docker"}
-              </span>
-            )}
-            {needsApiKey && (
-              <span style={{ fontSize: "9px", color: "#d09020", display: "flex", alignItems: "center", gap: "3px" }}>
-                <Key size={10} /> API Key
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: "12px", color: "#7a7470", lineHeight: 1.4 }}>{skill.description}</div>
-          {installResult && !installResult.ok && (
-            <div style={{ fontSize: "11px", color: "#d03020", marginTop: "6px" }}>
-              {installResult.error}
-            </div>
-          )}
-        </div>
-
-        {/* Actions */}
-        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-          {skill.installed && hasConfig && (
-            <ChromeButton onClick={onToggleConfig} variant={isConfigOpen ? "danger" : "glass"}>
-              {isConfigOpen ? <X size={14} /> : <Settings size={14} />}
-              {isConfigOpen ? "Fermer" : "Configurer"}
-            </ChromeButton>
-          )}
-          {skill.installed && !hasConfig && (
-            <span style={{ fontSize: "11px", color: "#30a050", display: "flex", alignItems: "center", gap: "4px", padding: "6px 10px" }}>
-              <CheckCircle2 size={14} /> Actif
-            </span>
-          )}
-          {!skill.installed && (
-            <ChromeButton onClick={installSkill} disabled={installing} variant="primary">
-              {installing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              {installing ? "Installation..." : "Installer"}
-            </ChromeButton>
-          )}
-        </div>
-      </div>
-    </ChromeInsetCard>
-  );
-}
-
-// ═══════════════════════════════════════
-// SKILL CONFIG PANEL
-// ═══════════════════════════════════════
-
-function SkillConfigPanel({ skillId, skillName, fields, configData, setConfigData, onSave, onClose, saving, saved }: {
-  skillId: string; skillName: string;
-  fields: { key: string; label: string; placeholder: string; secret?: boolean; type?: string; options?: string[] }[];
-  configData: Record<string, string>;
-  setConfigData: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  onSave: () => void; onClose: () => void;
-  saving: boolean; saved: boolean;
-}) {
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; detail?: string; error?: string } | null>(null);
-
-  const testSkill = async () => {
-    // Save first, then test
-    setTesting(true);
-    setTestResult(null);
-    try {
-      // Save config before testing
-      for (const field of fields) {
-        const value = configData[field.key] || "";
-        if (value) {
-          await fetch(`/api/tc/config/${skillId}`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key: field.key, value }),
-          });
-        }
-      }
-      // Now test
-      const res = await fetch(`/api/tc/skills/${skillId}/test`, { method: "POST" });
-      const data = await res.json();
-      setTestResult(data);
-    } catch {
-      setTestResult({ ok: false, error: "Impossible de contacter le backend" });
-    }
-    setTesting(false);
-  };
-
-  if (fields.length === 0) {
-    return (
-      <ChromeInsetCard style={{ borderLeft: "3px solid rgba(48,160,80,0.3)", padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <CheckCircle2 size={14} color="#30a050" />
-          <span style={{ fontSize: "12px", color: "#30a050" }}>Analyse locale — aucune configuration requise</span>
-        </div>
-      </ChromeInsetCard>
-    );
-  }
-
-  return (
-    <ChromeInsetCard style={{ borderLeft: "3px solid rgba(208,48,32,0.3)", padding: "20px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-        <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0" }}>
-          Configuration — {skillName}
-        </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px" }}>
-          <X size={16} color="#5a534e" />
-        </button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {fields.map(field => (
-          <div key={field.key}>
-            <div style={labelStyle}>{field.label}</div>
-            {field.type === "select" && field.options ? (
-              <select style={inputStyle} value={configData[field.key] || ""} onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}>
-                <option value="">— Sélectionner —</option>
-                {field.options.map(o => <option key={o} value={o}>{o}</option>)}
-              </select>
-            ) : (
-              <input
-                type={field.secret ? "password" : "text"}
-                style={inputStyle}
-                value={configData[field.key] || ""}
-                onChange={e => setConfigData(p => ({ ...p, [field.key]: e.target.value }))}
-                placeholder={field.placeholder}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Test result */}
-      {testResult && (
-        <div style={{
-          marginTop: "14px", padding: "12px 14px", borderRadius: "10px", fontSize: "12px",
-          background: testResult.ok ? "rgba(48,160,80,0.06)" : "rgba(208,48,32,0.06)",
-          border: `1px solid ${testResult.ok ? "rgba(48,160,80,0.15)" : "rgba(208,48,32,0.15)"}`,
-          color: testResult.ok ? "#30a050" : "#d03020",
-          display: "flex", alignItems: "center", gap: "8px",
-        }}>
-          {testResult.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-          {testResult.ok ? testResult.detail : testResult.error}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
-        <ChromeButton onClick={testSkill} disabled={testing} variant="glass">
-          {testing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-          {testing ? "Test en cours..." : "Sauvegarder et tester"}
-        </ChromeButton>
-        <ChromeButton onClick={onSave} disabled={saving} variant="primary">
-          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-          {saved ? "Sauvegardé" : "Enregistrer"}
-        </ChromeButton>
-      </div>
-    </ChromeInsetCard>
   );
 }

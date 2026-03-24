@@ -1,273 +1,344 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
-import { ChromeButton } from "@/components/chrome/ChromeButton";
-import { Plus, Server, Shield, Wifi, Monitor, Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  Network, Search, RefreshCw, Shield, Monitor, Server, Wifi,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye,
+  Target, Plus, Trash2,
+} from "lucide-react";
 
-interface Target {
+// ── Types ──
+
+interface GraphAsset {
+  "a.id"?: string;
+  "a.mac"?: string;
+  "a.hostname"?: string;
+  "a.fqdn"?: string;
+  "a.ip"?: string;
+  "a.os"?: string;
+  "a.ou"?: string;
+  "a.vlan"?: number;
+  "a.criticality"?: string;
+  "a.confidence"?: number;
+  "a.sources"?: string;
+  "a.first_seen"?: string;
+  "a.last_seen"?: string;
+}
+
+interface AssetStats {
+  total_assets: number;
+  with_mac: number;
+  with_hostname: number;
+  coverage: number;
+}
+
+interface ManualTarget {
   id: string;
   host: string;
   target_type: string;
-  access_type: string;
   port: number;
-  mode: string;
-  credential_name: string | null;
-  ssh_host_key: string | null;
-  driver: string | null;
-  allowed_actions: string[];
-  tags: string[];
 }
 
-const TYPE_ICONS: Record<string, React.ElementType> = {
-  linux: Server, windows: Monitor, firewall: Shield, local: Server,
-};
+// ── Main Page ──
 
-const TYPE_LABELS: Record<string, string> = {
-  linux: "Linux", windows: "Windows", macos: "macOS", firewall: "Firewall",
-  network: "Réseau", cloud: "Cloud", container: "Container", local: "Local",
-};
+export default function AssetsPage() {
+  const [assets, setAssets] = useState<GraphAsset[]>([]);
+  const [stats, setStats] = useState<AssetStats | null>(null);
+  const [targets, setTargets] = useState<ManualTarget[]>([]);
+  const [search, setSearch] = useState("");
+  const [expandedAsset, setExpandedAsset] = useState<string | null>(null);
+  const [tab, setTab] = useState<"discovered" | "manual">("discovered");
+  const [loading, setLoading] = useState(true);
 
-const ACCESS_BY_TYPE: Record<string, { value: string; label: string; port: string }[]> = {
-  linux: [
-    { value: "ssh", label: "SSH (clé ou mot de passe)", port: "22" },
-    { value: "agent", label: "Agent Wazuh installé", port: "1514" },
-    { value: "syslog", label: "Syslog (réception logs)", port: "514" },
-  ],
-  windows: [
-    { value: "winrm", label: "WinRM (PowerShell distant)", port: "5985" },
-    { value: "winrm_https", label: "WinRM HTTPS", port: "5986" },
-    { value: "ssh", label: "SSH (OpenSSH Windows)", port: "22" },
-    { value: "agent", label: "Agent Wazuh installé", port: "1514" },
-    { value: "wef", label: "Windows Event Forwarding", port: "5985" },
-  ],
-  macos: [
-    { value: "ssh", label: "SSH", port: "22" },
-    { value: "agent", label: "Agent (osquery)", port: "443" },
-  ],
-  firewall: [
-    { value: "api", label: "API REST", port: "443" },
-    { value: "syslog", label: "Syslog (réception logs)", port: "514" },
-    { value: "snmp", label: "SNMP v3", port: "161" },
-    { value: "ssh", label: "SSH", port: "22" },
-  ],
-  network: [
-    { value: "snmp", label: "SNMP v3", port: "161" },
-    { value: "syslog", label: "Syslog", port: "514" },
-    { value: "ssh", label: "SSH", port: "22" },
-  ],
-  cloud: [
-    { value: "api", label: "API (IAM / Service Account)", port: "443" },
-  ],
-  container: [
-    { value: "api", label: "Docker API", port: "2376" },
-    { value: "kubectl", label: "Kubernetes API", port: "6443" },
-  ],
-  local: [
-    { value: "local", label: "Machine locale", port: "0" },
-  ],
-};
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [assetsRes, statsRes, targetsRes] = await Promise.all([
+        fetch("/api/tc/graph/assets?limit=200"),
+        fetch("/api/tc/graph/assets/stats"),
+        fetch("/api/tc/config?key=_targets"),
+      ]);
+      if (assetsRes.ok) {
+        const data = await assetsRes.json();
+        setAssets(data.assets || []);
+      }
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (targetsRes.ok) {
+        const data = await targetsRes.json();
+        // Parse targets from settings
+        const tgts = (data.settings || []).map((s: any) => s.value).filter(Boolean);
+        setTargets(tgts);
+      }
+    } catch {}
+    setLoading(false);
+  }, []);
 
-export default function InfrastructurePage() {
-  const [targets, setTargets] = useState<Target[]>([]);
-  const [showAdd, setShowAdd] = useState(false);
-  const [newTarget, setNewTarget] = useState({
-    id: "", host: "", target_type: "linux", access_type: "ssh", port: "22", mode: "investigator",
-    credential_name: "", driver: "",
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // Filter assets
+  const filtered = assets.filter(a => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (a["a.hostname"] || "").toLowerCase().includes(q)
+      || (a["a.ip"] || "").toLowerCase().includes(q)
+      || (a["a.mac"] || "").toLowerCase().includes(q)
+      || (a["a.os"] || "").toLowerCase().includes(q)
+      || (a["a.ou"] || "").toLowerCase().includes(q);
   });
 
-  const loadTargets = async () => {
-    try {
-      const res = await fetch("/api/tc/targets");
-      const data = await res.json();
-      setTargets(data.targets || []);
-    } catch { /* */ }
+  const critColor = (c: string | undefined) => {
+    switch (c) {
+      case "critical": return "#d03020";
+      case "high": return "#d06020";
+      case "medium": return "#d09020";
+      case "low": return "#30a050";
+      default: return "#6a625c";
+    }
   };
 
-  useEffect(() => { loadTargets(); }, []);
-
-  const handleAdd = async () => {
-    try {
-      await fetch("/api/tc/targets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: newTarget.id,
-          host: newTarget.host,
-          target_type: newTarget.target_type,
-          access_type: newTarget.access_type,
-          port: parseInt(newTarget.port) || 22,
-          mode: newTarget.mode,
-          credential_name: newTarget.credential_name || null,
-          driver: newTarget.driver || null,
-        }),
-      });
-      setShowAdd(false);
-      setNewTarget({ id: "", host: "", target_type: "linux", access_type: "ssh", port: "22", mode: "investigator", credential_name: "", driver: "" });
-      await loadTargets();
-    } catch { /* */ }
-  };
-
-  const handleDelete = async (id: string) => {
-    try {
-      await fetch(`/api/tc/targets/${id}`, { method: "DELETE" });
-      await loadTargets();
-    } catch { /* */ }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: "100%", border: "none", borderRadius: "6px", padding: "8px 10px",
-    fontSize: "11px", color: "#4a3028", fontFamily: "Inter, sans-serif",
-    background: "#e2dbd4", outline: "none",
-    boxShadow: "inset 0 2px 4px rgba(60,30,15,0.15), inset 0 1px 2px rgba(60,30,15,0.1)",
+  const confColor = (c: number | undefined) => {
+    if (!c) return "#6a625c";
+    if (c >= 0.8) return "#30a050";
+    if (c >= 0.5) return "#d09020";
+    return "#d03020";
   };
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "14px", fontWeight: 800 }}>Infrastructure</ChromeEmbossedText>
-        <ChromeButton onClick={() => setShowAdd(!showAdd)}>
-          <span style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px" }}>
-            <Plus size={12} /> Ajouter une cible
-          </span>
-        </ChromeButton>
+    <div style={{ padding: "0 24px 40px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+        <div>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>Assets</h1>
+          <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
+            {stats ? `${stats.total_assets} assets decouverts · ${stats.with_mac} avec MAC · couverture ${Math.round(stats.coverage * 100)}%` : "Chargement..."}
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button onClick={refresh} disabled={loading} style={{
+            display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
+            borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(255,255,255,0.03)", color: "#6a625c",
+            fontSize: "11px", fontWeight: 600, cursor: "pointer",
+          }}>
+            <RefreshCw size={12} /> Actualiser
+          </button>
+        </div>
       </div>
 
-      {/* Add form */}
-      {showAdd && (
-        <ChromeInsetCard className="mb-4">
-          <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: "10px" }}>
-            Nouvelle cible
-          </ChromeEmbossedText>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Nom</ChromeEmbossedText>
-              <input style={inputStyle} value={newTarget.id} onChange={e => setNewTarget(p => ({ ...p, id: e.target.value }))} placeholder="srv-prod-01" />
+      {/* Stats bar */}
+      {stats && stats.total_assets > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", marginBottom: "20px" }}>
+          {[
+            { value: stats.total_assets, label: "Total", color: "#30a0d0" },
+            { value: stats.with_mac, label: "Avec MAC", color: "#30a050" },
+            { value: stats.with_hostname, label: "Avec hostname", color: "#d09020" },
+            { value: `${Math.round(stats.coverage * 100)}%`, label: "Couverture", color: stats.coverage >= 0.7 ? "#30a050" : "#d09020" },
+          ].map((s, i) => (
+            <div key={i} style={{
+              textAlign: "center", padding: "14px",
+              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "10px",
+            }}>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: s.color }}>{s.value}</div>
+              <div style={{ fontSize: "10px", color: "#6a625c", textTransform: "uppercase" }}>{s.label}</div>
             </div>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>IP / Hostname</ChromeEmbossedText>
-              <input style={inputStyle} value={newTarget.host} onChange={e => setNewTarget(p => ({ ...p, host: e.target.value }))} placeholder="192.168.1.10" />
-            </div>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Type</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.target_type} onChange={e => {
-                const type = e.target.value;
-                const accessOpts = ACCESS_BY_TYPE[type] || [];
-                const firstAccess = accessOpts[0];
-                setNewTarget(p => ({ ...p, target_type: type, access_type: firstAccess?.value || "ssh", port: firstAccess?.port || "22" }));
-              }}>
-                {Object.entries(TYPE_LABELS).map(([k, v]) => (
-                  <option key={k} value={k}>{v}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Accès</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.access_type} onChange={e => {
-                const access = e.target.value;
-                const opt = (ACCESS_BY_TYPE[newTarget.target_type] || []).find(a => a.value === access);
-                setNewTarget(p => ({ ...p, access_type: access, port: opt?.port || p.port }));
-              }}>
-                {(ACCESS_BY_TYPE[newTarget.target_type] || []).map(a => (
-                  <option key={a.value} value={a.value}>{a.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Port</ChromeEmbossedText>
-              <input style={inputStyle} value={newTarget.port} onChange={e => setNewTarget(p => ({ ...p, port: e.target.value }))} />
-            </div>
-            <div>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Mode</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.mode} onChange={e => setNewTarget(p => ({ ...p, mode: e.target.value }))}>
-                <option value="investigator">Investigateur</option>
-                <option value="responder">Répondeur (HITL)</option>
-                <option value="autonomous_low">Autonome Low</option>
-              </select>
-            </div>
-          </div>
-          {newTarget.target_type === "firewall" && (
-            <div style={{ marginTop: "8px" }}>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Driver firewall</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.driver} onChange={e => setNewTarget(p => ({ ...p, driver: e.target.value }))}>
-                <option value="">Sélectionner...</option>
-                <option value="pfsense">pfSense / OPNsense</option>
-                <option value="stormshield">Stormshield</option>
-                <option value="fortinet">Fortinet FortiGate</option>
-                <option value="paloalto">Palo Alto (PAN-OS)</option>
-                <option value="sophos">Sophos XG/XGS</option>
-                <option value="checkpoint">Check Point</option>
-              </select>
-            </div>
-          )}
-          {newTarget.target_type === "cloud" && (
-            <div style={{ marginTop: "8px" }}>
-              <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.5, marginBottom: "2px" }}>Provider cloud</ChromeEmbossedText>
-              <select style={inputStyle} value={newTarget.driver} onChange={e => setNewTarget(p => ({ ...p, driver: e.target.value }))}>
-                <option value="">Sélectionner...</option>
-                <option value="aws">Amazon Web Services</option>
-                <option value="azure">Microsoft Azure</option>
-                <option value="gcp">Google Cloud Platform</option>
-                <option value="ovh">OVHcloud</option>
-                <option value="scaleway">Scaleway</option>
-              </select>
-            </div>
-          )}
-          <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
-            <ChromeButton onClick={handleAdd}>
-              <span style={{ fontSize: "10px" }}>Ajouter</span>
-            </ChromeButton>
-            <ChromeButton onClick={() => setShowAdd(false)}>
-              <span style={{ fontSize: "10px", opacity: 0.5 }}>Annuler</span>
-            </ChromeButton>
-          </div>
-        </ChromeInsetCard>
+          ))}
+        </div>
       )}
 
-      {/* Targets list */}
-      {targets.length === 0 && !showAdd ? (
-        <ChromeInsetCard>
-          <div style={{ textAlign: "center", padding: "24px" }}>
-            <Wifi size={20} color="#907060" style={{ margin: "0 auto 8px" }} />
-            <ChromeEmbossedText as="div" style={{ fontSize: "12px", fontWeight: 700 }}>Aucune cible configurée</ChromeEmbossedText>
-            <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.5, marginTop: "4px" }}>
-              Ajoutez vos serveurs et firewalls pour que ThreatClaw puisse les surveiller et agir dessus.
-            </ChromeEmbossedText>
-          </div>
-        </ChromeInsetCard>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {targets.map(t => {
-            const Icon = TYPE_ICONS[t.target_type] || Server;
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: "2px", marginBottom: "16px" }}>
+        {[
+          { key: "discovered" as const, label: `Decouverts (${assets.length})`, icon: Network },
+          { key: "manual" as const, label: `Manuels (${targets.length})`, icon: Plus },
+        ].map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} style={{
+            display: "flex", alignItems: "center", gap: "6px",
+            padding: "8px 16px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+            border: tab === t.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
+            background: tab === t.key ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.03)",
+            color: tab === t.key ? "#d03020" : "#6a625c",
+            cursor: "pointer",
+          }}>
+            <t.icon size={12} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ position: "relative", marginBottom: "16px" }}>
+        <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "#6a625c" }} />
+        <input
+          type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Rechercher par hostname, IP, MAC, OS..."
+          style={{
+            width: "100%", padding: "8px 10px 8px 32px", borderRadius: "8px", fontSize: "12px",
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+            color: "#e8e4e0", outline: "none",
+          }}
+        />
+      </div>
+
+      {/* Discovered assets */}
+      {tab === "discovered" && (
+        <div>
+          {filtered.length === 0 && !loading && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+              <Network size={40} style={{ margin: "0 auto 12px", opacity: 0.3 }} />
+              <p>Aucun asset decouvert</p>
+              <p style={{ fontSize: "11px" }}>Activez un scan nmap, un connecteur AD ou pfSense dans Skills</p>
+            </div>
+          )}
+
+          {filtered.map((a, i) => {
+            const id = a["a.id"] || a["a.hostname"] || a["a.ip"] || `asset-${i}`;
+            const isExpanded = expandedAsset === id;
+            const conf = typeof a["a.confidence"] === "number" ? a["a.confidence"] : 0;
+            const sources: string[] = (() => {
+              try { return JSON.parse(a["a.sources"] || "[]"); } catch { return []; }
+            })();
+
             return (
-              <ChromeInsetCard key={t.id}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <Icon size={16} color="#5a6a8a" />
+              <div key={id} style={{
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "10px", marginBottom: "8px",
+                borderLeft: `3px solid ${critColor(a["a.criticality"])}`,
+              }}>
+                <div
+                  onClick={() => setExpandedAsset(isExpanded ? null : id)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px",
+                    cursor: "pointer", userSelect: "none",
+                  }}
+                >
+                  {isExpanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
+
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <ChromeEmbossedText as="span" style={{ fontSize: "12px", fontWeight: 700 }}>{t.id}</ChromeEmbossedText>
-                      <ChromeEmbossedText as="span" style={{ fontSize: "8px", opacity: 0.4, fontFamily: "monospace" }}>{t.host}:{t.port}</ChromeEmbossedText>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>
+                        {a["a.hostname"] || a["a.id"] || "unknown"}
+                      </span>
+                      {a["a.ip"] && (
+                        <span style={{ fontSize: "11px", color: "#6a625c", fontFamily: "monospace" }}>
+                          {a["a.ip"]}
+                        </span>
+                      )}
+                      <span style={{
+                        fontSize: "8px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
+                        background: `${critColor(a["a.criticality"])}15`,
+                        color: critColor(a["a.criticality"]),
+                        textTransform: "uppercase",
+                      }}>
+                        {a["a.criticality"] || "medium"}
+                      </span>
                     </div>
-                    <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.45, marginTop: "2px" }}>
-                      {TYPE_LABELS[t.target_type] || t.target_type} · {t.access_type.toUpperCase()} · Mode: {t.mode}
-                      {t.driver ? ` · ${t.driver}` : ""}
-                      {t.allowed_actions.length > 0 ? ` · ${t.allowed_actions.length} actions` : " · lecture seule"}
-                    </ChromeEmbossedText>
+                    <div style={{ display: "flex", gap: "8px", marginTop: "3px", fontSize: "10px", color: "#6a625c" }}>
+                      {a["a.os"] && <span>{a["a.os"]}</span>}
+                      {a["a.ou"] && <span>OU: {a["a.ou"]}</span>}
+                      {sources.length > 0 && <span>Sources: {sources.join(", ")}</span>}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    {t.credential_name ? (
-                      <CheckCircle2 size={12} color="#5a7a4a" />
-                    ) : (
-                      <AlertTriangle size={12} color="#906020" />
-                    )}
-                    <ChromeButton onClick={() => handleDelete(t.id)}>
-                      <Trash2 size={10} />
-                    </ChromeButton>
+
+                  {/* Confidence bar */}
+                  <div style={{ width: "80px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                      <div style={{ flex: 1, height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.06)" }}>
+                        <div style={{ width: `${conf * 100}%`, height: "100%", borderRadius: "2px", background: confColor(conf) }} />
+                      </div>
+                      <span style={{ fontSize: "10px", color: confColor(conf), fontWeight: 600 }}>
+                        {Math.round(conf * 100)}%
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </ChromeInsetCard>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div style={{ padding: "0 14px 14px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px", fontSize: "11px" }}>
+                      {[
+                        ["ID", a["a.id"]],
+                        ["Hostname", a["a.hostname"]],
+                        ["FQDN", a["a.fqdn"]],
+                        ["IP", a["a.ip"]],
+                        ["MAC", a["a.mac"]],
+                        ["OS", a["a.os"]],
+                        ["OU", a["a.ou"]],
+                        ["VLAN", a["a.vlan"]?.toString()],
+                        ["Criticite", a["a.criticality"]],
+                        ["Confiance", `${Math.round(conf * 100)}%`],
+                        ["Sources", sources.join(", ")],
+                        ["Premier vu", a["a.first_seen"]?.split("T")[0]],
+                        ["Dernier vu", a["a.last_seen"]?.split("T")[0]],
+                      ].filter(([, v]) => v).map(([label, value], j) => (
+                        <div key={j}>
+                          <span style={{ color: "#6a625c" }}>{label}: </span>
+                          <span style={{ color: "#e8e4e0", fontFamily: label === "MAC" || label === "IP" ? "monospace" : "inherit" }}>
+                            {value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {conf < 0.5 && (
+                      <div style={{
+                        marginTop: "10px", padding: "8px", borderRadius: "6px",
+                        background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)",
+                        fontSize: "10px", color: "#d09020",
+                      }}>
+                        <AlertTriangle size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
+                        Confiance faible — activez des sources supplementaires (AD, pfSense) dans Skills pour enrichir cet asset.
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                      <a href={`/intelligence`} style={{
+                        display: "flex", alignItems: "center", gap: "4px",
+                        padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
+                        background: "rgba(208,48,32,0.08)", border: "1px solid rgba(208,48,32,0.2)",
+                        color: "#d03020", textDecoration: "none",
+                      }}>
+                        <Target size={11} /> Blast Radius
+                      </a>
+                      <a href={`/intelligence`} style={{
+                        display: "flex", alignItems: "center", gap: "4px",
+                        padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
+                        background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+                        color: "#6a625c", textDecoration: "none",
+                      }}>
+                        <Eye size={11} /> Voir dans le graphe
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Manual targets tab */}
+      {tab === "manual" && (
+        <div>
+          {targets.length === 0 && (
+            <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+              Aucune cible manuelle configuree
+            </div>
+          )}
+          {targets.map((t, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "12px 14px", marginBottom: "6px", borderRadius: "10px",
+              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+            }}>
+              <Server size={16} color="#6a625c" />
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{t.id || t.host}</span>
+                <span style={{ fontSize: "11px", color: "#6a625c", marginLeft: "8px" }}>{t.host}:{t.port}</span>
+              </div>
+              <span style={{ fontSize: "10px", color: "#6a625c" }}>{t.target_type}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
