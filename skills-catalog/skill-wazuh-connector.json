@@ -1,5 +1,5 @@
 {
-  "id": "skill-wazuh-connector",
+  "id": "skill-wazuh",
   "name": "Wazuh SIEM",
   "version": "1.0.0",
   "description": "Import des alertes depuis Wazuh SIEM. Authentification JWT, filtrage par niveau, enrichissement MITRE ATT&CK automatique.",
