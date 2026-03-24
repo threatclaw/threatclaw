@@ -108,7 +108,7 @@ async fn find_external_to_critical(store: &dyn Database) -> Vec<AttackPath> {
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str()?;
         let pivot_id = result["pivot.id"].as_str()?;
         let pivot_host = result["pivot.hostname"].as_str().unwrap_or(pivot_id);
@@ -143,7 +143,7 @@ async fn find_cve_chain_paths(store: &dyn Database) -> Vec<AttackPath> {
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("unknown");
         let entry_id = result["entry.id"].as_str()?;
         let entry_host = result["entry.hostname"].as_str().unwrap_or(entry_id);
@@ -181,7 +181,7 @@ async fn find_direct_critical_exposure(store: &dyn Database) -> Vec<AttackPath> 
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str()?;
         let target_id = result["target.id"].as_str()?;
         let target_host = result["target.hostname"].as_str().unwrap_or(target_id);

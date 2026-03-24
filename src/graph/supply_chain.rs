@@ -119,7 +119,7 @@ pub async fn analyze_supply_chain(store: &dyn Database) -> SupplyChainAnalysis {
     let mut total_software = 0;
 
     for r in &results {
-        let result = &r["result"];
+        let result = r;
         let vendor_name = result["vendor"].as_str().unwrap_or("Unknown").to_string();
         let software: Vec<String> = result["software"].as_array()
             .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())

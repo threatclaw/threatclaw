@@ -14,6 +14,36 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// Split RETURN clause into individual column expressions.
+/// Handles nested function calls like `collect(DISTINCT a.hostname)`.
+fn split_return_columns(return_clause: &str) -> Vec<String> {
+    let trimmed = return_clause.trim();
+    if trimmed.is_empty() || trimmed == "*" {
+        return vec!["result".to_string()];
+    }
+    let mut cols = vec![];
+    let mut depth = 0;
+    let mut current = String::new();
+    for ch in trimmed.chars() {
+        match ch {
+            '(' | '[' => { depth += 1; current.push(ch); }
+            ')' | ']' => { depth -= 1; current.push(ch); }
+            ',' if depth == 0 => {
+                cols.push(current.trim().to_string());
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        cols.push(current.trim().to_string());
+    }
+    if cols.is_empty() {
+        cols.push("result".to_string());
+    }
+    cols
+}
+
 #[async_trait]
 impl ThreatClawStore for PgBackend {
     async fn insert_finding(&self, f: &NewFinding) -> Result<i64, DatabaseError> {
@@ -436,18 +466,84 @@ impl ThreatClawStore for PgBackend {
         conn.execute("LOAD 'age'", &[]).await.map_err(query_err)?;
         conn.execute("SET search_path = ag_catalog, \"$user\", public", &[]).await.map_err(query_err)?;
 
-        // Wrap Cypher in SQL — return results as JSON
+        let escaped = cypher.replace('\'', "''");
+
+        // Detect if the query has a RETURN clause (read) or not (mutation)
+        let upper = cypher.to_uppercase();
+        let has_return = upper.contains("RETURN ");
+
+        if !has_return {
+            // Mutation (CREATE/MERGE/DELETE without RETURN) — use void return
+            let sql = format!(
+                "SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS (result agtype)",
+                escaped,
+            );
+            // Mutations may return 0 rows — that's fine
+            let _ = conn.query(&*sql, &[]).await.map_err(query_err)?;
+            return Ok(vec![]);
+        }
+
+        // Parse RETURN clause to extract column names for the AS (...) declaration.
+        let return_clause = if let Some(pos) = upper.rfind("RETURN ") {
+            &cypher[pos + 7..]
+        } else {
+            "result"
+        };
+
+        // Strip DISTINCT keyword if present
+        let return_fields = return_clause.trim();
+        let return_fields = if return_fields.to_uppercase().starts_with("DISTINCT ") {
+            &return_fields[9..]
+        } else {
+            return_fields
+        };
+
+        // Strip ORDER BY, LIMIT from the return clause for column extraction
+        let return_fields = if let Some(pos) = return_fields.to_uppercase().find(" ORDER BY") {
+            &return_fields[..pos]
+        } else {
+            return_fields
+        };
+        let return_fields = if let Some(pos) = return_fields.to_uppercase().find(" LIMIT") {
+            &return_fields[..pos]
+        } else {
+            return_fields
+        };
+
+        // Split by commas at depth 0 (respecting nested parens/brackets)
+        let col_names = split_return_columns(return_fields);
+
+        // Build column aliases using the original expression names (quoted for dots)
+        let cols: String = col_names.iter()
+            .map(|name| {
+                let alias = name.trim();
+                let display = if let Some(pos) = alias.to_uppercase().rfind(" AS ") {
+                    alias[pos + 4..].trim()
+                } else {
+                    alias
+                };
+                format!("\"{}\" agtype", display.replace('"', ""))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
         let sql = format!(
-            "SELECT row_to_json(r) FROM (SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS (result agtype)) r",
-            cypher.replace('\'', "''"),
+            "SELECT row_to_json(r) FROM (SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS ({})) r",
+            escaped, cols,
         );
 
-        let rows = conn.query(&*sql, &[]).await.map_err(query_err)?;
-        let results: Vec<serde_json::Value> = rows.iter()
-            .filter_map(|r| r.try_get::<_, serde_json::Value>(0).ok())
-            .collect();
-
-        Ok(results)
+        match conn.query(&*sql, &[]).await {
+            Ok(rows) => {
+                let results: Vec<serde_json::Value> = rows.iter()
+                    .filter_map(|r| r.try_get::<_, serde_json::Value>(0).ok())
+                    .collect();
+                Ok(results)
+            }
+            Err(e) => {
+                tracing::debug!("CYPHER SQL failed: {} | SQL: {}", e, &sql[..sql.len().min(200)]);
+                Err(query_err(e))
+            }
+        }
     }
 
     async fn log_llm_call(

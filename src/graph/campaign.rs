@@ -83,7 +83,7 @@ async fn detect_country_clusters(store: &dyn Database) -> Vec<Campaign> {
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let asset_id = result["a.id"].as_str()?;
         let hostname = result["a.hostname"].as_str().unwrap_or(asset_id);
         let country = result["country"].as_str()?;
@@ -120,7 +120,7 @@ async fn detect_asn_clusters(store: &dyn Database) -> Vec<Campaign> {
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let asn = result["asn"].as_str()?;
         let attacks = result["attacks"].as_i64().unwrap_or(0);
         let ips: Vec<String> = result["ips"].as_array()

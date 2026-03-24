@@ -102,7 +102,7 @@ pub async fn profile_threat_actors(store: &dyn Database) -> ThreatActorAnalysis 
     // Group by country to form actor clusters
     let mut country_groups: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
     for r in &results {
-        let country = r["result"]["ip.country"].as_str().unwrap_or("UNK").to_string();
+        let country = r["ip.country"].as_str().unwrap_or("UNK").to_string();
         country_groups.entry(country).or_default().push(r.clone());
     }
 
@@ -111,23 +111,23 @@ pub async fn profile_threat_actors(store: &dyn Database) -> ThreatActorAnalysis 
         if ips.is_empty() { continue; }
 
         let source_ips: Vec<String> = ips.iter()
-            .filter_map(|r| r["result"]["ip.addr"].as_str().map(String::from))
+            .filter_map(|r| r["ip.addr"].as_str().map(String::from))
             .collect();
         let targets: Vec<String> = ips.iter()
-            .flat_map(|r| r["result"]["targets"].as_array()
+            .flat_map(|r| r["targets"].as_array()
                 .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
                 .unwrap_or_default())
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
         let asns: Vec<String> = ips.iter()
-            .filter_map(|r| r["result"]["ip.asn"].as_str().map(String::from))
+            .filter_map(|r| r["ip.asn"].as_str().map(String::from))
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
 
         let total_attacks: i64 = ips.iter()
-            .filter_map(|r| r["result"]["target_count"].as_i64())
+            .filter_map(|r| r["target_count"].as_i64())
             .sum();
 
         // Get techniques for these IPs from investigation results
@@ -200,7 +200,7 @@ async fn get_techniques_for_ips(store: &dyn Database, ips: &[String]) -> Vec<Str
     ).await;
 
     for r in &results {
-        if let Some(id) = r["result"]["t.mitre_id"].as_str() {
+        if let Some(id) = r["t.mitre_id"].as_str() {
             techniques.insert(id.to_string());
         }
     }

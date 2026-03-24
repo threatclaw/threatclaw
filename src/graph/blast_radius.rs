@@ -127,7 +127,7 @@ async fn find_shared_vulnerability_assets(store: &dyn Database, asset_id: &str) 
     )).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let id = result["other.id"].as_str()?.to_string();
         let hostname = result["other.hostname"].as_str().unwrap_or(&id).to_string();
         let criticality = result["other.criticality"].as_str().unwrap_or("medium").to_string();
@@ -151,7 +151,7 @@ async fn find_user_connected_assets(store: &dyn Database, asset_id: &str) -> Vec
 
 fn parse_asset_results(results: &[serde_json::Value]) -> Vec<AssetImpact> {
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let id = result["other.id"].as_str()?.to_string();
         let hostname = result["other.hostname"].as_str().unwrap_or(&id).to_string();
         let criticality = result["other.criticality"].as_str().unwrap_or("medium").to_string();

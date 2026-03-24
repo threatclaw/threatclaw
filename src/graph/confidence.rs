@@ -75,7 +75,7 @@ pub async fn compute_ip_confidence(
     )).await;
 
     let gn_class = gn_results.first()
-        .and_then(|r| r["result"]["ip.classification"].as_str())
+        .and_then(|r| r["ip.classification"].as_str())
         .unwrap_or("unknown");
 
     let gn_raw = match gn_class {
@@ -101,7 +101,7 @@ pub async fn compute_ip_confidence(
     )).await;
 
     let attack_count = attack_results.first()
-        .and_then(|r| r["result"]["count(att)"].as_i64())
+        .and_then(|r| r["count(att)"].as_i64())
         .unwrap_or(0);
 
     let hist_raw = match attack_count {
@@ -127,7 +127,7 @@ pub async fn compute_ip_confidence(
     )).await;
 
     let country = geo_results.first()
-        .and_then(|r| r["result"]["ip.country"].as_str())
+        .and_then(|r| r["ip.country"].as_str())
         .unwrap_or("");
 
     // High-risk countries (common attack origins) get higher score
@@ -159,10 +159,10 @@ pub async fn compute_ip_confidence(
             0.1
         } else {
             let max_cvss = cve_results.iter()
-                .filter_map(|r| r["result"]["c.cvss"].as_f64())
+                .filter_map(|r| r["c.cvss"].as_f64())
                 .fold(0.0_f64, f64::max);
             let has_kev = cve_results.iter()
-                .any(|r| r["result"]["c.in_kev"].as_bool() == Some(true));
+                .any(|r| r["c.in_kev"].as_bool() == Some(true));
 
             let base = (max_cvss / 10.0).min(1.0);
             if has_kev { (base + 0.2).min(1.0) } else { base }
@@ -188,7 +188,7 @@ pub async fn compute_ip_confidence(
         )).await;
 
         epss_results.iter()
-            .filter_map(|r| r["result"]["c.epss"].as_f64())
+            .filter_map(|r| r["c.epss"].as_f64())
             .fold(0.0_f64, f64::max)
             .min(1.0)
     } else {
@@ -229,7 +229,7 @@ pub async fn compute_ip_confidence(
             esc(asset)
         )).await;
         let kev_count = kev_results.first()
-            .and_then(|r| r["result"]["count(c)"].as_i64())
+            .and_then(|r| r["count(c)"].as_i64())
             .unwrap_or(0);
         if kev_count > 0 { 1.0 } else { 0.0 }
     } else {
@@ -285,7 +285,7 @@ pub async fn compute_cve_confidence(
     )).await;
 
     let cvss = cve_results.first()
-        .and_then(|r| r["result"]["c.cvss"].as_f64())
+        .and_then(|r| r["c.cvss"].as_f64())
         .unwrap_or(0.0);
     let cvss_raw = (cvss / 10.0).min(1.0);
     let cvss_weighted = cvss_raw * 0.30;
@@ -300,7 +300,7 @@ pub async fn compute_cve_confidence(
 
     // 2. EPSS (weight: 0.25)
     let epss = cve_results.first()
-        .and_then(|r| r["result"]["c.epss"].as_f64())
+        .and_then(|r| r["c.epss"].as_f64())
         .unwrap_or(0.0);
     let epss_weighted = epss * 0.25;
     total += epss_weighted;
@@ -314,7 +314,7 @@ pub async fn compute_cve_confidence(
 
     // 3. KEV (weight: 0.25)
     let in_kev = cve_results.first()
-        .and_then(|r| r["result"]["c.in_kev"].as_bool())
+        .and_then(|r| r["c.in_kev"].as_bool())
         .unwrap_or(false);
     let kev_raw = if in_kev { 1.0 } else { 0.0 };
     let kev_weighted = kev_raw * 0.25;
@@ -334,7 +334,7 @@ pub async fn compute_cve_confidence(
             esc(asset)
         )).await;
         let criticality = asset_results.first()
-            .and_then(|r| r["result"]["a.criticality"].as_str())
+            .and_then(|r| r["a.criticality"].as_str())
             .unwrap_or("medium");
         match criticality {
             "critical" => 1.0,

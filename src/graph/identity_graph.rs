@@ -142,7 +142,7 @@ async fn detect_user_fan_out(store: &dyn Database, threshold: i64) -> Vec<Identi
     )).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let username = result["u.username"].as_str()?;
         let count = result["asset_count"].as_i64().unwrap_or(0);
         let is_admin = result["u.is_admin"].as_bool().unwrap_or(false);
@@ -169,7 +169,7 @@ async fn detect_failed_login_clusters(store: &dyn Database) -> Vec<IdentityAnoma
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let username = result["u.username"].as_str()?;
         let fails = result["fails"].as_i64().unwrap_or(0);
 
@@ -193,7 +193,7 @@ async fn detect_escalation_chains(store: &dyn Database) -> Vec<IdentityAnomaly> 
     ).await;
 
     results.iter().filter_map(|r| {
-        let result = &r["result"];
+        let result = r;
         let from = result["u1.username"].as_str()?;
         let to = result["u2.username"].as_str()?;
         let method = result["e.method"].as_str().unwrap_or("unknown");
@@ -211,7 +211,7 @@ async fn detect_escalation_chains(store: &dyn Database) -> Vec<IdentityAnomaly> 
 async fn count_users(store: &dyn Database) -> usize {
     let results = query(store, "MATCH (u:User) RETURN count(u)").await;
     results.first()
-        .and_then(|r| r["result"]["count(u)"].as_i64())
+        .and_then(|r| r["count(u)"].as_i64())
         .unwrap_or(0) as usize
 }
 

@@ -105,7 +105,7 @@ pub async fn detect_multi_hop_chains(store: &dyn Database) -> Vec<LateralPath> {
     let mut seen = std::collections::HashSet::new();
 
     for r in &results {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("").to_string();
         let a1_id = result["a1.id"].as_str().unwrap_or("").to_string();
         let a1_host = result["a1.hostname"].as_str().unwrap_or(&a1_id).to_string();
@@ -148,7 +148,7 @@ pub async fn detect_fan_out(store: &dyn Database, threshold: i64) -> Vec<FanOutA
 
     let mut fan_outs = vec![];
     for r in &results {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("").to_string();
         let country = result["ip.country"].as_str().unwrap_or("").to_string();
         let classification = result["ip.classification"].as_str().unwrap_or("unknown").to_string();
@@ -186,7 +186,7 @@ pub async fn detect_paths_to_critical(store: &dyn Database) -> Vec<LateralPath> 
 
     let mut paths = vec![];
     for r in &results {
-        let result = &r["result"];
+        let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("").to_string();
         let asset_id = result["a.id"].as_str().unwrap_or("").to_string();
         let hostname = result["a.hostname"].as_str().unwrap_or(&asset_id).to_string();
