@@ -1,0 +1,35 @@
+{
+  "id": "skill-sigma-rules",
+  "name": "Sigma Rules",
+  "version": "1.0.0",
+  "description": "Detection d'alertes dans les logs via regles Sigma. Analyse les logs syslog en temps reel et genere des alertes quand un pattern malveillant est detecte.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "builtin": true
+  },
+  "config": {
+    "rule_sources": {
+      "type": "select",
+      "description": "Source des regles Sigma",
+      "options": ["Regles integrees ThreatClaw", "SigmaHQ (community)", "Regles custom"],
+      "default": "Regles integrees ThreatClaw"
+    },
+    "severity_threshold": {
+      "type": "select",
+      "description": "Severite minimum pour generer une alerte",
+      "options": ["low", "medium", "high", "critical"],
+      "default": "medium"
+    }
+  },
+  "outputs": {
+    "alerts": "db"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "alert-triangle"
+}

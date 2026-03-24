@@ -1,0 +1,29 @@
+{
+  "id": "skill-graph-stix",
+  "name": "Graph Intelligence STIX 2.1",
+  "version": "1.0.0",
+  "description": "Graphe de menaces Apache AGE : correlation automatique, chemins d'attaque, blast radius, profiling acteurs, mouvement lateral, campagnes, analyse comportementale. Standard STIX 2.1.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "builtin": true
+  },
+  "config": {
+    "sync_interval": {
+      "type": "select",
+      "description": "Frequence de synchronisation du graphe",
+      "options": ["A chaque cycle Intelligence Engine", "Toutes les 15 minutes", "Toutes les heures"],
+      "default": "A chaque cycle Intelligence Engine"
+    }
+  },
+  "outputs": {
+    "graph": "graph"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "network"
+}

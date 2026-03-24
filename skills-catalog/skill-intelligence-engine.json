@@ -1,0 +1,42 @@
+{
+  "id": "skill-intelligence-engine",
+  "name": "Intelligence Engine",
+  "version": "1.0.0",
+  "description": "Cerveau SOC de ThreatClaw. Cycle automatique toutes les 5 minutes : collecte findings + alertes, correlation par asset, enrichissement, scoring, investigation graph, detection comportementale, notification RSSI.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "builtin": true
+  },
+  "config": {
+    "cycle_interval": {
+      "type": "select",
+      "description": "Intervalle du cycle d'analyse",
+      "options": ["1 minute", "5 minutes", "15 minutes", "30 minutes"],
+      "default": "5 minutes"
+    },
+    "notification_cooldown": {
+      "type": "select",
+      "description": "Cooldown entre notifications (evite le spam)",
+      "options": ["5 minutes", "15 minutes", "30 minutes", "1 heure"],
+      "default": "15 minutes"
+    },
+    "max_enrichment_per_cycle": {
+      "type": "number",
+      "description": "Nombre max de lookups externes par cycle",
+      "default": 15
+    }
+  },
+  "outputs": {
+    "findings": "db",
+    "notifications": "channels",
+    "graph": "graph"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "brain"
+}

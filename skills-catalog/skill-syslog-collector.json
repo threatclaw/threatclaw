@@ -1,0 +1,52 @@
+{
+  "id": "skill-syslog-collector",
+  "name": "Syslog / Fluent Bit",
+  "version": "1.0.0",
+  "description": "Collecte de logs depuis vos serveurs via syslog (UDP/TCP). Fluent Bit ecoute et injecte les logs dans PostgreSQL pour analyse par l'Intelligence Engine.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "protocol": "syslog",
+    "default_port": 514
+  },
+  "config": {
+    "listen_port": {
+      "type": "number",
+      "description": "Port d'ecoute syslog (UDP + TCP)",
+      "default": 514
+    },
+    "listen_address": {
+      "type": "string",
+      "description": "Adresse d'ecoute (0.0.0.0 = toutes les interfaces)",
+      "default": "0.0.0.0"
+    },
+    "protocol": {
+      "type": "select",
+      "description": "Protocole",
+      "options": ["UDP + TCP", "UDP uniquement", "TCP uniquement"],
+      "default": "UDP + TCP"
+    },
+    "log_retention_days": {
+      "type": "select",
+      "description": "Retention des logs",
+      "options": ["7 jours", "14 jours", "30 jours", "90 jours", "365 jours"],
+      "default": "30 jours"
+    },
+    "parse_format": {
+      "type": "select",
+      "description": "Format de parsing",
+      "options": ["Auto-detect", "RFC 3164 (BSD)", "RFC 5424", "JSON"],
+      "default": "Auto-detect"
+    }
+  },
+  "outputs": {
+    "logs": "db"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "file-text"
+}
