@@ -112,36 +112,53 @@ export default function TopNav() {
         </span>
       </div>
 
-      {/* Nav buttons */}
-      <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-        {NAV_ITEMS.map((item) => {
-          const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          const Icon = item.icon;
-
-          return (
-            <Link key={item.href} href={item.href} style={{ textDecoration: "none" }}>
+      {/* Nav buttons — sliding indicator */}
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <div style={{
+          position: "relative", display: "flex", padding: "3px",
+          borderRadius: "11px", background: "var(--tc-input)",
+        }}>
+          {/* Sliding red indicator */}
+          {(() => {
+            const activeIdx = NAV_ITEMS.findIndex(item =>
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+            );
+            return activeIdx >= 0 ? (
               <div style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "7px 14px",
-                borderRadius: "var(--tc-radius-input)",
-                fontSize: "11px",
-                fontWeight: 600,
-                letterSpacing: "0.03em",
-                textTransform: "uppercase",
-                color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
-                background: isActive ? "var(--tc-red-soft)" : "transparent",
-                border: isActive ? "1px solid var(--tc-red-border)" : "1px solid transparent",
-                transition: "all 200ms ease",
-                cursor: "pointer",
-              }}>
-                <Icon size={14} />
-                {item.label}
-              </div>
-            </Link>
-          );
-        })}
+                position: "absolute", top: "3px", height: "calc(100% - 6px)",
+                width: `calc(${100 / NAV_ITEMS.length}% - 2px)`,
+                left: `calc(${activeIdx * (100 / NAV_ITEMS.length)}% + 1px)`,
+                background: "var(--tc-red-soft)",
+                borderRadius: "8px",
+                border: "0.5px solid var(--tc-red-border)",
+                boxShadow: "0 2px 6px rgba(208,48,32,0.15)",
+                transition: "left 0.25s ease-out",
+                zIndex: 0,
+              }} />
+            ) : null;
+          })()}
+          {NAV_ITEMS.map((item) => {
+            const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} style={{ textDecoration: "none", position: "relative", zIndex: 1 }}>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: "6px",
+                  padding: "6px 14px",
+                  fontSize: "11px", fontWeight: 600,
+                  letterSpacing: "0.03em", textTransform: "uppercase",
+                  color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
+                  transition: "color 200ms, opacity 200ms",
+                  cursor: "pointer",
+                  opacity: isActive ? 1 : 0.6,
+                }}>
+                  <Icon size={13} />
+                  {item.label}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
 
         {/* Separator */}
         <div style={{ width: "1px", height: "20px", background: "var(--tc-border)", margin: "0 8px" }} />
