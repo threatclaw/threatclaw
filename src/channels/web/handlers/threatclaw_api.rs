@@ -2051,6 +2051,55 @@ pub async fn connector_firewall_sync_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// REMEDIATION ACTIONS (HITL required)
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/remediation/block-ip — block IP on firewall (pfSense/OPNsense).
+pub async fn remediation_block_ip_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let ip = body["ip"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing ip".to_string()))?;
+    let fw_url = body["fw_url"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing fw_url".to_string()))?;
+    let fw_type = body["fw_type"].as_str().unwrap_or("pfsense");
+    let auth_user = body["auth_user"].as_str().unwrap_or("");
+    let auth_secret = body["auth_secret"].as_str().unwrap_or("");
+    let no_tls = body["no_tls_verify"].as_bool().unwrap_or(true);
+
+    let result = if fw_type == "opnsense" {
+        crate::connectors::remediation::opnsense_block_ip(fw_url, auth_user, auth_secret, ip, no_tls).await
+    } else {
+        crate::connectors::remediation::pfsense_block_ip(fw_url, auth_user, auth_secret, ip, no_tls).await
+    };
+
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/remediation/disable-account — disable AD account.
+pub async fn remediation_disable_account_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let username = body["username"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing username".to_string()))?;
+    let host = body["host"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing host".to_string()))?;
+    let port = body["port"].as_u64().unwrap_or(636) as u16;
+    let bind_dn = body["bind_dn"].as_str().unwrap_or("");
+    let bind_pw = body["bind_password"].as_str().unwrap_or("");
+    let base_dn = body["base_dn"].as_str().unwrap_or("");
+    let no_tls = body["no_tls_verify"].as_bool().unwrap_or(false);
+
+    let result = crate::connectors::remediation::ad_disable_account(
+        host, port, bind_dn, bind_pw, base_dn, username, no_tls
+    ).await;
+
+    Ok(Json(serde_json::json!(result)))
+}
+
+// ══════════════════════════════════════════════════════════
 // ASSET RESOLUTION + BEHAVIORAL ANALYSIS
 // ══════════════════════════════════════════════════════════
 

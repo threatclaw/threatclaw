@@ -1,0 +1,31 @@
+{
+  "id": "skill-subfinder",
+  "name": "Subfinder",
+  "version": "1.0.0",
+  "description": "Enumeration de sous-domaines — decouvre les sous-domaines d'un domaine cible via sources passives (DNS, certificats, archives web).",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "scanning",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "projectdiscovery/subfinder:latest",
+    "timeout_seconds": 120,
+    "network": "bridge",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "domain": {
+      "type": "string",
+      "description": "Domaine cible (ex: monentreprise.fr)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "search"
+}

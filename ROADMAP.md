@@ -280,9 +280,9 @@ Les outils que ThreatClaw installe et lance dans Docker.
 **P2 — Réseau/monitoring :**
 - [ ] **suricata** : IDS/IPS réseau (permanent)
 - [ ] **falco** : runtime security containers (permanent)
-- [ ] **httpx** : probe HTTP rapide
-- [ ] **subfinder** : enumération sous-domaines
-- [ ] **docker-bench-security** : audit Docker host
+- [x] **httpx** : probe HTTP rapide via Docker (projectdiscovery/httpx)
+- [x] **subfinder** : enumeration sous-domaines via Docker (projectdiscovery/subfinder)
+- [x] **docker-bench-security** : audit Docker CIS via Docker, parser [WARN], skill + API
 
 ### Skills V2 — Connecteurs (type: "connector")
 
@@ -303,8 +303,9 @@ Les outils du client auxquels ThreatClaw se branche.
 - [ ] **Fortinet API** : firewall enterprise
 
 **P3 — Actions (le client veut que ThreatClaw agisse) :**
-- [ ] **pfSense write** : bloquer IP, ajouter règle FW via API
-- [ ] **AD write** : désactiver compte compromis via LDAP
+- [x] **pfSense write** : bloquer IP via REST API v2 (POST /firewall/rule), regle auto ThreatClaw, reversible
+- [x] **OPNsense write** : bloquer IP via API (POST /firewall/filter/addRule + apply), reversible
+- [x] **AD write** : desactiver compte compromis via LDAP (set userAccountControl ACCOUNTDISABLE), reversible
 - [ ] **GLPI write** : créer ticket depuis finding
 
 ### Skills V2 — Enrichissement (type: "enrichment")
@@ -344,7 +345,7 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 
 ### Dashboard — Réorganisation menu
 
-- [ ] **Fusionner** Skills, Cibles et Tests dans Config (onglets)
+- [x] **Fusionner** Skills, Cibles et Tests dans Config (onglets) + Licence tab
 - [ ] **Lien direct** "Skills" depuis la page d'accueil dashboard
 - [ ] **Page Skills unifiée** : filtres [Tous] [Outils] [Connecteurs] [Enrichissement]
 - [ ] **Chaque skill** : logo + toggle ON/OFF + status + config inline

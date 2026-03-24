@@ -9,3 +9,4 @@ pub mod docker_executor;
 pub mod nmap_discovery;
 pub mod pfsense;
 pub mod proxmox;
+pub mod remediation;

@@ -1,0 +1,31 @@
+{
+  "id": "skill-httpx",
+  "name": "httpx",
+  "version": "1.0.0",
+  "description": "Probe HTTP rapide — detecte les serveurs web actifs, titres, status codes, technologies. Ideal pour la reconnaissance d'assets web.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "scanning",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "projectdiscovery/httpx:latest",
+    "timeout_seconds": 120,
+    "network": "host",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "targets": {
+      "type": "string",
+      "description": "URLs ou sous-reseaux a prober (une par ligne ou separes par virgule)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "globe"
+}
