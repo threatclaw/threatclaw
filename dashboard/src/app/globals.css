@@ -106,10 +106,10 @@
 /* ─── LIGHT THEME ─── */
 [data-theme="light"] {
   --tc-bg:           #f4f2ef;
-  --tc-surface:      rgba(255, 255, 255, 0.80);
-  --tc-surface-hover:rgba(255, 255, 255, 0.95);
-  --tc-surface-alt:  rgba(0, 0, 0, 0.02);
-  --tc-input:        rgba(0, 0, 0, 0.04);
+  --tc-surface:      rgba(255, 255, 255, 0.95);
+  --tc-surface-hover:rgba(255, 255, 255, 1.0);
+  --tc-surface-alt:  rgba(255, 255, 255, 0.85);
+  --tc-input:        rgba(0, 0, 0, 0.05);
   --tc-nav:          rgba(255, 255, 255, 0.88);
 
   --tc-text:         #1a1a1a;
