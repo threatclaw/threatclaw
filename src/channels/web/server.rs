@@ -412,6 +412,14 @@ pub async fn start_server(
         .route("/api/tc/graph/coa/seed", post(super::handlers::threatclaw_api::graph_coa_seed_handler))
         .route("/api/tc/graph/coa/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_coa_cve_handler))
         .route("/api/tc/graph/coa/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_coa_asset_handler))
+        // Asset Resolution + Behavior
+        .route("/api/tc/graph/assets/resolve", post(super::handlers::threatclaw_api::graph_asset_resolve_handler))
+        .route("/api/tc/graph/assets", get(super::handlers::threatclaw_api::graph_assets_list_handler))
+        .route("/api/tc/graph/assets/stats", get(super::handlers::threatclaw_api::graph_assets_stats_handler))
+        .route("/api/tc/graph/assets/incomplete", get(super::handlers::threatclaw_api::graph_assets_incomplete_handler))
+        .route("/api/tc/graph/behavior/{username}", get(super::handlers::threatclaw_api::graph_behavior_handler))
+        .route("/api/tc/graph/behavior/score", post(super::handlers::threatclaw_api::graph_behavior_score_handler))
+        .route("/api/tc/graph/behavior/refresh", post(super::handlers::threatclaw_api::graph_behavior_refresh_handler))
         // Skill scheduler
         .route("/api/tc/scheduler", get(super::handlers::threatclaw_api::scheduler_list_handler))
         .route("/api/tc/scheduler", post(super::handlers::threatclaw_api::scheduler_save_handler))

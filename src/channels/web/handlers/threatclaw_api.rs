@@ -1860,6 +1860,85 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// ASSET RESOLUTION + BEHAVIORAL ANALYSIS
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/graph/assets/resolve — resolve a discovered asset (merge or create).
+pub async fn graph_asset_resolve_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let discovered = serde_json::from_value::<crate::graph::asset_resolution::DiscoveredAsset>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid asset data: {e}")))?;
+    let result = crate::graph::asset_resolution::resolve_asset(store.as_ref(), &discovered).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// GET /api/tc/graph/assets — list all resolved assets.
+pub async fn graph_assets_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = params.get("limit").and_then(|l| l.parse::<u64>().ok()).unwrap_or(100);
+    let assets = crate::graph::asset_resolution::list_assets(store.as_ref(), limit).await;
+    Ok(Json(serde_json::json!({ "assets": assets, "count": assets.len() })))
+}
+
+/// GET /api/tc/graph/assets/stats — asset discovery statistics.
+pub async fn graph_assets_stats_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let stats = crate::graph::asset_resolution::asset_stats(store.as_ref()).await;
+    Ok(Json(stats))
+}
+
+/// GET /api/tc/graph/assets/incomplete — assets needing more discovery sources.
+pub async fn graph_assets_incomplete_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let incomplete = crate::graph::asset_resolution::find_incomplete_assets(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "incomplete_assets": incomplete, "count": incomplete.len() })))
+}
+
+/// GET /api/tc/graph/behavior/{username} — get behavioral profile for a user.
+pub async fn graph_behavior_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(username): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let baseline = crate::graph::behavior::compute_baseline(store.as_ref(), &username).await;
+    Ok(Json(serde_json::json!(baseline)))
+}
+
+/// POST /api/tc/graph/behavior/score — score a login event against baseline.
+pub async fn graph_behavior_score_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let username = body["username"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing username".to_string()))?;
+    let source_ip = body["source_ip"].as_str().unwrap_or("unknown");
+    let target_asset = body["target_asset"].as_str().unwrap_or("unknown");
+    let success = body["success"].as_bool().unwrap_or(true);
+    let score = crate::graph::behavior::score_login(store.as_ref(), username, source_ip, target_asset, success).await;
+    Ok(Json(serde_json::json!(score)))
+}
+
+/// POST /api/tc/graph/behavior/refresh — refresh baselines for all users.
+pub async fn graph_behavior_refresh_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    crate::graph::behavior::refresh_all_baselines(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "refreshed": true })))
+}
+
+// ══════════════════════════════════════════════════════════
 // SKILL SCHEDULER
 // ══════════════════════════════════════════════════════════
 

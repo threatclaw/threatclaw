@@ -212,7 +212,27 @@ pub async fn run_intelligence_cycle(
         tracing::info!("THREAT_ACTOR: {}", actors.summary);
     }
 
-    // ── 5h. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // ── 5h. BEHAVIORAL SCORING — score recent logins against baselines ──
+    for a in alerts.iter().take(5) {
+        if let (Some(ip), Some(host)) = (&a.source_ip, &a.hostname) {
+            let clean_ip = ip.split('/').next().unwrap_or(ip).trim();
+            // Extract username from alert if available
+            let username = a.title.split("for ").nth(1)
+                .or(a.title.split("user ").nth(1))
+                .and_then(|s| s.split_whitespace().next())
+                .unwrap_or("");
+            if !username.is_empty() && !clean_ip.is_empty() {
+                let score = crate::graph::behavior::score_login(
+                    store.as_ref(), username, clean_ip, host, true,
+                ).await;
+                if score.total_score >= 50 {
+                    tracing::warn!("BEHAVIOR: {} score {}/100 ({})", username, score.total_score, score.level);
+                }
+            }
+        }
+    }
+
+    // ── 5i. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
     // This is where the engine becomes a true SOC brain — it reads raw logs,
     // extracts indicators, and cross-references with enrichment sources.
     let log_scan_results = scan_logs_for_threats(store.clone()).await;

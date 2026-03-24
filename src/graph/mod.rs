@@ -16,3 +16,5 @@ pub mod blast_radius;
 pub mod attack_path;
 pub mod supply_chain;
 pub mod threat_actor;
+pub mod asset_resolution;
+pub mod behavior;
