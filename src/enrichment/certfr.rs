@@ -145,18 +145,15 @@ fn extract_cve_ids(text: &str) -> Vec<String> {
             cves.push(clean.to_string());
         }
     }
-    // Also scan for CVE pattern in continuous text
-    let mut i = 0;
-    let bytes = text.as_bytes();
-    while i + 13 <= bytes.len() {
-        if &text[i..i+4] == "CVE-" {
+    // Also scan for CVE pattern in continuous text (char-boundary safe)
+    for (i, _) in text.char_indices() {
+        if text[i..].starts_with("CVE-") {
             let end = text[i..].find(|c: char| !c.is_alphanumeric() && c != '-').map(|p| i + p).unwrap_or(text.len());
             let candidate = &text[i..end];
             if candidate.len() >= 13 && !cves.contains(&candidate.to_string()) {
                 cves.push(candidate.to_string());
             }
         }
-        i += 1;
     }
     cves
 }

@@ -14,6 +14,47 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// Strip extra quotes from agtype values.
+/// AGE serializes strings as `"\"value\""` in JSON — this unwraps them to `"value"`.
+/// Also handles numeric strings that should be numbers, and boolean strings.
+fn strip_agtype_quotes(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let cleaned: serde_json::Map<String, serde_json::Value> = map.into_iter()
+                .map(|(k, v)| (k, strip_agtype_quotes(v)))
+                .collect();
+            serde_json::Value::Object(cleaned)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.into_iter().map(strip_agtype_quotes).collect())
+        }
+        serde_json::Value::String(ref s) => {
+            // agtype wraps strings in extra quotes: "\"value\"" → "value"
+            if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+                let inner = &s[1..s.len() - 1];
+                // Try to parse as JSON value (number, bool, null, or cleaned string)
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inner) {
+                    return parsed;
+                }
+                return serde_json::Value::String(inner.to_string());
+            }
+            // Try to parse bare numbers/bools from agtype
+            if let Ok(n) = s.parse::<i64>() {
+                return serde_json::Value::Number(n.into());
+            }
+            if let Ok(n) = s.parse::<f64>() {
+                if let Some(n) = serde_json::Number::from_f64(n) {
+                    return serde_json::Value::Number(n);
+                }
+            }
+            if s == "true" { return serde_json::Value::Bool(true); }
+            if s == "false" { return serde_json::Value::Bool(false); }
+            value
+        }
+        _ => value,
+    }
+}
+
 /// Split RETURN clause into individual column expressions.
 /// Handles nested function calls like `collect(DISTINCT a.hostname)`.
 fn split_return_columns(return_clause: &str) -> Vec<String> {
@@ -536,6 +577,7 @@ impl ThreatClawStore for PgBackend {
             Ok(rows) => {
                 let results: Vec<serde_json::Value> = rows.iter()
                     .filter_map(|r| r.try_get::<_, serde_json::Value>(0).ok())
+                    .map(|v| strip_agtype_quotes(v))
                     .collect();
                 Ok(results)
             }
