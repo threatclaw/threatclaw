@@ -97,10 +97,10 @@ export default function HomePage() {
     <div>
       {/* Header */}
       <div style={{ marginBottom: "28px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "#e8e4e0", letterSpacing: "-0.02em", margin: 0 }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
           Dashboard
         </h1>
-        <p style={{ fontSize: "13px", color: "#5a534e", margin: "4px 0 0" }}>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
           Vue d{"'"}ensemble de votre agent de cybersécurité
         </p>
       </div>
@@ -110,10 +110,10 @@ export default function HomePage() {
         <ChromeInsetCard glow style={{ marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "#d03020" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>
                 Configuration requise
               </div>
-              <div style={{ fontSize: "12px", color: "#5a534e", marginTop: "4px" }}>
+              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
                 Lancez l{"'"}assistant pour configurer votre IA, vos canaux et votre niveau de sécurité.
               </div>
             </div>
@@ -125,7 +125,7 @@ export default function HomePage() {
       )}
 
       {/* Services grid */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
         Services
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "28px" }}>
@@ -133,7 +133,7 @@ export default function HomePage() {
           <ChromeInsetCard key={svc.name}>
             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{
-                width: "36px", height: "36px", borderRadius: "10px",
+                width: "36px", height: "36px", borderRadius: "var(--tc-radius-md)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.03)",
                 border: `1px solid ${svc.status === "ok" ? "rgba(48,160,80,0.15)" : svc.status === "down" ? "rgba(208,48,32,0.15)" : "rgba(255,255,255,0.06)"}`,
@@ -142,7 +142,7 @@ export default function HomePage() {
                 {svc.status === "checking" ? <Loader2 size={16} className="animate-spin" /> : svc.icon}
               </div>
               <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{svc.name}</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{svc.name}</div>
                 <div style={{
                   fontSize: "11px", marginTop: "2px",
                   color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "#5a534e",
@@ -158,7 +158,7 @@ export default function HomePage() {
       {/* Config overview */}
       {(config || onboarded) && (
         <>
-          <div style={{ fontSize: "11px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
             Configuration active
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "28px" }}>
@@ -166,12 +166,12 @@ export default function HomePage() {
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <Cpu size={18} color="#d03020" />
                 <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.06em" }}>IA Principale</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0", marginTop: "2px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>IA Principale</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
                     {config?.llm?.backend || "Non configuré"}
                   </div>
                   {config?.llm?.model && (
-                    <div style={{ fontSize: "11px", color: "#5a534e", fontFamily: "monospace", marginTop: "2px" }}>{config.llm.model}</div>
+                    <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", fontFamily: "monospace", marginTop: "2px" }}>{config.llm.model}</div>
                   )}
                 </div>
               </div>
@@ -181,8 +181,8 @@ export default function HomePage() {
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <Shield size={18} color="#d03020" />
                 <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Sécurité</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0", marginTop: "2px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Sécurité</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
                     {permLabel[config?.permissions || ""] || "Non configuré"}
                   </div>
                 </div>
@@ -193,8 +193,8 @@ export default function HomePage() {
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <MessageSquare size={18} color="#d03020" />
                 <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Canaux</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0", marginTop: "2px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Canaux</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
                     {activeChannels.length > 0 ? activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ") : "Aucun actif"}
                   </div>
                 </div>
@@ -205,8 +205,8 @@ export default function HomePage() {
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <Puzzle size={18} color="#d03020" />
                 <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "#5a534e", textTransform: "uppercase", letterSpacing: "0.06em" }}>Skills</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0", marginTop: "2px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Skills</div>
+                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
                     {skillCount !== null ? `${skillCount} active(s)` : "—"}
                   </div>
                 </div>

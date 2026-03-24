@@ -18,7 +18,7 @@ export function ChromeInsetCard({ children, className = "", glow = false, style 
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         border: "1px solid rgba(255, 255, 255, 0.06)",
-        borderRadius: "16px",
+        borderRadius: "var(--tc-radius-lg)",
         boxShadow: glow
           ? "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02), 0 0 30px rgba(208,48,32,0.05)"
           : "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02)",
@@ -44,7 +44,7 @@ export function ChromeEmbossedText({ children, as: Tag = "span", className = "",
     <Tag
       className={className}
       style={{
-        color: "#e8e4e0",
+        color: "var(--tc-text)",
         ...style,
       }}
     >

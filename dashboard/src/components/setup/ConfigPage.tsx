@@ -40,9 +40,9 @@ import { ChromeButton } from "@/components/chrome/ChromeButton";
 
 const PERM_LEVELS = [
   { id: "READ_ONLY", icon: Eye, label: "Observation", desc: "Observation uniquement", color: "#5a6a8a" },
-  { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "#30a050", recommended: true },
-  { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine", color: "#d09020" },
-  { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "#d03020", warning: true },
+  { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "var(--tc-green)", recommended: true },
+  { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine", color: "var(--tc-amber)" },
+  { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "var(--tc-red)", warning: true },
 ];
 
 interface ConfigPageProps { onResetWizard: () => void; }
@@ -228,15 +228,15 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   };
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px",
-    padding: "10px 14px", fontSize: "13px", color: "#e8e4e0", fontFamily: "inherit",
-    background: "rgba(255,255,255,0.04)", outline: "none",
+    width: "100%", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
+    padding: "10px 14px", fontSize: "13px", color: "var(--tc-text)", fontFamily: "inherit",
+    background: "var(--tc-input)", outline: "none",
     boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.04)",
     transition: "border-color 0.2s ease",
   };
 
   const labelStyle: React.CSSProperties = {
-    fontSize: "11px", fontWeight: 600, color: "#5a534e",
+    fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)",
     textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px",
   };
 
@@ -272,7 +272,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               display: "flex", alignItems: "center", gap: "6px",
-              padding: "8px 16px", borderRadius: "10px", border: "none",
+              padding: "8px 16px", borderRadius: "var(--tc-radius-md)", border: "none",
               fontSize: "12px", fontWeight: 600, fontFamily: "inherit",
               cursor: "pointer", transition: "all 0.2s ease",
               background: active ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.02)",
@@ -335,7 +335,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                   <button onClick={() => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], enabled: !isEnabled } }))}
                     style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                     <div style={{
-                      width: "44px", height: "24px", borderRadius: "12px", position: "relative",
+                      width: "44px", height: "24px", borderRadius: "var(--tc-radius-card)", position: "relative",
                       background: isEnabled ? "rgba(208,48,32,0.15)" : "rgba(255,255,255,0.06)",
                       border: isEnabled ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.06)",
                       transition: "all 0.25s ease",
@@ -352,7 +352,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                 </div>
 
                 {isEnabled && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
                     {ch.fields.map(f => (
                       <div key={f.id}>
                         <div style={labelStyle}>{f.label}</div>
@@ -365,12 +365,12 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 
                     {/* Telegram special: status + test message */}
                     {ch.key === "telegram" && (
-                      <div style={{ borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
+                      <div style={{ borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
                         {/* Bot status */}
                         {telegramStatus && (
                           <div style={{
                             display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px",
-                            padding: "10px 14px", borderRadius: "10px",
+                            padding: "10px 14px", borderRadius: "var(--tc-radius-md)",
                             background: telegramStatus.ok ? "rgba(48,160,80,0.06)" : "rgba(208,48,32,0.06)",
                             border: `1px solid ${telegramStatus.ok ? "rgba(48,160,80,0.15)" : "rgba(208,48,32,0.15)"}`,
                           }}>
@@ -379,7 +379,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                               <div style={{ fontSize: "13px", fontWeight: 600, color: telegramStatus.ok ? "#30a050" : "#d03020" }}>
                                 {telegramStatus.ok ? `@${telegramStatus.username} — Connecté` : "Bot non connecté"}
                               </div>
-                              {telegramStatus.error && <div style={{ fontSize: "11px", color: "#5a534e" }}>{String(telegramStatus.error)}</div>}
+                              {telegramStatus.error && <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{String(telegramStatus.error)}</div>}
                             </div>
                             <ChromeButton onClick={checkTelegram} variant="glass">
                               <RotateCcw size={12} />
@@ -423,18 +423,18 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                     display: "flex", alignItems: "center", gap: "14px",
                     background: sel ? "rgba(208,48,32,0.06)" : "rgba(255,255,255,0.01)",
                     border: sel ? "1px solid rgba(208,48,32,0.15)" : "1px solid rgba(255,255,255,0.04)",
-                    borderRadius: "12px", cursor: "pointer", padding: "14px 16px",
+                    borderRadius: "var(--tc-radius-card)", cursor: "pointer", padding: "14px 16px",
                     textAlign: "left", transition: "all 0.2s ease", fontFamily: "inherit",
                     color: "inherit",
                   }}>
                     <LIcon size={20} color={level.color} />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "14px", fontWeight: 700, color: "#e8e4e0", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", display: "flex", alignItems: "center", gap: "8px" }}>
                         {level.label}
-                        {level.recommended && <span style={{ fontSize: "9px", color: "#30a050", fontWeight: 600, padding: "2px 6px", background: "rgba(48,160,80,0.1)", borderRadius: "4px" }}>RECOMMANDÉ</span>}
-                        {level.warning && <span style={{ fontSize: "9px", color: "#d03020", fontWeight: 600, padding: "2px 6px", background: "rgba(208,48,32,0.1)", borderRadius: "4px", display: "inline-flex", alignItems: "center", gap: "3px" }}><AlertTriangle size={9} />AVANCÉ</span>}
+                        {level.recommended && <span style={{ fontSize: "9px", color: "var(--tc-green)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-green-soft)", borderRadius: "4px" }}>RECOMMANDÉ</span>}
+                        {level.warning && <span style={{ fontSize: "9px", color: "var(--tc-red)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-red-soft)", borderRadius: "4px", display: "inline-flex", alignItems: "center", gap: "3px" }}><AlertTriangle size={9} />AVANCÉ</span>}
                       </div>
-                      <div style={{ fontSize: "12px", color: "#5a534e", marginTop: "2px" }}>{level.desc}</div>
+                      <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{level.desc}</div>
                     </div>
                     {sel && <Check size={18} color="#d03020" />}
                   </button>
@@ -464,7 +464,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "16px 20px", borderRadius: "14px",
-        background: "rgba(18,18,26,0.5)", border: "1px solid rgba(255,255,255,0.04)",
+        background: "rgba(18,18,26,0.5)", border: "1px solid var(--tc-border-light)",
         position: "sticky", bottom: "20px",
         backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       }}>
@@ -511,8 +511,8 @@ function GlassSelect({ value, onChange, options, placeholder }: {
     <div style={{ position: "relative" }}>
       <select value={value} onChange={e => onChange(e.target.value)} style={{
         width: "100%", appearance: "none", WebkitAppearance: "none",
-        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: "10px", padding: "12px 36px 12px 14px", fontSize: "13px",
+        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+        borderRadius: "var(--tc-radius-md)", padding: "12px 36px 12px 14px", fontSize: "13px",
         color: value ? "#e8e4e0" : "#5a534e", fontFamily: "inherit", cursor: "pointer",
         outline: "none", transition: "border-color 0.2s",
         boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
@@ -520,7 +520,7 @@ function GlassSelect({ value, onChange, options, placeholder }: {
         {placeholder && <option value="">{placeholder}</option>}
         {options.map(o => <option key={o.value} value={o.value}>{o.label}{o.detail ? ` — ${o.detail}` : ""}</option>)}
       </select>
-      <ChevronDown size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "#5a534e", pointerEvents: "none" }} />
+      <ChevronDown size={14} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", color: "var(--tc-text-muted)", pointerEvents: "none" }} />
     </div>
   );
 }
@@ -603,7 +603,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
   const modelOptions = llmModels.map(m => ({ value: m.name, label: m.name, detail: m.size }));
 
   const LevelBadge = ({ level, color, bg, border }: { level: string; color: string; bg: string; border: string }) => (
-    <div style={{ minWidth: "32px", height: "32px", borderRadius: "8px", background: bg, border: `1px solid ${border}`,
+    <div style={{ minWidth: "32px", height: "32px", borderRadius: "var(--tc-radius-input)", background: bg, border: `1px solid ${border}`,
       display: "flex", alignItems: "center", justifyContent: "center", fontSize: level.length > 2 ? "10px" : "13px", fontWeight: 800, color, flexShrink: 0, padding: "0 6px" }}>
       {level}
     </div>
@@ -611,9 +611,9 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
 
   // AI level definitions
   const aiLevels = [
-    { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
-    { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
-    { id: "l25", level: "L2.5", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
+    { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
+    { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
+    { id: "l25", level: "L2.5", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
   ];
 
   return (
@@ -622,15 +622,15 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "#3080d0", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "#d09020", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L2.5", label: "Instruct", desc: "Playbooks, HITL", color: "#30a050", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "L2.5", label: "Instruct", desc: "Playbooks, HITL", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
             { level: "L3", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
-            <div key={l.level} style={{ flex: 1, minWidth: "100px", padding: "10px 12px", borderRadius: "10px", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
+            <div key={l.level} style={{ flex: 1, minWidth: "100px", padding: "10px 12px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "18px", fontWeight: 800, color: l.color }}>{l.level}</div>
-              <div style={{ fontSize: "11px", fontWeight: 600, color: "#e8e4e0", marginTop: "2px" }}>{l.label}</div>
-              <div style={{ fontSize: "9px", color: "#5a534e", marginTop: "2px" }}>{l.desc}</div>
+              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)", marginTop: "2px" }}>{l.label}</div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{l.desc}</div>
             </div>
           ))}
         </div>
@@ -662,17 +662,17 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
                 return (
                   <div key={m.name} style={{
                     display: "flex", alignItems: "center", gap: "10px",
-                    padding: "8px 12px", borderRadius: "10px",
+                    padding: "8px 12px", borderRadius: "var(--tc-radius-md)",
                     background: (isL1 || isL2) ? "rgba(48,128,208,0.04)" : "rgba(255,255,255,0.02)",
                     border: `1px solid ${(isL1 || isL2) ? "rgba(48,128,208,0.12)" : "rgba(255,255,255,0.04)"}`,
                   }}>
                     <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", boxShadow: "0 0 6px rgba(48,160,80,0.3)", flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
-                      {m.size && <span style={{ fontSize: "10px", color: "#5a534e" }}>{m.size}</span>}
+                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                      {m.size && <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{m.size}</span>}
                     </div>
-                    {isL1 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(48,128,208,0.1)", color: "#3080d0", border: "1px solid rgba(48,128,208,0.2)" }}>L1</span>}
-                    {isL2 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(208,144,32,0.1)", color: "#d09020", border: "1px solid rgba(208,144,32,0.2)" }}>L2</span>}
+                    {isL1 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(48,128,208,0.1)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.2)" }}>L1</span>}
+                    {isL2 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(208,144,32,0.1)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.2)" }}>L2</span>}
                     {tr && (
                       <span style={{ fontSize: "10px", color: tr.ok ? "#30a050" : "#d03020" }}>
                         {tr.ok ? "OK" : "Erreur"}
@@ -718,7 +718,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             <LevelBadge level={ai.level} color={ai.color} bg={ai.bg} border={ai.border} />
             <div style={{ flex: 1 }}>
               <ChromeEmbossedText as="div" style={{ fontSize: "14px", fontWeight: 700 }}>{ai.name}</ChromeEmbossedText>
-              <div style={{ fontSize: "11px", color: "#5a534e" }}>{ai.desc}</div>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{ai.desc}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontSize: "13px", fontWeight: 600, color: ai.model ? ai.color : "#5a534e", fontFamily: "monospace" }}>
@@ -731,7 +731,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             </div>
           </div>
           {changingLevel === ai.id && (
-            <div style={{ marginTop: "14px", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "14px" }}>
+            <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
               {llm.connected && modelOptions.length > 0 ? (
                 <GlassSelect value={ai.model} onChange={v => ai.setModel(v)}
                   options={modelOptions} placeholder="— Sélectionner un modèle —" />
@@ -742,7 +742,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
                     placeholder={`${ai.defaultModel} (connectez Ollama pour voir la liste)`} />
                 </div>
               )}
-              <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "6px" }}>
                 Recommandé : <strong style={{ color: ai.color }}>{ai.defaultModel}</strong>
               </div>
             </div>
@@ -756,12 +756,12 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
           <LevelBadge level="L3" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
           <div style={{ flex: 1 }}>
             <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Cloud — Escalade anonymisée</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "#5a534e" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>
           </div>
           <button onClick={() => setCloud(p => ({ ...p, enabled: !p.enabled }))}
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
             <div style={{
-              width: "44px", height: "24px", borderRadius: "12px", position: "relative",
+              width: "44px", height: "24px", borderRadius: "var(--tc-radius-card)", position: "relative",
               background: cloud.enabled ? "rgba(160,64,208,0.15)" : "rgba(255,255,255,0.06)",
               border: cloud.enabled ? "1px solid rgba(160,64,208,0.3)" : "1px solid rgba(255,255,255,0.06)",
               transition: "all 0.25s ease",
@@ -777,7 +777,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
         </div>
 
         {cloud.enabled && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid rgba(255,255,255,0.04)", paddingTop: "16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
             <div>
               <div style={labelStyle}>Provider</div>
               <GlassSelect value={cloud.backend} onChange={v => setCloud(p => ({ ...p, backend: v }))} options={[
@@ -950,10 +950,10 @@ function EnrichmentTab() {
             {syncAllRunning ? "Synchronisation..." : "Tout synchroniser"}
           </ChromeButton>
         </div>
-        <div style={{ fontSize: "12px", color: "#5a534e", marginBottom: "20px", lineHeight: 1.6 }}>
+        <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px", lineHeight: 1.6 }}>
           Ces sources enrichissent automatiquement les analyses de l{"'"}Intelligence Engine.
           Plus de sources = meilleure corrélation = moins de faux positifs.
-          <br />La plupart sont <strong style={{ color: "#30a050" }}>gratuites sans inscription</strong>. Celles marquées <span style={{ color: "#d09020" }}>Clé requise</span> nécessitent une inscription gratuite.
+          <br />La plupart sont <strong style={{ color: "var(--tc-green)" }}>gratuites sans inscription</strong>. Celles marquées <span style={{ color: "var(--tc-amber)" }}>Clé requise</span> nécessitent une inscription gratuite.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -964,14 +964,14 @@ function EnrichmentTab() {
 
             return (
               <div key={src.id} style={{
-                padding: "12px 14px", borderRadius: "10px",
-                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+                padding: "12px 14px", borderRadius: "var(--tc-radius-md)",
+                background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 {/* Toggle */}
                 <button onClick={() => toggleSource(src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}>
                   <div style={{
-                    width: "36px", height: "20px", borderRadius: "10px", position: "relative",
+                    width: "36px", height: "20px", borderRadius: "var(--tc-radius-md)", position: "relative",
                     background: enabled[src.id] ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.06)",
                     border: enabled[src.id] ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.06)",
                     transition: "all 0.25s ease",
@@ -986,18 +986,18 @@ function EnrichmentTab() {
                 </button>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{src.name}</span>
-                    {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "#3080d0", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>Clé optionnelle</span>}
-                    {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "#d09020", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{src.name}</span>
+                    {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>Clé optionnelle</span>}
+                    {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
                     <button onClick={() => setHelpOpen(helpOpen === src.id ? null : src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
                       <HelpCircle size={13} color="#5a534e" />
                     </button>
                   </div>
-                  <div style={{ fontSize: "11px", color: "#5a534e" }}>{src.desc}</div>
-                  <div style={{ fontSize: "10px", color: "#3080d0", marginTop: "2px" }}>{src.enriches}</div>
+                  <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{src.desc}</div>
+                  <div style={{ fontSize: "10px", color: "var(--tc-blue)", marginTop: "2px" }}>{src.enriches}</div>
                 </div>
                 {count !== undefined && count !== null && (
-                  <span style={{ fontSize: "11px", color: "#30a050", fontFamily: "monospace" }}>
+                  <span style={{ fontSize: "11px", color: "var(--tc-green)", fontFamily: "monospace" }}>
                     {String(count)} entries
                   </span>
                 )}
@@ -1026,8 +1026,8 @@ function EnrichmentTab() {
                       onBlur={() => saveApiKey(src.id)}
                       placeholder={`Clé API ${src.name} (inscription gratuite)`}
                       style={{
-                        flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-                        borderRadius: "8px", padding: "8px 12px", fontSize: "12px", color: "#e8e4e0",
+                        flex: 1, background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                        borderRadius: "var(--tc-radius-input)", padding: "8px 12px", fontSize: "12px", color: "var(--tc-text)",
                         fontFamily: "inherit", outline: "none",
                       }}
                     />
@@ -1037,7 +1037,7 @@ function EnrichmentTab() {
                   </div>
                 )}
                 {helpOpen === src.id && (
-                  <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(48,128,208,0.04)", border: "1px solid rgba(48,128,208,0.1)", fontSize: "11px", color: "#9a918a", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                  <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "var(--tc-radius-input)", background: "rgba(48,128,208,0.04)", border: "1px solid rgba(48,128,208,0.1)", fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
                     {src.help}
                   </div>
                 )}
@@ -1048,8 +1048,8 @@ function EnrichmentTab() {
       </ChromeInsetCard>
 
       <ChromeInsetCard>
-        <div style={{ fontSize: "12px", color: "#5a534e", lineHeight: 1.7 }}>
-          <strong style={{ color: "#e8e4e0" }}>Enrichissement vs Skills</strong>
+        <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
+          <strong style={{ color: "var(--tc-text)" }}>Enrichissement vs Skills</strong>
           <br /><br />
           {"Les sources d'enrichissement sont passives — elles enrichissent le contexte de l'IA sans action sur l'infrastructure. Les skills sont actives — elles scannent, détectent, génèrent."}
           <br /><br />
@@ -1065,9 +1065,9 @@ function EnrichmentTab() {
 // ═══════════════════════════════════════
 
 const NOTIFICATION_LEVELS = [
-  { id: "digest", label: "Digest quotidien", desc: "Résumé journalier, findings low/medium", color: "#3080d0" },
-  { id: "alert", label: "Alerte", desc: "Nouveau High, corrélation suspecte", color: "#d09020" },
-  { id: "critical", label: "Critique", desc: "Kill chain, Critical confirmé, HITL", color: "#d03020" },
+  { id: "digest", label: "Digest quotidien", desc: "Résumé journalier, findings low/medium", color: "var(--tc-blue)" },
+  { id: "alert", label: "Alerte", desc: "Nouveau High, corrélation suspecte", color: "var(--tc-amber)" },
+  { id: "critical", label: "Critique", desc: "Kill chain, Critical confirmé, HITL", color: "var(--tc-red)" },
 ];
 
 const ALL_CHANNELS = [
@@ -1157,19 +1157,19 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
             <Shield size={18} color="#d03020" /> Situation actuelle
           </ChromeEmbossedText>
           <div style={{ display: "flex", gap: "16px" }}>
-            <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)" }}>
               <div style={{ fontSize: "28px", fontWeight: 800, color: (situation.global_score ?? 100) >= 70 ? "#30a050" : (situation.global_score ?? 100) >= 40 ? "#d09020" : "#d03020" }}>
                 {Math.round(situation.global_score ?? 100)}
               </div>
-              <div style={{ fontSize: "10px", color: "#5a534e", textTransform: "uppercase" }}>Score</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>Score</div>
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "4px" }}>
-              <div style={{ fontSize: "13px", color: "#e8e4e0" }}>
+              <div style={{ fontSize: "13px", color: "var(--tc-text)" }}>
                 Niveau : <strong style={{ color: situation.notification_level === "silence" ? "#30a050" : situation.notification_level === "digest" ? "#3080d0" : situation.notification_level === "alert" ? "#d09020" : "#d03020" }}>
                   {situation.notification_level || "silence"}
                 </strong>
               </div>
-              <div style={{ fontSize: "11px", color: "#5a534e" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
                 {situation.open_findings || 0} findings ouverts — {situation.active_alerts || 0} alertes actives
               </div>
             </div>
@@ -1183,8 +1183,8 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <AlertTriangle size={20} color="#d03020" />
             <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "#d03020" }}>Aucun canal configuré</div>
-              <div style={{ fontSize: "12px", color: "#5a534e" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>Aucun canal configuré</div>
+              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)" }}>
                 {"Allez dans l'onglet Canaux pour configurer au moins un moyen de communication."}
               </div>
             </div>
@@ -1197,17 +1197,17 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
           <Bell size={18} color="#d03020" /> Routing des notifications
         </ChromeEmbossedText>
-        <div style={{ fontSize: "12px", color: "#5a534e", marginBottom: "20px" }}>
+        <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px" }}>
           Choisissez quels canaux reçoivent quels types de notifications. Silence = rien envoyé.
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           {NOTIFICATION_LEVELS.map(level => (
-            <div key={level.id} style={{ padding: "14px 16px", borderRadius: "12px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+            <div key={level.id} style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-card)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                 <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: level.color, boxShadow: `0 0 6px ${level.color}40` }} />
-                <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{level.label}</span>
-                <span style={{ fontSize: "11px", color: "#5a534e" }}>— {level.desc}</span>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>{level.label}</span>
+                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>— {level.desc}</span>
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {ALL_CHANNELS.map(ch => {
@@ -1217,7 +1217,7 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
                     <button key={ch.id} onClick={() => configured && toggleChannel(level.id, ch.id)}
                       disabled={!configured}
                       style={{
-                        padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+                        padding: "6px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "11px", fontWeight: 600,
                         fontFamily: "inherit", cursor: configured ? "pointer" : "not-allowed",
                         background: active ? `${level.color}15` : "rgba(255,255,255,0.02)",
                         border: `1px solid ${active ? `${level.color}40` : "rgba(255,255,255,0.04)"}`,
@@ -1264,8 +1264,8 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
 
       {/* Explanation */}
       <ChromeInsetCard>
-        <div style={{ fontSize: "12px", color: "#5a534e", lineHeight: 1.7 }}>
-          <strong style={{ color: "#e8e4e0" }}>Comment ça marche</strong>
+        <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
+          <strong style={{ color: "var(--tc-text)" }}>Comment ça marche</strong>
           <br /><br />
           {"L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :"}
           <br /><br />
@@ -1332,34 +1332,34 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
           <Shield size={18} color="#d03020" /> Anonymisation
         </ChromeEmbossedText>
-        <div style={{ fontSize: "13px", color: "#5a534e", marginBottom: "20px", lineHeight: 1.6 }}>
-          <strong style={{ color: "#9a918a" }}>17 catégories automatiques</strong> : IPs, MAC, emails, téléphones, clés API, IBAN, SIRET, chemins fichiers, Active Directory, etc.
+        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)", marginBottom: "20px", lineHeight: 1.6 }}>
+          <strong style={{ color: "var(--tc-text-sec)" }}>17 catégories automatiques</strong> : IPs, MAC, emails, téléphones, clés API, IBAN, SIRET, chemins fichiers, Active Directory, etc.
         </div>
 
         {/* Rules list - scrollable */}
         <div style={{ maxHeight: "400px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}
           className="scrollbar-thin">
           {rules.length === 0 && (
-            <div style={{ textAlign: "center", padding: "24px", color: "#5a534e", fontSize: "13px" }}>
+            <div style={{ textAlign: "center", padding: "24px", color: "var(--tc-text-muted)", fontSize: "13px" }}>
               Aucune règle personnalisée. Les 17 catégories automatiques protègent déjà vos données.
             </div>
           )}
           {rules.map(rule => (
             <div key={rule.id} style={{
               display: "flex", alignItems: "center", gap: "12px",
-              padding: "12px 14px", borderRadius: "10px",
-              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+              padding: "12px 14px", borderRadius: "var(--tc-radius-md)",
+              background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
             }}>
               <Shield size={14} color="#30a050" />
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#e8e4e0" }}>{rule.label}</div>
-                <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#5a534e" }}>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{rule.label}</div>
+                <div style={{ fontSize: "11px", fontFamily: "monospace", color: "var(--tc-text-muted)" }}>
                   {rule.pattern} → [{rule.token_prefix}-001]
                 </div>
               </div>
               <button onClick={() => deleteRule(rule.id)} style={{
-                background: "rgba(208,48,32,0.06)", border: "1px solid rgba(208,48,32,0.15)",
-                borderRadius: "8px", cursor: "pointer", padding: "6px 8px", transition: "all 0.2s ease",
+                background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)",
+                borderRadius: "var(--tc-radius-input)", cursor: "pointer", padding: "6px 8px", transition: "all 0.2s ease",
               }}>
                 <Trash2 size={14} color="#d03020" />
               </button>
@@ -1384,7 +1384,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
             <input style={{ ...inputStyle, fontFamily: "monospace" }} value={newPattern}
               onChange={e => setNewPattern(e.target.value)}
               placeholder="Ex: Projet-Neptune ou SRV-\d+" />
-            <div style={{ fontSize: "11px", color: "#5a534e", marginTop: "6px", lineHeight: 1.5 }}>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "6px", lineHeight: 1.5 }}>
               Exemples : mot exact (Projet-Neptune), insensible casse {"((?i)confidentiel)"}, pattern {"(SRV-\\d+ pour SRV-001, SRV-042...)"}
             </div>
           </div>
@@ -1394,7 +1394,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
               <input style={{ ...inputStyle, textTransform: "uppercase" }} value={newPrefix}
                 onChange={e => setNewPrefix(e.target.value.toUpperCase())} />
             </div>
-            <div style={{ flex: 1, fontSize: "12px", color: "#5a534e", paddingBottom: "12px" }}>
+            <div style={{ flex: 1, fontSize: "12px", color: "var(--tc-text-muted)", paddingBottom: "12px" }}>
               → Le LLM verra [{newPrefix || "CUSTOM"}-001]
             </div>
             <ChromeButton onClick={addRule} disabled={adding || !newLabel || !newPattern} variant="primary">

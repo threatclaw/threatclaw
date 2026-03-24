@@ -19,9 +19,9 @@ export function ChromeButton({ children, onClick, disabled, className = "", vari
       boxShadow: "0 2px 8px rgba(208,48,32,0.25), 0 1px 2px rgba(0,0,0,0.3)",
     },
     glass: {
-      background: "rgba(255,255,255,0.04)",
-      border: "1px solid rgba(255,255,255,0.06)",
-      color: "#9a918a",
+      background: "var(--tc-input)",
+      border: "1px solid var(--tc-border)",
+      color: "var(--tc-text-sec)",
       boxShadow: "none",
     },
     danger: {
@@ -39,7 +39,7 @@ export function ChromeButton({ children, onClick, disabled, className = "", vari
       disabled={disabled}
       style={{
         ...styles[variant],
-        borderRadius: "10px",
+        borderRadius: "var(--tc-radius-md)",
         padding: "8px 16px",
         fontSize: "12px",
         fontWeight: 600,
