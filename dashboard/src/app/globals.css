@@ -223,6 +223,7 @@ body {
 }
 
 /* ─── BUTTONS (Uiverse.io lenfear23 — soft embossed) ─── */
+/* ─── BUTTONS (soft embossed — matches page background) ─── */
 .tc-btn-embossed {
   display: inline-flex;
   align-items: center;
@@ -231,40 +232,26 @@ body {
   outline: none;
   cursor: pointer;
   padding: 8px 18px;
-  background-image: linear-gradient(to top, #D8D9DB 0%, #fff 80%, #FDFDFD 100%);
+  background-image: linear-gradient(to top, var(--tc-bg) 0%, var(--tc-surface-alt) 80%);
   border-radius: 30px;
-  border: 1px solid #8F9092;
+  border: 1px solid var(--tc-border);
   transition: all 0.2s ease;
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
-  color: #606060;
-  text-shadow: 0 1px #fff;
+  color: var(--tc-text-sec);
   white-space: nowrap;
 }
 .tc-btn-embossed:hover {
-  box-shadow: 0 4px 3px 1px #FCFCFC, 0 6px 8px #D6D7D9, 0 -4px 4px #CECFD1, 0 -6px 4px #FEFEFE, inset 0 0 3px 3px #CECFD1;
+  box-shadow: inset 0 0 3px 2px var(--tc-border);
 }
 .tc-btn-embossed:active {
-  box-shadow: 0 4px 3px 1px #FCFCFC, 0 6px 8px #D6D7D9, 0 -4px 4px #CECFD1, 0 -6px 4px #FEFEFE, inset 0 0 5px 3px #999, inset 0 0 30px #aaa;
+  box-shadow: inset 0 0 5px 3px var(--tc-border), inset 0 0 20px var(--tc-input);
 }
 .tc-btn-embossed:disabled {
   opacity: 0.4;
   cursor: not-allowed;
   box-shadow: none;
-}
-/* Dark mode */
-[data-theme="dark"] .tc-btn-embossed {
-  background-image: linear-gradient(to top, #2a2a30 0%, #3a3a42 80%, #44444c 100%);
-  border-color: #555;
-  color: #bbb;
-  text-shadow: 0 1px rgba(0,0,0,0.5);
-}
-[data-theme="dark"] .tc-btn-embossed:hover {
-  box-shadow: 0 4px 3px 1px rgba(0,0,0,0.15), 0 6px 8px rgba(0,0,0,0.25), inset 0 0 3px 3px rgba(0,0,0,0.25);
-}
-[data-theme="dark"] .tc-btn-embossed:active {
-  box-shadow: inset 0 0 5px 3px rgba(0,0,0,0.5), inset 0 0 30px rgba(0,0,0,0.3);
 }
 
 /* Legacy btn-primary (kept for compat) */
