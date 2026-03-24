@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit, Sun, Moon } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", label: "Status", icon: Shield },
@@ -20,6 +20,23 @@ export default function TopNav() {
   const pathname = usePathname();
   const [connStatus, setConnStatus] = useState<ConnStatus>("offline");
   const [llmStatus, setLlmStatus] = useState<string>("");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  // Init theme from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("tc-theme") as "dark" | "light" | null;
+    if (saved) {
+      setTheme(saved);
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem("tc-theme", next);
+  };
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -128,6 +145,17 @@ export default function TopNav() {
 
         {/* Separator */}
         <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.06)", margin: "0 8px" }} />
+
+        {/* Theme toggle */}
+        <button onClick={toggleTheme} style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "30px", height: "30px", borderRadius: "8px",
+          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+          color: theme === "dark" ? "#d09020" : "#3080d0",
+          cursor: "pointer", transition: "all 200ms",
+        }} title={theme === "dark" ? "Mode clair" : "Mode sombre"}>
+          {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
+        </button>
 
         {/* Connectivity indicator */}
         <div style={{
