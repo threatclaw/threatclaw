@@ -1,0 +1,44 @@
+{
+  "id": "skill-zap",
+  "name": "OWASP ZAP",
+  "version": "1.0.0",
+  "description": "Scan DAST (Dynamic Application Security Testing) — detecte les vulnerabilites web (XSS, SQL injection, CSRF, etc.) sur une application cible.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "ghcr.io/zaproxy/zaproxy:stable",
+    "command": "zap-baseline.py -t {TARGET} -J /zap/results.json",
+    "timeout_seconds": 600,
+    "network": "bridge",
+    "memory_limit": "1g"
+  },
+  "config": {
+    "target_url": {
+      "type": "string",
+      "description": "URL de l'application web a scanner (ex: https://app.monentreprise.fr)",
+      "required": true
+    },
+    "scan_type": {
+      "type": "select",
+      "description": "Type de scan",
+      "options": ["Baseline (rapide, 1-2 min)", "Full Scan (complet, 30+ min)", "API Scan (OpenAPI/Swagger)"],
+      "default": "Baseline (rapide, 1-2 min)"
+    },
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence de scan",
+      "options": ["Manuel uniquement", "Chaque lundi a 2h", "1er du mois a 2h"],
+      "default": "Manuel uniquement"
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

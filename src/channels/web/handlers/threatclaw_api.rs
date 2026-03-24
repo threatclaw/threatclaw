@@ -1860,6 +1860,62 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// ENRICHMENT — Shodan, VirusTotal, HIBP
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/enrichment/shodan/{ip} — Shodan IP lookup.
+pub async fn enrichment_shodan_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(ip): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    match crate::enrichment::shodan_lookup::lookup_ip(&ip, api_key).await {
+        Ok(result) => Ok(Json(serde_json::json!(result))),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// GET /api/tc/enrichment/virustotal/ip/{ip} — VirusTotal IP lookup.
+pub async fn enrichment_vt_ip_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(ip): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    match crate::enrichment::virustotal_lookup::lookup_ip(&ip, api_key).await {
+        Ok(result) => Ok(Json(serde_json::json!(result))),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// GET /api/tc/enrichment/virustotal/hash/{hash} — VirusTotal file hash lookup.
+pub async fn enrichment_vt_hash_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(hash): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    match crate::enrichment::virustotal_lookup::lookup_hash(&hash, api_key).await {
+        Ok(result) => Ok(Json(serde_json::json!(result))),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
+}
+
+/// GET /api/tc/enrichment/hibp/{email} — Have I Been Pwned email check.
+pub async fn enrichment_hibp_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(email): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    match crate::enrichment::hibp_lookup::check_email(&email, api_key).await {
+        Ok(result) => Ok(Json(serde_json::json!(result))),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
+}
+
+// ══════════════════════════════════════════════════════════
 // CLOUD INTENT (natural language command)
 // ══════════════════════════════════════════════════════════
 

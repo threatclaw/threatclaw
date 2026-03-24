@@ -275,7 +275,7 @@ Les outils que ThreatClaw installe et lance dans Docker.
 - [x] **trufflehog** : secrets git via Docker, parse JSONL, verified=CRITICAL.
 - [x] **syft** : SBOM via Docker, compte les packages, finding informatif.
 - [x] **grype** : CVE container via Docker, parse matches, fixed_in. Parser teste.
-- [ ] **ZAP** : DAST scan web via Docker (parser pret, execution a valider)
+- [x] **ZAP** : DAST scan web via Docker (parser pret, execution a valider)
 
 **P2 — Réseau/monitoring :**
 - [ ] **suricata** : IDS/IPS réseau (permanent)
@@ -306,7 +306,7 @@ Les outils du client auxquels ThreatClaw se branche.
 - [x] **pfSense write** : bloquer IP via REST API v2 (POST /firewall/rule), regle auto ThreatClaw, reversible
 - [x] **OPNsense write** : bloquer IP via API (POST /firewall/filter/addRule + apply), reversible
 - [x] **AD write** : desactiver compte compromis via LDAP (set userAccountControl ACCOUNTDISABLE), reversible
-- [ ] **GLPI write** : créer ticket depuis finding
+- [x] **GLPI write** : créer ticket depuis finding
 
 ### Skills V2 — Enrichissement (type: "enrichment")
 
@@ -317,9 +317,9 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 
 **Activées si clé API fournie :**
 - [x] GreyNoise, CrowdSec CTI, AbuseIPDB, OTX AlienVault, ThreatFox, MalwareBazaar, URLhaus
-- [ ] **Shodan** : exposition internet
-- [ ] **VirusTotal** : analyse fichiers/URLs
-- [ ] **HIBP** : comptes compromis
+- [x] **Shodan** : exposition internet
+- [x] **VirusTotal** : analyse fichiers/URLs
+- [x] **HIBP** : comptes compromis
 
 ### Parcours client (onboarding)
 

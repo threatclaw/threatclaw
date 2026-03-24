@@ -185,3 +185,73 @@ pub async fn sync_glpi(store: &dyn Database, config: &GlpiConfig) -> GlpiSyncRes
 
     result
 }
+
+/// Create a GLPI ticket from a ThreatClaw finding.
+pub async fn create_ticket(
+    config: &GlpiConfig,
+    title: &str,
+    description: &str,
+    urgency: u8, // 1=very low, 5=very high
+) -> Result<serde_json::Value, String> {
+    let client = Client::builder()
+        .danger_accept_invalid_certs(config.no_tls_verify)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client: {}", e))?;
+
+    // Init session
+    let session_url = format!("{}/apirest.php/initSession", config.url);
+    let session_resp = client.get(&session_url)
+        .header("App-Token", &config.app_token)
+        .header("Authorization", format!("user_token {}", config.user_token))
+        .send().await
+        .map_err(|e| format!("Session: {}", e))?;
+
+    if !session_resp.status().is_success() {
+        return Err(format!("Session HTTP {}", session_resp.status()));
+    }
+
+    let session: serde_json::Value = session_resp.json().await.map_err(|e| format!("Parse: {}", e))?;
+    let session_token = session["session_token"].as_str()
+        .ok_or("No session token")?
+        .to_string();
+
+    // Create ticket
+    let ticket_url = format!("{}/apirest.php/Ticket", config.url);
+    let ticket_body = serde_json::json!({
+        "input": {
+            "name": title,
+            "content": description,
+            "urgency": urgency,
+            "type": 1, // 1=incident
+            "status": 1, // 1=new
+            "itilcategories_id": 0,
+        }
+    });
+
+    let resp = client.post(&ticket_url)
+        .header("App-Token", &config.app_token)
+        .header("Session-Token", &session_token)
+        .header("Content-Type", "application/json")
+        .json(&ticket_body)
+        .send().await
+        .map_err(|e| format!("Ticket create: {}", e))?;
+
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+
+    // Kill session
+    let kill_url = format!("{}/apirest.php/killSession", config.url);
+    let _ = client.get(&kill_url)
+        .header("App-Token", &config.app_token)
+        .header("Session-Token", &session_token)
+        .send().await;
+
+    if status.is_success() || status.as_u16() == 201 {
+        let ticket_id = body["id"].as_i64().unwrap_or(0);
+        tracing::info!("GLPI: Ticket #{} created: {}", ticket_id, title);
+        Ok(serde_json::json!({"ticket_id": ticket_id, "title": title, "success": true}))
+    } else {
+        Err(format!("GLPI ticket error: HTTP {} — {:?}", status, body))
+    }
+}

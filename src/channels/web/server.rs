@@ -412,6 +412,11 @@ pub async fn start_server(
         .route("/api/tc/graph/coa/seed", post(super::handlers::threatclaw_api::graph_coa_seed_handler))
         .route("/api/tc/graph/coa/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_coa_cve_handler))
         .route("/api/tc/graph/coa/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_coa_asset_handler))
+        // Enrichment — Shodan, VirusTotal, HIBP
+        .route("/api/tc/enrichment/shodan/{ip}", get(super::handlers::threatclaw_api::enrichment_shodan_handler))
+        .route("/api/tc/enrichment/virustotal/ip/{ip}", get(super::handlers::threatclaw_api::enrichment_vt_ip_handler))
+        .route("/api/tc/enrichment/virustotal/hash/{hash}", get(super::handlers::threatclaw_api::enrichment_vt_hash_handler))
+        .route("/api/tc/enrichment/hibp/{email}", get(super::handlers::threatclaw_api::enrichment_hibp_handler))
         // Intent parser (natural language commands)
         .route("/api/tc/command/intent", post(super::handlers::threatclaw_api::command_intent_handler))
         // License
