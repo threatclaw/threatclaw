@@ -22,9 +22,17 @@
       "required": true
     },
     "scan_schedule": {
-      "type": "cron",
+      "type": "select",
       "description": "Frequence de scan",
-      "default": "0 2 * * *"
+      "options": [
+        "Manuel uniquement",
+        "Toutes les heures",
+        "Tous les jours a 2h",
+        "Tous les jours a 22h",
+        "Chaque lundi a 2h",
+        "1er du mois a 2h"
+      ],
+      "default": "Tous les jours a 2h"
     },
     "top_ports": {
       "type": "number",

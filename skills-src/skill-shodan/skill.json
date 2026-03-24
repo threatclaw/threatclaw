@@ -2,7 +2,7 @@
   "id": "skill-shodan",
   "name": "Surface Shodan",
   "version": "1.0.0",
-  "description": "Surface d attaque externe — vérifie exposition Internet",
+  "description": "Verification exposition internet (ports ouverts, services, CVEs) via Shodan",
   "author": "ThreatClaw",
   "trust": "official",
   "category": "scanning",
@@ -12,9 +12,21 @@
   "timeout_seconds": 120,
   "memory_mb": 32,
   "api_key_required": true,
-  "secrets": ["shodan_api_key"],
+  "secrets": [
+    "shodan_api_key"
+  ],
   "capabilities": {
     "http_allowed": true,
     "workspace_read": false
+  },
+  "type": "enrichment",
+  "requires_config": false,
+  "default_active": false,
+  "config": {
+    "api_key": {
+      "type": "password",
+      "description": "Cle API Shodan",
+      "required": true
+    }
   }
 }

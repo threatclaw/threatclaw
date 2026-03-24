@@ -2,9 +2,12 @@
   "id": "skill-darkweb-monitor",
   "name": "Dark Web Monitor",
   "version": "1.0.0",
-  "description": "Surveillance fuites credentials via HIBP",
+  "description": "Surveillance dark web — detection de fuites de donnees, credentials, mentions",
   "author": "ThreatClaw",
   "trust": "official",
   "category": "monitoring",
-  "runtime": "wasm"
+  "runtime": "wasm",
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
 }

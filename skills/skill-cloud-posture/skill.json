@@ -2,24 +2,57 @@
   "id": "skill-cloud-posture",
   "name": "Audit Cloud",
   "version": "1.0.0",
-  "description": "Audit posture cloud AWS/Azure/GCP avec Prowler, mapping NIS2 et ISO 27001",
+  "description": "Audit posture cloud — verification des configurations AWS/Azure/GCP",
   "author": "ThreatClaw",
   "trust": "official",
-  "category": "infrastructure",
+  "category": "compliance",
   "docker_deps": {
     "prowler": {
       "image": "prowlercloud/prowler:latest",
       "default_mode": "docker",
-      "supports": ["docker", "local_binary"]
+      "supports": [
+        "docker",
+        "local_binary"
+      ]
     }
   },
   "requires_network": true,
   "timeout_seconds": 1800,
   "memory_mb": 512,
   "config_fields": [
-    { "key": "aws_profile", "label": "AWS Profile", "type": "text", "default": "", "placeholder": "default" },
-    { "key": "azure_tenant", "label": "Azure Tenant ID", "type": "text", "default": "" },
-    { "key": "gcp_project", "label": "GCP Project", "type": "text", "default": "" },
-    { "key": "provider", "label": "Cloud Provider", "type": "select", "options": ["aws", "azure", "gcp", "all"], "default": "aws" }
-  ]
+    {
+      "key": "aws_profile",
+      "label": "AWS Profile",
+      "type": "text",
+      "default": "",
+      "placeholder": "default"
+    },
+    {
+      "key": "azure_tenant",
+      "label": "Azure Tenant ID",
+      "type": "text",
+      "default": ""
+    },
+    {
+      "key": "gcp_project",
+      "label": "GCP Project",
+      "type": "text",
+      "default": ""
+    },
+    {
+      "key": "provider",
+      "label": "Cloud Provider",
+      "type": "select",
+      "options": [
+        "aws",
+        "azure",
+        "gcp",
+        "all"
+      ],
+      "default": "aws"
+    }
+  ],
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
 }

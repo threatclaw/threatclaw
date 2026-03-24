@@ -2,9 +2,12 @@
   "id": "skill-compliance-nis2",
   "name": "Conformité NIS2",
   "version": "1.0.0",
-  "description": "Mapping findings vers directive 2022/2555 Art.21",
+  "description": "Audit de conformite NIS2 Article 21 — cartographie des obligations",
   "author": "ThreatClaw",
   "trust": "official",
   "category": "compliance",
-  "runtime": "wasm"
+  "runtime": "wasm",
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
 }

@@ -2,7 +2,7 @@
   "id": "skill-email-audit",
   "name": "Audit Email",
   "version": "1.0.0",
-  "description": "Audit sécurité email — vérifie SPF, DKIM et DMARC des domaines",
+  "description": "Audit securite email — SPF, DKIM, DMARC, configuration du domaine",
   "author": "ThreatClaw",
   "trust": "official",
   "category": "compliance",
@@ -13,12 +13,23 @@
   "memory_mb": 32,
   "api_key_required": false,
   "config_fields": [
-    { "key": "domains", "label": "Domaines à auditer", "type": "text", "default": "", "placeholder": "example.com, corp.fr" }
+    {
+      "key": "domains",
+      "label": "Domaines à auditer",
+      "type": "text",
+      "default": "",
+      "placeholder": "example.com, corp.fr"
+    }
   ],
   "capabilities": {
     "http_allowed": true,
-    "http_allowlist": ["https://cloudflare-dns.com/dns-query*"],
+    "http_allowlist": [
+      "https://cloudflare-dns.com/dns-query*"
+    ],
     "workspace_read": false,
     "secrets": []
-  }
+  },
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
 }
