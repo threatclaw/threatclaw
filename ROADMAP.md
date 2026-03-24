@@ -349,7 +349,7 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 - [x] **Lien direct** "Skills" depuis la page d'accueil dashboard
 - [x] **Page Skills unifiée** : filtres [Tous] [Outils] [Connecteurs] [Enrichissement]
 - [x] **Chaque skill** : logo + toggle ON/OFF + status + config inline
-- [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
+- [x] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 
 ### Technique complété
 - [x] **mTLS** : script generate-certs.sh (CA + certs par service)
@@ -357,7 +357,7 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 - [x] **L1 upgradé** : qwen3:8b → qwen3.5:9b (256K context)
 - [x] **Whitelist dynamique** : `CommandRegistry` (core 44 + skill.json)
 - [x] Tests e2e automatisés du cycle complet (CI)
-- [ ] Barre d'avancement download modèles dans le wizard onboarding
+- [x] Barre d'avancement download modèles dans le wizard onboarding
 
 ### Fine-tuning L1
 

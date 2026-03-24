@@ -6,6 +6,7 @@ import {
   RefreshCw, Eye, Crosshair, Brain, FileText, Activity,
 } from "lucide-react";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
+import GraphVisualization from "@/components/chrome/GraphVisualization";
 
 // ── Types ──
 
@@ -224,6 +225,11 @@ export default function IntelligencePage() {
         <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID" color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
         </div>
+      </div>
+
+      {/* Attack graph */}
+      <div style={{ marginBottom: "16px" }}>
+        <GraphVisualization />
       </div>
 
       {/* Main grid */}
