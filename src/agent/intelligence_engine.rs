@@ -68,6 +68,22 @@ pub struct SecuritySituation {
     pub digest_message: String,
     pub alert_message: Option<String>,
     pub computed_at: String,
+    /// Graph intelligence results (for notification enrichment)
+    pub graph_intel: Option<GraphIntelSummary>,
+}
+
+/// Summary of graph intelligence results for the current cycle.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphIntelSummary {
+    pub lateral_detections: usize,
+    pub lateral_summary: String,
+    pub campaigns_count: usize,
+    pub campaigns_summary: String,
+    pub actors_count: usize,
+    pub actors_summary: String,
+    pub identity_anomalies: usize,
+    pub identity_summary: String,
+    pub confidence_scores: Vec<(String, u8, String)>, // (ip, score, level)
 }
 
 /// Run the intelligence engine cycle.
@@ -170,6 +186,7 @@ pub async fn run_intelligence_cycle(
     }
 
     // ── 5c. CONFIDENCE SCORING — compute graph-based confidence for top alerts ──
+    let mut confidence_scores: Vec<(String, u8, String)> = vec![];
     for a in alerts.iter().take(5) {
         if let Some(ref ip) = a.source_ip {
             let clean_ip = ip.split('/').next().unwrap_or(ip).trim();
@@ -179,6 +196,7 @@ pub async fn run_intelligence_cycle(
                 let score = crate::graph::confidence::compute_ip_confidence(
                     store.as_ref(), clean_ip, host, Some(hour),
                 ).await;
+                confidence_scores.push((clean_ip.to_string(), score.score, score.level.to_string()));
                 tracing::info!(
                     "CONFIDENCE: {} → {}/100 ({}) — {} sources",
                     clean_ip, score.score, score.level, score.source_count
@@ -385,8 +403,21 @@ pub async fn run_intelligence_cycle(
     assets.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
     let digest_message = build_digest_message(&assets, global_score, findings.len(), alerts.len());
+    // Build graph intel summary
+    let graph_intel = GraphIntelSummary {
+        lateral_detections: lateral.total_detections,
+        lateral_summary: lateral.summary.clone(),
+        campaigns_count: campaigns.total_campaigns,
+        campaigns_summary: campaigns.summary.clone(),
+        actors_count: actors.total_actors,
+        actors_summary: actors.summary.clone(),
+        identity_anomalies: identity.anomalies.len(),
+        identity_summary: identity.summary.clone(),
+        confidence_scores: confidence_scores.clone(),
+    };
+
     let alert_message = if notification_level >= NotificationLevel::Alert {
-        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines, &findings))
+        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines, &findings, &graph_intel))
     } else {
         None
     };
@@ -403,6 +434,7 @@ pub async fn run_intelligence_cycle(
         digest_message,
         alert_message,
         computed_at: now.to_rfc3339(),
+        graph_intel: Some(graph_intel),
     };
 
     // Persist for dashboard
@@ -539,7 +571,14 @@ fn build_alert_message(
     alerts: &[crate::db::threatclaw_store::AlertRecord],
     findings: &[crate::db::threatclaw_store::FindingRecord],
 ) -> String {
-    build_enriched_alert_message(assets, alerts, &[], findings)
+    let empty_intel = GraphIntelSummary {
+        lateral_detections: 0, lateral_summary: String::new(),
+        campaigns_count: 0, campaigns_summary: String::new(),
+        actors_count: 0, actors_summary: String::new(),
+        identity_anomalies: 0, identity_summary: String::new(),
+        confidence_scores: vec![],
+    };
+    build_enriched_alert_message(assets, alerts, &[], findings, &empty_intel)
 }
 
 /// Build an enriched alert message with all intelligence data.
@@ -548,94 +587,129 @@ fn build_enriched_alert_message(
     alerts: &[crate::db::threatclaw_store::AlertRecord],
     enrichment: &[String],
     findings: &[crate::db::threatclaw_store::FindingRecord],
+    graph_intel: &GraphIntelSummary,
 ) -> String {
     let critical_assets: Vec<&AssetSituation> = assets.iter()
         .filter(|a| a.score >= 30.0)
         .collect();
 
     let is_critical = critical_assets.iter().any(|a| a.has_kill_chain || a.has_known_exploit || a.findings_critical > 0);
-    let header = if is_critical {
-        "*ThreatClaw — ALERTE CRITIQUE*"
+
+    let mut msg = String::new();
+
+    // ── Header with emoji severity ──
+    if is_critical {
+        msg.push_str("*ALERTE CRITIQUE*\n");
     } else {
-        "*ThreatClaw — Alerte sécurité*"
-    };
+        msg.push_str("*Alerte securite*\n");
+    }
+    msg.push_str("━━━━━━━━━━━━━━━━━━━━━\n\n");
 
-    let mut msg = format!("{}\n\n", header);
-
-    // ── LLM Analysis (from the most recent AI-generated finding) ──
+    // ── LLM Analysis ──
     let ai_finding = findings.iter().rev()
         .find(|f| f.source.as_deref() == Some("threatclaw-l1") || f.source.as_deref() == Some("threatclaw-l2"));
     if let Some(f) = ai_finding {
         if let Some(ref desc) = f.description {
-            // Extract just the analysis text (before "Corrélations :")
             let analysis = desc.split("Corrélations :").next().unwrap_or(desc)
                 .replace("Analyse automatique par ThreatClaw AI :\n", "")
                 .trim().to_string();
+            let source = if f.source.as_deref() == Some("threatclaw-l2") { "L2 Forensique" } else { "L1 Triage" };
             if !analysis.is_empty() {
-                msg.push_str(&format!("*Analyse IA ({} — {})*\n{}\n\n",
-                    f.source.as_deref().unwrap_or("L1"),
-                    f.title.split(" — ").last().unwrap_or(""),
-                    analysis));
-            }
-            // Add correlations if present
-            if let Some(corr_part) = desc.split("Corrélations : ").nth(1) {
-                let corr = corr_part.split("Actions proposées").next().unwrap_or(corr_part).trim();
-                if !corr.is_empty() {
-                    msg.push_str(&format!("*Corrélations :* {}\n\n", corr));
-                }
+                msg.push_str(&format!("*Analyse {}*\n{}\n\n", source, analysis));
             }
         }
     }
 
-    // ── Assets at risk ──
-    for asset in critical_assets.iter().take(3) {
-        let flags = [
-            if asset.has_kill_chain { Some("kill chain") } else { None },
-            if asset.has_known_exploit { Some("exploit connu") } else { None },
-            if asset.has_active_attack { Some("attaque active") } else { None },
-        ].into_iter().flatten().collect::<Vec<_>>().join(", ");
-
-        msg.push_str(&format!("*{}* — score {:.0}/100\n", asset.asset, asset.score));
-        if !flags.is_empty() {
-            msg.push_str(&format!("{}\n", flags));
-        }
-    }
-    if !critical_assets.is_empty() { msg.push('\n'); }
-
-    // ── Sigma alerts (top 4) ──
-    if !alerts.is_empty() {
-        msg.push_str(&format!("*{} alertes Sigma :*\n", alerts.len()));
-        for a in alerts.iter().take(4) {
-            let src = a.source_ip.as_deref().map(|ip| format!(" ({})", ip.split('/').next().unwrap_or(ip))).unwrap_or_default();
-            msg.push_str(&format!("  [{}] {}{}\n", a.level.to_uppercase(), a.title, src));
-        }
-        if alerts.len() > 4 {
-            msg.push_str(&format!("  ... et {} autres\n", alerts.len() - 4));
+    // ── Assets impactes (clean format) ──
+    if !critical_assets.is_empty() {
+        msg.push_str("*Assets impactes*\n");
+        for asset in critical_assets.iter().take(3) {
+            let mut flags = vec![];
+            if asset.has_kill_chain { flags.push("kill chain"); }
+            if asset.has_known_exploit { flags.push("exploit actif"); }
+            if asset.has_active_attack { flags.push("attaque en cours"); }
+            if asset.findings_critical > 0 { flags.push("vuln critique"); }
+            let flag_str = if flags.is_empty() { String::new() } else { format!(" ({})", flags.join(", ")) };
+            msg.push_str(&format!("  {} — {:.0}/100{}\n", asset.asset, asset.score, flag_str));
         }
         msg.push('\n');
     }
 
-    // ── Enrichment (deduplicated) ──
+    // ── Graph Intelligence (NEW — the key addition) ──
+    let mut intel_lines = vec![];
+
+    // Confidence scores
+    for (ip, score, level) in &graph_intel.confidence_scores {
+        intel_lines.push(format!("Confiance {} : {}/100 ({})", ip, score, level));
+    }
+
+    // Lateral movement
+    if graph_intel.lateral_detections > 0 {
+        intel_lines.push(format!("Mouvement lateral : {}", graph_intel.lateral_summary.lines().next().unwrap_or("")));
+    }
+
+    // Campaigns
+    if graph_intel.campaigns_count > 0 {
+        intel_lines.push(format!("Campagne : {}", graph_intel.campaigns_summary.lines().next().unwrap_or("")));
+    }
+
+    // Threat actors
+    if graph_intel.actors_count > 0 {
+        intel_lines.push(format!("Acteurs : {}", graph_intel.actors_summary));
+    }
+
+    // Identity anomalies
+    if graph_intel.identity_anomalies > 0 {
+        intel_lines.push(format!("Identite : {}", graph_intel.identity_summary));
+    }
+
+    if !intel_lines.is_empty() {
+        msg.push_str("*Graph Intelligence*\n");
+        for line in intel_lines.iter().take(5) {
+            msg.push_str(&format!("  {}\n", line));
+        }
+        msg.push('\n');
+    }
+
+    // ── Top alerts (max 3, clean format) ──
+    if !alerts.is_empty() {
+        msg.push_str(&format!("*Alertes ({} total)*\n", alerts.len()));
+        for a in alerts.iter().take(3) {
+            let src = a.source_ip.as_deref()
+                .map(|ip| format!(" — {}", ip.split('/').next().unwrap_or(ip)))
+                .unwrap_or_default();
+            msg.push_str(&format!("  [{}] {}{}\n", a.level.to_uppercase(), a.title, src));
+        }
+        if alerts.len() > 3 {
+            msg.push_str(&format!("  +{} autres\n", alerts.len() - 3));
+        }
+        msg.push('\n');
+    }
+
+    // ── Enrichment (max 3 lines) ──
     if !enrichment.is_empty() {
         let mut seen = std::collections::HashSet::new();
         let deduped: Vec<&String> = enrichment.iter()
             .filter(|line| seen.insert(line.as_str()))
             .collect();
         if !deduped.is_empty() {
-            msg.push_str("*Enrichissement :*\n");
-            for line in deduped.iter().take(4) {
+            msg.push_str("*Enrichissement*\n");
+            for line in deduped.iter().take(3) {
                 msg.push_str(&format!("  {}\n", line));
             }
             msg.push('\n');
         }
     }
 
-    msg.push_str("_ThreatClaw Intelligence Engine_");
+    // ── Footer ──
+    msg.push_str("━━━━━━━━━━━━━━━━━━━━━\n");
+    msg.push_str("_ThreatClaw Intelligence Engine_\n");
+    msg.push_str("_Dashboard : /intelligence_");
 
     // Telegram limit is 4096 chars
     if msg.len() > 4000 {
-        msg.truncate(3950);
-        msg.push_str("...\n_[tronqué — voir dashboard]_");
+        msg.truncate(3900);
+        msg.push_str("\n...\n_[voir dashboard /intelligence]_");
     }
 
     msg

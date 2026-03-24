@@ -239,18 +239,46 @@ pub async fn run_react_cycle(
         }
 
         // Enrichir le prompt avec l'analyse L1 comme contexte
+        // Build graph context for L2 (attackers, CVEs, notes from graph)
+        let graph_context = {
+            use crate::db::threatclaw_store::ThreatClawStore;
+            let recent_alerts = store.list_alerts(None, Some("new"), 3).await.unwrap_or_default();
+            let mut ctx_parts = vec![];
+            let mut seen_hosts = std::collections::HashSet::new();
+            for alert in &recent_alerts {
+                if let Some(ref h) = alert.hostname {
+                    if seen_hosts.insert(h.clone()) {
+                        let ctx = crate::graph::threat_graph::build_investigation_context(store.as_ref(), h).await;
+                        if ctx["attackers"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
+                            || ctx["cves"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
+                            || ctx["analyst_notes"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
+                        {
+                            ctx_parts.push(format!("Asset {} : {}", h, serde_json::to_string(&ctx).unwrap_or_default()));
+                        }
+                    }
+                }
+            }
+            if ctx_parts.is_empty() {
+                String::new()
+            } else {
+                format!("\n\n# CONTEXTE GRAPH INTELLIGENCE\n{}", ctx_parts.join("\n"))
+            }
+        };
+
         let enriched_prompt_raw = if is_critical {
-            // CRITICAL: ask L2 for deep forensic analysis
+            // CRITICAL: ask L2 for deep forensic analysis + graph context
             format!(
-                "{}\n\n# ANALYSE L1 — INCIDENT CRITIQUE DÉTECTÉ\nSévérité: {} | Confiance: {:.0}%\nAnalyse L1: {}\nCorrélations: {:?}\n\n\
+                "{}\n\n# ANALYSE L1 — INCIDENT CRITIQUE DÉTECTÉ\nSévérité: {} | Confiance: {:.0}%\nAnalyse L1: {}\nCorrélations: {:?}{}\n\n\
                 En tant qu'analyste forensique, réalise une analyse approfondie :\n\
                 1. Root cause analysis — quel est le vecteur d'attaque initial ?\n\
                 2. Kill chain mapping — quelles phases de l'attaque sont confirmées ?\n\
                 3. MITRE ATT&CK — quelles techniques sont utilisées ?\n\
                 4. Impact — quels systèmes et données sont compromis ?\n\
-                5. Actions immédiates — que doit faire le RSSI maintenant ?",
+                5. Mouvement latéral — l'attaquant a-t-il pivoté vers d'autres assets ?\n\
+                6. Actions immédiates — que doit faire le RSSI maintenant ?\n\
+                Utilise le contexte graph pour enrichir ton analyse.",
                 prompt_l1_raw, analysis_l1.severity, analysis_l1.confidence * 100.0,
-                analysis_l1.analysis, analysis_l1.correlations
+                analysis_l1.analysis, analysis_l1.correlations, graph_context
             )
         } else {
             format!(
