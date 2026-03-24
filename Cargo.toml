@@ -20,12 +20,12 @@ exclude = [
 
 [package]
 name = "threatclaw"
-version = "0.1.0"
+version = "1.4.0"
 edition = "2024"
 rust-version = "1.92"
-description = "Autonomous open-source cybersecurity agent for SMBs — fork of IronClaw"
-authors = ["CyberConsulting.fr <contact@cyberconsulting.fr>", "NEAR AI <support@near.ai>"]
-license = "Apache-2.0"
+description = "Autonomous open-source cybersecurity agent for SMBs"
+authors = ["CyberConsulting.fr <contact@cyberconsulting.fr>"]
+license = "AGPL-3.0-or-later"
 homepage = "https://github.com/threatclaw/threatclaw"
 repository = "https://github.com/threatclaw/threatclaw"
 

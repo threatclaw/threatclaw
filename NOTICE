@@ -1,0 +1,44 @@
+ThreatClaw
+Copyright (c) 2026 CyberConsulting.fr — RSSI a temps partage
+https://threatclaw.io
+
+This project is licensed under the GNU Affero General Public License v3.0
+(AGPL-3.0-or-later). See LICENSE for the full text.
+
+A commercial license is available for organizations that cannot comply
+with the AGPL v3 terms. See LICENSE-COMMERCIAL.md for details.
+
+---
+
+THIRD-PARTY NOTICES
+
+This project includes code originally derived from IronClaw,
+Copyright (c) 2024-2025 NEAR AI Inc. and IronClaw contributors,
+licensed under the Apache License, Version 2.0.
+
+You may obtain a copy of the Apache License at:
+  http://www.apache.org/licenses/LICENSE-2.0
+
+The original IronClaw source code is available at:
+  https://github.com/nearai/ironclaw
+
+Portions of this software were inspired by or derived from IronClaw's
+architecture, including the WASM sandbox, task scheduler, and LLM
+provider abstraction. These portions have been substantially modified
+and extended for cybersecurity use cases specific to ThreatClaw.
+
+---
+
+ADDITIONAL ATTRIBUTIONS
+
+- Apache AGE: Licensed under Apache License 2.0
+  https://age.apache.org/
+
+- STIX 2.1 (Structured Threat Information Expression):
+  OASIS Open standard, used for threat intelligence data modeling
+
+- MITRE ATT&CK: Knowledge base of adversary tactics and techniques
+  https://attack.mitre.org/ (CC BY 4.0)
+
+- Foundation-Sec (Cisco Foundation AI):
+  Licensed under Apache License 2.0
