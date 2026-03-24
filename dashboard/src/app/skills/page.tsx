@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Search, ChevronDown, ChevronRight, Play, Settings, Shield, Network,
+  Search, ChevronDown, ChevronRight, Play, Shield, Network,
   Database, Code, Monitor, FileText, Radio, Globe, Server, Users,
-  Eye, Crosshair, AlertTriangle, RefreshCw, CheckCircle2, XCircle,
-  Key, Clock, Zap,
+  Eye, Crosshair, RefreshCw, CheckCircle2, XCircle,
+  Key, Clock, Zap, Power, Settings,
 } from "lucide-react";
 
-// ── Types ──
+// ── Types (matching real API response) ──
 
 interface SkillManifest {
   id: string;
@@ -16,10 +16,10 @@ interface SkillManifest {
   version: string;
   description: string;
   author: string;
-  skill_type: string; // "tool" | "connector" | "enrichment"
+  type: string; // "tool" | "connector" | "enrichment"
   category: string;
   execution: any;
-  config: Record<string, { type: string; description: string; required?: boolean; default?: any; options?: string[] }>;
+  config: Record<string, any> | null;
   default_active: boolean;
   requires_config: boolean;
   api_key_required: boolean;
@@ -34,8 +34,6 @@ interface CatalogResponse {
   enrichment: number;
 }
 
-// ── Category config ──
-
 const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   "discovery": { label: "Discovery", icon: Network, color: "#30a0d0" },
   "threat-intel": { label: "Threat Intel", icon: Shield, color: "#d03020" },
@@ -47,28 +45,69 @@ const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color
   "rapports": { label: "Rapports", icon: FileText, color: "#6a625c" },
 };
 
-const TYPE_LABELS: Record<string, { label: string; color: string }> = {
+const TYPE_INFO: Record<string, { label: string; color: string }> = {
   "tool": { label: "OUTIL", color: "#d09020" },
   "connector": { label: "CONNECTEUR", color: "#3080d0" },
   "enrichment": { label: "ENRICHISSEMENT", color: "#30a050" },
 };
 
-// ── Main Page ──
+// Skills that have real run endpoints
+const RUNNABLE_TOOLS: Record<string, string> = {
+  "skill-semgrep": "/api/tc/skills/run/skill-semgrep",
+  "skill-checkov": "/api/tc/skills/run/skill-checkov",
+  "skill-trufflehog": "/api/tc/skills/run/skill-trufflehog",
+  "skill-grype": "/api/tc/skills/run/skill-grype",
+  "skill-syft": "/api/tc/skills/run/skill-syft",
+};
+
+const RUNNABLE_CONNECTORS: Record<string, string> = {
+  "skill-nmap-discovery": "/api/tc/connectors/nmap/scan",
+  "skill-active-directory": "/api/tc/connectors/ad/sync",
+  "skill-pfsense": "/api/tc/connectors/firewall/sync",
+  "skill-proxmox": "/api/tc/connectors/proxmox/sync",
+};
+
+function isRunnable(skill: SkillManifest): boolean {
+  return skill.id in RUNNABLE_TOOLS || skill.id in RUNNABLE_CONNECTORS;
+}
+
+function getRunUrl(skill: SkillManifest): string | null {
+  return RUNNABLE_TOOLS[skill.id] || RUNNABLE_CONNECTORS[skill.id] || null;
+}
+
+function getRunLabel(skill: SkillManifest): string {
+  if (skill.type === "connector") return "Synchroniser";
+  if (skill.type === "tool") return "Lancer le scan";
+  return "";
+}
 
 export default function SkillsPage() {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
   const [filterCat, setFilterCat] = useState<string>("all");
+  const [showOnlyActive, setShowOnlyActive] = useState(false);
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
   const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});
+  const [enabledSkills, setEnabledSkills] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<any>(null);
 
   const refresh = useCallback(async () => {
     try {
       const res = await fetch("/api/tc/catalog");
-      if (res.ok) setCatalog(await res.json());
+      if (res.ok) {
+        const data: CatalogResponse = await res.json();
+        setCatalog(data);
+        // Init enabled from default_active
+        const active = new Set<string>();
+        data.skills.forEach(s => { if (s.default_active) active.add(s.id); });
+        setEnabledSkills(prev => {
+          const merged = new Set(prev);
+          active.forEach(id => merged.add(id));
+          return merged;
+        });
+      }
     } catch {}
   }, []);
 
@@ -76,17 +115,16 @@ export default function SkillsPage() {
 
   if (!catalog) return <div style={{ padding: "40px", textAlign: "center", color: "#6a625c" }}>Chargement du catalogue...</div>;
 
-  // Filter + search
+  // Filter
   let filtered = catalog.skills;
-  if (filterType !== "all") filtered = filtered.filter(s => s.skill_type === filterType);
+  if (filterType !== "all") filtered = filtered.filter(s => s.type === filterType);
   if (filterCat !== "all") filtered = filtered.filter(s => s.category === filterCat);
+  if (showOnlyActive) filtered = filtered.filter(s => enabledSkills.has(s.id));
   if (search.trim()) {
     const q = search.toLowerCase();
     filtered = filtered.filter(s =>
-      s.name.toLowerCase().includes(q) ||
-      s.description.toLowerCase().includes(q) ||
-      s.id.toLowerCase().includes(q) ||
-      s.category.toLowerCase().includes(q)
+      s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q) || s.category.toLowerCase().includes(q)
     );
   }
 
@@ -98,40 +136,35 @@ export default function SkillsPage() {
     grouped[cat].push(s);
   }
 
-  // Available categories from current filter
-  const availableCats = Array.from(new Set(catalog.skills.map(s => s.category))).sort();
+  const availableCats = Array.from(new Set(catalog.skills.map(s => s.category))).filter(Boolean).sort();
+
+  const toggleSkill = (id: string) => {
+    setEnabledSkills(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const handleRun = async (skill: SkillManifest) => {
+    const url = getRunUrl(skill);
+    if (!url) return;
     setRunning(skill.id);
     setRunResult(null);
     try {
-      const body: any = { target: configValues[skill.id]?.target_subnets || configValues[skill.id]?.target_path || configValues[skill.id]?.target_image || "." };
-      // Add all config values
-      if (configValues[skill.id]) {
-        Object.assign(body, configValues[skill.id]);
-      }
-
-      let url = "";
+      const body: any = {};
+      if (configValues[skill.id]) Object.assign(body, configValues[skill.id]);
+      // Map specific fields for connectors
       if (skill.id === "skill-nmap-discovery") {
-        url = "/api/tc/connectors/nmap/scan";
-        body.targets = configValues[skill.id]?.target_subnets || "192.168.1.0/24";
-      } else if (skill.id === "skill-active-directory") {
-        url = "/api/tc/connectors/ad/sync";
-      } else if (skill.id === "skill-pfsense") {
-        url = "/api/tc/connectors/firewall/sync";
-      } else if (skill.id === "skill-proxmox") {
-        url = "/api/tc/connectors/proxmox/sync";
-      } else {
-        url = `/api/tc/skills/run/${skill.id}`;
+        body.targets = body.target_subnets || "192.168.1.0/24";
+        body.top_ports = parseInt(body.top_ports) || 1000;
       }
-
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      setRunResult(data);
+      setRunResult(await res.json());
     } catch (e: any) {
       setRunResult({ error: e.message });
     }
@@ -139,11 +172,10 @@ export default function SkillsPage() {
   };
 
   const setConfig = (skillId: string, key: string, value: string) => {
-    setConfigValues(prev => ({
-      ...prev,
-      [skillId]: { ...prev[skillId], [key]: value },
-    }));
+    setConfigValues(prev => ({ ...prev, [skillId]: { ...prev[skillId], [key]: value } }));
   };
+
+  const activeCount = filtered.filter(s => enabledSkills.has(s.id)).length;
 
   return (
     <div style={{ padding: "0 24px 40px" }}>
@@ -153,200 +185,181 @@ export default function SkillsPage() {
           <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>Skills</h1>
           <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
             {catalog.total} skills &middot; {catalog.tools} outils &middot; {catalog.connectors} connecteurs &middot; {catalog.enrichment} enrichissement
+            &middot; <span style={{ color: "#30a050" }}>{activeCount} actives</span>
           </p>
         </div>
         <button onClick={refresh} style={{
-          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-          borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,255,255,0.03)", color: "#6a625c",
-          fontSize: "11px", fontWeight: 600, cursor: "pointer",
-        }}>
-          <RefreshCw size={12} /> Actualiser
-        </button>
+          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "8px",
+          border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)",
+          color: "#6a625c", fontSize: "11px", fontWeight: 600, cursor: "pointer",
+        }}><RefreshCw size={12} /> Actualiser</button>
       </div>
 
-      {/* Search + filters */}
-      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: "200px", position: "relative" }}>
+      {/* Filters */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ flex: 1, minWidth: "180px", position: "relative" }}>
           <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "#6a625c" }} />
-          <input
-            type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Rechercher une skill..."
-            style={{
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Rechercher..." style={{
               width: "100%", padding: "8px 10px 8px 32px", borderRadius: "8px", fontSize: "12px",
               background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
               color: "#e8e4e0", outline: "none",
-            }}
-          />
+            }} />
         </div>
-        {/* Type filter */}
         {[
-          { key: "all", label: "Tous" },
-          { key: "tool", label: "Outils" },
-          { key: "connector", label: "Connecteurs" },
-          { key: "enrichment", label: "Enrichissement" },
+          { key: "all", label: `Tous (${catalog.total})` },
+          { key: "tool", label: `Outils (${catalog.tools})` },
+          { key: "connector", label: `Connecteurs (${catalog.connectors})` },
+          { key: "enrichment", label: `Enrichissement (${catalog.enrichment})` },
         ].map(f => (
           <button key={f.key} onClick={() => setFilterType(f.key)} style={{
-            padding: "8px 14px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+            padding: "7px 12px", borderRadius: "8px", fontSize: "10px", fontWeight: 600,
             border: filterType === f.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
-            background: filterType === f.key ? "rgba(208,48,32,0.1)" : "rgba(255,255,255,0.03)",
-            color: filterType === f.key ? "#d03020" : "#6a625c",
-            cursor: "pointer",
+            background: filterType === f.key ? "rgba(208,48,32,0.1)" : "transparent",
+            color: filterType === f.key ? "#d03020" : "#6a625c", cursor: "pointer",
           }}>{f.label}</button>
         ))}
-        {/* Category filter */}
-        <select
-          value={filterCat} onChange={e => setFilterCat(e.target.value)}
-          style={{
-            padding: "8px 12px", borderRadius: "8px", fontSize: "11px",
-            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            color: "#e8e4e0", outline: "none",
-          }}
-        >
-          <option value="all">Toutes categories</option>
-          {availableCats.map(c => (
-            <option key={c} value={c}>{CATEGORIES[c]?.label || c}</option>
-          ))}
+        <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{
+          padding: "7px 10px", borderRadius: "8px", fontSize: "10px",
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+          color: "#e8e4e0", outline: "none",
+        }}>
+          <option value="all">Categorie</option>
+          {availableCats.map(c => <option key={c} value={c}>{CATEGORIES[c]?.label || c}</option>)}
         </select>
+        <button onClick={() => setShowOnlyActive(!showOnlyActive)} style={{
+          padding: "7px 12px", borderRadius: "8px", fontSize: "10px", fontWeight: 600,
+          border: showOnlyActive ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.08)",
+          background: showOnlyActive ? "rgba(48,160,80,0.1)" : "transparent",
+          color: showOnlyActive ? "#30a050" : "#6a625c", cursor: "pointer",
+        }}><Power size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />Actives</button>
       </div>
 
-      {/* Skills grouped by category */}
+      {/* Skills by category */}
       {Object.entries(grouped).map(([cat, skills]) => {
-        const catInfo = CATEGORIES[cat] || { label: cat, icon: Zap, color: "#6a625c" };
-        const CatIcon = catInfo.icon;
+        const ci = CATEGORIES[cat] || { label: cat, icon: Zap, color: "#6a625c" };
+        const CatIcon = ci.icon;
         return (
-          <div key={cat} style={{ marginBottom: "24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <CatIcon size={16} color={catInfo.color} />
-              <span style={{ fontSize: "13px", fontWeight: 700, color: catInfo.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                {catInfo.label}
+          <div key={cat} style={{ marginBottom: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+              <CatIcon size={15} color={ci.color} />
+              <span style={{ fontSize: "12px", fontWeight: 700, color: ci.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                {ci.label}
               </span>
-              <span style={{ fontSize: "11px", color: "#6a625c" }}>({skills.length})</span>
+              <span style={{ fontSize: "10px", color: "#4a4440" }}>({skills.length})</span>
             </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "10px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "8px" }}>
               {skills.map(skill => {
-                const isExpanded = expandedSkill === skill.id;
-                const typeInfo = TYPE_LABELS[skill.skill_type] || { label: skill.skill_type, color: "#6a625c" };
-                const configKeys = Object.keys(skill.config || {});
-                const hasConfig = configKeys.length > 0;
+                const expanded = expandedSkill === skill.id;
+                const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "#6a625c" };
+                const enabled = enabledSkills.has(skill.id);
+                const configKeys = skill.config ? Object.keys(skill.config) : [];
+                const canRun = isRunnable(skill);
 
                 return (
                   <div key={skill.id} style={{
-                    background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-                    borderRadius: "10px", overflow: "hidden",
-                    borderLeft: skill.default_active ? `3px solid ${typeInfo.color}` : "3px solid transparent",
+                    background: "rgba(255,255,255,0.02)", border: `1px solid ${enabled ? "rgba(48,160,80,0.2)" : "rgba(255,255,255,0.06)"}`,
+                    borderRadius: "10px", borderLeft: `3px solid ${enabled ? "#30a050" : "rgba(255,255,255,0.04)"}`,
                   }}>
-                    {/* Header — always visible */}
-                    <div
-                      onClick={() => setExpandedSkill(isExpanded ? null : skill.id)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px",
-                        cursor: "pointer", userSelect: "none",
-                      }}
-                    >
-                      {isExpanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{skill.name}</span>
+                    {/* Header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px" }}>
+                      {/* Toggle */}
+                      <button onClick={() => toggleSkill(skill.id)} style={{
+                        width: "34px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer",
+                        background: enabled ? "#30a050" : "rgba(255,255,255,0.1)",
+                        position: "relative", flexShrink: 0,
+                      }}>
+                        <div style={{
+                          width: "14px", height: "14px", borderRadius: "7px", background: "#fff",
+                          position: "absolute", top: "2px", transition: "left 150ms",
+                          left: enabled ? "18px" : "2px",
+                        }} />
+                      </button>
+
+                      {/* Name + badges */}
+                      <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedSkill(expanded ? null : skill.id)}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: 700, color: "#e8e4e0" }}>{skill.name}</span>
                           <span style={{
-                            fontSize: "8px", fontWeight: 700, padding: "2px 6px", borderRadius: "3px",
-                            background: `${typeInfo.color}15`, color: typeInfo.color, border: `1px solid ${typeInfo.color}30`,
-                            textTransform: "uppercase", letterSpacing: "0.05em",
-                          }}>{typeInfo.label}</span>
-                          {skill.default_active && (
-                            <CheckCircle2 size={12} color="#30a050" />
-                          )}
-                          {skill.api_key_required && (
-                            <Key size={11} color="#d09020" />
-                          )}
+                            fontSize: "7px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px",
+                            background: `${ti.color}15`, color: ti.color, textTransform: "uppercase",
+                          }}>{ti.label}</span>
+                          {skill.api_key_required && <Key size={10} color="#d09020" />}
                         </div>
-                        <div style={{ fontSize: "10px", color: "#6a625c", marginTop: "2px" }}>
-                          {skill.description.substring(0, 80)}{skill.description.length > 80 ? "..." : ""}
+                        <div style={{ fontSize: "9px", color: "#6a625c", marginTop: "2px" }}>
+                          {skill.description.substring(0, 70)}{skill.description.length > 70 ? "..." : ""}
                         </div>
+                      </div>
+
+                      {/* Expand arrow */}
+                      <div onClick={() => setExpandedSkill(expanded ? null : skill.id)} style={{ cursor: "pointer", padding: "4px" }}>
+                        {expanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
                       </div>
                     </div>
 
-                    {/* Expanded detail */}
-                    {isExpanded && (
-                      <div style={{ padding: "0 14px 14px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                        {/* Full description */}
-                        <p style={{ fontSize: "11px", color: "#a09080", margin: "10px 0", lineHeight: "1.6" }}>
+                    {/* Expanded */}
+                    {expanded && (
+                      <div style={{ padding: "0 12px 12px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                        <p style={{ fontSize: "11px", color: "#a09080", margin: "10px 0", lineHeight: "1.5" }}>
                           {skill.description}
                         </p>
 
                         {/* Metadata */}
-                        <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "10px", color: "#6a625c" }}>v{skill.version || "1.0.0"}</span>
-                          <span style={{ fontSize: "10px", color: "#6a625c" }}>par {skill.author || "ThreatClaw"}</span>
-                          {skill.execution?.mode && (
-                            <span style={{ fontSize: "10px", color: "#6a625c" }}>
-                              {skill.execution.mode === "ephemeral" ? "Docker ephemere" :
-                               skill.execution.mode === "persistent" ? "Synchronisation continue" :
-                               skill.execution.mode === "api" ? "API externe" : skill.execution.mode}
-                            </span>
-                          )}
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "#6a625c" }}>
+                          {skill.version && <span>v{skill.version}</span>}
+                          {skill.author && <span>{skill.author}</span>}
+                          {skill.execution?.mode === "ephemeral" && <span>Docker ephemere</span>}
+                          {skill.execution?.mode === "persistent" && <span>Sync continue</span>}
+                          {skill.execution?.mode === "api" && <span>API externe</span>}
                           {skill.execution?.docker_image && (
-                            <span style={{ fontSize: "10px", color: "#3080d0", fontFamily: "monospace" }}>
-                              {skill.execution.docker_image}
-                            </span>
+                            <span style={{ color: "#3080d0", fontFamily: "monospace" }}>{skill.execution.docker_image}</span>
                           )}
                           {skill.execution?.sync_interval_minutes && (
-                            <span style={{ fontSize: "10px", color: "#6a625c" }}>
-                              <Clock size={9} style={{ display: "inline", verticalAlign: "middle" }} /> sync {skill.execution.sync_interval_minutes}min
-                            </span>
+                            <span><Clock size={8} style={{ display: "inline", verticalAlign: "middle" }} /> {skill.execution.sync_interval_minutes}min</span>
+                          )}
+                          {skill.execution?.base_url && (
+                            <span style={{ fontFamily: "monospace", color: "#6a625c" }}>{skill.execution.base_url.substring(0, 40)}...</span>
                           )}
                         </div>
 
-                        {/* Config fields */}
-                        {hasConfig && (
-                          <div style={{ marginBottom: "12px" }}>
-                            <div style={{ fontSize: "10px", fontWeight: 700, color: "#6a625c", textTransform: "uppercase", marginBottom: "6px" }}>
+                        {/* Config fields — only if skill HAS config */}
+                        {configKeys.length > 0 && (
+                          <div style={{ marginBottom: "10px" }}>
+                            <div style={{ fontSize: "9px", fontWeight: 700, color: "#6a625c", textTransform: "uppercase", marginBottom: "6px" }}>
+                              <Settings size={9} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
                               Configuration
                             </div>
                             {configKeys.map(key => {
-                              const field = (skill.config as any)[key];
+                              const field = skill.config![key];
+                              if (!field) return null;
                               const val = configValues[skill.id]?.[key] || "";
                               return (
-                                <div key={key} style={{ marginBottom: "8px" }}>
-                                  <label style={{ fontSize: "10px", color: "#a09080", display: "block", marginBottom: "3px" }}>
+                                <div key={key} style={{ marginBottom: "6px" }}>
+                                  <label style={{ fontSize: "9px", color: "#a09080", display: "block", marginBottom: "2px" }}>
                                     {field.description || key}
                                     {field.required && <span style={{ color: "#d03020" }}> *</span>}
                                   </label>
-                                  {field.type === "select" && field.options ? (
-                                    <select
-                                      value={val || field.default || ""}
-                                      onChange={e => setConfig(skill.id, key, e.target.value)}
-                                      style={{
-                                        width: "100%", padding: "6px 8px", borderRadius: "6px", fontSize: "11px",
+                                  {field.options ? (
+                                    <select value={val || field.default || ""} onChange={e => setConfig(skill.id, key, e.target.value)}
+                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "6px", fontSize: "11px",
                                         background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                                        color: "#e8e4e0", outline: "none",
-                                      }}
-                                    >
+                                        color: "#e8e4e0", outline: "none" }}>
                                       <option value="">Choisir...</option>
                                       {field.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : field.type === "boolean" ? (
-                                    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#e8e4e0" }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={val === "true" || (!val && field.default === true)}
-                                        onChange={e => setConfig(skill.id, key, e.target.checked ? "true" : "false")}
-                                      />
-                                      {field.default === true ? "Actif par defaut" : "Desactive par defaut"}
+                                    <label style={{ fontSize: "10px", color: "#e8e4e0", display: "flex", alignItems: "center", gap: "6px" }}>
+                                      <input type="checkbox" checked={val === "true" || (!val && field.default === true)}
+                                        onChange={e => setConfig(skill.id, key, e.target.checked ? "true" : "false")} />
+                                      {field.default ? "Oui" : "Non"} par defaut
                                     </label>
                                   ) : (
-                                    <input
-                                      type={field.type === "password" ? "password" : "text"}
-                                      value={val}
+                                    <input type={field.type === "password" ? "password" : "text"} value={val}
                                       onChange={e => setConfig(skill.id, key, e.target.value)}
                                       placeholder={field.default?.toString() || ""}
-                                      style={{
-                                        width: "100%", padding: "6px 8px", borderRadius: "6px", fontSize: "11px",
+                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "6px", fontSize: "11px",
                                         background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                                        color: "#e8e4e0", outline: "none",
-                                      }}
-                                    />
+                                        color: "#e8e4e0", outline: "none" }} />
                                   )}
                                 </div>
                               );
@@ -354,31 +367,29 @@ export default function SkillsPage() {
                           </div>
                         )}
 
-                        {/* Action buttons */}
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          {skill.skill_type !== "enrichment" && (
-                            <button
-                              onClick={() => handleRun(skill)}
-                              disabled={running === skill.id}
+                        {/* Actions — only for runnable skills */}
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          {canRun && (
+                            <button onClick={() => handleRun(skill)} disabled={running === skill.id}
                               style={{
-                                display: "flex", alignItems: "center", gap: "6px",
-                                padding: "7px 14px", borderRadius: "6px", fontSize: "11px", fontWeight: 600,
+                                display: "flex", alignItems: "center", gap: "5px",
+                                padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
                                 background: "rgba(208,48,32,0.1)", border: "1px solid rgba(208,48,32,0.3)",
                                 color: "#d03020", cursor: running === skill.id ? "wait" : "pointer",
                                 opacity: running === skill.id ? 0.5 : 1,
-                              }}
-                            >
-                              <Play size={12} />
-                              {running === skill.id ? "En cours..." :
-                               skill.skill_type === "connector" ? "Synchroniser" : "Lancer le scan"}
+                              }}>
+                              <Play size={11} />
+                              {running === skill.id ? "En cours..." : getRunLabel(skill)}
                             </button>
                           )}
+                          {skill.type === "enrichment" && !canRun && (
+                            <span style={{ fontSize: "10px", color: "#6a625c", fontStyle: "italic" }}>
+                              {skill.default_active ? "Actif automatiquement dans le pipeline" : "Activez le toggle pour inclure dans le pipeline"}
+                            </span>
+                          )}
                           {skill.default_active && (
-                            <span style={{
-                              display: "flex", alignItems: "center", gap: "4px",
-                              padding: "7px 12px", fontSize: "10px", color: "#30a050",
-                            }}>
-                              <CheckCircle2 size={12} /> Actif par defaut
+                            <span style={{ fontSize: "9px", color: "#30a050", display: "flex", alignItems: "center", gap: "3px" }}>
+                              <CheckCircle2 size={10} /> Actif par defaut
                             </span>
                           )}
                         </div>
@@ -386,14 +397,12 @@ export default function SkillsPage() {
                         {/* Run result */}
                         {runResult && expandedSkill === skill.id && (
                           <div style={{
-                            marginTop: "10px", padding: "10px", borderRadius: "6px",
+                            marginTop: "8px", padding: "8px", borderRadius: "6px",
                             background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
-                            fontSize: "10px", fontFamily: "monospace", color: "#a09080",
-                            maxHeight: "150px", overflow: "auto",
+                            fontSize: "9px", fontFamily: "monospace", color: "#a09080",
+                            maxHeight: "120px", overflow: "auto",
                           }}>
-                            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                              {JSON.stringify(runResult, null, 2)}
-                            </pre>
+                            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(runResult, null, 2)}</pre>
                           </div>
                         )}
                       </div>
@@ -408,7 +417,7 @@ export default function SkillsPage() {
 
       {filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
-          Aucune skill ne correspond a votre recherche
+          Aucune skill ne correspond aux filtres
         </div>
       )}
     </div>
