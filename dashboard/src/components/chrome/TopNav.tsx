@@ -79,7 +79,7 @@ export default function TopNav() {
     return () => clearInterval(interval);
   }, []);
 
-  const connColor = connStatus === "full" ? "#30a050" : connStatus === "degraded" ? "#d09020" : "#5a534e";
+  const connColor = connStatus === "full" ? "#30a050" : connStatus === "degraded" ? "#d09020" : "var(--tc-text-muted)";
   const connLabel = connStatus === "full" ? "Full" : connStatus === "degraded" ? "Degraded" : "Offline";
 
   return (

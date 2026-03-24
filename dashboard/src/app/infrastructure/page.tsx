@@ -92,12 +92,12 @@ export default function AssetsPage() {
       case "high": return "#d06020";
       case "medium": return "#d09020";
       case "low": return "#30a050";
-      default: return "#6a625c";
+      default: return "var(--tc-text-muted)";
     }
   };
 
   const confColor = (c: number | undefined) => {
-    if (!c) return "#6a625c";
+    if (!c) return "var(--tc-text-muted)";
     if (c >= 0.8) return "#30a050";
     if (c >= 0.5) return "#d09020";
     return "#d03020";
@@ -155,8 +155,8 @@ export default function AssetsPage() {
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             display: "flex", alignItems: "center", gap: "6px",
             padding: "8px 16px", borderRadius: "var(--tc-radius-input)", fontSize: "11px", fontWeight: 600,
-            border: tab === t.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
-            background: tab === t.key ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.03)",
+            border: tab === t.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid var(--tc-border)",
+            background: tab === t.key ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
             color: tab === t.key ? "var(--tc-red)" : "var(--tc-text-muted)",
             cursor: "pointer",
           }}>
@@ -211,7 +211,7 @@ export default function AssetsPage() {
                     cursor: "pointer", userSelect: "none",
                   }}
                 >
-                  {isExpanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
+                  {isExpanded ? <ChevronDown size={14} color="var(--tc-text-muted)" /> : <ChevronRight size={14} color="var(--tc-text-muted)" />}
 
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -242,7 +242,7 @@ export default function AssetsPage() {
                   {/* Confidence bar */}
                   <div style={{ width: "80px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                      <div style={{ flex: 1, height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.06)" }}>
+                      <div style={{ flex: 1, height: "4px", borderRadius: "2px", background: "var(--tc-input)" }}>
                         <div style={{ width: `${conf * 100}%`, height: "100%", borderRadius: "2px", background: confColor(conf) }} />
                       </div>
                       <span style={{ fontSize: "10px", color: confColor(conf), fontWeight: 600 }}>
@@ -331,7 +331,7 @@ export default function AssetsPage() {
               padding: "12px 14px", marginBottom: "6px", borderRadius: "var(--tc-radius-md)",
               background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
             }}>
-              <Server size={16} color="#6a625c" />
+              <Server size={16} color="var(--tc-text-muted)" />
               <div style={{ flex: 1 }}>
                 <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>{t.id || t.host}</span>
                 <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginLeft: "8px" }}>{t.host}:{t.port}</span>

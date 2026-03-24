@@ -17,11 +17,11 @@ export function ChromeInsetCard({ children, className = "", glow = false, style 
         background: "rgba(18, 18, 26, 0.7)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
-        border: "1px solid rgba(255, 255, 255, 0.06)",
+        border: "1px solid var(--tc-input)",
         borderRadius: "var(--tc-radius-lg)",
         boxShadow: glow
-          ? "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02), 0 0 30px rgba(208,48,32,0.05)"
-          : "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.02)",
+          ? "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 var(--tc-surface-alt), 0 0 30px rgba(208,48,32,0.05)"
+          : "0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 var(--tc-surface-alt)",
         padding: "20px",
         transition: "box-shadow 0.25s ease, border-color 0.25s ease",
         ...style,

@@ -135,9 +135,9 @@ export default function HomePage() {
               <div style={{
                 width: "36px", height: "36px", borderRadius: "var(--tc-radius-md)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${svc.status === "ok" ? "rgba(48,160,80,0.15)" : svc.status === "down" ? "rgba(208,48,32,0.15)" : "rgba(255,255,255,0.06)"}`,
-                color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "#5a534e",
+                background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
+                border: `1px solid ${svc.status === "ok" ? "rgba(48,160,80,0.15)" : svc.status === "down" ? "rgba(208,48,32,0.15)" : "var(--tc-input)"}`,
+                color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
               }}>
                 {svc.status === "checking" ? <Loader2 size={16} className="animate-spin" /> : svc.icon}
               </div>
@@ -145,7 +145,7 @@ export default function HomePage() {
                 <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{svc.name}</div>
                 <div style={{
                   fontSize: "11px", marginTop: "2px",
-                  color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "#5a534e",
+                  color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
                 }}>
                   {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "Opérationnel" : "Hors ligne")}
                 </div>

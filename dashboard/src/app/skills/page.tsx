@@ -214,7 +214,7 @@ export default function SkillsPage() {
         ].map(f => (
           <button key={f.key} onClick={() => setFilterType(f.key)} style={{
             padding: "7px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "10px", fontWeight: 600,
-            border: filterType === f.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
+            border: filterType === f.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid var(--tc-border)",
             background: filterType === f.key ? "rgba(208,48,32,0.1)" : "transparent",
             color: filterType === f.key ? "var(--tc-red)" : "var(--tc-text-muted)", cursor: "pointer",
           }}>{f.label}</button>
@@ -229,7 +229,7 @@ export default function SkillsPage() {
         </select>
         <button onClick={() => setShowOnlyActive(!showOnlyActive)} style={{
           padding: "7px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "10px", fontWeight: 600,
-          border: showOnlyActive ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.08)",
+          border: showOnlyActive ? "1px solid rgba(48,160,80,0.3)" : "1px solid var(--tc-border)",
           background: showOnlyActive ? "rgba(48,160,80,0.1)" : "transparent",
           color: showOnlyActive ? "var(--tc-green)" : "var(--tc-text-muted)", cursor: "pointer",
         }}><Power size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />Actives</button>
@@ -293,7 +293,7 @@ export default function SkillsPage() {
 
                       {/* Expand arrow */}
                       <div onClick={() => setExpandedSkill(expanded ? null : skill.id)} style={{ cursor: "pointer", padding: "4px" }}>
-                        {expanded ? <ChevronDown size={14} color="#6a625c" /> : <ChevronRight size={14} color="#6a625c" />}
+                        {expanded ? <ChevronDown size={14} color="var(--tc-text-muted)" /> : <ChevronRight size={14} color="var(--tc-text-muted)" />}
                       </div>
                     </div>
 

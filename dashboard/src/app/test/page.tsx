@@ -101,7 +101,7 @@ export default function TestPage() {
     <ChromeInsetCard>
       <div style={{ textAlign: "center", padding: "32px" }}>
         <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 12px", color: "var(--tc-red)" }} />
-        <div style={{ fontSize: "13px", color: "#5a534e" }}>Chargement des scénarios...</div>
+        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>Chargement des scénarios...</div>
       </div>
     </ChromeInsetCard>
   );
@@ -113,7 +113,7 @@ export default function TestPage() {
         <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
           Simulation & Tests
         </h1>
-        <p style={{ fontSize: "13px", color: "#5a534e", margin: "4px 0 0" }}>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
           Scénarios de test réalistes — injectent des vrais logs/findings/alertes dans le pipeline
         </p>
       </div>
@@ -129,7 +129,7 @@ export default function TestPage() {
               }}>
                 {Math.round(situation.global_score ?? 100)}
               </div>
-              <div style={{ fontSize: "10px", color: "#5a534e", textTransform: "uppercase" }}>Score</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>Score</div>
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--tc-text)", marginBottom: "4px" }}>
@@ -137,7 +137,7 @@ export default function TestPage() {
                   color: situation.notification_level === "silence" ? "#30a050" : situation.notification_level === "digest" ? "#3080d0" : "#d03020",
                 }}>{situation.notification_level || "silence"}</span>
               </div>
-              <div style={{ fontSize: "12px", color: "#5a534e" }}>
+              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)" }}>
                 {situation.open_findings || 0} findings — {situation.active_alerts || 0} alertes
               </div>
             </div>
@@ -181,7 +181,7 @@ export default function TestPage() {
                       background: `${sev.color}12`, color: sev.color, border: `1px solid ${sev.color}30`,
                     }}>{s.severity}</span>
                     <span style={{
-                      fontSize: "9px", color: "#5a534e", display: "flex", alignItems: "center", gap: "3px",
+                      fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "3px",
                     }}>{catIcon} {s.category}</span>
                   </div>
                   <div style={{ fontSize: "12px", color: "#7a7470", lineHeight: 1.5, marginBottom: "8px" }}>
@@ -199,7 +199,7 @@ export default function TestPage() {
                     }}>
                       {result.status === "success" ? <CheckCircle2 size={14} /> : result.status === "running" ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
                       <span style={{ flex: 1 }}>{result.message}</span>
-                      <span style={{ fontSize: "10px", color: "#5a534e" }}>{result.time}</span>
+                      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{result.time}</span>
                     </div>
                   )}
                 </div>
@@ -221,7 +221,7 @@ export default function TestPage() {
 
       {/* Info */}
       <ChromeInsetCard style={{ marginTop: "20px" }}>
-        <div style={{ fontSize: "12px", color: "#5a534e", lineHeight: 1.7 }}>
+        <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
           <strong style={{ color: "var(--tc-text)" }}>Comment ça marche</strong>
           <br /><br />
           Chaque scénario injecte des <strong style={{ color: "var(--tc-text)" }}>vrais logs</strong> dans la table PostgreSQL (comme Fluent Bit),

@@ -231,7 +231,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     width: "100%", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
     padding: "10px 14px", fontSize: "13px", color: "var(--tc-text)", fontFamily: "inherit",
     background: "var(--tc-input)", outline: "none",
-    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.04)",
+    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3), inset 0 0 0 1px var(--tc-input)",
     transition: "border-color 0.2s ease",
   };
 
@@ -256,7 +256,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { key: "discord", label: "Discord", icon: <DiscordIcon />, fields: [{ id: "botToken", label: "Bot Token", secret: true }, { id: "publicKey", label: "Public Key", secret: false }] },
     { key: "whatsapp", label: "WhatsApp", icon: <MessageSquare size={18} color="#30a050" />, fields: [{ id: "accessToken", label: "Access Token", secret: true }, { id: "phoneNumberId", label: "Phone Number ID", secret: false }] },
     { key: "signal", label: "Signal", icon: <Shield size={18} color="#3080d0" />, fields: [{ id: "httpUrl", label: "URL signal-cli", secret: false }, { id: "account", label: "Numéro (+33...)", secret: false }] },
-    { key: "email", label: "Email", icon: <Mail size={18} color="#9a918a" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", label: "De", secret: false }, { id: "to", label: "À", secret: false }] },
+    { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", label: "De", secret: false }, { id: "to", label: "À", secret: false }] },
     { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
     { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", label: "Serveur Ntfy", secret: false }, { id: "topic", label: "Topic", secret: false }] },
     { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", label: "URL Gotify", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
@@ -275,8 +275,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               padding: "8px 16px", borderRadius: "var(--tc-radius-md)", border: "none",
               fontSize: "12px", fontWeight: 600, fontFamily: "inherit",
               cursor: "pointer", transition: "all 0.2s ease",
-              background: active ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.02)",
-              color: active ? "#d03020" : "#5a534e",
+              background: active ? "rgba(208,48,32,0.08)" : "var(--tc-surface-alt)",
+              color: active ? "#d03020" : "var(--tc-text-muted)",
               borderColor: active ? "rgba(208,48,32,0.15)" : "transparent",
               borderWidth: "1px", borderStyle: "solid",
             }}>
@@ -336,14 +336,14 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                     style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                     <div style={{
                       width: "44px", height: "24px", borderRadius: "var(--tc-radius-card)", position: "relative",
-                      background: isEnabled ? "rgba(208,48,32,0.15)" : "rgba(255,255,255,0.06)",
-                      border: isEnabled ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                      background: isEnabled ? "rgba(208,48,32,0.15)" : "var(--tc-input)",
+                      border: isEnabled ? "1px solid rgba(208,48,32,0.3)" : "1px solid var(--tc-input)",
                       transition: "all 0.25s ease",
                     }}>
                       <div style={{
                         width: "18px", height: "18px", borderRadius: "50%", position: "absolute", top: "2px",
                         left: isEnabled ? "23px" : "2px",
-                        background: isEnabled ? "#d03020" : "#5a534e",
+                        background: isEnabled ? "#d03020" : "var(--tc-text-muted)",
                         boxShadow: isEnabled ? "0 0 8px rgba(208,48,32,0.3)" : "none",
                         transition: "all 0.25s ease",
                       }} />
@@ -421,8 +421,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                 return (
                   <button key={level.id} onClick={() => setPermLevel(level.id)} style={{
                     display: "flex", alignItems: "center", gap: "14px",
-                    background: sel ? "rgba(208,48,32,0.06)" : "rgba(255,255,255,0.01)",
-                    border: sel ? "1px solid rgba(208,48,32,0.15)" : "1px solid rgba(255,255,255,0.04)",
+                    background: sel ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
+                    border: sel ? "1px solid rgba(208,48,32,0.15)" : "1px solid var(--tc-input)",
                     borderRadius: "var(--tc-radius-card)", cursor: "pointer", padding: "14px 16px",
                     textAlign: "left", transition: "all 0.2s ease", fontFamily: "inherit",
                     color: "inherit",
@@ -513,7 +513,7 @@ function GlassSelect({ value, onChange, options, placeholder }: {
         width: "100%", appearance: "none", WebkitAppearance: "none",
         background: "var(--tc-input)", border: "1px solid var(--tc-border)",
         borderRadius: "var(--tc-radius-md)", padding: "12px 36px 12px 14px", fontSize: "13px",
-        color: value ? "#e8e4e0" : "#5a534e", fontFamily: "inherit", cursor: "pointer",
+        color: value ? "var(--tc-text)" : "var(--tc-text-muted)", fontFamily: "inherit", cursor: "pointer",
         outline: "none", transition: "border-color 0.2s",
         boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
       }}>
@@ -663,8 +663,8 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
                   <div key={m.name} style={{
                     display: "flex", alignItems: "center", gap: "10px",
                     padding: "8px 12px", borderRadius: "var(--tc-radius-md)",
-                    background: (isL1 || isL2) ? "rgba(48,128,208,0.04)" : "rgba(255,255,255,0.02)",
-                    border: `1px solid ${(isL1 || isL2) ? "rgba(48,128,208,0.12)" : "rgba(255,255,255,0.04)"}`,
+                    background: (isL1 || isL2) ? "rgba(48,128,208,0.04)" : "var(--tc-surface-alt)",
+                    border: `1px solid ${(isL1 || isL2) ? "rgba(48,128,208,0.12)" : "var(--tc-input)"}`,
                   }}>
                     <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", boxShadow: "0 0 6px rgba(48,160,80,0.3)", flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -721,7 +721,7 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
               <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{ai.desc}</div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: ai.model ? ai.color : "#5a534e", fontFamily: "monospace" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: ai.model ? ai.color : "var(--tc-text-muted)", fontFamily: "monospace" }}>
                 {ai.model || ai.defaultModel}
               </span>
               <ChromeButton onClick={() => setChangingLevel(changingLevel === ai.id ? null : ai.id)} variant="glass">
@@ -762,14 +762,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
             <div style={{
               width: "44px", height: "24px", borderRadius: "var(--tc-radius-card)", position: "relative",
-              background: cloud.enabled ? "rgba(160,64,208,0.15)" : "rgba(255,255,255,0.06)",
-              border: cloud.enabled ? "1px solid rgba(160,64,208,0.3)" : "1px solid rgba(255,255,255,0.06)",
+              background: cloud.enabled ? "rgba(160,64,208,0.15)" : "var(--tc-input)",
+              border: cloud.enabled ? "1px solid rgba(160,64,208,0.3)" : "1px solid var(--tc-input)",
               transition: "all 0.25s ease",
             }}>
               <div style={{
                 width: "18px", height: "18px", borderRadius: "50%", position: "absolute", top: "2px",
                 left: cloud.enabled ? "23px" : "2px",
-                background: cloud.enabled ? "#a040d0" : "#5a534e",
+                background: cloud.enabled ? "#a040d0" : "var(--tc-text-muted)",
                 transition: "all 0.25s ease",
               }} />
             </div>
@@ -972,14 +972,14 @@ function EnrichmentTab() {
                 <button onClick={() => toggleSource(src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}>
                   <div style={{
                     width: "36px", height: "20px", borderRadius: "var(--tc-radius-md)", position: "relative",
-                    background: enabled[src.id] ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.06)",
-                    border: enabled[src.id] ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                    background: enabled[src.id] ? "rgba(48,160,80,0.15)" : "var(--tc-input)",
+                    border: enabled[src.id] ? "1px solid rgba(48,160,80,0.3)" : "1px solid var(--tc-input)",
                     transition: "all 0.25s ease",
                   }}>
                     <div style={{
                       width: "14px", height: "14px", borderRadius: "50%", position: "absolute", top: "2px",
                       left: enabled[src.id] ? "19px" : "2px",
-                      background: enabled[src.id] ? "#30a050" : "#5a534e",
+                      background: enabled[src.id] ? "#30a050" : "var(--tc-text-muted)",
                       transition: "all 0.25s ease",
                     }} />
                   </div>
@@ -990,7 +990,7 @@ function EnrichmentTab() {
                     {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>Clé optionnelle</span>}
                     {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
                     <button onClick={() => setHelpOpen(helpOpen === src.id ? null : src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
-                      <HelpCircle size={13} color="#5a534e" />
+                      <HelpCircle size={13} color="var(--tc-text-muted)" />
                     </button>
                   </div>
                   <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{src.desc}</div>
@@ -1003,9 +1003,9 @@ function EnrichmentTab() {
                 )}
                 <span style={{
                   fontSize: "9px", fontWeight: 600, padding: "2px 6px", borderRadius: "4px",
-                  background: (isSynced || src.onDemand) ? "rgba(48,160,80,0.08)" : "rgba(255,255,255,0.03)",
-                  color: (isSynced || src.onDemand) ? "#30a050" : "#5a534e",
-                  border: `1px solid ${(isSynced || src.onDemand) ? "rgba(48,160,80,0.15)" : "rgba(255,255,255,0.04)"}`,
+                  background: (isSynced || src.onDemand) ? "rgba(48,160,80,0.08)" : "var(--tc-input)",
+                  color: (isSynced || src.onDemand) ? "#30a050" : "var(--tc-text-muted)",
+                  border: `1px solid ${(isSynced || src.onDemand) ? "rgba(48,160,80,0.15)" : "var(--tc-input)"}`,
                 }}>
                   {src.onDemand ? "Actif (à la demande)" : isSynced ? "Synchronisé" : "Non synchronisé"}
                 </span>
@@ -1219,9 +1219,9 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
                       style={{
                         padding: "6px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "11px", fontWeight: 600,
                         fontFamily: "inherit", cursor: configured ? "pointer" : "not-allowed",
-                        background: active ? `${level.color}15` : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${active ? `${level.color}40` : "rgba(255,255,255,0.04)"}`,
-                        color: active ? level.color : configured ? "#5a534e" : "#3a3a3a",
+                        background: active ? `${level.color}15` : "var(--tc-surface-alt)",
+                        border: `1px solid ${active ? `${level.color}40` : "var(--tc-input)"}`,
+                        color: active ? level.color : configured ? "var(--tc-text-muted)" : "#3a3a3a",
                         opacity: configured ? 1 : 0.4,
                         transition: "all 0.2s",
                       }}>

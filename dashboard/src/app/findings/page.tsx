@@ -14,7 +14,7 @@ const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: strin
   high: { color: "#d07020", bg: "rgba(208,112,32,0.08)", border: "rgba(208,112,32,0.2)" },
   medium: { color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
   low: { color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-  info: { color: "var(--tc-text-muted)", bg: "rgba(255,255,255,0.03)", border: "rgba(255,255,255,0.06)" },
+  info: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-input)" },
 };
 
 const STATUS_LABELS: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -77,8 +77,8 @@ export default function FindingsPage() {
           const active = filterSeverity === sev;
           return (
             <button key={sev} onClick={() => setFilterSeverity(active ? "" : sev)} style={{
-              padding: "8px 14px", borderRadius: "var(--tc-radius-md)", border: `1px solid ${active ? s.border : "rgba(255,255,255,0.04)"}`,
-              background: active ? s.bg : "rgba(255,255,255,0.02)", cursor: "pointer",
+              padding: "8px 14px", borderRadius: "var(--tc-radius-md)", border: `1px solid ${active ? s.border : "var(--tc-input)"}`,
+              background: active ? s.bg : "var(--tc-surface-alt)", cursor: "pointer",
               display: "flex", alignItems: "center", gap: "6px", fontFamily: "inherit", color: s.color, fontSize: "13px", fontWeight: 600,
             }}>
               <span style={{ fontSize: "16px", fontWeight: 800 }}>{c}</span>
@@ -91,19 +91,19 @@ export default function FindingsPage() {
       {/* Filters */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "8px 12px" }}>
-          <Search size={14} color="#5a534e" />
+          <Search size={14} color="var(--tc-text-muted)" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--tc-text)", fontSize: "13px", fontFamily: "inherit" }} />
-          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="#5a534e" /></button>}
+          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="var(--tc-text-muted)" /></button>}
         </div>
         {["open", "in_progress", "resolved"].map(st => {
           const active = filterStatus === st;
           return (
             <button key={st} onClick={() => setFilterStatus(active ? "" : st)} style={{
               padding: "8px 12px", borderRadius: "var(--tc-radius-md)", fontSize: "11px", fontWeight: 600,
-              border: `1px solid ${active ? "rgba(208,48,32,0.2)" : "rgba(255,255,255,0.04)"}`,
-              background: active ? "rgba(208,48,32,0.06)" : "rgba(255,255,255,0.02)",
-              color: active ? "#d03020" : "#5a534e", cursor: "pointer", fontFamily: "inherit",
+              border: `1px solid ${active ? "rgba(208,48,32,0.2)" : "var(--tc-input)"}`,
+              background: active ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
+              color: active ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
             }}>
               {STATUS_LABELS[st]?.label || st}
             </button>
@@ -140,7 +140,7 @@ export default function FindingsPage() {
                   <span style={{ fontSize: "10px", color: st.color, display: "flex", alignItems: "center", gap: "4px" }}>
                     {st.icon} {st.label}
                   </span>
-                  <ChevronDown size={14} color="#5a534e" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+                  <ChevronDown size={14} color="var(--tc-text-muted)" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
                 </div>
 
                 {isExpanded && (

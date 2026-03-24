@@ -14,7 +14,7 @@ export function ChromeButton({ children, onClick, disabled, className = "", vari
   const styles: Record<string, React.CSSProperties> = {
     primary: {
       background: "linear-gradient(135deg, #d03020 0%, #a02018 100%)",
-      border: "1px solid rgba(255,255,255,0.1)",
+      border: "1px solid var(--tc-input))",
       color: "#fff",
       boxShadow: "0 2px 8px rgba(208,48,32,0.25), 0 1px 2px rgba(0,0,0,0.3)",
     },

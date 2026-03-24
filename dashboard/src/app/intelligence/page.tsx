@@ -125,7 +125,7 @@ function ConfidenceBar({ score, level }: { score: number; level: string }) {
   const color = score >= 80 ? "#d03020" : score >= 50 ? "#d09020" : score >= 30 ? "#c0a030" : "#30a050";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-      <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "rgba(255,255,255,0.06)" }}>
+      <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "var(--tc-input)" }}>
         <div style={{ width: `${score}%`, height: "100%", borderRadius: "4px", background: color, transition: "width 500ms" }} />
       </div>
       <span style={{ fontSize: "13px", fontWeight: 700, color, minWidth: "50px" }}>{score}/100</span>
@@ -136,7 +136,7 @@ function ConfidenceBar({ score, level }: { score: number; level: string }) {
 
 function RiskBadge({ risk }: { risk: string }) {
   const colors: Record<string, string> = { critical: "#d03020", high: "#d06020", medium: "#d09020", low: "#30a050" };
-  const c = colors[risk] || "#6a625c";
+  const c = colors[risk] || "var(--tc-text-muted)";
   return (
     <span style={{
       fontSize: "9px", fontWeight: 700, textTransform: "uppercase", padding: "2px 8px",
