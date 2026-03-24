@@ -58,6 +58,15 @@ const RUNNABLE: Record<string, string> = {
   "skill-glpi": "/api/tc/connectors/glpi/sync",
 };
 
+// Skills with no real backend code yet — shown grayed out in catalog
+const NOT_FUNCTIONAL: Set<string> = new Set([
+  "skill-ad-audit",       // PowerShell scripts not written
+  "skill-cloud-posture",  // No cloud API integration
+  "skill-darkweb-monitor",// No darkweb scraping code
+  "skill-report-gen",     // Report generation is manual
+  "skill-vuln-scan",      // Use skill-nmap-discovery instead
+]);
+
 export default function SkillsPage() {
   const [allSkills, setAllSkills] = useState<SkillManifest[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
@@ -69,7 +78,9 @@ export default function SkillsPage() {
   const [runResult, setRunResult] = useState<any>(null);
   const [installing, setInstalling] = useState<SkillManifest | null>(null);
   const [installDone, setInstallDone] = useState(false);
+  const [installMsg, setInstallMsg] = useState("");
   const [expandedCatalog, setExpandedCatalog] = useState<string | null>(null);
+  const [disabledSkills, setDisabledSkills] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -98,14 +109,37 @@ export default function SkillsPage() {
   const install = (skill: SkillManifest) => {
     setInstalling(skill);
     setInstallDone(false);
+    setInstallMsg("Installation en cours...");
     setTimeout(() => {
       setEnabled(prev => new Set(prev).add(skill.id));
+      setDisabledSkills(prev => { const n = new Set(prev); n.delete(skill.id); return n; });
       setInstallDone(true);
+      setInstallMsg(`${skill.name} installe ! Configurez-le dans My Skills`);
       setTimeout(() => { setInstalling(null); setInstallDone(false); }, 2000);
     }, 3000);
   };
-  const uninstall = (id: string) => { setEnabled(prev => { const n = new Set(prev); n.delete(id); return n; }); setModalSkill(null); };
-  const toggleEnabled = (id: string) => { setEnabled(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const uninstall = (id: string) => {
+    setModalSkill(null);
+    const skill = allSkills.find(s => s.id === id);
+    setInstalling(skill || null);
+    setInstallDone(false);
+    setInstallMsg("Desinstallation en cours...");
+    setTimeout(() => {
+      setEnabled(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setDisabledSkills(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setInstallDone(true);
+      setInstallMsg(`${skill?.name || "Skill"} desinstallee`);
+      setTimeout(() => { setInstalling(null); setInstallDone(false); }, 2000);
+    }, 2000);
+  };
+  // Toggle = enable/disable, NOT uninstall (stays in My Skills)
+  const toggleActive = (id: string) => {
+    setDisabledSkills(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
   const setConfig = (sid: string, key: string, val: string) => { setConfigValues(prev => ({ ...prev, [sid]: { ...prev[sid], [key]: val } })); };
 
   const handleRun = async (skill: SkillManifest) => {
@@ -150,7 +184,7 @@ export default function SkillsPage() {
               return (
                 <div key={skill.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px",
                   borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)" }}>
-                  <input type="checkbox" className="tc-toggle" checked={enabled.has(skill.id)} onChange={() => toggleEnabled(skill.id)} />
+                  <input type="checkbox" className="tc-toggle" checked={!disabledSkills.has(skill.id)} onChange={() => toggleActive(skill.id)} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.name}</div>
                     <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px", background: `${ti.color}15`, color: ti.color, textTransform: "uppercase" }}>{ti.label}</span>
@@ -189,9 +223,11 @@ export default function SkillsPage() {
                   {skills.map(skill => {
                     const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "var(--tc-text-muted)" };
                     const isExp = expandedCatalog === skill.id;
+                    const notReady = NOT_FUNCTIONAL.has(skill.id);
                     return (
                       <div key={skill.id} style={{
                         borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", overflow: "hidden",
+                        opacity: notReady ? 0.45 : 1,
                       }}>
                         {/* Header — click to expand */}
                         <div onClick={() => setExpandedCatalog(isExp ? null : skill.id)} style={{
@@ -218,9 +254,13 @@ export default function SkillsPage() {
                               {skill.execution?.mode && <span>{skill.execution.mode === "ephemeral" ? "Docker" : skill.execution.mode === "persistent" ? "Sync continue" : "API"}</span>}
                               {skill.execution?.docker_image && <span style={{ fontFamily: "monospace", color: "var(--tc-blue)" }}>{skill.execution.docker_image}</span>}
                             </div>
-                            <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "11px", padding: "6px 16px" }}>
-                              <Download size={12} /> Installer
-                            </button>
+                            {notReady ? (
+                              <span style={{ fontSize: "10px", color: "var(--tc-text-faint)", fontStyle: "italic" }}>Bientot disponible</span>
+                            ) : (
+                              <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "11px", padding: "6px 16px" }}>
+                                <Download size={12} /> Installer
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -246,7 +286,7 @@ export default function SkillsPage() {
                   <div className="tc-ball-loader" />
                 </div>
                 <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "8px" }}>
-                  Installation en cours...
+                  {installMsg}
                 </div>
                 <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
                   {installing.name}
@@ -254,14 +294,11 @@ export default function SkillsPage() {
               </>
             ) : (
               <>
-                <div style={{ fontSize: "36px", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "12px" }}>
                   <CheckCircle2 size={36} color="var(--tc-green)" />
                 </div>
                 <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "8px" }}>
-                  {installing.name} installe !
-                </div>
-                <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
-                  Configurez-le dans l&apos;onglet <strong>My Skills</strong>
+                  {installMsg}
                 </div>
               </>
             )}
