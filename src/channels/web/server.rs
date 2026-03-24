@@ -424,6 +424,8 @@ pub async fn start_server(
         .route("/api/tc/connectors/ad/sync", post(super::handlers::threatclaw_api::connector_ad_sync_handler))
         .route("/api/tc/connectors/nmap/scan", post(super::handlers::threatclaw_api::connector_nmap_scan_handler))
         .route("/api/tc/connectors/proxmox/sync", post(super::handlers::threatclaw_api::connector_proxmox_sync_handler))
+        .route("/api/tc/connectors/wazuh/sync", post(super::handlers::threatclaw_api::connector_wazuh_sync_handler))
+        .route("/api/tc/connectors/glpi/sync", post(super::handlers::threatclaw_api::connector_glpi_sync_handler))
         .route("/api/tc/connectors/firewall/sync", post(super::handlers::threatclaw_api::connector_firewall_sync_handler))
         // Remediation actions
         .route("/api/tc/remediation/block-ip", post(super::handlers::threatclaw_api::remediation_block_ip_handler))

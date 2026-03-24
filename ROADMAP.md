@@ -295,9 +295,9 @@ Les outils du client auxquels ThreatClaw se branche.
 - [ ] **VMware / ESXi API** : VMs, vSwitches, datastores
 
 **P2 — Outils existants du client :**
-- [ ] **Wazuh** : import alertes (le client a déjà un SIEM)
+- [x] **Wazuh** : real REST API (JWT auth), import alertes level>=7, MITRE auto (le client a déjà un SIEM)
 - [ ] **Elastic SIEM** : import alertes
-- [ ] **GLPI / Snipe-IT** : import assets depuis CMDB existant (le client a déjà un inventaire)
+- [x] **GLPI** : import assets depuis CMDB existant (le client a déjà un inventaire)
 - [ ] **DefectDojo** : export findings (vuln management)
 - [ ] **Dependency-Track** : SBOM lifecycle
 - [ ] **Fortinet API** : firewall enterprise

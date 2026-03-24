@@ -2061,6 +2061,30 @@ pub async fn connector_proxmox_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/connectors/wazuh/sync — import alerts from Wazuh SIEM.
+pub async fn connector_wazuh_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::wazuh::WazuhConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid wazuh config: {e}")))?;
+    let result = crate::connectors::wazuh::sync_wazuh(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/glpi/sync — import assets from GLPI CMDB.
+pub async fn connector_glpi_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::glpi::GlpiConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid GLPI config: {e}")))?;
+    let result = crate::connectors::glpi::sync_glpi(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/connectors/firewall/sync — sync pfSense/OPNsense into graph.
 pub async fn connector_firewall_sync_handler(
     State(state): State<Arc<GatewayState>>,

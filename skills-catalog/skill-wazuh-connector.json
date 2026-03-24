@@ -1,0 +1,51 @@
+{
+  "id": "skill-wazuh-connector",
+  "name": "Wazuh SIEM",
+  "version": "1.0.0",
+  "description": "Import des alertes depuis Wazuh SIEM. Authentification JWT, filtrage par niveau, enrichissement MITRE ATT&CK automatique.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https",
+    "default_port": 55000
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Wazuh Manager (ex: https://wazuh:55000)",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Utilisateur API Wazuh",
+      "default": "wazuh",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe API",
+      "required": true
+    },
+    "max_alerts": {
+      "type": "number",
+      "description": "Nombre max d'alertes par sync",
+      "default": 100
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS (auto-signe par defaut)",
+      "default": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

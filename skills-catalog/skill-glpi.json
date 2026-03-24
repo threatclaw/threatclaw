@@ -1,0 +1,44 @@
+{
+  "id": "skill-glpi",
+  "name": "GLPI CMDB",
+  "version": "1.0.0",
+  "description": "Import des assets depuis GLPI — ordinateurs, equipements reseau. Synchronise avec le graphe d'assets via le pipeline de resolution.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL GLPI (ex: https://glpi.corp.local)",
+      "required": true
+    },
+    "app_token": {
+      "type": "password",
+      "description": "App-Token GLPI (Setup > General > API)",
+      "required": true
+    },
+    "user_token": {
+      "type": "password",
+      "description": "User Token GLPI (Preferences > Remote access keys)",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "default": false
+    }
+  },
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "database"
+}

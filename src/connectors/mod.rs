@@ -6,7 +6,9 @@
 
 pub mod active_directory;
 pub mod docker_executor;
+pub mod glpi;
 pub mod nmap_discovery;
 pub mod pfsense;
 pub mod proxmox;
 pub mod remediation;
+pub mod wazuh;
