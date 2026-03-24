@@ -230,132 +230,167 @@
 
 ---
 
-## Restant (post-release / contributions communautaires)
+## Architecture Skills Unifiée
 
-### Technique
-- [ ] Tests e2e automatisés du cycle complet (CI)
-- [ ] Détection comportementale ML (compléter Sigma)
-- [x] **mTLS** : script generate-certs.sh (CA + certs par service)
-- [x] **Skill scheduler** : planning par skill avec cron configurable (API GET/POST /api/tc/scheduler)
-- [ ] Barre d'avancement download modèles dans le wizard onboarding
-- [x] **L1 upgradé** : qwen3:8b → qwen3.5:9b (256K context, meilleur instruction following)
+**Tout est une Skill.** Le type est un champ dans `skill.json` :
 
-### Skills V2 — Nouveaux outils (voir SKILLS_CATALOG.md)
-- [ ] **Éphémères P1** : semgrep (SAST), checkov (IaC), trufflehog (secrets git), syft (SBOM), grype (container CVE), ZAP (DAST web), nmap (réseau)
-- [ ] **Permanents** : suricata (IDS/IPS réseau), falco (runtime security containers)
-- [ ] **Connecteurs** : defectdojo (vuln mgmt), dependency-track (SBOM lifecycle)
-- [ ] **Éphémères P2** : httpx, subfinder, docker-bench-security
-- [x] **Whitelist dynamique** : `CommandRegistry` (core + skill.json), `validate_remediation()` unifié, anti-injection sur dynamiques
-- [ ] Système de modes d'exécution dans skill.json : `ephemeral` / `persistent` / `connector`
-- [ ] Dashboard : badges mode, "Activer" simplifié, technique cachée par défaut
-- [x] ~~Corriger `skill-appsec`~~ (pas de skill.json, déjà absent du catalog)
-- [x] ~~Retirer `skill-secrets-audit`~~ (skill.json.disabled — doublon de skill-secrets)
+```
+type: "tool"         → ThreatClaw installe et lance l'outil (Docker)
+type: "connector"    → ThreatClaw se branche sur un outil existant du client
+type: "enrichment"   → API externe de threat intelligence (read-only)
+```
 
-### Fine-tuning L1 — ThreatClaw AI 8B Triage spécialisé
+**Dashboard** : une seule page "Skills" avec filtres [Tous] [Outils] [Connecteurs] [Enrichissement].
+Skills, Cibles et Tests fusionnés dans Config. Lien direct "Skills" depuis le dashboard home.
 
-**Objectif** : Le L1 ne devient pas "meilleur en cyber" — il devient **expert ThreatClaw**.
-Un modèle d'orchestration qui sait piloter parfaitement l'application.
+**Skills actives par défaut (0 config)** : NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, OpenPhish, Sigma Rules, Intelligence Engine, Graph STIX 2.1.
 
-**Ce que le fine-tuning enseigne au L1 :**
-- [ ] Les 44 commandes whitelist exactes (net-001, usr-001, ssh-001...)
-- [ ] Le format JSON ThreatClaw (severity enum, confidence float 0-1, action_ids valides)
-- [ ] Les 12 sources d'enrichissement et comment les référencer
-- [ ] Les modes RSSI et quand escalader vers L2
-- [ ] Les skills disponibles et quand les suggérer
-- [ ] Le champ `context_for_reasoning` structuré pour L2 Forensique
-- [ ] Le nommage ThreatClaw (pas de termes génériques)
+---
 
-**Prérequis** : Les skills V2 doivent être implémentés d'abord (le modèle doit connaître les outils disponibles). Chaque ajout de skill = re-fine-tuning léger (LoRA incrémental).
+## Restant
 
-**Pipeline de fine-tuning :**
-1. Générer 500-1000 exemples synthétiques via Claude API
-   - Input : alertes brutes variées (SSH, CVE, phishing, C2, lateral...)
-   - Output : JSON ThreatClaw parfait avec context_for_reasoning
-   - Couvrir tous les action_ids, sévérités, skills
-2. Fine-tuning LoRA sur qwen3.5:9b
-   - Hardware : Mac M3 Pro (MLX) ou GPU cloud ~50€
-   - Durée : 4-8h
-   - Résultat : adapter GGUF ~50-200 MB
-3. Intégrer dans Ollama via Modelfile
-   - `FROM qwen3.5:9b` + `ADAPTER threatclaw-lora.gguf`
-   - Tester sur les 6 scénarios de test
-   - Mesurer : % JSON valide, % action_ids corrects, temps de réponse
-4. Distribuer via models.threatclaw.io (CloudFlare R2)
+### Asset Resolution Pipeline (prochaine priorité)
 
-**Gain attendu :**
-- JSON valide : 90% → 99%+ (moins de retries, pipeline plus stable)
-- Actions whitelist correctes : ~70% → 95%+ (moins de rejets)
-- Temps de réponse : -20% (moins de tokens perdus en formatting)
-- Qualité L2 : meilleure car reçoit un contexte structuré parfait
+**Principe** : quand plusieurs sources découvrent le même asset, ThreatClaw fusionne intelligemment.
+Résolution par priorité : **MAC > hostname > IP**. Jamais de doublon.
 
-**Collecte de données pour amélioration continue :**
-- [x] **Table `llm_training_data`** : migration V22, prompt_hash, response_json, parsing_ok, severity, confidence, cycle_duration
-- [x] **Logging automatique** de chaque appel L1 dans le ReAct runner (on-premise, jamais envoyé)
-- [ ] Script `scripts/generate-training-data.py` (Claude API → JSONL)
-- [ ] Re-fine-tuning après chaque ajout majeur de skill
+```
+Nmap découvre IP → pfSense ajoute MAC+hostname → AD ajoute FQDN+OU+users → 1 seul nœud Asset
+```
 
-**Timeline** : Après implémentation des skills V2 (les outils doivent exister pour que le modèle les connaisse).
+- [ ] **`resolve_asset()`** : recherche par MAC, puis hostname, puis IP. Merge si trouvé, crée sinon.
+- [ ] **Gestion DHCP** : IP change → update via MAC (clé stable)
+- [ ] **Détection conflits** : même hostname + MAC différent → alerte "machine inconnue"
+- [ ] **Score confiance asset** : monte avec chaque source (nmap seul=0.3, +DHCP=0.7, +AD=0.95)
+- [ ] **Modèle Asset enrichi** : id, mac, hostname, fqdn, ip, os, ou, vlan, vm_id, ports, sources[], confidence
 
-### Graph Intelligence — Investigation déterministe (voir docs/GRAPH_INTELLIGENCE.md)
+### Skills V2 — Outils (type: "tool")
 
-**Phase 1 — Fondation Graph (V2.0) ✅**
-- [x] **Apache AGE** compilé et installé dans PostgreSQL 16 (Cypher queries actives)
-- [x] **Schéma STIX 2.1** : 11 types de nœuds + 15 types d'arêtes dans `threat_graph`
-- [x] **Cypher queries** : attack paths, kill chain, corrélation, investigation context
-- [x] **Dockerfile.db** : image custom pgvector + AGE (build automatique Docker)
-- [x] **Graph sync** : `sync_graph_from_db()` synchronise targets/alerts/findings → graph à chaque cycle
-- [x] **API Graph** : `POST /api/tc/graph/query`, `GET /graph/context/{id}`, `GET /graph/attackers/{id}`
+Les outils que ThreatClaw installe et lance dans Docker.
 
-**Phase 2 — Investigation Graphs (V2.1) ✅**
-- [x] **7 investigation graphs** prédéfinis (SSH brute, CVE, phishing, C2, lateral, malware, DNS exfil)
-- [x] **Executor déterministe** : chaque étape (enrich → correlate → map MITRE → find paths → reason)
-- [x] **13 mappings MITRE** automatiques (keyword → technique ID → nœud graph)
-- [x] **Câblé dans Intelligence Engine** : chaque alerte match un graph → investigation auto
-- [x] `GET /api/tc/graph/investigations` — liste les 7 templates
+**P1 — Sécurité offensive/défensive :**
+- [ ] **nmap** : discovery réseau + ports + OS fingerprint → alimente le graphe d'assets
+- [ ] **semgrep** : SAST analyse de code (vuln patterns)
+- [ ] **checkov** : audit IaC (Terraform, Docker, K8s)
+- [ ] **trufflehog** : secrets dans les repos Git
+- [ ] **syft** : SBOM (inventaire composants logiciels)
+- [ ] **grype** : CVEs dans les containers/SBOM
+- [ ] **ZAP** : DAST scan web (OWASP)
 
-**Phase 3 — Graph Intelligence avancé ✅**
-- [x] **Confidence Scoring dynamique** : score 0-100 STIX via 7 facteurs (GreyNoise, géo, historique graph, CVE/EPSS, KEV, heure, corroboration). API `/api/tc/graph/confidence/ip/{ip}` + `/confidence/cve/{cve_id}`. Câblé dans Intelligence Engine.
-- [x] **Lateral Movement Detection** : 3 détecteurs (chaînes multi-sauts, fan-out, path vers critiques) + détection vulnérabilités partagées. API `/api/tc/graph/lateral`. Câblé dans Intelligence Engine.
-- [x] **Note Graph / mémoire équipe** : STIX 2.1 Note + ANNOTATES edges. CRUD API (`/api/tc/graph/notes`). Notes injectées dans `build_investigation_context()` pour L2 Reasoning. Supprimer/lister/filtrer par IP/asset.
-- [x] **Course of Action automatique** : 5 MITRE mitigations (M1036, M1035, M1051, M1049, M1037) + 12 technique mappings. `seed_default_mitigations()`, `find_coa_for_cve/asset()`. API `/api/tc/graph/coa/seed`, `/coa/cve/{id}`, `/coa/asset/{id}`.
+**P2 — Réseau/monitoring :**
+- [ ] **suricata** : IDS/IPS réseau (permanent)
+- [ ] **falco** : runtime security containers (permanent)
+- [ ] **httpx** : probe HTTP rapide
+- [ ] **subfinder** : enumération sous-domaines
+- [ ] **docker-bench-security** : audit Docker host
+
+### Skills V2 — Connecteurs (type: "connector")
+
+Les outils du client auxquels ThreatClaw se branche.
+
+**P1 — Discovery SI (comment ThreatClaw cartographie) :**
+- [ ] **Active Directory / LDAP** : users, groups, computers, OUs, admins → graphe Identity
+- [ ] **pfSense / OPNsense API** : table ARP, baux DHCP, règles FW, VLANs, interfaces → graphe réseau
+- [ ] **Proxmox API** : VMs, nodes, storage, networks → graphe infrastructure
+- [ ] **VMware / ESXi API** : VMs, vSwitches, datastores
+
+**P2 — Outils existants du client :**
+- [ ] **Wazuh** : import alertes (le client a déjà un SIEM)
+- [ ] **Elastic SIEM** : import alertes
+- [ ] **GLPI / Snipe-IT** : import assets depuis CMDB existant (le client a déjà un inventaire)
+- [ ] **DefectDojo** : export findings (vuln management)
+- [ ] **Dependency-Track** : SBOM lifecycle
+- [ ] **Fortinet API** : firewall enterprise
+
+**P3 — Actions (le client veut que ThreatClaw agisse) :**
+- [ ] **pfSense write** : bloquer IP, ajouter règle FW via API
+- [ ] **AD write** : désactiver compte compromis via LDAP
+- [ ] **GLPI write** : créer ticket depuis finding
+
+### Skills V2 — Enrichissement (type: "enrichment")
+
+Sources de threat intelligence. Actives par défaut si gratuites.
+
+**Actives par défaut (0 config) :**
+- [x] NVD NIST, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, OpenPhish
+
+**Activées si clé API fournie :**
+- [x] GreyNoise, CrowdSec CTI, AbuseIPDB, OTX AlienVault, ThreatFox, MalwareBazaar, URLhaus
+- [ ] **Shodan** : exposition internet
+- [ ] **VirusTotal** : analyse fichiers/URLs
+- [ ] **HIBP** : comptes compromis
+
+### Parcours client (onboarding)
+
+```
+Étape 1 — docker compose up (5 min)
+  → 9 skills actives, 0 config. SOC fonctionnel.
+
+Étape 2 — Discovery (10 min)
+  → Wizard : "Votre range réseau ? Vous avez un AD ? Un pfSense ?"
+  → Activation des skills connectors
+  → Graphe peuplé automatiquement (Asset Resolution Pipeline)
+
+Étape 3 — Choix du RSSI (5 min)
+  → "Vous avez déjà un scanner ?" → Oui: skill-nessus connector / Non: skill-nuclei tool
+  → "Vous avez déjà un SIEM ?" → Oui: skill-wazuh connector / Non: Sigma rules (actif par défaut)
+  → "Vous avez un CMDB ?" → Oui: skill-glpi connector / Non: ThreatClaw = votre CMDB
+
+Étape 4 — Automatique (continu)
+  → Intelligence Engine cycle 5 min
+  → Nouveaux assets détectés automatiquement
+  → "Machine inconnue sur VLAN 30" → alerte
+```
+
+### Dashboard — Réorganisation menu
+
+- [ ] **Fusionner** Skills, Cibles et Tests dans Config (onglets)
+- [ ] **Lien direct** "Skills" depuis la page d'accueil dashboard
+- [ ] **Page Skills unifiée** : filtres [Tous] [Outils] [Connecteurs] [Enrichissement]
+- [ ] **Chaque skill** : logo + toggle ON/OFF + status + config inline
 - [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 
-**Phase 4 — Intelligence CTI ✅**
-- [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
-- [ ] Connecteur TAXII pour feeds CTI communautaires
-- [ ] Suggestions mitigation auto via MITRE D3FEND
-- [x] **Campaign Detection** : groupement par pays/ASN, STIX Campaign nodes + PART_OF edges. Câblé dans Intelligence Engine. API `/api/tc/graph/campaigns`.
-- [x] **Identity Graph (UBA)** : User/LOGGED_IN/ESCALATED nodes/edges, sync depuis auth logs, 3 détecteurs (fan-out, failed clusters, escalation chains). API `/api/tc/graph/identity`.
+### Technique complété
+- [x] **mTLS** : script generate-certs.sh (CA + certs par service)
+- [x] **Skill scheduler** : planning par skill avec cron configurable
+- [x] **L1 upgradé** : qwen3:8b → qwen3.5:9b (256K context)
+- [x] **Whitelist dynamique** : `CommandRegistry` (core 44 + skill.json)
+- [ ] Tests e2e automatisés du cycle complet (CI)
+- [ ] Barre d'avancement download modèles dans le wizard onboarding
 
-**Phase 5 — Proactif ✅**
-- [x] **Blast Radius automatique** : 3 hops (shared IPs → shared CVEs → shared users), score d'impact pondéré par criticité. API `/api/tc/graph/blast-radius/{asset_id}`.
-- [x] **Attack Path Prediction** : 3 patterns (external→pivot→critical, CVE chains, direct exposure), recommendations auto. API `/api/tc/graph/attack-paths`.
-- [x] **Supply Chain Risk** : Vendor→Software→Asset→CVE model, rapport NIS2 Article 21. API `/api/tc/graph/supply-chain`, `/supply-chain/nis2`.
-- [x] **Threat Actor Profiling** : clustering par pays/ASN, matching 7 APT connus (APT28, APT29, Lazarus, APT41, Sandworm, Turla, MuddyWater). API `/api/tc/graph/threat-actors`.
+### Fine-tuning L1
+
+**Objectif** : Le L1 devient **expert ThreatClaw** — pas juste meilleur en cyber.
+**Timeline** : Après Skills V2 (le modèle doit connaître les outils disponibles).
+
+- [ ] Générer 500-1000 exemples synthétiques (Claude API → JSONL)
+- [ ] Fine-tuning LoRA sur qwen3.5:9b (~4-8h, Mac M3 Pro ou GPU cloud ~50€)
+- [ ] Intégrer dans Ollama (`FROM qwen3.5:9b` + `ADAPTER threatclaw-lora.gguf`)
+- [ ] Distribuer via models.threatclaw.io (CloudFlare R2)
+- [x] Table `llm_training_data` + logging automatique chaque appel L1
+
+### Graph Intelligence
+
+**Phase 1-5 : ✅ COMPLÉTÉ** (voir sections ci-dessus)
 
 **Phase 6 — Collectif & GNN (V4)**
-- [ ] **Sighting / mémoire incidents** : STIX Sighting, historique des IoCs sur le temps long
+- [ ] **Sighting / mémoire incidents** : STIX Sighting, historique IoCs long terme
 - [ ] **Opinion Graph collectif** : STIX Opinion, intelligence collective anonymisée (opt-in)
 - [ ] **Federated Graph** : réseau d'instances ThreatClaw partageant IoCs via TAXII (NIS2 Article 26)
 - [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
-- [ ] Détection anomalies comportementales (complémente Sigma)
+- [ ] Détection comportementale ML (complémente Sigma)
 
 ### Bot Cloud-Assisted — Intelligence conversationnelle souveraine
-
-**Principe** : Le pipeline automatique (alertes, enrichissement, notifications) reste 100% local, toujours.
-Le cloud intervient UNIQUEMENT quand le RSSI parle, pour comprendre et reformuler.
 
 ```
 Pipeline auto 24/7  →  100% L1/L2 local (jamais de cloud)
 RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (si activé)
 ```
 
-- [ ] **Cloud Intent Parser** : message RSSI → Cloud API → plan JSON structuré (intent + steps)
-- [ ] **Plan Executor** : exécute le plan localement (graph, enrichissement, logs, L2 Reasoning)
-- [ ] **Anonymized Summary Builder** : résultats locaux → anonymiseur 17 catégories → Cloud reformule en français fluide
-- [ ] **3 modes conversation** : `local` (air-gap) / `cloud_assisted` (hybride) / `cloud_direct` (existant L3)
-- [ ] **Config dashboard toggle** : choix du mode conversation dans Config > IA/LLM
-- [ ] **Zéro donnée réelle vers le cloud** : IPs, assets, credentials, logs, CVEs spécifiques = jamais envoyés
+- [ ] **Cloud Intent Parser** : message RSSI → Cloud API → plan JSON structuré
+- [ ] **Plan Executor** : exécute localement (graph, enrichissement, logs, L2 Reasoning)
+- [ ] **Anonymized Summary Builder** : anonymiseur → Cloud reformule en français fluide
+- [ ] **3 modes conversation** : `local` / `cloud_assisted` / `cloud_direct`
 
 ### Communauté / Outillage
 - [ ] CLI scaffolding (`threatclaw create-skill`)
@@ -368,4 +403,5 @@ RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (
 
 *Dernière mise à jour : 24 mars 2026*
 *Version actuelle : 1.4.0-beta (Graph Intelligence Phase 3-5)*
-*Modèle business : prestation (CyberConsulting.fr installe chez les clients) — pas de freemium/SaaS*
+*Licence : AGPL v3 + Commercial (dual-licence)*
+*Modèle business : prestation (CyberConsulting.fr installe chez les clients)*
