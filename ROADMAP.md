@@ -373,12 +373,53 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 
 **Phase 1-5 : ✅ COMPLÉTÉ** (voir sections ci-dessus)
 
-**Phase 6 — Collectif & GNN (V4)**
+### Analyse Comportementale — 3 couches de détection
+
+Chaque couche attrape ce que les autres ratent :
+```
+Attaque connue (SSH brute force)     → Sigma ✅  Stats ✅  ML ✅
+Michel à 2h du matin sur le backup   → Sigma ❌  Stats ✅  ML ✅
+Nouveau malware jamais vu            → Sigma ❌  Stats ❌  ML ✅
+```
+
+**Couche 1 — Règles Sigma ✅ (déjà en place)**
+- Détection déterministe des patterns connus
+- 7 investigation graphs câblés dans l'Intelligence Engine
+
+**Couche 2 — Baselines comportementales (prochaine priorité)**
+Profil "normal" par utilisateur, calculé sur 30 jours glissants. Alerte quand déviation.
+
+- [ ] **`behavior_baseline.rs`** : calcul baseline 30j par User (heures, jours, IPs, assets, VLANs, volume réseau, DNS)
+- [ ] **`behavior_scorer.rs`** : score déviation 0-100 par événement vs baseline
+- [ ] **7 détections** :
+  - Horaire anormal (connexion hors heures habituelles)
+  - Lieu/IP anormal (IP ou VLAN jamais utilisé)
+  - Accès inhabituel (asset jamais accédé par ce user)
+  - Volume réseau anormal (x10 la moyenne = exfiltration probable)
+  - DNS suspect (volume, entropie, DGA pattern)
+  - Escalade de privilèges (user standard fait action admin)
+  - Kill chain multi-étapes (corrélation graph : 3+ anomalies sur même user en <2h)
+- [ ] **Période d'apprentissage** : 7 jours sans alertes pour un nouveau user (le profil se construit)
+- [ ] **Stockage baseline** sur le noeud User dans le graphe (usual_hours, usual_ips, usual_assets, avg_bytes...)
+- [ ] **API** : `GET /api/tc/graph/behavior/{username}` — profil comportemental d'un user
+- [ ] **Câblage** Intelligence Engine : scorer chaque login/événement vs baseline
+
+~500 lignes Rust, pas de ML, pas de GPU. Juste des moyennes + écarts-types.
+Les baselines générées servent aussi de données d'entraînement pour la couche 3.
+
+**Couche 3 — Machine Learning (12+ mois, quand les données existent)**
+Apprend des patterns invisibles aux règles et aux stats.
+
+- [ ] **Prérequis** : 6 mois de baselines sur des clients en production
+- [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
+- [ ] Détection DGA (Domain Generation Algorithm) par analyse entropie
+- [ ] Clustering comportemental (grouper les users par profil, détecter les outliers)
+- [ ] Modèle : Python (scikit-learn ou PyTorch), entraîné offline, inférence locale
+
+**Phase 6 — Collectif (V4)**
 - [ ] **Sighting / mémoire incidents** : STIX Sighting, historique IoCs long terme
 - [ ] **Opinion Graph collectif** : STIX Opinion, intelligence collective anonymisée (opt-in)
 - [ ] **Federated Graph** : réseau d'instances ThreatClaw partageant IoCs via TAXII (NIS2 Article 26)
-- [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
-- [ ] Détection comportementale ML (complémente Sigma)
 
 ### Bot Cloud-Assisted — Intelligence conversationnelle souveraine
 
