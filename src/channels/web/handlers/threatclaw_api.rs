@@ -1860,6 +1860,29 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// CLOUD INTENT (natural language command)
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/command/intent — parse and execute a natural language command.
+pub async fn command_intent_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let message = body["message"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing message".to_string()))?;
+    let mode = body["mode"].as_str().unwrap_or("local");
+
+    let intent = crate::agent::cloud_intent::parse_intent(message, mode).await;
+    let result = crate::agent::cloud_intent::execute_intent(store.as_ref(), &intent).await;
+
+    Ok(Json(serde_json::json!({
+        "intent": intent,
+        "result": result,
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // LICENSE
 // ══════════════════════════════════════════════════════════
 

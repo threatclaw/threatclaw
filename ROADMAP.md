@@ -346,9 +346,9 @@ Sources de threat intelligence. Actives par défaut si gratuites.
 ### Dashboard — Réorganisation menu
 
 - [x] **Fusionner** Skills, Cibles et Tests dans Config (onglets) + Licence tab
-- [ ] **Lien direct** "Skills" depuis la page d'accueil dashboard
-- [ ] **Page Skills unifiée** : filtres [Tous] [Outils] [Connecteurs] [Enrichissement]
-- [ ] **Chaque skill** : logo + toggle ON/OFF + status + config inline
+- [x] **Lien direct** "Skills" depuis la page d'accueil dashboard
+- [x] **Page Skills unifiée** : filtres [Tous] [Outils] [Connecteurs] [Enrichissement]
+- [x] **Chaque skill** : logo + toggle ON/OFF + status + config inline
 - [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 
 ### Technique complété
@@ -390,8 +390,8 @@ Nouveau malware jamais vu            → Sigma ❌  Stats ❌  ML ✅
 **Couche 2 — Baselines comportementales (prochaine priorité)**
 Profil "normal" par utilisateur, calculé sur 30 jours glissants. Alerte quand déviation.
 
-- [ ] **`behavior_baseline.rs`** : calcul baseline 30j par User (heures, jours, IPs, assets, VLANs, volume réseau, DNS)
-- [ ] **`behavior_scorer.rs`** : score déviation 0-100 par événement vs baseline
+- [x] **`behavior_baseline.rs`** : calcul baseline 30j par User (heures, jours, IPs, assets, VLANs, volume réseau, DNS)
+- [x] **`behavior_scorer.rs`** : score déviation 0-100 par événement vs baseline
 - [ ] **7 détections** :
   - Horaire anormal (connexion hors heures habituelles)
   - Lieu/IP anormal (IP ou VLAN jamais utilisé)
@@ -400,10 +400,10 @@ Profil "normal" par utilisateur, calculé sur 30 jours glissants. Alerte quand d
   - DNS suspect (volume, entropie, DGA pattern)
   - Escalade de privilèges (user standard fait action admin)
   - Kill chain multi-étapes (corrélation graph : 3+ anomalies sur même user en <2h)
-- [ ] **Période d'apprentissage** : 7 jours sans alertes pour un nouveau user (le profil se construit)
-- [ ] **Stockage baseline** sur le noeud User dans le graphe (usual_hours, usual_ips, usual_assets, avg_bytes...)
-- [ ] **API** : `GET /api/tc/graph/behavior/{username}` — profil comportemental d'un user
-- [ ] **Câblage** Intelligence Engine : scorer chaque login/événement vs baseline
+- [x] **Période d'apprentissage** : 7 jours sans alertes pour un nouveau user (le profil se construit)
+- [x] **Stockage baseline** sur le noeud User dans le graphe (usual_hours, usual_ips, usual_assets, avg_bytes...)
+- [x] **API** : `GET /api/tc/graph/behavior/{username}` — profil comportemental d'un user
+- [x] **Câblage** Intelligence Engine : scorer chaque login/événement vs baseline
 
 ~500 lignes Rust, pas de ML, pas de GPU. Juste des moyennes + écarts-types.
 Les baselines générées servent aussi de données d'entraînement pour la couche 3.
@@ -429,8 +429,8 @@ Pipeline auto 24/7  →  100% L1/L2 local (jamais de cloud)
 RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (si activé)
 ```
 
-- [ ] **Cloud Intent Parser** : message RSSI → Cloud API → plan JSON structuré
-- [ ] **Plan Executor** : exécute localement (graph, enrichissement, logs, L2 Reasoning)
+- [x] **Cloud Intent Parser** : message RSSI → Cloud API → plan JSON structuré
+- [x] **Plan Executor** : exécute localement (graph, enrichissement, logs, L2 Reasoning)
 - [ ] **Anonymized Summary Builder** : anonymiseur → Cloud reformule en français fluide
 - [ ] **3 modes conversation** : `local` / `cloud_assisted` / `cloud_direct`
 

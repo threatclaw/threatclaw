@@ -412,6 +412,8 @@ pub async fn start_server(
         .route("/api/tc/graph/coa/seed", post(super::handlers::threatclaw_api::graph_coa_seed_handler))
         .route("/api/tc/graph/coa/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_coa_cve_handler))
         .route("/api/tc/graph/coa/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_coa_asset_handler))
+        // Intent parser (natural language commands)
+        .route("/api/tc/command/intent", post(super::handlers::threatclaw_api::command_intent_handler))
         // License
         .route("/api/tc/license", get(super::handlers::threatclaw_api::license_status_handler))
         .route("/api/tc/license/activate", post(super::handlers::threatclaw_api::license_activate_handler))
