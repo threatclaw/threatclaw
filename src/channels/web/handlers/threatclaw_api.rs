@@ -1860,6 +1860,34 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// CONNECTORS — AD, pfSense
+// ══════════════════════════════════════════════════════════
+
+/// POST /api/tc/connectors/ad/sync — sync Active Directory into graph.
+pub async fn connector_ad_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::active_directory::AdConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid AD config: {e}")))?;
+    let result = crate::connectors::active_directory::sync_ad(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/firewall/sync — sync pfSense/OPNsense into graph.
+pub async fn connector_firewall_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::pfsense::FirewallConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid firewall config: {e}")))?;
+    let result = crate::connectors::pfsense::sync_firewall(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+// ══════════════════════════════════════════════════════════
 // ASSET RESOLUTION + BEHAVIORAL ANALYSIS
 // ══════════════════════════════════════════════════════════
 
