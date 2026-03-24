@@ -11,8 +11,10 @@ const NAV_ITEMS = [
   { href: "/alerts", label: "Alertes", icon: Bell },
   { href: "/intelligence", label: "Intelligence", icon: BrainCircuit },
   { href: "/infrastructure", label: "Assets", icon: Network },
+  { href: "/skills", label: "Skills", icon: Puzzle },
   { href: "/agent", label: "Agent", icon: Activity },
   { href: "/setup", label: "Config", icon: Settings },
+  { href: "/test", label: "Tests", icon: Play },
 ];
 
 type ConnStatus = "full" | "degraded" | "offline";
