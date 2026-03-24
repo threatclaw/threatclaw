@@ -317,21 +317,21 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 - [x] **Confidence Scoring dynamique** : score 0-100 STIX via 7 facteurs (GreyNoise, géo, historique graph, CVE/EPSS, KEV, heure, corroboration). API `/api/tc/graph/confidence/ip/{ip}` + `/confidence/cve/{cve_id}`. Câblé dans Intelligence Engine.
 - [x] **Lateral Movement Detection** : 3 détecteurs (chaînes multi-sauts, fan-out, path vers critiques) + détection vulnérabilités partagées. API `/api/tc/graph/lateral`. Câblé dans Intelligence Engine.
 - [x] **Note Graph / mémoire équipe** : STIX 2.1 Note + ANNOTATES edges. CRUD API (`/api/tc/graph/notes`). Notes injectées dans `build_investigation_context()` pour L2 Reasoning. Supprimer/lister/filtrer par IP/asset.
-- [ ] **Course of Action automatique** : STIX CoA associé aux CVEs, playbook auto livré avec l'alerte
+- [x] **Course of Action automatique** : 5 MITRE mitigations (M1036, M1035, M1051, M1049, M1037) + 12 technique mappings. `seed_default_mitigations()`, `find_coa_for_cve/asset()`. API `/api/tc/graph/coa/seed`, `/coa/cve/{id}`, `/coa/asset/{id}`.
 - [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 
-**Phase 4 — Intelligence CTI**
+**Phase 4 — Intelligence CTI ✅**
 - [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
 - [ ] Connecteur TAXII pour feeds CTI communautaires
 - [ ] Suggestions mitigation auto via MITRE D3FEND
-- [ ] **Campaign Detection** : STIX Campaign, corrélation automatique d'alertes coordonnées (même ASN, même période)
-- [ ] **Identity Graph (UBA)** : STIX Identity, login/account/group tracking, détection anomalies comportementales
+- [x] **Campaign Detection** : groupement par pays/ASN, STIX Campaign nodes + PART_OF edges. Câblé dans Intelligence Engine. API `/api/tc/graph/campaigns`.
+- [x] **Identity Graph (UBA)** : User/LOGGED_IN/ESCALATED nodes/edges, sync depuis auth logs, 3 détecteurs (fan-out, failed clusters, escalation chains). API `/api/tc/graph/identity`.
 
-**Phase 5 — Proactif**
-- [ ] **Blast Radius automatique** : asset compromis → calcul en temps réel des impacts à 1/2/3 sauts
-- [ ] **Attack Path Prediction** : simulation passive dans le graphe, rapport mensuel proactif (pentest automatisé passif)
-- [ ] **Supply Chain Risk** : STIX Vendor→Software→Asset + CVE, rapport NIS2 Article 21 supply chain
-- [ ] **Threat Actor Profiling** : attribution automatique via pattern matching MITRE + timing + ASN
+**Phase 5 — Proactif ✅**
+- [x] **Blast Radius automatique** : 3 hops (shared IPs → shared CVEs → shared users), score d'impact pondéré par criticité. API `/api/tc/graph/blast-radius/{asset_id}`.
+- [x] **Attack Path Prediction** : 3 patterns (external→pivot→critical, CVE chains, direct exposure), recommendations auto. API `/api/tc/graph/attack-paths`.
+- [x] **Supply Chain Risk** : Vendor→Software→Asset→CVE model, rapport NIS2 Article 21. API `/api/tc/graph/supply-chain`, `/supply-chain/nis2`.
+- [x] **Threat Actor Profiling** : clustering par pays/ASN, matching 7 APT connus (APT28, APT29, Lazarus, APT41, Sandworm, Turla, MuddyWater). API `/api/tc/graph/threat-actors`.
 
 **Phase 6 — Collectif & GNN (V4)**
 - [ ] **Sighting / mémoire incidents** : STIX Sighting, historique des IoCs sur le temps long

@@ -401,6 +401,17 @@ pub async fn start_server(
         .route("/api/tc/graph/notes/ip/{ip}", get(super::handlers::threatclaw_api::graph_notes_ip_handler))
         .route("/api/tc/graph/notes/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_notes_asset_handler))
         .route("/api/tc/graph/notes/{note_id}", axum::routing::delete(super::handlers::threatclaw_api::graph_notes_delete_handler))
+        // Graph Phase 4-5
+        .route("/api/tc/graph/campaigns", get(super::handlers::threatclaw_api::graph_campaigns_handler))
+        .route("/api/tc/graph/identity", get(super::handlers::threatclaw_api::graph_identity_handler))
+        .route("/api/tc/graph/blast-radius/{asset_id}", get(super::handlers::threatclaw_api::graph_blast_radius_handler))
+        .route("/api/tc/graph/attack-paths", get(super::handlers::threatclaw_api::graph_attack_paths_handler))
+        .route("/api/tc/graph/supply-chain", get(super::handlers::threatclaw_api::graph_supply_chain_handler))
+        .route("/api/tc/graph/supply-chain/nis2", get(super::handlers::threatclaw_api::graph_nis2_report_handler))
+        .route("/api/tc/graph/threat-actors", get(super::handlers::threatclaw_api::graph_threat_actors_handler))
+        .route("/api/tc/graph/coa/seed", post(super::handlers::threatclaw_api::graph_coa_seed_handler))
+        .route("/api/tc/graph/coa/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_coa_cve_handler))
+        .route("/api/tc/graph/coa/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_coa_asset_handler))
         // Skill scheduler
         .route("/api/tc/scheduler", get(super::handlers::threatclaw_api::scheduler_list_handler))
         .route("/api/tc/scheduler", post(super::handlers::threatclaw_api::scheduler_save_handler))

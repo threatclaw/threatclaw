@@ -1763,6 +1763,103 @@ pub async fn graph_notes_delete_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// GRAPH PHASE 4-5 — Campaign, Identity, Blast Radius, Attack Path, Supply Chain, Threat Actor
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/graph/campaigns — detect coordinated attack campaigns.
+pub async fn graph_campaigns_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::campaign::detect_campaigns(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// GET /api/tc/graph/identity — detect identity anomalies (UBA).
+pub async fn graph_identity_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::identity_graph::detect_identity_anomalies(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// GET /api/tc/graph/blast-radius/{asset_id} — compute blast radius.
+pub async fn graph_blast_radius_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let br = crate::graph::blast_radius::compute_blast_radius(store.as_ref(), &asset_id).await;
+    Ok(Json(serde_json::json!(br)))
+}
+
+/// GET /api/tc/graph/attack-paths — predict attack paths.
+pub async fn graph_attack_paths_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::attack_path::predict_attack_paths(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// GET /api/tc/graph/supply-chain — analyze supply chain risk.
+pub async fn graph_supply_chain_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::supply_chain::analyze_supply_chain(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// GET /api/tc/graph/supply-chain/nis2 — NIS2 Article 21 supply chain report.
+pub async fn graph_nis2_report_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let report = crate::graph::supply_chain::generate_nis2_report(store.as_ref()).await;
+    Ok(Json(report))
+}
+
+/// GET /api/tc/graph/threat-actors — profile threat actors.
+pub async fn graph_threat_actors_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::threat_actor::profile_threat_actors(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// POST /api/tc/graph/coa/seed — seed default MITRE mitigations as CoA nodes.
+pub async fn graph_coa_seed_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    crate::graph::course_of_action::seed_default_mitigations(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "seeded": true })))
+}
+
+/// GET /api/tc/graph/coa/cve/{cve_id} — find CoAs for a CVE.
+pub async fn graph_coa_cve_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(cve_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let coas = crate::graph::course_of_action::find_coa_for_cve(store.as_ref(), &cve_id).await;
+    Ok(Json(serde_json::json!({ "courses_of_action": coas })))
+}
+
+/// GET /api/tc/graph/coa/asset/{asset_id} — find CoAs for an asset.
+pub async fn graph_coa_asset_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let coas = crate::graph::course_of_action::find_coa_for_asset(store.as_ref(), &asset_id).await;
+    Ok(Json(serde_json::json!({ "courses_of_action": coas })))
+}
+
+// ══════════════════════════════════════════════════════════
 // SKILL SCHEDULER
 // ══════════════════════════════════════════════════════════
 

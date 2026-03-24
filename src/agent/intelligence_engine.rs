@@ -194,7 +194,25 @@ pub async fn run_intelligence_cycle(
         // TODO: auto-create CRITICAL finding for lateral movement
     }
 
-    // ── 5e. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // ── 5e. CAMPAIGN DETECTION — correlate coordinated attacks ──
+    let campaigns = crate::graph::campaign::detect_campaigns(store.as_ref()).await;
+    if campaigns.total_campaigns > 0 {
+        tracing::warn!("CAMPAIGN: {}", campaigns.summary);
+    }
+
+    // ── 5f. IDENTITY ANOMALY DETECTION — UBA via graph ──
+    let identity = crate::graph::identity_graph::detect_identity_anomalies(store.as_ref()).await;
+    if !identity.anomalies.is_empty() {
+        tracing::warn!("IDENTITY: {}", identity.summary);
+    }
+
+    // ── 5g. THREAT ACTOR PROFILING — attribution from graph patterns ──
+    let actors = crate::graph::threat_actor::profile_threat_actors(store.as_ref()).await;
+    if actors.total_actors > 0 {
+        tracing::info!("THREAT_ACTOR: {}", actors.summary);
+    }
+
+    // ── 5h. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
     // This is where the engine becomes a true SOC brain — it reads raw logs,
     // extracts indicators, and cross-references with enrichment sources.
     let log_scan_results = scan_logs_for_threats(store.clone()).await;
