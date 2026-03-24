@@ -313,26 +313,42 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 - [x] **Câblé dans Intelligence Engine** : chaque alerte match un graph → investigation auto
 - [x] `GET /api/tc/graph/investigations` — liste les 7 templates
 
-**Phase 3 — Intelligence CTI (V2.2)**
-- [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
-- [ ] Connecteur TAXII pour feeds CTI communautaires
-- [ ] Prédiction d'étape suivante via traversal du graph ATT&CK
-- [ ] Suggestions mitigation auto via MITRE D3FEND
+**Phase 3 — Graph Intelligence avancé (prochaine priorité)**
+- [ ] **Confidence Scoring dynamique** : score contextuel 0-100 basé sur le graphe (CrowdSec + GreyNoise + historique + CVE + heure). Réduit faux positifs.
+- [ ] **Lateral Movement Detection** : requêtes Cypher multi-sauts pour détecter les chemins d'attaque en temps réel (IP→asset→asset→DB)
+- [ ] **Note Graph / mémoire équipe** : STIX Note attaché à n'importe quel nœud, annoté par le RSSI, injecté dans le contexte L2 Reasoning
+- [ ] **Course of Action automatique** : STIX CoA associé aux CVEs, playbook auto livré avec l'alerte
 - [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 
-**Phase 4 — GNN expérimental (V3.0)**
+**Phase 4 — Intelligence CTI**
+- [ ] Connecteur OpenCTI (ingestion STIX feeds via GraphQL)
+- [ ] Connecteur TAXII pour feeds CTI communautaires
+- [ ] Suggestions mitigation auto via MITRE D3FEND
+- [ ] **Campaign Detection** : STIX Campaign, corrélation automatique d'alertes coordonnées (même ASN, même période)
+- [ ] **Identity Graph (UBA)** : STIX Identity, login/account/group tracking, détection anomalies comportementales
+
+**Phase 5 — Proactif**
+- [ ] **Blast Radius automatique** : asset compromis → calcul en temps réel des impacts à 1/2/3 sauts
+- [ ] **Attack Path Prediction** : simulation passive dans le graphe, rapport mensuel proactif (pentest automatisé passif)
+- [ ] **Supply Chain Risk** : STIX Vendor→Software→Asset + CVE, rapport NIS2 Article 21 supply chain
+- [ ] **Threat Actor Profiling** : attribution automatique via pattern matching MITRE + timing + ASN
+
+**Phase 6 — Collectif & GNN (V4)**
+- [ ] **Sighting / mémoire incidents** : STIX Sighting, historique des IoCs sur le temps long
+- [ ] **Opinion Graph collectif** : STIX Opinion, intelligence collective anonymisée (opt-in)
+- [ ] **Federated Graph** : réseau d'instances ThreatClaw partageant IoCs via TAXII (NIS2 Article 26)
 - [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
 - [ ] Détection anomalies comportementales (complémente Sigma)
 
-### Communauté / Business
+### Communauté / Outillage
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)
 - [ ] Marketplace/registry de skills (distribution OCI)
-- [ ] Skills premium (EDR, SIEM avancé, threat intel premium)
 - [ ] Mirror modèles IA sur CloudFlare R2 (`models.threatclaw.io`)
 - [ ] Audit de sécurité tiers (externe)
 
 ---
 
-*Dernière mise à jour : 23 mars 2026*
+*Dernière mise à jour : 24 mars 2026*
 *Version actuelle : 1.3.0-beta*
+*Modèle business : prestation (CyberConsulting.fr installe chez les clients) — pas de freemium/SaaS*
