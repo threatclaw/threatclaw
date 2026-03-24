@@ -62,6 +62,34 @@
     }
   ],
   "type": "tool",
-  "requires_config": false,
-  "default_active": false
+  "requires_config": true,
+  "default_active": false,
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "Cible a scanner (URL ou IP)",
+      "required": true
+    },
+    "severity": {
+      "type": "select",
+      "description": "Severite minimum",
+      "options": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "default": "high"
+    },
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence de scan",
+      "options": [
+        "Manuel uniquement",
+        "Tous les jours a 2h",
+        "Chaque lundi a 2h"
+      ],
+      "default": "Chaque lundi a 2h"
+    }
+  }
 }

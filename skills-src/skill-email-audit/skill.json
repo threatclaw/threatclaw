@@ -30,6 +30,28 @@
     "secrets": []
   },
   "type": "tool",
-  "requires_config": false,
-  "default_active": false
+  "requires_config": true,
+  "default_active": false,
+  "config": {
+    "domain": {
+      "type": "string",
+      "description": "Domaine a auditer (ex: monentreprise.fr)",
+      "required": true
+    },
+    "check_spf": {
+      "type": "boolean",
+      "description": "Verifier SPF",
+      "default": true
+    },
+    "check_dkim": {
+      "type": "boolean",
+      "description": "Verifier DKIM",
+      "default": true
+    },
+    "check_dmarc": {
+      "type": "boolean",
+      "description": "Verifier DMARC",
+      "default": true
+    }
+  }
 }

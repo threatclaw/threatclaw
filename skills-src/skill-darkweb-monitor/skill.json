@@ -8,6 +8,23 @@
   "category": "monitoring",
   "runtime": "wasm",
   "type": "tool",
-  "requires_config": false,
-  "default_active": false
+  "requires_config": true,
+  "default_active": false,
+  "config": {
+    "company_name": {
+      "type": "string",
+      "description": "Nom de l'entreprise a surveiller",
+      "required": true
+    },
+    "domains": {
+      "type": "string",
+      "description": "Domaines a surveiller (separes par virgule)",
+      "required": true
+    },
+    "email_patterns": {
+      "type": "string",
+      "description": "Patterns email (ex: *@monentreprise.fr)",
+      "required": false
+    }
+  }
 }

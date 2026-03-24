@@ -53,6 +53,33 @@
     }
   ],
   "type": "tool",
-  "requires_config": false,
-  "default_active": false
+  "requires_config": true,
+  "default_active": false,
+  "config": {
+    "provider": {
+      "type": "select",
+      "description": "Fournisseur cloud",
+      "options": [
+        "aws",
+        "azure",
+        "gcp"
+      ],
+      "required": true
+    },
+    "region": {
+      "type": "string",
+      "description": "Region (ex: eu-west-1)",
+      "required": false
+    },
+    "access_key": {
+      "type": "password",
+      "description": "Access Key / Client ID",
+      "required": true
+    },
+    "secret_key": {
+      "type": "password",
+      "description": "Secret Key / Client Secret",
+      "required": true
+    }
+  }
 }
