@@ -313,10 +313,10 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 - [x] **Câblé dans Intelligence Engine** : chaque alerte match un graph → investigation auto
 - [x] `GET /api/tc/graph/investigations` — liste les 7 templates
 
-**Phase 3 — Graph Intelligence avancé (prochaine priorité)**
-- [ ] **Confidence Scoring dynamique** : score contextuel 0-100 basé sur le graphe (CrowdSec + GreyNoise + historique + CVE + heure). Réduit faux positifs.
-- [ ] **Lateral Movement Detection** : requêtes Cypher multi-sauts pour détecter les chemins d'attaque en temps réel (IP→asset→asset→DB)
-- [ ] **Note Graph / mémoire équipe** : STIX Note attaché à n'importe quel nœud, annoté par le RSSI, injecté dans le contexte L2 Reasoning
+**Phase 3 — Graph Intelligence avancé ✅**
+- [x] **Confidence Scoring dynamique** : score 0-100 STIX via 7 facteurs (GreyNoise, géo, historique graph, CVE/EPSS, KEV, heure, corroboration). API `/api/tc/graph/confidence/ip/{ip}` + `/confidence/cve/{cve_id}`. Câblé dans Intelligence Engine.
+- [x] **Lateral Movement Detection** : 3 détecteurs (chaînes multi-sauts, fan-out, path vers critiques) + détection vulnérabilités partagées. API `/api/tc/graph/lateral`. Câblé dans Intelligence Engine.
+- [x] **Note Graph / mémoire équipe** : STIX 2.1 Note + ANNOTATES edges. CRUD API (`/api/tc/graph/notes`). Notes injectées dans `build_investigation_context()` pour L2 Reasoning. Supprimer/lister/filtrer par IP/asset.
 - [ ] **Course of Action automatique** : STIX CoA associé aux CVEs, playbook auto livré avec l'alerte
 - [ ] Dashboard : visualisation du graph d'attaque (D3.js ou Cytoscape.js)
 

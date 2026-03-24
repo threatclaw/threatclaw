@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::Timelike;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -168,7 +169,32 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // ── 5c. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // ── 5c. CONFIDENCE SCORING — compute graph-based confidence for top alerts ──
+    for a in alerts.iter().take(5) {
+        if let Some(ref ip) = a.source_ip {
+            let clean_ip = ip.split('/').next().unwrap_or(ip).trim();
+            if !clean_ip.is_empty() && !clean_ip.starts_with("10.") && !clean_ip.starts_with("192.168.") {
+                let hour = chrono::Utc::now().hour();
+                let host = a.hostname.as_deref();
+                let score = crate::graph::confidence::compute_ip_confidence(
+                    store.as_ref(), clean_ip, host, Some(hour),
+                ).await;
+                tracing::info!(
+                    "CONFIDENCE: {} → {}/100 ({}) — {} sources",
+                    clean_ip, score.score, score.level, score.source_count
+                );
+            }
+        }
+    }
+
+    // ── 5d. LATERAL MOVEMENT DETECTION — graph traversal ──
+    let lateral = crate::graph::lateral::detect_lateral_movement(store.as_ref()).await;
+    if lateral.total_detections > 0 {
+        tracing::warn!("LATERAL: {} detections — {}", lateral.total_detections, lateral.summary);
+        // TODO: auto-create CRITICAL finding for lateral movement
+    }
+
+    // ── 5e. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
     // This is where the engine becomes a true SOC brain — it reads raw logs,
     // extracts indicators, and cross-references with enrichment sources.
     let log_scan_results = scan_logs_for_threats(store.clone()).await;

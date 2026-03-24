@@ -6,3 +6,6 @@
 pub mod threat_graph;
 pub mod investigation;
 pub mod executor;
+pub mod confidence;
+pub mod lateral;
+pub mod notes;

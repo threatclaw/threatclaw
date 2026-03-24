@@ -137,14 +137,17 @@ pub async fn find_ip_targets(store: &dyn Database, ip_addr: &str) -> Vec<serde_j
 }
 
 /// Build full investigation context for an asset (for L2 Reasoning).
+/// Includes attackers, CVEs, and analyst notes from the graph.
 pub async fn build_investigation_context(store: &dyn Database, asset_id: &str) -> serde_json::Value {
     let attackers = find_attackers(store, asset_id).await;
     let cves = find_asset_cves(store, asset_id).await;
+    let notes = crate::graph::notes::find_notes_for_asset(store, asset_id).await;
 
     json!({
         "asset_id": asset_id,
         "attackers": attackers,
         "cves": cves,
+        "analyst_notes": notes,
         "graph_context": true,
     })
 }

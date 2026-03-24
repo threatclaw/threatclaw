@@ -1,5 +1,6 @@
 //! ThreatClaw-specific API handlers for findings, alerts, config, and metrics.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -1662,6 +1663,103 @@ pub async fn graph_attackers_handler(
 pub async fn graph_investigations_handler() -> ApiResult<serde_json::Value> {
     let graphs = crate::graph::investigation::get_investigation_graphs();
     Ok(Json(serde_json::json!({ "investigations": graphs, "count": graphs.len() })))
+}
+
+// ══════════════════════════════════════════════════════════
+// GRAPH PHASE 3 — Confidence, Lateral Movement, Notes
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/graph/confidence/{ip} — compute confidence score for an IP.
+pub async fn graph_confidence_ip_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(ip): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let asset = params.get("asset").map(|s| s.as_str());
+    let hour = params.get("hour").and_then(|h| h.parse::<u32>().ok());
+    let score = crate::graph::confidence::compute_ip_confidence(store.as_ref(), &ip, asset, hour).await;
+    Ok(Json(serde_json::json!(score)))
+}
+
+/// GET /api/tc/graph/confidence/cve/{cve_id} — compute confidence for a CVE.
+pub async fn graph_confidence_cve_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(cve_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let asset = params.get("asset").map(|s| s.as_str());
+    let score = crate::graph::confidence::compute_cve_confidence(store.as_ref(), &cve_id, asset).await;
+    Ok(Json(serde_json::json!(score)))
+}
+
+/// GET /api/tc/graph/lateral — run lateral movement detection.
+pub async fn graph_lateral_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let analysis = crate::graph::lateral::detect_lateral_movement(store.as_ref()).await;
+    Ok(Json(serde_json::json!(analysis)))
+}
+
+/// POST /api/tc/graph/notes — create a note on graph objects.
+pub async fn graph_notes_create_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let content = body["content"].as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing content".to_string()))?;
+    let object_refs: Vec<&str> = body["object_refs"].as_array()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing object_refs array".to_string()))?
+        .iter().filter_map(|v| v.as_str()).collect();
+    let author = body["author"].as_str();
+    let confidence = body["confidence"].as_u64().map(|c| c.min(100) as u8);
+
+    let note = crate::graph::notes::create_note(store.as_ref(), content, &object_refs, author, confidence).await;
+    Ok(Json(serde_json::json!(note)))
+}
+
+/// GET /api/tc/graph/notes — list all notes.
+pub async fn graph_notes_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = params.get("limit").and_then(|l| l.parse::<u64>().ok()).unwrap_or(50);
+    let notes = crate::graph::notes::list_notes(store.as_ref(), limit).await;
+    Ok(Json(serde_json::json!({ "notes": notes, "count": notes.len() })))
+}
+
+/// GET /api/tc/graph/notes/ip/{ip} — notes for a specific IP.
+pub async fn graph_notes_ip_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(ip): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let notes = crate::graph::notes::find_notes_for_ip(store.as_ref(), &ip).await;
+    Ok(Json(serde_json::json!({ "notes": notes })))
+}
+
+/// GET /api/tc/graph/notes/asset/{asset_id} — notes for a specific asset.
+pub async fn graph_notes_asset_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let notes = crate::graph::notes::find_notes_for_asset(store.as_ref(), &asset_id).await;
+    Ok(Json(serde_json::json!({ "notes": notes })))
+}
+
+/// DELETE /api/tc/graph/notes/{note_id} — delete a note.
+pub async fn graph_notes_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(note_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let deleted = crate::graph::notes::delete_note(store.as_ref(), &note_id).await;
+    Ok(Json(serde_json::json!({ "deleted": deleted, "note_id": note_id })))
 }
 
 // ══════════════════════════════════════════════════════════

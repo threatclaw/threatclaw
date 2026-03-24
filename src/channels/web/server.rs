@@ -392,6 +392,15 @@ pub async fn start_server(
         .route("/api/tc/graph/context/{asset_id}", get(super::handlers::threatclaw_api::graph_context_handler))
         .route("/api/tc/graph/attackers/{asset_id}", get(super::handlers::threatclaw_api::graph_attackers_handler))
         .route("/api/tc/graph/investigations", get(super::handlers::threatclaw_api::graph_investigations_handler))
+        // Graph Phase 3 — Confidence, Lateral, Notes
+        .route("/api/tc/graph/confidence/ip/{ip}", get(super::handlers::threatclaw_api::graph_confidence_ip_handler))
+        .route("/api/tc/graph/confidence/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_confidence_cve_handler))
+        .route("/api/tc/graph/lateral", get(super::handlers::threatclaw_api::graph_lateral_handler))
+        .route("/api/tc/graph/notes", post(super::handlers::threatclaw_api::graph_notes_create_handler))
+        .route("/api/tc/graph/notes", get(super::handlers::threatclaw_api::graph_notes_list_handler))
+        .route("/api/tc/graph/notes/ip/{ip}", get(super::handlers::threatclaw_api::graph_notes_ip_handler))
+        .route("/api/tc/graph/notes/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_notes_asset_handler))
+        .route("/api/tc/graph/notes/{note_id}", axum::routing::delete(super::handlers::threatclaw_api::graph_notes_delete_handler))
         // Skill scheduler
         .route("/api/tc/scheduler", get(super::handlers::threatclaw_api::scheduler_list_handler))
         .route("/api/tc/scheduler", post(super::handlers::threatclaw_api::scheduler_save_handler))
