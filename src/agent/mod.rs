@@ -21,6 +21,7 @@ pub mod cyber_scheduler;
 mod dispatcher;
 pub mod cloud_caller;
 pub mod cloud_intent;
+pub mod conversation_mode;
 pub mod binary_verify;
 pub mod command_interpreter;
 pub mod conversational_bot;

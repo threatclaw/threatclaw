@@ -417,8 +417,9 @@ pub async fn start_server(
         .route("/api/tc/enrichment/virustotal/ip/{ip}", get(super::handlers::threatclaw_api::enrichment_vt_ip_handler))
         .route("/api/tc/enrichment/virustotal/hash/{hash}", get(super::handlers::threatclaw_api::enrichment_vt_hash_handler))
         .route("/api/tc/enrichment/hibp/{email}", get(super::handlers::threatclaw_api::enrichment_hibp_handler))
-        // Intent parser (natural language commands)
+        // Intent parser + conversation mode
         .route("/api/tc/command/intent", post(super::handlers::threatclaw_api::command_intent_handler))
+        .route("/api/tc/conversation/mode", get(super::handlers::threatclaw_api::conversation_mode_handler))
         // License
         .route("/api/tc/license", get(super::handlers::threatclaw_api::license_status_handler))
         .route("/api/tc/license/activate", post(super::handlers::threatclaw_api::license_activate_handler))

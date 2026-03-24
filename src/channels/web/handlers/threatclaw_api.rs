@@ -1927,15 +1927,32 @@ pub async fn command_intent_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let message = body["message"].as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing message".to_string()))?;
-    let mode = body["mode"].as_str().unwrap_or("local");
 
-    let intent = crate::agent::cloud_intent::parse_intent(message, mode).await;
-    let result = crate::agent::cloud_intent::execute_intent(store.as_ref(), &intent).await;
+    // Get conversation mode from request or DB
+    let mode = match body["mode"].as_str() {
+        Some("cloud_assisted") => crate::agent::conversation_mode::ConversationMode::CloudAssisted,
+        Some("cloud_direct") => crate::agent::conversation_mode::ConversationMode::CloudDirect,
+        Some("local") => crate::agent::conversation_mode::ConversationMode::Local,
+        _ => crate::agent::conversation_mode::get_mode(store.as_ref()).await,
+    };
+
+    let intent = crate::agent::cloud_intent::parse_intent(message, &mode.to_string()).await;
+    let result = crate::agent::conversation_mode::process_message(store.as_ref(), message, mode).await;
 
     Ok(Json(serde_json::json!({
         "intent": intent,
         "result": result,
+        "mode": mode.to_string(),
     })))
+}
+
+/// GET /api/tc/conversation/mode — get current conversation mode.
+pub async fn conversation_mode_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let mode = crate::agent::conversation_mode::get_mode(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "mode": mode.to_string() })))
 }
 
 // ══════════════════════════════════════════════════════════
