@@ -283,6 +283,55 @@ body {
 .bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
 
 /* ─── TOGGLE ─── */
+/* ─── TOGGLE (Uiverse.io inspired — green/red) ─── */
+.tc-toggle {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(hsla(0,0%,0%,.1), hsla(0,0%,100%,.1)),
+                    linear-gradient(to right, #e04030 50%, #30a050 50%);
+  background-size: 100% 100%, 200% 100%;
+  background-position: 0 0, 0px 0;
+  border-radius: 25px;
+  box-shadow: inset 0 1px 4px hsla(0,0%,0%,.5),
+              inset 0 0 10px hsla(0,0%,0%,.3),
+              0 0 0 1px hsla(0,0%,0%,.1),
+              0 -1px 2px 2px hsla(0,0%,0%,.15),
+              0 2px 2px 2px hsla(0,0%,100%,.2);
+  cursor: pointer;
+  height: 22px;
+  padding-right: 22px;
+  width: 52px;
+  border: none;
+  transition: .25s;
+  flex-shrink: 0;
+}
+.tc-toggle:after {
+  background-color: #eee;
+  background-image: linear-gradient(hsla(0,0%,100%,.15), hsla(0,0%,0%,.1));
+  border-radius: 25px;
+  box-shadow: inset 0 1px 1px 1px hsla(0,0%,100%,1),
+              inset 0 -1px 1px 1px hsla(0,0%,0%,.2),
+              0 1px 3px 1px hsla(0,0%,0%,.4),
+              0 0 2px hsla(0,0%,0%,.2);
+  content: '';
+  display: block;
+  height: 22px;
+  width: 30px;
+}
+.tc-toggle:checked {
+  background-position: 0 0, 30px 0;
+  padding-left: 22px;
+  padding-right: 0;
+}
+/* Light mode adjustments */
+[data-theme="light"] .tc-toggle {
+  box-shadow: inset 0 1px 4px hsla(0,0%,0%,.2),
+              inset 0 0 10px hsla(0,0%,0%,.1),
+              0 0 0 1px hsla(0,0%,0%,.05),
+              0 1px 2px 1px hsla(0,0%,0%,.1);
+}
+
+/* Legacy toggle compat */
 .toggle-track { width: 40px; height: 22px; background: var(--tc-surface-alt); border: 1px solid var(--tc-border); border-radius: 11px; position: relative; cursor: pointer; padding: 3px; }
 .toggle-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--tc-text-muted); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), background 0.25s ease; }
 .toggle-track.active { background: var(--tc-red-soft); border-color: var(--tc-border-accent); }

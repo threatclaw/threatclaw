@@ -264,17 +264,12 @@ export default function SkillsPage() {
                     {/* Header */}
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px" }}>
                       {/* Toggle */}
-                      <button onClick={() => toggleSkill(skill.id)} style={{
-                        width: "34px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer",
-                        background: enabled ? "var(--tc-green)" : "var(--tc-input)",
-                        position: "relative", flexShrink: 0,
-                      }}>
-                        <div style={{
-                          width: "14px", height: "14px", borderRadius: "7px", background: "#fff",
-                          position: "absolute", top: "2px", transition: "left 150ms",
-                          left: enabled ? "18px" : "2px",
-                        }} />
-                      </button>
+                      <input
+                        type="checkbox"
+                        className="tc-toggle"
+                        checked={enabled}
+                        onChange={() => toggleSkill(skill.id)}
+                      />
 
                       {/* Name + badges */}
                       <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedSkill(expanded ? null : skill.id)}>
