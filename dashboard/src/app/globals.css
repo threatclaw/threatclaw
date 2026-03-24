@@ -225,6 +225,7 @@ body {
 /* ─── BUTTONS (Uiverse.io FColombati inspired — glass embossed) ─── */
 .tc-btn-embossed {
   all: unset;
+  display: inline-block;
   cursor: pointer;
   -webkit-tap-highlight-color: rgba(0,0,0,0);
   position: relative;
@@ -255,9 +256,6 @@ body {
   box-shadow: 0 0.04em 0.04em -0.01em rgba(5,5,5,0.8), 0 0.01em 0.01em -0.01em rgba(5,5,5,0.4), 0.1em 0.2em 0.08em -0.01em rgba(5,5,5,0.2);
 }
 .tc-btn-embossed:hover .tc-btn-outer {
-  box-shadow: 0 0.03em 0.03em -0.01em rgba(5,5,5,0.6), 0 0.01em 0.01em -0.01em rgba(5,5,5,0.3), 0.06em 0.12em 0.06em -0.01em rgba(5,5,5,0.15);
-}
-.tc-btn-embossed:active .tc-btn-outer {
   box-shadow: 0 0 0 0 rgba(5,5,5,0.8), 0 0 0 0 rgba(5,5,5,0.4), 0 0 0 0 rgba(5,5,5,0.2);
 }
 .tc-btn-embossed .tc-btn-inner {
@@ -273,13 +271,13 @@ body {
     0 0 0.04em 0.15em inset rgba(255,255,255,0.2), 0.02em 0.04em 0.08em 0 inset rgba(255,255,255,0.9),
     0.1em 0.1em 0.1em inset rgba(255,255,255,0.2), -0.06em -0.2em 0.2em 0.08em inset rgba(5,5,5,0.2);
 }
-.tc-btn-embossed:active .tc-btn-inner {
+.tc-btn-embossed:hover .tc-btn-inner {
   clip-path: inset(1px 1px 1px 1px round 100em);
-  transform: scale(0.975);
   box-shadow: 0.08em 0.12em 0.04em 0 inset rgba(5,5,5,0.6), -0.02em -0.025em 0.04em 0.02em inset rgba(5,5,5,0.4),
     0.2em 0.2em 0.15em 0 inset rgba(5,5,5,0.4), 0 0 0.04em 0.4em inset rgba(255,255,255,0.1),
     0.1em 0.1em 0.1em inset rgba(255,255,255,0.2), -0.06em -0.1em 0.15em 0.08em inset rgba(5,5,5,0.2);
 }
+.tc-btn-embossed:active .tc-btn-inner { transform: scale(0.975); }
 .tc-btn-embossed .tc-btn-inner span {
   position: relative;
   z-index: 4;
@@ -295,7 +293,7 @@ body {
   align-items: center;
   gap: 6px;
 }
-.tc-btn-embossed:active .tc-btn-inner span { transform: scale(0.98); }
+.tc-btn-embossed:hover .tc-btn-inner span { transform: scale(0.98); }
 .tc-btn-embossed:disabled { opacity: 0.4; cursor: not-allowed; }
 .tc-btn-embossed:disabled .tc-btn-inner span { transform: none; }
 
