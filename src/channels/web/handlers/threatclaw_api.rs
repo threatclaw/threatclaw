@@ -1902,6 +1902,29 @@ pub async fn connector_ad_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/skills/run/{skill_id} — run a tool skill via Docker executor.
+pub async fn skill_run_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(skill_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let target = body["target"].as_str().unwrap_or(".");
+
+    use crate::connectors::docker_executor::*;
+    let (config, parser): (DockerSkillConfig, fn(&str) -> Vec<ParsedFinding>) = match skill_id.as_str() {
+        "skill-semgrep" => (semgrep_config(target), parse_semgrep),
+        "skill-checkov" => (checkov_config(target), parse_checkov),
+        "skill-trufflehog" => (trufflehog_config(target), parse_trufflehog),
+        "skill-grype" => (grype_config(target), parse_grype),
+        "skill-syft" => (syft_config(target), parse_syft),
+        _ => return Err((StatusCode::BAD_REQUEST, format!("Unknown skill: {}", skill_id))),
+    };
+
+    let result = execute_skill(store.as_ref(), &config, parser).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/connectors/nmap/scan — run nmap discovery and feed into graph.
 pub async fn connector_nmap_scan_handler(
     State(state): State<Arc<GatewayState>>,

@@ -5,6 +5,7 @@
 //! assets/users into the ThreatClaw graph via the Asset Resolution Pipeline.
 
 pub mod active_directory;
+pub mod docker_executor;
 pub mod nmap_discovery;
 pub mod pfsense;
 pub mod proxmox;

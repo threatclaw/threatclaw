@@ -270,12 +270,12 @@ Les outils que ThreatClaw installe et lance dans Docker.
 
 **P1 — Sécurité offensive/défensive :**
 - [x] **nmap** : discovery réseau via tokio::process (local ou Docker), parse XML, MAC+hostname+IP+OS+ports → Asset Resolution Pipeline. Anti-injection sur les targets.
-- [ ] **semgrep** : SAST analyse de code (vuln patterns)
-- [ ] **checkov** : audit IaC (Terraform, Docker, K8s)
-- [ ] **trufflehog** : secrets dans les repos Git
-- [ ] **syft** : SBOM (inventaire composants logiciels)
-- [ ] **grype** : CVEs dans les containers/SBOM
-- [ ] **ZAP** : DAST scan web (OWASP)
+- [x] **semgrep** : SAST via Docker, parse JSON → findings. Parser teste.
+- [x] **checkov** : IaC audit via Docker, parse failed_checks → findings.
+- [x] **trufflehog** : secrets git via Docker, parse JSONL, verified=CRITICAL.
+- [x] **syft** : SBOM via Docker, compte les packages, finding informatif.
+- [x] **grype** : CVE container via Docker, parse matches, fixed_in. Parser teste.
+- [ ] **ZAP** : DAST scan web via Docker (parser pret, execution a valider)
 
 **P2 — Réseau/monitoring :**
 - [ ] **suricata** : IDS/IPS réseau (permanent)
