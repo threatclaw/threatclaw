@@ -25,7 +25,7 @@ async function proxyRequest(req: NextRequest, { params }: { params: { path: stri
     const fetchOptions: RequestInit = {
       method: req.method,
       headers,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(300000), // 5 min for long operations (nmap, scans)
     };
 
     if (req.method !== "GET" && req.method !== "HEAD") {
