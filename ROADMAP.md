@@ -258,18 +258,18 @@ Résolution par priorité : **MAC > hostname > IP**. Jamais de doublon.
 Nmap découvre IP → pfSense ajoute MAC+hostname → AD ajoute FQDN+OU+users → 1 seul nœud Asset
 ```
 
-- [ ] **`resolve_asset()`** : recherche par MAC, puis hostname, puis IP. Merge si trouvé, crée sinon.
-- [ ] **Gestion DHCP** : IP change → update via MAC (clé stable)
-- [ ] **Détection conflits** : même hostname + MAC différent → alerte "machine inconnue"
-- [ ] **Score confiance asset** : monte avec chaque source (nmap seul=0.3, +DHCP=0.7, +AD=0.95)
-- [ ] **Modèle Asset enrichi** : id, mac, hostname, fqdn, ip, os, ou, vlan, vm_id, ports, sources[], confidence
+- [x] **`resolve_asset()`** : recherche par MAC, puis hostname, puis IP. Merge si trouvé, crée sinon. 7 tests.
+- [x] **Gestion DHCP** : IP change → update via MAC (clé stable). Clear IP si >24h.
+- [x] **Détection conflits** : même hostname + MAC différent → alerte "machine inconnue" + ResolutionAction::Conflict
+- [x] **Score confiance asset** : monte avec chaque source (nmap=0.15, DHCP=0.25, AD=0.30, pfSense=0.25, proxmox=0.20)
+- [x] **Modèle Asset enrichi** : id, mac, hostname, fqdn, ip, os, ou, vlan, vm_id, ports, sources[], confidence
 
 ### Skills V2 — Outils (type: "tool")
 
 Les outils que ThreatClaw installe et lance dans Docker.
 
 **P1 — Sécurité offensive/défensive :**
-- [ ] **nmap** : discovery réseau + ports + OS fingerprint → alimente le graphe d'assets
+- [x] **nmap** : discovery réseau via tokio::process (local ou Docker), parse XML, MAC+hostname+IP+OS+ports → Asset Resolution Pipeline. Anti-injection sur les targets.
 - [ ] **semgrep** : SAST analyse de code (vuln patterns)
 - [ ] **checkov** : audit IaC (Terraform, Docker, K8s)
 - [ ] **trufflehog** : secrets dans les repos Git
@@ -289,9 +289,9 @@ Les outils que ThreatClaw installe et lance dans Docker.
 Les outils du client auxquels ThreatClaw se branche.
 
 **P1 — Discovery SI (comment ThreatClaw cartographie) :**
-- [ ] **Active Directory / LDAP** : users, groups, computers, OUs, admins → graphe Identity
-- [ ] **pfSense / OPNsense API** : table ARP, baux DHCP, règles FW, VLANs, interfaces → graphe réseau
-- [ ] **Proxmox API** : VMs, nodes, storage, networks → graphe infrastructure
+- [x] **Active Directory / LDAP** : real ldap3 crate, LDAPS, paged search, computers/users/groups/OUs/admins, userAccountControl bitmask, feeds Asset Resolution + Identity Graph
+- [x] **pfSense / OPNsense API** : real REST API (pfSense v2 + OPNsense built-in), ARP/DHCP/interfaces/VLANs/rules, VLAN extraction from interface names, feeds Asset Resolution
+- [x] **Proxmox API** : real REST API (PVEAPIToken auth), VMs/LXC/nodes, feeds Asset Resolution. API: POST /connectors/proxmox/sync
 - [ ] **VMware / ESXi API** : VMs, vSwitches, datastores
 
 **P2 — Outils existants du client :**

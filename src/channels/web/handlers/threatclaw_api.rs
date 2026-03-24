@@ -1902,6 +1902,30 @@ pub async fn connector_ad_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/connectors/nmap/scan — run nmap discovery and feed into graph.
+pub async fn connector_nmap_scan_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::nmap_discovery::NmapConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid nmap config: {e}")))?;
+    let result = crate::connectors::nmap_discovery::run_discovery(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/proxmox/sync — sync Proxmox VMs into graph.
+pub async fn connector_proxmox_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::proxmox::ProxmoxConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid proxmox config: {e}")))?;
+    let result = crate::connectors::proxmox::sync_proxmox(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/connectors/firewall/sync — sync pfSense/OPNsense into graph.
 pub async fn connector_firewall_sync_handler(
     State(state): State<Arc<GatewayState>>,

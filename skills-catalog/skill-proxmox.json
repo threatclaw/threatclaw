@@ -1,0 +1,45 @@
+{
+  "id": "skill-proxmox",
+  "name": "Proxmox VE",
+  "version": "1.0.0",
+  "description": "Synchronise VMs, containers et noeuds depuis Proxmox VE. Alimente le graphe d'infrastructure.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 30,
+    "protocol": "https",
+    "default_port": 8006
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Proxmox (ex: https://192.168.10.10:8006)",
+      "required": true
+    },
+    "token_id": {
+      "type": "string",
+      "description": "API Token ID (ex: tc-audit@pam!tc-token)",
+      "required": true
+    },
+    "token_secret": {
+      "type": "password",
+      "description": "API Token Secret",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la verification du certificat TLS",
+      "default": true
+    }
+  },
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "server"
+}

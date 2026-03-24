@@ -416,6 +416,8 @@ pub async fn start_server(
         .route("/api/tc/catalog", get(super::handlers::threatclaw_api::tc_skills_catalog_handler))
         // Connectors
         .route("/api/tc/connectors/ad/sync", post(super::handlers::threatclaw_api::connector_ad_sync_handler))
+        .route("/api/tc/connectors/nmap/scan", post(super::handlers::threatclaw_api::connector_nmap_scan_handler))
+        .route("/api/tc/connectors/proxmox/sync", post(super::handlers::threatclaw_api::connector_proxmox_sync_handler))
         .route("/api/tc/connectors/firewall/sync", post(super::handlers::threatclaw_api::connector_firewall_sync_handler))
         // Asset Resolution + Behavior
         .route("/api/tc/graph/assets/resolve", post(super::handlers::threatclaw_api::graph_asset_resolve_handler))
