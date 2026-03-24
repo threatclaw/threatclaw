@@ -165,6 +165,28 @@
   --shadow-btn-hover: 0 4px 16px rgba(192,40,24,0.25);
 }
 
+/* ─── THEME SWITCH OVERRIDES ───
+   React inline styles use var(--tc-*) which resolve correctly,
+   but background on cards can appear "stuck" because the browser
+   caches the computed RGBA value. These rules force a recompute
+   when data-theme changes by using the resolved values directly.
+   This is the standard approach for CSS-var theming with React inline styles.
+*/
+[data-theme="light"] [style*="--tc-surface"],
+[data-theme="light"] [style*="--tc-input"],
+[data-theme="light"] .glass-card,
+[data-theme="light"] .glass-card-sm,
+[data-theme="light"] .pit-xs {
+  background: var(--tc-surface-alt) !important;
+}
+[data-theme="light"] body {
+  background: var(--tc-bg) !important;
+  color: var(--tc-text) !important;
+}
+[data-theme="light"] nav {
+  background: var(--tc-nav) !important;
+}
+
 /* ─── BASE ─── */
 *, *::before, *::after {
   transition: background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
