@@ -235,7 +235,7 @@ async fn async_main() -> anyhow::Result<()> {
     let log_level_handle =
         threatclaw::channels::web::log_layer::init_tracing(Arc::clone(&log_broadcaster));
 
-    tracing::debug!("Starting ThreatClaw...");
+    threatclaw::branding::log_startup();
     tracing::debug!("Loaded configuration for agent: {}", config.agent.name);
     tracing::debug!("LLM backend: {}", config.llm.backend);
 

@@ -179,6 +179,9 @@ pub async fn generate_nis2_report(store: &dyn Database) -> serde_json::Value {
 
     json!({
         "report_type": "NIS2 Article 21 — Supply Chain Risk",
+        "spec_version": "2.1",
+        "created_by_ref": crate::branding::STIX_IDENTITY,
+        "generated_by": crate::branding::version_string(),
         "generated_at": chrono::Utc::now().to_rfc3339(),
         "summary": analysis.summary,
         "vendors": analysis.vendors,
@@ -189,6 +192,7 @@ pub async fn generate_nis2_report(store: &dyn Database) -> serde_json::Value {
             "kev_exposures": analysis.kev_exposures,
         },
         "compliance_status": if analysis.kev_exposures == 0 { "compliant" } else { "action_required" },
+        "footer": crate::branding::report_footer(),
     })
 }
 

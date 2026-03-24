@@ -703,8 +703,8 @@ fn build_enriched_alert_message(
 
     // ── Footer ──
     msg.push_str("━━━━━━━━━━━━━━━━━━━━━\n");
-    msg.push_str("_ThreatClaw Intelligence Engine_\n");
-    msg.push_str("_Dashboard : /intelligence_");
+    msg.push_str(&crate::branding::notification_footer());
+    msg.push_str("\n_Dashboard : /intelligence_");
 
     // Telegram limit is 4096 chars
     if msg.len() > 4000 {

@@ -11,9 +11,16 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use serde::{Deserialize, Serialize};
 
-/// HMAC verification key — embedded in binary.
-/// The GENERATION key is different and stays on the server.
-/// This key can only VERIFY, not generate valid serials.
+/// HMAC key for serial verification.
+///
+/// SECURITY MODEL:
+/// - This key is in the open-source code (visible to everyone)
+/// - It CAN technically be used to generate serials
+/// - Protection against abuse is LEGAL (AGPL v3), not technical
+/// - Someone who forks and removes the limit must publish under AGPL
+/// - The serial system is for honest users, not a DRM
+/// - For production: replace with Ed25519 asymmetric signatures
+///   (private key on server, public key in binary)
 const VERIFY_KEY: &[u8] = b"tc-license-verify-2026-v1-threatclaw";
 
 /// Default max assets for Community tier.

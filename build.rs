@@ -17,6 +17,9 @@ fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let root = PathBuf::from(&manifest_dir);
 
+    // ── Generate BUILD_ID (version + date + git hash) ─────────────────
+    generate_build_id(&root);
+
     // ── Compute AGENT_SOUL.toml hash (Pilier I — immuable) ──────────────
     compute_soul_hash(&root);
 
@@ -229,4 +232,35 @@ fn collect_json_files(dir: &Path, out: &mut Vec<String>) {
             out.push(content);
         }
     }
+}
+
+/// Generate a unique BUILD_ID combining version + date + git hash.
+/// Accessible in code via: env!("TC_BUILD_ID")
+fn generate_build_id(_root: &Path) {
+    let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
+
+    // Build date (UTC)
+    let date = Command::new("date").args(["+%Y%m%d"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "unknown".into());
+
+    // Git short hash
+    let git_hash = Command::new("git").args(["rev-parse", "--short=8", "HEAD"]).output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "nogit".into());
+
+    // Git dirty flag
+    let dirty = Command::new("git").args(["status", "--porcelain"]).output()
+        .map(|o| if o.stdout.is_empty() { "" } else { "-dirty" })
+        .unwrap_or("");
+
+    let build_id = format!("{}-{}-{}{}", version, date, git_hash, dirty);
+
+    println!("cargo:rustc-env=TC_BUILD_ID={}", build_id);
+    println!("cargo:rustc-env=TC_BUILD_DATE={}", date);
+    println!("cargo:rustc-env=TC_BUILD_GIT={}{}", git_hash, dirty);
+
+    // Rerun on git changes
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs");
 }
