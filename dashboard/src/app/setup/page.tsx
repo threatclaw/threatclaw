@@ -177,11 +177,24 @@ export default function SetupPage() {
 
   return (
     <div>
-      {/* Tab bar */}
+      {/* Tab bar — sliding indicator */}
       <div style={{
-        display: "flex", gap: "2px", padding: "0 24px", marginBottom: "4px",
-        borderBottom: "1px solid var(--tc-input)",
+        position: "relative", display: "flex", padding: "3px",
+        margin: "0 24px 8px", borderRadius: "11px",
+        background: "var(--tc-input)",
       }}>
+        {/* Sliding indicator */}
+        <div style={{
+          position: "absolute", top: "3px", height: "calc(100% - 6px)",
+          width: `calc(${100 / TABS.length}% - 2px)`,
+          left: `calc(${(TABS.findIndex(t => t.key === activeTab)) * (100 / TABS.length)}% + 1px)`,
+          background: "var(--tc-surface-alt)",
+          borderRadius: "8px",
+          border: "0.5px solid var(--tc-border)",
+          boxShadow: "0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04)",
+          transition: "left 0.25s ease-out",
+          zIndex: 0,
+        }} />
         {TABS.map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -193,15 +206,16 @@ export default function SetupPage() {
                 window.history.replaceState(null, "", `#${tab.key}`);
               }}
               style={{
-                display: "flex", alignItems: "center", gap: "6px",
-                padding: "10px 18px", fontSize: "12px", fontWeight: 600,
-                color: isActive ? "#d03020" : "var(--tc-text-muted)",
-                borderBottom: isActive ? "2px solid #d03020" : "2px solid transparent",
-                background: "transparent", border: "none", borderBottomStyle: "solid",
-                cursor: "pointer", transition: "all 150ms",
+                flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                gap: "6px", padding: "8px 0", fontSize: "11px", fontWeight: 600,
+                color: isActive ? "var(--tc-text)" : "var(--tc-text-muted)",
+                background: "transparent", border: "none",
+                cursor: "pointer", transition: "color 200ms, opacity 200ms",
+                position: "relative", zIndex: 1,
+                opacity: isActive ? 1 : 0.5,
               }}
             >
-              <Icon size={14} />
+              <Icon size={13} />
               {tab.label}
             </button>
           );
