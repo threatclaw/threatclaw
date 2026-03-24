@@ -340,6 +340,23 @@ Un modèle d'orchestration qui sait piloter parfaitement l'application.
 - [ ] Graph Neural Network pour classification flux réseau (Suricata/Zeek)
 - [ ] Détection anomalies comportementales (complémente Sigma)
 
+### Bot Cloud-Assisted — Intelligence conversationnelle souveraine
+
+**Principe** : Le pipeline automatique (alertes, enrichissement, notifications) reste 100% local, toujours.
+Le cloud intervient UNIQUEMENT quand le RSSI parle, pour comprendre et reformuler.
+
+```
+Pipeline auto 24/7  →  100% L1/L2 local (jamais de cloud)
+RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (si activé)
+```
+
+- [ ] **Cloud Intent Parser** : message RSSI → Cloud API → plan JSON structuré (intent + steps)
+- [ ] **Plan Executor** : exécute le plan localement (graph, enrichissement, logs, L2 Reasoning)
+- [ ] **Anonymized Summary Builder** : résultats locaux → anonymiseur 17 catégories → Cloud reformule en français fluide
+- [ ] **3 modes conversation** : `local` (air-gap) / `cloud_assisted` (hybride) / `cloud_direct` (existant L3)
+- [ ] **Config dashboard toggle** : choix du mode conversation dans Config > IA/LLM
+- [ ] **Zéro donnée réelle vers le cloud** : IPs, assets, credentials, logs, CVEs spécifiques = jamais envoyés
+
 ### Communauté / Outillage
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)
