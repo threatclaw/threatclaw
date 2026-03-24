@@ -222,7 +222,87 @@ body {
   padding: 14px;
 }
 
-/* ─── BUTTONS ─── */
+/* ─── BUTTONS (Uiverse.io FColombati inspired — glass embossed) ─── */
+.tc-btn-embossed {
+  all: unset;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+  position: relative;
+  border-radius: 100em;
+  background-color: rgba(0,0,0,0.55);
+  box-shadow: -0.1em -0.1em 0.12em -0.06em rgba(5,5,5,0.2), 0.03em 0.03em 0.06em 0 rgba(5,5,5,0.08);
+  font-size: 12px;
+}
+.tc-btn-embossed::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: calc(100% + 0.25em);
+  height: calc(100% + 0.25em);
+  top: -0.125em;
+  left: -0.125em;
+  border-radius: inherit;
+  background: linear-gradient(-135deg, rgba(5,5,5,0.4), transparent 20%);
+  filter: blur(0.01em);
+  opacity: 0.2;
+  mix-blend-mode: multiply;
+}
+.tc-btn-embossed .tc-btn-outer {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  transition: box-shadow 250ms ease;
+  box-shadow: 0 0.04em 0.04em -0.01em rgba(5,5,5,0.8), 0 0.01em 0.01em -0.01em rgba(5,5,5,0.4), 0.1em 0.2em 0.08em -0.01em rgba(5,5,5,0.2);
+}
+.tc-btn-embossed:hover .tc-btn-outer {
+  box-shadow: 0 0.03em 0.03em -0.01em rgba(5,5,5,0.6), 0 0.01em 0.01em -0.01em rgba(5,5,5,0.3), 0.06em 0.12em 0.06em -0.01em rgba(5,5,5,0.15);
+}
+.tc-btn-embossed:active .tc-btn-outer {
+  box-shadow: 0 0 0 0 rgba(5,5,5,0.8), 0 0 0 0 rgba(5,5,5,0.4), 0 0 0 0 rgba(5,5,5,0.2);
+}
+.tc-btn-embossed .tc-btn-inner {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 0.65em 1.2em;
+  background-image: linear-gradient(135deg, rgba(235,230,225,1), rgba(195,190,185,1));
+  transition: box-shadow 250ms ease, clip-path 200ms ease, transform 200ms ease;
+  overflow: clip;
+  clip-path: inset(0 0 0 0 round 100em);
+  box-shadow: 0 0 0 0 inset rgba(5,5,5,0.1), -0.04em -0.04em 0.04em 0 inset rgba(5,5,5,0.2),
+    0 0 0.04em 0.15em inset rgba(255,255,255,0.2), 0.02em 0.04em 0.08em 0 inset rgba(255,255,255,0.9),
+    0.1em 0.1em 0.1em inset rgba(255,255,255,0.2), -0.06em -0.2em 0.2em 0.08em inset rgba(5,5,5,0.2);
+}
+.tc-btn-embossed:active .tc-btn-inner {
+  clip-path: inset(1px 1px 1px 1px round 100em);
+  transform: scale(0.975);
+  box-shadow: 0.08em 0.12em 0.04em 0 inset rgba(5,5,5,0.6), -0.02em -0.025em 0.04em 0.02em inset rgba(5,5,5,0.4),
+    0.2em 0.2em 0.15em 0 inset rgba(5,5,5,0.4), 0 0 0.04em 0.4em inset rgba(255,255,255,0.1),
+    0.1em 0.1em 0.1em inset rgba(255,255,255,0.2), -0.06em -0.1em 0.15em 0.08em inset rgba(5,5,5,0.2);
+}
+.tc-btn-embossed .tc-btn-inner span {
+  position: relative;
+  z-index: 4;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: transparent;
+  background-image: linear-gradient(135deg, rgba(160,30,20,1), rgba(100,20,15,1));
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow: rgba(0,0,0,0.05) 0 0 0.1em;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tc-btn-embossed:active .tc-btn-inner span { transform: scale(0.98); }
+.tc-btn-embossed:disabled { opacity: 0.4; cursor: not-allowed; }
+.tc-btn-embossed:disabled .tc-btn-inner span { transform: none; }
+
+/* Light mode button adjustments */
+[data-theme="light"] .tc-btn-embossed { background-color: rgba(0,0,0,0.35); }
+
+/* Legacy btn-primary (kept for compat) */
 .btn-primary {
   background: linear-gradient(135deg, #d03020, #a02018);
   border: 1px solid rgba(255,255,255,0.1);

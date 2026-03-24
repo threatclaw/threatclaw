@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import SetupWizard from "@/components/setup/SetupWizard";
+import EmbossedButton from "@/components/chrome/EmbossedButton";
 import ConfigPage from "@/components/setup/ConfigPage";
 import { Settings, Puzzle, Network, Play, Key } from "lucide-react";
 
@@ -124,14 +125,9 @@ function LicensePage() {
               color: "var(--tc-text)", outline: "none", letterSpacing: "0.05em",
             }}
           />
-          <button onClick={activate} disabled={activating || !serial.trim()} style={{
-            padding: "10px 20px", borderRadius: "var(--tc-radius-btn)", fontSize: "12px", fontWeight: 700,
-            background: "linear-gradient(135deg, #d03020, #a02018)", border: "none",
-            color: "#fff", cursor: serial.trim() ? "pointer" : "not-allowed",
-            opacity: activating || !serial.trim() ? 0.5 : 1,
-          }}>
+          <EmbossedButton onClick={activate} disabled={activating || !serial.trim()}>
             {activating ? "..." : "Activer"}
-          </button>
+          </EmbossedButton>
         </div>
 
         {message && (

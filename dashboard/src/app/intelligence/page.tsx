@@ -5,6 +5,7 @@ import {
   Shield, AlertTriangle, Target, Users, Network, TrendingUp,
   RefreshCw, Eye, Crosshair, Brain, FileText, Activity,
 } from "lucide-react";
+import EmbossedButton from "@/components/chrome/EmbossedButton";
 
 // ── Types ──
 
@@ -201,15 +202,9 @@ export default function IntelligencePage() {
             {lastRefresh && <span> &middot; {lastRefresh}</span>}
           </p>
         </div>
-        <button onClick={refresh} disabled={loading} style={{
-          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-red-border)",
-          background: "var(--tc-red-soft)", color: "var(--tc-red)",
-          fontSize: "11px", fontWeight: 600, cursor: "pointer",
-        }}>
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          Actualiser
-        </button>
+        <EmbossedButton onClick={refresh} disabled={loading}>
+          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualiser
+        </EmbossedButton>
       </div>
 
       {/* Top stats row */}
@@ -455,7 +450,7 @@ export default function IntelligencePage() {
 
       {/* NIS2 Report button */}
       <div style={{ marginTop: "20px", display: "flex", gap: "12px", justifyContent: "center" }}>
-        <button onClick={async () => {
+        <EmbossedButton onClick={async () => {
           const report = await fetchJson(`${API}/supply-chain/nis2`);
           if (report) {
             const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
@@ -464,25 +459,15 @@ export default function IntelligencePage() {
             a.href = url; a.download = "threatclaw-nis2-report.json"; a.click();
             URL.revokeObjectURL(url);
           }
-        }} style={{
-          display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px",
-          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-red-border)",
-          background: "var(--tc-red-soft)", color: "var(--tc-red)",
-          fontSize: "12px", fontWeight: 600, cursor: "pointer",
         }}>
-          <FileText size={14} /> Rapport NIS2 Article 21 (STIX JSON)
-        </button>
-        <button onClick={async () => {
+          <FileText size={14} /> Rapport NIS2 Article 21
+        </EmbossedButton>
+        <EmbossedButton onClick={async () => {
           await fetch(`${API}/coa/seed`, { method: "POST" });
           alert("Mitigations MITRE chargees dans le graphe");
-        }} style={{
-          display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px",
-          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-border)",
-          background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
-          fontSize: "12px", fontWeight: 600, cursor: "pointer",
         }}>
           <Shield size={14} /> Charger playbooks MITRE
-        </button>
+        </EmbossedButton>
       </div>
     </div>
   );
