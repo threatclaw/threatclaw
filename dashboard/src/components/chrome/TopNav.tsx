@@ -89,12 +89,12 @@ export default function TopNav() {
       justifyContent: "space-between",
       padding: "14px 24px",
       marginBottom: "8px",
-      borderBottom: "1px solid rgba(255,255,255,0.04)",
+      borderBottom: "1px solid var(--tc-border-light)",
     }}>
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <div style={{
-          width: "28px", height: "28px", borderRadius: "8px",
+          width: "28px", height: "28px", borderRadius: "var(--tc-radius-input)",
           background: "linear-gradient(135deg, #d03020 0%, #a02018 100%)",
           display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "0 2px 8px rgba(208,48,32,0.3)",
@@ -106,7 +106,7 @@ export default function TopNav() {
           fontWeight: 800,
           letterSpacing: "0.2em",
           textTransform: "uppercase",
-          color: "#e8e4e0",
+          color: "var(--tc-text)",
         }}>
           THREATCLAW
         </span>
@@ -125,14 +125,14 @@ export default function TopNav() {
                 alignItems: "center",
                 gap: "6px",
                 padding: "7px 14px",
-                borderRadius: "8px",
+                borderRadius: "var(--tc-radius-input)",
                 fontSize: "11px",
                 fontWeight: 600,
                 letterSpacing: "0.03em",
                 textTransform: "uppercase",
-                color: isActive ? "#d03020" : "#6a625c",
-                background: isActive ? "rgba(208,48,32,0.08)" : "transparent",
-                border: isActive ? "1px solid rgba(208,48,32,0.15)" : "1px solid transparent",
+                color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
+                background: isActive ? "var(--tc-red-soft)" : "transparent",
+                border: isActive ? "1px solid var(--tc-red-border)" : "1px solid transparent",
                 transition: "all 200ms ease",
                 cursor: "pointer",
               }}>
@@ -144,13 +144,13 @@ export default function TopNav() {
         })}
 
         {/* Separator */}
-        <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.06)", margin: "0 8px" }} />
+        <div style={{ width: "1px", height: "20px", background: "var(--tc-border)", margin: "0 8px" }} />
 
         {/* Theme toggle */}
         <button onClick={toggleTheme} style={{
           display: "flex", alignItems: "center", justifyContent: "center",
-          width: "30px", height: "30px", borderRadius: "8px",
-          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+          width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
+          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
           color: theme === "dark" ? "#d09020" : "#3080d0",
           cursor: "pointer", transition: "all 200ms",
         }} title={theme === "dark" ? "Mode clair" : "Mode sombre"}>
@@ -160,8 +160,8 @@ export default function TopNav() {
         {/* Connectivity indicator */}
         <div style={{
           display: "flex", alignItems: "center", gap: "6px",
-          padding: "5px 10px", borderRadius: "6px",
-          background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)",
+          padding: "5px 10px", borderRadius: "var(--tc-radius-sm)",
+          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
           fontSize: "10px", fontWeight: 500, color: connColor,
         }}>
           {connStatus === "offline" ? <WifiOff size={11} /> : <Wifi size={11} />}
@@ -172,9 +172,9 @@ export default function TopNav() {
         {llmStatus && (
           <div style={{
             display: "flex", alignItems: "center", gap: "5px",
-            padding: "5px 10px", borderRadius: "6px",
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.04)",
-            fontSize: "10px", fontWeight: 500, color: "#30a050",
+            padding: "5px 10px", borderRadius: "var(--tc-radius-sm)",
+            background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
+            fontSize: "10px", fontWeight: 500, color: "var(--tc-green)",
           }}>
             <Cpu size={11} />
             {llmStatus}

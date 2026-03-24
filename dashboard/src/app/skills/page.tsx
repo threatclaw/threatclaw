@@ -36,19 +36,19 @@ interface CatalogResponse {
 
 const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   "discovery": { label: "Discovery", icon: Network, color: "#30a0d0" },
-  "threat-intel": { label: "Threat Intel", icon: Shield, color: "#d03020" },
-  "appsec": { label: "AppSec", icon: Code, color: "#d09020" },
-  "containers": { label: "Containers", icon: Server, color: "#3080d0" },
-  "monitoring": { label: "Monitoring", icon: Eye, color: "#30a050" },
-  "scanning": { label: "Scanning", icon: Crosshair, color: "#9060d0" },
-  "compliance": { label: "Compliance", icon: FileText, color: "#3080d0" },
-  "rapports": { label: "Rapports", icon: FileText, color: "#6a625c" },
+  "threat-intel": { label: "Threat Intel", icon: Shield, color: "var(--tc-red)" },
+  "appsec": { label: "AppSec", icon: Code, color: "var(--tc-amber)" },
+  "containers": { label: "Containers", icon: Server, color: "var(--tc-blue)" },
+  "monitoring": { label: "Monitoring", icon: Eye, color: "var(--tc-green)" },
+  "scanning": { label: "Scanning", icon: Crosshair, color: "var(--tc-purple)" },
+  "compliance": { label: "Compliance", icon: FileText, color: "var(--tc-blue)" },
+  "rapports": { label: "Rapports", icon: FileText, color: "var(--tc-text-muted)" },
 };
 
 const TYPE_INFO: Record<string, { label: string; color: string }> = {
-  "tool": { label: "OUTIL", color: "#d09020" },
-  "connector": { label: "CONNECTEUR", color: "#3080d0" },
-  "enrichment": { label: "ENRICHISSEMENT", color: "#30a050" },
+  "tool": { label: "OUTIL", color: "var(--tc-amber)" },
+  "connector": { label: "CONNECTEUR", color: "var(--tc-blue)" },
+  "enrichment": { label: "ENRICHISSEMENT", color: "var(--tc-green)" },
 };
 
 // Skills that have real run endpoints
@@ -113,7 +113,7 @@ export default function SkillsPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  if (!catalog) return <div style={{ padding: "40px", textAlign: "center", color: "#6a625c" }}>Chargement du catalogue...</div>;
+  if (!catalog) return <div style={{ padding: "40px", textAlign: "center", color: "var(--tc-text-muted)" }}>Chargement du catalogue...</div>;
 
   // Filter
   let filtered = catalog.skills;
@@ -182,28 +182,28 @@ export default function SkillsPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>Skills</h1>
-          <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Skills</h1>
+          <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
             {catalog.total} skills &middot; {catalog.tools} outils &middot; {catalog.connectors} connecteurs &middot; {catalog.enrichment} enrichissement
-            &middot; <span style={{ color: "#30a050" }}>{activeCount} actives</span>
+            &middot; <span style={{ color: "var(--tc-green)" }}>{activeCount} actives</span>
           </p>
         </div>
         <button onClick={refresh} style={{
-          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "8px",
-          border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.03)",
-          color: "#6a625c", fontSize: "11px", fontWeight: 600, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", borderRadius: "var(--tc-radius-input)",
+          border: "1px solid var(--tc-border)", background: "var(--tc-surface-alt)",
+          color: "var(--tc-text-muted)", fontSize: "11px", fontWeight: 600, cursor: "pointer",
         }}><RefreshCw size={12} /> Actualiser</button>
       </div>
 
       {/* Filters */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ flex: 1, minWidth: "180px", position: "relative" }}>
-          <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "#6a625c" }} />
+          <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Rechercher..." style={{
-              width: "100%", padding: "8px 10px 8px 32px", borderRadius: "8px", fontSize: "12px",
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-              color: "#e8e4e0", outline: "none",
+              width: "100%", padding: "8px 10px 8px 32px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
+              background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+              color: "var(--tc-text)", outline: "none",
             }} />
         </div>
         {[
@@ -213,31 +213,31 @@ export default function SkillsPage() {
           { key: "enrichment", label: `Enrichissement (${catalog.enrichment})` },
         ].map(f => (
           <button key={f.key} onClick={() => setFilterType(f.key)} style={{
-            padding: "7px 12px", borderRadius: "8px", fontSize: "10px", fontWeight: 600,
+            padding: "7px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "10px", fontWeight: 600,
             border: filterType === f.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
             background: filterType === f.key ? "rgba(208,48,32,0.1)" : "transparent",
-            color: filterType === f.key ? "#d03020" : "#6a625c", cursor: "pointer",
+            color: filterType === f.key ? "var(--tc-red)" : "var(--tc-text-muted)", cursor: "pointer",
           }}>{f.label}</button>
         ))}
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{
-          padding: "7px 10px", borderRadius: "8px", fontSize: "10px",
-          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-          color: "#e8e4e0", outline: "none",
+          padding: "7px 10px", borderRadius: "var(--tc-radius-input)", fontSize: "10px",
+          background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+          color: "var(--tc-text)", outline: "none",
         }}>
           <option value="all">Categorie</option>
           {availableCats.map(c => <option key={c} value={c}>{CATEGORIES[c]?.label || c}</option>)}
         </select>
         <button onClick={() => setShowOnlyActive(!showOnlyActive)} style={{
-          padding: "7px 12px", borderRadius: "8px", fontSize: "10px", fontWeight: 600,
+          padding: "7px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "10px", fontWeight: 600,
           border: showOnlyActive ? "1px solid rgba(48,160,80,0.3)" : "1px solid rgba(255,255,255,0.08)",
           background: showOnlyActive ? "rgba(48,160,80,0.1)" : "transparent",
-          color: showOnlyActive ? "#30a050" : "#6a625c", cursor: "pointer",
+          color: showOnlyActive ? "var(--tc-green)" : "var(--tc-text-muted)", cursor: "pointer",
         }}><Power size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />Actives</button>
       </div>
 
       {/* Skills by category */}
       {Object.entries(grouped).map(([cat, skills]) => {
-        const ci = CATEGORIES[cat] || { label: cat, icon: Zap, color: "#6a625c" };
+        const ci = CATEGORIES[cat] || { label: cat, icon: Zap, color: "var(--tc-text-muted)" };
         const CatIcon = ci.icon;
         return (
           <div key={cat} style={{ marginBottom: "20px" }}>
@@ -246,27 +246,27 @@ export default function SkillsPage() {
               <span style={{ fontSize: "12px", fontWeight: 700, color: ci.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {ci.label}
               </span>
-              <span style={{ fontSize: "10px", color: "#4a4440" }}>({skills.length})</span>
+              <span style={{ fontSize: "10px", color: "var(--tc-text-faint)" }}>({skills.length})</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "8px" }}>
               {skills.map(skill => {
                 const expanded = expandedSkill === skill.id;
-                const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "#6a625c" };
+                const ti = TYPE_INFO[skill.type] || { label: skill.type, color: "var(--tc-text-muted)" };
                 const enabled = enabledSkills.has(skill.id);
                 const configKeys = skill.config ? Object.keys(skill.config) : [];
                 const canRun = isRunnable(skill);
 
                 return (
                   <div key={skill.id} style={{
-                    background: "rgba(255,255,255,0.02)", border: `1px solid ${enabled ? "rgba(48,160,80,0.2)" : "rgba(255,255,255,0.06)"}`,
-                    borderRadius: "10px", borderLeft: `3px solid ${enabled ? "#30a050" : "rgba(255,255,255,0.04)"}`,
+                    background: "var(--tc-surface-alt)", border: `1px solid ${enabled ? "var(--tc-green-soft)" : "var(--tc-border)"}`,
+                    borderRadius: "var(--tc-radius-md)", borderLeft: `3px solid ${enabled ? "var(--tc-green)" : "var(--tc-border-light)"}`,
                   }}>
                     {/* Header */}
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px" }}>
                       {/* Toggle */}
                       <button onClick={() => toggleSkill(skill.id)} style={{
                         width: "34px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer",
-                        background: enabled ? "#30a050" : "rgba(255,255,255,0.1)",
+                        background: enabled ? "var(--tc-green)" : "var(--tc-input)",
                         position: "relative", flexShrink: 0,
                       }}>
                         <div style={{
@@ -279,14 +279,14 @@ export default function SkillsPage() {
                       {/* Name + badges */}
                       <div style={{ flex: 1, cursor: "pointer" }} onClick={() => setExpandedSkill(expanded ? null : skill.id)}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span style={{ fontSize: "12px", fontWeight: 700, color: "#e8e4e0" }}>{skill.name}</span>
+                          <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
                           <span style={{
                             fontSize: "7px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px",
                             background: `${ti.color}15`, color: ti.color, textTransform: "uppercase",
                           }}>{ti.label}</span>
                           {skill.api_key_required && <Key size={10} color="#d09020" />}
                         </div>
-                        <div style={{ fontSize: "9px", color: "#6a625c", marginTop: "2px" }}>
+                        <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
                           {skill.description.substring(0, 70)}{skill.description.length > 70 ? "..." : ""}
                         </div>
                       </div>
@@ -299,33 +299,33 @@ export default function SkillsPage() {
 
                     {/* Expanded */}
                     {expanded && (
-                      <div style={{ padding: "0 12px 12px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                        <p style={{ fontSize: "11px", color: "#a09080", margin: "10px 0", lineHeight: "1.5" }}>
+                      <div style={{ padding: "0 12px 12px", borderTop: "1px solid var(--tc-border-light)" }}>
+                        <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", margin: "10px 0", lineHeight: "1.5" }}>
                           {skill.description}
                         </p>
 
                         {/* Metadata */}
-                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "#6a625c" }}>
+                        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
                           {skill.version && <span>v{skill.version}</span>}
                           {skill.author && <span>{skill.author}</span>}
                           {skill.execution?.mode === "ephemeral" && <span>Docker ephemere</span>}
                           {skill.execution?.mode === "persistent" && <span>Sync continue</span>}
                           {skill.execution?.mode === "api" && <span>API externe</span>}
                           {skill.execution?.docker_image && (
-                            <span style={{ color: "#3080d0", fontFamily: "monospace" }}>{skill.execution.docker_image}</span>
+                            <span style={{ color: "var(--tc-blue)", fontFamily: "monospace" }}>{skill.execution.docker_image}</span>
                           )}
                           {skill.execution?.sync_interval_minutes && (
                             <span><Clock size={8} style={{ display: "inline", verticalAlign: "middle" }} /> {skill.execution.sync_interval_minutes}min</span>
                           )}
                           {skill.execution?.base_url && (
-                            <span style={{ fontFamily: "monospace", color: "#6a625c" }}>{skill.execution.base_url.substring(0, 40)}...</span>
+                            <span style={{ fontFamily: "monospace", color: "var(--tc-text-muted)" }}>{skill.execution.base_url.substring(0, 40)}...</span>
                           )}
                         </div>
 
                         {/* Config fields — only if skill HAS config */}
                         {configKeys.length > 0 && (
                           <div style={{ marginBottom: "10px" }}>
-                            <div style={{ fontSize: "9px", fontWeight: 700, color: "#6a625c", textTransform: "uppercase", marginBottom: "6px" }}>
+                            <div style={{ fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "6px" }}>
                               <Settings size={9} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
                               Configuration
                             </div>
@@ -335,20 +335,20 @@ export default function SkillsPage() {
                               const val = configValues[skill.id]?.[key] || "";
                               return (
                                 <div key={key} style={{ marginBottom: "6px" }}>
-                                  <label style={{ fontSize: "9px", color: "#a09080", display: "block", marginBottom: "2px" }}>
+                                  <label style={{ fontSize: "9px", color: "var(--tc-text-sec)", display: "block", marginBottom: "2px" }}>
                                     {field.description || key}
-                                    {field.required && <span style={{ color: "#d03020" }}> *</span>}
+                                    {field.required && <span style={{ color: "var(--tc-red)" }}> *</span>}
                                   </label>
                                   {field.options ? (
                                     <select value={val || field.default || ""} onChange={e => setConfig(skill.id, key, e.target.value)}
-                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "6px", fontSize: "11px",
-                                        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                                        color: "#e8e4e0", outline: "none" }}>
+                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "var(--tc-radius-sm)", fontSize: "11px",
+                                        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                                        color: "var(--tc-text)", outline: "none" }}>
                                       <option value="">Choisir...</option>
                                       {field.options.map((o: string) => <option key={o} value={o}>{o}</option>)}
                                     </select>
                                   ) : field.type === "boolean" ? (
-                                    <label style={{ fontSize: "10px", color: "#e8e4e0", display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <label style={{ fontSize: "10px", color: "var(--tc-text)", display: "flex", alignItems: "center", gap: "6px" }}>
                                       <input type="checkbox" checked={val === "true" || (!val && field.default === true)}
                                         onChange={e => setConfig(skill.id, key, e.target.checked ? "true" : "false")} />
                                       {field.default ? "Oui" : "Non"} par defaut
@@ -357,9 +357,9 @@ export default function SkillsPage() {
                                     <input type={field.type === "password" ? "password" : "text"} value={val}
                                       onChange={e => setConfig(skill.id, key, e.target.value)}
                                       placeholder={field.default?.toString() || ""}
-                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "6px", fontSize: "11px",
-                                        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                                        color: "#e8e4e0", outline: "none" }} />
+                                      style={{ width: "100%", padding: "5px 8px", borderRadius: "var(--tc-radius-sm)", fontSize: "11px",
+                                        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                                        color: "var(--tc-text)", outline: "none" }} />
                                   )}
                                 </div>
                               );
@@ -373,9 +373,9 @@ export default function SkillsPage() {
                             <button onClick={() => handleRun(skill)} disabled={running === skill.id}
                               style={{
                                 display: "flex", alignItems: "center", gap: "5px",
-                                padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
-                                background: "rgba(208,48,32,0.1)", border: "1px solid rgba(208,48,32,0.3)",
-                                color: "#d03020", cursor: running === skill.id ? "wait" : "pointer",
+                                padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
+                                background: "var(--tc-red-soft)", border: "1px solid var(--tc-red-border)",
+                                color: "var(--tc-red)", cursor: running === skill.id ? "wait" : "pointer",
                                 opacity: running === skill.id ? 0.5 : 1,
                               }}>
                               <Play size={11} />
@@ -383,12 +383,12 @@ export default function SkillsPage() {
                             </button>
                           )}
                           {skill.type === "enrichment" && !canRun && (
-                            <span style={{ fontSize: "10px", color: "#6a625c", fontStyle: "italic" }}>
+                            <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
                               {skill.default_active ? "Actif automatiquement dans le pipeline" : "Activez le toggle pour inclure dans le pipeline"}
                             </span>
                           )}
                           {skill.default_active && (
-                            <span style={{ fontSize: "9px", color: "#30a050", display: "flex", alignItems: "center", gap: "3px" }}>
+                            <span style={{ fontSize: "9px", color: "var(--tc-green)", display: "flex", alignItems: "center", gap: "3px" }}>
                               <CheckCircle2 size={10} /> Actif par defaut
                             </span>
                           )}
@@ -397,9 +397,9 @@ export default function SkillsPage() {
                         {/* Run result */}
                         {runResult && expandedSkill === skill.id && (
                           <div style={{
-                            marginTop: "8px", padding: "8px", borderRadius: "6px",
-                            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
-                            fontSize: "9px", fontFamily: "monospace", color: "#a09080",
+                            marginTop: "8px", padding: "8px", borderRadius: "var(--tc-radius-sm)",
+                            background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+                            fontSize: "9px", fontFamily: "monospace", color: "var(--tc-text-sec)",
                             maxHeight: "120px", overflow: "auto",
                           }}>
                             <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(runResult, null, 2)}</pre>
@@ -416,7 +416,7 @@ export default function SkillsPage() {
       })}
 
       {filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+        <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
           Aucune skill ne correspond aux filtres
         </div>
       )}

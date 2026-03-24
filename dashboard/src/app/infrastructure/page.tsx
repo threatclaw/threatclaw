@@ -108,16 +108,16 @@ export default function AssetsPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>Assets</h1>
-          <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Assets</h1>
+          <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
             {stats ? `${stats.total_assets} assets decouverts · ${stats.with_mac} avec MAC · couverture ${Math.round(stats.coverage * 100)}%` : "Chargement..."}
           </p>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
           <button onClick={refresh} disabled={loading} style={{
             display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-            borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
-            background: "rgba(255,255,255,0.03)", color: "#6a625c",
+            borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-border)",
+            background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
             fontSize: "11px", fontWeight: 600, cursor: "pointer",
           }}>
             <RefreshCw size={12} /> Actualiser
@@ -130,17 +130,17 @@ export default function AssetsPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", marginBottom: "20px" }}>
           {[
             { value: stats.total_assets, label: "Total", color: "#30a0d0" },
-            { value: stats.with_mac, label: "Avec MAC", color: "#30a050" },
-            { value: stats.with_hostname, label: "Avec hostname", color: "#d09020" },
+            { value: stats.with_mac, label: "Avec MAC", color: "var(--tc-green)" },
+            { value: stats.with_hostname, label: "Avec hostname", color: "var(--tc-amber)" },
             { value: `${Math.round(stats.coverage * 100)}%`, label: "Couverture", color: stats.coverage >= 0.7 ? "#30a050" : "#d09020" },
           ].map((s, i) => (
             <div key={i} style={{
               textAlign: "center", padding: "14px",
-              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "10px",
+              background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+              borderRadius: "var(--tc-radius-md)",
             }}>
               <div style={{ fontSize: "24px", fontWeight: 800, color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: "10px", color: "#6a625c", textTransform: "uppercase" }}>{s.label}</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -154,10 +154,10 @@ export default function AssetsPage() {
         ].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             display: "flex", alignItems: "center", gap: "6px",
-            padding: "8px 16px", borderRadius: "8px", fontSize: "11px", fontWeight: 600,
+            padding: "8px 16px", borderRadius: "var(--tc-radius-input)", fontSize: "11px", fontWeight: 600,
             border: tab === t.key ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(255,255,255,0.08)",
             background: tab === t.key ? "rgba(208,48,32,0.08)" : "rgba(255,255,255,0.03)",
-            color: tab === t.key ? "#d03020" : "#6a625c",
+            color: tab === t.key ? "var(--tc-red)" : "var(--tc-text-muted)",
             cursor: "pointer",
           }}>
             <t.icon size={12} /> {t.label}
@@ -167,14 +167,14 @@ export default function AssetsPage() {
 
       {/* Search */}
       <div style={{ position: "relative", marginBottom: "16px" }}>
-        <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "#6a625c" }} />
+        <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
         <input
           type="text" value={search} onChange={e => setSearch(e.target.value)}
           placeholder="Rechercher par hostname, IP, MAC, OS..."
           style={{
-            width: "100%", padding: "8px 10px 8px 32px", borderRadius: "8px", fontSize: "12px",
-            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            color: "#e8e4e0", outline: "none",
+            width: "100%", padding: "8px 10px 8px 32px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
+            background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+            color: "var(--tc-text)", outline: "none",
           }}
         />
       </div>
@@ -183,7 +183,7 @@ export default function AssetsPage() {
       {tab === "discovered" && (
         <div>
           {filtered.length === 0 && !loading && (
-            <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+            <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
               <Network size={40} style={{ margin: "0 auto 12px", opacity: 0.3 }} />
               <p>Aucun asset decouvert</p>
               <p style={{ fontSize: "11px" }}>Activez un scan nmap, un connecteur AD ou pfSense dans Skills</p>
@@ -200,8 +200,8 @@ export default function AssetsPage() {
 
             return (
               <div key={id} style={{
-                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "10px", marginBottom: "8px",
+                background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+                borderRadius: "var(--tc-radius-md)", marginBottom: "8px",
                 borderLeft: `3px solid ${critColor(a["a.criticality"])}`,
               }}>
                 <div
@@ -215,11 +215,11 @@ export default function AssetsPage() {
 
                   <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>
                         {a["a.hostname"] || a["a.id"] || "unknown"}
                       </span>
                       {a["a.ip"] && (
-                        <span style={{ fontSize: "11px", color: "#6a625c", fontFamily: "monospace" }}>
+                        <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", fontFamily: "monospace" }}>
                           {a["a.ip"]}
                         </span>
                       )}
@@ -232,7 +232,7 @@ export default function AssetsPage() {
                         {a["a.criticality"] || "medium"}
                       </span>
                     </div>
-                    <div style={{ display: "flex", gap: "8px", marginTop: "3px", fontSize: "10px", color: "#6a625c" }}>
+                    <div style={{ display: "flex", gap: "8px", marginTop: "3px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
                       {a["a.os"] && <span>{a["a.os"]}</span>}
                       {a["a.ou"] && <span>OU: {a["a.ou"]}</span>}
                       {sources.length > 0 && <span>Sources: {sources.join(", ")}</span>}
@@ -254,7 +254,7 @@ export default function AssetsPage() {
 
                 {/* Expanded detail */}
                 {isExpanded && (
-                  <div style={{ padding: "0 14px 14px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                  <div style={{ padding: "0 14px 14px", borderTop: "1px solid var(--tc-border-light)" }}>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px", fontSize: "11px" }}>
                       {[
                         ["ID", a["a.id"]],
@@ -272,8 +272,8 @@ export default function AssetsPage() {
                         ["Dernier vu", a["a.last_seen"]?.split("T")[0]],
                       ].filter(([, v]) => v).map(([label, value], j) => (
                         <div key={j}>
-                          <span style={{ color: "#6a625c" }}>{label}: </span>
-                          <span style={{ color: "#e8e4e0", fontFamily: label === "MAC" || label === "IP" ? "monospace" : "inherit" }}>
+                          <span style={{ color: "var(--tc-text-muted)" }}>{label}: </span>
+                          <span style={{ color: "var(--tc-text)", fontFamily: label === "MAC" || label === "IP" ? "monospace" : "inherit" }}>
                             {value}
                           </span>
                         </div>
@@ -282,9 +282,9 @@ export default function AssetsPage() {
 
                     {conf < 0.5 && (
                       <div style={{
-                        marginTop: "10px", padding: "8px", borderRadius: "6px",
+                        marginTop: "10px", padding: "8px", borderRadius: "var(--tc-radius-sm)",
                         background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)",
-                        fontSize: "10px", color: "#d09020",
+                        fontSize: "10px", color: "var(--tc-amber)",
                       }}>
                         <AlertTriangle size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
                         Confiance faible — activez des sources supplementaires (AD, pfSense) dans Skills pour enrichir cet asset.
@@ -294,17 +294,17 @@ export default function AssetsPage() {
                     <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
                       <a href={`/intelligence`} style={{
                         display: "flex", alignItems: "center", gap: "4px",
-                        padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
-                        background: "rgba(208,48,32,0.08)", border: "1px solid rgba(208,48,32,0.2)",
-                        color: "#d03020", textDecoration: "none",
+                        padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
+                        background: "var(--tc-red-soft)", border: "1px solid rgba(208,48,32,0.2)",
+                        color: "var(--tc-red)", textDecoration: "none",
                       }}>
                         <Target size={11} /> Blast Radius
                       </a>
                       <a href={`/intelligence`} style={{
                         display: "flex", alignItems: "center", gap: "4px",
-                        padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
-                        background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
-                        color: "#6a625c", textDecoration: "none",
+                        padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
+                        background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+                        color: "var(--tc-text-muted)", textDecoration: "none",
                       }}>
                         <Eye size={11} /> Voir dans le graphe
                       </a>
@@ -321,22 +321,22 @@ export default function AssetsPage() {
       {tab === "manual" && (
         <div>
           {targets.length === 0 && (
-            <div style={{ textAlign: "center", padding: "40px", color: "#6a625c" }}>
+            <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
               Aucune cible manuelle configuree
             </div>
           )}
           {targets.map((t, i) => (
             <div key={i} style={{
               display: "flex", alignItems: "center", gap: "12px",
-              padding: "12px 14px", marginBottom: "6px", borderRadius: "10px",
-              background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+              padding: "12px 14px", marginBottom: "6px", borderRadius: "var(--tc-radius-md)",
+              background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
             }}>
               <Server size={16} color="#6a625c" />
               <div style={{ flex: 1 }}>
-                <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0" }}>{t.id || t.host}</span>
-                <span style={{ fontSize: "11px", color: "#6a625c", marginLeft: "8px" }}>{t.host}:{t.port}</span>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>{t.id || t.host}</span>
+                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginLeft: "8px" }}>{t.host}:{t.port}</span>
               </div>
-              <span style={{ fontSize: "10px", color: "#6a625c" }}>{t.target_type}</span>
+              <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{t.target_type}</span>
             </div>
           ))}
         </div>

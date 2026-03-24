@@ -93,17 +93,17 @@ function Card({ title, icon: Icon, children, color = "#d03020" }: {
 }) {
   return (
     <div style={{
-      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-      borderRadius: "12px", padding: "20px", minHeight: "180px",
+      background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+      borderRadius: "var(--tc-radius-card)", padding: "20px", minHeight: "180px",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
         <div style={{
-          width: "32px", height: "32px", borderRadius: "8px",
+          width: "32px", height: "32px", borderRadius: "var(--tc-radius-input)",
           background: `${color}15`, display: "flex", alignItems: "center", justifyContent: "center",
         }}>
           <Icon size={16} color={color} />
         </div>
-        <span style={{ fontSize: "13px", fontWeight: 700, color: "#e8e4e0", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {title}
         </span>
       </div>
@@ -116,7 +116,7 @@ function StatBadge({ value, label, color = "#d03020" }: { value: string | number
   return (
     <div style={{ textAlign: "center", padding: "8px" }}>
       <div style={{ fontSize: "24px", fontWeight: 800, color }}>{value}</div>
-      <div style={{ fontSize: "10px", color: "#6a625c", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+      <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
     </div>
   );
 }
@@ -129,7 +129,7 @@ function ConfidenceBar({ score, level }: { score: number; level: string }) {
         <div style={{ width: `${score}%`, height: "100%", borderRadius: "4px", background: color, transition: "width 500ms" }} />
       </div>
       <span style={{ fontSize: "13px", fontWeight: 700, color, minWidth: "50px" }}>{score}/100</span>
-      <span style={{ fontSize: "10px", color: "#6a625c", textTransform: "uppercase" }}>{level}</span>
+      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>{level}</span>
     </div>
   );
 }
@@ -193,18 +193,18 @@ export default function IntelligencePage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
         <div>
-          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#e8e4e0", margin: 0 }}>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>
             Graph Intelligence
           </h1>
-          <p style={{ fontSize: "12px", color: "#6a625c", margin: "4px 0 0" }}>
+          <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
             Analyse en temps reel depuis Apache AGE + STIX 2.1
             {lastRefresh && <span> &middot; {lastRefresh}</span>}
           </p>
         </div>
         <button onClick={refresh} disabled={loading} style={{
           display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-          borderRadius: "8px", border: "1px solid rgba(208,48,32,0.3)",
-          background: "rgba(208,48,32,0.08)", color: "#d03020",
+          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-red-border)",
+          background: "var(--tc-red-soft)", color: "var(--tc-red)",
           fontSize: "11px", fontWeight: 600, cursor: "pointer",
         }}>
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -214,19 +214,19 @@ export default function IntelligencePage() {
 
       {/* Top stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "16px" }}>
+        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={assetStats?.total_assets ?? "—"} label="Assets" color="#30a0d0" />
         </div>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "16px" }}>
+        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={lateral?.total_detections ?? "—"} label="Lateral" color={lateral?.total_detections ? "#d03020" : "#30a050"} />
         </div>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "16px" }}>
+        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={campaigns?.total_campaigns ?? "—"} label="Campagnes" color={campaigns?.total_campaigns ? "#d06020" : "#30a050"} />
         </div>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "16px" }}>
+        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={actors?.total_actors ?? "—"} label="Acteurs" color="#9060d0" />
         </div>
-        <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "10px", padding: "16px" }}>
+        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
           <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID" color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
         </div>
       </div>
@@ -238,33 +238,33 @@ export default function IntelligencePage() {
         <Card title="Chemins d'attaque" icon={Crosshair} color="#d03020">
           {attackPaths && attackPaths.paths.length > 0 ? (
             <div>
-              <div style={{ fontSize: "11px", color: "#6a625c", marginBottom: "10px" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
                 {attackPaths.total_paths} chemins ({attackPaths.critical_paths} critiques)
               </div>
               {attackPaths.paths.slice(0, 5).map((p, i) => (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px",
-                  marginBottom: "6px", borderRadius: "6px", background: "rgba(255,255,255,0.02)",
-                  border: "1px solid rgba(255,255,255,0.04)",
+                  marginBottom: "6px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-surface-alt)",
+                  border: "1px solid var(--tc-border-light)",
                 }}>
                   <RiskBadge risk={p.risk} />
-                  <span style={{ fontSize: "11px", color: "#d03020", fontFamily: "monospace" }}>{p.entry_point}</span>
-                  <span style={{ fontSize: "11px", color: "#6a625c" }}>&rarr;</span>
-                  <span style={{ fontSize: "11px", color: "#e8e4e0", fontWeight: 600 }}>{p.target}</span>
-                  <span style={{ fontSize: "10px", color: "#6a625c", marginLeft: "auto" }}>{Math.round(p.exploitability)}%</span>
+                  <span style={{ fontSize: "11px", color: "var(--tc-red)", fontFamily: "monospace" }}>{p.entry_point}</span>
+                  <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>&rarr;</span>
+                  <span style={{ fontSize: "11px", color: "var(--tc-text)", fontWeight: 600 }}>{p.target}</span>
+                  <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginLeft: "auto" }}>{Math.round(p.exploitability)}%</span>
                 </div>
               ))}
               {attackPaths.top_recommendations.length > 0 && (
-                <div style={{ marginTop: "10px", padding: "8px", borderRadius: "6px", background: "rgba(208,48,32,0.05)", border: "1px solid rgba(208,48,32,0.1)" }}>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "#d03020", marginBottom: "4px" }}>RECOMMANDATIONS</div>
+                <div style={{ marginTop: "10px", padding: "8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.05)", border: "1px solid rgba(208,48,32,0.1)" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "4px" }}>RECOMMANDATIONS</div>
                   {attackPaths.top_recommendations.map((r, i) => (
-                    <div key={i} style={{ fontSize: "10px", color: "#a09080", lineHeight: "1.5" }}>{i + 1}. {r}</div>
+                    <div key={i} style={{ fontSize: "10px", color: "var(--tc-text-sec)", lineHeight: "1.5" }}>{i + 1}. {r}</div>
                   ))}
                 </div>
               )}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "#4a4440", textAlign: "center", padding: "30px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
               Aucun chemin d&apos;attaque detect&eacute;
             </div>
           )}
@@ -274,28 +274,28 @@ export default function IntelligencePage() {
         <Card title="Acteurs de menace" icon={Users} color="#9060d0">
           {actors && actors.actors.length > 0 ? (
             <div>
-              <div style={{ fontSize: "11px", color: "#6a625c", marginBottom: "10px" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
                 {actors.total_actors} acteur(s) &middot; {actors.attributed} attribution(s)
               </div>
               {actors.actors.slice(0, 4).map((a, i) => (
                 <div key={i} style={{
-                  padding: "10px", marginBottom: "6px", borderRadius: "8px",
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+                  padding: "10px", marginBottom: "6px", borderRadius: "var(--tc-radius-input)",
+                  background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 700, color: "#e8e4e0" }}>{a.name}</span>
-                    <span style={{ fontSize: "10px", color: "#6a625c" }}>{a.origin_country}</span>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{a.name}</span>
+                    <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{a.origin_country}</span>
                   </div>
                   <div style={{ display: "flex", gap: "4px", marginTop: "6px", flexWrap: "wrap" }}>
                     {a.techniques.slice(0, 5).map((t, j) => (
                       <span key={j} style={{
                         fontSize: "9px", padding: "2px 6px", borderRadius: "3px",
-                        background: "rgba(144,96,208,0.1)", color: "#9060d0", border: "1px solid rgba(144,96,208,0.2)",
+                        background: "rgba(144,96,208,0.1)", color: "var(--tc-purple)", border: "1px solid rgba(144,96,208,0.2)",
                       }}>{t}</span>
                     ))}
                   </div>
                   {a.apt_similarity && a.apt_similarity.similarity_score > 30 && (
-                    <div style={{ fontSize: "10px", color: "#d09020", marginTop: "6px" }}>
+                    <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginTop: "6px" }}>
                       Correspond a {a.apt_similarity.apt_name} ({a.apt_similarity.similarity_score}%)
                     </div>
                   )}
@@ -303,7 +303,7 @@ export default function IntelligencePage() {
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "#4a4440", textAlign: "center", padding: "30px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
               Aucun acteur profil&eacute;
             </div>
           )}
@@ -318,13 +318,13 @@ export default function IntelligencePage() {
               onKeyDown={(e) => e.key === "Enter" && loadBlast()}
               placeholder="Asset ID (ex: srv-prod-01)"
               style={{
-                flex: 1, padding: "6px 10px", borderRadius: "6px", fontSize: "11px",
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "#e8e4e0", outline: "none",
+                flex: 1, padding: "6px 10px", borderRadius: "var(--tc-radius-sm)", fontSize: "11px",
+                background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                color: "var(--tc-text)", outline: "none",
               }}
             />
             <button onClick={loadBlast} style={{
-              padding: "6px 12px", borderRadius: "6px", fontSize: "10px", fontWeight: 600,
+              padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
               background: "rgba(208,96,32,0.1)", border: "1px solid rgba(208,96,32,0.3)",
               color: "#d06020", cursor: "pointer",
             }}>Calculer</button>
@@ -338,14 +338,14 @@ export default function IntelligencePage() {
               </div>
               {blast.hops.filter(h => h.count > 0).map((h, i) => (
                 <div key={i} style={{
-                  padding: "6px 10px", marginBottom: "4px", borderRadius: "6px",
+                  padding: "6px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
                   background: `rgba(208,96,32,${0.05 + i * 0.03})`,
                   border: "1px solid rgba(208,96,32,0.1)",
-                  fontSize: "11px", color: "#e8e4e0",
+                  fontSize: "11px", color: "var(--tc-text)",
                 }}>
                   <strong>Hop {h.hop}</strong> &mdash; {h.count} asset(s)
                   {h.assets && h.assets.length > 0 && (
-                    <span style={{ color: "#6a625c" }}> ({h.assets.map((a: any) => typeof a === "string" ? a : a.hostname).join(", ")})</span>
+                    <span style={{ color: "var(--tc-text-muted)" }}> ({h.assets.map((a: any) => typeof a === "string" ? a : a.hostname).join(", ")})</span>
                   )}
                 </div>
               ))}
@@ -355,7 +355,7 @@ export default function IntelligencePage() {
             </div>
           )}
           {blast && blast.total_impacted === 0 && (
-            <div style={{ fontSize: "12px", color: "#4a4440", textAlign: "center", padding: "20px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "20px 0" }}>
               Asset isol&eacute; &mdash; pas d&apos;impact collat&eacute;ral
             </div>
           )}
@@ -365,34 +365,34 @@ export default function IntelligencePage() {
         <Card title="Mouvement lateral" icon={Network} color="#d03020">
           {lateral && lateral.total_detections > 0 ? (
             <div>
-              <div style={{ fontSize: "11px", color: "#d03020", fontWeight: 600, marginBottom: "10px" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-red)", fontWeight: 600, marginBottom: "10px" }}>
                 {lateral.total_detections} detection(s)
               </div>
               {lateral.chains.slice(0, 3).map((c, i) => (
                 <div key={i} style={{
-                  padding: "8px 10px", marginBottom: "4px", borderRadius: "6px",
+                  padding: "8px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
                   background: "rgba(208,48,32,0.05)", border: "1px solid rgba(208,48,32,0.1)",
                   fontSize: "11px",
                 }}>
-                  <span style={{ color: "#d03020", fontFamily: "monospace" }}>{c.entry_point}</span>
+                  <span style={{ color: "var(--tc-red)", fontFamily: "monospace" }}>{c.entry_point}</span>
                   {c.hops.map((h, j) => (
-                    <span key={j}><span style={{ color: "#6a625c" }}> &rarr; </span><span style={{ color: "#e8e4e0" }}>{h}</span></span>
+                    <span key={j}><span style={{ color: "var(--tc-text-muted)" }}> &rarr; </span><span style={{ color: "var(--tc-text)" }}>{h}</span></span>
                   ))}
                   {c.target_is_critical && <RiskBadge risk="critical" />}
                 </div>
               ))}
               {lateral.fan_outs.slice(0, 3).map((f, i) => (
                 <div key={`fo-${i}`} style={{
-                  padding: "8px 10px", marginBottom: "4px", borderRadius: "6px",
+                  padding: "8px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
                   background: "rgba(208,96,32,0.05)", border: "1px solid rgba(208,96,32,0.1)",
-                  fontSize: "11px", color: "#d09020",
+                  fontSize: "11px", color: "var(--tc-amber)",
                 }}>
                   Fan-out: {f.ip_addr} ({f.country}) &rarr; {f.target_count} assets
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "#30a050", textAlign: "center", padding: "30px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0" }}>
               Aucun mouvement lat&eacute;ral d&eacute;tect&eacute;
             </div>
           )}
@@ -404,20 +404,20 @@ export default function IntelligencePage() {
             <div>
               {campaigns.campaigns.slice(0, 4).map((c, i) => (
                 <div key={i} style={{
-                  padding: "10px", marginBottom: "6px", borderRadius: "8px",
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+                  padding: "10px", marginBottom: "6px", borderRadius: "var(--tc-radius-input)",
+                  background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
                 }}>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "#e8e4e0" }}>{c.name}</div>
-                  <div style={{ fontSize: "10px", color: "#6a625c", marginTop: "4px" }}>{c.description}</div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{c.name}</div>
+                  <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{c.description}</div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
-                    <span style={{ fontSize: "10px", color: "#d09020" }}>{c.attack_count} attaques</span>
+                    <span style={{ fontSize: "10px", color: "var(--tc-amber)" }}>{c.attack_count} attaques</span>
                     <ConfidenceBar score={c.confidence} level="" />
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "#4a4440", textAlign: "center", padding: "30px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
               Aucune campagne coordonn&eacute;e
             </div>
           )}
@@ -427,25 +427,25 @@ export default function IntelligencePage() {
         <Card title="Anomalies identite (UBA)" icon={Brain} color="#3080d0">
           {identity && identity.anomalies.length > 0 ? (
             <div>
-              <div style={{ fontSize: "11px", color: "#6a625c", marginBottom: "10px" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
                 {identity.users_tracked} utilisateurs suivis
               </div>
               {identity.anomalies.slice(0, 5).map((a, i) => (
                 <div key={i} style={{
-                  padding: "8px 10px", marginBottom: "4px", borderRadius: "6px",
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+                  padding: "8px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
+                  background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
                   fontSize: "11px",
                 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <RiskBadge risk={a.severity} />
-                    <span style={{ color: "#e8e4e0", fontWeight: 600 }}>{a.username}</span>
+                    <span style={{ color: "var(--tc-text)", fontWeight: 600 }}>{a.username}</span>
                   </div>
-                  <div style={{ fontSize: "10px", color: "#6a625c", marginTop: "4px" }}>{a.detail}</div>
+                  <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{a.detail}</div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "#30a050", textAlign: "center", padding: "30px 0" }}>
+            <div style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0" }}>
               {identity?.users_tracked ?? 0} utilisateurs &middot; aucune anomalie
             </div>
           )}
@@ -466,8 +466,8 @@ export default function IntelligencePage() {
           }
         }} style={{
           display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px",
-          borderRadius: "8px", border: "1px solid rgba(208,48,32,0.3)",
-          background: "rgba(208,48,32,0.08)", color: "#d03020",
+          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-red-border)",
+          background: "var(--tc-red-soft)", color: "var(--tc-red)",
           fontSize: "12px", fontWeight: 600, cursor: "pointer",
         }}>
           <FileText size={14} /> Rapport NIS2 Article 21 (STIX JSON)
@@ -477,8 +477,8 @@ export default function IntelligencePage() {
           alert("Mitigations MITRE chargees dans le graphe");
         }} style={{
           display: "flex", alignItems: "center", gap: "8px", padding: "10px 20px",
-          borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,255,255,0.03)", color: "#6a625c",
+          borderRadius: "var(--tc-radius-input)", border: "1px solid var(--tc-border)",
+          background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
           fontSize: "12px", fontWeight: 600, cursor: "pointer",
         }}>
           <Shield size={14} /> Charger playbooks MITRE
