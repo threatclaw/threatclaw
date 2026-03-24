@@ -1,0 +1,52 @@
+{
+  "id": "skill-ad-audit",
+  "name": "Active Directory Audit",
+  "version": "1.0.0",
+  "description": "Audit de securite Active Directory — comptes admin en trop, delegations Kerberos dangereuses, politiques de mots de passe faibles, comptes inactifs, GPO a risque. Via PowerShell Core + module AD.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "compliance",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "mcr.microsoft.com/powershell:latest",
+    "timeout_seconds": 600,
+    "network": "bridge"
+  },
+  "config": {
+    "dc_host": {
+      "type": "string",
+      "description": "Controleur de domaine (ex: dc01.corp.local)",
+      "required": true
+    },
+    "domain": {
+      "type": "string",
+      "description": "Nom de domaine (ex: corp.local)",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Compte de lecture AD (ex: audit@corp.local) — pas besoin d'admin",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe du compte",
+      "required": true
+    },
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence d'audit",
+      "options": ["Manuel uniquement", "Chaque lundi a 2h", "1er du mois a 2h"],
+      "default": "1er du mois a 2h"
+    }
+  },
+  "outputs": {
+    "findings": "db",
+    "users": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "users"
+}

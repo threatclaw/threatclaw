@@ -1918,6 +1918,8 @@ pub async fn skill_run_handler(
         "skill-trufflehog" => (trufflehog_config(target), parse_trufflehog),
         "skill-grype" => (grype_config(target), parse_grype),
         "skill-syft" => (syft_config(target), parse_syft),
+        "skill-lynis" => (lynis_config(target), parse_lynis),
+        "skill-docker-bench" => (docker_bench_config(), parse_docker_bench),
         _ => return Err((StatusCode::BAD_REQUEST, format!("Unknown skill: {}", skill_id))),
     };
 

@@ -433,6 +433,28 @@ RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (
 - [ ] **Anonymized Summary Builder** : anonymiseur → Cloud reformule en français fluide
 - [ ] **3 modes conversation** : `local` / `cloud_assisted` / `cloud_direct`
 
+### WinRM Executor — Support Windows natif (V2)
+
+- [ ] **executor_winrm.rs** : connexion WinRM via container PowerShell Core
+- [ ] **Cible Windows** : champ os=windows, protocol=winrm dans la config target
+- [ ] **skill-windows-hardening** : script PowerShell audit (firewall, patches, comptes, services)
+- [ ] **skill-ad-audit** (PowerShell) : comptes admin, delegations Kerberos, policies MDP, GPO
+
+### ThreatClaw Agent — Surveillance temps reel (V2-V3)
+
+**Binaire Rust read-only, ~5 MB, multiplateforme. Voir docs/AGENT_ARCHITECTURE.md**
+
+- [ ] **Agent V1 Linux** : collecte metriques + connexions + auth logs, WebSocket TLS sortant
+- [ ] **Enrolement par token** : certificat TLS mutuel, token 24h a usage unique
+- [ ] **Format STIX 2.1** : events en Observed Data, batch 10s ou immediat si critique
+- [ ] **Service systemd** : demarrage auto, reconnexion auto
+- [ ] **Agent V1 Windows** : Windows Service, Event Log, Performance Monitor
+- [ ] **Dashboard agents** : liste, status online/offline, metriques temps reel
+- [ ] **Agent ARM64** (V3) : Raspberry Pi, serveurs ARM
+- [ ] **Agent macOS** (V3) : Apple Silicon
+
+**REGLE ABSOLUE : l'agent est READ-ONLY. Pas de remote execution. Jamais.**
+
 ### Communauté / Outillage
 - [ ] CLI scaffolding (`threatclaw create-skill`)
 - [ ] SDK Python sur PyPI (`threatclaw-sdk`)

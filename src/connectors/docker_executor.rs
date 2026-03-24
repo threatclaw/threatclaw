@@ -452,6 +452,132 @@ pub fn syft_config(image: &str) -> DockerSkillConfig {
     }
 }
 
+/// Parse Lynis audit output (text format with suggestion/warning lines).
+pub fn parse_lynis(stdout: &str) -> Vec<ParsedFinding> {
+    let mut findings = vec![];
+    let mut hardening_score: Option<&str> = None;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        // Hardening index
+        if trimmed.starts_with("Hardening index :") || trimmed.starts_with("hardening_index=") {
+            hardening_score = trimmed.split([':', '=']).nth(1).map(|s| s.trim());
+        }
+
+        // Warnings: "! ..." or "[WARNING]"
+        if trimmed.starts_with("! ") || trimmed.contains("[WARNING]") {
+            let msg = trimmed.trim_start_matches("! ").trim_start_matches("[WARNING]").trim();
+            if msg.len() > 5 {
+                findings.push(ParsedFinding {
+                    title: format!("Lynis Warning: {}", msg.chars().take(80).collect::<String>()),
+                    description: msg.to_string(),
+                    severity: "HIGH".into(),
+                    category: "hardening".into(),
+                    asset: None,
+                    metadata: serde_json::json!({"tool": "lynis", "type": "warning"}),
+                });
+            }
+        }
+
+        // Suggestions: "* ..." or "[SUGGESTION]"
+        if (trimmed.starts_with("* ") && !trimmed.starts_with("* [")) || trimmed.contains("[SUGGESTION]") {
+            let msg = trimmed.trim_start_matches("* ").trim_start_matches("[SUGGESTION]").trim();
+            if msg.len() > 5 {
+                findings.push(ParsedFinding {
+                    title: format!("Lynis: {}", msg.chars().take(80).collect::<String>()),
+                    description: msg.to_string(),
+                    severity: "MEDIUM".into(),
+                    category: "hardening".into(),
+                    asset: None,
+                    metadata: serde_json::json!({"tool": "lynis", "type": "suggestion"}),
+                });
+            }
+        }
+    }
+
+    // Add summary finding with score
+    if let Some(score) = hardening_score {
+        findings.insert(0, ParsedFinding {
+            title: format!("Lynis Hardening Score: {}", score),
+            description: format!("Score de durcissement systeme: {} — {} findings detectes", score, findings.len()),
+            severity: "LOW".into(),
+            category: "hardening".into(),
+            asset: None,
+            metadata: serde_json::json!({"tool": "lynis", "hardening_score": score, "findings_count": findings.len()}),
+        });
+    }
+
+    findings
+}
+
+/// Parse Docker Bench Security output (text with [WARN] [PASS] [INFO] markers).
+pub fn parse_docker_bench(stdout: &str) -> Vec<ParsedFinding> {
+    let mut findings = vec![];
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.contains("[WARN]") {
+            let msg = trimmed.split("[WARN]").nth(1).unwrap_or("").trim();
+            if msg.len() > 3 {
+                // Extract CIS check ID if present (e.g., "1.1.1 - ...")
+                let (check_id, desc) = if msg.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                    let parts: Vec<&str> = msg.splitn(2, " - ").collect();
+                    if parts.len() == 2 { (parts[0], parts[1]) } else { ("", msg) }
+                } else {
+                    ("", msg)
+                };
+
+                findings.push(ParsedFinding {
+                    title: if check_id.is_empty() {
+                        format!("Docker CIS: {}", desc.chars().take(70).collect::<String>())
+                    } else {
+                        format!("Docker CIS {}: {}", check_id, desc.chars().take(60).collect::<String>())
+                    },
+                    description: desc.to_string(),
+                    severity: "MEDIUM".into(),
+                    category: "docker-cis".into(),
+                    asset: None,
+                    metadata: serde_json::json!({
+                        "tool": "docker-bench", "check_id": check_id,
+                    }),
+                });
+            }
+        }
+    }
+
+    findings
+}
+
+pub fn lynis_config(target: &str) -> DockerSkillConfig {
+    DockerSkillConfig {
+        image: "cisofy/lynis:latest".into(),
+        command: vec!["lynis".into(), "audit".into(), "system".into(), "--no-colors".into()],
+        mount_path: if target == "local" { Some("/".into()) } else { None },
+        mount_target: "/hostroot".into(),
+        network: "none".into(),
+        memory_limit: "256m".into(),
+        timeout_seconds: 300,
+        skill_id: "skill-lynis".into(),
+        skill_name: "Lynis Hardening".into(),
+    }
+}
+
+pub fn docker_bench_config() -> DockerSkillConfig {
+    DockerSkillConfig {
+        image: "docker/docker-bench-security:latest".into(),
+        command: vec![],
+        mount_path: None,
+        mount_target: "/workspace".into(),
+        network: "none".into(),
+        memory_limit: "256m".into(),
+        timeout_seconds: 300,
+        skill_id: "skill-docker-bench".into(),
+        skill_name: "Docker Bench Security".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,5 +628,23 @@ mod tests {
         assert_eq!(normalize_severity("WARNING"), "HIGH");
         assert_eq!(normalize_severity("high"), "HIGH");
         assert_eq!(normalize_severity("info"), "MEDIUM");
+    }
+
+    #[test]
+    fn test_parse_lynis_warnings() {
+        let output = "! Reboot of system is most likely needed [KRNL-5830]\n* Enable sysstat [PERF-8002]\nHardening index : 67";
+        let findings = parse_lynis(output);
+        assert!(findings.len() >= 2);
+        assert!(findings[0].title.contains("67")); // score
+        assert!(findings[1].severity == "HIGH"); // warning
+    }
+
+    #[test]
+    fn test_parse_docker_bench() {
+        let output = "[WARN] 1.1.1 - Ensure a separate partition for containers has been created\n[PASS] 1.1.2 - Ensure only trusted users are allowed\n[WARN] 2.1 - Run the Docker daemon as a non-root user";
+        let findings = parse_docker_bench(output);
+        assert_eq!(findings.len(), 2); // 2 WARNs
+        assert!(findings[0].title.contains("1.1.1"));
+        assert!(findings[1].title.contains("2.1"));
     }
 }

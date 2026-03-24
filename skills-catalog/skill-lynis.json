@@ -1,0 +1,44 @@
+{
+  "id": "skill-lynis",
+  "name": "Lynis Hardening Audit",
+  "version": "1.0.0",
+  "description": "Audit de durcissement Linux — verifie la configuration systeme, les permissions, les services, le kernel, le reseau. Score de hardening + liste des corrections prioritaires. Conforme NIS2 Article 21.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "compliance",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "cisofy/lynis:latest",
+    "command": "lynis audit system --no-colors --report-file /dev/stdout",
+    "timeout_seconds": 300,
+    "network": "none",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "target_host": {
+      "type": "string",
+      "description": "Serveur cible (SSH) ou 'local' pour le serveur ThreatClaw",
+      "default": "local"
+    },
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence d'audit",
+      "options": ["Manuel uniquement", "Chaque lundi a 2h", "1er du mois a 2h"],
+      "default": "1er du mois a 2h"
+    },
+    "profile": {
+      "type": "select",
+      "description": "Profil d'audit",
+      "options": ["default", "server", "workstation"],
+      "default": "server"
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "shield"
+}
