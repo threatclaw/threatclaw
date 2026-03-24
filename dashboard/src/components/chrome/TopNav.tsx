@@ -4,19 +4,22 @@ import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit, Sun, Moon } from "lucide-react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Status", icon: Shield },
-  { href: "/findings", label: "Findings", icon: AlertTriangle },
-  { href: "/alerts", label: "Alertes", icon: Bell },
-  { href: "/intelligence", label: "Intelligence", icon: BrainCircuit },
-  { href: "/agent", label: "Agent", icon: Activity },
-  { href: "/setup", label: "Config", icon: Settings },
+const NAV_KEYS = [
+  { href: "/", key: "status", icon: Shield },
+  { href: "/findings", key: "findings", icon: AlertTriangle },
+  { href: "/alerts", key: "alerts", icon: Bell },
+  { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
+  { href: "/agent", key: "agent", icon: Activity },
+  { href: "/setup", key: "config", icon: Settings },
 ];
 
 type ConnStatus = "full" | "degraded" | "offline";
 
 export default function TopNav() {
+  const locale = useLocale();
   const pathname = usePathname();
   const [connStatus, setConnStatus] = useState<ConnStatus>("offline");
   const [llmStatus, setLlmStatus] = useState<string>("");
@@ -120,14 +123,14 @@ export default function TopNav() {
         }}>
           {/* Sliding red indicator */}
           {(() => {
-            const activeIdx = NAV_ITEMS.findIndex(item =>
+            const activeIdx = NAV_KEYS.findIndex(item =>
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
             );
             return activeIdx >= 0 ? (
               <div style={{
                 position: "absolute", top: "3px", height: "calc(100% - 6px)",
-                width: `calc(${100 / NAV_ITEMS.length}% - 2px)`,
-                left: `calc(${activeIdx * (100 / NAV_ITEMS.length)}% + 1px)`,
+                width: `calc(${100 / NAV_KEYS.length}% - 2px)`,
+                left: `calc(${activeIdx * (100 / NAV_KEYS.length)}% + 1px)`,
                 background: "var(--tc-red-soft)",
                 borderRadius: "8px",
                 border: "0.5px solid var(--tc-red-border)",
@@ -137,7 +140,7 @@ export default function TopNav() {
               }} />
             ) : null;
           })()}
-          {NAV_ITEMS.map((item) => {
+          {NAV_KEYS.map((item) => {
             const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;
             return (
@@ -153,7 +156,7 @@ export default function TopNav() {
                   opacity: isActive ? 1 : 0.6,
                 }}>
                   <Icon size={13} />
-                  {item.label}
+                  {tr(item.key, locale)}
                 </div>
               </Link>
             );
@@ -170,7 +173,7 @@ export default function TopNav() {
           background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
           color: theme === "dark" ? "#d09020" : "#3080d0",
           cursor: "pointer", transition: "all 200ms",
-        }} title={theme === "dark" ? "Mode clair" : "Mode sombre"}>
+        }} title={theme === "dark" ? tr("lightMode", locale) : tr("darkMode", locale)}>
           {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
         </button>
 

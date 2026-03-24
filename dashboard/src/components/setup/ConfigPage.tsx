@@ -302,7 +302,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               </div>
               <div>
                 <div style={labelStyle}>Langue</div>
-                <GlassSelect value={general.language} onChange={v => setGeneral(p => ({ ...p, language: v }))} options={[
+                <GlassSelect value={general.language} onChange={v => { setGeneral(p => ({ ...p, language: v })); localStorage.setItem("tc-language", v); window.dispatchEvent(new Event("tc-locale-change")); }} options={[
                   { value: "fr", label: "Français" }, { value: "en", label: "English" },
                 ]} />
               </div>

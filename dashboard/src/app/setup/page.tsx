@@ -6,6 +6,8 @@ import SetupWizard from "@/components/setup/SetupWizard";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
 import ConfigPage from "@/components/setup/ConfigPage";
 import { Settings, Puzzle, Network, Play, Key } from "lucide-react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 // Lazy load the sub-pages to avoid circular imports
 const SkillsContent = dynamic(() => import("../skills/page"), { ssr: false });
@@ -14,11 +16,11 @@ const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
 const LicenseContent = dynamic(() => Promise.resolve({ default: LicensePage }), { ssr: false });
 
 const TABS = [
-  { key: "config", label: "General", icon: Settings },
-  { key: "skills", label: "Skills", icon: Puzzle },
-  { key: "assets", label: "Assets", icon: Network },
-  { key: "tests", label: "Tests", icon: Play },
-  { key: "license", label: "Licence", icon: Key },
+  { key: "config", i18n: "general", icon: Settings },
+  { key: "skills", i18n: "skills", icon: Puzzle },
+  { key: "assets", i18n: "assets", icon: Network },
+  { key: "tests", i18n: "tests", icon: Play },
+  { key: "license", i18n: "license", icon: Key },
 ] as const;
 
 // ── License Tab Component ──
@@ -153,6 +155,7 @@ function LicensePage() {
 type TabKey = typeof TABS[number]["key"];
 
 export default function SetupPage() {
+  const locale = useLocale();
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("config");
 
@@ -216,7 +219,7 @@ export default function SetupPage() {
               }}
             >
               <Icon size={13} />
-              {tab.label}
+              {tr(tab.i18n, locale)}
             </button>
           );
         })}

@@ -6,6 +6,8 @@ import {
   RefreshCw, Eye, Crosshair, Brain, FileText, Activity,
 } from "lucide-react";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import GraphVisualization from "@/components/chrome/GraphVisualization";
 
 // ── Types ──
@@ -150,6 +152,7 @@ function RiskBadge({ risk }: { risk: string }) {
 // ── Main Page ──
 
 export default function IntelligencePage() {
+  const locale = useLocale();
   const [lateral, setLateral] = useState<LateralAnalysis | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignAnalysis | null>(null);
   const [attackPaths, setAttackPaths] = useState<AttackPathAnalysis | null>(null);
@@ -257,7 +260,7 @@ export default function IntelligencePage() {
               ))}
               {attackPaths.top_recommendations.length > 0 && (
                 <div style={{ marginTop: "10px", padding: "8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.05)", border: "1px solid rgba(208,48,32,0.1)" }}>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "4px" }}>RECOMMANDATIONS</div>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "4px" }}>{tr("recommendations", locale)}</div>
                   {attackPaths.top_recommendations.map((r, i) => (
                     <div key={i} style={{ fontSize: "10px", color: "var(--tc-text-sec)", lineHeight: "1.5" }}>{i + 1}. {r}</div>
                   ))}
@@ -328,7 +331,7 @@ export default function IntelligencePage() {
               padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
               background: "rgba(208,96,32,0.1)", border: "1px solid rgba(208,96,32,0.3)",
               color: "#d06020", cursor: "pointer",
-            }}>Calculer</button>
+            }}>{tr("calculate", locale)}</button>
           </div>
           {blast && (
             <div>

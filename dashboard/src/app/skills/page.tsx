@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Search, Settings, Shield, Network, Database, Code, Monitor,
   FileText, Eye, Crosshair, RefreshCw, CheckCircle2,
@@ -36,9 +38,9 @@ const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color
 };
 
 const TYPE_INFO: Record<string, { label: string; color: string }> = {
-  "tool": { label: "OUTIL", color: "var(--tc-amber)" },
-  "connector": { label: "CONNECTEUR", color: "var(--tc-blue)" },
-  "enrichment": { label: "ENRICHISSEMENT", color: "var(--tc-green)" },
+  "tool": { label: "TOOL", color: "var(--tc-amber)" },
+  "connector": { label: "CONNECTOR", color: "var(--tc-blue)" },
+  "enrichment": { label: "ENRICHMENT", color: "var(--tc-green)" },
 };
 
 const RUNNABLE: Record<string, string> = {
@@ -68,6 +70,7 @@ const NOT_FUNCTIONAL: Set<string> = new Set([
 ]);
 
 export default function SkillsPage() {
+  const locale = useLocale();
   const [allSkills, setAllSkills] = useState<SkillManifest[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<"my" | "catalog">("my");
@@ -109,12 +112,12 @@ export default function SkillsPage() {
   const install = (skill: SkillManifest) => {
     setInstalling(skill);
     setInstallDone(false);
-    setInstallMsg("Installation en cours...");
+    setInstallMsg(tr("installing", locale));
     setTimeout(() => {
       setEnabled(prev => new Set(prev).add(skill.id));
       setDisabledSkills(prev => { const n = new Set(prev); n.delete(skill.id); return n; });
       setInstallDone(true);
-      setInstallMsg(`${skill.name} installe ! Configurez-le dans My Skills`);
+      setInstallMsg(`${skill.name} ${tr('installed', locale)}`);
       setTimeout(() => { setInstalling(null); setInstallDone(false); }, 2000);
     }, 3000);
   };
@@ -123,12 +126,12 @@ export default function SkillsPage() {
     const skill = allSkills.find(s => s.id === id);
     setInstalling(skill || null);
     setInstallDone(false);
-    setInstallMsg("Desinstallation en cours...");
+    setInstallMsg(tr("uninstalling", locale));
     setTimeout(() => {
       setEnabled(prev => { const n = new Set(prev); n.delete(id); return n; });
       setDisabledSkills(prev => { const n = new Set(prev); n.delete(id); return n; });
       setInstallDone(true);
-      setInstallMsg(`${skill?.name || "Skill"} desinstallee`);
+      setInstallMsg(`${skill?.name || 'Skill'} ${tr('uninstalled', locale)}`);
       setTimeout(() => { setInstalling(null); setInstallDone(false); }, 2000);
     }, 2000);
   };
@@ -212,11 +215,11 @@ export default function SkillsPage() {
         <div>
           <div style={{ position: "relative", marginBottom: "16px" }}>
             <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("search", locale)}
               style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
                 background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
           </div>
-          {Object.keys(catalogGrouped).length === 0 && <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)" }}>{search ? "Aucune skill trouvee" : "Toutes les skills sont installees"}</div>}
+          {Object.keys(catalogGrouped).length === 0 && <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)" }}>{search ? tr("noSkillFound", locale) : tr("allInstalled", locale)}</div>}
           {Object.entries(catalogGrouped).map(([cat, skills]) => {
             const ci = CATEGORIES[cat] || { label: cat, icon: Zap, color: "var(--tc-text-muted)" };
             const CatIcon = ci.icon;
@@ -386,7 +389,7 @@ export default function SkillsPage() {
                     <Play size={12} /> {running === modalSkill.id ? "..." : modalSkill.type === "connector" ? "Sync" : "Lancer"}
                   </button>
                 )}
-                <button className="tc-btn-embossed" onClick={() => setModalSkill(null)} style={{ fontSize: "11px", padding: "8px 14px" }}>Enregistrer</button>
+                <button className="tc-btn-embossed" onClick={() => setModalSkill(null)} style={{ fontSize: "11px", padding: "8px 14px" }}>{tr("save", locale)}</button>
               </div>
             </div>
           </div>

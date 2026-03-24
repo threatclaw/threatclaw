@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Network, Search, RefreshCw, Shield, Monitor, Server, Wifi,
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye,
@@ -42,6 +44,7 @@ interface ManualTarget {
 // ── Main Page ──
 
 export default function AssetsPage() {
+  const locale = useLocale();
   const [assets, setAssets] = useState<GraphAsset[]>([]);
   const [stats, setStats] = useState<AssetStats | null>(null);
   const [targets, setTargets] = useState<ManualTarget[]>([]);
@@ -108,7 +111,7 @@ export default function AssetsPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Assets</h1>
+          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("assets", locale)}</h1>
           <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
             {stats ? `${stats.total_assets} assets decouverts · ${stats.with_mac} avec MAC · couverture ${Math.round(stats.coverage * 100)}%` : "Chargement..."}
           </p>
