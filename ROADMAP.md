@@ -367,5 +367,5 @@ RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (
 ---
 
 *Dernière mise à jour : 24 mars 2026*
-*Version actuelle : 1.3.0-beta*
+*Version actuelle : 1.4.0-beta (Graph Intelligence Phase 3-5)*
 *Modèle business : prestation (CyberConsulting.fr installe chez les clients) — pas de freemium/SaaS*
