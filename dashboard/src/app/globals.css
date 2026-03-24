@@ -291,7 +291,13 @@ body {
   user-select: none;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  white-space: nowrap;
+}
+/* Icons inside embossed buttons need visible color */
+.tc-btn-embossed .tc-btn-inner span svg {
+  color: rgba(160,30,20,0.8);
 }
 .tc-btn-embossed:hover .tc-btn-inner span { transform: scale(0.98); }
 .tc-btn-embossed:disabled { opacity: 0.4; cursor: not-allowed; }

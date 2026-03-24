@@ -11,24 +11,34 @@ interface ChromeButtonProps {
 }
 
 export function ChromeButton({ children, onClick, disabled, className = "", variant = "glass" }: ChromeButtonProps) {
+  // Primary variant uses the embossed glass style
+  if (variant === "primary") {
+    return (
+      <button
+        className={`tc-btn-embossed ${className}`}
+        onClick={onClick}
+        disabled={disabled}
+      >
+        <div className="tc-btn-outer">
+          <div className="tc-btn-inner">
+            <span>{children}</span>
+          </div>
+        </div>
+      </button>
+    );
+  }
+
+  // Glass + danger variants use simple inline styles
   const styles: Record<string, React.CSSProperties> = {
-    primary: {
-      background: "linear-gradient(135deg, #d03020 0%, #a02018 100%)",
-      border: "1px solid var(--tc-input))",
-      color: "#fff",
-      boxShadow: "0 2px 8px rgba(208,48,32,0.25), 0 1px 2px rgba(0,0,0,0.3)",
-    },
     glass: {
       background: "var(--tc-input)",
       border: "1px solid var(--tc-border)",
       color: "var(--tc-text-sec)",
-      boxShadow: "none",
     },
     danger: {
-      background: "rgba(208,48,32,0.08)",
-      border: "1px solid rgba(208,48,32,0.2)",
-      color: "#d03020",
-      boxShadow: "none",
+      background: "var(--tc-red-soft)",
+      border: "1px solid var(--tc-red-border)",
+      color: "var(--tc-red)",
     },
   };
 
@@ -44,7 +54,6 @@ export function ChromeButton({ children, onClick, disabled, className = "", vari
         fontSize: "12px",
         fontWeight: 600,
         fontFamily: "inherit",
-        letterSpacing: "0.02em",
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         transition: "all 0.2s ease",
