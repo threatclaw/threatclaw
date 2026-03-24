@@ -66,6 +66,8 @@ export default function SkillsPage() {
   const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});
   const [running, setRunning] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<any>(null);
+  const [installing, setInstalling] = useState<SkillManifest | null>(null);
+  const [installDone, setInstallDone] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -91,7 +93,15 @@ export default function SkillsPage() {
   const catalogGrouped: Record<string, SkillManifest[]> = {};
   for (const s of filteredCatalog) { const c = s.category || "autre"; if (!catalogGrouped[c]) catalogGrouped[c] = []; catalogGrouped[c].push(s); }
 
-  const install = (skill: SkillManifest) => { setEnabled(prev => new Set(prev).add(skill.id)); setModalSkill(skill); };
+  const install = (skill: SkillManifest) => {
+    setInstalling(skill);
+    setInstallDone(false);
+    setTimeout(() => {
+      setEnabled(prev => new Set(prev).add(skill.id));
+      setInstallDone(true);
+      setTimeout(() => { setInstalling(null); setInstallDone(false); }, 2000);
+    }, 3000);
+  };
   const uninstall = (id: string) => { setEnabled(prev => { const n = new Set(prev); n.delete(id); return n; }); setModalSkill(null); };
   const toggleEnabled = (id: string) => { setEnabled(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const setConfig = (sid: string, key: string, val: string) => { setConfigValues(prev => ({ ...prev, [sid]: { ...prev[sid], [key]: val } })); };
@@ -188,7 +198,7 @@ export default function SkillsPage() {
                           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{skill.description}</div>
                         </div>
                         <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "10px", padding: "5px 12px" }}>
-                          <Plus size={11} /> Activer
+                          <Plus size={11} /> Installer
                         </button>
                       </div>
                     );
@@ -197,6 +207,42 @@ export default function SkillsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ═══ INSTALL POPUP ═══ */}
+      {installing && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1001, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: "320px", background: "var(--tc-bg)", border: "1px solid var(--tc-border)",
+            borderRadius: "var(--tc-radius-card)", padding: "32px", textAlign: "center",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+            {!installDone ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: "24px", height: "20px" }}>
+                  <div className="tc-ball-loader" />
+                </div>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "8px" }}>
+                  Installation en cours...
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
+                  {installing.name}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: "36px", marginBottom: "12px" }}>
+                  <CheckCircle2 size={36} color="var(--tc-green)" />
+                </div>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "8px" }}>
+                  {installing.name} installe !
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
+                  Configurez-le dans l&apos;onglet <strong>My Skills</strong>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

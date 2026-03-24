@@ -388,6 +388,28 @@ body {
 .glow-red { box-shadow: 0 0 20px var(--tc-red-soft), 0 0 60px rgba(208,48,32,0.05); }
 .glow-green { box-shadow: 0 0 20px var(--tc-green-soft); }
 
+/* ─── BALL LOADER (Uiverse.io alexruix) ─── */
+.tc-ball-loader {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  position: relative;
+  left: -60px;
+  color: var(--tc-text-muted);
+  animation: tcBallRoll 2s linear infinite;
+}
+@keyframes tcBallRoll {
+  0%   { box-shadow: 0px 0 transparent, 0px 0 transparent, 0px 0 transparent, 0px 0 transparent; }
+  12%  { box-shadow: 50px 0 currentColor, 0px 0 transparent, 0px 0 transparent, 0px 0 transparent; }
+  25%  { box-shadow: 60px 0 currentColor, 50px 0 currentColor, 0px 0 transparent, 0px 0 transparent; }
+  36%  { box-shadow: 70px 0 currentColor, 60px 0 currentColor, 50px 0 currentColor, 0px 0 transparent; }
+  50%  { box-shadow: 80px 0 currentColor, 70px 0 currentColor, 60px 0 currentColor, 50px 0 currentColor; }
+  62%  { box-shadow: 120px 0 transparent, 80px 0 currentColor, 70px 0 currentColor, 60px 0 currentColor; }
+  75%  { box-shadow: 120px 0 transparent, 120px 0 transparent, 80px 0 currentColor, 70px 0 currentColor; }
+  87%  { box-shadow: 120px 0 transparent, 120px 0 transparent, 120px 0 transparent, 80px 0 currentColor; }
+  100% { box-shadow: 120px 0 transparent, 120px 0 transparent, 120px 0 transparent, 120px 0 transparent; }
+}
+
 /* ─── ANIMATE ─── */
 @keyframes pulse-glow { 0%,100%{opacity:0.6} 50%{opacity:1} }
 @keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
