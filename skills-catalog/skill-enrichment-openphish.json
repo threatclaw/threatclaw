@@ -1,0 +1,14 @@
+{
+    "id": "skill-enrichment-openphish",
+    "name": "OpenPhish",
+    "description": "URLs de phishing (feed gratuit, ~500 URLs, sync 6h).",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "fish",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://openphish.com/feed.txt"
+    }
+}

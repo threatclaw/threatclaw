@@ -1,0 +1,14 @@
+{
+    "id": "skill-enrichment-cisa-kev",
+    "name": "CISA KEV",
+    "description": "CVEs activement exploitees \u2014 auto-escalade CRITICAL",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "alert-triangle",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+    }
+}

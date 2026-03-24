@@ -1,0 +1,37 @@
+{
+  "id": "skill-semgrep",
+  "name": "Semgrep SAST",
+  "version": "1.0.0",
+  "description": "Analyse statique de code source (SAST). Detecte les vulnerabilites, injections SQL, XSS, secrets hardcodes.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "semgrep/semgrep:latest",
+    "command": "semgrep scan --config auto --json {TARGET}",
+    "timeout_seconds": 600,
+    "network": "none",
+    "memory_limit": "1g"
+  },
+  "config": {
+    "target_path": {
+      "type": "string",
+      "description": "Chemin du code source a analyser",
+      "required": true
+    },
+    "rules": {
+      "type": "string",
+      "description": "Regles Semgrep (auto, p/owasp-top-ten, p/security-audit)",
+      "default": "auto"
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "code"
+}

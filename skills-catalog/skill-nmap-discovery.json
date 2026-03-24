@@ -1,0 +1,43 @@
+{
+  "id": "skill-nmap-discovery",
+  "name": "Nmap Network Discovery",
+  "version": "1.0.0",
+  "description": "Decouverte automatique du reseau : hotes actifs, ports ouverts, OS fingerprint. Alimente le graphe d'assets.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "discovery",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "instrumentisto/nmap:latest",
+    "command": "nmap -sV --top-ports 1000 -T3 --open -oX - {TARGET}",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "target_subnets": {
+      "type": "string",
+      "description": "Sous-reseaux a scanner (ex: 192.168.1.0/24,10.0.0.0/24)",
+      "required": true
+    },
+    "scan_schedule": {
+      "type": "cron",
+      "description": "Frequence de scan",
+      "default": "0 2 * * *"
+    },
+    "top_ports": {
+      "type": "number",
+      "description": "Nombre de ports a scanner",
+      "default": 1000
+    }
+  },
+  "outputs": {
+    "assets": "graph",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "network"
+}

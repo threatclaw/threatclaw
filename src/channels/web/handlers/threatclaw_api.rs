@@ -1860,6 +1860,33 @@ pub async fn graph_coa_asset_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// UNIFIED SKILL CATALOG
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/skills/catalog — unified skill catalog (tools + connectors + enrichment).
+pub async fn tc_skills_catalog_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let catalog = crate::skills::tc_catalog::load_tc_catalog();
+    let filter_type = params.get("type").map(|s| s.as_str());
+
+    let filtered: Vec<_> = if let Some(t) = filter_type {
+        catalog.skills.iter().filter(|s| s.skill_type == t).collect()
+    } else {
+        catalog.skills.iter().collect()
+    };
+
+    Ok(Json(serde_json::json!({
+        "skills": filtered,
+        "total": catalog.total,
+        "tools": catalog.tools,
+        "connectors": catalog.connectors,
+        "enrichment": catalog.enrichment,
+        "filter": filter_type,
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // CONNECTORS — AD, pfSense
 // ══════════════════════════════════════════════════════════
 

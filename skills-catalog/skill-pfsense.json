@@ -1,0 +1,51 @@
+{
+  "id": "skill-pfsense",
+  "name": "pfSense / OPNsense",
+  "version": "1.0.0",
+  "description": "Synchronise la table ARP, baux DHCP, interfaces, VLANs et regles firewall. Cartographie reseau complete.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du firewall (ex: https://192.168.1.1)",
+      "required": true
+    },
+    "fw_type": {
+      "type": "select",
+      "description": "Type de firewall",
+      "options": ["pfsense", "opnsense"],
+      "required": true
+    },
+    "auth_user": {
+      "type": "string",
+      "description": "Utilisateur API (pfSense) ou API Key (OPNsense)",
+      "required": true
+    },
+    "auth_secret": {
+      "type": "password",
+      "description": "Mot de passe (pfSense) ou API Secret (OPNsense)",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la verification du certificat TLS (certificat auto-signe)",
+      "default": true
+    }
+  },
+  "outputs": {
+    "assets": "graph",
+    "topology": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

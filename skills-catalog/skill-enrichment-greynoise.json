@@ -1,0 +1,21 @@
+{
+    "id": "skill-enrichment-greynoise",
+    "name": "GreyNoise",
+    "description": "Bruit internet vs attaque ciblee. Reduit les faux positifs.",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": false,
+    "api_key_required": false,
+    "icon": "radio",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://api.greynoise.io/v3/community/"
+    },
+    "config": {
+        "api_key": {
+            "type": "password",
+            "description": "Cle API GreyNoise (optionnelle \u2014 Community gratuite)",
+            "required": false
+        }
+    }
+}

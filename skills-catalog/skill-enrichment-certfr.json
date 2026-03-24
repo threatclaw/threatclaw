@@ -1,0 +1,14 @@
+{
+    "id": "skill-enrichment-certfr",
+    "name": "CERT-FR",
+    "description": "Alertes et avis de securite de l ANSSI. Sync RSS quotidienne.",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "flag",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://www.cert.ssi.gouv.fr/avis/feed/"
+    }
+}

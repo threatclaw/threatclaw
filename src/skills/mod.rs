@@ -20,6 +20,7 @@ pub mod gating;
 pub mod parser;
 pub mod registry;
 pub mod selector;
+pub mod tc_catalog;
 
 pub use attenuation::{AttenuationResult, attenuate_tools};
 pub use registry::SkillRegistry;

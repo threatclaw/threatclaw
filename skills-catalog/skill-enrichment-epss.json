@@ -1,0 +1,14 @@
+{
+    "id": "skill-enrichment-epss",
+    "name": "EPSS",
+    "description": "Probabilite d exploitation dans les 30 prochains jours (0-100%)",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "trending-up",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://api.first.org/data/v1/epss"
+    }
+}

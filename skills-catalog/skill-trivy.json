@@ -1,0 +1,37 @@
+{
+  "id": "skill-trivy",
+  "name": "Trivy Container Scanner",
+  "version": "1.0.0",
+  "description": "Scan de vulnerabilites dans les images Docker, fichiers de config, et repositories.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "aquasec/trivy:latest",
+    "command": "trivy image --format json --severity CRITICAL,HIGH {TARGET}",
+    "timeout_seconds": 300,
+    "network": "bridge",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target_image": {
+      "type": "string",
+      "description": "Image Docker a scanner (ex: nginx:latest)",
+      "required": true
+    },
+    "severity": {
+      "type": "string",
+      "description": "Niveaux de severite (CRITICAL,HIGH,MEDIUM,LOW)",
+      "default": "CRITICAL,HIGH"
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "container"
+}

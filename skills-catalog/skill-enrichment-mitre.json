@@ -1,0 +1,14 @@
+{
+    "id": "skill-enrichment-mitre",
+    "name": "MITRE ATT&CK",
+    "description": "700+ techniques d attaque. Sync mensuelle depuis STIX bundle GitHub.",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "crosshair",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json"
+    }
+}

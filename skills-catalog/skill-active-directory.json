@@ -1,0 +1,56 @@
+{
+  "id": "skill-active-directory",
+  "name": "Active Directory",
+  "version": "1.0.0",
+  "description": "Synchronise utilisateurs, groupes, ordinateurs et admins depuis Active Directory via LDAP. Alimente le graphe d'identite.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "ldaps",
+    "default_port": 636
+  },
+  "config": {
+    "host": {
+      "type": "string",
+      "description": "Serveur AD (ex: dc01.corp.local)",
+      "required": true
+    },
+    "port": {
+      "type": "number",
+      "description": "Port LDAP (636 pour LDAPS, 389 pour LDAP)",
+      "default": 636
+    },
+    "bind_dn": {
+      "type": "string",
+      "description": "DN du compte de service (ex: cn=tc-readonly,ou=ServiceAccounts,dc=corp,dc=local)",
+      "required": true
+    },
+    "bind_password": {
+      "type": "password",
+      "description": "Mot de passe du compte de service",
+      "required": true
+    },
+    "base_dn": {
+      "type": "string",
+      "description": "Base DN de recherche (ex: dc=corp,dc=local)",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la verification du certificat TLS (lab uniquement)",
+      "default": false
+    }
+  },
+  "outputs": {
+    "assets": "graph",
+    "users": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "users"
+}
