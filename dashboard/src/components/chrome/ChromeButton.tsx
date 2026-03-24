@@ -11,19 +11,10 @@ interface ChromeButtonProps {
 }
 
 export function ChromeButton({ children, onClick, disabled, className = "", variant = "glass" }: ChromeButtonProps) {
-  // Primary variant uses the embossed glass style
   if (variant === "primary") {
     return (
-      <button
-        className={`tc-btn-embossed ${className}`}
-        onClick={onClick}
-        disabled={disabled}
-      >
-        <div className="tc-btn-outer">
-          <div className="tc-btn-inner">
-            <span>{children}</span>
-          </div>
-        </div>
+      <button className={`tc-btn-embossed ${className}`} onClick={onClick} disabled={disabled}>
+        {children}
       </button>
     );
   }
