@@ -8,6 +8,7 @@ import {
   Clock, Filter, Search, X, Eye,
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
+import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 
 const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: string }> = {
   critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
@@ -32,6 +33,7 @@ export default function FindingsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,7 +43,10 @@ export default function FindingsPage() {
       ]);
       setFindings(f.findings);
       setCounts(c);
-    } catch { /* */ }
+      setError(null);
+    } catch {
+      setError("Backend non accessible — verifiez que le service tourne");
+    }
     setLoading(false);
   }, [filterSeverity, filterStatus]);
 
@@ -68,6 +73,8 @@ export default function FindingsPage() {
           {total} finding{total !== 1 ? "s" : ""} détecté{total !== 1 ? "s" : ""} par les skills
         </p>
       </div>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
 
       {/* Severity counts */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>

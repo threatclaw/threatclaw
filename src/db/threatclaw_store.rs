@@ -211,7 +211,15 @@ pub trait ThreatClawStore: Send + Sync {
         status: Option<&str>,
         skill_id: Option<&str>,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<FindingRecord>, DatabaseError>;
+
+    async fn count_findings_filtered(
+        &self,
+        severity: Option<&str>,
+        status: Option<&str>,
+        skill_id: Option<&str>,
+    ) -> Result<i64, DatabaseError>;
     async fn get_finding(&self, id: i64) -> Result<Option<FindingRecord>, DatabaseError>;
     async fn update_finding_status(
         &self,
@@ -227,7 +235,14 @@ pub trait ThreatClawStore: Send + Sync {
         level: Option<&str>,
         status: Option<&str>,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<AlertRecord>, DatabaseError>;
+
+    async fn count_alerts_filtered(
+        &self,
+        level: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<i64, DatabaseError>;
     async fn get_alert(&self, id: i64) -> Result<Option<AlertRecord>, DatabaseError>;
     async fn update_alert_status(
         &self,
@@ -326,7 +341,14 @@ pub trait ThreatClawStore: Send + Sync {
         category: Option<&str>,
         status: Option<&str>,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<AssetRecord>, DatabaseError>;
+
+    async fn count_assets_filtered(
+        &self,
+        category: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<i64, DatabaseError>;
 
     async fn get_asset(&self, id: &str) -> Result<Option<AssetRecord>, DatabaseError>;
 

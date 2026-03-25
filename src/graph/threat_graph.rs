@@ -196,8 +196,14 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
     use crate::db::threatclaw_store::ThreatClawStore;
     use crate::agent::ip_classifier;
 
+    // ── Incremental sync: only process data newer than last sync ──
+    let last_sync = store.get_setting("_system", "last_graph_sync").await
+        .ok().flatten()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "2020-01-01T00:00:00Z".to_string());
+
     // ── Load assets from the new assets table ──
-    let assets = store.list_assets(None, Some("active"), 500).await.unwrap_or_default();
+    let assets = store.list_assets(None, Some("active"), 500, 0).await.unwrap_or_default();
     let mut asset_ip_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for a in &assets {
@@ -233,7 +239,11 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
     let known_ips: Vec<String> = asset_ip_map.keys().cloned().collect();
 
     // ── Process alerts — classify IPs and create graph relationships ──
-    let alerts = store.list_alerts(None, None, 200).await.unwrap_or_default();
+    // Only process alerts newer than last sync for incremental updates
+    let all_alerts = store.list_alerts(None, None, 200, 0).await.unwrap_or_default();
+    let alerts: Vec<_> = all_alerts.into_iter()
+        .filter(|a| a.matched_at.as_str() > last_sync.as_str())
+        .collect();
     for a in &alerts {
         if let Some(ref ip) = a.source_ip {
             let clean_ip = ip.split('/').next().unwrap_or("").trim();
@@ -315,7 +325,11 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
     }
 
     // ── Sync CVEs from findings ──
-    let findings = store.list_findings(None, Some("open"), None, 200).await.unwrap_or_default();
+    // Only process findings newer than last sync for incremental updates
+    let all_findings = store.list_findings(None, Some("open"), None, 200, 0).await.unwrap_or_default();
+    let findings: Vec<_> = all_findings.into_iter()
+        .filter(|f| f.detected_at.as_str() > last_sync.as_str())
+        .collect();
     for f in &findings {
         if let Some(cve) = f.metadata.as_object().and_then(|m| m.get("cve")).and_then(|v| v.as_str()) {
             let cvss = f.metadata["cvss"].as_f64().unwrap_or(0.0);
@@ -332,5 +346,8 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         }
     }
 
-    tracing::info!("GRAPH: Synced from DB — {} assets, {} alerts, {} findings", assets.len() + targets.len(), alerts.len(), findings.len());
+    // ── Store last sync timestamp for incremental updates ──
+    let _ = store.set_setting("_system", "last_graph_sync", &serde_json::json!(chrono::Utc::now().to_rfc3339())).await;
+
+    tracing::info!("GRAPH: Synced from DB — {} assets, {} alerts (new), {} findings (new)", assets.len() + targets.len(), alerts.len(), findings.len());
 }

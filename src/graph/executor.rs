@@ -289,7 +289,7 @@ async fn execute_correlate(
 
     if same_ip {
         if let Some(ip) = context.get("source_ip").and_then(|v| v.as_str()) {
-            let alerts = store.list_alerts(None, Some("new"), 50).await.unwrap_or_default();
+            let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
             let related: Vec<_> = alerts.iter()
                 .filter(|a| a.source_ip.as_deref().map(|s| s.contains(ip)) == Some(true))
                 .map(|a| json!({"title": a.title, "level": a.level}))
@@ -300,7 +300,7 @@ async fn execute_correlate(
 
     if same_asset {
         if let Some(host) = context.get("hostname").and_then(|v| v.as_str()) {
-            let alerts = store.list_alerts(None, Some("new"), 50).await.unwrap_or_default();
+            let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
             let related: Vec<_> = alerts.iter()
                 .filter(|a| a.hostname.as_deref() == Some(host))
                 .map(|a| json!({"title": a.title, "level": a.level}))

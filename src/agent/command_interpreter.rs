@@ -302,7 +302,7 @@ async fn execute_query(query_type: &str, store: &dyn Database) -> CommandResult 
             }
         }
         "findings" => {
-            match store.list_findings(None, Some("open"), None, 10).await {
+            match store.list_findings(None, Some("open"), None, 10, 0).await {
                 Ok(findings) => {
                     let count = findings.len();
                     let summary: Vec<String> = findings.iter().take(5).map(|f| {
@@ -318,7 +318,7 @@ async fn execute_query(query_type: &str, store: &dyn Database) -> CommandResult 
             }
         }
         "alerts" => {
-            match store.list_alerts(None, Some("new"), 10).await {
+            match store.list_alerts(None, Some("new"), 10, 0).await {
                 Ok(alerts) => {
                     let count = alerts.len();
                     let summary: Vec<String> = alerts.iter().take(5).map(|a| {

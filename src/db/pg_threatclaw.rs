@@ -109,6 +109,7 @@ impl ThreatClawStore for PgBackend {
         status: Option<&str>,
         skill_id: Option<&str>,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<FindingRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
@@ -120,8 +121,8 @@ impl ThreatClawStore for PgBackend {
                      AND ($2::text IS NULL OR status = $2)
                      AND ($3::text IS NULL OR skill_id = $3)
                    ORDER BY detected_at DESC
-                   LIMIT $4"#,
-                &[&severity, &status, &skill_id, &limit],
+                   LIMIT $4 OFFSET $5"#,
+                &[&severity, &status, &skill_id, &limit, &offset],
             )
             .await
             .map_err(query_err)?;
@@ -132,6 +133,23 @@ impl ThreatClawStore for PgBackend {
             source: r.get(8), metadata: r.get(9), detected_at: r.get(10),
             resolved_at: r.get(11), resolved_by: r.get(12),
         }).collect())
+    }
+
+    async fn count_findings_filtered(
+        &self,
+        severity: Option<&str>,
+        status: Option<&str>,
+        skill_id: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            r#"SELECT COUNT(*)::bigint FROM findings
+               WHERE ($1::text IS NULL OR severity = $1)
+                 AND ($2::text IS NULL OR status = $2)
+                 AND ($3::text IS NULL OR skill_id = $3)"#,
+            &[&severity, &status, &skill_id],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
     }
 
     async fn get_finding(&self, id: i64) -> Result<Option<FindingRecord>, DatabaseError> {
@@ -182,7 +200,7 @@ impl ThreatClawStore for PgBackend {
     }
 
     async fn list_alerts(
-        &self, level: Option<&str>, status: Option<&str>, limit: i64,
+        &self, level: Option<&str>, status: Option<&str>, limit: i64, offset: i64,
     ) -> Result<Vec<AlertRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
@@ -193,14 +211,27 @@ impl ThreatClawStore for PgBackend {
                    WHERE ($1::text IS NULL OR level = $1)
                      AND ($2::text IS NULL OR status = $2)
                    ORDER BY matched_at DESC
-                   LIMIT $3"#,
-                &[&level, &status, &limit],
+                   LIMIT $3 OFFSET $4"#,
+                &[&level, &status, &limit, &offset],
             ).await.map_err(query_err)?;
         Ok(rows.iter().map(|r| AlertRecord {
             id: r.get(0), rule_id: r.get(1), level: r.get(2), title: r.get(3),
             status: r.get(4), hostname: r.get(5), source_ip: r.get(6),
             username: r.get(7), matched_at: r.get(8), matched_fields: r.get(9),
         }).collect())
+    }
+
+    async fn count_alerts_filtered(
+        &self, level: Option<&str>, status: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            r#"SELECT COUNT(*)::bigint FROM sigma_alerts
+               WHERE ($1::text IS NULL OR level = $1)
+                 AND ($2::text IS NULL OR status = $2)"#,
+            &[&level, &status],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
     }
 
     async fn get_alert(&self, id: i64) -> Result<Option<AlertRecord>, DatabaseError> {
@@ -622,13 +653,29 @@ impl ThreatClawStore for PgBackend {
         category: Option<&str>,
         status: Option<&str>,
         limit: i64,
+        offset: i64,
     ) -> Result<Vec<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let category_owned = category.map(|s| s.to_string());
         let status_owned = status.map(|s| s.to_string());
-        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) ORDER BY criticality DESC, last_seen DESC LIMIT $3";
-        let rows = conn.query(sql, &[&category_owned, &status_owned, &limit]).await.map_err(query_err)?;
+        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
+        let rows = conn.query(sql, &[&category_owned, &status_owned, &limit, &offset]).await.map_err(query_err)?;
         Ok(rows.iter().map(|r| parse_asset_row(r)).collect())
+    }
+
+    async fn count_assets_filtered(
+        &self,
+        category: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let category_owned = category.map(|s| s.to_string());
+        let status_owned = status.map(|s| s.to_string());
+        let row = conn.query_one(
+            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2)",
+            &[&category_owned, &status_owned],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
     }
 
     async fn get_asset(&self, id: &str) -> Result<Option<AssetRecord>, DatabaseError> {

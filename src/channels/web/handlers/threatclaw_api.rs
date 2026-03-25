@@ -1,4 +1,38 @@
 //! ThreatClaw-specific API handlers for findings, alerts, config, and metrics.
+//!
+//! ## File organization (search for ══ or ── to jump to sections)
+//!
+//! 1. DTOs + shared types
+//! 2. Health + Auto-start services
+//! 3. Findings CRUD
+//! 4. Alerts CRUD
+//! 5. Skill Config
+//! 6. Dashboard Metrics + Agent Mode + Kill Switch
+//! 7. Audit Log + ReAct Cycle
+//! 8. Targets / Infrastructure + Skills Catalog
+//! 9. Configuration (LLM, channels, permissions, anonymizer)
+//! 10. CVE Enrichment (NVD API)
+//! 11. MITRE ATT&CK + CERT-FR enrichment
+//! 12. Instruct AI (Playbooks, reports, Sigma rules)
+//! 13. Config Bridge + Telegram Direct API
+//! 14. SSH Remote Execution
+//! 15. Graph Intelligence (Apache AGE) + Graph Phase 3-5
+//! 16. Enrichment (Shodan, VirusTotal, HIBP)
+//! 17. Cloud Intent + License
+//! 18. Unified Skill Catalog + Connectors (AD, pfSense)
+//! 19. Remediation Actions (HITL)
+//! 20. Asset Resolution + Behavioral Analysis
+//! 21. Skill Scheduler + Test Scenarios
+//! 22. Enrichment Sources (CISA KEV, GreyNoise, ThreatFox)
+//! 23. Intelligence Engine + Notification Routing
+//! 24. HITL Callback + Conversational Bot
+//! 25. Anonymizer Custom Rules + Webhook Ingest
+//! 26. Enrichment Web Security (Tier 1) — SafeBrowsing, SSL Labs, etc.
+//! 27. Connectors Web Security (Tier 2) — Cloudflare
+//! 28. Assets Management (v1.6)
+//! 29. Internal Networks + Company Profile
+//! 30. v1.7+ Connectors (Pi-hole, UniFi, DHCP, MAC OUI)
+//! 31. v1.8 Zeek + Suricata + v1.9 NACE Threat Profiles
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,12 +58,16 @@ pub struct FindingsQuery {
     pub status: Option<String>,
     pub skill_id: Option<String>,
     pub limit: Option<i64>,
+    pub page: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct FindingsListResponse {
+pub struct PaginatedFindingsResponse {
     pub findings: Vec<FindingRecord>,
-    pub total: usize,
+    pub total: i64,
+    pub page: i64,
+    pub pages: i64,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,12 +87,16 @@ pub struct AlertsQuery {
     pub level: Option<String>,
     pub status: Option<String>,
     pub limit: Option<i64>,
+    pub page: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct AlertsListResponse {
+pub struct PaginatedAlertsResponse {
     pub alerts: Vec<AlertRecord>,
-    pub total: usize,
+    pub total: i64,
+    pub page: i64,
+    pub pages: i64,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,19 +207,33 @@ pub async fn tc_health_handler(
 pub async fn findings_list_handler(
     State(state): State<Arc<GatewayState>>,
     Query(q): Query<FindingsQuery>,
-) -> ApiResult<FindingsListResponse> {
+) -> ApiResult<PaginatedFindingsResponse> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(50);
+    let page = q.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * limit;
+    let total = store
+        .count_findings_filtered(q.severity.as_deref(), q.status.as_deref(), q.skill_id.as_deref())
+        .await
+        .map_err(db_err)?;
     let findings = store
         .list_findings(
             q.severity.as_deref(),
             q.status.as_deref(),
             q.skill_id.as_deref(),
-            q.limit.unwrap_or(100),
+            limit,
+            offset,
         )
         .await
         .map_err(db_err)?;
-    let total = findings.len();
-    Ok(Json(FindingsListResponse { findings, total }))
+    let pages = (total + limit - 1) / limit;
+    Ok(Json(PaginatedFindingsResponse {
+        findings,
+        total,
+        page,
+        pages,
+        has_more: page < pages,
+    }))
 }
 
 pub async fn findings_create_handler(
@@ -236,14 +292,27 @@ pub async fn findings_counts_handler(
 pub async fn alerts_list_handler(
     State(state): State<Arc<GatewayState>>,
     Query(q): Query<AlertsQuery>,
-) -> ApiResult<AlertsListResponse> {
+) -> ApiResult<PaginatedAlertsResponse> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let alerts = store
-        .list_alerts(q.level.as_deref(), q.status.as_deref(), q.limit.unwrap_or(100))
+    let limit = q.limit.unwrap_or(50);
+    let page = q.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * limit;
+    let total = store
+        .count_alerts_filtered(q.level.as_deref(), q.status.as_deref())
         .await
         .map_err(db_err)?;
-    let total = alerts.len();
-    Ok(Json(AlertsListResponse { alerts, total }))
+    let alerts = store
+        .list_alerts(q.level.as_deref(), q.status.as_deref(), limit, offset)
+        .await
+        .map_err(db_err)?;
+    let pages = (total + limit - 1) / limit;
+    Ok(Json(PaginatedAlertsResponse {
+        alerts,
+        total,
+        page,
+        pages,
+        has_more: page < pages,
+    }))
 }
 
 pub async fn alerts_update_status_handler(
@@ -2864,39 +2933,74 @@ pub async fn enrichment_safebrowsing_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let url = body["url"].as_str().unwrap_or("");
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("safebrowsing", url).await {
+        return Ok(Json(cached));
+    }
     let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-safebrowsing", "GOOGLE_SAFEBROWSING_KEY").await;
     match crate::enrichment::google_safebrowsing::check_url(url, &api_key).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("safebrowsing", url, &result, 24).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
 
 pub async fn enrichment_ssllabs_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Path(host): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("ssllabs", &host).await {
+        return Ok(Json(cached));
+    }
     match crate::enrichment::ssl_labs::analyze(&host).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("ssllabs", &host, &result, 168).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
 
 pub async fn enrichment_observatory_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Path(host): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("observatory", &host).await {
+        return Ok(Json(cached));
+    }
     match crate::enrichment::mozilla_observatory::scan(&host).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("observatory", &host, &result, 168).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
 
 pub async fn enrichment_crtsh_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Path(domain): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("crtsh", &domain).await {
+        return Ok(Json(cached));
+    }
     match crate::enrichment::crt_sh::lookup_domain(&domain).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("crtsh", &domain, &result, 24).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -2906,9 +3010,17 @@ pub async fn enrichment_wpscan_handler(
     Path(slug): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("wpscan", &slug).await {
+        return Ok(Json(cached));
+    }
     let api_token = get_skill_config_field(store.as_ref(), "skill-enrichment-wpscan", "WPSCAN_API_TOKEN").await;
     match crate::enrichment::wpscan::lookup_plugin(&slug, &api_token).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("wpscan", &slug, &result, 24).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -2919,20 +3031,37 @@ pub async fn enrichment_phishtank_handler(
 ) -> ApiResult<serde_json::Value> {
     let url = body["url"].as_str().unwrap_or("");
     let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("phishtank", url).await {
+        return Ok(Json(cached));
+    }
     let app_key = get_skill_config_field(store.as_ref(), "skill-enrichment-phishtank", "PHISHTANK_APP_KEY").await;
     let key_opt = if app_key.is_empty() { None } else { Some(app_key.as_str()) };
     match crate::enrichment::phishtank::check_url(url, key_opt).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("phishtank", url, &result, 24).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
 
 pub async fn enrichment_spamhaus_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Path(ip): Path<String>,
 ) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check
+    if let Ok(Some(cached)) = store.get_enrichment_cache("spamhaus", &ip).await {
+        return Ok(Json(cached));
+    }
     match crate::enrichment::spamhaus::check_ip(&ip).await {
-        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("spamhaus", &ip, &result, 24).await;
+            Ok(Json(result))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -2999,9 +3128,21 @@ pub async fn assets_list_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let category = params.get("category").map(|s| s.as_str());
     let status = params.get("status").map(|s| s.as_str());
-    let limit = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(500);
-    match store.list_assets(category, status, limit).await {
-        Ok(assets) => Ok(Json(serde_json::json!({ "assets": assets, "total": assets.len() }))),
+    let limit: i64 = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50);
+    let page: i64 = params.get("page").and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
+    let offset = (page - 1) * limit;
+    let total = store.count_assets_filtered(category, status).await.unwrap_or(0);
+    match store.list_assets(category, status, limit, offset).await {
+        Ok(assets) => {
+            let pages = (total + limit - 1) / limit;
+            Ok(Json(serde_json::json!({
+                "assets": assets,
+                "total": total,
+                "page": page,
+                "pages": pages,
+                "has_more": page < pages,
+            })))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }

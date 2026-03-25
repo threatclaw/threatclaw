@@ -8,6 +8,7 @@ import {
   Clock, Search, X, AlertTriangle, Shield,
 } from "lucide-react";
 import { fetchAlerts, fetchAlertsCounts, type Alert, type CountEntry } from "@/lib/tc-api";
+import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 
 const LEVEL_COLORS: Record<string, { color: string; bg: string; border: string }> = {
   critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
@@ -32,6 +33,7 @@ export default function AlertsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,7 +43,10 @@ export default function AlertsPage() {
       ]);
       setAlerts(a.alerts);
       setCounts(c);
-    } catch { /* */ }
+      setError(null);
+    } catch {
+      setError("Backend non accessible — verifiez que le service tourne");
+    }
     setLoading(false);
   }, [filterLevel, filterStatus]);
 
@@ -61,6 +66,8 @@ export default function AlertsPage() {
           {total} alerte{total !== 1 ? "s" : ""} détectée{total !== 1 ? "s" : ""} par le moteur Sigma
         </p>
       </div>
+
+      {error && <ErrorBanner message={error} onRetry={load} />}
 
       {/* Level counts */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>

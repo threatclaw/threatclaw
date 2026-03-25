@@ -123,7 +123,7 @@ pub async fn run_react_cycle(
     // ── Étape 3 : Collecter les observations ──
     let mut obs = ObservationSet::new();
 
-    if let Ok(findings) = store.list_findings(None, Some("open"), None, config.max_findings).await {
+    if let Ok(findings) = store.list_findings(None, Some("open"), None, config.max_findings, 0).await {
         let values: Vec<serde_json::Value> = findings.iter().map(|f| json!({
             "title": f.title, "severity": f.severity, "asset": f.asset,
             "source": f.source, "skill_id": f.skill_id,
@@ -131,7 +131,7 @@ pub async fn run_react_cycle(
         for o in findings_to_observations(&values) { obs.add(o); }
     }
 
-    if let Ok(alerts) = store.list_alerts(None, Some("new"), config.max_alerts).await {
+    if let Ok(alerts) = store.list_alerts(None, Some("new"), config.max_alerts, 0).await {
         let values: Vec<serde_json::Value> = alerts.iter().map(|a| json!({
             "title": a.title, "level": a.level, "hostname": a.hostname, "rule_id": a.rule_id,
         })).collect();
@@ -243,7 +243,7 @@ pub async fn run_react_cycle(
         // Build graph context for L2 (attackers, CVEs, notes from graph)
         let graph_context = {
             use crate::db::threatclaw_store::ThreatClawStore;
-            let recent_alerts = store.list_alerts(None, Some("new"), 3).await.unwrap_or_default();
+            let recent_alerts = store.list_alerts(None, Some("new"), 3, 0).await.unwrap_or_default();
             let mut ctx_parts = vec![];
             let mut seen_hosts = std::collections::HashSet::new();
             for alert in &recent_alerts {

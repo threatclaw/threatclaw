@@ -23,7 +23,7 @@ pub async fn is_duplicate_finding(
 ) -> bool {
     use crate::db::threatclaw_store::ThreatClawStore;
 
-    let findings = store.list_findings(None, Some("open"), None, 100).await.unwrap_or_default();
+    let findings = store.list_findings(None, Some("open"), None, 100, 0).await.unwrap_or_default();
 
     for f in &findings {
         // Check title similarity (contains the same key phrases)

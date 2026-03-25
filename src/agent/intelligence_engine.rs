@@ -97,8 +97,8 @@ pub async fn run_intelligence_cycle(
     crate::graph::threat_graph::sync_graph_from_db(store.as_ref()).await;
 
     // ── 1. Collect all open findings ──
-    let findings = store.list_findings(None, Some("open"), None, 500).await.unwrap_or_default();
-    let alerts = store.list_alerts(None, Some("new"), 200).await.unwrap_or_default();
+    let findings = store.list_findings(None, Some("open"), None, 500, 0).await.unwrap_or_default();
+    let alerts = store.list_alerts(None, Some("new"), 200, 0).await.unwrap_or_default();
 
     // ── 2. Group by asset ──
     let mut asset_map: HashMap<String, AssetSituation> = HashMap::new();
@@ -291,7 +291,7 @@ pub async fn run_intelligence_cycle(
     if !log_scan_results.is_empty() {
         tracing::info!("INTELLIGENCE: {} threat(s) detected from log scan", log_scan_results.len());
         // Re-fetch findings after inserting new ones
-        let findings = store.list_findings(None, Some("open"), None, 500).await.unwrap_or_default();
+        let findings = store.list_findings(None, Some("open"), None, 500, 0).await.unwrap_or_default();
         // Rebuild asset map with new findings
         for f in &findings {
             let asset = f.asset.as_deref().unwrap_or("unknown").to_string();

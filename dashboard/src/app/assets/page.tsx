@@ -8,6 +8,7 @@ import {
   AlertTriangle, Eye, CheckCircle2, Wifi,
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 
 // ── Types ──
 
@@ -109,13 +110,15 @@ export default function AssetsPage() {
     owner: "", location: "", notes: "",
   });
 
+  const [error, setError] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [aRes, cRes, countRes] = await Promise.all([
-        fetch(`/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`),
-        fetch("/api/tc/assets/categories"),
-        fetch("/api/tc/assets/counts"),
+        fetch(`/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`, { signal: AbortSignal.timeout(10000) }),
+        fetch("/api/tc/assets/categories", { signal: AbortSignal.timeout(10000) }),
+        fetch("/api/tc/assets/counts", { signal: AbortSignal.timeout(10000) }),
       ]);
       const aData = await aRes.json();
       const cData = await cRes.json();
@@ -125,7 +128,10 @@ export default function AssetsPage() {
       const m: Record<string, number> = {};
       for (const c of countData.counts || []) m[c.category] = c.count;
       setCounts(m);
-    } catch { /* */ }
+      setError(null);
+    } catch {
+      setError("Backend non accessible — verifiez que le service tourne");
+    }
     setLoading(false);
   }, [activeTab]);
 
@@ -214,6 +220,8 @@ export default function AssetsPage() {
           <button onClick={loadData} style={btnSecondary}><RefreshCw size={12} /></button>
         </div>
       </div>
+
+      {error && <ErrorBanner message={error} onRetry={loadData} />}
 
       {/* Category tabs */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "16px", flexWrap: "wrap" }}>

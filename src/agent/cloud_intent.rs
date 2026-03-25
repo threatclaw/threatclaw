@@ -143,8 +143,8 @@ pub async fn execute_intent(
 
     match &intent.action {
         IntentAction::Status => {
-            let findings = store.list_findings(None, Some("open"), None, 10).await.unwrap_or_default();
-            let alerts = store.list_alerts(None, Some("new"), 10).await.unwrap_or_default();
+            let findings = store.list_findings(None, Some("open"), None, 10, 0).await.unwrap_or_default();
+            let alerts = store.list_alerts(None, Some("new"), 10, 0).await.unwrap_or_default();
             let stats = crate::graph::asset_resolution::asset_stats(store).await;
             let assets = stats["total_assets"].as_i64().unwrap_or(0);
             format!(
@@ -241,7 +241,7 @@ pub async fn execute_intent(
         }
 
         IntentAction::ShowFindings { severity } => {
-            let findings = store.list_findings(severity.as_deref(), Some("open"), None, 5).await.unwrap_or_default();
+            let findings = store.list_findings(severity.as_deref(), Some("open"), None, 5, 0).await.unwrap_or_default();
             if findings.is_empty() {
                 "Aucun finding ouvert.".into()
             } else {
@@ -254,7 +254,7 @@ pub async fn execute_intent(
         }
 
         IntentAction::ShowAlerts => {
-            let alerts = store.list_alerts(None, Some("new"), 5).await.unwrap_or_default();
+            let alerts = store.list_alerts(None, Some("new"), 5, 0).await.unwrap_or_default();
             if alerts.is_empty() {
                 "Aucune alerte active.".into()
             } else {

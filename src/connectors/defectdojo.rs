@@ -44,7 +44,7 @@ pub async fn export_findings(store: &dyn Database, config: &DefectDojoConfig) ->
     };
 
     // Fetch open findings from ThreatClaw
-    let findings = store.list_findings(None, Some("open"), None, 200).await.unwrap_or_default();
+    let findings = store.list_findings(None, Some("open"), None, 200, 0).await.unwrap_or_default();
 
     if findings.is_empty() {
         tracing::info!("DEFECTDOJO: No open findings to export");

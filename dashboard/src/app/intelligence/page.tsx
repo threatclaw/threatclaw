@@ -10,6 +10,7 @@ import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import GraphVisualization from "@/components/chrome/GraphVisualization";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 
 // ── Types ──
 
@@ -161,24 +162,30 @@ export default function IntelligencePage() {
   const [blast, setBlast] = useState<BlastRadius | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [lat, camp, paths, act, ident, stats] = await Promise.all([
-      fetchJson<LateralAnalysis>(`${API}/lateral`),
-      fetchJson<CampaignAnalysis>(`${API}/campaigns`),
-      fetchJson<AttackPathAnalysis>(`${API}/attack-paths`),
-      fetchJson<ThreatActorAnalysis>(`${API}/threat-actors`),
-      fetchJson<IdentityAnalysis>(`${API}/identity`),
-      fetchJson<AssetStats>(`${API}/assets/stats`),
-    ]);
-    setLateral(lat);
-    setCampaigns(camp);
-    setAttackPaths(paths);
-    setActors(act);
-    setIdentity(ident);
-    setAssetStats(stats);
-    setLastRefresh(new Date().toLocaleTimeString());
+    try {
+      const [lat, camp, paths, act, ident, stats] = await Promise.all([
+        fetchJson<LateralAnalysis>(`${API}/lateral`),
+        fetchJson<CampaignAnalysis>(`${API}/campaigns`),
+        fetchJson<AttackPathAnalysis>(`${API}/attack-paths`),
+        fetchJson<ThreatActorAnalysis>(`${API}/threat-actors`),
+        fetchJson<IdentityAnalysis>(`${API}/identity`),
+        fetchJson<AssetStats>(`${API}/assets/stats`),
+      ]);
+      setLateral(lat);
+      setCampaigns(camp);
+      setAttackPaths(paths);
+      setActors(act);
+      setIdentity(ident);
+      setAssetStats(stats);
+      setLastRefresh(new Date().toLocaleTimeString());
+      setError(null);
+    } catch {
+      setError("Backend non accessible — verifiez que le service tourne");
+    }
     setLoading(false);
   }, []);
 
@@ -208,6 +215,8 @@ export default function IntelligencePage() {
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualiser
         </EmbossedButton>
       </div>
+
+      {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       {/* Top stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "20px" }}>
