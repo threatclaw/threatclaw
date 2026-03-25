@@ -316,7 +316,7 @@ export default function GraphVisualization() {
       setError(e.message || "Erreur");
     }
     setLoading(false);
-  }, [fullscreen, simplified, selectedNode]);
+  }, [fullscreen, simplified]);
 
   useEffect(() => {
     loadAndRender();
