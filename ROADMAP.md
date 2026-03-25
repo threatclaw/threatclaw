@@ -469,6 +469,12 @@
 - [x] F-9: Cypher injection via webhook → couvert par F-2
 - [x] F-10: Nmap timing injection → allowlist ["T0"..."T5"]
 
+### Dépendances — à planifier
+- [ ] **wasmtime 36→43** — migration WASM runtime (1-2j). Tagué "security-critical" par Dependabot mais pas de CVE connue sur v36. L'API change entre versions majeures → nécessite réécriture partielle de `src/tools/wasm/runtime.rs`. À faire sur une branche séparée.
+- [ ] **tailwindcss 3→4** — version majeure, config incompatible. Dashboard fonctionne en v3.
+- [ ] **Node Docker 20→22 LTS** — passer à la prochaine LTS (pas 25 qui n'est pas LTS)
+- [ ] **secret-service 4→5** — à tester sur une branche
+
 ---
 
 ## Architecture Skills Unifiée
