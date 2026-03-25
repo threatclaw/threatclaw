@@ -39,6 +39,18 @@ export default function GraphVisualization() {
   const [selectedNode, setSelectedNode] = useState<NodeDetail | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
 
+  // ESC key handler
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedNode) setSelectedNode(null);
+        else if (fullscreen) setFullscreen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedNode, fullscreen]);
+
   // Store raw data for panel lookups
   const nodesDataRef = useRef<Map<string, any>>(new Map());
   const edgesDataRef = useRef<any[]>([]);
@@ -161,7 +173,7 @@ export default function GraphVisualization() {
       const graph = new Graph({
         container: "g6-container",
         width: w,
-        height: fullscreen ? window.innerHeight - 100 : 450,
+        height: fullscreen ? window.innerHeight - 60 : 450,
         autoFit: "view",
         padding: 40,
         data: { nodes, edges: edgeList },
@@ -179,7 +191,7 @@ export default function GraphVisualization() {
             stroke: (d: any) => NODE_STYLES[d.data?.nodeType]?.color || "#888",
             lineWidth: 2, radius: 6,
             labelText: (d: any) => d.data?.label || d.id,
-            labelFontSize: 10, labelFill: isLight ? "#333" : "#ccc",
+            labelFontSize: 11, labelFontWeight: 600, labelFill: isLight ? "#111" : "#eee",
             labelPlacement: "bottom", labelOffsetY: 8, labelFontFamily: "Inter, sans-serif",
           },
           state: {
@@ -193,7 +205,13 @@ export default function GraphVisualization() {
             stroke: (d: any) => EDGE_COLORS[d.data?.edgeType] || "rgba(150,150,150,0.4)",
             lineWidth: 2, endArrow: true, endArrowSize: 8,
             labelText: (d: any) => d.data?.edgeType || "",
-            labelFontSize: 8, labelFill: isLight ? "#555" : "#aaa", labelFontFamily: "Inter, sans-serif",
+            labelFontSize: 10, labelFontWeight: 600,
+            labelFill: isLight ? "#222" : "#ddd",
+            labelBackground: true,
+            labelBackgroundFill: isLight ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)",
+            labelBackgroundRadius: 3,
+            labelPadding: [1, 4, 1, 4],
+            labelFontFamily: "Inter, sans-serif",
           },
           state: {
             active: { lineWidth: 3 },
@@ -247,6 +265,9 @@ export default function GraphVisualization() {
           tactic: d.tactic, classification: d.classification, relations: rels,
         });
       });
+
+      // Click on canvas background to close panel
+      graph.on("canvas:click", () => setSelectedNode(null));
 
       await graph.render();
       graphRef.current = graph;
@@ -313,7 +334,7 @@ export default function GraphVisualization() {
       <div style={{ display: "flex", gap: 0 }}>
         {/* Graph */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div id="g6-container" style={{ width: "100%", minHeight: loading || stats.nodes === 0 ? 0 : fullscreen ? "calc(100vh - 100px)" : 450 }} />
+          <div id="g6-container" style={{ width: "100%", minHeight: loading || stats.nodes === 0 ? 0 : fullscreen ? "calc(100vh - 60px)" : 450 }} />
         </div>
 
         {/* Side detail panel */}
