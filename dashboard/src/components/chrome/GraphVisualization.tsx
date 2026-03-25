@@ -1,345 +1,185 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 
-interface GraphNode {
-  id: string;
-  label: string;
-  type: "ip" | "asset" | "cve" | "technique" | "actor" | "campaign";
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
+// Dynamic import — react-force-graph uses canvas, no SSR
+const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
 
-interface GraphEdge {
-  source: string;
-  target: string;
-  label: string;
-}
-
+// ── STIX color scheme ──
 const NODE_COLORS: Record<string, string> = {
-  ip: "#d03020",
-  asset: "#3080d0",
-  cve: "#d09020",
-  technique: "#9060d0",
-  actor: "#d06020",
-  campaign: "#30a050",
+  ip: "#e04040", asset: "#3080d0", cve: "#d09020",
+  technique: "#9060d0", actor: "#d06020", campaign: "#30a050",
 };
 
-const NODE_RADIUS: Record<string, number> = {
-  ip: 8, asset: 10, cve: 7, technique: 6, actor: 9, campaign: 8,
+const NODE_SIZES: Record<string, number> = {
+  ip: 6, asset: 8, cve: 5, technique: 4, actor: 7, campaign: 6,
 };
+
+const EDGE_COLORS: Record<string, string> = {
+  ATTACKS: "#e04040", AFFECTS: "#d09020", LATERAL: "#d06020",
+  USES: "#9060d0", PART_OF: "#30a050",
+};
+
+interface GNode { id: string; label: string; type: string; val: number; color: string; extra?: Record<string, string | number>; }
+interface GLink { source: string; target: string; label: string; color: string; }
 
 export default function GraphVisualization() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [nodes, setNodes] = useState<GraphNode[]>([]);
-  const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const graphRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [graphData, setGraphData] = useState<{ nodes: GNode[]; links: GLink[] }>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
-  const [hovered, setHovered] = useState<GraphNode | null>(null);
-  const [dragging, setDragging] = useState<GraphNode | null>(null);
-  const animRef = useRef<number>(0);
-  const nodesRef = useRef<GraphNode[]>([]);
+  const [hoverNode, setHoverNode] = useState<GNode | null>(null);
+  const [dims, setDims] = useState({ w: 600, h: 400 });
 
-  // Fetch graph data
+  useEffect(() => {
+    const update = () => { if (containerRef.current) setDims({ w: containerRef.current.clientWidth - 32, h: 400 }); };
+    update(); window.addEventListener("resize", update); return () => window.removeEventListener("resize", update);
+  }, []);
+
   const loadGraph = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch IPs, assets, CVEs from the graph
-      const [ipsRes, assetsRes] = await Promise.all([
-        fetch("/api/tc/graph/query", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cypher: "MATCH (ip:IP)-[a:ATTACKS]->(asset:Asset) RETURN ip.addr, asset.hostname, asset.id, a.method LIMIT 50" }),
-        }),
-        fetch("/api/tc/graph/query", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cypher: "MATCH (c:CVE)-[:AFFECTS]->(a:Asset) RETURN c.id, a.id, a.hostname LIMIT 30" }),
-        }),
+      const [r1, r2] = await Promise.all([
+        fetch("/api/tc/graph/query", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cypher: "MATCH (ip:IP)-[a:ATTACKS]->(asset:Asset) RETURN ip.addr, asset.hostname, asset.id, asset.type, asset.criticality, a.method LIMIT 100" }),
+          signal: AbortSignal.timeout(10000) }),
+        fetch("/api/tc/graph/query", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cypher: "MATCH (c:CVE)-[:AFFECTS]->(a:Asset) RETURN c.id, c.cvss, a.id, a.hostname LIMIT 50" }),
+          signal: AbortSignal.timeout(10000) }),
       ]);
+      const d1 = await r1.json(), d2 = await r2.json();
+      const nm = new Map<string, GNode>(); const ll: GLink[] = [];
+      const strip = (s: any) => typeof s === "string" ? s.replace(/"/g, "") : String(s || "");
 
-      const ipsData = await ipsRes.json();
-      const assetsData = await assetsRes.json();
-
-      const nodeMap = new Map<string, GraphNode>();
-      const edgeList: GraphEdge[] = [];
-      const W = 600, H = 400;
-
-      // Process attack edges
-      for (const r of (ipsData.results || [])) {
-        const ipAddr = r["ip.addr"] || "";
-        const assetId = r["asset.id"] || r["asset.hostname"] || "";
-        const method = r["a.method"] || "attacks";
-
-        if (ipAddr && !nodeMap.has(ipAddr)) {
-          nodeMap.set(ipAddr, {
-            id: ipAddr, label: ipAddr, type: "ip",
-            x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0,
-          });
+      for (const r of (d1.results || [])) {
+        const ip = strip(r["ip.addr"]), aid = strip(r["asset.id"]), ah = strip(r["asset.hostname"]) || aid;
+        const crit = strip(r["asset.criticality"]) || "medium";
+        if (ip && !nm.has(ip)) nm.set(ip, { id: ip, label: ip, type: "ip", val: NODE_SIZES.ip, color: NODE_COLORS.ip, extra: { type: "IP" } });
+        if (aid && !nm.has(aid)) {
+          const sz = crit === "critical" ? 12 : crit === "high" ? 10 : 8;
+          nm.set(aid, { id: aid, label: ah.length > 20 ? ah.slice(0, 18) + "…" : ah, type: "asset", val: sz, color: NODE_COLORS.asset, extra: { criticality: crit, hostname: ah } });
         }
-        if (assetId && !nodeMap.has(assetId)) {
-          nodeMap.set(assetId, {
-            id: assetId, label: r["asset.hostname"] || assetId, type: "asset",
-            x: W / 2 + (Math.random() - 0.5) * 200, y: H / 2 + (Math.random() - 0.5) * 200, vx: 0, vy: 0,
-          });
-        }
-        if (ipAddr && assetId) {
-          edgeList.push({ source: ipAddr, target: assetId, label: method });
+        if (ip && aid) {
+          const lateral = ip.startsWith("192.168.") || ip.startsWith("10.");
+          ll.push({ source: ip, target: aid, label: lateral ? "LATERAL" : "ATTACKS", color: lateral ? EDGE_COLORS.LATERAL : EDGE_COLORS.ATTACKS });
         }
       }
-
-      // Process CVE edges
-      for (const r of (assetsData.results || [])) {
-        const cveId = r["c.id"] || "";
-        const assetId = r["a.id"] || r["a.hostname"] || "";
-
-        if (cveId && !nodeMap.has(cveId)) {
-          nodeMap.set(cveId, {
-            id: cveId, label: cveId, type: "cve",
-            x: Math.random() * W, y: Math.random() * H, vx: 0, vy: 0,
-          });
-        }
-        if (assetId && !nodeMap.has(assetId)) {
-          nodeMap.set(assetId, {
-            id: assetId, label: r["a.hostname"] || assetId, type: "asset",
-            x: W / 2 + (Math.random() - 0.5) * 200, y: H / 2 + (Math.random() - 0.5) * 200, vx: 0, vy: 0,
-          });
-        }
-        if (cveId && assetId) {
-          edgeList.push({ source: cveId, target: assetId, label: "affects" });
-        }
+      for (const r of (d2.results || [])) {
+        const cid = strip(r["c.id"]), cvss = parseFloat(r["c.cvss"]) || 0, aid = strip(r["a.id"]), ah = strip(r["a.hostname"]);
+        if (cid && !nm.has(cid)) nm.set(cid, { id: cid, label: cid, type: "cve", val: Math.max(3, cvss), color: NODE_COLORS.cve, extra: { cvss: cvss.toFixed(1) } });
+        if (aid && !nm.has(aid)) nm.set(aid, { id: aid, label: ah || aid.slice(0, 12), type: "asset", val: NODE_SIZES.asset, color: NODE_COLORS.asset });
+        if (cid && aid) ll.push({ source: cid, target: aid, label: "AFFECTS", color: EDGE_COLORS.AFFECTS });
       }
-
-      const nodeList = Array.from(nodeMap.values());
-      setNodes(nodeList);
-      setEdges(edgeList);
-      nodesRef.current = nodeList;
-    } catch {}
+      // Deduplicate links
+      const seen = new Set<string>();
+      const links = ll.filter(l => { const k = `${l.source}-${l.target}-${l.label}`; if (seen.has(k)) return false; seen.add(k); return true; });
+      setGraphData({ nodes: Array.from(nm.values()), links });
+    } catch (e) { console.error("Graph:", e); }
     setLoading(false);
   }, []);
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
-  // Force-directed simulation
-  useEffect(() => {
-    if (nodes.length === 0) return;
-
-    const W = 600, H = 400;
-    const nodesCopy = [...nodes];
-    nodesRef.current = nodesCopy;
-
-    const tick = () => {
-      const ns = nodesRef.current;
-      const damping = 0.92;
-      const repulsion = 800;
-      const attraction = 0.005;
-      const centerForce = 0.01;
-
-      // Repulsion between all nodes
-      for (let i = 0; i < ns.length; i++) {
-        for (let j = i + 1; j < ns.length; j++) {
-          const dx = ns[j].x - ns[i].x;
-          const dy = ns[j].y - ns[i].y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = repulsion / (dist * dist);
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          ns[i].vx -= fx; ns[i].vy -= fy;
-          ns[j].vx += fx; ns[j].vy += fy;
-        }
-      }
-
-      // Attraction along edges
-      for (const e of edges) {
-        const src = ns.find(n => n.id === e.source);
-        const tgt = ns.find(n => n.id === e.target);
-        if (!src || !tgt) continue;
-        const dx = tgt.x - src.x;
-        const dy = tgt.y - src.y;
-        const fx = dx * attraction;
-        const fy = dy * attraction;
-        src.vx += fx; src.vy += fy;
-        tgt.vx -= fx; tgt.vy -= fy;
-      }
-
-      // Center gravity
-      for (const n of ns) {
-        n.vx += (W / 2 - n.x) * centerForce;
-        n.vy += (H / 2 - n.y) * centerForce;
-      }
-
-      // Update positions
-      for (const n of ns) {
-        if (dragging && n.id === dragging.id) continue;
-        n.vx *= damping; n.vy *= damping;
-        n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(20, Math.min(W - 20, n.x));
-        n.y = Math.max(20, Math.min(H - 20, n.y));
-      }
-
-      // Draw
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      // High-DPI: scale canvas buffer for crisp rendering on Retina
-      const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
-        canvas.width = W * dpr;
-        canvas.height = H * dpr;
-      }
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-      // Clear
-      ctx.clearRect(0, 0, W, H);
-
-      // Edges
-      const isLight = document.documentElement.getAttribute("data-theme") === "light";
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.1)";
-      for (const e of edges) {
-        const src = ns.find(n => n.id === e.source);
-        const tgt = ns.find(n => n.id === e.target);
-        if (!src || !tgt) continue;
-        ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
-        ctx.stroke();
-      }
-
-      // Nodes
-      for (const n of ns) {
-        const r = NODE_RADIUS[n.type] || 8;
-        const color = NODE_COLORS[n.type] || "#888";
-        const isHov = hovered?.id === n.id;
-
-        // Glow
-        if (isHov) {
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
-          ctx.fillStyle = color + "40";
-          ctx.fill();
-        }
-
-        // Circle
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = isHov ? (isLight ? "#000" : "#fff") : color + "80";
-        ctx.lineWidth = isHov ? 2 : 1;
-        ctx.stroke();
-
-        // Label
-        ctx.fillStyle = isLight ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.7)";
-        ctx.font = "9px Inter, sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(n.label.substring(0, 20), n.x, n.y + r + 12);
-      }
-
-      // Hovered tooltip
-      if (hovered) {
-        const n = ns.find(nd => nd.id === hovered.id);
-        if (n) {
-          ctx.fillStyle = "rgba(0,0,0,0.8)";
-          ctx.roundRect(n.x + 15, n.y - 15, Math.max(n.label.length * 7, 80), 24, 4);
-          ctx.fill();
-          ctx.fillStyle = "#fff";
-          ctx.font = "11px Inter, sans-serif";
-          ctx.textAlign = "left";
-          ctx.fillText(`${n.type.toUpperCase()}: ${n.label}`, n.x + 20, n.y + 2);
-        }
-      }
-
-      animRef.current = requestAnimationFrame(tick);
-    };
-
-    animRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [nodes, edges, hovered, dragging]);
-
-  // Mouse interaction — convert CSS coords to canvas internal coords
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    };
-  };
-
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { x: mx, y: my } = getCanvasCoords(e);
-
-    if (dragging) {
-      const n = nodesRef.current.find(nd => nd.id === dragging.id);
-      if (n) { n.x = mx; n.y = my; n.vx = 0; n.vy = 0; }
-      return;
+  // ── Custom renderers ──
+  const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, gs: number) => {
+    const r = node.val || 5; const hov = hoverNode?.id === node.id;
+    if (hov) { ctx.beginPath(); ctx.arc(node.x, node.y, r + 4, 0, Math.PI * 2); ctx.fillStyle = node.color + "40"; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = node.color; ctx.fill();
+    ctx.strokeStyle = hov ? "#fff" : node.color + "60"; ctx.lineWidth = hov ? 2 : 0.5; ctx.stroke();
+    if (gs > 0.6) {
+      const light = document.documentElement.getAttribute("data-theme") === "light";
+      ctx.fillStyle = light ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.7)";
+      ctx.font = `${Math.max(3, 10 / gs)}px Inter, sans-serif`; ctx.textAlign = "center";
+      const lbl = (node.label || "").length > 16 ? node.label.slice(0, 14) + "…" : node.label;
+      ctx.fillText(lbl, node.x, node.y + r + 10 / gs);
     }
+  }, [hoverNode]);
 
-    const found = nodesRef.current.find(n => {
-      const r = NODE_RADIUS[n.type] || 8;
-      return Math.sqrt((n.x - mx) ** 2 + (n.y - my) ** 2) < r + 4;
+  const paintLink = useCallback((link: any, ctx: CanvasRenderingContext2D, gs: number) => {
+    const s = link.source, t = link.target; if (!s?.x || !t?.x) return;
+    const dx = t.x - s.x, dy = t.y - s.y, dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    // Line
+    ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(t.x, t.y);
+    ctx.strokeStyle = link.color || "rgba(150,150,150,0.3)"; ctx.lineWidth = 1.5 / gs; ctx.stroke();
+    // Arrow
+    const endR = t.val || 5; const al = 6 / gs; const angle = Math.atan2(dy, dx);
+    const ax = t.x - (dx / dist) * (endR + 3), ay = t.y - (dy / dist) * (endR + 3);
+    ctx.beginPath(); ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - al * Math.cos(angle - Math.PI / 6), ay - al * Math.sin(angle - Math.PI / 6));
+    ctx.lineTo(ax - al * Math.cos(angle + Math.PI / 6), ay - al * Math.sin(angle + Math.PI / 6));
+    ctx.closePath(); ctx.fillStyle = link.color || "rgba(150,150,150,0.5)"; ctx.fill();
+    // Label on zoom
+    if (gs > 1.2) {
+      ctx.fillStyle = "rgba(150,150,150,0.5)"; ctx.font = `${Math.max(2, 8 / gs)}px Inter, sans-serif`; ctx.textAlign = "center";
+      ctx.fillText(link.label || "", (s.x + t.x) / 2, (s.y + t.y) / 2 - 3 / gs);
+    }
+  }, []);
+
+  // Tooltip
+  const tooltip = useMemo(() => {
+    if (!hoverNode) return null;
+    const ex = hoverNode.extra || {};
+    const rels = graphData.links.filter(l => {
+      const sid = typeof l.source === "object" ? (l.source as any).id : l.source;
+      const tid = typeof l.target === "object" ? (l.target as any).id : l.target;
+      return sid === hoverNode.id || tid === hoverNode.id;
     });
-    setHovered(found || null);
-  }, [dragging]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (hovered) { setDragging(hovered); e.preventDefault(); }
-  }, [hovered]);
-
-  const handleMouseUp = useCallback(() => { setDragging(null); }, []);
+    return (
+      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 10, background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", padding: "10px 12px", fontSize: "10px", color: "var(--tc-text)", minWidth: 160, boxShadow: "0 4px 12px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 4, color: hoverNode.color }}>{hoverNode.label}</div>
+        <div style={{ color: "var(--tc-text-muted)", textTransform: "uppercase", fontSize: 8, letterSpacing: "0.05em", marginBottom: 6 }}>{hoverNode.type}</div>
+        {Object.entries(ex).map(([k, v]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+            <span style={{ color: "var(--tc-text-muted)" }}>{k}</span>
+            <span style={{ fontWeight: 600 }}>{String(v)}</span>
+          </div>
+        ))}
+        <div style={{ color: "var(--tc-text-muted)", marginTop: 4, fontSize: 9 }}>{rels.length} relation(s)</div>
+      </div>
+    );
+  }, [hoverNode, graphData.links]);
 
   return (
-    <div style={{
-      background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-      borderRadius: "var(--tc-radius-card)", padding: "16px", position: "relative",
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
-        <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          Graphe d&apos;attaque
-        </span>
-        <div style={{ display: "flex", gap: "10px", fontSize: "9px" }}>
+    <div ref={containerRef} style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px", position: "relative" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Graphe d&apos;attaque</span>
+        <div style={{ display: "flex", gap: 10, fontSize: 9 }}>
           {Object.entries(NODE_COLORS).map(([type, color]) => (
-            <span key={type} style={{ display: "flex", alignItems: "center", gap: "3px", color: "var(--tc-text-muted)" }}>
-              <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: color, display: "inline-block" }} />
-              {type}
+            <span key={type} style={{ display: "flex", alignItems: "center", gap: 3, color: "var(--tc-text-muted)" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: color, display: "inline-block" }} /> {type}
             </span>
           ))}
         </div>
       </div>
 
-      {loading && (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--tc-text-muted)", fontSize: "12px" }}>
-          Chargement du graphe...
-        </div>
-      )}
+      {loading && <div style={{ textAlign: "center", padding: "60px 0", color: "var(--tc-text-muted)", fontSize: 12 }}>Chargement du graphe...</div>}
+      {!loading && graphData.nodes.length === 0 && <div style={{ textAlign: "center", padding: "60px 0", color: "var(--tc-text-muted)", fontSize: 12 }}>Aucune donnée. Lancez un test ou activez des connecteurs.</div>}
 
-      {!loading && nodes.length === 0 && (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--tc-text-faint)", fontSize: "12px" }}>
-          Aucune donnee dans le graphe. Lancez un test ou activez des connecteurs.
-        </div>
-      )}
-
-      {!loading && nodes.length > 0 && (
-        <canvas
-          ref={canvasRef}
-          width={600} height={400}
-          style={{ width: "100%", height: "auto", cursor: dragging ? "grabbing" : hovered ? "grab" : "default" }}
-          onMouseMove={handleMouseMove}
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        />
-      )}
-
-      {!loading && nodes.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-          <span>{nodes.length} noeuds &middot; {edges.length} relations</span>
-          <span>Glissez les noeuds pour reorganiser</span>
+      {!loading && graphData.nodes.length > 0 && (
+        <div style={{ position: "relative" }}>
+          {tooltip}
+          <ForceGraph2D
+            ref={graphRef}
+            graphData={graphData}
+            width={dims.w} height={dims.h}
+            backgroundColor="transparent"
+            nodeCanvasObject={paintNode}
+            nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
+              ctx.beginPath(); ctx.arc(node.x, node.y, (node.val || 5) + 4, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill();
+            }}
+            linkCanvasObject={paintLink}
+            linkDirectionalArrowLength={0}
+            onNodeHover={(node: any) => setHoverNode(node || null)}
+            onNodeClick={(node: any) => { if (graphRef.current) { graphRef.current.centerAt(node.x, node.y, 500); graphRef.current.zoom(2.5, 500); } }}
+            d3AlphaDecay={0.01}
+            d3VelocityDecay={0.3}
+            cooldownTicks={200}
+          />
+          <div style={{ fontSize: 9, color: "var(--tc-text-muted)", marginTop: 6, textAlign: "center" }}>
+            {graphData.nodes.length} noeuds · {graphData.links.length} relations — clic = zoom, molette = zoom, glisser = déplacer
+          </div>
         </div>
       )}
     </div>
