@@ -8,10 +8,8 @@ async function proxyRequest(req: NextRequest) {
   const url = new URL(req.url);
   const fullPath = url.pathname;
   const tcPath = fullPath.replace(/^\/api\/tc\//, "");
-  // Forward with token — either from env or from query param
-  const separator = url.search ? "&" : "?";
-  const tokenParam = CORE_TOKEN ? `${separator}token=${CORE_TOKEN}` : "";
-  const targetUrl = `${CORE_URL}/api/tc/${tcPath}${url.search}${tokenParam}`;
+  // Forward request — token is sent only via Authorization header
+  const targetUrl = `${CORE_URL}/api/tc/${tcPath}${url.search}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

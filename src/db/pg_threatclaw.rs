@@ -441,15 +441,10 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let data_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
-        // Full raw SQL — avoid all parameter serialization issues
-        let sql = format!(
-            "INSERT INTO logs (tag, hostname, data, time) VALUES ('{}', '{}', '{}'::jsonb, '{}'::timestamptz) RETURNING id",
-            tag.replace('\'', "''"),
-            hostname.replace('\'', "''"),
-            data_str.replace('\'', "''"),
-            time.replace('\'', "''"),
-        );
-        let row = conn.query_one(&*sql, &[]).await.map_err(query_err)?;
+        let row = conn.query_one(
+            "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3::jsonb, $4::timestamptz) RETURNING id",
+            &[&tag, &hostname, &data_str, &time],
+        ).await.map_err(query_err)?;
         Ok(row.get(0))
     }
 
@@ -464,29 +459,27 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Ensure the rule exists (create a stub if not)
-        let esc = |s: &str| s.replace('\'', "''");
-        let rule_sql = format!(
-            "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) VALUES ('{}', '{}', '{}', 'title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test', '{{}}'::jsonb, true) ON CONFLICT (id) DO NOTHING",
-            esc(rule_id), esc(title), esc(level), esc(title), esc(level),
-        );
-        conn.execute(&*rule_sql, &[]).await.map_err(query_err)?;
+        let rule_yaml = format!("title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test", title, level);
+        let empty_json = serde_json::json!({});
+        conn.execute(
+            "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) VALUES ($1, $2, $3, $4, $5::jsonb, true) ON CONFLICT (id) DO NOTHING",
+            &[&rule_id, &title, &level, &rule_yaml, &empty_json],
+        ).await.map_err(query_err)?;
 
-        // Full raw SQL to avoid parameter serialization issues
-        let esc = |s: &str| s.replace('\'', "''");
-        let ip_part = match source_ip {
-            Some(ip) if !ip.is_empty() => format!(", source_ip") ,
-            _ => String::new(),
-        };
-        let ip_val = match source_ip {
-            Some(ip) if !ip.is_empty() => format!(", '{}'::inet", esc(ip)),
-            _ => String::new(),
-        };
         let user_str = username.unwrap_or("");
-        let sql = format!(
-            "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status{}) VALUES ('{}', '{}', '{}', '{}', '{}', 'new'{}) RETURNING id",
-            ip_part, esc(rule_id), esc(level), esc(title), esc(hostname), esc(user_str), ip_val,
-        );
-        let row = conn.query_one(&*sql, &[]).await.map_err(query_err)?;
+        let ip_filtered: Option<&str> = source_ip.filter(|ip| !ip.is_empty());
+
+        let row = if let Some(ip) = ip_filtered {
+            conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip) VALUES ($1, $2, $3, $4, $5, 'new', $6::inet) RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str, &ip],
+            ).await.map_err(query_err)?
+        } else {
+            conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status) VALUES ($1, $2, $3, $4, $5, 'new') RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str],
+            ).await.map_err(query_err)?
+        };
         Ok(row.get(0))
     }
 
@@ -607,23 +600,16 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let response_str = response_json.map(|v| serde_json::to_string(v).unwrap_or_default());
-        let esc = |s: &str| s.replace('\'', "''");
-
         let response_jsonb = response_str.as_deref().unwrap_or("null");
-        let raw = raw_response.map(|r| esc(&r.chars().take(2000).collect::<String>())).unwrap_or_default();
+        let raw: String = raw_response.map(|r| r.chars().take(2000).collect::<String>()).unwrap_or_default();
         let sev = severity.unwrap_or("");
         let conf = confidence.unwrap_or(0.0);
 
-        let sql = format!(
+        conn.execute(
             "INSERT INTO llm_training_data (model, prompt_hash, prompt_length, response_json, raw_response, parsing_ok, parsing_method, severity, confidence, actions_count, escalation, cycle_duration_ms, observations_count) \
-             VALUES ('{}', '{}', {}, '{}'::jsonb, '{}', {}, '{}', '{}', {}, {}, '{}', {}, {})",
-            esc(model), esc(prompt_hash), prompt_length,
-            esc(response_jsonb), raw,
-            parsing_ok, esc(parsing_method), esc(sev), conf,
-            actions_count, esc(escalation), cycle_duration_ms, observations_count,
-        );
-
-        conn.execute(&*sql, &[]).await.map_err(query_err)?;
+             VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+            &[&model, &prompt_hash, &prompt_length, &response_jsonb, &raw, &parsing_ok, &parsing_method, &sev, &conf, &actions_count, &escalation, &cycle_duration_ms, &observations_count],
+        ).await.map_err(query_err)?;
         Ok(())
     }
 
@@ -638,13 +624,10 @@ impl ThreatClawStore for PgBackend {
         limit: i64,
     ) -> Result<Vec<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let mut conditions = vec![];
-        let esc = |s: &str| s.replace('\'', "''");
-        if let Some(c) = category { conditions.push(format!("category = '{}'", esc(c))); }
-        if let Some(s) = status { conditions.push(format!("status = '{}'", esc(s))); }
-        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
-        let sql = format!("SELECT * FROM assets {} ORDER BY criticality DESC, last_seen DESC LIMIT {}", where_clause, limit);
-        let rows = conn.query(&*sql, &[]).await.map_err(query_err)?;
+        let category_owned = category.map(|s| s.to_string());
+        let status_owned = status.map(|s| s.to_string());
+        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) ORDER BY criticality DESC, last_seen DESC LIMIT $3";
+        let rows = conn.query(sql, &[&category_owned, &status_owned, &limit]).await.map_err(query_err)?;
         Ok(rows.iter().map(|r| parse_asset_row(r)).collect())
     }
 

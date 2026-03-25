@@ -24,10 +24,30 @@ pub struct SuricataSyncResult {
     pub errors: Vec<String>,
 }
 
+/// Validate that a log path is within allowed directories and has no traversal.
+fn validate_log_path(path: &str) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
+    let path_str = canonical.to_str().unwrap_or("");
+    let allowed_prefixes = ["/opt/suricata/", "/var/log/", "/tmp/", "/srv/"];
+    if !allowed_prefixes.iter().any(|p| path_str.starts_with(p)) {
+        return Err(format!("Path {} is outside allowed directories", path_str));
+    }
+    if path_str.contains("..") {
+        return Err("Path traversal detected".into());
+    }
+    Ok(())
+}
+
 pub async fn sync_suricata(store: &dyn Database, config: &SuricataConfig) -> SuricataSyncResult {
     let mut result = SuricataSyncResult {
         events_processed: 0, alerts_created: 0, dns_events: 0, flow_events: 0, errors: vec![],
     };
+
+    // Validate path before accessing filesystem
+    if let Err(e) = validate_log_path(&config.eve_json_path) {
+        result.errors.push(format!("Suricata path validation failed: {}", e));
+        return result;
+    }
 
     let path = Path::new(&config.eve_json_path);
     if !path.exists() {

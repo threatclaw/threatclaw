@@ -7,6 +7,24 @@ use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 use serde_json::json;
 
+/// Sanitize a value for use inside Cypher string literals.
+/// Strips all characters except safe alphanumerics and basic punctuation.
+fn sanitize_cypher_value(s: &str) -> String {
+    s.chars().filter(|c| c.is_alphanumeric() || " ._-,:/()+@".contains(*c)).collect()
+}
+
+/// Validate that a string looks like an IP address (v4 or v6).
+fn validate_ip(ip: &str) -> bool {
+    std::net::IpAddr::from_str(ip).is_ok() || ip.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':')
+}
+
+/// Validate an identifier (asset IDs, rule IDs, CVE IDs, MITRE IDs).
+fn validate_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_alphanumeric() || "-_.".contains(c))
+}
+
+use std::str::FromStr;
+
 /// Execute a Cypher query and return results.
 pub async fn query(store: &dyn Database, cypher: &str) -> Vec<serde_json::Value> {
     match store.execute_cypher(cypher).await {
@@ -35,46 +53,59 @@ pub async fn mutate(store: &dyn Database, cypher: &str) -> bool {
 
 /// Upsert an IP node with enrichment data.
 pub async fn upsert_ip(store: &dyn Database, addr: &str, country: Option<&str>, asn: Option<&str>, classification: Option<&str>) {
-    let esc = |s: &str| s.replace('\'', "");
-    let mut sets = vec![format!("ip.addr = '{}'", esc(addr))];
-    if let Some(c) = country { sets.push(format!("ip.country = '{}'", esc(c))); }
-    if let Some(a) = asn { sets.push(format!("ip.asn = '{}'", esc(a))); }
-    if let Some(c) = classification { sets.push(format!("ip.classification = '{}'", esc(c))); }
+    if !validate_ip(addr) {
+        tracing::warn!("GRAPH: Invalid IP address, skipping upsert: {}", &addr[..addr.len().min(40)]);
+        return;
+    }
+    let safe_addr = sanitize_cypher_value(addr);
+    let mut sets = vec![format!("ip.addr = '{}'", safe_addr)];
+    if let Some(c) = country { sets.push(format!("ip.country = '{}'", sanitize_cypher_value(c))); }
+    if let Some(a) = asn { sets.push(format!("ip.asn = '{}'", sanitize_cypher_value(a))); }
+    if let Some(c) = classification { sets.push(format!("ip.classification = '{}'", sanitize_cypher_value(c))); }
     sets.push(format!("ip.last_seen = '{}'", chrono::Utc::now().to_rfc3339()));
 
     let cypher = format!(
         "MERGE (ip:IP {{addr: '{}'}}) SET {} RETURN ip",
-        esc(addr), sets.join(", ")
+        safe_addr, sets.join(", ")
     );
     mutate(store, &cypher).await;
 }
 
 /// Upsert an Asset node.
 pub async fn upsert_asset(store: &dyn Database, id: &str, hostname: &str, asset_type: &str, criticality: &str) {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(id) {
+        tracing::warn!("GRAPH: Invalid asset ID, skipping upsert: {}", &id[..id.len().min(40)]);
+        return;
+    }
     let cypher = format!(
         "MERGE (a:Asset {{id: '{}'}}) SET a.hostname = '{}', a.type = '{}', a.criticality = '{}', a.last_seen = '{}' RETURN a",
-        esc(id), esc(hostname), esc(asset_type), esc(criticality), chrono::Utc::now().to_rfc3339()
+        sanitize_cypher_value(id), sanitize_cypher_value(hostname), sanitize_cypher_value(asset_type), sanitize_cypher_value(criticality), chrono::Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
 }
 
 /// Upsert a CVE node.
 pub async fn upsert_cve(store: &dyn Database, cve_id: &str, cvss: f64, epss: f64, in_kev: bool) {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(cve_id) {
+        tracing::warn!("GRAPH: Invalid CVE ID, skipping upsert: {}", &cve_id[..cve_id.len().min(40)]);
+        return;
+    }
     let cypher = format!(
         "MERGE (c:CVE {{id: '{}'}}) SET c.cvss = {}, c.epss = {}, c.in_kev = {} RETURN c",
-        esc(cve_id), cvss, epss, in_kev
+        sanitize_cypher_value(cve_id), cvss, epss, in_kev
     );
     mutate(store, &cypher).await;
 }
 
 /// Upsert a MITRE ATT&CK Technique node.
 pub async fn upsert_technique(store: &dyn Database, mitre_id: &str, name: &str, tactic: &str) {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(mitre_id) {
+        tracing::warn!("GRAPH: Invalid MITRE ID, skipping upsert: {}", &mitre_id[..mitre_id.len().min(40)]);
+        return;
+    }
     let cypher = format!(
         "MERGE (t:Technique {{mitre_id: '{}'}}) SET t.name = '{}', t.tactic = '{}' RETURN t",
-        esc(mitre_id), esc(name), esc(tactic)
+        sanitize_cypher_value(mitre_id), sanitize_cypher_value(name), sanitize_cypher_value(tactic)
     );
     mutate(store, &cypher).await;
 }
@@ -85,21 +116,27 @@ pub async fn upsert_technique(store: &dyn Database, mitre_id: &str, name: &str, 
 
 /// Record an attack: IP → ATTACKS → Asset
 pub async fn record_attack(store: &dyn Database, ip_addr: &str, asset_id: &str, method: &str) {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_ip(ip_addr) || !validate_id(asset_id) {
+        tracing::warn!("GRAPH: Invalid IP or asset ID in record_attack, skipping");
+        return;
+    }
     let cypher = format!(
         "MATCH (ip:IP {{addr: '{}'}}), (a:Asset {{id: '{}'}}) \
          CREATE (ip)-[:ATTACKS {{method: '{}', timestamp: '{}'}}]->(a)",
-        esc(ip_addr), esc(asset_id), esc(method), chrono::Utc::now().to_rfc3339()
+        sanitize_cypher_value(ip_addr), sanitize_cypher_value(asset_id), sanitize_cypher_value(method), chrono::Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
 }
 
 /// Record CVE affects Asset
 pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &str) {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(cve_id) || !validate_id(asset_id) {
+        tracing::warn!("GRAPH: Invalid CVE or asset ID in record_cve_affects, skipping");
+        return;
+    }
     let cypher = format!(
         "MATCH (c:CVE {{id: '{}'}}), (a:Asset {{id: '{}'}}) MERGE (c)-[:AFFECTS]->(a)",
-        esc(cve_id), esc(asset_id)
+        sanitize_cypher_value(cve_id), sanitize_cypher_value(asset_id)
     );
     mutate(store, &cypher).await;
 }
@@ -110,29 +147,29 @@ pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &s
 
 /// Find all IPs that have attacked a specific asset.
 pub async fn find_attackers(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(asset_id) { return vec![]; }
     query(store, &format!(
         "MATCH (ip:IP)-[att:ATTACKS]->(a:Asset {{id: '{}'}}) \
          RETURN ip.addr, ip.country, ip.classification, att.method",
-        esc(asset_id)
+        sanitize_cypher_value(asset_id)
     )).await
 }
 
 /// Find all CVEs affecting an asset (especially KEV).
 pub async fn find_asset_cves(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_id(asset_id) { return vec![]; }
     query(store, &format!(
         "MATCH (c:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) RETURN c.id, c.cvss, c.epss, c.in_kev",
-        esc(asset_id)
+        sanitize_cypher_value(asset_id)
     )).await
 }
 
 /// Find all assets attacked by a specific IP.
 pub async fn find_ip_targets(store: &dyn Database, ip_addr: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "");
+    if !validate_ip(ip_addr) { return vec![]; }
     query(store, &format!(
         "MATCH (ip:IP {{addr: '{}'}})-[:ATTACKS]->(a:Asset) RETURN a.id, a.hostname, a.criticality",
-        esc(ip_addr)
+        sanitize_cypher_value(ip_addr)
     )).await
 }
 

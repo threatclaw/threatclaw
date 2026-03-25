@@ -31,12 +31,32 @@ pub struct ZeekSyncResult {
     pub errors: Vec<String>,
 }
 
+/// Validate that a log path is within allowed directories and has no traversal.
+fn validate_log_path(path: &str) -> Result<(), String> {
+    let canonical = std::fs::canonicalize(path).map_err(|e| format!("Invalid path: {}", e))?;
+    let path_str = canonical.to_str().unwrap_or("");
+    let allowed_prefixes = ["/opt/zeek/", "/var/log/", "/tmp/", "/srv/"];
+    if !allowed_prefixes.iter().any(|p| path_str.starts_with(p)) {
+        return Err(format!("Path {} is outside allowed directories", path_str));
+    }
+    if path_str.contains("..") {
+        return Err("Path traversal detected".into());
+    }
+    Ok(())
+}
+
 pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncResult {
     let mut result = ZeekSyncResult {
         conn_entries: 0, dns_entries: 0, http_entries: 0,
         ssl_entries: 0, ssh_entries: 0,
         alerts_created: 0, assets_discovered: 0, errors: vec![],
     };
+
+    // Validate path before accessing filesystem
+    if let Err(e) = validate_log_path(&config.log_dir) {
+        result.errors.push(format!("Zeek path validation failed: {}", e));
+        return result;
+    }
 
     let log_dir = Path::new(&config.log_dir);
     if !log_dir.exists() {

@@ -28,7 +28,11 @@ pub async fn verify_token(store: &dyn Database, source: &str, token: &str) -> bo
 
     let key = format!("webhook_token_{}", source);
     match store.get_setting("webhook_ingest", &key).await {
-        Ok(Some(val)) => val.as_str().map(|s| s == token).unwrap_or(false),
+        Ok(Some(val)) => {
+            let stored = val.as_str().unwrap_or("");
+            use subtle::ConstantTimeEq;
+            stored.len() == token.len() && bool::from(stored.as_bytes().ct_eq(token.as_bytes()))
+        },
         _ => false,
     }
 }

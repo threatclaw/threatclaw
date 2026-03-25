@@ -50,17 +50,28 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
 
     tracing::info!("NMAP: Starting discovery scan on {}", config.targets);
 
+    // Validate timing template (prevent injection via -T flag)
+    let valid_timings = ["T0", "T1", "T2", "T3", "T4", "T5"];
+    let timing = if valid_timings.contains(&config.timing.as_str()) {
+        config.timing.clone()
+    } else {
+        tracing::warn!("NMAP: Invalid timing '{}', falling back to T3", config.timing);
+        "T3".to_string()
+    };
+
     // Validate targets (prevent injection)
     if !validate_targets(&config.targets) {
         result.errors.push("Invalid target format".into());
         return result;
     }
 
-    // Build nmap command
-    let xml_output = if config.use_docker {
-        run_nmap_docker(config).await
+    // Build nmap command with validated timing
+    let mut safe_config = config.clone();
+    safe_config.timing = timing;
+    let xml_output = if safe_config.use_docker {
+        run_nmap_docker(&safe_config).await
     } else {
-        run_nmap_local(config).await
+        run_nmap_local(&safe_config).await
     };
 
     let xml = match xml_output {
