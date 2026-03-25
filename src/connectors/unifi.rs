@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! UniFi Connector — import WiFi/network client inventory from UniFi Controller.
 //!
 //! API: POST /api/login → GET /api/s/{site}/stat/sta (active clients)

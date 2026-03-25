@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Zeek Connector — ingest Zeek JSON logs for network metadata.
 //!
 //! Zeek produces structured JSON logs: conn.log, dns.log, http.log, ssl.log, ssh.log, etc.
@@ -5,7 +6,7 @@
 //! Runs as a persistent skill — polls for new log entries every sync interval.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewFinding, NewAsset};
+use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -54,10 +55,10 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let src = entry["id.orig_h"].as_str().unwrap_or("");
                     let dst = entry["id.resp_h"].as_str().unwrap_or("");
                     let port = entry["id.resp_p"].as_i64().unwrap_or(0);
-                    let proto = entry["proto"].as_str().unwrap_or("tcp");
+                    let _proto = entry["proto"].as_str().unwrap_or("tcp");
                     let duration = entry["duration"].as_f64().unwrap_or(0.0);
                     let orig_bytes = entry["orig_bytes"].as_i64().unwrap_or(0);
-                    let resp_bytes = entry["resp_bytes"].as_i64().unwrap_or(0);
+                    let _resp_bytes = entry["resp_bytes"].as_i64().unwrap_or(0);
 
                     let _ = store.insert_log("zeek.conn", dst, entry,
                         &entry["ts"].as_f64().map(|t| {
@@ -95,7 +96,7 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.dns_entries += 1;
-                    let query = entry["query"].as_str().unwrap_or("");
+                    let _query = entry["query"].as_str().unwrap_or("");
                     let src = entry["id.orig_h"].as_str().unwrap_or("");
 
                     let _ = store.insert_log("zeek.dns", src, entry,

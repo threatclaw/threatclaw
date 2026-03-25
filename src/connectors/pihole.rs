@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Pi-hole Connector — import DNS queries from Pi-hole v6 API.
 //!
 //! Pi-hole v6 has a built-in REST API (no more lighttpd/PHP).

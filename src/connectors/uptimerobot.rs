@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! UptimeRobot Connector — import monitor status (uptime, downtime, SSL, latency).
 //!
 //! Auth: api_key in POST body (NOT a header)

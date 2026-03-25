@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Cloudflare WAF Connector — import WAF events via GraphQL Analytics API.
 //!
 //! Auth: Bearer token with Analytics:Read permission
@@ -5,7 +6,7 @@
 //! WAF events via firewallEventsAdaptive dataset (GraphQL only, no REST).
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewFinding};
+use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -117,7 +118,7 @@ pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) ->
             };
 
             let title = format!("Cloudflare WAF: {} {} from {} ({})", action, path, client_ip, country);
-            let description = format!(
+            let _description = format!(
                 "Source: {}\nPath: {}\nUser-Agent: {}\nTime: {}",
                 source, path, user_agent, datetime
             );

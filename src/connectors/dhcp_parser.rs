@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! DHCP Log Parser — extract MAC-IP-hostname mappings from DHCP logs.
 //!
 //! Parses ISC dhcpd syslog format (the most common DHCP server on Linux).

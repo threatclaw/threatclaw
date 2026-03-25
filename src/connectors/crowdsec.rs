@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! CrowdSec LAPI Connector — import IP ban decisions from CrowdSec.
 //!
 //! Auth: X-Api-Key header with bouncer API key
@@ -84,7 +85,7 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
             };
 
             let title = format!("CrowdSec {}: {} {} ({})", dtype, scope, value, scenario);
-            let description = format!(
+            let _description = format!(
                 "Scenario: {}\nDuration: {}\nScope: {}\nValue: {}",
                 scenario, duration, scope, value
             );

@@ -76,3 +76,4 @@ dashboard/.env.local
 
 # PID files
 *.pid
+.next/

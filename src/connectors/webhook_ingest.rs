@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Webhook Ingest — generic endpoint for receiving security events from external tools.
 //!
 //! Route: POST /api/tc/webhook/ingest/{source}?token={hmac_token}
@@ -268,7 +269,7 @@ async fn parse_graylog(store: &dyn Database, json: &serde_json::Value) -> u32 {
         .or_else(|| json["event_definition_title"].as_str())
         .unwrap_or("Graylog alert");
 
-    let message = json["check_result"]["matching_messages"].as_array()
+    let _message = json["check_result"]["matching_messages"].as_array()
         .and_then(|a| a.first())
         .and_then(|m| m["message"].as_str())
         .or_else(|| json["backlog"].as_array()
@@ -293,7 +294,7 @@ async fn parse_changedetection(store: &dyn Database, json: &serde_json::Value) -
 
     let alert_title = format!("Website change detected: {} — {}", title_text, url);
     let description = json["current_snapshot"].as_str().unwrap_or("").to_string();
-    let desc_truncated = if description.len() > 500 { &description[..500] } else { &description };
+    let _desc_truncated = if description.len() > 500 { &description[..500] } else { &description };
 
     if store.insert_sigma_alert("cd-webhook", "medium", &alert_title, "", None, None).await.is_ok() {
         1
@@ -328,7 +329,7 @@ async fn parse_generic(store: &dyn Database, source: &str, json: &serde_json::Va
 
     let source_label = format!("{}-webhook", source);
     let description = serde_json::to_string_pretty(json).unwrap_or_default();
-    let desc_truncated = if description.len() > 1000 { &description[..1000] } else { &description };
+    let _desc_truncated = if description.len() > 1000 { &description[..1000] } else { &description };
 
     if store.insert_sigma_alert(&source_label, normalized_level, title, "", ip, None).await.is_ok() {
         1

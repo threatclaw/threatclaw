@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 //! Suricata Connector — ingest Suricata EVE JSON log.
 //!
 //! Suricata produces eve.json — a single JSON firehose with event types:
@@ -5,7 +6,7 @@
 //! This connector reads eve.json and creates sigma alerts for IDS detections.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewFinding};
+use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
