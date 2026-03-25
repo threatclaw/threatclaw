@@ -1,6 +1,8 @@
 """Database connection and queries for ML Engine."""
 
 import os
+import json
+import logging
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta
@@ -112,23 +114,39 @@ def write_finding(skill_id, title, description, severity, category, asset, sourc
 
 
 def write_ml_score(asset_id, score, reason, features):
-    """Write ML anomaly score to settings table (user_id=ml_scores)."""
-    import json
+    """Write ML anomaly score to dedicated ml_scores table."""
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            features_json = json.dumps(features) if isinstance(features, dict) else "{}"
+            cur.execute("""
+                INSERT INTO ml_scores (asset_id, score, reason, features, computed_at)
+                VALUES (%s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (asset_id) DO UPDATE SET
+                    score = EXCLUDED.score, reason = EXCLUDED.reason,
+                    features = EXCLUDED.features, computed_at = NOW()
+            """, (str(asset_id), float(score), str(reason), features_json))
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logging.getLogger("ml.db").warning("write_ml_score failed: %s", e)
+    finally:
+        conn.close()
+
+
+def write_heartbeat():
+    """Write ML engine heartbeat to settings."""
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO settings (user_id, key, value)
-                VALUES ('ml_scores', %s, %s::jsonb)
+                VALUES ('_system', 'ml_heartbeat', %s::jsonb)
                 ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            """, (f"score_{asset_id}", json.dumps({
-                "asset_id": asset_id,
-                "score": score,
-                "reason": reason,
-                "features": features,
-                "computed_at": datetime.utcnow().isoformat(),
-            })))
+            """, (json.dumps({"alive": True, "timestamp": datetime.utcnow().isoformat()}),))
             conn.commit()
+    except:
+        pass
     finally:
         conn.close()
 
@@ -138,11 +156,17 @@ def get_ml_score(asset_id):
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT value FROM settings
-                WHERE user_id = 'ml_scores' AND key = %s
-            """, (f"score_{asset_id}",))
+            cur.execute("SELECT score, reason, features FROM ml_scores WHERE asset_id = %s", (asset_id,))
             row = cur.fetchone()
-            return row["value"] if row else None
+            return row if row else None
+    except:
+        # Fallback to settings
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT value FROM settings WHERE user_id = 'ml_scores' AND key = %s", (f"score_{asset_id}",))
+                row = cur.fetchone()
+                return row["value"] if row else None
+        except:
+            return None
     finally:
         conn.close()

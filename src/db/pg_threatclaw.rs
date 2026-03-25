@@ -811,6 +811,51 @@ impl ThreatClawStore for PgBackend {
         ).await.map_err(query_err)?;
         Ok(())
     }
+
+    // ═══════════════════════════════════════════════════════════
+    // ENRICHMENT CACHE
+    // ═══════════════════════════════════════════════════════════
+
+    async fn get_enrichment_cache(&self, source: &str, key: &str) -> Result<Option<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT value FROM enrichment_cache WHERE source = $1 AND key = $2 AND expires_at > NOW()",
+            &[&source, &key],
+        ).await.map_err(query_err)?;
+        Ok(rows.first().map(|r| r.get::<_, serde_json::Value>(0)))
+    }
+
+    async fn set_enrichment_cache(&self, source: &str, key: &str, value: &serde_json::Value, ttl_hours: i64) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO enrichment_cache (source, key, value, expires_at) VALUES ($1, $2, $3, NOW() + $4 * INTERVAL '1 hour') ON CONFLICT (source, key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at, created_at = NOW()",
+            &[&source, &key, value, &ttl_hours],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ML SCORES (dedicated table)
+    // ═══════════════════════════════════════════════════════════
+
+    async fn get_ml_score(&self, asset_id: &str) -> Result<Option<(f64, String)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT score, COALESCE(reason, '') FROM ml_scores WHERE asset_id = $1",
+            &[&asset_id],
+        ).await.map_err(query_err)?;
+        Ok(rows.first().map(|r| (r.get::<_, f32>(0) as f64, r.get::<_, String>(1))))
+    }
+
+    async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let score_f32 = score as f32;
+        conn.execute(
+            "INSERT INTO ml_scores (asset_id, score, reason, features, computed_at) VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (asset_id) DO UPDATE SET score = EXCLUDED.score, reason = EXCLUDED.reason, features = EXCLUDED.features, computed_at = NOW()",
+            &[&asset_id, &score_f32, &reason, features],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
 }
 
 // ── Helper: parse asset row ──

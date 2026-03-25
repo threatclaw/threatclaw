@@ -359,4 +359,16 @@ pub trait ThreatClawStore: Send + Sync {
     async fn list_asset_categories(&self) -> Result<Vec<AssetCategory>, DatabaseError>;
 
     async fn upsert_asset_category(&self, cat: &AssetCategory) -> Result<(), DatabaseError>;
+
+    // ── Enrichment Cache ──
+
+    async fn get_enrichment_cache(&self, source: &str, key: &str) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    async fn set_enrichment_cache(&self, source: &str, key: &str, value: &serde_json::Value, ttl_hours: i64) -> Result<(), DatabaseError>;
+
+    // ── ML Scores (dedicated table) ──
+
+    async fn get_ml_score(&self, asset_id: &str) -> Result<Option<(f64, String)>, DatabaseError>;
+
+    async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError>;
 }

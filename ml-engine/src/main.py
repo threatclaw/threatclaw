@@ -133,6 +133,12 @@ def run_daemon():
 
     while True:
         schedule.run_pending()
+        # Write heartbeat every loop (every 30s)
+        try:
+            from . import db as _db
+            _db.write_heartbeat()
+        except:
+            pass
         time.sleep(30)
 
 

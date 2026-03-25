@@ -160,12 +160,9 @@ pub async fn run_intelligence_cycle(
     for entry in asset_map.values_mut() {
         entry.score = compute_asset_score(entry);
 
-        // Consult ML score if available (written by ml-engine Python process)
-        if let Ok(Some(ml_setting)) = store.get_setting("ml_scores", &format!("score_{}", entry.asset)).await {
-            let ml_score = ml_setting["score"].as_f64().unwrap_or(0.0);
-            let baseline_match = ml_setting["score"].as_f64().map(|s| s < 0.3).unwrap_or(true);
-
-            if baseline_match && entry.score < 50.0 {
+        // Consult ML score if available (from dedicated ml_scores table)
+        if let Ok(Some((ml_score, ml_reason))) = store.get_ml_score(&entry.asset).await {
+            if ml_score < 0.3 && entry.score < 50.0 {
                 // ML says this is normal behavior → downgrade
                 entry.score = (entry.score * 0.5).max(0.0);
                 entry.summary = format!("{} [ML: normal behavior, score reduced]", entry.summary);
@@ -173,7 +170,6 @@ pub async fn run_intelligence_cycle(
                 // ML says this is anomalous → boost score
                 let boost = ml_score * 30.0;
                 entry.score = (entry.score + boost).min(100.0);
-                let ml_reason = ml_setting["reason"].as_str().unwrap_or("anomaly detected");
                 entry.summary = format!("{} [ML anomaly {:.0}%: {}]", entry.summary, ml_score * 100.0, ml_reason);
             }
         }
