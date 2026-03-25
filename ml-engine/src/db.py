@@ -134,6 +134,29 @@ def write_ml_score(asset_id, score, reason, features):
         conn.close()
 
 
+def run_maintenance(retention_days=90):
+    """Run nightly DB maintenance: cleanup + vacuum + analyze."""
+    conn = get_conn()
+    try:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            # Cleanup old data
+            cur.execute("SELECT cleanup_old_data(%s)", (retention_days,))
+            result = cur.fetchone()
+            logging.getLogger("ml.db").info("DB maintenance: %s", result[0] if result else "done")
+
+            # VACUUM ANALYZE critical tables
+            for table in ["sigma_alerts", "findings", "logs", "assets", "ml_scores"]:
+                try:
+                    cur.execute(f"VACUUM ANALYZE {table}")
+                except Exception as e:
+                    logging.getLogger("ml.db").warning("VACUUM %s failed: %s", table, e)
+    except Exception as e:
+        logging.getLogger("ml.db").warning("DB maintenance failed: %s", e)
+    finally:
+        conn.close()
+
+
 def write_heartbeat():
     """Write ML engine heartbeat to settings."""
     conn = get_conn()

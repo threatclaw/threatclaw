@@ -27,11 +27,18 @@ logger = logging.getLogger("ml.main")
 
 
 def run_train():
-    """Train all ML models."""
+    """Train all ML models + nightly DB maintenance."""
     from .anomaly_detector import train as train_anomaly
     from .dga_detector import train as train_dga
+    from . import db as _db
 
-    logger.info("═══ ML TRAINING START ═══")
+    logger.info("═══ ML TRAINING + MAINTENANCE START ═══")
+
+    # DB maintenance first (cleanup old data, vacuum)
+    try:
+        _db.run_maintenance(retention_days=90)
+    except Exception as e:
+        logger.warning("DB maintenance failed: %s", e)
 
     ok_anomaly = train_anomaly()
     ok_dga = train_dga()
