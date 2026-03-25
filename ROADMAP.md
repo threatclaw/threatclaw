@@ -408,6 +408,90 @@
 - [x] API `/api/tc/threat-profiles` + `/api/tc/threat-profiles/{sector}` (6 tests)
 - [ ] Page dashboard Compliance avec checklist — futur
 
+## v2.1.0 — Refactoring & Solidification (avant beta publique)
+
+> Tout fonctionne mais on a empilé vite. Ce refactoring rend le code propre,
+> performant et production-ready AVANT la sortie beta.
+
+### Priorité 1 — Cache enrichissements
+**Problème** : chaque appel à `/api/tc/enrichment/ssllabs/monsite.fr` fait une requête vers l'API externe. Si le dashboard rafraîchit 10 fois → 10 appels, risque de rate limit.
+**Solution** : cache en DB avec TTL par source (SSL Labs 7j, Safe Browsing 24h, etc.). Vérifier le cache avant d'appeler l'API.
+- [ ] Table `enrichment_cache` (source, key, value, expires_at)
+- [ ] Fonction `get_or_fetch()` — cache hit → retourne, miss → appel API → stocke
+- [ ] TTL configurable par enrichissement (dans le manifest skill.json `cache_ttl_hours`)
+
+### Priorité 2 — Pagination API
+**Problème** : `list_assets`, `list_findings`, `list_alerts` ont un LIMIT mais pas d'OFFSET. Un client avec 10 000 findings ne voit que les 500 premiers.
+**Solution** : pagination cursor-based ou offset-based sur tous les endpoints de liste.
+- [ ] Paramètres `?page=1&limit=50` sur findings, alerts, assets, logs
+- [ ] Réponse inclut `total`, `page`, `pages`, `has_more`
+- [ ] Dashboard : composant de pagination réutilisable (Précédent / Suivant / numéros)
+
+### Priorité 3 — Gestion erreurs dashboard
+**Problème** : quand le backend ne répond pas, les pages affichent "Chargement..." indéfiniment. Pas de message d'erreur clair.
+**Solution** : chaque fetch a un timeout + catch → message d'erreur visible.
+- [ ] Composant `ErrorBanner` réutilisable ("Backend non accessible — vérifiez le service")
+- [ ] Timeout 10s sur tous les fetch dashboard
+- [ ] Retry automatique 1x après 3s
+- [ ] État "offline" clair dans chaque page (pas juste un spinner infini)
+
+### Priorité 4 — Table ML scores dédiée
+**Problème** : les scores ML sont stockés dans `settings` (user_id=ml_scores). C'est un hack — settings est fait pour la config, pas pour des données temps réel avec 11+ écritures toutes les 5 min.
+**Solution** : migration SQL → table `ml_scores` dédiée avec index.
+- [ ] Table `ml_scores` (asset_id PK, score REAL, reason TEXT, features JSONB, computed_at TIMESTAMPTZ)
+- [ ] Mise à jour ml-engine/src/db.py pour écrire dans la nouvelle table
+- [ ] Mise à jour intelligence_engine.rs pour lire depuis la nouvelle table
+- [ ] Cleanup des vieux scores dans settings
+
+### Priorité 5 — ML Engine healthcheck
+**Problème** : le daemon Python tourne en background. Si il crash (OOM, erreur DB), personne n'est prévenu. Le dashboard affiche "Isolation Forest — Entraîné" même s'il est mort.
+**Solution** : heartbeat + vérification côté Rust.
+- [ ] ML Engine écrit un heartbeat dans `settings` (ml_heartbeat, timestamp) toutes les minutes
+- [ ] Backend Rust vérifie le heartbeat dans `/api/tc/health` — si > 10 min → "ML Engine down"
+- [ ] Dashboard Status affiche le vrai état (up/down + dernière activité)
+
+### Priorité 6 — Split handlers en fichiers séparés
+**Problème** : `threatclaw_api.rs` fait 3300+ lignes avec TOUS les handlers. Difficile à naviguer, risque de conflits git.
+**Solution** : un fichier par domaine fonctionnel.
+- [ ] `handlers/findings.rs` — CRUD findings
+- [ ] `handlers/alerts.rs` — CRUD alerts
+- [ ] `handlers/assets.rs` — CRUD assets + categories + networks + company
+- [ ] `handlers/intelligence.rs` — situation, cycle, graph
+- [ ] `handlers/enrichment.rs` — tous les enrichissements
+- [ ] `handlers/connectors.rs` — sync cloudflare, crowdsec, zeek, etc.
+- [ ] `handlers/webhooks.rs` — ingest + token generation
+- [ ] `handlers/mod.rs` — re-exports
+
+### Priorité 7 — Split ThreatClawStore en sous-traits
+**Problème** : le trait ThreatClawStore a 35+ méthodes. Chaque ajout doit être implémenté dans pg_threatclaw.rs ET libsql_threatclaw.rs.
+**Solution** : sous-traits par domaine.
+- [ ] `trait AssetStore` — list/get/upsert/delete/count/find_by_ip/find_by_mac assets
+- [ ] `trait AlertStore` — list/get/update alerts
+- [ ] `trait FindingStore` — list/get/insert/update findings
+- [ ] `trait NetworkStore` — internal_networks CRUD
+- [ ] `trait CompanyStore` — company_profile get/update
+- [ ] `trait Database: AssetStore + AlertStore + FindingStore + ...`
+
+### Priorité 8 — Graph sync incrémental
+**Problème** : `sync_graph_from_db` relit TOUS les assets, alertes et findings à chaque cycle (5 min). Avec 1000+ alertes, ça fait beaucoup de queries inutiles.
+**Solution** : ne traiter que les données nouvelles depuis le dernier sync.
+- [ ] Stocker `last_graph_sync_at` dans settings
+- [ ] WHERE `matched_at > $last_sync` pour les alertes
+- [ ] WHERE `detected_at > $last_sync` pour les findings
+- [ ] Les assets sont toujours full-sync (peu nombreux)
+
+### Sécurité (complété)
+- [x] F-1: SQL Injection insert_log/insert_sigma_alert → requêtes paramétrées
+- [x] F-2: Cypher Injection graph upsert_* → validation inputs (validate_ip, validate_id, sanitize_cypher_value)
+- [x] F-3: SQL Injection list_assets → WHERE paramétré
+- [x] F-4: SQL Injection log_llm_call → requête paramétrée
+- [x] F-5: Timing attack webhook token → subtle::ConstantTimeEq
+- [x] F-6: Token gateway dans URL → supprimé, header Authorization seul
+- [x] F-7: Race condition rate limiter → reconnu, risque faible (code IronClaw)
+- [x] F-8: Path traversal Zeek/Suricata → validate_log_path() avec allowlist
+- [x] F-9: Cypher injection via webhook → couvert par F-2
+- [x] F-10: Nmap timing injection → allowlist ["T0"..."T5"]
+
 ---
 
 ## Architecture Skills Unifiée
