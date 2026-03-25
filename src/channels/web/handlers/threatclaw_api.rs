@@ -3312,6 +3312,33 @@ pub async fn company_get_handler(
     }
 }
 
+// ════════════════════════════════════════════════════════════════
+// DB HEALTH MONITORING
+// ════════════════════════════════════════════════════════════════
+
+pub async fn db_health_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Use execute_cypher for raw SQL (it handles connection pooling)
+    // But we need a simpler approach — use get_dashboard_metrics + counts
+    let metrics = store.get_dashboard_metrics().await.unwrap_or(crate::db::threatclaw_store::DashboardMetrics {
+        security_score: 0.0, findings_critical: 0, findings_high: 0, findings_medium: 0, findings_low: 0,
+        alerts_total: 0, alerts_new: 0, cloud_score: 0.0, darkweb_leaks: 0,
+    });
+    let assets = store.count_assets_by_category().await.unwrap_or_default();
+    let total_assets: i64 = assets.iter().map(|(_, c)| c).sum();
+    let log_count = store.count_logs(60 * 24).await.unwrap_or(0); // last 24h
+
+    Ok(Json(serde_json::json!({
+        "total_logs_24h": log_count,
+        "total_alerts": metrics.alerts_total,
+        "total_findings": metrics.findings_critical + metrics.findings_high + metrics.findings_medium + metrics.findings_low,
+        "active_assets": total_assets,
+        "security_score": metrics.security_score,
+    })))
+}
+
 pub async fn company_update_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,

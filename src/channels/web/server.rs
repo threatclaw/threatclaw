@@ -488,6 +488,8 @@ pub async fn start_server(
         // NACE threat profiles
         .route("/api/tc/threat-profiles", get(super::handlers::threatclaw_api::threat_profiles_list_handler))
         .route("/api/tc/threat-profiles/{sector}", get(super::handlers::threatclaw_api::threat_profile_handler))
+        // DB health monitoring
+        .route("/api/tc/db/health", get(super::handlers::threatclaw_api::db_health_handler))
         // Test scenarios (demo + E2E testing)
         .route("/api/tc/test/scenarios", get(super::handlers::threatclaw_api::test_scenarios_list_handler))
         .route("/api/tc/test/run/{id}", post(super::handlers::threatclaw_api::test_scenario_run_handler))

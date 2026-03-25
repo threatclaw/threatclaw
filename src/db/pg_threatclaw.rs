@@ -471,6 +471,9 @@ impl ThreatClawStore for PgBackend {
         time: &str,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Async commit for logs only — absorb bursts without disk bottleneck
+        // Max loss: 200ms of raw logs on crash. Critical tables stay synchronous.
+        let _ = conn.execute("SET LOCAL synchronous_commit = off", &[]).await;
         let data_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
         let row = conn.query_one(
             "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3::jsonb, $4::timestamptz) RETURNING id",
