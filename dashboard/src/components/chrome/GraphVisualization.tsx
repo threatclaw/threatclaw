@@ -272,7 +272,6 @@ export default function GraphVisualization() {
         },
         behaviors: [
           "drag-canvas", "zoom-canvas", "drag-element",
-          { type: "hover-activate", degree: 1, state: "active", inactiveState: "inactive" },
         ],
         plugins: [{
           type: "tooltip",
