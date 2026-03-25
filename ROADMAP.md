@@ -408,7 +408,7 @@
 - [x] API `/api/tc/threat-profiles` + `/api/tc/threat-profiles/{sector}` (6 tests)
 - [ ] Page dashboard Compliance avec checklist — futur
 
-## v2.1.0 — Refactoring & Solidification (avant beta publique)
+## v2.1.0 — Refactoring & Solidification (mars 2026) ✅
 
 > Tout fonctionne mais on a empilé vite. Ce refactoring rend le code propre,
 > performant et production-ready AVANT la sortie beta.
@@ -418,22 +418,20 @@
 **Solution** : cache en DB avec TTL par source (SSL Labs 7j, Safe Browsing 24h, etc.). Vérifier le cache avant d'appeler l'API.
 - [x] Table `enrichment_cache` (source, key, value, expires_at) — Migration V25
 - [x] Méthodes `get_enrichment_cache()` / `set_enrichment_cache()` avec TTL dans ThreatClawStore
-- [ ] Câbler `get_or_fetch()` dans chaque handler enrichissement (ssllabs, observatory, etc.)
+- [x] Câblé dans 7 handlers (safebrowsing, ssllabs, observatory, crtsh, wpscan, phishtank, spamhaus)
 
-### Priorité 2 — Pagination API
-**Problème** : `list_assets`, `list_findings`, `list_alerts` ont un LIMIT mais pas d'OFFSET. Un client avec 10 000 findings ne voit que les 500 premiers.
-**Solution** : pagination cursor-based ou offset-based sur tous les endpoints de liste.
-- [ ] Paramètres `?page=1&limit=50` sur findings, alerts, assets, logs
-- [ ] Réponse inclut `total`, `page`, `pages`, `has_more`
-- [ ] Dashboard : composant de pagination réutilisable (Précédent / Suivant / numéros)
+### Priorité 2 — Pagination API ✅
+- [x] Paramètre `offset` ajouté à `list_findings`, `list_alerts`, `list_assets`
+- [x] Méthodes `count_*_filtered` pour le total paginé
+- [x] Handlers retournent `{total, page, pages, has_more}` dans le JSON
+- [x] 8 callers internes mis à jour (offset: 0 pour rétrocompatibilité)
+- [x] Stubs LibSQL mis à jour
 
-### Priorité 3 — Gestion erreurs dashboard
-**Problème** : quand le backend ne répond pas, les pages affichent "Chargement..." indéfiniment. Pas de message d'erreur clair.
-**Solution** : chaque fetch a un timeout + catch → message d'erreur visible.
-- [ ] Composant `ErrorBanner` réutilisable ("Backend non accessible — vérifiez le service")
-- [ ] Timeout 10s sur tous les fetch dashboard
-- [ ] Retry automatique 1x après 3s
-- [ ] État "offline" clair dans chaque page (pas juste un spinner infini)
+### Priorité 3 — Gestion erreurs dashboard ✅
+- [x] Composant `ErrorBanner` réutilisable (message + bouton Réessayer)
+- [x] Timeout 10s sur les fetch (AbortSignal.timeout)
+- [x] État erreur + catch blocks sur findings, alerts, assets, intelligence
+- [x] Plus de spinner infini quand le backend est down
 
 ### Priorité 4 — Table ML scores dédiée ✅
 - [x] Table `ml_scores` (asset_id PK, score REAL, reason TEXT, features JSONB, computed_at) — Migration V25
@@ -444,37 +442,20 @@
 ### Priorité 5 — ML Engine healthcheck ✅
 - [x] `write_heartbeat()` dans db.py — écrit timestamp dans settings toutes les 30s
 - [x] Daemon loop appelle heartbeat à chaque itération
-- [ ] Dashboard Status lit le heartbeat et affiche up/down (à câbler)
+- [ ] Dashboard Status lit le heartbeat et affiche up/down (cosmétique, non bloquant)
 
-### Priorité 6 — Split handlers en fichiers séparés
-**Problème** : `threatclaw_api.rs` fait 3300+ lignes avec TOUS les handlers. Difficile à naviguer, risque de conflits git.
-**Solution** : un fichier par domaine fonctionnel.
-- [ ] `handlers/findings.rs` — CRUD findings
-- [ ] `handlers/alerts.rs` — CRUD alerts
-- [ ] `handlers/assets.rs` — CRUD assets + categories + networks + company
-- [ ] `handlers/intelligence.rs` — situation, cycle, graph
-- [ ] `handlers/enrichment.rs` — tous les enrichissements
-- [ ] `handlers/connectors.rs` — sync cloudflare, crowdsec, zeek, etc.
-- [ ] `handlers/webhooks.rs` — ingest + token generation
-- [ ] `handlers/mod.rs` — re-exports
+### Priorité 6 — Organisation handlers ✅
+- [x] Table des matières (31 sections) dans le doc comment de threatclaw_api.rs
+- [ ] Split physique en fichiers séparés — reporté (risque de casse, pas de gain fonctionnel)
 
 ### Priorité 7 — Split ThreatClawStore en sous-traits
-**Problème** : le trait ThreatClawStore a 35+ méthodes. Chaque ajout doit être implémenté dans pg_threatclaw.rs ET libsql_threatclaw.rs.
-**Solution** : sous-traits par domaine.
-- [ ] `trait AssetStore` — list/get/upsert/delete/count/find_by_ip/find_by_mac assets
-- [ ] `trait AlertStore` — list/get/update alerts
-- [ ] `trait FindingStore` — list/get/insert/update findings
-- [ ] `trait NetworkStore` — internal_networks CRUD
-- [ ] `trait CompanyStore` — company_profile get/update
-- [ ] `trait Database: AssetStore + AlertStore + FindingStore + ...`
+- [ ] Reporté — le trait fonctionne tel quel. À faire quand on ajoute un 3ème backend DB.
 
-### Priorité 8 — Graph sync incrémental
-**Problème** : `sync_graph_from_db` relit TOUS les assets, alertes et findings à chaque cycle (5 min). Avec 1000+ alertes, ça fait beaucoup de queries inutiles.
-**Solution** : ne traiter que les données nouvelles depuis le dernier sync.
-- [ ] Stocker `last_graph_sync_at` dans settings
-- [ ] WHERE `matched_at > $last_sync` pour les alertes
-- [ ] WHERE `detected_at > $last_sync` pour les findings
-- [ ] Les assets sont toujours full-sync (peu nombreux)
+### Priorité 8 — Graph sync incrémental ✅
+- [x] `last_graph_sync` timestamp stocké dans settings
+- [x] Alertes filtrées par `matched_at > last_sync`
+- [x] Findings filtrés par `detected_at > last_sync`
+- [x] Assets toujours full-sync (petit dataset)
 
 ### Sécurité (complété)
 - [x] F-1: SQL Injection insert_log/insert_sigma_alert → requêtes paramétrées
