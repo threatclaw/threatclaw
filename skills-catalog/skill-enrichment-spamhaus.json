@@ -1,0 +1,25 @@
+{
+  "id": "skill-enrichment-spamhaus",
+  "name": "Spamhaus Blacklist",
+  "version": "1.0.0",
+  "description": "Verifie si une IP est blacklistee (spam, botnet, espace IP hijacke) via DNSBL",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "threat-intel",
+  "execution": {
+    "mode": "dns",
+    "base_url": "zen.spamhaus.org",
+    "triggers": ["ip"],
+    "cache_ttl_hours": 24,
+    "note": "Uses DNS queries, NOT HTTP. Public resolvers (8.8.8.8) are blocked by Spamhaus."
+  },
+  "config": {},
+  "outputs": {
+    "blacklist_status": "graph"
+  },
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "ban"
+}

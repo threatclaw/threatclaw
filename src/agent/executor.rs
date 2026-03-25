@@ -154,8 +154,7 @@ fn extract_skill_id(cmd_id: &str) -> String {
     let known = [
         "skill-abuseipdb", "skill-cti-crowdsec", "skill-shodan",
         "skill-virustotal", "skill-darkweb-monitor", "skill-email-audit",
-        "skill-wazuh", "skill-compliance-nis2", "skill-compliance-iso27001",
-        "skill-report-gen",
+        "skill-wazuh", "skill-report-gen",
     ];
     for kid in &known {
         if cmd_id.starts_with(kid) {

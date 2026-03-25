@@ -1,0 +1,30 @@
+{
+  "id": "skill-enrichment-safebrowsing",
+  "name": "Google Safe Browsing",
+  "version": "1.0.0",
+  "description": "Verifie si une URL est blacklistee par Google (malware, phishing, social engineering)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "web-security",
+  "execution": {
+    "mode": "api",
+    "base_url": "https://safebrowsing.googleapis.com/v4/threatMatches:find",
+    "triggers": ["domain", "url"],
+    "cache_ttl_hours": 24
+  },
+  "config": {
+    "google_safebrowsing_key": {
+      "type": "password",
+      "description": "Google API Key",
+      "required": true
+    }
+  },
+  "outputs": {
+    "threats": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "shield-alert"
+}

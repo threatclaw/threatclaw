@@ -52,13 +52,7 @@ pub fn default_schedules() -> Vec<SkillSchedule> {
             description: "Audit email chaque lundi à 8h".into(),
             last_run: None, next_run: None,
         },
-        SkillSchedule {
-            skill_id: "skill-compliance-nis2".into(),
-            enabled: false,
-            cron: "0 6 1 * *".into(),
-            description: "Audit NIS2 mensuel le 1er à 6h".into(),
-            last_run: None, next_run: None,
-        },
+        // NIS2/ISO compliance will move to a dedicated Compliance page
         SkillSchedule {
             skill_id: "skill-report-gen".into(),
             enabled: true,

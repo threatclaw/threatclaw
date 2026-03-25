@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ChromeInsetCard } from "@/components/chrome/ChromeCard";
+import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   Play, Loader2, CheckCircle2, XCircle, Shield, AlertTriangle,
@@ -158,7 +158,6 @@ export default function TestPage() {
 
           return (
             <ChromeInsetCard key={s.id} style={{
-              borderLeft: `3px solid ${sev.color}`,
               borderRadius: "var(--tc-radius-card)",
             }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>

@@ -35,7 +35,8 @@ function DiscordIcon() {
     </svg>
   );
 }
-import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 
 const PERM_LEVELS = [
@@ -242,6 +243,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 
   const tabs = [
     { id: "general", label: "Général", icon: Globe },
+    { id: "company", label: "Entreprise", icon: Shield },
     { id: "llm", label: "IA / LLM", icon: Cpu },
     { id: "channels", label: "Canaux", icon: MessageSquare },
     { id: "security", label: "Sécurité", icon: ShieldAlert },
@@ -312,6 +314,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         )}
 
         {/* ═══ LLM — 3 niveaux ═══ */}
+        {activeTab === "company" && (<CompanyTab />)}
+
         {activeTab === "llm" && (<LlmTab
           llm={llm} setLlm={setLlm} forensic={forensic} setForensic={setForensic}
           instruct={instruct} setInstruct={setInstruct}
@@ -332,23 +336,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                     <ChromeEmbossedText as="div" style={{ fontSize: "14px", fontWeight: 700 }}>{ch.label}</ChromeEmbossedText>
                   </div>
                   {/* Toggle */}
-                  <button onClick={() => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], enabled: !isEnabled } }))}
-                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                    <div style={{
-                      width: "44px", height: "24px", borderRadius: "var(--tc-radius-card)", position: "relative",
-                      background: isEnabled ? "rgba(208,48,32,0.15)" : "var(--tc-input)",
-                      border: isEnabled ? "1px solid rgba(208,48,32,0.3)" : "1px solid var(--tc-input)",
-                      transition: "all 0.25s ease",
-                    }}>
-                      <div style={{
-                        width: "18px", height: "18px", borderRadius: "50%", position: "absolute", top: "2px",
-                        left: isEnabled ? "23px" : "2px",
-                        background: isEnabled ? "#d03020" : "var(--tc-text-muted)",
-                        boxShadow: isEnabled ? "0 0 8px rgba(208,48,32,0.3)" : "none",
-                        transition: "all 0.25s ease",
-                      }} />
-                    </div>
-                  </button>
+                  <input type="checkbox" className="tc-toggle" checked={isEnabled}
+                    onChange={() => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], enabled: !isEnabled } }))} />
                 </div>
 
                 {isEnabled && (
@@ -969,21 +958,8 @@ function EnrichmentTab() {
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 {/* Toggle */}
-                <button onClick={() => toggleSource(src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}>
-                  <div style={{
-                    width: "36px", height: "20px", borderRadius: "var(--tc-radius-md)", position: "relative",
-                    background: enabled[src.id] ? "rgba(48,160,80,0.15)" : "var(--tc-input)",
-                    border: enabled[src.id] ? "1px solid rgba(48,160,80,0.3)" : "1px solid var(--tc-input)",
-                    transition: "all 0.25s ease",
-                  }}>
-                    <div style={{
-                      width: "14px", height: "14px", borderRadius: "50%", position: "absolute", top: "2px",
-                      left: enabled[src.id] ? "19px" : "2px",
-                      background: enabled[src.id] ? "#30a050" : "var(--tc-text-muted)",
-                      transition: "all 0.25s ease",
-                    }} />
-                  </div>
-                </button>
+                <input type="checkbox" className="tc-toggle" checked={!!enabled[src.id]}
+                  onChange={() => toggleSource(src.id)} />
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{src.name}</span>
@@ -1402,6 +1378,172 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
               Ajouter
             </ChromeButton>
           </div>
+        </div>
+      </ChromeInsetCard>
+    </>
+  );
+}
+
+// ── Company Profile Tab ──
+
+function CompanyTab() {
+  const [profile, setProfile] = useState<any>({});
+  const [networks, setNetworks] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [newCidr, setNewCidr] = useState("");
+
+  useEffect(() => {
+    fetch("/api/tc/company").then(r => r.json()).then(d => setProfile(d)).catch(() => {});
+    fetch("/api/tc/networks").then(r => r.json()).then(d => setNetworks(d.networks || [])).catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    await fetch("/api/tc/company", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(profile),
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  };
+
+  const addNetwork = async () => {
+    if (!newCidr.includes("/")) return;
+    await fetch("/api/tc/networks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cidr: newCidr, label: "", zone: "lan" }),
+    });
+    setNewCidr("");
+    const d = await fetch("/api/tc/networks").then(r => r.json());
+    setNetworks(d.networks || []);
+  };
+
+  const deleteNetwork = async (id: number) => {
+    await fetch(`/api/tc/networks/${id}`, { method: "DELETE" });
+    setNetworks(nets => nets.filter(n => n.id !== id));
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "8px 10px", fontSize: "11px", fontFamily: "inherit",
+    background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+    borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)", outline: "none",
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)",
+    textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "3px", display: "block",
+  };
+
+  return (
+    <>
+      <ChromeInsetCard>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "16px" }}>Profil entreprise</ChromeEmbossedText>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div>
+            <label style={labelStyle}>Nom de l{"'"}entreprise</label>
+            <input value={profile.company_name || ""} onChange={e => setProfile((p: any) => ({ ...p, company_name: e.target.value }))}
+              placeholder="CyberConsulting.fr" style={inputStyle} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div>
+              <label style={labelStyle}>Secteur d{"'"}activité</label>
+              <select value={profile.sector || "other"} onChange={e => setProfile((p: any) => ({ ...p, sector: e.target.value }))} style={inputStyle}>
+                <option value="industry">Industrie / Manufacturing</option>
+                <option value="healthcare">Santé / Médical</option>
+                <option value="finance">Finance / Assurance</option>
+                <option value="retail">Commerce / Retail</option>
+                <option value="government">Collectivité / Administration</option>
+                <option value="services">Services / Conseil</option>
+                <option value="transport">Transport / Logistique</option>
+                <option value="energy">Énergie</option>
+                <option value="education">Éducation</option>
+                <option value="other">Autre</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Taille</label>
+              <select value={profile.company_size || "small"} onChange={e => setProfile((p: any) => ({ ...p, company_size: e.target.value }))} style={inputStyle}>
+                <option value="micro">&lt; 10 personnes</option>
+                <option value="small">10 - 50 personnes</option>
+                <option value="medium">50 - 250 personnes</option>
+                <option value="large">250+ personnes</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+            <div>
+              <label style={labelStyle}>Horaires d{"'"}activité</label>
+              <select value={profile.business_hours || "office"} onChange={e => setProfile((p: any) => ({ ...p, business_hours: e.target.value }))} style={inputStyle}>
+                <option value="office">Bureau (8h-18h)</option>
+                <option value="24x7">24h/7j</option>
+                <option value="shifts">Par équipes</option>
+                <option value="seasonal">Saisonnière</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Zone géographique</label>
+              <select value={profile.geo_scope || "france"} onChange={e => setProfile((p: any) => ({ ...p, geo_scope: e.target.value }))} style={inputStyle}>
+                <option value="france">France uniquement</option>
+                <option value="europe">Europe</option>
+                <option value="international">International</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Sensibilité ML (Machine Learning)</label>
+            <select value={profile.anomaly_sensitivity || "medium"} onChange={e => setProfile((p: any) => ({ ...p, anomaly_sensitivity: e.target.value }))} style={inputStyle}>
+              <option value="low">Basse — moins d{"'"}alertes, plus de tolérance</option>
+              <option value="medium">Moyenne — équilibre alertes / faux positifs</option>
+              <option value="high">Haute — plus d{"'"}alertes, plus sensible</option>
+            </select>
+          </div>
+
+          <button onClick={handleSave} disabled={saving} style={{
+            padding: "10px 20px", fontSize: "12px", fontWeight: 700, fontFamily: "inherit",
+            cursor: "pointer", background: saved ? "var(--tc-green)" : "var(--tc-red)", color: "#fff",
+            border: "none", borderRadius: "var(--tc-radius-md)", alignSelf: "flex-start",
+            display: "flex", alignItems: "center", gap: "6px",
+          }}>
+            {saved ? "Sauvegardé ✓" : saving ? "Sauvegarde..." : "Sauvegarder"}
+          </button>
+        </div>
+      </ChromeInsetCard>
+
+      <ChromeInsetCard style={{ marginTop: "16px" }}>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Réseaux internes</ChromeEmbossedText>
+        <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
+          Déclarez vos plages réseau. ThreatClaw classifie les IPs (interne connu / inconnu / externe).
+        </p>
+
+        {networks.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
+            {networks.map((n: any) => (
+              <div key={n.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px",
+                background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
+                <span style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--tc-text)", flex: 1 }}>{n.cidr}</span>
+                <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>{n.label || n.zone}</span>
+                <button onClick={() => deleteNetwork(n.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", fontSize: "14px" }}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <input value={newCidr} onChange={e => setNewCidr(e.target.value)} placeholder="192.168.1.0/24"
+            onKeyDown={e => e.key === "Enter" && addNetwork()}
+            style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={addNetwork} style={{
+            padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit",
+            cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
+            border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
+          }}>
+            Ajouter
+          </button>
         </div>
       </ChromeInsetCard>
     </>

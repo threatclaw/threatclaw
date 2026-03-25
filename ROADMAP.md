@@ -228,6 +228,186 @@
 - [x] **Bot Telegram auto-start** si configuré
 - [x] **Entrypoint pull les 3 modèles** : L1 (5.2GB) + L2 (8.5GB) + L3 (4.9GB)
 
+## v1.4.0-beta — Graph Intelligence Phase 3-5 (mars 2026) ✅
+
+- [x] Confidence Scoring, Lateral Movement, Note Graph, Course of Action (Phase 3)
+- [x] Campaign Detection, Identity Graph / UBA (Phase 4)
+- [x] Blast Radius, Attack Path Prediction, Supply Chain Risk, Threat Actor Profiling (Phase 5)
+- [x] Dynamic Whitelist: CommandRegistry (core 44 + skill.json), unified validation pipeline
+- [x] i18n dashboard complet (FR/EN) — 120+ clés, switch instantané
+- [x] Licensing asset-based : Community 150, Pro 49EUR/500, Enterprise 299EUR/illimité, MSSP 800EUR
+- [x] Dual licence AGPL v3 + Commercial avec CLA
+
+## v1.5.0-beta — Web Security Integrations + i18n AI (mars 2026) ✅
+
+### i18n prompts IA (L1/L2/notifications bilingues)
+- [x] `prompt_builder.rs` : `build_react_prompt()` + `build_analyst_prompt()` acceptent `lang`
+- [x] Toutes les sections bilingues : soul, mode, observations, raisonnement, schema, whitelist
+- [x] `react_runner.rs` : lit la langue depuis la DB, passe aux builders
+- [x] `intelligence_engine.rs` : digest + alert messages bilingues (FR/EN)
+
+### Tier 1 — Enrichissement web automatique (10 nouvelles sources)
+- [x] **Google Safe Browsing** — URL blacklistée (malware, phishing) — API key gratuite
+- [x] **SSL Labs** — audit SSL/TLS note A+ à F — gratuit, async poll
+- [x] **Mozilla Observatory** — score headers sécurité /100 — gratuit, pas de clé
+- [x] **crt.sh** — Certificate Transparency, sous-domaines — gratuit, pas de clé
+- [x] **URLScan.io** — sandbox URL, scripts injectés — API key gratuite
+- [x] **WPScan** — vulnérabilités WordPress plugins/themes/core — 25 req/jour gratuit
+- [x] **Wordfence Intelligence** — feed WordPress vulns temps réel — gratuit, pas de clé
+- [x] **PhishTank** — URL phishing connue — gratuit
+- [x] **Spamhaus DNSBL** — IP blacklistée (spam, botnet, hijack) — DNS query
+- [x] **SecurityTrails** — sous-domaines, historique DNS — 50 req/mois gratuit
+
+### Tier 2 — Connectors web (le client branche son outil)
+- [x] **Cloudflare WAF** — GraphQL Analytics API, events WAF/DDoS/bot
+- [x] **CrowdSec LAPI** — décisions ban IP, réputation collaborative
+- [x] **UptimeRobot** — uptime/downtime, latence, SSL expiry
+
+### Tier 3 — Webhook receiver générique
+- [x] Endpoint `/api/tc/webhook/ingest/{source}?token=xxx` — token HMAC par source
+- [x] 8 parsers : Cloudflare, CrowdSec, Fail2ban, UptimeRobot, Uptime Kuma, Wordfence, Graylog, ChangeDetection
+- [x] Parser générique pour sources inconnues
+- [x] Rate limit 60/min/source, drop silencieux, body max 64KB
+
+### 14 nouvelles routes API
+- [x] 7 enrichissement : safebrowsing, ssllabs, observatory, crtsh, wpscan, phishtank, spamhaus
+- [x] 3 connectors : cloudflare/sync, crowdsec/sync, uptimerobot/sync
+- [x] 2 webhook : ingest/{source}, token/{source}
+
+### Nettoyage
+- [x] Skills compliance-nis2 et compliance-iso27001 déplacées dans `_future/` (pas câblées, seront une page dédiée)
+- [x] 13 manifests skill.json au bon format `config: {}` (compatible dashboard modal)
+- [x] Catégories dashboard : +web-security, +ids
+
+### Documentation
+- [x] `docs/SKILLS_V2_INTEGRATIONS.md` — 550 lignes, référence technique complète (endpoints, auth, formats, gotchas)
+
+### Stats
+- **3555 tests Rust pass** (50 pre-existing env failures)
+- **31 tests enrichissement** (12 nouveaux)
+- **13 nouveaux manifests** skills-catalog
+- **10 modules enrichissement** + **3 connectors** + **1 webhook receiver** (8 parsers)
+
+## v1.6.0-beta — Asset Intelligence + Classification (mars 2026) ✅
+
+### Asset Management
+- [x] Table `assets` — inventaire complet (catégorie, rôle, criticité, IPs, MAC, OS, services)
+- [x] Table `asset_categories` — 10 catégories builtin + custom client
+- [x] Table `internal_networks` — plages réseau internes du client
+- [x] Table `company_profile` — fiche entreprise (secteur, taille, horaires, zones geo)
+- [x] API CRUD assets (14 routes : list, get, upsert, delete, counts, categories, networks, company)
+- [x] Page dashboard `/assets` avec onglets par catégorie, modal ajout en 2 étapes, expandable details
+
+### IP Classification + Auto-Discovery
+- [x] `ip_classifier.rs` — classifie InternalKnown / InternalUnknown / External (4 tests)
+- [x] Auto-création assets "Inconnu" pour IPs internes non reconnues dans les alertes
+- [x] Intelligence Engine câblée : résout les IPs/hostnames vers les assets déclarés
+- [x] Graph sync utilise la table `assets` au lieu de l'ancien système `_targets`
+
+### Fingerprinting
+- [x] `fingerprint.rs` — classification depuis ports, hostname, MAC vendor (9 tests)
+- [x] Ports → catégorie/sous-type (AD, web, db, file, printer, camera, PLC, VoIP)
+- [x] Hostname patterns (iPhone, DESKTOP-, srv-)
+- [x] MAC vendor patterns (Hikvision=camera, Siemens=PLC, Cisco=network)
+
+### Corrections critiques
+- [x] Apache AGE Cypher : fix escaping `\\'` → quotes simples dans `$$` dollar quoting
+- [x] Intelligence Engine : persist full situation (assets array) pour le dashboard
+- [x] Intelligence Engine : résolution IP→asset name pour le grouping des alertes
+- [x] Graph sync : classifie les IPs (ext=attaquant, int connu=lateral, int inconnu=auto-create)
+- [x] `internal_networks` deserialize fix (i32→i64, NULL label handling)
+- [x] Gateway token fixe dans `.env` (survit aux redémarrages)
+
+### Fiche entreprise
+- [x] Wizard onboarding : nouvelle étape "Votre entreprise" (secteur, taille, horaires, zones, réseaux)
+- [x] Sauvegarde company profile + internal networks à la validation
+
+### Tests validés
+- Pipeline complet : test APT → 30 alertes → 10 assets corrélés → score 18/100 → graph 8 Assets + 4 IPs
+- 3568 tests Rust pass (50 pre-existing env failures)
+- 9 tests fingerprint + 4 tests IP classifier
+
+## v1.7.0-beta — Network Connectors (mars 2026) ✅
+
+### Connectors réseau
+- [x] **MAC OUI lookup** — 52 534 fabricants embarqués (crate mac_oui + CSV), lookup instantané
+- [x] **Pi-hole connector** — sync DNS queries API v6, détection clients suspects
+- [x] **UniFi connector** — sync clients WiFi (MAC, IP, hostname, SSID), auto-create assets
+- [x] **DHCP log parser** — parse ISC dhcpd + dnsmasq, crée assets avec MAC vendor (3 tests)
+- [x] 2 manifests catalogue (skill-pihole.json, skill-unifi.json)
+- [x] 4 routes API (pihole/sync, unifi/sync, dhcp/sync, enrichment/mac/{mac})
+
+### Design
+- [x] **NeuCard** — design neumorphique inset appliqué sur toutes les pages
+- [x] Toggles uniformisés (tc-toggle 38x16px partout)
+- [x] Nav sliding indicator mesuré (useRef offsetLeft/offsetWidth)
+- [x] Liserets supprimés (findings, alerts, assets, test)
+- [x] Theme toggle (Sun jaune / Moon bleu foncé)
+- [x] Graph d'attaque : canvas ratio fixe, couleurs light/dark
+- [x] Onboarding refait (variables --tc-*, "Configurer plus tard", save fonctionnel)
+
+### Stats
+- 3568 tests Rust pass + 18 nouveaux tests (fingerprint 9, IP classifier 4, DHCP 3, MAC OUI 2)
+
+## v2.0.0-beta — ML Engine (mars 2026) ✅
+
+### ML Engine (conteneur Python)
+- [x] Conteneur Docker Python (scikit-learn, pandas, psycopg2) + Dockerfile
+- [x] Feature extraction depuis PostgreSQL — 13 features par asset (alerts, logs, auth, DNS, horaires)
+- [x] **Isolation Forest** par asset — baseline 14 jours, score anomalie 0-1, retrain nocturne
+- [x] **DGA Detection** — Random Forest sur noms de domaines DNS (7 features, 100% accuracy)
+- [x] Entraînement nocturne automatique (schedule 03:00), modèles persistés (pickle)
+- [x] Scores ML écrits dans PostgreSQL settings (user_id=ml_scores), lus par le backend Rust
+
+### Câblage Intelligence Engine
+- [x] L'Intelligence Engine consulte le score ML avant de scorer chaque asset
+- [x] Score ML < 0.3 + baseline match → downgrade score asset (÷2, pas de notification)
+- [x] Score ML > 0.7 → boost score asset (+30 pts) + raison ML dans le summary
+- [ ] Filtre dashboard : "ML downgraded" / "Notifiées seulement" (à faire dans le frontend)
+
+### Clustering comportemental (DBSCAN)
+- [x] **DBSCAN clustering** — regroupe assets par comportement similaire
+- [x] Détection "mouton noir" (asset qui dévie de son cluster, distance > mean + 2σ)
+- [x] Détection assets "noise" (comportement unique, pas de groupe de référence)
+- [x] Création de findings pour outliers (HIGH) et noise assets (LOW)
+- [x] Intégré dans le cycle de scoring (tourne toutes les 5 min)
+
+### Dashboard
+- [x] Page Status refaite : score sécurité, services, santé serveur, état ML, config overview
+- [x] Config > Entreprise : profil éditable (secteur, taille, horaires, geo, sensibilité ML) + réseaux internes
+
+### Contexte entreprise → ML
+- [x] Horaires bureau → multiplicateur anomalie (nuit/week-end = x2)
+- [x] Zones geo → connexions hors zones = boost anomalie (France=x2, Europe=x1.5)
+- [x] Secteur → seuils adaptés (santé x1.5, finance x1.4, énergie x1.4)
+- [x] Sensibilité configurable (low/medium/high) dans company_profile
+
+### Stats
+- 11 assets scorés, 154 échantillons d'entraînement
+- Daemon mode : score toutes les 5 min, retrain à 03h00
+- Pipeline : PostgreSQL → features.py → Isolation Forest → scores → PostgreSQL → Intelligence Engine
+
+## v1.8.0-beta — Zeek + Suricata Connectors (mars 2026) ✅
+
+### Connectors analyse réseau passive
+- [x] **skill-zeek** — lit JSON logs Zeek (conn, dns, http, ssl, ssh), détecte connexions longues + uploads massifs + certs invalides
+- [x] **skill-suricata** — parse eve.json (alerts IDS + DNS + flows), crée sigma alerts + ingère les logs
+- [x] 2 manifests catalogue (skill-zeek.json, skill-suricata.json)
+- [x] 2 routes API (connectors/zeek/sync, connectors/suricata/sync)
+- [ ] ntopng connector (REST API) — futur
+- [ ] JA4/HASSH fingerprints — futur (nécessite Zeek déployé)
+
+## v1.9.0-beta — NACE/NAF Threat Profiles (mars 2026) ✅
+
+### Profils de menaces par secteur
+- [x] 9 profils sectoriels : healthcare, finance, industry, retail, government, energy, transport, education, services
+- [x] Mapping secteur → techniques MITRE ATT&CK pertinentes (Enterprise + ICS)
+- [x] Mapping secteur → frameworks compliance (NIS2, HIPAA, PCI-DSS, IEC 62443, DORA, RGS, HDS, ANSSI)
+- [x] Mapping secteur → types d'assets attendus + alertes haute/basse priorité
+- [x] Multiplicateur de sensibilité par secteur (santé x1.5, finance x1.4, énergie x1.4)
+- [x] API `/api/tc/threat-profiles` + `/api/tc/threat-profiles/{sector}` (6 tests)
+- [ ] Page dashboard Compliance avec checklist — futur
+
 ---
 
 ## Architecture Skills Unifiée
@@ -465,7 +645,7 @@ RSSI parle          →  Cloud comprend → Local exécute → Cloud reformule (
 
 ---
 
-*Dernière mise à jour : 24 mars 2026*
-*Version actuelle : 1.4.0-beta (Graph Intelligence Phase 3-5)*
+*Dernière mise à jour : 25 mars 2026*
+*Version actuelle : 2.0.0-beta (ML Engine + Zeek/Suricata + NACE Threat Profiles)*
 *Licence : AGPL v3 + Commercial (dual-licence)*
 *Modèle business : prestation (CyberConsulting.fr installe chez les clients)*

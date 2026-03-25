@@ -58,3 +58,21 @@ __pycache__/
 *.pyo
 *.pyd
 .internal/
+# ML models (generated, not committed)
+ml-engine/models/
+/tmp/ml-models/
+*.pkl
+
+# Next.js build
+dashboard/.next/
+dashboard/node_modules/
+
+# Textures (binary, downloaded at build)
+dashboard/public/textures/*.png
+
+# Secrets
+.env.local
+dashboard/.env.local
+
+# PID files
+*.pid

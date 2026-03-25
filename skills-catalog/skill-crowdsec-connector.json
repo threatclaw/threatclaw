@@ -1,0 +1,33 @@
+{
+  "id": "skill-crowdsec-connector",
+  "name": "CrowdSec LAPI",
+  "version": "1.0.0",
+  "description": "Importe les decisions de ban IP et reputation collaborative depuis CrowdSec",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "ids",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "crowdsec_url": {
+      "type": "string",
+      "description": "CrowdSec LAPI URL (e.g. http://192.168.1.10:8080)",
+      "required": true
+    },
+    "crowdsec_bouncer_key": {
+      "type": "password",
+      "description": "Bouncer API Key (cscli bouncers add threatclaw)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "decisions": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "users"
+}

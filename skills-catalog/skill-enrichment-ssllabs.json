@@ -1,0 +1,24 @@
+{
+  "id": "skill-enrichment-ssllabs",
+  "name": "SSL Labs Audit",
+  "version": "1.0.0",
+  "description": "Audit SSL/TLS complet avec note (A+ a F), protocoles, expiration certificat",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "web-security",
+  "execution": {
+    "mode": "api",
+    "base_url": "https://api.ssllabs.com/api/v3/analyze",
+    "triggers": ["domain"],
+    "cache_ttl_hours": 168
+  },
+  "config": {},
+  "outputs": {
+    "ssl_grade": "graph"
+  },
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "lock"
+}

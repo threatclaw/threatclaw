@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { ChromeInsetCard } from "@/components/chrome/ChromeCard";
+import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
@@ -124,7 +124,7 @@ export default function AlertsPage() {
             const st = STATUS_LABELS[a.status] || STATUS_LABELS.new;
             const isExpanded = expandedId === a.id;
             return (
-              <ChromeInsetCard key={a.id} style={{ borderLeft: `3px solid ${lev.color}`, padding: "14px 16px", borderRadius: "var(--tc-radius-card)" }}>
+              <ChromeInsetCard key={a.id} style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-card)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : a.id)}>
                   <span style={{ fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: lev.bg, color: lev.color, border: `1px solid ${lev.border}`, textTransform: "uppercase", flexShrink: 0 }}>
                     {a.level === "informational" ? "info" : a.level}

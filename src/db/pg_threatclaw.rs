@@ -507,7 +507,8 @@ impl ThreatClawStore for PgBackend {
         conn.execute("LOAD 'age'", &[]).await.map_err(query_err)?;
         conn.execute("SET search_path = ag_catalog, \"$user\", public", &[]).await.map_err(query_err)?;
 
-        let escaped = cypher.replace('\'', "''");
+        // No SQL escaping needed — we use $$ dollar quoting
+        let escaped = cypher;
 
         // Detect if the query has a RETURN clause (read) or not (mutation)
         let upper = cypher.to_uppercase();
@@ -624,5 +625,241 @@ impl ThreatClawStore for PgBackend {
 
         conn.execute(&*sql, &[]).await.map_err(query_err)?;
         Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ASSETS MANAGEMENT
+    // ═══════════════════════════════════════════════════════════
+
+    async fn list_assets(
+        &self,
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<AssetRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let mut conditions = vec![];
+        let esc = |s: &str| s.replace('\'', "''");
+        if let Some(c) = category { conditions.push(format!("category = '{}'", esc(c))); }
+        if let Some(s) = status { conditions.push(format!("status = '{}'", esc(s))); }
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
+        let sql = format!("SELECT * FROM assets {} ORDER BY criticality DESC, last_seen DESC LIMIT {}", where_clause, limit);
+        let rows = conn.query(&*sql, &[]).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| parse_asset_row(r)).collect())
+    }
+
+    async fn get_asset(&self, id: &str) -> Result<Option<AssetRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query("SELECT * FROM assets WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        Ok(rows.first().map(parse_asset_row))
+    }
+
+    async fn upsert_asset(&self, a: &NewAsset) -> Result<String, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let ips: Vec<&str> = a.ip_addresses.iter().map(|s| s.as_str()).collect();
+        let tags: Vec<&str> = a.tags.iter().map(|s| s.as_str()).collect();
+        conn.execute(
+            r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
+                ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
+                source, owner, location, tags, last_seen)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name, category = EXCLUDED.category,
+                subcategory = COALESCE(EXCLUDED.subcategory, assets.subcategory),
+                role = COALESCE(EXCLUDED.role, assets.role),
+                criticality = EXCLUDED.criticality,
+                ip_addresses = EXCLUDED.ip_addresses,
+                mac_address = COALESCE(EXCLUDED.mac_address, assets.mac_address),
+                hostname = COALESCE(EXCLUDED.hostname, assets.hostname),
+                fqdn = COALESCE(EXCLUDED.fqdn, assets.fqdn),
+                url = COALESCE(EXCLUDED.url, assets.url),
+                os = COALESCE(EXCLUDED.os, assets.os),
+                mac_vendor = COALESCE(EXCLUDED.mac_vendor, assets.mac_vendor),
+                last_seen = NOW(),
+                updated_at = NOW()"#,
+            &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
+              &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
+              &a.source, &a.owner, &a.location, &tags],
+        ).await.map_err(query_err)?;
+        Ok(a.id.clone())
+    }
+
+    async fn delete_asset(&self, id: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute("DELETE FROM assets WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT category, COUNT(*) as cnt FROM assets WHERE status = 'active' GROUP BY category ORDER BY cnt DESC",
+            &[],
+        ).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1))).collect())
+    }
+
+    async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query("SELECT * FROM assets WHERE $1 = ANY(ip_addresses) LIMIT 1", &[&ip]).await.map_err(query_err)?;
+        Ok(rows.first().map(parse_asset_row))
+    }
+
+    async fn find_asset_by_mac(&self, mac: &str) -> Result<Option<AssetRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query("SELECT * FROM assets WHERE mac_address = $1 LIMIT 1", &[&mac]).await.map_err(query_err)?;
+        Ok(rows.first().map(parse_asset_row))
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // INTERNAL NETWORKS
+    // ═══════════════════════════════════════════════════════════
+
+    async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query("SELECT id, cidr, label, zone FROM internal_networks ORDER BY id", &[]).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| InternalNetwork {
+            id: r.get::<_, i32>(0) as i64,
+            cidr: r.get(1),
+            label: r.try_get(2).ok(),
+            zone: r.try_get::<_, String>(3).unwrap_or_else(|_| "lan".into()),
+        }).collect())
+    }
+
+    async fn add_internal_network(&self, cidr: &str, label: Option<&str>, zone: Option<&str>) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let z = zone.unwrap_or("lan");
+        let row = conn.query_one(
+            "INSERT INTO internal_networks (cidr, label, zone) VALUES ($1, $2, $3) ON CONFLICT (cidr) DO UPDATE SET label = EXCLUDED.label RETURNING id",
+            &[&cidr, &label, &z],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_internal_network(&self, id: i64) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute("DELETE FROM internal_networks WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // COMPANY PROFILE
+    // ═══════════════════════════════════════════════════════════
+
+    async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query("SELECT * FROM company_profile WHERE id = 1", &[]).await.map_err(query_err)?;
+        if let Some(r) = rows.first() {
+            Ok(CompanyProfile {
+                company_name: r.try_get("company_name").ok(),
+                nace_code: r.try_get("nace_code").ok(),
+                sector: r.try_get::<_, String>("sector").unwrap_or_else(|_| "other".into()),
+                company_size: r.try_get::<_, String>("company_size").unwrap_or_else(|_| "small".into()),
+                employee_count: r.try_get("employee_count").ok(),
+                country: r.try_get::<_, String>("country").unwrap_or_else(|_| "FR".into()),
+                business_hours: r.try_get::<_, String>("business_hours").unwrap_or_else(|_| "office".into()),
+                business_hours_start: r.try_get::<_, String>("business_hours_start").unwrap_or_else(|_| "08:00".into()),
+                business_hours_end: r.try_get::<_, String>("business_hours_end").unwrap_or_else(|_| "18:00".into()),
+                work_days: r.try_get::<_, Vec<String>>("work_days").unwrap_or_else(|_| vec!["mon".into(),"tue".into(),"wed".into(),"thu".into(),"fri".into()]),
+                geo_scope: r.try_get::<_, String>("geo_scope").unwrap_or_else(|_| "france".into()),
+                allowed_countries: r.try_get::<_, Vec<String>>("allowed_countries").unwrap_or_else(|_| vec!["FR".into()]),
+                blocked_countries: r.try_get::<_, Vec<String>>("blocked_countries").unwrap_or_default(),
+                critical_systems: r.try_get::<_, Vec<String>>("critical_systems").unwrap_or_default(),
+                compliance_frameworks: r.try_get::<_, Vec<String>>("compliance_frameworks").unwrap_or_default(),
+                anomaly_sensitivity: r.try_get::<_, String>("anomaly_sensitivity").unwrap_or_else(|_| "medium".into()),
+            })
+        } else {
+            Ok(CompanyProfile::default())
+        }
+    }
+
+    async fn update_company_profile(&self, p: &CompanyProfile) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let work_days: Vec<&str> = p.work_days.iter().map(|s| s.as_str()).collect();
+        let allowed: Vec<&str> = p.allowed_countries.iter().map(|s| s.as_str()).collect();
+        let blocked: Vec<&str> = p.blocked_countries.iter().map(|s| s.as_str()).collect();
+        let critical: Vec<&str> = p.critical_systems.iter().map(|s| s.as_str()).collect();
+        let compliance: Vec<&str> = p.compliance_frameworks.iter().map(|s| s.as_str()).collect();
+        conn.execute(
+            r#"UPDATE company_profile SET
+                company_name = $1, nace_code = $2, sector = $3, company_size = $4,
+                employee_count = $5, country = $6, business_hours = $7,
+                business_hours_start = $8, business_hours_end = $9, work_days = $10,
+                geo_scope = $11, allowed_countries = $12, blocked_countries = $13,
+                critical_systems = $14, compliance_frameworks = $15, anomaly_sensitivity = $16,
+                updated_at = NOW()
+            WHERE id = 1"#,
+            &[&p.company_name, &p.nace_code, &p.sector, &p.company_size,
+              &p.employee_count, &p.country, &p.business_hours,
+              &p.business_hours_start, &p.business_hours_end, &work_days,
+              &p.geo_scope, &allowed, &blocked, &critical, &compliance, &p.anomaly_sensitivity],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ASSET CATEGORIES
+    // ═══════════════════════════════════════════════════════════
+
+    async fn list_asset_categories(&self) -> Result<Vec<AssetCategory>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT id, label, label_en, icon, color, subcategories, is_builtin FROM asset_categories ORDER BY sort_order, label",
+            &[],
+        ).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| AssetCategory {
+            id: r.get(0), label: r.get(1), label_en: r.get(2),
+            icon: r.get(3), color: r.get(4),
+            subcategories: r.get(5), is_builtin: r.get(6),
+        }).collect())
+    }
+
+    async fn upsert_asset_category(&self, c: &AssetCategory) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let subs: Vec<&str> = c.subcategories.iter().map(|s| s.as_str()).collect();
+        conn.execute(
+            r#"INSERT INTO asset_categories (id, label, label_en, icon, color, subcategories, is_builtin)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (id) DO UPDATE SET
+                label = EXCLUDED.label, label_en = EXCLUDED.label_en,
+                icon = EXCLUDED.icon, color = EXCLUDED.color,
+                subcategories = EXCLUDED.subcategories"#,
+            &[&c.id, &c.label, &c.label_en, &c.icon, &c.color, &subs, &c.is_builtin],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+}
+
+// ── Helper: parse asset row ──
+
+fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
+    AssetRecord {
+        id: r.get("id"),
+        name: r.get("name"),
+        category: r.get("category"),
+        subcategory: r.try_get("subcategory").ok(),
+        role: r.try_get("role").ok(),
+        criticality: r.get("criticality"),
+        ip_addresses: r.try_get::<_, Vec<String>>("ip_addresses").unwrap_or_default(),
+        mac_address: r.try_get("mac_address").ok(),
+        hostname: r.try_get("hostname").ok(),
+        fqdn: r.try_get("fqdn").ok(),
+        url: r.try_get("url").ok(),
+        os: r.try_get("os").ok(),
+        os_confidence: r.try_get::<_, f32>("os_confidence").unwrap_or(0.0),
+        mac_vendor: r.try_get("mac_vendor").ok(),
+        services: r.try_get::<_, serde_json::Value>("services").unwrap_or(serde_json::json!([])),
+        source: r.get("source"),
+        first_seen: r.try_get::<_, chrono::DateTime<chrono::Utc>>("first_seen")
+            .map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+        last_seen: r.try_get::<_, chrono::DateTime<chrono::Utc>>("last_seen")
+            .map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+        owner: r.try_get("owner").ok(),
+        location: r.try_get("location").ok(),
+        tags: r.try_get::<_, Vec<String>>("tags").unwrap_or_default(),
+        notes: r.try_get("notes").ok(),
+        classification_method: r.try_get::<_, String>("classification_method").unwrap_or_else(|_| "manual".into()),
+        classification_confidence: r.try_get::<_, f32>("classification_confidence").unwrap_or(1.0),
+        status: r.get("status"),
     }
 }

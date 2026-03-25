@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { Shield, AlertOctagon, Play, Loader2, Eye, Bell, ShieldCheck, Zap, CheckCircle2, Clock } from "lucide-react";
 import {

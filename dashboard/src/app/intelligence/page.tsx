@@ -9,6 +9,7 @@ import EmbossedButton from "@/components/chrome/EmbossedButton";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import GraphVisualization from "@/components/chrome/GraphVisualization";
+import { NeuCard } from "@/components/chrome/NeuCard";
 
 // ── Types ──
 
@@ -96,10 +97,7 @@ function Card({ title, icon: Icon, children, color = "#d03020" }: {
   title: string; icon: React.ElementType; children: React.ReactNode; color?: string;
 }) {
   return (
-    <div style={{
-      background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-      borderRadius: "var(--tc-radius-card)", padding: "20px", minHeight: "180px",
-    }}>
+    <NeuCard style={{ padding: "20px", minHeight: "180px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
         <div style={{
           width: "32px", height: "32px", borderRadius: "var(--tc-radius-input)",
@@ -112,7 +110,7 @@ function Card({ title, icon: Icon, children, color = "#d03020" }: {
         </span>
       </div>
       {children}
-    </div>
+    </NeuCard>
   );
 }
 
@@ -213,21 +211,21 @@ export default function IntelligencePage() {
 
       {/* Top stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
+        <NeuCard style={{ padding: "16px" }}>
           <StatBadge value={assetStats?.total_assets ?? "—"} label="Assets" color="#30a0d0" />
-        </div>
-        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
+        </NeuCard>
+        <NeuCard style={{ padding: "16px" }}>
           <StatBadge value={lateral?.total_detections ?? "—"} label="Lateral" color={lateral?.total_detections ? "#d03020" : "#30a050"} />
-        </div>
-        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
+        </NeuCard>
+        <NeuCard style={{ padding: "16px" }}>
           <StatBadge value={campaigns?.total_campaigns ?? "—"} label="Campagnes" color={campaigns?.total_campaigns ? "#d06020" : "#30a050"} />
-        </div>
-        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
+        </NeuCard>
+        <NeuCard style={{ padding: "16px" }}>
           <StatBadge value={actors?.total_actors ?? "—"} label="Acteurs" color="#9060d0" />
-        </div>
-        <div style={{ background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "16px" }}>
+        </NeuCard>
+        <NeuCard style={{ padding: "16px" }}>
           <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID" color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
-        </div>
+        </NeuCard>
       </div>
 
       {/* Attack graph */}

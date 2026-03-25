@@ -1,0 +1,34 @@
+{
+  "id": "skill-pihole",
+  "name": "Pi-hole DNS",
+  "version": "1.0.0",
+  "description": "Importe les requetes DNS depuis Pi-hole v6 — detecte les domaines bloques et clients suspects",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "web-security",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "pihole_url": {
+      "type": "string",
+      "description": "Pi-hole URL (e.g. http://192.168.1.1)",
+      "required": true
+    },
+    "pihole_password": {
+      "type": "password",
+      "description": "Pi-hole admin password",
+      "required": true
+    }
+  },
+  "outputs": {
+    "dns_queries": "graph",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "globe"
+}

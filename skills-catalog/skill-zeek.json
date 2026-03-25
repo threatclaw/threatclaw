@@ -1,0 +1,34 @@
+{
+  "id": "skill-zeek",
+  "name": "Zeek Network Monitor",
+  "version": "1.0.0",
+  "description": "Analyse reseau passive — ingere les logs JSON Zeek (conn, dns, http, ssl, ssh). Detecte les connexions longues, uploads massifs, certificats invalides.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "docker_image": "zeek/zeek:latest",
+    "network": "host",
+    "note": "Requires --network host or a SPAN port. cap_add: NET_RAW, NET_ADMIN."
+  },
+  "config": {
+    "zeek_log_dir": {
+      "type": "string",
+      "description": "Zeek JSON logs directory (e.g. /opt/zeek/logs/current)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "connections": "graph",
+    "dns": "graph",
+    "ssl": "graph",
+    "alerts": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "network"
+}

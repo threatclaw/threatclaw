@@ -1,0 +1,33 @@
+{
+  "id": "skill-cloudflare",
+  "name": "Cloudflare WAF",
+  "version": "1.0.0",
+  "description": "Importe les events WAF, DDoS et bot scores depuis Cloudflare (GraphQL API)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "web-security",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "cf_api_token": {
+      "type": "password",
+      "description": "Cloudflare API Token (Analytics:Read)",
+      "required": true
+    },
+    "cf_zone_id": {
+      "type": "string",
+      "description": "Zone ID",
+      "required": true
+    }
+  },
+  "outputs": {
+    "waf_events": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "cloud"
+}

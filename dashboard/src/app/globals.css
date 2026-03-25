@@ -40,6 +40,12 @@
   --tc-purple:       #9060d0;
   --tc-purple-soft:  rgba(144, 96, 208, 0.10);
 
+  /* Neumorphic (dark mode) */
+  --tc-neu-outer:    #12121a;
+  --tc-neu-inner:    rgba(14, 14, 20, 0.7);
+  --tc-neu-text:     #c8c0b8;
+  --tc-neu-text-sec: #8a8480;
+
   /* Shapes & Radius */
   --tc-radius-sm:    6px;
   --tc-radius-md:    10px;
@@ -132,6 +138,12 @@
   --tc-blue-soft:    rgba(32, 96, 176, 0.08);
   --tc-purple:       #7040b0;
   --tc-purple-soft:  rgba(112, 64, 176, 0.08);
+
+  /* Neumorphic (light mode) */
+  --tc-neu-outer:    #e8e6e2;
+  --tc-neu-inner:    rgba(255, 255, 255, 0.85);
+  --tc-neu-text:     #1a1a22;
+  --tc-neu-text-sec: #4a4a56;
 
   /* Shapes (can differ from dark — e.g. sharper for a corporate theme) */
   --tc-radius-sm:    6px;

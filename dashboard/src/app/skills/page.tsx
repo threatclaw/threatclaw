@@ -9,6 +9,7 @@ import {
   Key, Clock, Zap, Power, Play, X, Trash2, Plus, Server,
   ChevronDown, ChevronRight, Download,
 } from "lucide-react";
+import { NeuCard } from "@/components/chrome/NeuCard";
 
 interface SkillManifest {
   id: string;
@@ -35,6 +36,8 @@ const CATEGORIES: Record<string, { label: string; icon: React.ElementType; color
   "scanning": { label: "Scanning", icon: Crosshair, color: "var(--tc-purple)" },
   "compliance": { label: "Compliance", icon: FileText, color: "var(--tc-blue)" },
   "rapports": { label: "Rapports", icon: FileText, color: "var(--tc-text-muted)" },
+  "web-security": { label: "Web Security", icon: Shield, color: "var(--tc-amber)" },
+  "ids": { label: "IDS / IPS", icon: Shield, color: "var(--tc-red)" },
 };
 
 const TYPE_INFO: Record<string, { label: string; color: string }> = {
@@ -188,8 +191,9 @@ export default function SkillsPage() {
               const isDisabled = disabledSkills.has(skill.id);
               return (
                 <div key={skill.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px",
-                  borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)",
-                  border: isRunning ? "1px solid var(--tc-red-border)" : "1px solid var(--tc-border)",
+                  borderRadius: "var(--tc-radius-md)", background: "var(--tc-neu-inner)",
+                  border: isRunning ? "1px solid var(--tc-red-border)" : "1px solid transparent",
+                  boxShadow: "inset 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 2px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.08)",
                   opacity: isDisabled ? 0.5 : 1, transition: "all 200ms",
                 }}>
                   <input type="checkbox" className="tc-toggle" checked={!isDisabled} onChange={() => toggleActive(skill.id)} />
@@ -237,7 +241,8 @@ export default function SkillsPage() {
                     const notReady = NOT_FUNCTIONAL.has(skill.id);
                     return (
                       <div key={skill.id} style={{
-                        borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", overflow: "hidden",
+                        borderRadius: "var(--tc-radius-md)", background: "var(--tc-neu-inner)", border: "1px solid transparent", overflow: "hidden",
+                        boxShadow: "inset 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 2px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.08)",
                         opacity: notReady ? 0.45 : 1,
                       }}>
                         {/* Header — click to expand */}

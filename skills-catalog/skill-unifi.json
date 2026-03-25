@@ -1,0 +1,48 @@
+{
+  "id": "skill-unifi",
+  "name": "UniFi Controller",
+  "version": "1.0.0",
+  "description": "Importe l'inventaire des clients WiFi/reseau depuis UniFi Controller (MAC, IP, hostname, SSID)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "unifi_url": {
+      "type": "string",
+      "description": "UniFi Controller URL (e.g. https://192.168.1.1:8443)",
+      "required": true
+    },
+    "unifi_username": {
+      "type": "string",
+      "description": "Username",
+      "required": true
+    },
+    "unifi_password": {
+      "type": "password",
+      "description": "Password",
+      "required": true
+    },
+    "unifi_site": {
+      "type": "string",
+      "description": "Site name (default: default)",
+      "required": false
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignore TLS certificate verification (self-signed)",
+      "default": true
+    }
+  },
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "wifi"
+}

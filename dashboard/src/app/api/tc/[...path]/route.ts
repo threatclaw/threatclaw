@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const CORE_URL = process.env.TC_CORE_URL || "http://127.0.0.1:3000";
-const CORE_TOKEN = process.env.TC_CORE_TOKEN || "";
+const CORE_TOKEN = process.env.TC_CORE_TOKEN || process.env.GATEWAY_AUTH_TOKEN || "";
 
 async function proxyRequest(req: NextRequest) {
   // Extract the path after /api/tc/
   const url = new URL(req.url);
   const fullPath = url.pathname;
   const tcPath = fullPath.replace(/^\/api\/tc\//, "");
-  const targetUrl = `${CORE_URL}/api/tc/${tcPath}${url.search}`;
+  // Forward with token — either from env or from query param
+  const separator = url.search ? "&" : "?";
+  const tokenParam = CORE_TOKEN ? `${separator}token=${CORE_TOKEN}` : "";
+  const targetUrl = `${CORE_URL}/api/tc/${tcPath}${url.search}${tokenParam}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

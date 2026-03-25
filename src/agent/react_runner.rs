@@ -155,10 +155,11 @@ pub async fn run_react_cycle(
     // ════════════════════════════════════════════════════════════════
     // NIVEAU 1 — IA principale (locale ou cloud anonymisée)
     // ════════════════════════════════════════════════════════════════
+    let lang = prompt_builder::get_language(store.as_ref()).await;
     let prompt_l1_raw = if obs.len() > 10 {
-        prompt_builder::build_analyst_prompt(&soul, &obs)
+        prompt_builder::build_analyst_prompt(&soul, &obs, &lang)
     } else {
-        prompt_builder::build_react_prompt(&soul, &mode_cfg, &obs, &empty_entries)
+        prompt_builder::build_react_prompt(&soul, &mode_cfg, &obs, &empty_entries, &lang)
     };
 
     // Si les données quittent l'infra, anonymiser avant envoi

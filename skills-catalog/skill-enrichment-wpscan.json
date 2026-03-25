@@ -1,0 +1,45 @@
+{
+  "id": "skill-enrichment-wpscan",
+  "name": "WPScan Vulnerabilities",
+  "version": "1.0.0",
+  "description": "Vulnerabilites WordPress : plugins, themes et core (25 req/jour gratuit)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "web-security",
+  "execution": {
+    "mode": "api",
+    "base_url": "https://wpscan.com/api/v3",
+    "triggers": ["wordpress"],
+    "cache_ttl_hours": 24
+  },
+  "config": {
+    "wpscan_api_token": {
+      "type": "password",
+      "description": "WPScan API Token",
+      "required": true
+    },
+    "wp_plugins": {
+      "type": "string",
+      "description": "WordPress plugins (slugs, comma-separated)",
+      "required": false
+    },
+    "wp_themes": {
+      "type": "string",
+      "description": "WordPress themes (slugs, comma-separated)",
+      "required": false
+    },
+    "wp_version": {
+      "type": "string",
+      "description": "WordPress version (e.g. 6.6.3)",
+      "required": false
+    }
+  },
+  "outputs": {
+    "vulnerabilities": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "wordpress"
+}

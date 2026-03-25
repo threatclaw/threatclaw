@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/useLocale";
 
 const NAV_KEYS = [
   { href: "/", key: "status", icon: Shield },
+  { href: "/assets", key: "assets", icon: Server },
   { href: "/findings", key: "findings", icon: AlertTriangle },
   { href: "/alerts", key: "alerts", icon: Bell },
   { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
@@ -17,6 +18,67 @@ const NAV_KEYS = [
 ];
 
 type ConnStatus = "full" | "degraded" | "offline";
+
+function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [indicator, setIndicator] = React.useState({ left: 0, width: 0 });
+
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+    const activeIdx = NAV_KEYS.findIndex(item =>
+      item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+    );
+    if (activeIdx < 0) return;
+    const buttons = containerRef.current.querySelectorAll<HTMLElement>("[data-nav-btn]");
+    if (buttons[activeIdx]) {
+      const btn = buttons[activeIdx];
+      setIndicator({ left: btn.offsetLeft, width: btn.offsetWidth });
+    }
+  }, [pathname]);
+
+  return (
+    <div ref={containerRef} style={{
+      position: "relative", display: "flex", padding: "3px",
+      borderRadius: "11px", background: "var(--tc-input)",
+    }}>
+      {/* Sliding red indicator — measured from actual button positions */}
+      {indicator.width > 0 && (
+        <div style={{
+          position: "absolute", top: "3px", height: "calc(100% - 6px)",
+          width: `${indicator.width}px`,
+          left: `${indicator.left}px`,
+          background: "var(--tc-red-soft)",
+          borderRadius: "8px",
+          border: "0.5px solid var(--tc-red-border)",
+          boxShadow: "0 2px 6px rgba(208,48,32,0.15)",
+          transition: "left 0.25s ease-out, width 0.25s ease-out",
+          zIndex: 0,
+        }} />
+      )}
+      {NAV_KEYS.map((item) => {
+        const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+        const Icon = item.icon;
+        return (
+          <Link key={item.href} href={item.href} data-nav-btn style={{ textDecoration: "none", position: "relative", zIndex: 1 }}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "5px",
+              padding: "6px 10px",
+              fontSize: "10px", fontWeight: 600,
+              letterSpacing: "0.03em", textTransform: "uppercase",
+              color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
+              transition: "color 200ms, opacity 200ms",
+              cursor: "pointer", whiteSpace: "nowrap",
+              opacity: isActive ? 1 : 0.6,
+            }}>
+              <Icon size={12} />
+              {tr(item.key, locale)}
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function TopNav() {
   const locale = useLocale();
@@ -115,53 +177,9 @@ export default function TopNav() {
         </span>
       </div>
 
-      {/* Nav buttons — sliding indicator */}
+      {/* Nav buttons — sliding indicator (measured) */}
       <div style={{ display: "flex", alignItems: "center" }}>
-        <div style={{
-          position: "relative", display: "flex", padding: "3px",
-          borderRadius: "11px", background: "var(--tc-input)",
-        }}>
-          {/* Sliding red indicator */}
-          {(() => {
-            const activeIdx = NAV_KEYS.findIndex(item =>
-              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
-            );
-            return activeIdx >= 0 ? (
-              <div style={{
-                position: "absolute", top: "3px", height: "calc(100% - 6px)",
-                width: `calc(${100 / NAV_KEYS.length}% - 2px)`,
-                left: `calc(${activeIdx * (100 / NAV_KEYS.length)}% + 1px)`,
-                background: "var(--tc-red-soft)",
-                borderRadius: "8px",
-                border: "0.5px solid var(--tc-red-border)",
-                boxShadow: "0 2px 6px rgba(208,48,32,0.15)",
-                transition: "left 0.25s ease-out",
-                zIndex: 0,
-              }} />
-            ) : null;
-          })()}
-          {NAV_KEYS.map((item) => {
-            const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link key={item.href} href={item.href} style={{ textDecoration: "none", position: "relative", zIndex: 1 }}>
-                <div style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "6px 14px",
-                  fontSize: "11px", fontWeight: 600,
-                  letterSpacing: "0.03em", textTransform: "uppercase",
-                  color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
-                  transition: "color 200ms, opacity 200ms",
-                  cursor: "pointer",
-                  opacity: isActive ? 1 : 0.6,
-                }}>
-                  <Icon size={13} />
-                  {tr(item.key, locale)}
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+        <NavTabs pathname={pathname} locale={locale} />
 
         {/* Separator */}
         <div style={{ width: "1px", height: "20px", background: "var(--tc-border)", margin: "0 8px" }} />
@@ -171,7 +189,7 @@ export default function TopNav() {
           display: "flex", alignItems: "center", justifyContent: "center",
           width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
           background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-          color: theme === "dark" ? "#d09020" : "#3080d0",
+          color: theme === "dark" ? "#e0b030" : "#1a1a2e",
           cursor: "pointer", transition: "all 200ms",
         }} title={theme === "dark" ? tr("lightMode", locale) : tr("darkMode", locale)}>
           {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
@@ -179,13 +197,12 @@ export default function TopNav() {
 
         {/* Connectivity indicator */}
         <div style={{
-          display: "flex", alignItems: "center", gap: "6px",
-          padding: "5px 10px", borderRadius: "var(--tc-radius-sm)",
-          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
-          fontSize: "10px", fontWeight: 500, color: connColor,
-        }}>
-          {connStatus === "offline" ? <WifiOff size={11} /> : <Wifi size={11} />}
-          {connLabel}
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
+          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+          color: connColor, cursor: "default",
+        }} title={connLabel}>
+          {connStatus === "offline" ? <WifiOff size={13} /> : <Wifi size={13} />}
         </div>
 
         {/* LLM status */}

@@ -89,6 +89,116 @@ pub struct LogRecord {
     pub data: serde_json::Value,
 }
 
+// ── Asset types ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetRecord {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub subcategory: Option<String>,
+    pub role: Option<String>,
+    pub criticality: String,
+    pub ip_addresses: Vec<String>,
+    pub mac_address: Option<String>,
+    pub hostname: Option<String>,
+    pub fqdn: Option<String>,
+    pub url: Option<String>,
+    pub os: Option<String>,
+    pub os_confidence: f32,
+    pub mac_vendor: Option<String>,
+    pub services: serde_json::Value,
+    pub source: String,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub owner: Option<String>,
+    pub location: Option<String>,
+    pub tags: Vec<String>,
+    pub notes: Option<String>,
+    pub classification_method: String,
+    pub classification_confidence: f32,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewAsset {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub subcategory: Option<String>,
+    pub role: Option<String>,
+    pub criticality: String,
+    pub ip_addresses: Vec<String>,
+    pub mac_address: Option<String>,
+    pub hostname: Option<String>,
+    pub fqdn: Option<String>,
+    pub url: Option<String>,
+    pub os: Option<String>,
+    pub mac_vendor: Option<String>,
+    pub source: String,
+    pub owner: Option<String>,
+    pub location: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalNetwork {
+    pub id: i64,
+    pub cidr: String,
+    pub label: Option<String>,
+    pub zone: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompanyProfile {
+    pub company_name: Option<String>,
+    pub nace_code: Option<String>,
+    pub sector: String,
+    pub company_size: String,
+    pub employee_count: Option<i32>,
+    pub country: String,
+    pub business_hours: String,
+    pub business_hours_start: String,
+    pub business_hours_end: String,
+    pub work_days: Vec<String>,
+    pub geo_scope: String,
+    pub allowed_countries: Vec<String>,
+    pub blocked_countries: Vec<String>,
+    pub critical_systems: Vec<String>,
+    pub compliance_frameworks: Vec<String>,
+    pub anomaly_sensitivity: String,
+}
+
+impl Default for CompanyProfile {
+    fn default() -> Self {
+        Self {
+            company_name: None, nace_code: None,
+            sector: "other".into(), company_size: "small".into(),
+            employee_count: None, country: "FR".into(),
+            business_hours: "office".into(),
+            business_hours_start: "08:00".into(), business_hours_end: "18:00".into(),
+            work_days: vec!["mon".into(), "tue".into(), "wed".into(), "thu".into(), "fri".into()],
+            geo_scope: "france".into(),
+            allowed_countries: vec!["FR".into()],
+            blocked_countries: vec![],
+            critical_systems: vec![],
+            compliance_frameworks: vec![],
+            anomaly_sensitivity: "medium".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetCategory {
+    pub id: String,
+    pub label: String,
+    pub label_en: Option<String>,
+    pub icon: String,
+    pub color: String,
+    pub subcategories: Vec<String>,
+    pub is_builtin: bool,
+}
+
 // ── Store trait ──
 
 #[async_trait]
@@ -208,4 +318,45 @@ pub trait ThreatClawStore: Send + Sync {
         capture_group: i32,
     ) -> Result<String, DatabaseError>;
     async fn delete_anonymizer_rule(&self, id: &str) -> Result<(), DatabaseError>;
+
+    // ── Assets Management ──
+
+    async fn list_assets(
+        &self,
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<AssetRecord>, DatabaseError>;
+
+    async fn get_asset(&self, id: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+
+    async fn upsert_asset(&self, asset: &NewAsset) -> Result<String, DatabaseError>;
+
+    async fn delete_asset(&self, id: &str) -> Result<(), DatabaseError>;
+
+    async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
+
+    async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+
+    async fn find_asset_by_mac(&self, mac: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+
+    // ── Internal Networks ──
+
+    async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError>;
+
+    async fn add_internal_network(&self, cidr: &str, label: Option<&str>, zone: Option<&str>) -> Result<i64, DatabaseError>;
+
+    async fn delete_internal_network(&self, id: i64) -> Result<(), DatabaseError>;
+
+    // ── Company Profile ──
+
+    async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError>;
+
+    async fn update_company_profile(&self, profile: &CompanyProfile) -> Result<(), DatabaseError>;
+
+    // ── Asset Categories ──
+
+    async fn list_asset_categories(&self) -> Result<Vec<AssetCategory>, DatabaseError>;
+
+    async fn upsert_asset_category(&self, cat: &AssetCategory) -> Result<(), DatabaseError>;
 }

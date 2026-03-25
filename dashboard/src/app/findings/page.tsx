@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { ChromeInsetCard } from "@/components/chrome/ChromeCard";
+import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   AlertTriangle, Shield, ChevronDown, RefreshCw, CheckCircle2, XCircle,
@@ -124,7 +124,7 @@ export default function FindingsPage() {
             const st = STATUS_LABELS[f.status] || STATUS_LABELS.open;
             const isExpanded = expandedId === f.id;
             return (
-              <ChromeInsetCard key={f.id} style={{ borderLeft: `3px solid ${sev.color}`, padding: "14px 16px", borderRadius: "var(--tc-radius-card)" }}>
+              <ChromeInsetCard key={f.id} style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-card)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : f.id)}>
                   <span style={{ fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: sev.bg, color: sev.color, border: `1px solid ${sev.border}`, textTransform: "uppercase", flexShrink: 0 }}>
                     {f.severity}

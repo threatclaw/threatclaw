@@ -127,9 +127,15 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // ── 3. Overlay alerts on assets ──
+    // ── 3. Overlay alerts on assets (resolve hostnames/IPs to asset names) ──
     for a in &alerts {
-        let asset = a.hostname.as_deref().unwrap_or("unknown").to_string();
+        let raw_host = a.hostname.as_deref().unwrap_or("unknown");
+        // Try to resolve hostname/IP to a known asset name
+        let asset = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
+            found.name.clone()
+        } else {
+            raw_host.to_string()
+        };
         let entry = asset_map.entry(asset.clone()).or_insert_with(|| AssetSituation {
             asset: asset.clone(), score: 0.0,
             findings_critical: 0, findings_high: 0, findings_medium: 0, findings_low: 0,
@@ -150,10 +156,29 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // ── 4. Score each asset ──
+    // ── 4. Score each asset (with ML adjustment) ──
     for entry in asset_map.values_mut() {
         entry.score = compute_asset_score(entry);
-        entry.summary = build_asset_summary(entry);
+
+        // Consult ML score if available (written by ml-engine Python process)
+        if let Ok(Some(ml_setting)) = store.get_setting("ml_scores", &format!("score_{}", entry.asset)).await {
+            let ml_score = ml_setting["score"].as_f64().unwrap_or(0.0);
+            let baseline_match = ml_setting["score"].as_f64().map(|s| s < 0.3).unwrap_or(true);
+
+            if baseline_match && entry.score < 50.0 {
+                // ML says this is normal behavior → downgrade
+                entry.score = (entry.score * 0.5).max(0.0);
+                entry.summary = format!("{} [ML: normal behavior, score reduced]", entry.summary);
+            } else if ml_score > 0.7 {
+                // ML says this is anomalous → boost score
+                let boost = ml_score * 30.0;
+                entry.score = (entry.score + boost).min(100.0);
+                let ml_reason = ml_setting["reason"].as_str().unwrap_or("anomaly detected");
+                entry.summary = format!("{} [ML anomaly {:.0}%: {}]", entry.summary, ml_score * 100.0, ml_reason);
+            }
+        }
+
+        entry.summary = if entry.summary.is_empty() { build_asset_summary(entry) } else { entry.summary.clone() };
     }
 
     // ── 5. Compute global score ──
@@ -399,10 +424,11 @@ pub async fn run_intelligence_cycle(
     let notification_level = decide_notification_level(&asset_map, global_score);
 
     // ── 8. Build messages (enriched) ──
+    let lang = crate::agent::prompt_builder::get_language(store.as_ref()).await;
     let mut assets: Vec<AssetSituation> = asset_map.into_values().collect();
     assets.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-    let digest_message = build_digest_message(&assets, global_score, findings.len(), alerts.len());
+    let digest_message = build_digest_message(&assets, global_score, findings.len(), alerts.len(), &lang);
     // Build graph intel summary
     let graph_intel = GraphIntelSummary {
         lateral_detections: lateral.total_detections,
@@ -417,7 +443,7 @@ pub async fn run_intelligence_cycle(
     };
 
     let alert_message = if notification_level >= NotificationLevel::Alert {
-        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines, &findings, &graph_intel))
+        Some(build_enriched_alert_message(&assets, &alerts, &enrichment_lines, &findings, &graph_intel, &lang))
     } else {
         None
     };
@@ -437,14 +463,17 @@ pub async fn run_intelligence_cycle(
         graph_intel: Some(graph_intel),
     };
 
-    // Persist for dashboard
+    // Persist for dashboard (full situation including assets)
     let _ = store.set_setting("_system", "security_situation", &json!({
         "global_score": situation.global_score,
         "notification_level": situation.notification_level,
-        "open_findings": situation.total_open_findings,
-        "active_alerts": situation.total_active_alerts,
+        "new_findings_count": situation.new_findings_count,
+        "total_open_findings": situation.total_open_findings,
+        "total_active_alerts": situation.total_active_alerts,
         "assets_at_risk": situation.assets.iter().filter(|a| a.score > 30.0).count(),
+        "assets": situation.assets,
         "computed_at": situation.computed_at,
+        "digest_message": situation.digest_message,
     })).await;
     let _ = store.record_metric("security_score", global_score, &json!({})).await;
 
@@ -527,39 +556,54 @@ fn build_digest_message(
     global_score: f64,
     findings_count: usize,
     alerts_count: usize,
+    lang: &str,
 ) -> String {
     let date = chrono::Utc::now().format("%d/%m/%Y").to_string();
-    let mut msg = format!(
-        "*ThreatClaw — Digest {}*\n\nScore sécurité : *{:.0}/100*\n",
-        date, global_score
-    );
+    let en = lang == "en";
+    let mut msg = if en {
+        format!("*ThreatClaw — Digest {}*\n\nSecurity score: *{:.0}/100*\n", date, global_score)
+    } else {
+        format!("*ThreatClaw — Digest {}*\n\nScore sécurité : *{:.0}/100*\n", date, global_score)
+    };
 
     if !assets.is_empty() {
-        msg.push_str("\n*Assets à risque :*\n");
+        msg.push_str(if en { "\n*At-risk assets:*\n" } else { "\n*Assets à risque :*\n" });
         for asset in assets.iter().take(5) {
-            let level = if asset.score >= 60.0 { "CRITIQUE" }
-                else if asset.score >= 30.0 { "ATTENTION" }
-                else { "OK" };
+            let level = if asset.score >= 60.0 {
+                if en { "CRITICAL" } else { "CRITIQUE" }
+            } else if asset.score >= 30.0 {
+                if en { "WARNING" } else { "ATTENTION" }
+            } else { "OK" };
             msg.push_str(&format!(
-                "  {} [{}] — {} findings, {} alertes\n",
+                "  {} [{}] — {} findings, {} {}\n",
                 asset.asset, level,
                 asset.findings_critical + asset.findings_high + asset.findings_medium + asset.findings_low,
                 asset.active_alerts,
+                if en { "alerts" } else { "alertes" },
             ));
         }
     }
 
-    msg.push_str(&format!(
-        "\nFindings ouverts : {}\nAlertes actives : {}\n",
-        findings_count, alerts_count
-    ));
+    if en {
+        msg.push_str(&format!("\nOpen findings: {}\nActive alerts: {}\n", findings_count, alerts_count));
+    } else {
+        msg.push_str(&format!("\nFindings ouverts : {}\nAlertes actives : {}\n", findings_count, alerts_count));
+    }
 
     if global_score >= 80.0 {
-        msg.push_str("\n_Aucune action requise._");
+        msg.push_str(if en { "\n_No action required._" } else { "\n_Aucune action requise._" });
     } else if global_score >= 50.0 {
-        msg.push_str("\n_Quelques points d'attention — voir le dashboard pour les détails._");
+        msg.push_str(if en {
+            "\n_Some items need attention — check the dashboard for details._"
+        } else {
+            "\n_Quelques points d'attention — voir le dashboard pour les détails._"
+        });
     } else {
-        msg.push_str("\n_Situation dégradée — action recommandée._");
+        msg.push_str(if en {
+            "\n_Degraded situation — action recommended._"
+        } else {
+            "\n_Situation dégradée — action recommandée._"
+        });
     }
 
     msg
@@ -570,6 +614,7 @@ fn build_alert_message(
     assets: &[AssetSituation],
     alerts: &[crate::db::threatclaw_store::AlertRecord],
     findings: &[crate::db::threatclaw_store::FindingRecord],
+    lang: &str,
 ) -> String {
     let empty_intel = GraphIntelSummary {
         lateral_detections: 0, lateral_summary: String::new(),
@@ -578,7 +623,7 @@ fn build_alert_message(
         identity_anomalies: 0, identity_summary: String::new(),
         confidence_scores: vec![],
     };
-    build_enriched_alert_message(assets, alerts, &[], findings, &empty_intel)
+    build_enriched_alert_message(assets, alerts, &[], findings, &empty_intel, lang)
 }
 
 /// Build an enriched alert message with all intelligence data.
@@ -588,7 +633,9 @@ fn build_enriched_alert_message(
     enrichment: &[String],
     findings: &[crate::db::threatclaw_store::FindingRecord],
     graph_intel: &GraphIntelSummary,
+    lang: &str,
 ) -> String {
+    let en = lang == "en";
     let critical_assets: Vec<&AssetSituation> = assets.iter()
         .filter(|a| a.score >= 30.0)
         .collect();
@@ -599,9 +646,9 @@ fn build_enriched_alert_message(
 
     // ── Header with emoji severity ──
     if is_critical {
-        msg.push_str("*ALERTE CRITIQUE*\n");
+        msg.push_str(if en { "*CRITICAL ALERT*\n" } else { "*ALERTE CRITIQUE*\n" });
     } else {
-        msg.push_str("*Alerte securite*\n");
+        msg.push_str(if en { "*Security alert*\n" } else { "*Alerte securite*\n" });
     }
     msg.push_str("━━━━━━━━━━━━━━━━━━━━━\n\n");
 
@@ -622,13 +669,13 @@ fn build_enriched_alert_message(
 
     // ── Assets impactes (clean format) ──
     if !critical_assets.is_empty() {
-        msg.push_str("*Assets impactes*\n");
+        msg.push_str(if en { "*Impacted assets*\n" } else { "*Assets impactes*\n" });
         for asset in critical_assets.iter().take(3) {
             let mut flags = vec![];
             if asset.has_kill_chain { flags.push("kill chain"); }
-            if asset.has_known_exploit { flags.push("exploit actif"); }
-            if asset.has_active_attack { flags.push("attaque en cours"); }
-            if asset.findings_critical > 0 { flags.push("vuln critique"); }
+            if asset.has_known_exploit { flags.push(if en { "active exploit" } else { "exploit actif" }); }
+            if asset.has_active_attack { flags.push(if en { "ongoing attack" } else { "attaque en cours" }); }
+            if asset.findings_critical > 0 { flags.push(if en { "critical vuln" } else { "vuln critique" }); }
             let flag_str = if flags.is_empty() { String::new() } else { format!(" ({})", flags.join(", ")) };
             msg.push_str(&format!("  {} — {:.0}/100{}\n", asset.asset, asset.score, flag_str));
         }
@@ -640,31 +687,36 @@ fn build_enriched_alert_message(
 
     // Confidence scores
     for (ip, score, level) in &graph_intel.confidence_scores {
-        intel_lines.push(format!("Confiance {} : {}/100 ({})", ip, score, level));
+        let label = if en { "Confidence" } else { "Confiance" };
+        intel_lines.push(format!("{} {} : {}/100 ({})", label, ip, score, level));
     }
 
     // Lateral movement
     if graph_intel.lateral_detections > 0 {
-        intel_lines.push(format!("Mouvement lateral : {}", graph_intel.lateral_summary.lines().next().unwrap_or("")));
+        let label = if en { "Lateral movement" } else { "Mouvement lateral" };
+        intel_lines.push(format!("{} : {}", label, graph_intel.lateral_summary.lines().next().unwrap_or("")));
     }
 
     // Campaigns
     if graph_intel.campaigns_count > 0 {
-        intel_lines.push(format!("Campagne : {}", graph_intel.campaigns_summary.lines().next().unwrap_or("")));
+        let label = if en { "Campaign" } else { "Campagne" };
+        intel_lines.push(format!("{} : {}", label, graph_intel.campaigns_summary.lines().next().unwrap_or("")));
     }
 
     // Threat actors
     if graph_intel.actors_count > 0 {
-        intel_lines.push(format!("Acteurs : {}", graph_intel.actors_summary));
+        let label = if en { "Actors" } else { "Acteurs" };
+        intel_lines.push(format!("{} : {}", label, graph_intel.actors_summary));
     }
 
     // Identity anomalies
     if graph_intel.identity_anomalies > 0 {
-        intel_lines.push(format!("Identite : {}", graph_intel.identity_summary));
+        let label = if en { "Identity" } else { "Identite" };
+        intel_lines.push(format!("{} : {}", label, graph_intel.identity_summary));
     }
 
     if !intel_lines.is_empty() {
-        msg.push_str("*Graph Intelligence*\n");
+        msg.push_str(if en { "*Graph Intelligence*\n" } else { "*Graph Intelligence*\n" });
         for line in intel_lines.iter().take(5) {
             msg.push_str(&format!("  {}\n", line));
         }
@@ -673,7 +725,7 @@ fn build_enriched_alert_message(
 
     // ── Top alerts (max 3, clean format) ──
     if !alerts.is_empty() {
-        msg.push_str(&format!("*Alertes ({} total)*\n", alerts.len()));
+        msg.push_str(&format!("*{} ({} total)*\n", if en { "Alerts" } else { "Alertes" }, alerts.len()));
         for a in alerts.iter().take(3) {
             let src = a.source_ip.as_deref()
                 .map(|ip| format!(" — {}", ip.split('/').next().unwrap_or(ip)))
@@ -681,7 +733,7 @@ fn build_enriched_alert_message(
             msg.push_str(&format!("  [{}] {}{}\n", a.level.to_uppercase(), a.title, src));
         }
         if alerts.len() > 3 {
-            msg.push_str(&format!("  +{} autres\n", alerts.len() - 3));
+            msg.push_str(&format!("  +{} {}\n", alerts.len() - 3, if en { "more" } else { "autres" }));
         }
         msg.push('\n');
     }
@@ -693,7 +745,7 @@ fn build_enriched_alert_message(
             .filter(|line| seen.insert(line.as_str()))
             .collect();
         if !deduped.is_empty() {
-            msg.push_str("*Enrichissement*\n");
+            msg.push_str(if en { "*Enrichment*\n" } else { "*Enrichissement*\n" });
             for line in deduped.iter().take(3) {
                 msg.push_str(&format!("  {}\n", line));
             }
@@ -704,12 +756,12 @@ fn build_enriched_alert_message(
     // ── Footer ──
     msg.push_str("━━━━━━━━━━━━━━━━━━━━━\n");
     msg.push_str(&crate::branding::notification_footer());
-    msg.push_str("\n_Dashboard : /intelligence_");
+    msg.push_str(if en { "\n_Dashboard: /intelligence_" } else { "\n_Dashboard : /intelligence_" });
 
     // Telegram limit is 4096 chars
     if msg.len() > 4000 {
         msg.truncate(3900);
-        msg.push_str("\n...\n_[voir dashboard /intelligence]_");
+        msg.push_str(if en { "\n...\n_[see dashboard /intelligence]_" } else { "\n...\n_[voir dashboard /intelligence]_" });
     }
 
     msg

@@ -23,7 +23,7 @@ pub async fn mutate(store: &dyn Database, cypher: &str) -> bool {
     match store.execute_cypher(cypher).await {
         Ok(_) => true,
         Err(e) => {
-            tracing::warn!("GRAPH: Cypher mutation failed: {e}");
+            tracing::warn!("GRAPH: Cypher mutation failed: {e} | query: {}", &cypher[..cypher.len().min(120)]);
             false
         }
     }
@@ -35,7 +35,7 @@ pub async fn mutate(store: &dyn Database, cypher: &str) -> bool {
 
 /// Upsert an IP node with enrichment data.
 pub async fn upsert_ip(store: &dyn Database, addr: &str, country: Option<&str>, asn: Option<&str>, classification: Option<&str>) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let mut sets = vec![format!("ip.addr = '{}'", esc(addr))];
     if let Some(c) = country { sets.push(format!("ip.country = '{}'", esc(c))); }
     if let Some(a) = asn { sets.push(format!("ip.asn = '{}'", esc(a))); }
@@ -51,7 +51,7 @@ pub async fn upsert_ip(store: &dyn Database, addr: &str, country: Option<&str>, 
 
 /// Upsert an Asset node.
 pub async fn upsert_asset(store: &dyn Database, id: &str, hostname: &str, asset_type: &str, criticality: &str) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let cypher = format!(
         "MERGE (a:Asset {{id: '{}'}}) SET a.hostname = '{}', a.type = '{}', a.criticality = '{}', a.last_seen = '{}' RETURN a",
         esc(id), esc(hostname), esc(asset_type), esc(criticality), chrono::Utc::now().to_rfc3339()
@@ -61,7 +61,7 @@ pub async fn upsert_asset(store: &dyn Database, id: &str, hostname: &str, asset_
 
 /// Upsert a CVE node.
 pub async fn upsert_cve(store: &dyn Database, cve_id: &str, cvss: f64, epss: f64, in_kev: bool) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let cypher = format!(
         "MERGE (c:CVE {{id: '{}'}}) SET c.cvss = {}, c.epss = {}, c.in_kev = {} RETURN c",
         esc(cve_id), cvss, epss, in_kev
@@ -71,7 +71,7 @@ pub async fn upsert_cve(store: &dyn Database, cve_id: &str, cvss: f64, epss: f64
 
 /// Upsert a MITRE ATT&CK Technique node.
 pub async fn upsert_technique(store: &dyn Database, mitre_id: &str, name: &str, tactic: &str) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let cypher = format!(
         "MERGE (t:Technique {{mitre_id: '{}'}}) SET t.name = '{}', t.tactic = '{}' RETURN t",
         esc(mitre_id), esc(name), esc(tactic)
@@ -85,7 +85,7 @@ pub async fn upsert_technique(store: &dyn Database, mitre_id: &str, name: &str, 
 
 /// Record an attack: IP → ATTACKS → Asset
 pub async fn record_attack(store: &dyn Database, ip_addr: &str, asset_id: &str, method: &str) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let cypher = format!(
         "MATCH (ip:IP {{addr: '{}'}}), (a:Asset {{id: '{}'}}) \
          CREATE (ip)-[:ATTACKS {{method: '{}', timestamp: '{}'}}]->(a)",
@@ -96,7 +96,7 @@ pub async fn record_attack(store: &dyn Database, ip_addr: &str, asset_id: &str, 
 
 /// Record CVE affects Asset
 pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &str) {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     let cypher = format!(
         "MATCH (c:CVE {{id: '{}'}}), (a:Asset {{id: '{}'}}) MERGE (c)-[:AFFECTS]->(a)",
         esc(cve_id), esc(asset_id)
@@ -110,7 +110,7 @@ pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &s
 
 /// Find all IPs that have attacked a specific asset.
 pub async fn find_attackers(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     query(store, &format!(
         "MATCH (ip:IP)-[att:ATTACKS]->(a:Asset {{id: '{}'}}) \
          RETURN ip.addr, ip.country, ip.classification, att.method",
@@ -120,7 +120,7 @@ pub async fn find_attackers(store: &dyn Database, asset_id: &str) -> Vec<serde_j
 
 /// Find all CVEs affecting an asset (especially KEV).
 pub async fn find_asset_cves(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     query(store, &format!(
         "MATCH (c:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) RETURN c.id, c.cvss, c.epss, c.in_kev",
         esc(asset_id)
@@ -129,7 +129,7 @@ pub async fn find_asset_cves(store: &dyn Database, asset_id: &str) -> Vec<serde_
 
 /// Find all assets attacked by a specific IP.
 pub async fn find_ip_targets(store: &dyn Database, ip_addr: &str) -> Vec<serde_json::Value> {
-    let esc = |s: &str| s.replace('\'', "\\'");
+    let esc = |s: &str| s.replace('\'', "");
     query(store, &format!(
         "MATCH (ip:IP {{addr: '{}'}})-[:ATTACKS]->(a:Asset) RETURN a.id, a.hostname, a.criticality",
         esc(ip_addr)
@@ -152,10 +152,28 @@ pub async fn build_investigation_context(store: &dyn Database, asset_id: &str) -
     })
 }
 
-/// Populate the graph from the current findings and alerts in the relational DB.
+/// Populate the graph from the current findings, alerts, and assets in the relational DB.
 /// Called by the Intelligence Engine to keep the graph in sync.
+/// Now uses the new `assets` table + IP classifier for proper correlation.
 pub async fn sync_graph_from_db(store: &dyn Database) {
-    // Sync assets from targets
+    use crate::db::threatclaw_store::ThreatClawStore;
+    use crate::agent::ip_classifier;
+
+    // ── Load assets from the new assets table ──
+    let assets = store.list_assets(None, Some("active"), 500).await.unwrap_or_default();
+    let mut asset_ip_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for a in &assets {
+        upsert_asset(store, &a.id, &a.name, &a.category, &a.criticality).await;
+        for ip in &a.ip_addresses {
+            asset_ip_map.insert(ip.clone(), a.id.clone());
+        }
+        if let Some(ref hostname) = a.hostname {
+            asset_ip_map.insert(hostname.clone(), a.id.clone());
+        }
+    }
+
+    // ── Also load legacy targets (backward compat) ──
     let targets = store.list_settings("_targets").await.unwrap_or_default();
     for t in &targets {
         let v = &t.value;
@@ -163,33 +181,103 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         let host = v["host"].as_str().unwrap_or("");
         let ttype = v["target_type"].as_str().unwrap_or("linux");
         if !id.is_empty() && !host.is_empty() {
-            upsert_asset(store, id, host, ttype, "medium").await;
+            if !asset_ip_map.contains_key(host) {
+                upsert_asset(store, id, host, ttype, "medium").await;
+                asset_ip_map.insert(host.to_string(), id.to_string());
+            }
         }
     }
 
-    // Sync IPs from alerts
-    let alerts = store.list_alerts(None, None, 100).await.unwrap_or_default();
+    // ── Load internal networks for IP classification ──
+    let networks_db = store.list_internal_networks().await.unwrap_or_default();
+    let networks: Vec<ip_classifier::NetworkRange> = networks_db.iter()
+        .filter_map(|n| ip_classifier::NetworkRange::from_cidr(&n.cidr, n.label.as_deref().unwrap_or(""), &n.zone))
+        .collect();
+    let known_ips: Vec<String> = asset_ip_map.keys().cloned().collect();
+
+    // ── Process alerts — classify IPs and create graph relationships ──
+    let alerts = store.list_alerts(None, None, 200).await.unwrap_or_default();
     for a in &alerts {
         if let Some(ref ip) = a.source_ip {
             let clean_ip = ip.split('/').next().unwrap_or("").trim();
-            if !clean_ip.is_empty() && !clean_ip.starts_with("10.") && !clean_ip.starts_with("192.168.") && !clean_ip.starts_with("127.") {
-                upsert_ip(store, clean_ip, None, None, None).await;
-                // Record attack if we can identify the target
-                if let Some(ref hostname) = a.hostname {
-                    // Find the target ID from hostname
-                    for t in &targets {
-                        if t.value["host"].as_str() == Some(hostname) || t.value["id"].as_str() == Some(hostname) {
-                            let target_id = t.value["id"].as_str().unwrap_or(hostname);
-                            record_attack(store, clean_ip, target_id, &a.title).await;
-                            break;
+            if clean_ip.is_empty() { continue; }
+
+            let classification = ip_classifier::classify(clean_ip, &networks, &known_ips);
+
+            match classification {
+                ip_classifier::IpClass::External => {
+                    // External IP = attacker → upsert as IP node
+                    upsert_ip(store, clean_ip, None, None, Some("suspicious")).await;
+
+                    // Find the target asset (from hostname or dest IP)
+                    if let Some(ref hostname) = a.hostname {
+                        if let Some(asset_id) = asset_ip_map.get(hostname.as_str())
+                            .or_else(|| asset_ip_map.get(hostname)) {
+                            record_attack(store, clean_ip, asset_id, &a.title).await;
                         }
                     }
+                }
+                ip_classifier::IpClass::InternalKnown(ref asset_id) => {
+                    // Internal known = this asset is the SOURCE of suspicious activity
+                    // (e.g., compromised server doing lateral movement)
+                    if let Some(ref hostname) = a.hostname {
+                        if let Some(target_id) = asset_ip_map.get(hostname.as_str()) {
+                            if target_id != asset_id {
+                                // Internal → internal = lateral movement
+                                upsert_ip(store, clean_ip, None, None, Some("lateral")).await;
+                                record_attack(store, clean_ip, target_id, &format!("lateral: {}", a.title)).await;
+                            }
+                        }
+                    }
+                }
+                ip_classifier::IpClass::InternalUnknown => {
+                    // Unknown device on internal network — auto-create asset
+                    let auto_id = format!("auto-{}", clean_ip.replace('.', "-"));
+                    if !asset_ip_map.contains_key(clean_ip) {
+                        let _ = store.upsert_asset(&crate::db::threatclaw_store::NewAsset {
+                            id: auto_id.clone(),
+                            name: format!("Unknown {}", clean_ip),
+                            category: "unknown".into(),
+                            subcategory: None,
+                            role: None,
+                            criticality: "medium".into(),
+                            ip_addresses: vec![clean_ip.to_string()],
+                            mac_address: None,
+                            hostname: None,
+                            fqdn: None,
+                            url: None,
+                            os: None,
+                            mac_vendor: None,
+                            source: "alert-auto".into(),
+                            owner: None,
+                            location: None,
+                            tags: vec!["auto-discovered".into()],
+                        }).await;
+                        upsert_asset(store, &auto_id, clean_ip, "unknown", "medium").await;
+                        asset_ip_map.insert(clean_ip.to_string(), auto_id.clone());
+                        tracing::info!("GRAPH: Auto-created unknown asset {} for internal IP {}", auto_id, clean_ip);
+                    }
+                    upsert_ip(store, clean_ip, None, None, Some("unknown-internal")).await;
+                }
+                ip_classifier::IpClass::Special => {} // ignore loopback, multicast
+            }
+        }
+
+        // Also process the hostname/dest as an asset target
+        if let Some(ref hostname) = a.hostname {
+            let host_clean = hostname.trim();
+            if !host_clean.is_empty() {
+                if let Some(asset_id) = asset_ip_map.get(host_clean) {
+                    upsert_asset(store, asset_id, host_clean,
+                        &assets.iter().find(|aa| aa.id == *asset_id).map(|aa| aa.category.as_str()).unwrap_or("server"),
+                        &assets.iter().find(|aa| aa.id == *asset_id).map(|aa| aa.criticality.as_str()).unwrap_or("medium"),
+                    ).await;
                 }
             }
         }
     }
 
-    // Sync CVEs from findings
+    // ── Sync CVEs from findings ──
     let findings = store.list_findings(None, Some("open"), None, 200).await.unwrap_or_default();
     for f in &findings {
         if let Some(cve) = f.metadata.as_object().and_then(|m| m.get("cve")).and_then(|v| v.as_str()) {
@@ -199,17 +287,13 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
             upsert_cve(store, cve, cvss, epss, in_kev).await;
 
             // Link CVE to asset
-            if let Some(ref asset) = f.asset {
-                for t in &targets {
-                    if t.value["host"].as_str() == Some(asset) || t.value["id"].as_str() == Some(asset) {
-                        let target_id = t.value["id"].as_str().unwrap_or(asset);
-                        record_cve_affects(store, cve, target_id).await;
-                        break;
-                    }
+            if let Some(ref asset_name) = f.asset {
+                if let Some(asset_id) = asset_ip_map.get(asset_name.as_str()) {
+                    record_cve_affects(store, cve, asset_id).await;
                 }
             }
         }
     }
 
-    tracing::info!("GRAPH: Synced from DB — {} targets, {} alerts, {} findings", targets.len(), alerts.len(), findings.len());
+    tracing::info!("GRAPH: Synced from DB — {} assets, {} alerts, {} findings", assets.len() + targets.len(), alerts.len(), findings.len());
 }

@@ -1,0 +1,30 @@
+{
+  "id": "skill-enrichment-urlscan",
+  "name": "URLScan.io",
+  "version": "1.0.0",
+  "description": "Analyse sandbox d'URL : screenshot, scripts injectes, redirections, malware",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "web-security",
+  "execution": {
+    "mode": "api",
+    "base_url": "https://urlscan.io/api/v1",
+    "triggers": ["domain", "url"],
+    "cache_ttl_hours": 24
+  },
+  "config": {
+    "urlscan_api_key": {
+      "type": "password",
+      "description": "URLScan.io API Key",
+      "required": true
+    }
+  },
+  "outputs": {
+    "scan_results": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "scan"
+}

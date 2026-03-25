@@ -2820,3 +2820,486 @@ pub async fn anonymizer_rules_delete_handler(
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() })))
     }
 }
+
+// ════════════════════════════════════════════════════════════════
+// WEBHOOK INGEST
+// ════════════════════════════════════════════════════════════════
+
+pub async fn webhook_ingest_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(source): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> StatusCode {
+    let store = match state.store.as_ref() {
+        Some(s) => s.as_ref(),
+        None => return StatusCode::OK, // Silent drop
+    };
+    let token = params.get("token").map(|s| s.as_str()).unwrap_or("");
+    let count = crate::connectors::webhook_ingest::process_webhook(store, &source, token, &body).await;
+    if count > 0 {
+        tracing::info!("WEBHOOK: {} events from source {}", count, source);
+    }
+    StatusCode::OK // Always 200
+}
+
+pub async fn webhook_generate_token_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(source): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::connectors::webhook_ingest::generate_token(store.as_ref(), &source).await {
+        Ok(token) => Ok(Json(serde_json::json!({ "source": source, "token": token, "endpoint": format!("/api/tc/webhook/ingest/{}?token={}", source, token) }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// ENRICHMENT — WEB SECURITY (Tier 1)
+// ════════════════════════════════════════════════════════════════
+
+pub async fn enrichment_safebrowsing_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = body["url"].as_str().unwrap_or("");
+    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-safebrowsing", "GOOGLE_SAFEBROWSING_KEY").await;
+    match crate::enrichment::google_safebrowsing::check_url(url, &api_key).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_ssllabs_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(host): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::ssl_labs::analyze(&host).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_observatory_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(host): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::mozilla_observatory::scan(&host).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_crtsh_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(domain): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::crt_sh::lookup_domain(&domain).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_wpscan_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(slug): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let api_token = get_skill_config_field(store.as_ref(), "skill-enrichment-wpscan", "WPSCAN_API_TOKEN").await;
+    match crate::enrichment::wpscan::lookup_plugin(&slug, &api_token).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_phishtank_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let url = body["url"].as_str().unwrap_or("");
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let app_key = get_skill_config_field(store.as_ref(), "skill-enrichment-phishtank", "PHISHTANK_APP_KEY").await;
+    let key_opt = if app_key.is_empty() { None } else { Some(app_key.as_str()) };
+    match crate::enrichment::phishtank::check_url(url, key_opt).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_spamhaus_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(ip): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::spamhaus::check_ip(&ip).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONNECTORS — WEB SECURITY (Tier 2)
+// ════════════════════════════════════════════════════════════════
+
+pub async fn connector_cloudflare_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let token = get_skill_config_field(store.as_ref(), "skill-cloudflare", "CF_API_TOKEN").await;
+    let zone_id = get_skill_config_field(store.as_ref(), "skill-cloudflare", "CF_ZONE_ID").await;
+    let config = crate::connectors::cloudflare::CloudflareConfig {
+        api_token: token, zone_id, max_events: 100,
+    };
+    let result = crate::connectors::cloudflare::sync_cloudflare(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_crowdsec_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = get_skill_config_field(store.as_ref(), "skill-crowdsec-connector", "CROWDSEC_URL").await;
+    let key = get_skill_config_field(store.as_ref(), "skill-crowdsec-connector", "CROWDSEC_BOUNCER_KEY").await;
+    let config = crate::connectors::crowdsec::CrowdSecConfig {
+        url, bouncer_key: key,
+    };
+    let result = crate::connectors::crowdsec::sync_crowdsec(store.as_ref(), &config, false).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_uptimerobot_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let api_key = get_skill_config_field(store.as_ref(), "skill-uptimerobot", "UPTIMEROBOT_API_KEY").await;
+    let config = crate::connectors::uptimerobot::UptimeRobotConfig {
+        api_key, latency_threshold_ms: 2000, cert_warn_days: 14,
+    };
+    let result = crate::connectors::uptimerobot::sync_uptimerobot(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// Helper: get a config field for a skill.
+async fn get_skill_config_field(store: &dyn crate::db::Database, skill_id: &str, field: &str) -> String {
+    store.get_setting(skill_id, field).await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_default()
+}
+
+// ════════════════════════════════════════════════════════════════
+// ASSETS MANAGEMENT (v1.6)
+// ════════════════════════════════════════════════════════════════
+
+pub async fn assets_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let category = params.get("category").map(|s| s.as_str());
+    let status = params.get("status").map(|s| s.as_str());
+    let limit = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(500);
+    match store.list_assets(category, status, limit).await {
+        Ok(assets) => Ok(Json(serde_json::json!({ "assets": assets, "total": assets.len() }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_get_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.get_asset(&id).await {
+        Ok(Some(asset)) => Ok(Json(serde_json::json!(asset))),
+        Ok(None) => Ok(Json(serde_json::json!({ "error": "Asset not found" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_upsert_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    use crate::db::threatclaw_store::NewAsset;
+
+    let id = body["id"].as_str()
+        .unwrap_or(&uuid::Uuid::new_v4().to_string())
+        .to_string();
+
+    let asset = NewAsset {
+        id: id.clone(),
+        name: body["name"].as_str().unwrap_or(&id).to_string(),
+        category: body["category"].as_str().unwrap_or("unknown").to_string(),
+        subcategory: body["subcategory"].as_str().map(String::from),
+        role: body["role"].as_str().map(String::from),
+        criticality: body["criticality"].as_str().unwrap_or("medium").to_string(),
+        ip_addresses: body["ip_addresses"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .or_else(|| body["ip"].as_str().map(|ip| vec![ip.to_string()]))
+            .unwrap_or_default(),
+        mac_address: body["mac_address"].as_str().map(String::from),
+        hostname: body["hostname"].as_str().map(String::from),
+        fqdn: body["fqdn"].as_str().map(String::from),
+        url: body["url"].as_str().map(String::from),
+        os: body["os"].as_str().map(String::from),
+        mac_vendor: body["mac_vendor"].as_str().map(String::from),
+        source: body["source"].as_str().unwrap_or("manual").to_string(),
+        owner: body["owner"].as_str().map(String::from),
+        location: body["location"].as_str().map(String::from),
+        tags: body["tags"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+    };
+
+    match store.upsert_asset(&asset).await {
+        Ok(aid) => Ok(Json(serde_json::json!({ "status": "ok", "id": aid }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.delete_asset(&id).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "deleted" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_counts_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.count_assets_by_category().await {
+        Ok(counts) => {
+            let total: i64 = counts.iter().map(|(_, c)| c).sum();
+            Ok(Json(serde_json::json!({ "counts": counts.iter().map(|(k, v)| serde_json::json!({"category": k, "count": v})).collect::<Vec<_>>(), "total": total })))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_categories_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.list_asset_categories().await {
+        Ok(cats) => Ok(Json(serde_json::json!({ "categories": cats }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn assets_category_upsert_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    use crate::db::threatclaw_store::AssetCategory;
+    let cat = AssetCategory {
+        id: body["id"].as_str().unwrap_or("custom").to_string(),
+        label: body["label"].as_str().unwrap_or("Custom").to_string(),
+        label_en: body["label_en"].as_str().map(String::from),
+        icon: body["icon"].as_str().unwrap_or("box").to_string(),
+        color: body["color"].as_str().unwrap_or("var(--tc-blue)").to_string(),
+        subcategories: body["subcategories"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        is_builtin: false,
+    };
+    match store.upsert_asset_category(&cat).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// INTERNAL NETWORKS
+// ════════════════════════════════════════════════════════════════
+
+pub async fn networks_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.list_internal_networks().await {
+        Ok(nets) => Ok(Json(serde_json::json!({ "networks": nets }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn networks_add_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let cidr = body["cidr"].as_str().unwrap_or("");
+    let label = body["label"].as_str();
+    let zone = body["zone"].as_str();
+    match store.add_internal_network(cidr, label, zone).await {
+        Ok(id) => Ok(Json(serde_json::json!({ "status": "ok", "id": id }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn networks_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let net_id: i64 = id.parse().unwrap_or(0);
+    match store.delete_internal_network(net_id).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "deleted" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// COMPANY PROFILE
+// ════════════════════════════════════════════════════════════════
+
+pub async fn company_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.get_company_profile().await {
+        Ok(profile) => Ok(Json(serde_json::json!(profile))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+pub async fn company_update_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    use crate::db::threatclaw_store::CompanyProfile;
+    let profile = CompanyProfile {
+        company_name: body["company_name"].as_str().map(String::from),
+        nace_code: body["nace_code"].as_str().map(String::from),
+        sector: body["sector"].as_str().unwrap_or("other").to_string(),
+        company_size: body["company_size"].as_str().unwrap_or("small").to_string(),
+        employee_count: body["employee_count"].as_i64().map(|n| n as i32),
+        country: body["country"].as_str().unwrap_or("FR").to_string(),
+        business_hours: body["business_hours"].as_str().unwrap_or("office").to_string(),
+        business_hours_start: body["business_hours_start"].as_str().unwrap_or("08:00").to_string(),
+        business_hours_end: body["business_hours_end"].as_str().unwrap_or("18:00").to_string(),
+        work_days: body["work_days"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_else(|| vec!["mon".into(),"tue".into(),"wed".into(),"thu".into(),"fri".into()]),
+        geo_scope: body["geo_scope"].as_str().unwrap_or("france").to_string(),
+        allowed_countries: body["allowed_countries"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_else(|| vec!["FR".into()]),
+        blocked_countries: body["blocked_countries"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        critical_systems: body["critical_systems"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        compliance_frameworks: body["compliance_frameworks"].as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        anomaly_sensitivity: body["anomaly_sensitivity"].as_str().unwrap_or("medium").to_string(),
+    };
+    match store.update_company_profile(&profile).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "saved" }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+// ════════════════════════════════════════════════════════════════
+// v1.7 CONNECTORS — Network (Pi-hole, UniFi, DHCP, MAC OUI)
+// ════════════════════════════════════════════════════════════════
+
+pub async fn connector_pihole_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_url").await;
+    let password = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_password").await;
+    let config = crate::connectors::pihole::PiholeConfig { url, password };
+    let result = crate::connectors::pihole::sync_pihole(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_unifi_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_url").await;
+    let username = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_username").await;
+    let password = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_password").await;
+    let site = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_site").await;
+    let config = crate::connectors::unifi::UnifiConfig {
+        url, username, password,
+        site: if site.is_empty() { "default".into() } else { site },
+        no_tls_verify: true,
+    };
+    let result = crate::connectors::unifi::sync_unifi(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_dhcp_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let result = crate::connectors::dhcp_parser::process_dhcp_logs(store.as_ref()).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn enrichment_mac_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(mac): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let result = crate::enrichment::mac_oui_lookup::lookup(&mac);
+    Ok(Json(serde_json::json!(result)))
+}
+
+// ════════════════════════════════════════════════════════════════
+// v1.8 — Zeek + Suricata Connectors
+// ════════════════════════════════════════════════════════════════
+
+pub async fn connector_zeek_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let log_dir = get_skill_config_field(store.as_ref(), "skill-zeek", "zeek_log_dir").await;
+    let dir = if log_dir.is_empty() { "/opt/zeek/logs/current".to_string() } else { log_dir };
+    let config = crate::connectors::zeek::ZeekConfig { log_dir: dir, sync_interval_minutes: 5 };
+    let result = crate::connectors::zeek::sync_zeek(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_suricata_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let eve_path = get_skill_config_field(store.as_ref(), "skill-suricata", "eve_json_path").await;
+    let path = if eve_path.is_empty() { "/var/log/suricata/eve.json".to_string() } else { eve_path };
+    let config = crate::connectors::suricata::SuricataConfig { eve_json_path: path };
+    let result = crate::connectors::suricata::sync_suricata(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+// ════════════════════════════════════════════════════════════════
+// v1.9 — NACE Threat Profiles
+// ════════════════════════════════════════════════════════════════
+
+pub async fn threat_profiles_list_handler(
+    State(_state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let profiles = crate::agent::nace_profiles::list_profiles();
+    Ok(Json(serde_json::json!({ "profiles": profiles })))
+}
+
+pub async fn threat_profile_handler(
+    State(_state): State<Arc<GatewayState>>,
+    Path(sector): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let profile = crate::agent::nace_profiles::get_profile(&sector);
+    Ok(Json(serde_json::json!(profile)))
+}

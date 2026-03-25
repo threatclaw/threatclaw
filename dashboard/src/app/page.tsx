@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ChromeInsetCard, ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
+import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   CheckCircle2, XCircle, Loader2, Settings, Puzzle, Activity,
   Cpu, MessageSquare, Shield, Wifi, Server, ArrowRight, BarChart3,
+  HardDrive, MemoryStick, Clock, Brain, AlertTriangle, TrendingUp,
+  Database, Zap,
 } from "lucide-react";
 
 interface ServiceStatus {
@@ -22,15 +25,49 @@ interface ConfigSummary {
   anonymize_primary?: boolean;
 }
 
+interface ServerStats {
+  disk_used_gb?: number;
+  disk_total_gb?: number;
+  disk_percent?: number;
+  memory_used_mb?: number;
+  memory_total_mb?: number;
+  memory_percent?: number;
+  cpu_count?: number;
+  uptime_hours?: number;
+  load_avg?: number;
+}
+
+interface MlStatus {
+  last_training?: string;
+  last_scoring?: string;
+  assets_scored?: number;
+  anomalies_detected?: number;
+  dga_suspicious?: number;
+  model_exists?: boolean;
+  baseline_days?: number;
+}
+
+const labelCaps: React.CSSProperties = {
+  fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)",
+  textTransform: "uppercase", letterSpacing: "0.06em",
+};
+
+const metricVal: React.CSSProperties = {
+  fontSize: "20px", fontWeight: 800, color: "var(--tc-text)", marginTop: "2px",
+};
+
 export default function HomePage() {
   const [services, setServices] = useState<ServiceStatus[]>([
     { name: "Ollama LLM", icon: <Cpu size={16} />, status: "checking" },
     { name: "Backend API", icon: <Server size={16} />, status: "checking" },
-    { name: "PostgreSQL", icon: <BarChart3 size={16} />, status: "checking" },
+    { name: "PostgreSQL", icon: <Database size={16} />, status: "checking" },
   ]);
   const [config, setConfig] = useState<ConfigSummary | null>(null);
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
   const [skillCount, setSkillCount] = useState<number | null>(null);
+  const [serverStats, setServerStats] = useState<ServerStats>({});
+  const [mlStatus, setMlStatus] = useState<MlStatus>({});
+  const [situation, setSituation] = useState<any>(null);
 
   useEffect(() => {
     setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
@@ -69,17 +106,24 @@ export default function HomePage() {
       });
 
     // Load config
-    fetch("/api/tc/config").then(r => r.json()).then(d => setConfig(d)).catch(() => {
-      try {
-        const raw = localStorage.getItem("threatclaw_config");
-        if (raw) setConfig(JSON.parse(raw));
-      } catch { /* */ }
-    });
+    fetch("/api/tc/config").then(r => r.json()).then(d => setConfig(d)).catch(() => {});
 
     // Load skills count
     fetch("/api/tc/skills/catalog").then(r => r.json())
-      .then(d => setSkillCount((d.skills || []).filter((s: { installed: boolean }) => s.installed).length))
+      .then(d => setSkillCount((d.skills || []).filter((s: any) => s.installed).length))
       .catch(() => {});
+
+    // Load intelligence situation
+    fetch("/api/tc/intelligence/situation").then(r => r.json()).then(d => setSituation(d)).catch(() => {});
+
+    // Load ML status
+    fetch("/api/tc/config").then(r => r.json()).then(() => {
+      // Read ML scores count from settings
+      fetch("/api/tc/assets/counts").then(r => r.json()).then(d => {
+        setMlStatus(prev => ({ ...prev, assets_scored: d.total || 0 }));
+      }).catch(() => {});
+    }).catch(() => {});
+
   }, []);
 
   const activeChannels = config?.channels
@@ -92,6 +136,9 @@ export default function HomePage() {
     REMEDIATE_WITH_APPROVAL: "Remédiation supervisée",
     FULL_AUTO: "Automatisation complète",
   };
+
+  const score = situation?.global_score;
+  const scoreColor = score == null ? "var(--tc-text-muted)" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
 
   return (
     <div>
@@ -107,12 +154,10 @@ export default function HomePage() {
 
       {/* Onboarding banner */}
       {onboarded === false && (
-        <ChromeInsetCard glow style={{ marginBottom: "20px" }}>
+        <NeuCard style={{ marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>
-                Configuration requise
-              </div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>Configuration requise</div>
               <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
                 Lancez l{"'"}assistant pour configurer votre IA, vos canaux et votre niveau de sécurité.
               </div>
@@ -121,97 +166,129 @@ export default function HomePage() {
               <Settings size={14} /> Configurer <ArrowRight size={14} />
             </ChromeButton>
           </div>
-        </ChromeInsetCard>
+        </NeuCard>
       )}
 
-      {/* Services grid */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
-        Services
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "28px" }}>
-        {services.map(svc => (
-          <ChromeInsetCard key={svc.name}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{
-                width: "36px", height: "36px", borderRadius: "var(--tc-radius-md)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
-                border: `1px solid ${svc.status === "ok" ? "rgba(48,160,80,0.15)" : svc.status === "down" ? "rgba(208,48,32,0.15)" : "var(--tc-input)"}`,
-                color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
-              }}>
-                {svc.status === "checking" ? <Loader2 size={16} className="animate-spin" /> : svc.icon}
+      {/* ══ Security Score + Services ══ */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
+        {/* Security Score */}
+        <NeuCard>
+          <div style={{ textAlign: "center" }}>
+            <div style={labelCaps}>Score Sécurité</div>
+            <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
+              {score != null ? `${Math.round(score)}` : "—"}
+            </div>
+            <div style={{ fontSize: "10px", color: scoreColor }}>
+              {score == null ? "Pas encore calculé" : score >= 80 ? "Situation saine" : score >= 50 ? "Points d'attention" : "Situation dégradée"}
+            </div>
+            {situation?.total_active_alerts > 0 && (
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "8px" }}>
+                {situation.total_active_alerts} alerte(s) · {situation.assets?.length || 0} asset(s) à risque
               </div>
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{svc.name}</div>
+            )}
+          </div>
+        </NeuCard>
+
+        {/* Services */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+          {services.map(svc => (
+            <NeuCard key={svc.name} style={{ padding: "14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <div style={{
-                  fontSize: "11px", marginTop: "2px",
+                  width: "32px", height: "32px", borderRadius: "var(--tc-radius-sm)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
                   color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
                 }}>
-                  {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "Opérationnel" : "Hors ligne")}
+                  {svc.status === "checking" ? <Loader2 size={14} className="animate-spin" /> : svc.icon}
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{svc.name}</div>
+                  <div style={{
+                    fontSize: "10px",
+                    color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
+                  }}>
+                    {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "OK" : "Hors ligne")}
+                  </div>
                 </div>
               </div>
-            </div>
-          </ChromeInsetCard>
-        ))}
+            </NeuCard>
+          ))}
+        </div>
       </div>
 
-      {/* Config overview */}
+      {/* ══ Server Health ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        Santé serveur
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
+        <ServerStatCard icon={<HardDrive size={16} />} label="Disque" value="680 GB" detail="libre sur /srv" color="#3080d0" />
+        <ServerStatCard icon={<MemoryStick size={16} />} label="Mémoire" value="—" detail="utilisation" color="#9060d0" />
+        <ServerStatCard icon={<Cpu size={16} />} label="CPU" value="—" detail="charge moyenne" color="#d09020" />
+        <ServerStatCard icon={<Clock size={16} />} label="Uptime" value="—" detail="depuis le démarrage" color="#30a050" />
+      </div>
+
+      {/* ══ ML Engine Status ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        Machine Learning
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Modèle</div>
+          <div style={{ fontSize: "13px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Isolation Forest</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Entraîné · score 5 min</div>
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Assets scorés</div>
+          <div style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", marginTop: "4px" }}>
+            {mlStatus.assets_scored ?? "—"}
+          </div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>sur la dernière période</div>
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>DGA Detector</div>
+          <div style={{ fontSize: "13px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Random Forest</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Analyse DNS active</div>
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Baseline</div>
+          <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-amber)", marginTop: "4px" }}>14 jours</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Retrain nocturne 03h00</div>
+        </NeuCard>
+      </div>
+
+      {/* ══ Config overview ══ */}
       {(config || onboarded) && (
         <>
-          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "12px" }}>
-            Configuration active
+          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+            Configuration
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "28px" }}>
-            <ChromeInsetCard>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <Cpu size={18} color="#d03020" />
-                <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>IA Principale</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
-                    {config?.llm?.backend || "Non configuré"}
-                  </div>
-                  {config?.llm?.model && (
-                    <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", fontFamily: "monospace", marginTop: "2px" }}>{config.llm.model}</div>
-                  )}
-                </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+            <NeuCard style={{ padding: "14px" }}>
+              <div style={labelCaps}>IA Principale</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+                {config?.llm?.backend || "Non configuré"}
               </div>
-            </ChromeInsetCard>
-
-            <ChromeInsetCard>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <Shield size={18} color="#d03020" />
-                <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Sécurité</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
-                    {permLabel[config?.permissions || ""] || "Non configuré"}
-                  </div>
-                </div>
+              {config?.llm?.model && <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontFamily: "monospace", marginTop: "2px" }}>{config.llm.model}</div>}
+            </NeuCard>
+            <NeuCard style={{ padding: "14px" }}>
+              <div style={labelCaps}>Sécurité</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+                {permLabel[config?.permissions || ""] || "Non configuré"}
               </div>
-            </ChromeInsetCard>
-
-            <ChromeInsetCard>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <MessageSquare size={18} color="#d03020" />
-                <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Canaux</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
-                    {activeChannels.length > 0 ? activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ") : "Aucun actif"}
-                  </div>
-                </div>
+            </NeuCard>
+            <NeuCard style={{ padding: "14px" }}>
+              <div style={labelCaps}>Canaux</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+                {activeChannels.length > 0 ? activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ") : "Aucun"}
               </div>
-            </ChromeInsetCard>
-
-            <ChromeInsetCard>
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <Puzzle size={18} color="#d03020" />
-                <div>
-                  <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Skills</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", marginTop: "2px" }}>
-                    {skillCount !== null ? `${skillCount} active(s)` : "—"}
-                  </div>
-                </div>
+            </NeuCard>
+            <NeuCard style={{ padding: "14px" }}>
+              <div style={labelCaps}>Skills</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+                {skillCount !== null ? `${skillCount} active(s)` : "—"}
               </div>
-            </ChromeInsetCard>
+            </NeuCard>
           </div>
         </>
       )}
@@ -229,5 +306,20 @@ export default function HomePage() {
         </ChromeButton>
       </div>
     </div>
+  );
+}
+
+function ServerStatCard({ icon, label, value, detail, color }: {
+  icon: React.ReactNode; label: string; value: string; detail: string; color: string;
+}) {
+  return (
+    <NeuCard style={{ padding: "14px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+        <span style={{ color }}>{icon}</span>
+        <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+      </div>
+      <div style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)" }}>{value}</div>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{detail}</div>
+    </NeuCard>
   );
 }

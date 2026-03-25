@@ -1,0 +1,38 @@
+{
+  "id": "skill-uptimerobot",
+  "name": "UptimeRobot",
+  "version": "1.0.0",
+  "description": "Importe le statut des monitors UptimeRobot (uptime, latence, SSL expiry)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "web-security",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "uptimerobot_api_key": {
+      "type": "password",
+      "description": "UptimeRobot API Key (Read-Only)",
+      "required": true
+    },
+    "latency_threshold_ms": {
+      "type": "string",
+      "description": "Latency alert threshold (ms)",
+      "required": false
+    },
+    "cert_warn_days": {
+      "type": "string",
+      "description": "SSL cert warning (days before expiry)",
+      "required": false
+    }
+  },
+  "outputs": {
+    "monitors": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "activity"
+}

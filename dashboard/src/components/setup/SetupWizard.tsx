@@ -4,11 +4,12 @@ import React, { useState, useEffect } from "react";
 import {
   Shield, ChevronRight, ChevronLeft, Cpu, Link2, ShieldCheck, Calendar,
   CheckCircle2, Eye, Bell, ShieldAlert, Zap, MessageSquare, Mail, Server,
-  Check, Loader2, Wifi, AlertTriangle, Puzzle, Cloud, Lock,
+  Check, Loader2, Wifi, AlertTriangle, Puzzle, Cloud, Lock, X,
 } from "lucide-react";
 
 const STEPS = [
   { id: "welcome", label: "Bienvenue" },
+  { id: "company", label: "Entreprise" },
   { id: "llm-primary", label: "IA Principale" },
   { id: "llm-cloud", label: "IA de secours" },
   { id: "communication", label: "Communication" },
@@ -50,8 +51,53 @@ interface ScheduleItem {
   cron: string;
 }
 
+// ── Shared inline styles (tc-* variables for dark/light compat) ──
+
+const cardStyle: React.CSSProperties = {
+  background: "var(--tc-surface-alt)",
+  border: "1px solid var(--tc-border)",
+  borderRadius: "var(--tc-radius-md)",
+  padding: "20px",
+};
+
+const cardSmStyle: React.CSSProperties = {
+  background: "var(--tc-surface-alt)",
+  border: "1px solid var(--tc-border)",
+  borderRadius: "var(--tc-radius-md)",
+  padding: "10px 12px",
+};
+
+const btnPrimary: React.CSSProperties = {
+  background: "var(--tc-red)", color: "#fff", border: "none", borderRadius: "var(--tc-radius-md)",
+  padding: "10px 20px", fontSize: "12px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+  display: "inline-flex", alignItems: "center", gap: "6px", transition: "opacity 0.2s",
+};
+
+const btnSecondary: React.CSSProperties = {
+  background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)",
+  borderRadius: "var(--tc-radius-md)", padding: "8px 14px", fontSize: "11px", fontWeight: 600,
+  cursor: "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: "4px",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%", padding: "8px 10px", fontSize: "11px", fontFamily: "inherit",
+  background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+  color: "var(--tc-text)", outline: "none",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)",
+  textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "3px", display: "block",
+};
+
 export default function SetupWizard() {
   const [step, setStep] = useState(0);
+
+  const [company, setCompany] = useState({
+    company_name: "", sector: "other", company_size: "small",
+    business_hours: "office", geo_scope: "france",
+    internal_networks: "192.168.1.0/24",
+  });
 
   const [primary, setPrimary] = useState<PrimaryLlm>({
     backend: "ollama",
@@ -86,15 +132,6 @@ export default function SetupWizard() {
 
   const [permLevel, setPermLevel] = useState("ALERT_ONLY");
 
-  const [schedules, setSchedules] = useState<Record<string, ScheduleItem>>({
-    vuln_scan: { enabled: true, label: "Scan vulnérabilités", description: "Scan réseau quotidien", default: "Tous les jours à 2h", cron: "0 2 * * *" },
-    log_analysis: { enabled: true, label: "Analyse logs SOC", description: "Analyse continue des logs", default: "Toutes les 5 minutes", cron: "*/5 * * * *" },
-    darkweb: { enabled: true, label: "Surveillance dark web", description: "Monitoring fuites de données", default: "Toutes les 6 heures", cron: "0 */6 * * *" },
-    cloud_posture: { enabled: true, label: "Audit cloud", description: "Posture cloud AWS/Azure/GCP", default: "Chaque lundi à 3h", cron: "0 3 * * 1" },
-    phishing: { enabled: false, label: "Campagne phishing", description: "Simulation mensuelle", default: "1er du mois à 10h", cron: "0 10 1 * *" },
-    report: { enabled: true, label: "Rapport hebdomadaire", description: "Rapport sécurité RSSI", default: "Vendredi à 8h", cron: "0 8 * * 5" },
-  });
-
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [channelTest, setChannelTest] = useState<Record<string, { testing: boolean; result?: { ok: boolean; error?: string; username?: string; team?: string } }>>({});
@@ -116,7 +153,6 @@ export default function SetupWizard() {
     }
   };
 
-  // Auto-detect RAM on mount
   useEffect(() => {
     if (typeof navigator !== "undefined" && "deviceMemory" in navigator) {
       const ram = (navigator as Record<string, unknown>).deviceMemory as number;
@@ -138,15 +174,44 @@ export default function SetupWizard() {
     }
   };
 
+  const skipOnboarding = () => {
+    localStorage.setItem("threatclaw_onboarded", "true");
+    window.location.href = "/";
+  };
+
   const handleSave = async () => {
     setSaving(true);
+
+    // Save company profile
+    try {
+      await fetch("/api/tc/company", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: company.company_name, sector: company.sector,
+          company_size: company.company_size, business_hours: company.business_hours,
+          geo_scope: company.geo_scope,
+          allowed_countries: company.geo_scope === "france" ? ["FR"] : company.geo_scope === "europe" ? ["FR","DE","ES","IT","BE","NL","CH","AT","PT","LU"] : [],
+        }),
+      });
+      // Save internal networks
+      for (const line of company.internal_networks.split("\n")) {
+        const cidr = line.trim();
+        if (cidr && cidr.includes("/")) {
+          await fetch("/api/tc/networks", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cidr, label: "Auto-config", zone: "lan" }),
+          });
+        }
+      }
+    } catch { /* non-blocking */ }
+
     const config = {
       llm: { backend: primary.backend, url: primary.url, model: primary.model, apiKey: primary.apiKey },
       anonymize_primary: anonymizePrimary,
       cloud: cloud.enabled ? { backend: cloud.backend, model: cloud.model, baseUrl: cloud.baseUrl, apiKey: cloud.apiKey, escalation: cloud.escalation } : null,
       channels,
       permissions: permLevel,
-      general: { instanceName: "threatclaw", language: "fr" },
+      general: { instanceName: company.company_name || "threatclaw", language: "fr" },
     };
     try {
       const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
@@ -156,12 +221,13 @@ export default function SetupWizard() {
         setSaving(false);
         setSaved(true);
       } else {
-        console.error("Config save failed:", data);
+        // Fallback
+        localStorage.setItem("threatclaw_config", JSON.stringify(config));
+        localStorage.setItem("threatclaw_onboarded", "true");
         setSaving(false);
+        setSaved(true);
       }
-    } catch (e) {
-      console.error("Config save error:", e);
-      // Fallback to localStorage if backend is down
+    } catch {
       localStorage.setItem("threatclaw_config", JSON.stringify(config));
       localStorage.setItem("threatclaw_onboarded", "true");
       setSaving(false);
@@ -173,32 +239,28 @@ export default function SetupWizard() {
   const prev = () => setStep(s => Math.max(s - 1, 0));
 
   const permLevels = [
-    { id: "READ_ONLY", icon: Eye, label: "Observation", desc: "Observation uniquement — aucune action", color: "var(--accent-info)" },
-    { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "var(--accent-ok)", recommended: true },
-    { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine (HITL)", color: "var(--accent-warning)" },
-    { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "var(--accent-danger)", warning: true },
+    { id: "READ_ONLY", icon: Eye, label: "Observation", desc: "Observation uniquement — aucune action", color: "var(--tc-blue)" },
+    { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "var(--tc-green)", recommended: true },
+    { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine (HITL)", color: "var(--tc-amber)" },
+    { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "var(--tc-red)", warning: true },
   ];
 
   const channelDefs = [
-    { key: "slack", label: "Slack", desc: "Chat bidirectionnel + HITL — Slack App requise", fields: [
+    { key: "slack", label: "Slack", desc: "Chat bidirectionnel + HITL", fields: [
       { id: "botToken", label: "Bot Token (xoxb-...)", placeholder: "xoxb-..." },
       { id: "signingSecret", label: "Signing Secret", placeholder: "Slack App > Basic Information" },
     ]},
-    { key: "telegram", label: "Telegram", desc: "Chat bidirectionnel + alertes — Bot via @BotFather", fields: [
+    { key: "telegram", label: "Telegram", desc: "Chat bidirectionnel + alertes", fields: [
       { id: "botToken", label: "Bot Token", placeholder: "123456:ABC-DEF..." },
       { id: "botUsername", label: "Nom du bot (sans @)", placeholder: "threatclaw_bot" },
     ]},
-    { key: "discord", label: "Discord", desc: "Chat via bot Discord — slash commands + mentions", fields: [
+    { key: "discord", label: "Discord", desc: "Slash commands + mentions", fields: [
       { id: "botToken", label: "Bot Token", placeholder: "Discord Developer Portal > Bot" },
       { id: "publicKey", label: "Public Key (hex)", placeholder: "General Information > Public Key" },
     ]},
-    { key: "whatsapp", label: "WhatsApp", desc: "Chat via WhatsApp Cloud API (Meta Business)", fields: [
+    { key: "whatsapp", label: "WhatsApp", desc: "WhatsApp Cloud API (Meta)", fields: [
       { id: "accessToken", label: "Access Token", placeholder: "Token permanent Meta Developer" },
       { id: "phoneNumberId", label: "Phone Number ID", placeholder: "ID du numéro WhatsApp Business" },
-    ]},
-    { key: "signal", label: "Signal", desc: "Chat chiffré — nécessite signal-cli (avancé)", fields: [
-      { id: "httpUrl", label: "URL signal-cli", placeholder: "http://localhost:8080" },
-      { id: "account", label: "Numéro Signal (+33...)", placeholder: "+33612345678" },
     ]},
     { key: "email", label: "Email", desc: "Alertes uniquement (unidirectionnel)", fields: [
       { id: "host", label: "Serveur SMTP", placeholder: "smtp.example.com" },
@@ -209,7 +271,13 @@ export default function SetupWizard() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px", background: "var(--bg-base)" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px", background: "var(--tc-bg)" }}>
+      {/* Skip button — top right */}
+      <button onClick={skipOnboarding}
+        style={{ position: "fixed", top: "16px", right: "16px", ...btnSecondary, fontSize: "10px", gap: "4px", opacity: 0.7 }}>
+        <X size={10} /> Configurer plus tard
+      </button>
+
       {/* Progress */}
       <div style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "20px", maxWidth: "560px", width: "100%" }}>
         {STEPS.map((s, i) => (
@@ -218,46 +286,125 @@ export default function SetupWizard() {
               <div style={{
                 width: "24px", height: "24px", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "9px", fontWeight: 800,
-                background: i < step ? "var(--accent-ok)" : "var(--bg-pit)",
-                boxShadow: i === step ? "var(--shadow-pit-xs), 0 0 0 2px var(--accent-danger)" : "var(--shadow-pit-xs)",
-                color: i < step ? "#fff" : i === step ? "var(--accent-danger)" : "var(--text-muted)",
+                background: i < step ? "var(--tc-green)" : i === step ? "var(--tc-surface-alt)" : "var(--tc-input)",
+                border: i === step ? "2px solid var(--tc-red)" : "1px solid var(--tc-border)",
+                color: i < step ? "#fff" : i === step ? "var(--tc-red)" : "var(--tc-text-muted)",
               }}>
                 {i < step ? <Check size={10} /> : i + 1}
               </div>
-              <span style={{ fontSize: "7px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: i === step ? "var(--accent-danger)" : "var(--text-muted)" }}>{s.label}</span>
+              <span style={{ fontSize: "7px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: i === step ? "var(--tc-red)" : "var(--tc-text-muted)" }}>{s.label}</span>
             </div>
-            {i < STEPS.length - 1 && <div style={{ flex: 1, height: "2px", borderRadius: "1px", background: i < step ? "var(--accent-ok)" : "var(--bg-pit)", boxShadow: "var(--shadow-track)" }} />}
+            {i < STEPS.length - 1 && <div style={{ flex: 1, height: "2px", borderRadius: "1px", background: i < step ? "var(--tc-green)" : "var(--tc-border)" }} />}
           </React.Fragment>
         ))}
       </div>
 
-      <div className="pit" style={{ maxWidth: "540px", width: "100%", padding: "24px" }}>
+      <div style={{ ...cardStyle, maxWidth: "540px", width: "100%" }}>
 
         {/* ── Step 0: Welcome ── */}
         {step === 0 && (
           <div style={{ textAlign: "center" }}>
-            <div className="pit" style={{ width: "56px", height: "56px", borderRadius: "14px", margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Shield size={28} color="var(--accent-danger)" />
+            <div style={{ width: "56px", height: "56px", borderRadius: "14px", margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)" }}>
+              <Shield size={28} color="var(--tc-red)" />
             </div>
-            <h1 style={{ fontSize: "18px", fontWeight: 800, color: "var(--text-primary)", margin: "0 0 6px" }}>Bienvenue dans ThreatClaw</h1>
-            <p style={{ fontSize: "11px", color: "var(--text-secondary)", margin: "0 0 4px" }}>Agent de cybersécurité autonome pour PME</p>
-            <p style={{ fontSize: "9px", color: "var(--text-muted)", margin: "0 0 16px", maxWidth: "380px", marginLeft: "auto", marginRight: "auto" }}>
+            <h1 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 6px" }}>Bienvenue dans ThreatClaw</h1>
+            <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", margin: "0 0 4px" }}>Agent de cybersécurité autonome pour PME</p>
+            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", margin: "0 0 16px", maxWidth: "380px", marginLeft: "auto", marginRight: "auto" }}>
               Configurez votre agent en quelques étapes. Connectez votre IA, vos canaux de communication, et définissez votre niveau de sécurité.
             </p>
-            <button className="btn-raised-lg" onClick={next} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <button onClick={next} style={btnPrimary}>
               Commencer <ChevronRight size={14} />
             </button>
           </div>
         )}
 
-        {/* ── Step 1: IA Principale (obligatoire) ── */}
+        {/* ── Step 1: Fiche entreprise ── */}
         {step === 1 && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <Cpu size={18} color="var(--accent-danger)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>IA Principale</span>
+              <Shield size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Votre entreprise</span>
             </div>
-            <p style={{ fontSize: "9px", color: "var(--text-muted)", marginBottom: "12px" }}>
+            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
+              Ces informations aident ThreatClaw à adapter ses détections à votre contexte.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div>
+                <label style={labelStyle}>Nom de l{"'"}entreprise</label>
+                <input value={company.company_name} onChange={e => setCompany(c => ({ ...c, company_name: e.target.value }))}
+                  placeholder="CyberConsulting.fr" style={inputStyle} />
+              </div>
+
+              <div>
+                <label style={labelStyle}>Secteur d{"'"}activité</label>
+                <select value={company.sector} onChange={e => setCompany(c => ({ ...c, sector: e.target.value }))} style={inputStyle}>
+                  <option value="industry">Industrie / Manufacturing</option>
+                  <option value="healthcare">Santé / Médical</option>
+                  <option value="finance">Finance / Assurance</option>
+                  <option value="retail">Commerce / Retail</option>
+                  <option value="government">Collectivité / Administration</option>
+                  <option value="services">Services / Conseil</option>
+                  <option value="transport">Transport / Logistique</option>
+                  <option value="energy">Énergie</option>
+                  <option value="education">Éducation</option>
+                  <option value="other">Autre</option>
+                </select>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                <div>
+                  <label style={labelStyle}>Taille</label>
+                  <select value={company.company_size} onChange={e => setCompany(c => ({ ...c, company_size: e.target.value }))} style={inputStyle}>
+                    <option value="micro">&lt; 10 personnes</option>
+                    <option value="small">10 - 50 personnes</option>
+                    <option value="medium">50 - 250 personnes</option>
+                    <option value="large">250+ personnes</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Horaires d{"'"}activité</label>
+                  <select value={company.business_hours} onChange={e => setCompany(c => ({ ...c, business_hours: e.target.value }))} style={inputStyle}>
+                    <option value="office">Bureau (8h-18h)</option>
+                    <option value="24x7">24h/7j</option>
+                    <option value="shifts">Par équipes</option>
+                    <option value="seasonal">Saisonnière</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Zone géographique</label>
+                <select value={company.geo_scope} onChange={e => setCompany(c => ({ ...c, geo_scope: e.target.value }))} style={inputStyle}>
+                  <option value="france">France uniquement</option>
+                  <option value="europe">Europe</option>
+                  <option value="international">International</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={labelStyle}>Réseaux internes (CIDR, un par ligne)</label>
+                <textarea value={company.internal_networks}
+                  onChange={e => setCompany(c => ({ ...c, internal_networks: e.target.value }))}
+                  placeholder={"192.168.1.0/24\n10.0.0.0/8"}
+                  style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }} />
+              </div>
+
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
+                Ces données restent 100% locales. Elles paramètrent les seuils de détection et ne quittent jamais votre serveur.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: IA Principale ── */}
+        {step === 2 && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+              <Cpu size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>IA Principale</span>
+            </div>
+            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
               Le cerveau de ThreatClaw. Choisissez comment connecter l{"'"}IA.
             </p>
 
@@ -269,275 +416,183 @@ export default function SetupWizard() {
                 { id: "anthropic", label: "Anthropic", desc: "Claude", icon: Cpu, cloud: true },
               ].map(b => (
                 <button key={b.id} onClick={() => { setPrimary(p => ({ ...p, backend: b.id, connected: false, models: [] })); setAnonymizePrimary(b.cloud); }}
-                  className={primary.backend === b.id ? "pit" : "pit-xs"}
-                  style={{ border: "none", cursor: "pointer", textAlign: "left", outline: primary.backend === b.id ? "1px solid var(--border-accent)" : "none", outlineOffset: "-1px" }}>
-                  <b.icon size={14} color={primary.backend === b.id ? "var(--accent-danger)" : "var(--text-muted)"} />
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: primary.backend === b.id ? "var(--accent-danger)" : "var(--text-primary)", marginTop: "2px" }}>{b.label}</div>
-                  <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>{b.desc}</div>
+                  style={{
+                    ...cardSmStyle, cursor: "pointer", textAlign: "left" as const,
+                    border: primary.backend === b.id ? "1px solid var(--tc-red)" : "1px solid var(--tc-border)",
+                  }}>
+                  <b.icon size={14} color={primary.backend === b.id ? "var(--tc-red)" : "var(--tc-text-muted)"} />
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: primary.backend === b.id ? "var(--tc-red)" : "var(--tc-text)", marginTop: "2px" }}>{b.label}</div>
+                  <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>{b.desc}</div>
                 </button>
               ))}
             </div>
 
+            {/* URL */}
             {(primary.backend === "ollama" || primary.backend === "ollama_remote") && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>
-                    {primary.backend === "ollama" ? "URL Ollama (local)" : "URL du serveur Ollama"}
-                  </div>
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <input type="text" value={primary.url} onChange={e => setPrimary(p => ({ ...p, url: e.target.value }))} className="input-pit" style={{ flex: 1 }}
-                      placeholder={primary.backend === "ollama" ? "http://localhost:11434" : "http://192.168.1.50:11434"} />
-                    <button onClick={testOllamaConnection} disabled={primary.testing} className="btn-raised" style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: "3px" }}>
-                      {primary.testing ? <Loader2 size={12} className="animate-spin" /> : primary.connected ? <CheckCircle2 size={12} color="var(--accent-ok)" /> : <Wifi size={12} />}
-                      Tester
-                    </button>
-                  </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <input value={primary.url} onChange={e => setPrimary(p => ({ ...p, url: e.target.value }))}
+                    style={{ ...inputStyle, flex: 1 }} placeholder="http://localhost:11434" />
+                  <button onClick={testOllamaConnection} disabled={primary.testing} style={btnSecondary}>
+                    {primary.testing ? <Loader2 size={10} className="animate-spin" /> : <Wifi size={10} />}
+                    {primary.testing ? "Test..." : "Tester"}
+                  </button>
                 </div>
-                {primary.connected && primary.models.length > 0 && (
-                  <div>
-                    <div className="label-caps" style={{ marginBottom: "3px" }}>Modèle</div>
-                    <select value={primary.model} onChange={e => setPrimary(p => ({ ...p, model: e.target.value }))} className="input-pit">
-                      {primary.models.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                    <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "4px", fontSize: "9px", color: "var(--accent-ok)" }}>
-                      <CheckCircle2 size={10} /> Connecté — {primary.models.length} modèle(s)
-                    </div>
-                    {primary.recommendedModel && (
-                      <div style={{ fontSize: "8px", color: "var(--accent-info)", marginTop: "2px" }}>
-                        Recommandé pour votre RAM : {primary.recommendedModel}
-                      </div>
-                    )}
+                {primary.connected && (
+                  <div style={{ fontSize: "9px", color: "var(--tc-green)", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <CheckCircle2 size={10} /> Connecté — {primary.models.length} modèle(s)
                   </div>
                 )}
-                {primary.backend === "ollama" && !primary.connected && (
-                  <div className="pit-xs" style={{ fontSize: "9px", color: "var(--text-secondary)" }}>
-                    Si Ollama n{"'"}est pas installé, ThreatClaw le téléchargera automatiquement avec le modèle recommandé pour votre machine.
-                  </div>
-                )}
-                {primary.connected && primary.models.length === 0 && (
-                  <div className="pit-xs" style={{ fontSize: "9px", color: "var(--accent-warning)", display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <div style={{ fontWeight: 700 }}>Aucun modèle installé sur Ollama</div>
-                    <div style={{ color: "var(--text-secondary)" }}>Ouvrez un terminal et lancez :</div>
-                    <code style={{ background: "var(--bg-pit)", padding: "6px 8px", borderRadius: "6px", fontSize: "10px", fontFamily: "monospace", color: "var(--text-primary)", boxShadow: "var(--shadow-pit-xs)" }}>
-                      ollama pull qwen3:14b
-                    </code>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "8px" }}>
-                      Puis re-cliquez sur Tester. Modèles recommandés : qwen3:8b (8 Go RAM), qwen3:14b (16 Go), qwen3:32b (32 Go).
-                    </div>
-                  </div>
+                {primary.models.length > 0 && (
+                  <select value={primary.model} onChange={e => setPrimary(p => ({ ...p, model: e.target.value }))} style={inputStyle}>
+                    {primary.models.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
                 )}
               </div>
             )}
 
             {(primary.backend === "mistral" || primary.backend === "anthropic") && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>Clé API</div>
-                  <input type="password" value={primary.apiKey} onChange={e => setPrimary(p => ({ ...p, apiKey: e.target.value }))} className="input-pit"
-                    placeholder={primary.backend === "mistral" ? "sk-..." : "sk-ant-..."} />
-                </div>
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>Modèle</div>
-                  <input type="text" value={primary.model} onChange={e => setPrimary(p => ({ ...p, model: e.target.value }))} className="input-pit"
-                    placeholder={primary.backend === "mistral" ? "mistral-large-latest" : "claude-sonnet-4-20250514"} />
-                </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                <input value={primary.apiKey} onChange={e => setPrimary(p => ({ ...p, apiKey: e.target.value }))}
+                  style={inputStyle} type="password" placeholder={primary.backend === "mistral" ? "Clé API Mistral" : "Clé API Anthropic"} />
+                <input value={primary.model} onChange={e => setPrimary(p => ({ ...p, model: e.target.value }))}
+                  style={inputStyle} placeholder={primary.backend === "mistral" ? "mistral-large-latest" : "claude-sonnet-4-20250514"} />
+
+                {/* Anonymization toggle */}
+                <button onClick={() => setAnonymizePrimary(!anonymizePrimary)}
+                  style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text)" }}>Anonymiser avant envoi</div>
+                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>IPs, hostnames, emails et usernames anonymisés</div>
+                  </div>
+                  <input type="checkbox" className="tc-toggle" checked={anonymizePrimary} readOnly />
+                </button>
               </div>
             )}
-
-            {/* Anonymization toggle */}
-            <div className="pit-sm" style={{ marginTop: "12px" }}>
-              <button onClick={() => setAnonymizePrimary(a => !a)}
-                style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                <Lock size={14} color={anonymizePrimary ? "var(--accent-ok)" : "var(--text-muted)"} />
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>
-                    Vos données quittent-elles votre infrastructure ?
-                  </div>
-                  <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>
-                    Si oui, les IPs, hostnames, emails et usernames seront anonymisés avant envoi
-                  </div>
-                </div>
-                <div className={`toggle-track${anonymizePrimary ? " active" : ""}`}><div className="toggle-thumb" /></div>
-              </button>
-            </div>
           </div>
         )}
 
-        {/* ── Step 2: IA Cloud de secours (optionnel) ── */}
-        {step === 2 && (
+        {/* ── Step 2: Cloud backup ── */}
+        {step === 3 && (
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <Cloud size={18} color="var(--accent-info)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>IA de secours</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+              <Cloud size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>IA de secours (Cloud)</span>
             </div>
-            <p style={{ fontSize: "9px", color: "var(--text-muted)", marginBottom: "12px" }}>
-              Optionnel — pour les analyses complexes, ThreatClaw peut escalader vers un LLM cloud.
-              Vos données sont <strong>anonymisées</strong> avant envoi.
-            </p>
 
-            {/* Enable toggle */}
-            <div className="pit-sm" style={{ marginBottom: "12px" }}>
-              <button onClick={() => setCloud(c => ({ ...c, enabled: !c.enabled }))}
-                style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                <div style={{ flex: 1, textAlign: "left" }}>
-                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>Activer le cloud de secours</div>
-                  <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>L{"'"}IA locale reste prioritaire — le cloud n{"'"}intervient que si la confiance est faible</div>
-                </div>
-                <div className={`toggle-track${cloud.enabled ? " active" : ""}`}><div className="toggle-thumb" /></div>
-              </button>
-            </div>
+            <button onClick={() => setCloud(c => ({ ...c, enabled: !c.enabled }))}
+              style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: "12px" }}>
+              <div style={{ flex: 1, textAlign: "left" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>Activer le cloud de secours</div>
+                <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>L{"'"}IA locale reste prioritaire — le cloud n{"'"}intervient que si la confiance est faible</div>
+              </div>
+              <input type="checkbox" className="tc-toggle" checked={cloud.enabled} readOnly />
+            </button>
 
             {cloud.enabled && (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                {/* Cloud provider */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
                   {[
-                    { id: "anthropic", label: "Anthropic", model: "claude-sonnet-4-20250514" },
-                    { id: "mistral", label: "Mistral AI", model: "mistral-large-latest" },
-                    { id: "openai_compatible", label: "Compatible", model: "" },
+                    { id: "anthropic", label: "Anthropic" },
+                    { id: "mistral", label: "Mistral AI" },
+                    { id: "openai", label: "OpenAI" },
                   ].map(b => (
-                    <button key={b.id} onClick={() => setCloud(c => ({ ...c, backend: b.id, model: b.model }))}
-                      className={cloud.backend === b.id ? "pit" : "pit-xs"}
-                      style={{ border: "none", cursor: "pointer", textAlign: "center", outline: cloud.backend === b.id ? "1px solid var(--accent-info)" : "none", outlineOffset: "-1px" }}>
-                      <div style={{ fontSize: "10px", fontWeight: 700, color: cloud.backend === b.id ? "var(--accent-info)" : "var(--text-primary)" }}>{b.label}</div>
+                    <button key={b.id} onClick={() => setCloud(c => ({ ...c, backend: b.id }))}
+                      style={{ ...cardSmStyle, cursor: "pointer", textAlign: "center" as const,
+                        border: cloud.backend === b.id ? "1px solid var(--tc-red)" : "1px solid var(--tc-border)",
+                        fontSize: "10px", fontWeight: 600, color: cloud.backend === b.id ? "var(--tc-red)" : "var(--tc-text)" }}>
+                      {b.label}
                     </button>
                   ))}
                 </div>
-
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>Clé API</div>
-                  <input type="password" value={cloud.apiKey} onChange={e => setCloud(c => ({ ...c, apiKey: e.target.value }))} className="input-pit" placeholder="sk-..." />
-                </div>
-
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>Modèle</div>
-                  <input type="text" value={cloud.model} onChange={e => setCloud(c => ({ ...c, model: e.target.value }))} className="input-pit" />
-                </div>
-
-                {cloud.backend === "openai_compatible" && (
-                  <div>
-                    <div className="label-caps" style={{ marginBottom: "3px" }}>URL de base</div>
-                    <input type="text" value={cloud.baseUrl} onChange={e => setCloud(c => ({ ...c, baseUrl: e.target.value }))} className="input-pit" placeholder="https://api.example.com/v1" />
-                  </div>
-                )}
-
-                {/* Escalation policy */}
-                <div>
-                  <div className="label-caps" style={{ marginBottom: "3px" }}>Politique d{"'"}envoi</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                    {[
-                      { id: "anonymized" as const, label: "Anonymisé", desc: "Données anonymisées avant envoi (recommandé)", icon: Lock, color: "var(--accent-ok)" },
-                      { id: "direct" as const, label: "Direct", desc: "Données envoyées sans anonymisation", icon: AlertTriangle, color: "var(--accent-warning)" },
-                      { id: "never" as const, label: "Jamais", desc: "Ne jamais utiliser le cloud", icon: ShieldAlert, color: "var(--text-muted)" },
-                    ].map(p => (
-                      <button key={p.id} onClick={() => setCloud(c => ({ ...c, escalation: p.id }))}
-                        className="pit-xs"
-                        style={{ border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", textAlign: "left",
-                          outline: cloud.escalation === p.id ? `1px solid ${p.color}` : "none", outlineOffset: "-1px" }}>
-                        <p.icon size={12} color={p.color} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--text-primary)" }}>{p.label}</div>
-                          <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>{p.desc}</div>
-                        </div>
-                        {cloud.escalation === p.id && <CheckCircle2 size={10} color={p.color} />}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!cloud.enabled && (
-              <div className="pit-xs" style={{ textAlign: "center", fontSize: "9px", color: "var(--text-muted)" }}>
-                100% local — aucune donnée ne quittera votre infrastructure
+                <input value={cloud.apiKey} onChange={e => setCloud(c => ({ ...c, apiKey: e.target.value }))}
+                  style={inputStyle} type="password" placeholder="Clé API" />
+                <input value={cloud.model} onChange={e => setCloud(c => ({ ...c, model: e.target.value }))}
+                  style={inputStyle} placeholder="Modèle (ex: claude-sonnet-4-20250514)" />
               </div>
             )}
           </div>
         )}
 
         {/* ── Step 3: Communication ── */}
-        {step === 3 && (
+        {step === 4 && (
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <MessageSquare size={18} color="var(--accent-danger)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>Communication</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+              <MessageSquare size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Communication</span>
             </div>
-            <p style={{ fontSize: "9px", color: "var(--text-muted)", marginBottom: "10px" }}>Optionnel — configurable plus tard.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {channelDefs.map(ch => (
-                <div key={ch.key} className="pit-sm">
-                  <button onClick={() => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], enabled: !p[ch.key].enabled } }))}
-                    style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                    <div style={{ flex: 1, textAlign: "left" }}>
-                      <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>{ch.label}</div>
-                      <div style={{ fontSize: "8px", color: "var(--text-muted)" }}>{ch.desc}</div>
-                    </div>
-                    <div className={`toggle-track${channels[ch.key].enabled ? " active" : ""}`}><div className="toggle-thumb" /></div>
-                  </button>
-                  {channels[ch.key].enabled && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "6px", borderTop: "1px solid var(--border-subtle)", paddingTop: "6px" }}>
-                      {ch.fields.map(f => (
-                        <div key={f.id}>
-                          <div className="label-caps" style={{ marginBottom: "2px", fontSize: "8px" }}>{f.label}</div>
-                          <input type={f.id.toLowerCase().includes("token") || f.id.toLowerCase().includes("key") ? "password" : "text"}
-                            value={(channels[ch.key][f.id] as string) || ""} onChange={e => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], [f.id]: e.target.value } }))}
-                            className="input-pit" style={{ fontSize: "10px", padding: "6px 8px" }} />
-                        </div>
-                      ))}
-                      {["slack", "telegram", "discord"].includes(ch.key) && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
-                          <button onClick={() => testChannel(ch.key)} className="btn-raised"
-                            disabled={channelTest[ch.key]?.testing}
-                            style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "9px", padding: "5px 10px" }}>
-                            {channelTest[ch.key]?.testing
-                              ? <><Loader2 size={10} className="animate-spin" /> Test...</>
-                              : channelTest[ch.key]?.result?.ok
-                                ? <><CheckCircle2 size={10} color="var(--accent-ok)" /> Connecté</>
-                                : <><Wifi size={10} /> Tester la connexion</>}
-                          </button>
-                          {channelTest[ch.key]?.result && !channelTest[ch.key]?.result?.ok && (
-                            <span style={{ fontSize: "8px", color: "var(--accent-danger)" }}>
-                              {channelTest[ch.key]?.result?.error}
-                            </span>
-                          )}
-                          {channelTest[ch.key]?.result?.ok && (
-                            <span style={{ fontSize: "8px", color: "var(--accent-ok)" }}>
-                              {channelTest[ch.key]?.result?.username || channelTest[ch.key]?.result?.team || "OK"}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>Optionnel — vous pourrez configurer plus tard dans Config.</p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {channelDefs.map(ch => {
+                const isEnabled = channels[ch.key]?.enabled;
+                return (
+                  <div key={ch.key} style={cardSmStyle}>
+                    <button onClick={() => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], enabled: !isEnabled } }))}
+                      style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                      <div style={{ flex: 1, textAlign: "left" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{ch.label}</div>
+                        <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>{ch.desc}</div>
+                      </div>
+                      <input type="checkbox" className="tc-toggle" checked={isEnabled} readOnly />
+                    </button>
+
+                    {isEnabled && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "8px", borderTop: "1px solid var(--tc-border)", paddingTop: "8px" }}>
+                        {ch.fields.map(f => (
+                          <input key={f.id} value={(channels[ch.key][f.id] || "") as string}
+                            onChange={e => setChannels(p => ({ ...p, [ch.key]: { ...p[ch.key], [f.id]: e.target.value } }))}
+                            style={inputStyle} placeholder={f.placeholder} type={f.id.toLowerCase().includes("token") || f.id.toLowerCase().includes("secret") ? "password" : "text"} />
+                        ))}
+                        <button onClick={() => testChannel(ch.key)} disabled={channelTest[ch.key]?.testing} style={{ ...btnSecondary, alignSelf: "flex-start", marginTop: "4px" }}>
+                          {channelTest[ch.key]?.testing
+                            ? <><Loader2 size={10} className="animate-spin" /> Test...</>
+                            : channelTest[ch.key]?.result?.ok
+                              ? <><CheckCircle2 size={10} color="var(--tc-green)" /> Connecté</>
+                              : <><Wifi size={10} /> Tester</>}
+                        </button>
+                        {channelTest[ch.key]?.result && !channelTest[ch.key]?.result?.ok && (
+                          <span style={{ fontSize: "8px", color: "var(--tc-red)" }}>{channelTest[ch.key]?.result?.error}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
         {/* ── Step 4: Security ── */}
-        {step === 4 && (
+        {step === 5 && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <ShieldAlert size={18} color="var(--accent-danger)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>Niveau de sécurité</span>
+              <ShieldAlert size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Niveau de sécurité</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {permLevels.map(level => {
                 const Icon = level.icon; const sel = permLevel === level.id;
                 return (
-                  <button key={level.id} onClick={() => setPermLevel(level.id)} className={sel ? "pit" : "pit-sm"}
-                    style={{ border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", textAlign: "left", outline: sel ? `1px solid ${level.color}` : "none", outlineOffset: "-1px" }}>
+                  <button key={level.id} onClick={() => setPermLevel(level.id)}
+                    style={{
+                      ...cardSmStyle, cursor: "pointer", display: "flex", alignItems: "center", gap: "8px", textAlign: "left" as const,
+                      border: sel ? `1px solid ${level.color}` : "1px solid var(--tc-border)",
+                    }}>
                     <Icon size={16} color={level.color} />
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ fontSize: "10px", fontWeight: 800, color: "var(--text-primary)" }}>{level.label}</span>
-                        {level.recommended && <span style={{ fontSize: "7px", fontWeight: 700, color: "var(--accent-ok)", background: "var(--pill-ok-bg)", padding: "1px 4px", borderRadius: "6px", textTransform: "uppercase" }}>Recommandé</span>}
-                        {level.warning && <span style={{ fontSize: "7px", color: "var(--accent-danger)", display: "flex", alignItems: "center", gap: "2px" }}><AlertTriangle size={8} />Avancé</span>}
+                        <span style={{ fontSize: "10px", fontWeight: 800, color: "var(--tc-text)" }}>{level.label}</span>
+                        {level.recommended && <span style={{ fontSize: "7px", fontWeight: 700, color: "var(--tc-green)", background: "rgba(48,160,80,0.08)", padding: "1px 4px", borderRadius: "6px", textTransform: "uppercase" }}>Recommandé</span>}
+                        {level.warning && <span style={{ fontSize: "7px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "2px" }}><AlertTriangle size={8} />Avancé</span>}
                       </div>
-                      <p style={{ fontSize: "8px", color: "var(--text-muted)", margin: "2px 0 0" }}>{level.desc}</p>
+                      <p style={{ fontSize: "8px", color: "var(--tc-text-muted)", margin: "2px 0 0" }}>{level.desc}</p>
                     </div>
-                    <div style={{ width: "14px", height: "14px", borderRadius: "50%", background: sel ? level.color : "var(--bg-pit)", boxShadow: sel ? "none" : "var(--shadow-pit-xs)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{
+                      width: "14px", height: "14px", borderRadius: "50%",
+                      background: sel ? level.color : "var(--tc-input)", border: sel ? "none" : "1px solid var(--tc-border)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
                       {sel && <Check size={8} color="#fff" />}
                     </div>
                   </button>
@@ -548,11 +603,11 @@ export default function SetupWizard() {
         )}
 
         {/* ── Step 5: Confirm ── */}
-        {step === 5 && (
+        {step === 6 && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-              <CheckCircle2 size={18} color="var(--accent-danger)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--text-primary)" }}>Récapitulatif</span>
+              <CheckCircle2 size={18} color="var(--tc-red)" />
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Récapitulatif</span>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
@@ -562,39 +617,39 @@ export default function SetupWizard() {
                 { label: "Communication", value: Object.entries(channels).filter(([, v]) => v.enabled).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ") || "Aucun canal" },
                 { label: "Sécurité", value: permLevels.find(l => l.id === permLevel)?.label || permLevel },
               ].map(item => (
-                <div key={item.label} className="pit-xs" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="label-caps">{item.label}</span>
-                  <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-primary)" }}>{item.value}</span>
+                <div key={item.label} style={{ ...cardSmStyle, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "9px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</span>
+                  <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text)" }}>{item.value}</span>
                 </div>
               ))}
             </div>
 
             {saved ? (
               <div style={{ textAlign: "center" }}>
-                <CheckCircle2 size={28} color="var(--accent-ok)" style={{ margin: "0 auto 8px" }} />
-                <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--accent-ok)", marginBottom: "12px" }}>Configuration sauvegardée !</div>
-                <a href="/skills" className="btn-raised-lg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", textDecoration: "none", background: "var(--accent-danger)", color: "#fff" }}>
+                <CheckCircle2 size={28} color="var(--tc-green)" style={{ margin: "0 auto 8px", display: "block" }} />
+                <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--tc-green)", marginBottom: "12px" }}>Configuration sauvegardée !</div>
+                <a href="/skills" style={{ ...btnPrimary, textDecoration: "none", justifyContent: "center", width: "100%" }}>
                   <Puzzle size={14} /> Explorer les Skills
                 </a>
-                <a href="/" style={{ display: "block", fontSize: "9px", color: "var(--text-muted)", textDecoration: "none", textAlign: "center", marginTop: "8px" }}>Aller au Dashboard</a>
+                <a href="/" style={{ display: "block", fontSize: "9px", color: "var(--tc-text-muted)", textDecoration: "none", textAlign: "center", marginTop: "8px" }}>Aller au Dashboard</a>
               </div>
             ) : (
-              <button onClick={handleSave} disabled={saving} className="btn-raised-lg" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                {saving ? <><Loader2 size={14} className="animate-spin" /> Sauvegarde...</> : <><Zap size={14} /> Sauvegarder</>}
+              <button onClick={handleSave} disabled={saving} style={{ ...btnPrimary, width: "100%", justifyContent: "center" }}>
+                {saving ? <><Loader2 size={14} className="animate-spin" /> Sauvegarde...</> : <><Zap size={14} /> Sauvegarder et lancer</>}
               </button>
             )}
           </div>
         )}
 
         {/* Navigation */}
-        {step > 0 && step < 5 && (
+        {step > 0 && step < 6 && (
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px" }}>
-            <button onClick={prev} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px" }}><ChevronLeft size={12} /> Précédent</button>
-            <button onClick={next} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px", color: "var(--accent-danger)" }}>Suivant <ChevronRight size={12} /></button>
+            <button onClick={prev} style={btnSecondary}><ChevronLeft size={12} /> Précédent</button>
+            <button onClick={next} style={{ ...btnSecondary, color: "var(--tc-red)" }}>Suivant <ChevronRight size={12} /></button>
           </div>
         )}
-        {step === 5 && !saved && (
-          <button onClick={prev} className="btn-raised" style={{ display: "flex", alignItems: "center", gap: "3px", padding: "6px 10px", marginTop: "8px" }}><ChevronLeft size={12} /> Modifier</button>
+        {step === 6 && !saved && (
+          <button onClick={prev} style={{ ...btnSecondary, marginTop: "8px" }}><ChevronLeft size={12} /> Modifier</button>
         )}
       </div>
     </div>

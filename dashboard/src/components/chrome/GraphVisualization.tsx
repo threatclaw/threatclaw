@@ -182,17 +182,21 @@ export default function GraphVisualization() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
+      // High-DPI: scale canvas buffer for crisp rendering on Retina
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = W * dpr;
-      canvas.height = H * dpr;
-      ctx.scale(dpr, dpr);
+      if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       // Clear
       ctx.clearRect(0, 0, W, H);
 
       // Edges
+      const isLight = document.documentElement.getAttribute("data-theme") === "light";
       ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(255,255,255,0.1)";
+      ctx.strokeStyle = isLight ? "rgba(0,0,0,0.2)" : "rgba(255,255,255,0.1)";
       for (const e of edges) {
         const src = ns.find(n => n.id === e.source);
         const tgt = ns.find(n => n.id === e.target);
@@ -222,12 +226,12 @@ export default function GraphVisualization() {
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
-        ctx.strokeStyle = isHov ? "#fff" : color + "80";
+        ctx.strokeStyle = isHov ? (isLight ? "#000" : "#fff") : color + "80";
         ctx.lineWidth = isHov ? 2 : 1;
         ctx.stroke();
 
         // Label
-        ctx.fillStyle = "rgba(255,255,255,0.7)";
+        ctx.fillStyle = isLight ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.7)";
         ctx.font = "9px Inter, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(n.label.substring(0, 20), n.x, n.y + r + 12);
@@ -254,13 +258,21 @@ export default function GraphVisualization() {
     return () => cancelAnimationFrame(animRef.current);
   }, [nodes, edges, hovered, dragging]);
 
-  // Mouse interaction
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Mouse interaction — convert CSS coords to canvas internal coords
+  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const { x: mx, y: my } = getCanvasCoords(e);
 
     if (dragging) {
       const n = nodesRef.current.find(nd => nd.id === dragging.id);
@@ -315,7 +327,8 @@ export default function GraphVisualization() {
       {!loading && nodes.length > 0 && (
         <canvas
           ref={canvasRef}
-          style={{ width: "100%", height: "400px", cursor: dragging ? "grabbing" : hovered ? "grab" : "default" }}
+          width={600} height={400}
+          style={{ width: "100%", height: "auto", cursor: dragging ? "grabbing" : hovered ? "grab" : "default" }}
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDown}
           onMouseUp={handleMouseUp}

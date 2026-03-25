@@ -1,0 +1,31 @@
+{
+  "id": "skill-enrichment-securitytrails",
+  "name": "SecurityTrails DNS Intelligence",
+  "version": "1.0.0",
+  "description": "Sous-domaines, historique DNS, changements, WHOIS (50 req/mois gratuit)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "enrichment",
+  "category": "web-security",
+  "execution": {
+    "mode": "api",
+    "base_url": "https://api.securitytrails.com/v1",
+    "triggers": ["domain"],
+    "cache_ttl_hours": 720,
+    "note": "Free tier: 50 requests/month. Use sparingly."
+  },
+  "config": {
+    "securitytrails_api_key": {
+      "type": "password",
+      "description": "SecurityTrails API Key",
+      "required": true
+    }
+  },
+  "outputs": {
+    "dns_intel": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "globe"
+}

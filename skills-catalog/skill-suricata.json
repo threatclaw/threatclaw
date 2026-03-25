@@ -1,0 +1,33 @@
+{
+  "id": "skill-suricata",
+  "name": "Suricata IDS",
+  "version": "1.0.0",
+  "description": "IDS/IPS reseau — ingere eve.json de Suricata (alertes signatures, DNS, flows, TLS). 40K+ regles de detection.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "ids",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "docker_image": "jasonish/suricata:latest",
+    "network": "host",
+    "note": "Requires --network host for traffic capture. 2-4 GB RAM."
+  },
+  "config": {
+    "eve_json_path": {
+      "type": "string",
+      "description": "Suricata eve.json path (e.g. /var/log/suricata/eve.json)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "alerts": "db",
+    "flows": "graph",
+    "dns": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}
