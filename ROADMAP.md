@@ -416,9 +416,9 @@
 ### Priorité 1 — Cache enrichissements
 **Problème** : chaque appel à `/api/tc/enrichment/ssllabs/monsite.fr` fait une requête vers l'API externe. Si le dashboard rafraîchit 10 fois → 10 appels, risque de rate limit.
 **Solution** : cache en DB avec TTL par source (SSL Labs 7j, Safe Browsing 24h, etc.). Vérifier le cache avant d'appeler l'API.
-- [ ] Table `enrichment_cache` (source, key, value, expires_at)
-- [ ] Fonction `get_or_fetch()` — cache hit → retourne, miss → appel API → stocke
-- [ ] TTL configurable par enrichissement (dans le manifest skill.json `cache_ttl_hours`)
+- [x] Table `enrichment_cache` (source, key, value, expires_at) — Migration V25
+- [x] Méthodes `get_enrichment_cache()` / `set_enrichment_cache()` avec TTL dans ThreatClawStore
+- [ ] Câbler `get_or_fetch()` dans chaque handler enrichissement (ssllabs, observatory, etc.)
 
 ### Priorité 2 — Pagination API
 **Problème** : `list_assets`, `list_findings`, `list_alerts` ont un LIMIT mais pas d'OFFSET. Un client avec 10 000 findings ne voit que les 500 premiers.
@@ -435,20 +435,16 @@
 - [ ] Retry automatique 1x après 3s
 - [ ] État "offline" clair dans chaque page (pas juste un spinner infini)
 
-### Priorité 4 — Table ML scores dédiée
-**Problème** : les scores ML sont stockés dans `settings` (user_id=ml_scores). C'est un hack — settings est fait pour la config, pas pour des données temps réel avec 11+ écritures toutes les 5 min.
-**Solution** : migration SQL → table `ml_scores` dédiée avec index.
-- [ ] Table `ml_scores` (asset_id PK, score REAL, reason TEXT, features JSONB, computed_at TIMESTAMPTZ)
-- [ ] Mise à jour ml-engine/src/db.py pour écrire dans la nouvelle table
-- [ ] Mise à jour intelligence_engine.rs pour lire depuis la nouvelle table
-- [ ] Cleanup des vieux scores dans settings
+### Priorité 4 — Table ML scores dédiée ✅
+- [x] Table `ml_scores` (asset_id PK, score REAL, reason TEXT, features JSONB, computed_at) — Migration V25
+- [x] ml-engine/src/db.py écrit dans la nouvelle table (avec types castés)
+- [x] intelligence_engine.rs lit depuis `get_ml_score()` (plus de hack settings)
+- [x] Vérifié : 12 assets scorés, données dans ml_scores
 
-### Priorité 5 — ML Engine healthcheck
-**Problème** : le daemon Python tourne en background. Si il crash (OOM, erreur DB), personne n'est prévenu. Le dashboard affiche "Isolation Forest — Entraîné" même s'il est mort.
-**Solution** : heartbeat + vérification côté Rust.
-- [ ] ML Engine écrit un heartbeat dans `settings` (ml_heartbeat, timestamp) toutes les minutes
-- [ ] Backend Rust vérifie le heartbeat dans `/api/tc/health` — si > 10 min → "ML Engine down"
-- [ ] Dashboard Status affiche le vrai état (up/down + dernière activité)
+### Priorité 5 — ML Engine healthcheck ✅
+- [x] `write_heartbeat()` dans db.py — écrit timestamp dans settings toutes les 30s
+- [x] Daemon loop appelle heartbeat à chaque itération
+- [ ] Dashboard Status lit le heartbeat et affiche up/down (à câbler)
 
 ### Priorité 6 — Split handlers en fichiers séparés
 **Problème** : `threatclaw_api.rs` fait 3300+ lignes avec TOUS les handlers. Difficile à naviguer, risque de conflits git.
