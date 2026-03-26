@@ -3350,6 +3350,148 @@ pub async fn db_health_handler(
     })))
 }
 
+// ════════════════════════════════════════════════════════════════
+// BACKUP / RESTORE
+// ════════════════════════════════════════════════════════════════
+
+pub async fn backup_export_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let full = params.get("mode").map(|m| m == "full").unwrap_or(false);
+
+    let mut backup = serde_json::json!({
+        "version": "2.0.0",
+        "exported_at": chrono::Utc::now().to_rfc3339(),
+        "mode": if full { "full" } else { "light" },
+    });
+
+    // Always export config
+    let company = store.get_company_profile().await.unwrap_or_default();
+    backup["company_profile"] = serde_json::json!(company);
+
+    let networks = store.list_internal_networks().await.unwrap_or_default();
+    backup["internal_networks"] = serde_json::json!(networks);
+
+    let categories = store.list_asset_categories().await.unwrap_or_default();
+    backup["asset_categories"] = serde_json::json!(categories);
+
+    let assets = store.list_assets(None, None, 10000, 0).await.unwrap_or_default();
+    backup["assets"] = serde_json::json!(assets);
+
+    // Settings (config keys) — serialize manually since SettingRow may not impl Serialize
+    let all_settings = store.list_settings("_system").await.unwrap_or_default();
+    let settings_json: Vec<serde_json::Value> = all_settings.iter()
+        .map(|s| serde_json::json!({"key": s.key, "value": s.value}))
+        .collect();
+    backup["settings"] = serde_json::json!(settings_json);
+
+    // Full mode: include alerts + findings + logs
+    if full {
+        let alerts = store.list_alerts(None, None, 50000, 0).await.unwrap_or_default();
+        backup["alerts"] = serde_json::json!(alerts);
+
+        let findings = store.list_findings(None, None, None, 50000, 0).await.unwrap_or_default();
+        backup["findings"] = serde_json::json!(findings);
+
+        let logs = store.query_logs(60 * 24 * 30, None, None, 100000).await.unwrap_or_default(); // last 30 days
+        backup["logs_count"] = serde_json::json!(logs.len());
+        // Don't include raw logs in JSON (too big) — just the count
+    }
+
+    Ok(Json(backup))
+}
+
+pub async fn backup_import_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(backup): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let mut imported = vec![];
+
+    // Import company profile
+    if let Some(cp) = backup.get("company_profile") {
+        if let Ok(profile) = serde_json::from_value::<crate::db::threatclaw_store::CompanyProfile>(cp.clone()) {
+            let _ = store.update_company_profile(&profile).await;
+            imported.push("company_profile");
+        }
+    }
+
+    // Import internal networks
+    if let Some(nets) = backup["internal_networks"].as_array() {
+        for n in nets {
+            let cidr = n["cidr"].as_str().unwrap_or("");
+            let label = n["label"].as_str();
+            let zone = n["zone"].as_str();
+            if !cidr.is_empty() {
+                let _ = store.add_internal_network(cidr, label, zone).await;
+            }
+        }
+        imported.push("internal_networks");
+    }
+
+    // Import assets
+    if let Some(assets) = backup["assets"].as_array() {
+        for a in assets {
+            if let Ok(asset) = serde_json::from_value::<crate::db::threatclaw_store::NewAsset>(a.clone()) {
+                let _ = store.upsert_asset(&asset).await;
+            }
+        }
+        imported.push("assets");
+    }
+
+    // Import custom categories
+    if let Some(cats) = backup["asset_categories"].as_array() {
+        for c in cats {
+            if let Ok(cat) = serde_json::from_value::<crate::db::threatclaw_store::AssetCategory>(c.clone()) {
+                if !cat.is_builtin {
+                    let _ = store.upsert_asset_category(&cat).await;
+                }
+            }
+        }
+        imported.push("asset_categories");
+    }
+
+    Ok(Json(serde_json::json!({
+        "status": "imported",
+        "sections": imported,
+        "mode": backup["mode"].as_str().unwrap_or("light"),
+    })))
+}
+
+// ════════════════════════════════════════════════════════════════
+// VERSION CHECK
+// ════════════════════════════════════════════════════════════════
+
+pub async fn version_check_handler(
+    State(_state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let current = "2.0.0-beta";
+
+    // Check GitHub for latest release
+    let latest = match reqwest::Client::new()
+        .get("https://api.github.com/repos/threatclaw/threatclaw/releases/latest")
+        .header("User-Agent", "ThreatClaw")
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            body["tag_name"].as_str().unwrap_or(current).to_string()
+        }
+        _ => current.to_string(),
+    };
+
+    let update_available = latest != current && !latest.is_empty();
+
+    Ok(Json(serde_json::json!({
+        "current": current,
+        "latest": latest,
+        "update_available": update_available,
+    })))
+}
+
 pub async fn company_update_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,

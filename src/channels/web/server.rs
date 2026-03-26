@@ -490,6 +490,10 @@ pub async fn start_server(
         .route("/api/tc/threat-profiles/{sector}", get(super::handlers::threatclaw_api::threat_profile_handler))
         // DB health monitoring
         .route("/api/tc/db/health", get(super::handlers::threatclaw_api::db_health_handler))
+        // Backup / Restore / Version
+        .route("/api/tc/backup/export", get(super::handlers::threatclaw_api::backup_export_handler))
+        .route("/api/tc/backup/import", post(super::handlers::threatclaw_api::backup_import_handler))
+        .route("/api/tc/version/check", get(super::handlers::threatclaw_api::version_check_handler))
         // Test scenarios (demo + E2E testing)
         .route("/api/tc/test/scenarios", get(super::handlers::threatclaw_api::test_scenarios_list_handler))
         .route("/api/tc/test/run/{id}", post(super::handlers::threatclaw_api::test_scenario_run_handler))

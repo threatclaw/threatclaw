@@ -251,6 +251,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "enrichment", label: "Enrichissement", icon: Database },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
+    { id: "backup", label: "Sauvegarde & MAJ", icon: Download },
   ];
 
   const channelDefs = [
@@ -463,6 +464,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "anonymizer" && (
           <AnonymizerSection inputStyle={inputStyle} labelStyle={labelStyle} />
         )}
+
+        {activeTab === "backup" && (<BackupTab />)}
       </div>
 
       {/* Actions bar */}
@@ -1661,6 +1664,152 @@ function CompanyTab() {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+// ── Backup & Update Tab ──
+
+function BackupTab() {
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<string | null>(null);
+  const [versionInfo, setVersionInfo] = useState<any>(null);
+  const [exportMode, setExportMode] = useState<"light" | "full">("light");
+
+  useEffect(() => {
+    fetch("/api/tc/version/check", { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(d => setVersionInfo(d)).catch(() => {});
+  }, []);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/tc/backup/export?mode=${exportMode}`);
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `threatclaw-backup-${new Date().toISOString().slice(0, 10)}-${exportMode}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert("Erreur export: " + e.message);
+    }
+    setExporting(false);
+  };
+
+  const handleImport = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setImporting(true);
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        const res = await fetch("/api/tc/backup/import", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const result = await res.json();
+        setImportResult(`Import réussi : ${(result.sections || []).join(", ")}`);
+      } catch (err: any) {
+        setImportResult("Erreur: " + err.message);
+      }
+      setImporting(false);
+    };
+    input.click();
+  };
+
+  return (
+    <>
+      <ChromeInsetCard>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Sauvegarde</ChromeEmbossedText>
+        <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+          Exportez votre configuration pour la restaurer sur un nouveau serveur ou en cas de réinstallation.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+            <input type="radio" name="exportMode" checked={exportMode === "light"} onChange={() => setExportMode("light")} />
+            <div>
+              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>Export léger (~50 KB)</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>Configuration, assets, réseaux, skills, profil entreprise</div>
+            </div>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
+            <input type="radio" name="exportMode" checked={exportMode === "full"} onChange={() => setExportMode("full")} />
+            <div>
+              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>Export complet (taille variable)</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>Tout le léger + alertes + findings + historique (pour migration complète)</div>
+            </div>
+          </label>
+        </div>
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button onClick={handleExport} disabled={exporting} style={{
+            padding: "10px 16px", fontSize: "12px", fontWeight: 700, fontFamily: "inherit",
+            cursor: "pointer", background: "var(--tc-red)", color: "#fff",
+            border: "none", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
+          }}>
+            {exporting ? "Export en cours..." : "Exporter"}
+          </button>
+          <button onClick={handleImport} disabled={importing} style={{
+            padding: "10px 16px", fontSize: "12px", fontWeight: 700, fontFamily: "inherit",
+            cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
+            border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
+          }}>
+            {importing ? "Import en cours..." : "Importer un fichier"}
+          </button>
+        </div>
+
+        {importResult && (
+          <div style={{ marginTop: "10px", padding: "8px 12px", borderRadius: "var(--tc-radius-sm)",
+            background: importResult.startsWith("Erreur") ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
+            color: importResult.startsWith("Erreur") ? "#d03020" : "#30a050", fontSize: "11px" }}>
+            {importResult}
+          </div>
+        )}
+      </ChromeInsetCard>
+
+      <ChromeInsetCard style={{ marginTop: "16px" }}>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Mises à jour</ChromeEmbossedText>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+          <div style={{ fontSize: "12px", color: "var(--tc-text)" }}>
+            Version actuelle : <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{versionInfo?.current || "2.0.0-beta"}</span>
+          </div>
+          {versionInfo?.update_available && (
+            <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
+              background: "rgba(208,48,32,0.08)", color: "#d03020", fontWeight: 700 }}>
+              Nouvelle version : {versionInfo.latest}
+            </span>
+          )}
+          {versionInfo && !versionInfo.update_available && (
+            <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
+              background: "rgba(48,160,80,0.08)", color: "#30a050", fontWeight: 700 }}>
+              À jour
+            </span>
+          )}
+        </div>
+
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", padding: "10px", background: "var(--tc-input)",
+          borderRadius: "var(--tc-radius-sm)", fontFamily: "monospace", lineHeight: 1.8 }}>
+          # Pour mettre à jour (Docker) :<br/>
+          cd /opt/threatclaw<br/>
+          docker compose pull<br/>
+          docker compose up -d<br/>
+          <br/>
+          # Pour mettre à jour (binaire) :<br/>
+          git pull origin main<br/>
+          cargo build --release<br/>
+          systemctl restart threatclaw
+        </div>
+      </ChromeInsetCard>
     </>
   );
 }
