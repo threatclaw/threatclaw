@@ -53,6 +53,10 @@ COPY tools-src/ tools-src/
 COPY wit/ wit/
 COPY providers.json providers.json
 COPY benches/ benches/
+COPY docs/ docs/
+COPY crates/ crates/
+COPY assets/ assets/
+COPY AGENT_SOUL.toml AGENT_SOUL.toml
 
 # Touch main.rs to invalidate the dummy and force a real build
 RUN touch src/main.rs
@@ -68,7 +72,7 @@ LABEL org.opencontainers.image.title="ThreatClaw Core" \
       org.opencontainers.image.description="Autonomous cybersecurity agent for SMBs" \
       org.opencontainers.image.version="0.1.0" \
       org.opencontainers.image.source="https://github.com/threatclaw/threatclaw" \
-      org.opencontainers.image.licenses="Apache-2.0"
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
 # Install minimal runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -89,6 +93,10 @@ COPY --from=builder /app/registry /app/registry
 
 # Copy provider configuration
 COPY --from=builder /app/providers.json /app/providers.json
+
+# Copy AGENT_SOUL and OUI database
+COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
+COPY --from=builder /app/assets /app/assets
 
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \
