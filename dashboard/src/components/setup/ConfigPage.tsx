@@ -1580,7 +1580,7 @@ function CompanyTab() {
             border: "none", borderRadius: "var(--tc-radius-md)", alignSelf: "flex-start",
             display: "flex", alignItems: "center", gap: "6px",
           }}>
-            {saved ? "Sauvegardé ✓" : saving ? "Sauvegarde..." : "Sauvegarder"}
+            {saved ? "Sauvegardé" : saving ? "Sauvegarde..." : "Sauvegarder"}
           </button>
         </div>
       </ChromeInsetCard>

@@ -96,7 +96,12 @@ export default function SkillsPage() {
         setAllSkills(data.skills || []);
         const active = new Set<string>();
         (data.skills || []).forEach((s: SkillManifest) => { if (s.default_active) active.add(s.id); });
-        setEnabled(prev => { const m = new Set(prev); active.forEach(id => m.add(id)); return m; });
+        // Load installed skills from localStorage (persist across refresh)
+        const saved = localStorage.getItem("tc_installed_skills");
+        if (saved) { try { JSON.parse(saved).forEach((id: string) => active.add(id)); } catch {} }
+        const savedDisabled = localStorage.getItem("tc_disabled_skills");
+        if (savedDisabled) { try { setDisabledSkills(new Set(JSON.parse(savedDisabled))); } catch {} }
+        setEnabled(active);
       }
     } catch {}
   }, []);
@@ -112,12 +117,18 @@ export default function SkillsPage() {
   const catalogGrouped: Record<string, SkillManifest[]> = {};
   for (const s of filteredCatalog) { const c = s.category || "autre"; if (!catalogGrouped[c]) catalogGrouped[c] = []; catalogGrouped[c].push(s); }
 
+  // Persist installed skills to localStorage
+  const persistSkills = (enabledSet: Set<string>, disabledSet: Set<string>) => {
+    localStorage.setItem("tc_installed_skills", JSON.stringify(Array.from(enabledSet)));
+    localStorage.setItem("tc_disabled_skills", JSON.stringify(Array.from(disabledSet)));
+  };
+
   const install = (skill: SkillManifest) => {
     setInstalling(skill);
     setInstallDone(false);
     setInstallMsg(tr("installing", locale));
     setTimeout(() => {
-      setEnabled(prev => new Set(prev).add(skill.id));
+      setEnabled(prev => { const n = new Set(prev).add(skill.id); persistSkills(n, disabledSkills); return n; });
       setDisabledSkills(prev => { const n = new Set(prev); n.delete(skill.id); return n; });
       setInstallDone(true);
       setInstallMsg(`${skill.name} ${tr('installed', locale)}`);
@@ -131,7 +142,7 @@ export default function SkillsPage() {
     setInstallDone(false);
     setInstallMsg(tr("uninstalling", locale));
     setTimeout(() => {
-      setEnabled(prev => { const n = new Set(prev); n.delete(id); return n; });
+      setEnabled(prev => { const n = new Set(prev); n.delete(id); persistSkills(n, disabledSkills); return n; });
       setDisabledSkills(prev => { const n = new Set(prev); n.delete(id); return n; });
       setInstallDone(true);
       setInstallMsg(`${skill?.name || 'Skill'} ${tr('uninstalled', locale)}`);
@@ -143,6 +154,7 @@ export default function SkillsPage() {
     setDisabledSkills(prev => {
       const n = new Set(prev);
       if (n.has(id)) n.delete(id); else n.add(id);
+      persistSkills(enabled, n);
       return n;
     });
   };
