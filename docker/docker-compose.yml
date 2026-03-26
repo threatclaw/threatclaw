@@ -205,11 +205,13 @@ services:
         limits:
           memory: 16G
           cpus: "4.0"
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+        # GPU acceleration (optional — works without NVIDIA runtime)
+        # Uncomment below if you have an NVIDIA GPU:
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
     networks:
       - threatclaw-internal
     logging: *default-logging
@@ -296,6 +298,33 @@ services:
       - threatclaw-internal
     logging: *default-logging
 
+  # ── ML Engine — Behavioral Analysis ──────────────────────
+  # Isolation Forest, DGA detection, DBSCAN clustering
+  # Scores every 5 min, retrains nightly at 03:00
+  ml-engine:
+    build:
+      context: ../ml-engine
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
+      ML_MODEL_DIR: /models
+    volumes:
+      - ml-models:/models
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    networks:
+      - threatclaw-internal
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=ml-engine"
+
 # ── Networks ────────────────────────────────────────────────
 networks:
   threatclaw-internal:
@@ -313,3 +342,4 @@ volumes:
   nuclei-data:        # Nuclei templates cache
   trivy-cache:        # Trivy vulnerability DB cache
   shared-config:      # Auth token shared between core and dashboard
+  ml-models:          # ML model weights (Isolation Forest, DGA Random Forest)

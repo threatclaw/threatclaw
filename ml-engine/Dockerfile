@@ -2,15 +2,21 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy source
 COPY src/ ./src/
 
-ENV DATABASE_URL=postgres://threatclaw:threatclaw@host.docker.internal:5432/threatclaw
-ENV RETRAIN_SCHEDULE=0 3 * * *
+# Config (overridable via docker-compose environment)
+ENV DATABASE_URL=postgres://threatclaw:threatclaw@threatclaw-db:5432/threatclaw
 ENV ML_MODEL_DIR=/models
 
 VOLUME /models
 
-CMD ["python", "-m", "src.main"]
+# Health check — verify Python + DB connectivity
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
+    CMD python -c "import psycopg2; psycopg2.connect('${DATABASE_URL}')" || exit 1
+
+CMD ["python", "-m", "src.main", "daemon"]
