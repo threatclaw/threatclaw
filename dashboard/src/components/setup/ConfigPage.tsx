@@ -5,7 +5,7 @@ import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
   Plus, Trash2, Send, Bot, ArrowRight, Database, Key, Radio, Mail,
-  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle, Activity,
+  Clock, Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle, Activity,
 } from "lucide-react";
 
 // ── Channel SVG icons (no emojis) ──
@@ -249,7 +249,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "security", label: "Sécurité", icon: ShieldAlert },
     { id: "agent", label: "Agent & Moteur", icon: Activity },
     { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "enrichment", label: "Enrichissement", icon: Database },
+    { id: "retention", label: "Rétention", icon: Clock },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
     { id: "backup", label: "Sauvegarde & MAJ", icon: Download },
   ];
@@ -456,8 +456,34 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         )}
 
         {/* ═══ ENRICHMENT ═══ */}
-        {activeTab === "enrichment" && (
-          <EnrichmentTab />
+        {activeTab === "retention" && (
+          <ChromeInsetCard>
+            <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Rétention des données</ChromeEmbossedText>
+            <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+              Définissez combien de temps ThreatClaw conserve les données. NIS2 impose un minimum de 6 mois pour les logs de sécurité.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {[
+                { label: "Logs réseau (syslog, Zeek, Suricata)", value: "90 jours", size: "~9 GB / 100K logs/jour", legal: "NIS2 : 6 mois recommandé" },
+                { label: "Alertes de sécurité (Sigma)", value: "365 jours", size: "~500 MB / 10K alertes/jour", legal: "NIS2 : conservation obligatoire" },
+                { label: "Findings (vulnérabilités)", value: "Illimité", size: "~100 MB / an", legal: "Preuve d'audit" },
+                { label: "Journal d'audit (actions agent)", value: "Illimité", size: "~50 MB / an", legal: "NIS2 : preuve légale" },
+                { label: "Cache enrichissement", value: "Selon TTL", size: "~10 MB", legal: "Pas de contrainte" },
+                { label: "Scores ML", value: "7 jours", size: "< 1 MB", legal: "Recalculé automatiquement" },
+              ].map((item, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{item.label}</div>
+                    <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{item.size} · {item.legal}</div>
+                  </div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-blue)", minWidth: "80px", textAlign: "right" }}>{item.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: "12px", fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
+              La compression TimescaleDB réduit l{"'"}espace disque de 90-95%. Les données sont automatiquement nettoyées par le cycle nocturne (03h00).
+            </div>
+          </ChromeInsetCard>
         )}
 
         {/* ═══ ANONYMIZER ═══ */}

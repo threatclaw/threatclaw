@@ -12,6 +12,7 @@ const NAV_KEYS = [
   { href: "/assets", key: "assets", icon: Server },
   { href: "/findings", key: "detections", icon: AlertTriangle },
   { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
+  { href: "/exports", key: "exports", icon: Activity },
   { href: "/setup", key: "config", icon: Settings },
 ];
 
