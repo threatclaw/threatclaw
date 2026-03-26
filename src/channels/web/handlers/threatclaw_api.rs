@@ -2187,8 +2187,19 @@ pub async fn connector_nmap_scan_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::nmap_discovery::NmapConfig>(body)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid nmap config: {e}")))?;
-    let result = crate::connectors::nmap_discovery::run_discovery(store.as_ref(), &config).await;
-    Ok(Json(serde_json::json!(result)))
+
+    // Run in background (scans can take 5+ minutes for /24)
+    let store_clone = store.clone();
+    tokio::spawn(async move {
+        let result = crate::connectors::nmap_discovery::run_discovery(store_clone.as_ref(), &config).await;
+        tracing::info!("NMAP COMPLETE: {:?}", result);
+    });
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "status": "running",
+        "message": "Scan Nmap lancé en arrière-plan. Les assets découverts apparaîtront dans la page Assets."
+    })))
 }
 
 /// POST /api/tc/connectors/proxmox/sync — sync Proxmox VMs into graph.
