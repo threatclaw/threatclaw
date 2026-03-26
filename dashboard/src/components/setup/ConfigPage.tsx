@@ -5,7 +5,7 @@ import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
   Plus, Trash2, Send, Bot, ArrowRight, Database, Key, Radio, Mail,
-  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle,
+  Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle, Activity,
 } from "lucide-react";
 
 // ── Channel SVG icons (no emojis) ──
@@ -244,9 +244,10 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const tabs = [
     { id: "general", label: "Général", icon: Globe },
     { id: "company", label: "Entreprise", icon: Shield },
-    { id: "llm", label: "IA / LLM", icon: Cpu },
+    { id: "llm", label: "ThreatClaw AI", icon: Cpu },
     { id: "channels", label: "Canaux", icon: MessageSquare },
     { id: "security", label: "Sécurité", icon: ShieldAlert },
+    { id: "agent", label: "Agent & Moteur", icon: Activity },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "enrichment", label: "Enrichissement", icon: Database },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
@@ -429,6 +430,21 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                   </button>
                 );
               })}
+            </div>
+          </ChromeInsetCard>
+        )}
+
+        {/* ═══ AGENT & MOTEUR ═══ */}
+        {activeTab === "agent" && (
+          <ChromeInsetCard>
+            <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>ThreatClaw Engine</ChromeEmbossedText>
+            <p style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+              L{"'"}agent autonome surveille votre infrastructure 24h/24. Contrôlez son comportement ici.
+            </p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <ChromeButton onClick={() => window.location.href = "/agent"} variant="glass">
+                <Activity size={14} /> Ouvrir la page Agent
+              </ChromeButton>
             </div>
           </ChromeInsetCard>
         )}
@@ -1392,11 +1408,64 @@ function CompanyTab() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [newCidr, setNewCidr] = useState("");
+  const [showSchedule, setShowSchedule] = useState(false);
+
+  const DAYS = [
+    { id: "mon", label: "Lundi" }, { id: "tue", label: "Mardi" }, { id: "wed", label: "Mercredi" },
+    { id: "thu", label: "Jeudi" }, { id: "fri", label: "Vendredi" },
+    { id: "sat", label: "Samedi" }, { id: "sun", label: "Dimanche" },
+  ];
+
+  const defaultSchedule: Record<string, { open: string; close: string; closed: boolean }> = {
+    mon: { open: "08:00", close: "18:00", closed: false },
+    tue: { open: "08:00", close: "18:00", closed: false },
+    wed: { open: "08:00", close: "18:00", closed: false },
+    thu: { open: "08:00", close: "18:00", closed: false },
+    fri: { open: "08:00", close: "18:00", closed: false },
+    sat: { open: "09:00", close: "12:00", closed: true },
+    sun: { open: "09:00", close: "12:00", closed: true },
+  };
+
+  const [schedule, setSchedule] = useState(defaultSchedule);
 
   useEffect(() => {
-    fetch("/api/tc/company").then(r => r.json()).then(d => setProfile(d)).catch(() => {});
+    fetch("/api/tc/company").then(r => r.json()).then(d => {
+      setProfile(d);
+      // Parse work_days + hours into schedule
+      const wd = d.work_days || ["mon", "tue", "wed", "thu", "fri"];
+      const newSch = { ...defaultSchedule };
+      DAYS.forEach(day => {
+        newSch[day.id] = {
+          open: d.business_hours_start || "08:00",
+          close: d.business_hours_end || "18:00",
+          closed: !wd.includes(day.id),
+        };
+      });
+      setSchedule(newSch);
+    }).catch(() => {});
     fetch("/api/tc/networks").then(r => r.json()).then(d => setNetworks(d.networks || [])).catch(() => {});
   }, []);
+
+  const applyToAll = (open: string, close: string) => {
+    setSchedule(s => {
+      const n = { ...s };
+      DAYS.forEach(d => { if (!n[d.id].closed) { n[d.id] = { ...n[d.id], open, close }; } });
+      return n;
+    });
+  };
+
+  const saveSchedule = () => {
+    const workDays = DAYS.filter(d => !schedule[d.id].closed).map(d => d.id);
+    const firstOpen = DAYS.find(d => !schedule[d.id].closed);
+    setProfile((p: any) => ({
+      ...p,
+      work_days: workDays,
+      business_hours: workDays.length === 7 ? "24x7" : "custom",
+      business_hours_start: firstOpen ? schedule[firstOpen.id].open : "08:00",
+      business_hours_end: firstOpen ? schedule[firstOpen.id].close : "18:00",
+    }));
+    setShowSchedule(false);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -1404,17 +1473,13 @@ function CompanyTab() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(profile),
     });
-    setSaving(false);
-    setSaved(true);
+    setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
 
   const addNetwork = async () => {
     if (!newCidr.includes("/")) return;
-    await fetch("/api/tc/networks", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cidr: newCidr, label: "", zone: "lan" }),
-    });
+    await fetch("/api/tc/networks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cidr: newCidr, label: "", zone: "lan" }) });
     setNewCidr("");
     const d = await fetch("/api/tc/networks").then(r => r.json());
     setNetworks(d.networks || []);
@@ -1443,8 +1508,7 @@ function CompanyTab() {
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div>
             <label style={labelStyle}>Nom de l{"'"}entreprise</label>
-            <input value={profile.company_name || ""} onChange={e => setProfile((p: any) => ({ ...p, company_name: e.target.value }))}
-              placeholder="CyberConsulting.fr" style={inputStyle} />
+            <input value={profile.company_name || ""} onChange={e => setProfile((p: any) => ({ ...p, company_name: e.target.value }))} placeholder="CyberConsulting.fr" style={inputStyle} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -1464,7 +1528,7 @@ function CompanyTab() {
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Taille</label>
+              <label style={labelStyle}>Taille de l{"'"}entreprise</label>
               <select value={profile.company_size || "small"} onChange={e => setProfile((p: any) => ({ ...p, company_size: e.target.value }))} style={inputStyle}>
                 <option value="micro">&lt; 10 personnes</option>
                 <option value="small">10 - 50 personnes</option>
@@ -1477,12 +1541,13 @@ function CompanyTab() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             <div>
               <label style={labelStyle}>Horaires d{"'"}activité</label>
-              <select value={profile.business_hours || "office"} onChange={e => setProfile((p: any) => ({ ...p, business_hours: e.target.value }))} style={inputStyle}>
-                <option value="office">Bureau (8h-18h)</option>
-                <option value="24x7">24h/7j</option>
-                <option value="shifts">Par équipes</option>
-                <option value="seasonal">Saisonnière</option>
-              </select>
+              <button onClick={() => setShowSchedule(true)} style={{
+                ...inputStyle, cursor: "pointer", textAlign: "left" as const,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <span>{profile.business_hours === "24x7" ? "24h/7j" : profile.business_hours === "custom" ? "Personnalisé" : "Bureau (8h-18h)"}</span>
+                <Settings size={12} color="var(--tc-text-muted)" />
+              </button>
             </div>
             <div>
               <label style={labelStyle}>Zone géographique</label>
@@ -1495,11 +1560,17 @@ function CompanyTab() {
           </div>
 
           <div>
-            <label style={labelStyle}>Sensibilité ML (Machine Learning)</label>
+            <label style={labelStyle}>Systèmes critiques (séparés par des virgules)</label>
+            <input value={(profile.critical_systems || []).join(", ")} onChange={e => setProfile((p: any) => ({ ...p, critical_systems: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) }))}
+              placeholder="ERP, base clients, paye, site web" style={inputStyle} />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Sensibilité de la détection comportementale</label>
             <select value={profile.anomaly_sensitivity || "medium"} onChange={e => setProfile((p: any) => ({ ...p, anomaly_sensitivity: e.target.value }))} style={inputStyle}>
               <option value="low">Basse — moins d{"'"}alertes, plus de tolérance</option>
               <option value="medium">Moyenne — équilibre alertes / faux positifs</option>
-              <option value="high">Haute — plus d{"'"}alertes, plus sensible</option>
+              <option value="high">Haute — plus d{"'"}alertes, plus sensible aux écarts</option>
             </select>
           </div>
 
@@ -1519,12 +1590,10 @@ function CompanyTab() {
         <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
           Déclarez vos plages réseau. ThreatClaw classifie les IPs (interne connu / inconnu / externe).
         </p>
-
         {networks.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
             {networks.map((n: any) => (
-              <div key={n.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px",
-                background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
+              <div key={n.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
                 <span style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--tc-text)", flex: 1 }}>{n.cidr}</span>
                 <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>{n.label || n.zone}</span>
                 <button onClick={() => deleteNetwork(n.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", fontSize: "14px" }}>×</button>
@@ -1532,20 +1601,66 @@ function CompanyTab() {
             ))}
           </div>
         )}
-
         <div style={{ display: "flex", gap: "8px" }}>
-          <input value={newCidr} onChange={e => setNewCidr(e.target.value)} placeholder="192.168.1.0/24"
-            onKeyDown={e => e.key === "Enter" && addNetwork()}
-            style={{ ...inputStyle, flex: 1 }} />
-          <button onClick={addNetwork} style={{
-            padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit",
-            cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
-            border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
-          }}>
-            Ajouter
-          </button>
+          <input value={newCidr} onChange={e => setNewCidr(e.target.value)} placeholder="192.168.1.0/24" onKeyDown={e => e.key === "Enter" && addNetwork()} style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={addNetwork} style={{ padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)" }}>Ajouter</button>
         </div>
       </ChromeInsetCard>
+
+      {/* ═══ Schedule Modal ═══ */}
+      {showSchedule && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={e => { if (e.target === e.currentTarget) setShowSchedule(false); }}>
+          <div style={{ background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "24px", width: "480px", maxHeight: "80vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Horaires d{"'"}activité</h2>
+              <button onClick={() => setShowSchedule(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)" }}><X size={16} /></button>
+            </div>
+
+            <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+              La détection comportementale utilise ces horaires pour ajuster ses seuils. Une connexion en dehors des heures d{"'"}activité sera plus suspecte.
+            </p>
+
+            {/* Quick apply */}
+            <div style={{ display: "flex", gap: "6px", marginBottom: "16px", flexWrap: "wrap" }}>
+              <button onClick={() => applyToAll("08:00", "18:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>8h-18h pour tous</button>
+              <button onClick={() => applyToAll("09:00", "17:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>9h-17h pour tous</button>
+              <button onClick={() => { setSchedule(s => { const n = { ...s }; ["sat", "sun"].forEach(d => { n[d] = { ...n[d], closed: true }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>Fermé le week-end</button>
+              <button onClick={() => { setSchedule(s => { const n = { ...s }; DAYS.forEach(d => { n[d.id] = { open: "00:00", close: "23:59", closed: false }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>24h/7j</button>
+            </div>
+
+            {/* Per-day schedule */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {DAYS.map(day => (
+                <div key={day.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", background: schedule[day.id].closed ? "var(--tc-input)" : "transparent", borderRadius: "var(--tc-radius-sm)", opacity: schedule[day.id].closed ? 0.5 : 1 }}>
+                  <span style={{ width: "70px", fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{day.label}</span>
+                  <input type="checkbox" className="tc-toggle" checked={!schedule[day.id].closed}
+                    onChange={() => setSchedule(s => ({ ...s, [day.id]: { ...s[day.id], closed: !s[day.id].closed } }))} />
+                  {!schedule[day.id].closed ? (
+                    <>
+                      <input type="time" value={schedule[day.id].open} onChange={e => setSchedule(s => ({ ...s, [day.id]: { ...s[day.id], open: e.target.value } }))}
+                        style={{ ...inputStyle, width: "100px", textAlign: "center" }} />
+                      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>à</span>
+                      <input type="time" value={schedule[day.id].close} onChange={e => setSchedule(s => ({ ...s, [day.id]: { ...s[day.id], close: e.target.value } }))}
+                        style={{ ...inputStyle, width: "100px", textAlign: "center" }} />
+                    </>
+                  ) : (
+                    <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>Fermé</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button onClick={saveSchedule} style={{
+              marginTop: "16px", padding: "10px 20px", fontSize: "12px", fontWeight: 700, fontFamily: "inherit",
+              cursor: "pointer", background: "var(--tc-red)", color: "#fff",
+              border: "none", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
+            }}>
+              <CheckCircle2 size={14} /> Appliquer
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
