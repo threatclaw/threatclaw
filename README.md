@@ -132,7 +132,7 @@ Sources → PostgreSQL → ML Engine (5min) → Intelligence Engine → Graph AG
 - [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build official (Rust/WASM) or community (Python/Docker) skills
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — How to contribute
-- [Roadmap](ROADMAP.md) — v0.1 to v2.1, all versions documented
+- [Changelog](CHANGELOG.md) — Version history
 
 ## Support ThreatClaw
 
@@ -142,11 +142,23 @@ ThreatClaw is and will remain open source. If this project is useful to you:
 
 ## License
 
-**Dual license:**
-- Open source: [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later)
-- Commercial: [Commercial License](LICENSE-COMMERCIAL.md) for organizations that cannot comply with AGPL v3
+**AGPL v3 + Commercial dual-license.**
 
-See [NOTICE](NOTICE) for third-party attributions including IronClaw (Apache 2.0).
+**You are NOT affected by AGPL if you:**
+- Install ThreatClaw on your own servers ✅
+- Use it to monitor your own infrastructure ✅
+- Modify it for your own use ✅
+- Are an MSSP deploying it for clients ✅ (with a commercial license)
+
+**You ARE affected by AGPL if you:**
+- Build a SaaS product on top of ThreatClaw without publishing your modifications
+- Embed ThreatClaw in a commercial product you sell without a commercial license
+
+> 99% of users are in the first category.
+
+- Open source: [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later)
+- Commercial: [Commercial License](LICENSE-COMMERCIAL.md) — contact commercial@threatclaw.io
+- Third-party: [NOTICE](NOTICE) — IronClaw (Apache 2.0), Apache AGE, MITRE ATT&CK
 
 ---
 

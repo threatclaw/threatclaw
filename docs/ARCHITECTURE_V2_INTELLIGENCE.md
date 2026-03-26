@@ -467,3 +467,90 @@ Ce que Zeek apporte que ThreatClaw n'a pas aujourd'hui :
 - MITRE ATT&CK Enterprise + ICS matrices
 - CISA 2025 OT Asset Inventory Guidance
 - Darktrace / Armis / Forescout architecture analysis
+
+---
+
+## Choix d'architecture et optimisations DB
+
+### Pourquoi PostgreSQL (et pas MongoDB, Elasticsearch, etc.)
+
+| Choix | Raison |
+|-------|--------|
+| **PostgreSQL** | SQL standard, ACID, extensible (AGE, TimescaleDB, pgvector), un seul service a operer |
+| **Apache AGE** | Graph dans PostgreSQL — pas de Neo4j/SurrealDB a deployer separement. Suffisant jusqu'a ~50K noeuds |
+| **TimescaleDB** | Extension PG pour time-series (logs). Compression 90-95%, retention automatique, zero changement code Rust |
+| **pgvector** | Futur — embeddings pour recherche semantique dans les logs/findings |
+| **Pas Elasticsearch** | Trop lourd pour une PME (8GB RAM minimum). PostgreSQL + BRIN index + TimescaleDB couvre le meme besoin |
+| **Pas MongoDB** | Pas de transactions ACID, pas de graph, pas de time-series. PostgreSQL fait tout en un |
+
+### Architecture DB
+
+```
+PostgreSQL 16 (Docker container)
+├── Tables relationnelles (findings, alerts, assets, settings, configs)
+├── Apache AGE (graph STIX 2.1 — noeuds IP/Asset/CVE/Technique, relations ATTACKS/AFFECTS)
+├── TimescaleDB (hypertable logs — compression auto 7j, retention 90j)
+├── pgvector (futur — embeddings)
+└── pg_stat_statements (monitoring slow queries)
+```
+
+### Optimisations appliquees (V26 + V27)
+
+**Index (193 total)** :
+- Composites : alerts par hostname+time, findings par severity+status+asset, logs par time+tag
+- BRIN sur logs.time (100x plus petit que btree pour time-series)
+- GIN sur assets.ip_addresses (lookup par IP)
+
+**PostgreSQL tuning** :
+- `work_mem = 128MB` (x32 vs defaut) — tri/hash en memoire
+- `effective_cache_size = 22GB` — planner sait qu'il a de la RAM
+- `random_page_cost = 1.1` (vs defaut 4.0) — optimise pour SSD
+- `wal_compression = on` — -40% volume WAL
+- `effective_io_concurrency = 200` — SSD I/O parallele
+- `checkpoint_timeout = 15min` — moins de tempetes I/O
+- `max_parallel_workers_per_gather = 4` — parallelisme sur 16 cores
+
+**Per-table** :
+- `logs` : `synchronous_commit = off` par session (absorbe les bursts, perte max 200ms)
+- `logs` + `sigma_alerts` : autovacuum agressif (trigger a 1% dead tuples)
+
+**TimescaleDB** :
+- Table `logs` convertie en hypertable (1 chunk/jour)
+- Compression automatique apres 7 jours (90-95% d'economie espace)
+- Retention automatique : suppression des logs > 90 jours
+- Zero changement dans le code Rust — transparent
+
+**Maintenance nocturne (ML Engine 03h00)** :
+- `cleanup_old_data(90)` : purge logs, resolve vieilles alertes, expire cache
+- `VACUUM ANALYZE` sur 5 tables critiques
+- Retrain ML (Isolation Forest + DGA)
+
+### Metriques observees
+
+| Metrique | Valeur |
+|----------|--------|
+| Cache hit ratio | 99.93% |
+| Total index | 193 |
+| DB size (155 logs, 39 alertes) | 21 MB |
+| Temps moyen requete | < 5ms |
+
+### Capacite estimee
+
+| Volume | Sans TimescaleDB | Avec TimescaleDB |
+|--------|------------------|------------------|
+| 100K logs/jour (90j) | ~180 GB | **~9 GB** (compression 95%) |
+| 500K logs/jour (90j) | ~900 GB | **~45 GB** |
+| 1000 assets + 10K alertes/jour | OK | OK |
+| Graph AGE 5000 noeuds | OK | OK |
+| Graph AGE 50K+ noeuds | Lent sur traversees | Idem (AGE indep. de TS) |
+
+### Quand scaler ?
+
+| Seuil | Action |
+|-------|--------|
+| Cache hit < 95% | Augmenter shared_buffers |
+| Disk > 80% | Reduire retention ou ajouter disque |
+| Graph queries > 1s | Ajouter index AGE sur proprietes |
+| > 50K noeuds graph | Evaluer Neo4j ou SurrealDB |
+| > 1M logs/jour | Ajouter un second PostgreSQL en lecture |
+| ML scoring > 5min | Augmenter CPU ou reduire features |
