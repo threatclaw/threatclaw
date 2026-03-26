@@ -1,155 +1,100 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
-  CheckCircle2, XCircle, Loader2, Settings, Puzzle, Activity,
-  Cpu, MessageSquare, Shield, Wifi, Server, ArrowRight, BarChart3,
-  HardDrive, MemoryStick, Clock, Brain, AlertTriangle, TrendingUp,
-  Database, Zap,
+  CheckCircle2, Loader2, Settings, Puzzle, Activity,
+  Cpu, MessageSquare, Shield, Server, ArrowRight,
+  HardDrive, Clock, Brain, Database, Eye, Wifi,
+  ChevronRight,
 } from "lucide-react";
-
-interface ServiceStatus {
-  name: string;
-  icon: React.ReactNode;
-  status: "ok" | "down" | "checking";
-  detail?: string;
-}
-
-interface ConfigSummary {
-  llm?: { backend: string; model: string; url: string };
-  channels?: Record<string, { enabled: boolean }>;
-  permissions?: string;
-  anonymize_primary?: boolean;
-}
-
-interface ServerStats {
-  disk_used_gb?: number;
-  disk_total_gb?: number;
-  disk_percent?: number;
-  memory_used_mb?: number;
-  memory_total_mb?: number;
-  memory_percent?: number;
-  cpu_count?: number;
-  uptime_hours?: number;
-  load_avg?: number;
-}
-
-interface MlStatus {
-  last_training?: string;
-  last_scoring?: string;
-  assets_scored?: number;
-  anomalies_detected?: number;
-  dga_suspicious?: number;
-  model_exists?: boolean;
-  baseline_days?: number;
-}
 
 const labelCaps: React.CSSProperties = {
   fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)",
   textTransform: "uppercase", letterSpacing: "0.06em",
 };
 
-const metricVal: React.CSSProperties = {
-  fontSize: "20px", fontWeight: 800, color: "var(--tc-text)", marginTop: "2px",
+const metricBig: React.CSSProperties = {
+  fontSize: "20px", fontWeight: 800, color: "var(--tc-text)", marginTop: "4px",
 };
 
 export default function HomePage() {
-  const [services, setServices] = useState<ServiceStatus[]>([
-    { name: "Ollama LLM", icon: <Cpu size={16} />, status: "checking" },
-    { name: "Backend API", icon: <Server size={16} />, status: "checking" },
-    { name: "PostgreSQL", icon: <Database size={16} />, status: "checking" },
+  const [services, setServices] = useState<{ name: string; icon: React.ReactNode; status: "ok" | "down" | "checking"; detail?: string }[]>([
+    { name: "ThreatClaw Engine", icon: <Shield size={16} />, status: "checking" },
+    { name: "ThreatClaw AI", icon: <Brain size={16} />, status: "checking" },
+    { name: "Base de données", icon: <Database size={16} />, status: "checking" },
   ]);
-  const [config, setConfig] = useState<ConfigSummary | null>(null);
+  const [config, setConfig] = useState<any>(null);
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
-  const [skillCount, setSkillCount] = useState<number | null>(null);
-  const [serverStats, setServerStats] = useState<ServerStats>({});
-  const [mlStatus, setMlStatus] = useState<MlStatus>({});
   const [situation, setSituation] = useState<any>(null);
+  const [aiModels, setAiModels] = useState<string[]>([]);
+  const [lastCycle, setLastCycle] = useState<string | null>(null);
 
   useEffect(() => {
     setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
 
-    // Check Ollama
-    fetch("/api/ollama?url=http://ollama:11434")
-      .then(r => r.json())
-      .then(d => {
-        const models = (d.models || []).map((m: { name: string }) => m.name);
-        setServices(s => s.map(svc =>
-          svc.name === "Ollama LLM"
-            ? { ...svc, status: "ok" as const, detail: `${models.length} modèle(s)` }
-            : svc
-        ));
-      })
-      .catch(() => setServices(s => s.map(svc =>
-        svc.name === "Ollama LLM" ? { ...svc, status: "down" as const, detail: "Non accessible" } : svc
-      )));
-
-    // Check Backend API + DB
-    fetch("/api/tc/health")
+    // Check Backend + DB
+    fetch("/api/tc/health", { signal: AbortSignal.timeout(8000) })
       .then(r => r.json())
       .then(d => {
         setServices(s => s.map(svc => {
-          if (svc.name === "Backend API") return { ...svc, status: "ok" as const, detail: `v${d.version || "?"}` };
-          if (svc.name === "PostgreSQL") return { ...svc, status: d.database ? "ok" as const : "down" as const, detail: d.database ? "Connecté" : "Non connecté" };
+          if (svc.name === "ThreatClaw Engine") return { ...svc, status: "ok" as const, detail: `v${d.version || "?"}` };
+          if (svc.name === "Base de données") return { ...svc, status: d.database ? "ok" as const : "down" as const, detail: d.database ? "PostgreSQL connecté" : "Non connecté" };
           return svc;
         }));
       })
       .catch(() => {
         setServices(s => s.map(svc =>
-          svc.name === "Backend API" || svc.name === "PostgreSQL"
-            ? { ...svc, status: "down" as const, detail: "Core non démarré" }
+          svc.name === "ThreatClaw Engine" || svc.name === "Base de données"
+            ? { ...svc, status: "down" as const, detail: "Service non démarré" }
             : svc
         ));
       });
 
+    // Check Ollama models
+    fetch("/api/ollama?url=http://ollama:11434", { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json())
+      .then(d => {
+        const models = (d.models || []).map((m: { name: string }) => m.name);
+        setAiModels(models);
+        setServices(s => s.map(svc =>
+          svc.name === "ThreatClaw AI"
+            ? { ...svc, status: models.length > 0 ? "ok" as const : "down" as const, detail: models.length > 0 ? `${models.length} modèle(s) chargé(s)` : undefined }
+            : svc
+        ));
+      })
+      .catch(() => setServices(s => s.map(svc =>
+        svc.name === "ThreatClaw AI" ? { ...svc, status: "down" as const, detail: "Non accessible" } : svc
+      )));
+
     // Load config
-    fetch("/api/tc/config").then(r => r.json()).then(d => setConfig(d)).catch(() => {});
+    fetch("/api/tc/config", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => setConfig(d)).catch(() => {});
 
-    // Load skills count
-    fetch("/api/tc/skills/catalog").then(r => r.json())
-      .then(d => setSkillCount((d.skills || []).filter((s: any) => s.installed).length))
-      .catch(() => {});
-
-    // Load intelligence situation
-    fetch("/api/tc/intelligence/situation").then(r => r.json()).then(d => setSituation(d)).catch(() => {});
-
-    // Load ML status
-    fetch("/api/tc/config").then(r => r.json()).then(() => {
-      // Read ML scores count from settings
-      fetch("/api/tc/assets/counts").then(r => r.json()).then(d => {
-        setMlStatus(prev => ({ ...prev, assets_scored: d.total || 0 }));
-      }).catch(() => {});
+    // Load situation
+    fetch("/api/tc/intelligence/situation", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
+      setSituation(d);
+      if (d.computed_at) {
+        const ago = Math.round((Date.now() - new Date(d.computed_at).getTime()) / 60000);
+        setLastCycle(ago < 1 ? "< 1 min" : `${ago} min`);
+      }
     }).catch(() => {});
-
   }, []);
 
   const activeChannels = config?.channels
-    ? Object.entries(config.channels).filter(([, v]) => v.enabled).map(([k]) => k)
+    ? Object.entries(config.channels).filter(([, v]: any) => v.enabled).map(([k]: any) => k)
     : [];
-
-  const permLabel: Record<string, string> = {
-    READ_ONLY: "Observation",
-    ALERT_ONLY: "Alertes",
-    REMEDIATE_WITH_APPROVAL: "Remédiation supervisée",
-    FULL_AUTO: "Automatisation complète",
-  };
 
   const score = situation?.global_score;
   const scoreColor = score == null ? "var(--tc-text-muted)" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
+  const scoreLabel = score == null ? "En attente du premier cycle" : score >= 80 ? "Situation saine" : score >= 50 ? "Points d'attention" : "Situation dégradée";
 
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: "28px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-          Dashboard
-        </h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          Vue d{"'"}ensemble de votre agent de cybersécurité
-        </p>
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Dashboard</h1>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>Vue d{"'"}ensemble de votre agent de cybersécurité</p>
       </div>
 
       {/* Onboarding banner */}
@@ -158,9 +103,7 @@ export default function HomePage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>Configuration requise</div>
-              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-                Lancez l{"'"}assistant pour configurer votre IA, vos canaux et votre niveau de sécurité.
-              </div>
+              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>Lancez l{"'"}assistant pour configurer votre infrastructure.</div>
             </div>
             <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary">
               <Settings size={14} /> Configurer <ArrowRight size={14} />
@@ -169,27 +112,23 @@ export default function HomePage() {
         </NeuCard>
       )}
 
-      {/* ══ Security Score + Services ══ */}
+      {/* ══ Score + Services ══ */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
-        {/* Security Score */}
         <NeuCard>
           <div style={{ textAlign: "center" }}>
-            <div style={labelCaps}>Score Sécurité</div>
+            <div style={labelCaps}>Score sécurité</div>
             <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
-              {score != null ? `${Math.round(score)}` : "—"}
+              {score != null ? Math.round(score) : "—"}
             </div>
-            <div style={{ fontSize: "10px", color: scoreColor }}>
-              {score == null ? "Pas encore calculé" : score >= 80 ? "Situation saine" : score >= 50 ? "Points d'attention" : "Situation dégradée"}
-            </div>
+            <div style={{ fontSize: "10px", color: scoreColor }}>{scoreLabel}</div>
             {situation?.total_active_alerts > 0 && (
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "8px" }}>
-                {situation.total_active_alerts} alerte(s) · {situation.assets?.length || 0} asset(s) à risque
+                {situation.total_active_alerts} alerte(s) · {situation.assets?.length || 0} asset(s)
               </div>
             )}
           </div>
         </NeuCard>
 
-        {/* Services */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
           {services.map(svc => (
             <NeuCard key={svc.name} style={{ padding: "14px" }}>
@@ -203,12 +142,9 @@ export default function HomePage() {
                   {svc.status === "checking" ? <Loader2 size={14} className="animate-spin" /> : svc.icon}
                 </div>
                 <div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{svc.name}</div>
-                  <div style={{
-                    fontSize: "10px",
-                    color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)",
-                  }}>
-                    {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "OK" : "Hors ligne")}
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{svc.name}</div>
+                  <div style={{ fontSize: "10px", color: svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)" }}>
+                    {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "Opérationnel" : "Hors ligne")}
                   </div>
                 </div>
               </div>
@@ -217,109 +153,113 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ══ Server Health ══ */}
+      {/* ══ ThreatClaw Engine ══ */}
       <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        Santé serveur
+        ThreatClaw Engine
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <ServerStatCard icon={<HardDrive size={16} />} label="Disque" value="680 GB" detail="libre sur /srv" color="#3080d0" />
-        <ServerStatCard icon={<MemoryStick size={16} />} label="Mémoire" value="—" detail="utilisation" color="#9060d0" />
-        <ServerStatCard icon={<Cpu size={16} />} label="CPU" value="—" detail="charge moyenne" color="#d09020" />
-        <ServerStatCard icon={<Clock size={16} />} label="Uptime" value="—" detail="depuis le démarrage" color="#30a050" />
-      </div>
-
-      {/* ══ ML Engine Status ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        Machine Learning
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "14px" }}>
-          <div style={labelCaps}>Modèle</div>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Isolation Forest</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Entraîné · score 5 min</div>
-        </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
-          <div style={labelCaps}>Assets scorés</div>
-          <div style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", marginTop: "4px" }}>
-            {mlStatus.assets_scored ?? "—"}
+      <NeuCard style={{ marginBottom: "20px", padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>Agent autonome · Cycle toutes les 5 min</span>
           </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>sur la dernière période</div>
+          <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+            <span>Dernier cycle : {lastCycle ? `il y a ${lastCycle}` : "en attente"}</span>
+          </div>
+        </div>
+      </NeuCard>
+
+      {/* ══ ThreatClaw AI ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        ThreatClaw AI
+      </div>
+      <NeuCard style={{ marginBottom: "20px", padding: "14px 16px" }}>
+        {aiModels.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {aiModels.map((m, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px" }}>
+                <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#30a050" }} />
+                <span style={{ fontFamily: "monospace", color: "var(--tc-text)", fontWeight: 600 }}>{m}</span>
+                <span style={{ color: "var(--tc-text-muted)", fontSize: "9px" }}>Chargé</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "12px", color: "var(--tc-text-muted)" }}>Aucun modèle IA chargé</span>
+            <button onClick={() => window.location.href = "/setup"} style={{
+              background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+              padding: "4px 10px", fontSize: "10px", fontWeight: 600, cursor: "pointer", color: "var(--tc-red)", fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: "4px",
+            }}>
+              Installer <ChevronRight size={10} />
+            </button>
+          </div>
+        )}
+      </NeuCard>
+
+      {/* ══ Détection comportementale ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        Détection comportementale
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Analyse comportementale</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Active</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Score toutes les 5 min</div>
         </NeuCard>
         <NeuCard style={{ padding: "14px" }}>
-          <div style={labelCaps}>DGA Detector</div>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Random Forest</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Analyse DNS active</div>
+          <div style={labelCaps}>Détection DNS</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Active</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Domaines suspects</div>
         </NeuCard>
         <NeuCard style={{ padding: "14px" }}>
-          <div style={labelCaps}>Baseline</div>
-          <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-amber)", marginTop: "4px" }}>14 jours</div>
+          <div style={labelCaps}>Entraînement</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-amber)", marginTop: "4px" }}>Baseline 14j</div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Retrain nocturne 03h00</div>
         </NeuCard>
       </div>
 
-      {/* ══ Config overview ══ */}
-      {(config || onboarded) && (
-        <>
-          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-            Configuration
+      {/* ══ Configuration ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        Configuration
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Sécurité</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+            {config?.permissions === "READ_ONLY" ? "Observation" : config?.permissions === "ALERT_ONLY" ? "Alertes" : config?.permissions === "REMEDIATE_WITH_APPROVAL" ? "Remédiation" : config?.permissions === "FULL_AUTO" ? "Auto" : "Non configuré"}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-            <NeuCard style={{ padding: "14px" }}>
-              <div style={labelCaps}>IA Principale</div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-                {config?.llm?.backend || "Non configuré"}
-              </div>
-              {config?.llm?.model && <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontFamily: "monospace", marginTop: "2px" }}>{config.llm.model}</div>}
-            </NeuCard>
-            <NeuCard style={{ padding: "14px" }}>
-              <div style={labelCaps}>Sécurité</div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-                {permLabel[config?.permissions || ""] || "Non configuré"}
-              </div>
-            </NeuCard>
-            <NeuCard style={{ padding: "14px" }}>
-              <div style={labelCaps}>Canaux</div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-                {activeChannels.length > 0 ? activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ") : "Aucun"}
-              </div>
-            </NeuCard>
-            <NeuCard style={{ padding: "14px" }}>
-              <div style={labelCaps}>Skills</div>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-                {skillCount !== null ? `${skillCount} active(s)` : "—"}
-              </div>
-            </NeuCard>
-          </div>
-        </>
-      )}
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Canaux</div>
+          {activeChannels.length > 0 ? (
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+              {activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
+            </div>
+          ) : (
+            <button onClick={() => window.location.href = "/setup"} style={{
+              background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px",
+              fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: "4px",
+            }}>
+              Configurer <ChevronRight size={11} />
+            </button>
+          )}
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Serveur</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>Opérationnel</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PostgreSQL + TimescaleDB</div>
+        </NeuCard>
+      </div>
 
       {/* Quick actions */}
       <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <ChromeButton onClick={() => window.location.href = "/skills"} variant="glass">
-          <Puzzle size={14} /> Skills
-        </ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/agent"} variant="glass">
-          <Activity size={14} /> Agent
-        </ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary">
-          <Settings size={14} /> Configuration <ArrowRight size={14} />
-        </ChromeButton>
+        <ChromeButton onClick={() => window.location.href = "/assets"} variant="glass"><Server size={14} /> Assets</ChromeButton>
+        <ChromeButton onClick={() => window.location.href = "/skills"} variant="glass"><Puzzle size={14} /> Skills</ChromeButton>
+        <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary"><Settings size={14} /> Configuration <ArrowRight size={14} /></ChromeButton>
       </div>
     </div>
-  );
-}
-
-function ServerStatCard({ icon, label, value, detail, color }: {
-  icon: React.ReactNode; label: string; value: string; detail: string; color: string;
-}) {
-  return (
-    <NeuCard style={{ padding: "14px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-        <span style={{ color }}>{icon}</span>
-        <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
-      </div>
-      <div style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)" }}>{value}</div>
-      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{detail}</div>
-    </NeuCard>
   );
 }
