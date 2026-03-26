@@ -60,11 +60,29 @@ export default function AlertsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Alertes Sigma</h1>
+      <div style={{ marginBottom: "16px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Détections</h1>
         <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          {total} alerte{total !== 1 ? "s" : ""} détectée{total !== 1 ? "s" : ""} par le moteur Sigma
+          Vulnérabilités, alertes de sécurité et anomalies comportementales
         </p>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
+        <button onClick={() => window.location.href = "/findings"} style={{
+          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
+          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
+          background: "var(--tc-input)", color: "var(--tc-text-muted)", border: "1px solid var(--tc-border)",
+        }}>
+          Vulnérabilités
+        </button>
+        <button style={{
+          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
+          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
+          background: "var(--tc-red)", color: "#fff", border: "none",
+        }}>
+          Alertes de sécurité ({total})
+        </button>
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}

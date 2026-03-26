@@ -65,13 +65,37 @@ export default function FindingsPage() {
 
   const total = counts.reduce((s, c) => s + c.count, 0);
 
+  const [activeTab, setActiveTab] = useState<"findings" | "alerts">("findings");
+
   return (
     <div>
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Findings</h1>
+      <div style={{ marginBottom: "16px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Détections</h1>
         <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          {total} finding{total !== 1 ? "s" : ""} détecté{total !== 1 ? "s" : ""} par les skills
+          Vulnérabilités, alertes de sécurité et anomalies comportementales
         </p>
+      </div>
+
+      {/* Tabs: Vulnérabilités | Alertes de sécurité */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
+        <button onClick={() => setActiveTab("findings")} style={{
+          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
+          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
+          background: activeTab === "findings" ? "var(--tc-red)" : "var(--tc-input)",
+          color: activeTab === "findings" ? "#fff" : "var(--tc-text-muted)",
+          border: activeTab === "findings" ? "none" : "1px solid var(--tc-border)",
+        }}>
+          Vulnérabilités ({total})
+        </button>
+        <button onClick={() => { setActiveTab("alerts"); window.location.href = "/alerts"; }} style={{
+          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
+          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
+          background: activeTab === "alerts" ? "var(--tc-red)" : "var(--tc-input)",
+          color: activeTab === "alerts" ? "#fff" : "var(--tc-text-muted)",
+          border: activeTab === "alerts" ? "none" : "1px solid var(--tc-border)",
+        }}>
+          Alertes de sécurité
+        </button>
       </div>
 
       {error && <ErrorBanner message={error} onRetry={load} />}

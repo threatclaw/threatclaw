@@ -220,16 +220,22 @@ export default function HomePage() {
         </NeuCard>
       </div>
 
-      {/* ══ Configuration ══ */}
+      {/* ══ Santé serveur ══ */}
       <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        Configuration
+        Infrastructure
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard style={{ padding: "14px" }}>
           <div style={labelCaps}>Sécurité</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-            {config?.permissions === "READ_ONLY" ? "Observation" : config?.permissions === "ALERT_ONLY" ? "Alertes" : config?.permissions === "REMEDIATE_WITH_APPROVAL" ? "Remédiation" : config?.permissions === "FULL_AUTO" ? "Auto" : "Non configuré"}
-          </div>
+          {config?.permissions ? (
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
+              {config.permissions === "READ_ONLY" ? "Observation" : config.permissions === "ALERT_ONLY" ? "Alertes" : config.permissions === "REMEDIATE_WITH_APPROVAL" ? "Remédiation" : "Auto"}
+            </div>
+          ) : (
+            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
+              Configurer <ChevronRight size={11} />
+            </button>
+          )}
         </NeuCard>
         <NeuCard style={{ padding: "14px" }}>
           <div style={labelCaps}>Canaux</div>
@@ -238,19 +244,20 @@ export default function HomePage() {
               {activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
             </div>
           ) : (
-            <button onClick={() => window.location.href = "/setup"} style={{
-              background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px",
-              fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit",
-              display: "flex", alignItems: "center", gap: "4px",
-            }}>
+            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
               Configurer <ChevronRight size={11} />
             </button>
           )}
         </NeuCard>
         <NeuCard style={{ padding: "14px" }}>
-          <div style={labelCaps}>Serveur</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>Opérationnel</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PostgreSQL + TimescaleDB</div>
+          <div style={labelCaps}>Base de données</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#30a050", marginTop: "4px" }}>Opérationnel</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PG16 + AGE + TimescaleDB</div>
+        </NeuCard>
+        <NeuCard style={{ padding: "14px" }}>
+          <div style={labelCaps}>Disque</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>680 GB libre</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>sur /srv</div>
         </NeuCard>
       </div>
 

@@ -119,7 +119,7 @@ export default function AgentPage() {
       <ChromeInsetCard className="mb-3">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-            Cycle ReAct
+            Lancer une analyse
           </ChromeEmbossedText>
           <ChromeButton onClick={handleRunCycle} disabled={cycleRunning}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "9px" }}>
@@ -153,7 +153,7 @@ export default function AgentPage() {
           <div style={{ textAlign: "center", padding: "12px" }}>
             <Clock size={14} color="#907060" style={{ margin: "0 auto 4px" }} />
             <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.4 }}>
-              Le journal se remplira après un cycle ReAct
+              Le journal se remplira après un analyse manuelle
             </ChromeEmbossedText>
           </div>
         ) : (

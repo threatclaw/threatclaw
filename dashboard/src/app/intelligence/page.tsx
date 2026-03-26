@@ -276,7 +276,7 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
-              Aucun chemin d&apos;attaque detect&eacute;
+              Aucune progression d&apos;attaque detect&eacute;
             </div>
           )}
         </Card>
@@ -435,7 +435,7 @@ export default function IntelligencePage() {
         </Card>
 
         {/* Identity Anomalies */}
-        <Card title="Anomalies identite (UBA)" icon={Brain} color="#3080d0">
+        <Card title="Anomalies utilisateurs" icon={Brain} color="#3080d0">
           {identity && identity.anomalies.length > 0 ? (
             <div>
               <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>

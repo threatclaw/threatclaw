@@ -60,7 +60,7 @@ const T: Record<string, Record<Locale, string>> = {
   recommendations: { fr: "RECOMMANDATIONS", en: "RECOMMENDATIONS" },
   calculate: { fr: "Calculer", en: "Calculate" },
   attacks: { fr: "attaques", en: "attacks" },
-  detections: { fr: "detection(s)", en: "detection(s)" },
+  detections_count: { fr: "detection(s)", en: "detection(s)" },
   usersTracked: { fr: "utilisateurs suivis", en: "users tracked" },
   actors: { fr: "Acteurs", en: "Actors" },
   matchesTo: { fr: "Correspond a", en: "Matches" },
@@ -110,6 +110,7 @@ const T: Record<string, Record<Locale, string>> = {
 
   // ── Nav ──
   status: { fr: "Status", en: "Status" },
+  detections: { fr: "Détections", en: "Detections" },
   findings: { fr: "Findings", en: "Findings" },
   alerts: { fr: "Alertes", en: "Alerts" },
   intelligence: { fr: "Intelligence", en: "Intelligence" },

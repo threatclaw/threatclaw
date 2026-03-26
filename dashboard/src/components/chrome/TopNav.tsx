@@ -10,10 +10,8 @@ import { useLocale } from "@/lib/useLocale";
 const NAV_KEYS = [
   { href: "/", key: "status", icon: Shield },
   { href: "/assets", key: "assets", icon: Server },
-  { href: "/findings", key: "findings", icon: AlertTriangle },
-  { href: "/alerts", key: "alerts", icon: Bell },
+  { href: "/findings", key: "detections", icon: AlertTriangle },
   { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
-  { href: "/agent", key: "agent", icon: Activity },
   { href: "/setup", key: "config", icon: Settings },
 ];
 
