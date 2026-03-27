@@ -138,4 +138,4 @@ print(f'  Total: {len(models)} models')
 fi
 
 echo "[init] Starting ThreatClaw core..."
-exec /app/threatclaw run "$@"
+exec threatclaw run "$@"
