@@ -95,6 +95,7 @@ services:
     environment:
       TC_CORE_URL: http://threatclaw-core:3000
       TC_CORE_TOKEN: ${TC_AUTH_TOKEN:-}
+      OLLAMA_URL: http://ollama:11434
     volumes:
       - shared-config:/shared:ro
     depends_on:
