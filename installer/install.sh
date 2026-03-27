@@ -259,15 +259,21 @@ main() {
   if $FLAG_UNINSTALL; then cmd_uninstall; exit 0; fi
   if $FLAG_UPDATE; then cmd_update; exit 0; fi
 
-  # Confirmation
+  # Confirmation (skip if piped or --yes)
   if ! $FLAG_YES; then
     echo -e "  This will install ThreatClaw to ${BOLD}${TC_DIR}${NC}"
     echo -e "  Dashboard port: ${BOLD}${TC_PORT}${NC}"
     echo ""
-    read -rp "  Continue? [Y/n] " response
-    case "$response" in
-      [nN]*) echo "  Cancelled."; exit 0 ;;
-    esac
+    if [ -t 0 ]; then
+      # Interactive terminal — ask confirmation
+      read -rp "  Continue? [Y/n] " response
+      case "$response" in
+        [nN]*) echo "  Cancelled."; exit 0 ;;
+      esac
+    else
+      # Piped (curl | bash) — continue automatically
+      echo -e "  ${GREEN}Installing...${NC}"
+    fi
     echo ""
   fi
 
