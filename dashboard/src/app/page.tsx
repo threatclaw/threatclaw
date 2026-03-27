@@ -60,12 +60,12 @@ export default function HomePage() {
       .then(r => r.json())
       .then(d => {
         const allModels = (d.models || []).map((m: { name: string }) => m.name);
-        // Only count ThreatClaw models (not base models like qwen3.5:9b)
-        const tcModels = allModels.filter((n: string) => n.startsWith("threatclaw-"));
+        // Count any LLM model (threatclaw-*, qwen*, mistral*, llama*, etc.)
+        const llmModels = allModels.filter((n: string) => !n.includes("embed") && !n.includes("nomic"));
         setAiModels(allModels);
         setServices(s => s.map(svc =>
           svc.name === "ThreatClaw AI"
-            ? { ...svc, status: tcModels.length > 0 ? "ok" as const : "down" as const, detail: tcModels.length > 0 ? `L1 + L2 + L2.5 actifs` : allModels.length > 0 ? "Modèles de base détectés" : undefined }
+            ? { ...svc, status: llmModels.length > 0 ? "ok" as const : "down" as const, detail: llmModels.length > 0 ? `${llmModels.length} modèle(s) disponible(s)` : undefined }
             : svc
         ));
       })
