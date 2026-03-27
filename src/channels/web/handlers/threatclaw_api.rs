@@ -4431,6 +4431,81 @@ pub async fn export_report_handler(
 }
 
 // ══════════════════════════════════════════════════════════
+// SYSTEM LOGS
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/system-logs — get recent system events (audit, auth, notifications, intelligence).
+pub async fn system_logs_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50);
+
+    let mut events: Vec<serde_json::Value> = Vec::new();
+
+    // Collect audit events (conv_bot actions)
+    if let Ok(all) = store.get_all_settings("_audit").await {
+        for (key, val) in &all {
+            events.push(serde_json::json!({
+                "type": "audit",
+                "key": key,
+                "action": val.get("action").and_then(|v| v.as_str()).unwrap_or("?"),
+                "target": val.get("target"),
+                "success": val.get("success"),
+                "timestamp": val.get("timestamp").and_then(|v| v.as_str()).unwrap_or(""),
+                "channel": val.get("channel").and_then(|v| v.as_str()).unwrap_or(""),
+            }));
+        }
+    }
+
+    // Collect auth events
+    if let Ok(all) = store.get_all_settings("_auth_log").await {
+        for (key, val) in &all {
+            events.push(serde_json::json!({
+                "type": "auth",
+                "key": key,
+                "event": val.get("event").and_then(|v| v.as_str()).unwrap_or("?"),
+                "email": val.get("email").and_then(|v| v.as_str()).unwrap_or(""),
+                "ip": val.get("ip").and_then(|v| v.as_str()).unwrap_or(""),
+                "timestamp": val.get("timestamp").and_then(|v| v.as_str()).unwrap_or(""),
+            }));
+        }
+    }
+
+    // Collect notification events
+    if let Ok(all) = store.get_all_settings("_notifications").await {
+        for (key, val) in &all {
+            events.push(serde_json::json!({
+                "type": "notification",
+                "key": key,
+                "level": val.get("level").and_then(|v| v.as_str()).unwrap_or("?"),
+                "channel": val.get("channel").and_then(|v| v.as_str()).unwrap_or(""),
+                "timestamp": val.get("timestamp").and_then(|v| v.as_str()).unwrap_or(""),
+            }));
+        }
+    }
+
+    // Sort by timestamp desc
+    events.sort_by(|a, b| {
+        let ta = a["timestamp"].as_str().unwrap_or("");
+        let tb = b["timestamp"].as_str().unwrap_or("");
+        tb.cmp(ta)
+    });
+    events.truncate(limit);
+
+    // Get system info
+    let paused = store.get_setting("_system", "tc_paused").await
+        .ok().flatten().and_then(|v| v.as_bool()).unwrap_or(false);
+
+    Ok(Json(serde_json::json!({
+        "events": events,
+        "total": events.len(),
+        "paused": paused,
+    })))
+}
+
+// ══════════════════════════════════════════════════════════
 // DASHBOARD AUTHENTICATION
 // ══════════════════════════════════════════════════════════
 

@@ -258,6 +258,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "retention", label: "Rétention", icon: Clock },
     { id: "anonymizer", label: "Anonymisation", icon: Shield },
     { id: "backup", label: "Sauvegarde & MAJ", icon: Download },
+    { id: "logs", label: "Logs", icon: Eye },
   ];
 
   const channelDefs = [
@@ -473,6 +474,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         )}
 
         {activeTab === "backup" && (<BackupTab />)}
+        {activeTab === "logs" && (<LiveLogsTab />)}
       </div>
 
       {/* Actions bar */}
@@ -1891,6 +1893,128 @@ function CompanyTab() {
 }
 
 // ── Backup & Update Tab ──
+
+function LiveLogsTab() {
+  const [events, setEvents] = useState<any[]>([]);
+  const [paused, setPaused] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  const loadLogs = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tc/system-logs?limit=100");
+      const d = await res.json();
+      setEvents(d.events || []);
+      setPaused(d.paused || false);
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(loadLogs, 5000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, loadLogs]);
+
+  const filtered = filter === "all" ? events : events.filter(e => e.type === filter);
+
+  const typeColors: Record<string, string> = {
+    audit: "var(--tc-blue)",
+    auth: "#a040d0",
+    notification: "var(--tc-amber)",
+  };
+
+  const typeLabels: Record<string, string> = {
+    audit: "BOT",
+    auth: "AUTH",
+    notification: "NOTIF",
+  };
+
+  const formatTime = (ts: string) => {
+    if (!ts) return "";
+    try {
+      const d = new Date(ts);
+      return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch { return ts; }
+  };
+
+  const formatEvent = (e: any) => {
+    if (e.type === "audit") return `${e.action} ${e.target || ""} ${e.success === false ? "FAILED" : ""}`.trim();
+    if (e.type === "auth") return `${e.event} ${e.email} ${e.ip || ""}`.trim();
+    if (e.type === "notification") return `${e.level} → ${e.channel}`.trim();
+    return e.key || "?";
+  };
+
+  return (
+    <ChromeInsetCard>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, margin: 0 }}>Logs système</ChromeEmbossedText>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {paused && <span style={{ fontSize: "10px", fontWeight: 700, color: "#d03020", padding: "2px 8px", borderRadius: "4px", background: "rgba(208,48,32,0.1)" }}>PAUSE</span>}
+          <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "var(--tc-text-muted)", cursor: "pointer" }}>
+            <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} style={{ accentColor: "#30a050" }} />
+            Auto (5s)
+          </label>
+          <button className="tc-btn-embossed" onClick={loadLogs} style={{ fontSize: "10px", padding: "4px 10px" }}>
+            <RefreshCw size={10} />
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
+        {[
+          { key: "all", label: "Tous" },
+          { key: "audit", label: "Bot / Actions" },
+          { key: "auth", label: "Authentification" },
+          { key: "notification", label: "Notifications" },
+        ].map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)} style={{
+            padding: "4px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
+            background: filter === f.key ? "var(--tc-surface-alt)" : "transparent",
+            border: filter === f.key ? "1px solid var(--tc-border)" : "1px solid transparent",
+            color: filter === f.key ? "var(--tc-text)" : "var(--tc-text-muted)",
+          }}>{f.label}</button>
+        ))}
+      </div>
+
+      {/* Log entries */}
+      <div style={{
+        maxHeight: "400px", overflow: "auto", borderRadius: "var(--tc-radius-sm)",
+        background: "rgba(0,0,0,0.3)", border: "1px solid var(--tc-border)",
+        fontFamily: "monospace", fontSize: "11px",
+      }}>
+        {filtered.length === 0 && (
+          <div style={{ padding: "20px", textAlign: "center", color: "var(--tc-text-faint)" }}>
+            Aucun événement
+          </div>
+        )}
+        {filtered.map((e, i) => (
+          <div key={i} style={{
+            display: "flex", gap: "8px", padding: "4px 10px",
+            borderBottom: "1px solid rgba(255,255,255,0.03)",
+            color: "var(--tc-text-sec)",
+          }}>
+            <span style={{ color: "var(--tc-text-muted)", minWidth: "60px", flexShrink: 0 }}>{formatTime(e.timestamp)}</span>
+            <span style={{
+              color: typeColors[e.type] || "var(--tc-text-muted)",
+              fontWeight: 700, minWidth: "45px", flexShrink: 0, fontSize: "9px",
+              padding: "1px 0",
+            }}>{typeLabels[e.type] || e.type}</span>
+            <span style={{ color: e.type === "auth" && e.event?.includes("failed") ? "#d03020" : "var(--tc-text-sec)" }}>
+              {formatEvent(e)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: "8px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+        {filtered.length} événement(s) · Rafraîchissement {autoRefresh ? "automatique 5s" : "manuel"}
+      </div>
+    </ChromeInsetCard>
+  );
+}
 
 function RetentionTab() {
   const [retention, setRetention] = useState({ logs: 90, alerts: 365, findings: 0, audit: 0 });
