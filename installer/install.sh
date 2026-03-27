@@ -212,29 +212,34 @@ start_services() {
 
   docker compose up -d
 
-  # Read token from .env for health check
-  local token=$(grep "^TC_AUTH_TOKEN=" .env 2>/dev/null | cut -d= -f2)
-
-  log_info "Waiting for core to be healthy..."
+  log_info "Waiting for services..."
   local attempts=0
-  while [ $attempts -lt 90 ]; do
-    if curl -sf -H "Authorization: Bearer ${token}" "http://localhost:${TC_CORE_PORT}/api/health" >/dev/null 2>&1; then
+  while [ $attempts -lt 60 ]; do
+    if curl -sf "http://localhost:${TC_CORE_PORT}/api/health" >/dev/null 2>&1; then
       log_info "Core is healthy"
       break
     fi
     attempts=$((attempts + 1))
-    [ $((attempts % 10)) -eq 0 ] && echo -ne "  [${attempts}s] Still starting...\r"
     sleep 2
   done
-  echo ""
 
-  if [ $attempts -ge 90 ]; then
-    log_warn "Core took longer than expected — AI models may still be downloading"
-    log_info "This is normal on first boot (~18 GB of AI models)"
-    log_info "Check progress: cd ${TC_DIR} && docker compose logs -f"
-  else
-    log_info "All services running"
+  # Wait for dashboard too
+  local dash_attempts=0
+  while [ $dash_attempts -lt 30 ]; do
+    if curl -sf "http://localhost:${TC_PORT}/" >/dev/null 2>&1; then
+      log_info "Dashboard is ready"
+      break
+    fi
+    dash_attempts=$((dash_attempts + 1))
+    sleep 2
+  done
+
+  if [ $attempts -ge 60 ]; then
+    log_warn "Startup slower than expected — services may still be initializing"
   fi
+
+  log_info "AI models are downloading in the background (~18 GB on first boot)"
+  log_info "The AI will become available automatically when download completes"
 }
 
 # ── Success ──────────────────────────────────────────────────────────────────
