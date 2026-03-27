@@ -19,7 +19,7 @@ services:
   # ── Core API (Rust) ──────────────────────────────────────
   # The brain: ReAct reasoning, LLM orchestration, skill execution
   threatclaw-core:
-    image: threatclaw/core:latest
+    image: ghcr.io/threatclaw/core:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -92,7 +92,7 @@ services:
   # ── Dashboard (Next.js) ──────────────────────────────────
   # Web UI: config, monitoring, skills, agent control
   threatclaw-dashboard:
-    image: threatclaw/dashboard:latest
+    image: ghcr.io/threatclaw/dashboard:latest
     build:
       context: ../dashboard
       dockerfile: ../docker/Dockerfile.dashboard
