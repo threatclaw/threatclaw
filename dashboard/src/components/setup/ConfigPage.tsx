@@ -464,33 +464,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 
         {/* ═══ ENRICHMENT ═══ */}
         {activeTab === "retention" && (
-          <ChromeInsetCard>
-            <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Rétention des données</ChromeEmbossedText>
-            <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-              Définissez combien de temps ThreatClaw conserve les données. NIS2 impose un minimum de 6 mois pour les logs de sécurité.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {[
-                { label: "Logs réseau (syslog, Zeek, Suricata)", value: "90 jours", size: "~9 GB / 100K logs/jour", legal: "NIS2 : 6 mois recommandé" },
-                { label: "Alertes de sécurité (Sigma)", value: "365 jours", size: "~500 MB / 10K alertes/jour", legal: "NIS2 : conservation obligatoire" },
-                { label: "Findings (vulnérabilités)", value: "Illimité", size: "~100 MB / an", legal: "Preuve d'audit" },
-                { label: "Journal d'audit (actions agent)", value: "Illimité", size: "~50 MB / an", legal: "NIS2 : preuve légale" },
-                { label: "Cache enrichissement", value: "Selon TTL", size: "~10 MB", legal: "Pas de contrainte" },
-                { label: "Scores ML", value: "7 jours", size: "< 1 MB", legal: "Recalculé automatiquement" },
-              ].map((item, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{item.label}</div>
-                    <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{item.size} · {item.legal}</div>
-                  </div>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-blue)", minWidth: "80px", textAlign: "right" }}>{item.value}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: "12px", fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
-              La compression TimescaleDB réduit l{"'"}espace disque de 90-95%. Les données sont automatiquement nettoyées par le cycle nocturne (03h00).
-            </div>
-          </ChromeInsetCard>
+          <RetentionTab />
         )}
 
         {/* ═══ ANONYMIZER ═══ */}
@@ -1917,6 +1891,66 @@ function CompanyTab() {
 }
 
 // ── Backup & Update Tab ──
+
+function RetentionTab() {
+  const [retention, setRetention] = useState({ logs: 90, alerts: 365, findings: 0, audit: 0 });
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/tc/config?key=_retention").then(r => r.json()).then(d => {
+      if (d._retention) setRetention(prev => ({ ...prev, ...d._retention }));
+    }).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    await fetch("/api/tc/config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "_retention", value: retention }),
+    });
+    setSaved(true); setTimeout(() => setSaved(false), 2000);
+  };
+
+  const items = [
+    { key: "logs" as const, label: "Logs réseau (syslog, Zeek, Suricata)", size: "~9 GB / 100K logs/jour", legal: "NIS2 : 6 mois recommandé", unit: "jours" },
+    { key: "alerts" as const, label: "Alertes de sécurité (Sigma)", size: "~500 MB / 10K alertes/jour", legal: "NIS2 : conservation obligatoire", unit: "jours" },
+    { key: "findings" as const, label: "Findings (vulnérabilités)", size: "~100 MB / an", legal: "Preuve d'audit", unit: "jours" },
+    { key: "audit" as const, label: "Journal d'audit (actions agent)", size: "~50 MB / an", legal: "NIS2 : preuve légale", unit: "jours" },
+  ];
+
+  return (
+    <ChromeInsetCard>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Rétention des données</ChromeEmbossedText>
+      <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+        Définissez combien de temps ThreatClaw conserve les données. 0 = illimité. NIS2 impose un minimum de 6 mois pour les logs.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        {items.map(item => (
+          <div key={item.key} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{item.label}</div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{item.size} · {item.legal}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <input type="number" min={0} value={retention[item.key]} onChange={e => setRetention(p => ({ ...p, [item.key]: parseInt(e.target.value) || 0 }))}
+                style={{ width: "60px", padding: "4px 6px", fontSize: "12px", fontWeight: 700, textAlign: "right",
+                  background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                  color: "var(--tc-blue)", outline: "none" }} />
+              <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", minWidth: "30px" }}>{retention[item.key] === 0 ? "∞" : item.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+        <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
+          Nettoyage automatique chaque nuit à 03h00.
+        </div>
+        <button className="tc-btn-embossed" onClick={save} style={{ fontSize: "11px", padding: "6px 14px" }}>
+          {saved ? "✓ Saved" : "Save"}
+        </button>
+      </div>
+    </ChromeInsetCard>
+  );
+}
 
 function BackupTab() {
   const [exporting, setExporting] = useState(false);

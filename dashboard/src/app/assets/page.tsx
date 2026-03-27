@@ -5,7 +5,7 @@ import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
   Plus, Search, Settings, Trash2, X, RefreshCw, Loader2, Shield, ChevronRight, ChevronLeft,
-  AlertTriangle, Eye, CheckCircle2, Wifi,
+  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download,
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
@@ -216,7 +216,50 @@ export default function AssetsPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "8px" }}>
-          <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> Ajouter un asset</button>
+          <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> Ajouter</button>
+          <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title="Importer CSV">
+            <Upload size={12} />
+          </button>
+          <input id="csv-import" type="file" accept=".csv" style={{ display: "none" }} onChange={async (e) => {
+            const file = e.target.files?.[0]; if (!file) return;
+            const text = await file.text();
+            const lines = text.split("\n").filter(l => l.trim());
+            if (lines.length < 2) return;
+            const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+            let imported = 0;
+            for (let i = 1; i < lines.length; i++) {
+              const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+              const row: Record<string, string> = {};
+              headers.forEach((h, j) => { row[h] = vals[j] || ""; });
+              try {
+                await fetch("/api/tc/assets", {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    name: row.name || row.hostname || row.ip || `Asset-${i}`,
+                    category: row.category || "unknown",
+                    criticality: row.criticality || "medium",
+                    ip_addresses: row.ip ? [row.ip] : [],
+                    hostname: row.hostname || null,
+                    os: row.os || null,
+                    role: row.role || null,
+                  }),
+                });
+                imported++;
+              } catch {}
+            }
+            alert(`${imported} asset(s) importé(s)`);
+            loadData();
+            e.target.value = "";
+          }} />
+          <button onClick={() => {
+            const csv = ["name,category,criticality,ip,hostname,os,role",
+              ...assets.map(a => `"${a.name}","${a.category}","${a.criticality}","${a.ip_addresses?.join(";")||""}","${a.hostname||""}","${a.os||""}","${a.role||""}"`)
+            ].join("\n");
+            const blob = new Blob([csv], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = "threatclaw-assets.csv"; a.click();
+            URL.revokeObjectURL(url);
+          }} style={btnSecondary} title="Exporter CSV"><Download size={12} /></button>
           <button onClick={loadData} style={btnSecondary}><RefreshCw size={12} /></button>
         </div>
       </div>

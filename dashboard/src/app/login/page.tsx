@@ -100,6 +100,7 @@ export default function LoginPage() {
       }}>
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: "32px" }}>
+          <img src="/logo.png" alt="ThreatClaw" width={48} height={48} style={{ borderRadius: "10px", marginBottom: "12px" }} />
           <div style={{ fontSize: "28px", fontWeight: 900, color: "#d03020", letterSpacing: "-0.5px" }}>
             ThreatClaw
           </div>
