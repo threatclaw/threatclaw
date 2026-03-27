@@ -274,6 +274,7 @@ services:
   # Isolation Forest, DGA detection, DBSCAN clustering
   # Scores every 5 min, retrains nightly at 03:00
   ml-engine:
+    image: ghcr.io/threatclaw/ml-engine:latest
     build:
       context: ../ml-engine
       dockerfile: Dockerfile
