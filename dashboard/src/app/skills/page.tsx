@@ -33,10 +33,10 @@ interface SkillManifest {
 }
 
 // ── Type definitions for UI ──
-const TYPE_UI: Record<string, { label: string; icon: React.ElementType; color: string; description: string }> = {
-  "connector": { label: "Connecteur", icon: Plug, color: "var(--tc-blue)", description: "Collecte de données depuis votre infrastructure" },
-  "enrichment": { label: "Intelligence", icon: Search, color: "var(--tc-green)", description: "Enrichissement CTI et réputation" },
-  "tool": { label: "Action", icon: Zap, color: "var(--tc-amber)", description: "Remédiation et réponse automatisée" },
+const TYPE_UI_BASE: Record<string, { labelKey: string; descKey: string; icon: React.ElementType; color: string }> = {
+  "connector": { labelKey: "connectors", descKey: "collectData", icon: Plug, color: "var(--tc-blue)" },
+  "enrichment": { labelKey: "intelligenceSkills", descKey: "ctiEnrichment", icon: Search, color: "var(--tc-green)" },
+  "tool": { labelKey: "actions", descKey: "remediationResponse", icon: Zap, color: "var(--tc-amber)" },
 };
 
 // ── Trust level badges ──
@@ -83,7 +83,8 @@ function TrustBadge({ trust }: { trust: string }) {
 }
 
 function TypeBadge({ type }: { type: string }) {
-  const t = TYPE_UI[type] || { label: type, color: "var(--tc-text-muted)" };
+  const base = TYPE_UI_BASE[type];
+  const t = base ? { label: base.labelKey, color: base.color } : { label: type, color: "var(--tc-text-muted)" };
   return (
     <span style={{
       fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px",
@@ -260,8 +261,8 @@ export default function SkillsPage() {
           background: "var(--tc-surface-alt)", borderRadius: "8px", border: "0.5px solid var(--tc-border)",
           boxShadow: "0 3px 8px rgba(0,0,0,0.12)", transition: "left 0.25s ease-out", zIndex: 0 }} />
         {([
-          ["installed", `Installés (${mySkills.length})`],
-          ["catalog", `Catalogue (${catalogSkills.length})`],
+          ["installed", `${tr("installed2", locale)} (${mySkills.length})`],
+          ["catalog", `${tr("catalogue", locale)} (${catalogSkills.length})`],
         ] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k as any)} style={{ flex: 1, padding: "8px 0", fontSize: "12px", fontWeight: 600,
             color: tab === k ? "var(--tc-text)" : "var(--tc-text-muted)", background: "transparent", border: "none",
@@ -274,22 +275,22 @@ export default function SkillsPage() {
         <div>
           {mySkills.length === 0 && (
             <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)" }}>
-              Aucune skill installée. Allez dans le Catalogue pour en ajouter.
+              {tr("noSkillsActive", locale)}
             </div>
           )}
 
           {(["connector", "enrichment", "tool"] as const).map(type => {
             const skills = installedGroups[type] || [];
             if (skills.length === 0) return null;
-            const ui = TYPE_UI[type];
+            const ui = TYPE_UI_BASE[type];
             const Icon = ui.icon;
             return (
               <div key={type} style={{ marginBottom: "20px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", paddingBottom: "6px", borderBottom: `2px solid ${ui.color}20` }}>
                   <Icon size={15} color={ui.color} />
-                  <span style={{ fontSize: "12px", fontWeight: 800, color: ui.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{ui.label}s</span>
+                  <span style={{ fontSize: "12px", fontWeight: 800, color: ui.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr(ui.labelKey, locale)}</span>
                   <span style={{ fontSize: "10px", color: "var(--tc-text-faint)" }}>({skills.length})</span>
-                  <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic", marginLeft: "auto" }}>{ui.description}</span>
+                  <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic", marginLeft: "auto" }}>{tr(ui.descKey, locale)}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "8px" }}>
                   {skills.map(skill => {
@@ -333,7 +334,7 @@ export default function SkillsPage() {
                     fontSize: "9px", color: "var(--tc-text-muted)",
                   }}>
                     <Lock size={10} color="var(--tc-amber)" />
-                    Seuls les skills ThreatClaw et Vérifiés peuvent effectuer des actions de remédiation
+                    {tr("onlyVerified", locale)}
                   </div>
                 )}
               </div>
@@ -349,17 +350,17 @@ export default function SkillsPage() {
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
             <div style={{ position: "relative", flex: 1, minWidth: "200px" }}>
               <Search size={14} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
-              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un skill..."
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("search", locale)}
                 style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
                   background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
             </div>
             {/* Type filter pills */}
             <div style={{ display: "flex", gap: "4px" }}>
               {[
-                { key: "all", label: "Tous" },
-                { key: "connector", label: "Connecteurs" },
-                { key: "enrichment", label: "Intelligence" },
-                { key: "tool", label: "Actions" },
+                { key: "all", label: tr("allTypes", locale) },
+                { key: "connector", label: tr("connectors", locale) },
+                { key: "enrichment", label: tr("intelligenceSkills", locale) },
+                { key: "tool", label: tr("actions", locale) },
               ].map(f => (
                 <button key={f.key} onClick={() => setTypeFilter(f.key)} style={{
                   padding: "6px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
@@ -372,7 +373,7 @@ export default function SkillsPage() {
             {/* Trust filter pills */}
             <div style={{ display: "flex", gap: "4px" }}>
               {[
-                { key: "all", label: "Tous", color: "var(--tc-text-muted)" },
+                { key: "all", label: tr("allTypes", locale), color: "var(--tc-text-muted)" },
                 { key: "official", label: "TC", color: "#d03020" },
                 { key: "verified", label: "✓ Vérifié", color: "#30a050" },
                 { key: "community", label: "Communautaire", color: "#d09020" },
@@ -389,7 +390,7 @@ export default function SkillsPage() {
 
           {filteredCatalog.length === 0 && (
             <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)" }}>
-              {search ? "Aucun skill trouvé" : "Tous les skills sont installés"}
+              {search ? tr("noSkillFound", locale) : tr("allInstalled", locale)}
             </div>
           )}
 
@@ -397,7 +398,7 @@ export default function SkillsPage() {
             {filteredCatalog.map(skill => {
               const trust = skill.trust || "official";
               const trustUi = TRUST_UI[trust] || TRUST_UI["community"];
-              const typeUi = TYPE_UI[skill.type] || TYPE_UI["enrichment"];
+              const typeUi = TYPE_UI_BASE[skill.type] || TYPE_UI_BASE["enrichment"];
               const notReady = NOT_FUNCTIONAL.has(skill.id);
               const isCommunityAction = trust === "community" && (skill.type === "tool" || skill.remediation);
               const isExp = expandedCatalog === skill.id;
@@ -430,7 +431,7 @@ export default function SkillsPage() {
                       </p>
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
                         {skill.version && <span>v{skill.version}</span>}
-                        <span>Par : {skill.author || "ThreatClaw"}</span>
+                        <span>{tr("by", locale)} : {skill.author || "ThreatClaw"}</span>
                         {skill.execution?.mode && <span>{skill.execution.mode === "ephemeral" ? "Docker" : skill.execution.mode === "persistent" ? "Sync continue" : "API"}</span>}
                       </div>
 
@@ -442,12 +443,12 @@ export default function SkillsPage() {
                         }}>
                           <Lock size={12} color="#d03020" />
                           <div>
-                            <div style={{ fontWeight: 700, color: "#d03020", marginBottom: "2px" }}>Remédiation — vérification requise</div>
-                            <div style={{ color: "var(--tc-text-muted)" }}>Les skills communautaires ne peuvent pas exécuter d{"'"}actions. Demandez une vérification.</div>
+                            <div style={{ fontWeight: 700, color: "#d03020", marginBottom: "2px" }}>{tr("verificationRequired", locale)}</div>
+                            <div style={{ color: "var(--tc-text-muted)" }}>{tr("communityReadOnly", locale)}</div>
                           </div>
                         </div>
                       ) : notReady ? (
-                        <span style={{ fontSize: "8px", fontWeight: 700, padding: "2px 8px", borderRadius: "4px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase", letterSpacing: "0.05em" }}>En développement</span>
+                        <span style={{ fontSize: "8px", fontWeight: 700, padding: "2px 8px", borderRadius: "4px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("inDevelopment", locale)}</span>
                       ) : skill.premium ? (
                         <button className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 16px" }}>
                           Acheter {skill.price ? `${skill.price}€` : ""}
@@ -561,7 +562,7 @@ export default function SkillsPage() {
             <div style={{ display: "flex", gap: "8px", justifyContent: "space-between", paddingTop: "12px", borderTop: "1px solid var(--tc-border)" }}>
               <button onClick={() => uninstall(modalSkill.id)} style={{ display: "flex", alignItems: "center", gap: "5px",
                 padding: "8px 14px", borderRadius: "var(--tc-radius-btn)", background: "var(--tc-red-soft)", border: "1px solid var(--tc-red-border)",
-                color: "var(--tc-red)", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}><Trash2 size={12} /> Désinstaller</button>
+                color: "var(--tc-red)", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}><Trash2 size={12} /> {tr("uninstall", locale)}</button>
               <div style={{ display: "flex", gap: "8px" }}>
                 {RUNNABLE[modalSkill.id] && (
                   <button className="tc-btn-embossed" onClick={() => handleRun(modalSkill)} disabled={running === modalSkill.id}

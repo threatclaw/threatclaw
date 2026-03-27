@@ -25,6 +25,7 @@ const TABS = [
 
 // ── About + Account Tab Component ──
 function LicensePage() {
+  const locale = useLocale();
   const [info, setInfo] = React.useState<any>(null);
   const [user, setUser] = React.useState<any>(null);
   const [currentPwd, setCurrentPwd] = React.useState("");
@@ -47,7 +48,7 @@ function LicensePage() {
       });
       const data = await res.json();
       if (data.ok) {
-        setPwdOk(true); setPwdMsg("Mot de passe modifié");
+        setPwdOk(true); setPwdMsg(tr("passwordChanged", locale));
         setCurrentPwd(""); setNewPwd("");
       } else {
         setPwdMsg(data.error || "Erreur");
@@ -72,13 +73,13 @@ function LicensePage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assets</span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>
-              {info?.asset_count || 0} <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontWeight: 400 }}>aucune limite</span>
+              {info?.asset_count || 0} <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontWeight: 400 }}>{tr("noLimit", locale)}</span>
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Licence</span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-green)" }}>
-              Community — Gratuit et illimité
+              {tr("freeUnlimited", locale)}
             </span>
           </div>
         </div>
@@ -87,7 +88,7 @@ function LicensePage() {
       {/* Account */}
       {user && (
         <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
-          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>Mon compte</h3>
+          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>{tr("myAccount", locale)}</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
               <span style={{ color: "var(--tc-text-muted)" }}>Email</span>
@@ -99,15 +100,15 @@ function LicensePage() {
             </div>
           </div>
           <div style={{ borderTop: "1px solid var(--tc-border)", paddingTop: "12px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>Changer le mot de passe</div>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>{tr("changePassword", locale)}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <input type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} placeholder="Mot de passe actuel"
+              <input type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} placeholder={tr("currentPassword", locale)}
                 style={{ padding: "8px 10px", fontSize: "12px", borderRadius: "var(--tc-radius-input)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
-              <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder="Nouveau mot de passe (8 car. min)"
+              <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder={tr("newPassword", locale)}
                 style={{ padding: "8px 10px", fontSize: "12px", borderRadius: "var(--tc-radius-input)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
               <button onClick={changePassword} disabled={changingPwd || !currentPwd || newPwd.length < 8}
                 className="tc-btn-embossed" style={{ fontSize: "11px", padding: "8px 14px", alignSelf: "flex-start" }}>
-                {changingPwd ? "..." : "Modifier"}
+                {changingPwd ? "..." : tr("modify", locale)}
               </button>
               {pwdMsg && (
                 <div style={{ fontSize: "11px", color: pwdOk ? "var(--tc-green)" : "var(--tc-red)", marginTop: "4px" }}>

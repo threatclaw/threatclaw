@@ -2,9 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 export default function LoginPage() {
   const router = useRouter();
+  const locale = useLocale();
   const [mode, setMode] = useState<"loading" | "setup" | "login">("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,7 +28,7 @@ export default function LoginPage() {
             .then(r => r.json())
             .then(me => {
               if (me.authenticated) {
-                router.replace("/");
+                window.location.href = "/";
               } else {
                 setMode("login");
               }
@@ -64,7 +67,7 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        router.replace("/");
+        window.location.href = "/";
       } else {
         setError(data.error || "Identifiants incorrects");
       }
@@ -101,7 +104,7 @@ export default function LoginPage() {
             ThreatClaw
           </div>
           <div style={{ fontSize: "11px", color: "rgba(255,255,255,0.35)", marginTop: "4px", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            {mode === "setup" ? "Configuration initiale" : "Connexion"}
+            {mode === "setup" ? tr("initialSetup", locale) : tr("login", locale)}
           </div>
         </div>
 
@@ -109,7 +112,7 @@ export default function LoginPage() {
           {mode === "setup" && (
             <div style={{ marginBottom: "16px" }}>
               <label style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: "6px" }}>
-                Nom
+                {tr("name", locale)}
               </label>
               <input
                 type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
@@ -128,11 +131,11 @@ export default function LoginPage() {
 
           <div style={{ marginBottom: "16px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: "6px" }}>
-              Email
+              {tr("email", locale)}
             </label>
             <input
               type="email" value={email} onChange={e => setEmail(e.target.value)}
-              placeholder="admin@entreprise.fr" required autoFocus
+              placeholder="admin@company.com" required autoFocus
               style={{
                 width: "100%", padding: "12px 14px", fontSize: "13px",
                 background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
@@ -146,11 +149,11 @@ export default function LoginPage() {
 
           <div style={{ marginBottom: "24px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: "6px" }}>
-              Mot de passe
+              {tr("password", locale)}
             </label>
             <input
               type="password" value={password} onChange={e => setPassword(e.target.value)}
-              placeholder={mode === "setup" ? "8 caracteres minimum" : "••••••••"} required
+              placeholder={mode === "setup" ? tr("minPassword", locale) : "••••••••"} required
               minLength={mode === "setup" ? 8 : undefined}
               style={{
                 width: "100%", padding: "12px 14px", fontSize: "13px",
@@ -180,14 +183,14 @@ export default function LoginPage() {
             transition: "background 0.2s",
             fontFamily: "inherit",
           }}>
-            {loading ? "..." : mode === "setup" ? "Creer le compte administrateur" : "Se connecter"}
+            {loading ? "..." : mode === "setup" ? tr("createAdmin", locale) : tr("signIn", locale)}
           </button>
         </form>
 
         {mode === "setup" && (
           <p style={{ fontSize: "10px", color: "rgba(255,255,255,0.25)", textAlign: "center", marginTop: "16px", lineHeight: 1.5 }}>
-            Premier demarrage — creez le compte administrateur.
-            <br />Ce compte aura un acces complet au dashboard.
+            {tr("firstRunHint", locale)}
+            <br />{tr("fullAccessHint", locale)}
           </p>
         )}
       </div>

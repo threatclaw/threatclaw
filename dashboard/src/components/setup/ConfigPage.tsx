@@ -565,6 +565,101 @@ function GlassSelect({ value, onChange, options, placeholder }: {
   );
 }
 
+// ── Model download status + pull button ──
+function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: string }) {
+  const [status, setStatus] = useState<"checking" | "ready" | "not_found" | "downloading" | "error">("checking");
+  const [progress, setProgress] = useState(0);
+  const [totalGB, setTotalGB] = useState(0);
+  const [downloadedGB, setDownloadedGB] = useState(0);
+
+  useEffect(() => {
+    // Check if model is already downloaded
+    fetch(`/api/ollama?url=${encodeURIComponent(ollamaUrl)}`)
+      .then(r => r.json())
+      .then(d => {
+        const models = d.models || [];
+        const found = models.some((m: { name: string }) => m.name === model || m.name === model + ":latest");
+        setStatus(found ? "ready" : "not_found");
+      })
+      .catch(() => setStatus("error"));
+  }, [model, ollamaUrl]);
+
+  const startDownload = async () => {
+    setStatus("downloading");
+    setProgress(0);
+    try {
+      const res = await fetch("/api/ollama", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "pull", model, url: ollamaUrl }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatus("ready");
+        setProgress(100);
+      } else {
+        setStatus("error");
+      }
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  // Poll progress during download
+  useEffect(() => {
+    if (status !== "downloading") return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/ollama?url=${encodeURIComponent(ollamaUrl)}`);
+        const d = await res.json();
+        const models = d.models || [];
+        if (models.some((m: { name: string }) => m.name === model || m.name === model + ":latest")) {
+          setStatus("ready");
+          setProgress(100);
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [status, model, ollamaUrl]);
+
+  if (status === "checking") return null;
+
+  return (
+    <div style={{ marginTop: "10px" }}>
+      {status === "ready" && (
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px", color: "var(--tc-green)" }}>
+          <CheckCircle2 size={11} /> Modèle installé
+        </div>
+      )}
+      {status === "not_found" && (
+        <div>
+          <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "6px" }}>
+            Modèle non installé — téléchargement requis
+          </div>
+          <button onClick={startDownload} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "6px 14px" }}>
+            <Download size={11} /> Télécharger le modèle
+          </button>
+        </div>
+      )}
+      {status === "downloading" && (
+        <div>
+          <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <Loader2 size={11} className="animate-spin" /> Téléchargement en cours...
+          </div>
+          <div style={{ height: "6px", borderRadius: "3px", background: "var(--tc-input)", overflow: "hidden" }}>
+            <div style={{ width: "30%", height: "100%", background: "var(--tc-amber)", borderRadius: "3px", animation: "pulse 2s ease-in-out infinite" }} />
+          </div>
+        </div>
+      )}
+      {status === "error" && (
+        <div style={{ fontSize: "10px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "6px" }}>
+          <AlertTriangle size={11} /> Erreur — vérifiez la connexion Ollama
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
   const [pullModel, setPullModel] = useState("");
   const [pulling, setPulling] = useState(false);
@@ -652,19 +747,19 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   // AI level definitions — curated model catalog per level with RAM estimates
   const MODEL_CATALOG: Record<string, { value: string; label: string; detail: string; ram?: number }[]> = {
     l0: [
-      { value: "mistral-small:24b", label: "Mistral Small 24B", detail: "Excellent FR · Tool calling natif", ram: 14 },
-      { value: "qwen3:14b", label: "Qwen3 14B", detail: "Bon FR · Rapide sur CPU", ram: 9.3 },
-      { value: "qwen3:8b", label: "Qwen3 8B", detail: "Basique · Très léger", ram: 5.2 },
+      { value: "mistral-small:24b", label: "ThreatClaw AI 24B Ops", detail: "Excellent FR · Tool calling natif", ram: 14 },
+      { value: "qwen3:14b", label: "ThreatClaw AI 14B Ops", detail: "Bon FR · Rapide sur CPU — Recommandé", ram: 9.3 },
+      { value: "qwen3:8b", label: "ThreatClaw AI 8B Ops", detail: "Basique · Très léger", ram: 5.2 },
     ],
     l1: [
-      { value: "threatclaw-l1", label: "ThreatClaw AI Triage", detail: "qwen3:8b + SOC prompt — Recommandé", ram: 5.8 },
-      { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: "Meilleur parsing · Plus lourd", ram: 9.3 },
+      { value: "threatclaw-l1", label: "ThreatClaw AI 8B Triage", detail: "SOC prompt — Recommandé", ram: 5.8 },
+      { value: "qwen3:14b", label: "ThreatClaw AI 14B Triage", detail: "Meilleur parsing · Plus lourd", ram: 9.3 },
     ],
     l2: [
-      { value: "threatclaw-l2", label: "ThreatClaw AI Reasoning", detail: "Foundation-Sec Q8_0 — Recommandé", ram: 8.5 },
+      { value: "threatclaw-l2", label: "ThreatClaw AI 8B Reasoning", detail: "Forensique — Recommandé", ram: 8.5 },
     ],
-    l25: [
-      { value: "threatclaw-l3", label: "ThreatClaw AI Instruct", detail: "Foundation-Sec Q4_K_M — Recommandé", ram: 5.0 },
+    l3: [
+      { value: "threatclaw-l3", label: "ThreatClaw AI 8B Instruct", detail: "Playbooks SOAR — Recommandé", ram: 5.0 },
     ],
   };
 
@@ -674,14 +769,14 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
     : 0;
   const l1Ram = MODEL_CATALOG.l1.find(m => m.value === (llm.model || "threatclaw-l1"))?.ram || 5.8;
   const l2Ram = MODEL_CATALOG.l2[0]?.ram || 8.5;
-  const l25Ram = MODEL_CATALOG.l25[0]?.ram || 5.0;
+  const l3Ram = MODEL_CATALOG.l3[0]?.ram || 5.0;
   const permanentRam = l0Ram + l1Ram;
-  const peakRam = permanentRam + Math.max(l2Ram, l25Ram);
+  const peakRam = permanentRam + Math.max(l2Ram, l3Ram);
 
   const aiLevels = [
     { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
     { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
-    { id: "l25", level: "L2.5", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
+    { id: "l3", level: "L3", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
   ];
 
   return (
@@ -690,11 +785,11 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L0", label: "Conversation", desc: "Dialogue RSSI, tool calling", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
+            { level: "L0", label: "Ops", desc: "Dialogue RSSI, tool calling", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
             { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
             { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L2.5", label: "Instruct", desc: "Playbooks, HITL", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
-            { level: "L3", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L3", label: "Instruct", desc: "Playbooks, HITL", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L4", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, minWidth: "80px", padding: "10px 8px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "16px", fontWeight: 800, color: l.color }}>{l.level}</div>
@@ -716,12 +811,12 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)", overflow: "hidden", display: "flex" }}>
           {l0Ram > 0 && <div style={{ width: `${(l0Ram / 64) * 100}%`, background: "#d03020", transition: "width 0.3s" }} title={`L0: ${l0Ram} GB`} />}
           <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`L1: ${l1Ram} GB`} />
-          <div style={{ width: `${(Math.max(l2Ram, l25Ram) / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`L2/L2.5: ${Math.max(l2Ram, l25Ram)} GB (on-demand)`} />
+          <div style={{ width: `${(Math.max(l2Ram, l3Ram) / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`L2/L3: ${Math.max(l2Ram, l3Ram)} GB (on-demand)`} />
         </div>
         <div style={{ display: "flex", gap: "12px", marginTop: "6px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
           {l0Ram > 0 && <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "#d03020", marginRight: "4px" }} />L0: {l0Ram}GB</span>}
           <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />L1: {l1Ram}GB</span>
-          <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />L2/L2.5: {Math.max(l2Ram, l25Ram)}GB (swap)</span>
+          <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />L2/L3: {Math.max(l2Ram, l3Ram)}GB (swap)</span>
         </div>
       </ChromeInsetCard>
 
@@ -730,19 +825,19 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: conversational.source !== "disabled" ? "16px" : 0 }}>
           <LevelBadge level="L0" color="#d03020" bg="rgba(208,48,32,0.12)" border="rgba(208,48,32,0.25)" />
           <div style={{ flex: 1 }}>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Conversationnel — Dialogue RSSI</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Le "visage" de ThreatClaw — conversation naturelle, tool calling</div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>ThreatClaw AI Ops</ChromeEmbossedText>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Dialogue — conversation naturelle, tool calling</div>
           </div>
           <GlassSelect value={conversational.source} onChange={v => setConversational(p => ({ ...p, source: v as "disabled" | "local" | "cloud" }))} options={[
             { value: "disabled", label: "Désactivé" },
-            { value: "local", label: "Local (Ollama)" },
+            { value: "local", label: "Local" },
             { value: "cloud", label: "Cloud" },
           ]} />
         </div>
 
         {conversational.source === "local" && (
           <div style={{ borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
-            <div style={labelStyle}>Modèle conversationnel</div>
+            <div style={labelStyle}>Modèle</div>
             <GlassSelect value={conversational.localModel} onChange={v => setConversational(p => ({ ...p, localModel: v }))}
               options={MODEL_CATALOG.l0.map(m => ({ value: m.value, label: m.label, detail: `${m.ram}GB — ${m.detail}` }))}
               placeholder="— Sélectionner —" />
@@ -756,6 +851,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
                 Tool calling via prompt — plus léger, compatible CPU
               </div>
             )}
+            <ModelDownloadStatus model={conversational.localModel} ollamaUrl={llm.url} />
           </div>
         )}
 
@@ -846,7 +942,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       {/* ── L4 — Cloud ── */}
       <ChromeInsetCard glow={cloud.enabled}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: cloud.enabled ? "16px" : 0 }}>
-          <LevelBadge level="L3" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
+          <LevelBadge level="L4" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
           <div style={{ flex: 1 }}>
             <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Cloud — Escalade anonymisée</ChromeEmbossedText>
             <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>
