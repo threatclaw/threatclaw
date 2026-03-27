@@ -216,7 +216,7 @@ services:
   # ── Trivy — Container/Image Scanner ─────────────────────
   # Server mode: receives scan requests from core
   trivy:
-    image: aquasec/trivy:latest
+    image: aquasec/trivy:0.58.2
     command: ["server", "--listen", "0.0.0.0:4954"]
     volumes:
       - trivy-cache:/root/.cache/trivy
