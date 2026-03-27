@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEFAULT_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
+const SERVER_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 
 /** GET /api/ollama?url=... — list models */
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get("url") || DEFAULT_URL;
+  // Always use server-side OLLAMA_URL (client can't reach Docker network)
+  const url = SERVER_URL;
 
   try {
     const res = await fetch(`${url}/api/tags`, {
@@ -21,7 +22,8 @@ export async function GET(req: NextRequest) {
 /** POST /api/ollama — pull model or test model */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const url = body.url || DEFAULT_URL;
+  // Always use server-side OLLAMA_URL
+  const url = SERVER_URL;
   const action = body.action || "pull";
 
   // Pull a model
