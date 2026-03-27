@@ -20,9 +20,6 @@ services:
   # The brain: ReAct reasoning, LLM orchestration, skill execution
   threatclaw-core:
     image: ghcr.io/threatclaw/core:latest
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
     entrypoint: ["/app/docker/entrypoint.sh"]
     ports:
       - "${TC_CORE_PORT:-3000}:3000"
@@ -93,9 +90,6 @@ services:
   # Web UI: config, monitoring, skills, agent control
   threatclaw-dashboard:
     image: ghcr.io/threatclaw/dashboard:latest
-    build:
-      context: ../dashboard
-      dockerfile: ../docker/Dockerfile.dashboard
     ports:
       - "${TC_DASHBOARD_PORT:-3001}:3000"
     environment:
@@ -129,9 +123,6 @@ services:
   # Data: settings, findings, alerts, audit, memory, CVE cache
   # Graph: threat correlation, investigation paths, STIX data model
   threatclaw-db:
-    build:
-      context: .
-      dockerfile: Dockerfile.db
     image: ghcr.io/threatclaw/db:latest
     environment:
       POSTGRES_DB: threatclaw
@@ -275,9 +266,6 @@ services:
   # Scores every 5 min, retrains nightly at 03:00
   ml-engine:
     image: ghcr.io/threatclaw/ml-engine:latest
-    build:
-      context: ../ml-engine
-      dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD:-threatclaw}@threatclaw-db:5432/threatclaw
       ML_MODEL_DIR: /models
