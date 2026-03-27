@@ -23,18 +23,44 @@ const TABS = [
   { key: "about", i18n: "about", icon: Key },
 ] as const;
 
-// ── About Tab Component ──
+// ── About + Account Tab Component ──
 function LicensePage() {
   const [info, setInfo] = React.useState<any>(null);
+  const [user, setUser] = React.useState<any>(null);
+  const [currentPwd, setCurrentPwd] = React.useState("");
+  const [newPwd, setNewPwd] = React.useState("");
+  const [pwdMsg, setPwdMsg] = React.useState("");
+  const [pwdOk, setPwdOk] = React.useState(false);
+  const [changingPwd, setChangingPwd] = React.useState(false);
 
   React.useEffect(() => {
     fetch("/api/tc/license").then(r => r.json()).then(setInfo).catch(() => {});
+    fetch("/api/auth/me").then(r => r.json()).then(d => { if (d.authenticated) setUser(d.user); }).catch(() => {});
   }, []);
+
+  const changePassword = async () => {
+    setChangingPwd(true); setPwdMsg(""); setPwdOk(false);
+    try {
+      const res = await fetch("/api/auth/password", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: currentPwd, newPassword: newPwd }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setPwdOk(true); setPwdMsg("Mot de passe modifié");
+        setCurrentPwd(""); setNewPwd("");
+      } else {
+        setPwdMsg(data.error || "Erreur");
+      }
+    } catch { setPwdMsg("Erreur réseau"); }
+    setChangingPwd(false);
+  };
 
   return (
     <div style={{ padding: "20px 24px" }}>
       <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 16px" }}>ThreatClaw</h2>
 
+      {/* Instance info */}
       <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -57,6 +83,41 @@ function LicensePage() {
           </div>
         </div>
       </div>
+
+      {/* Account */}
+      {user && (
+        <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
+          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>Mon compte</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
+              <span style={{ color: "var(--tc-text-muted)" }}>Email</span>
+              <span style={{ color: "var(--tc-text)", fontWeight: 600 }}>{user.email}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
+              <span style={{ color: "var(--tc-text-muted)" }}>Rôle</span>
+              <span style={{ color: "var(--tc-text)", fontWeight: 600, textTransform: "capitalize" }}>{user.role}</span>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid var(--tc-border)", paddingTop: "12px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>Changer le mot de passe</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <input type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} placeholder="Mot de passe actuel"
+                style={{ padding: "8px 10px", fontSize: "12px", borderRadius: "var(--tc-radius-input)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
+              <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder="Nouveau mot de passe (8 car. min)"
+                style={{ padding: "8px 10px", fontSize: "12px", borderRadius: "var(--tc-radius-input)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
+              <button onClick={changePassword} disabled={changingPwd || !currentPwd || newPwd.length < 8}
+                className="tc-btn-embossed" style={{ fontSize: "11px", padding: "8px 14px", alignSelf: "flex-start" }}>
+                {changingPwd ? "..." : "Modifier"}
+              </button>
+              {pwdMsg && (
+                <div style={{ fontSize: "11px", color: pwdOk ? "var(--tc-green)" : "var(--tc-red)", marginTop: "4px" }}>
+                  {pwdMsg}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="tc-card" style={{ padding: "20px" }}>
         <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: "1.6", margin: 0 }}>

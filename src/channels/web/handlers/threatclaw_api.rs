@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{StatusCode, HeaderMap},
     response::{IntoResponse, Response},
     Json,
 };
@@ -4379,4 +4379,188 @@ pub async fn export_report_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, format!("PDF generation failed: {e}")).into_response()
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════
+// DASHBOARD AUTHENTICATION
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/auth/status — check if auth is configured (any user exists).
+pub async fn auth_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> impl IntoResponse {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return Json(serde_json::json!({ "configured": false, "error": "no_db" })).into_response(),
+    };
+
+    let has_user = crate::channels::web::dashboard_auth::has_any_user(store).await;
+    Json(serde_json::json!({
+        "configured": has_user,
+        "requires_setup": !has_user,
+    })).into_response()
+}
+
+/// POST /api/auth/setup — create first admin user (first-run only).
+pub async fn auth_setup_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+    };
+
+    let email = body["email"].as_str().unwrap_or("");
+    let password = body["password"].as_str().unwrap_or("");
+    let display_name = body["displayName"].as_str().unwrap_or(email);
+
+    match crate::channels::web::dashboard_auth::create_admin(store, email, password, display_name).await {
+        Ok(user) => {
+            tracing::info!("AUTH SETUP: Admin created — {}", user.email);
+            Json(serde_json::json!({
+                "ok": true,
+                "user": user,
+            })).into_response()
+        }
+        Err(e) => {
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response()
+        }
+    }
+}
+
+/// POST /api/auth/login — authenticate and create session.
+pub async fn auth_login_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+    };
+
+    let email = body["email"].as_str().unwrap_or("");
+    let password = body["password"].as_str().unwrap_or("");
+    let ip = headers.get("x-forwarded-for")
+        .or_else(|| headers.get("x-real-ip"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    let user_agent = headers.get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    match crate::channels::web::dashboard_auth::authenticate(store, email, password, ip, user_agent).await {
+        Ok((user, token)) => {
+            let cookie = crate::channels::web::dashboard_auth::build_session_cookie(
+                &token, crate::channels::web::dashboard_auth::SESSION_DURATION_SECS
+            );
+            let mut response = Json(serde_json::json!({
+                "ok": true,
+                "user": user,
+            })).into_response();
+            response.headers_mut().insert(
+                axum::http::header::SET_COOKIE,
+                axum::http::HeaderValue::from_str(&cookie).unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
+            );
+            response
+        }
+        Err(e) => {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "ok": false, "error": e }))).into_response()
+        }
+    }
+}
+
+/// POST /api/auth/logout — destroy session.
+pub async fn auth_logout_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if let Some(store) = state.store.as_ref() {
+        if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
+            if let Some(token) = crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
+                crate::channels::web::dashboard_auth::delete_session(store, &token).await;
+            }
+        }
+    }
+    let mut response = Json(serde_json::json!({ "ok": true })).into_response();
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        axum::http::HeaderValue::from_str(&crate::channels::web::dashboard_auth::clear_session_cookie()).unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
+    );
+    response
+}
+
+/// POST /api/auth/password — change password (requires current session).
+pub async fn auth_change_password_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+    };
+
+    // Validate session
+    let cookie = headers.get("cookie").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let token = match crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
+        Some(t) => t,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Non authentifié" }))).into_response(),
+    };
+    let user = match crate::channels::web::dashboard_auth::validate_session(store, &token).await {
+        Some(u) => u,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Session invalide" }))).into_response(),
+    };
+
+    let current_password = body["currentPassword"].as_str().unwrap_or("");
+    let new_password = body["newPassword"].as_str().unwrap_or("");
+
+    if new_password.len() < 8 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": "Le nouveau mot de passe doit faire au moins 8 caractères" }))).into_response();
+    }
+
+    // Verify current password by re-authenticating
+    let ip = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()).unwrap_or("unknown");
+    let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("unknown");
+    match crate::channels::web::dashboard_auth::authenticate(store, &user.email, current_password, ip, ua).await {
+        Ok(_) => {}
+        Err(_) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "ok": false, "error": "Mot de passe actuel incorrect" }))).into_response(),
+    }
+
+    // Update password
+    match crate::channels::web::dashboard_auth::change_password(store, &user.email, new_password).await {
+        Ok(_) => {
+            tracing::info!("AUTH: Password changed for {}", user.email);
+            Json(serde_json::json!({ "ok": true })).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+    }
+}
+
+/// GET /api/auth/me — get current user info from session.
+pub async fn auth_me_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "not_authenticated" }))).into_response(),
+    };
+
+    // Try session cookie
+    if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
+        if let Some(token) = crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
+            if let Some(user) = crate::channels::web::dashboard_auth::validate_session(store, &token).await {
+                return Json(serde_json::json!({
+                    "authenticated": true,
+                    "user": user,
+                })).into_response();
+            }
+        }
+    }
+
+    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+        "authenticated": false,
+    }))).into_response()
 }

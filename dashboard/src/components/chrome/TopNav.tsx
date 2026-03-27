@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit, Sun, Moon } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit, Sun, Moon, LogOut } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
@@ -39,6 +39,7 @@ function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }
     <div ref={containerRef} style={{
       position: "relative", display: "flex", padding: "3px",
       borderRadius: "11px", background: "var(--tc-input)",
+      border: "1px solid var(--tc-border)",
     }}>
       {/* Sliding red indicator — measured from actual button positions */}
       {indicator.width > 0 && (
@@ -64,10 +65,10 @@ function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }
               padding: "6px 10px",
               fontSize: "10px", fontWeight: 600,
               letterSpacing: "0.03em", textTransform: "uppercase",
-              color: isActive ? "var(--tc-red)" : "var(--tc-text-muted)",
+              color: isActive ? "var(--tc-red)" : "var(--tc-text-sec)",
               transition: "color 200ms, opacity 200ms",
               cursor: "pointer", whiteSpace: "nowrap",
-              opacity: isActive ? 1 : 0.6,
+              opacity: isActive ? 1 : 0.75,
             }}>
               <Icon size={12} />
               {tr(item.key, locale)}
@@ -123,7 +124,7 @@ export default function TopNav() {
 
       // Check LLM status
       try {
-        const res = await fetch("/api/ollama?url=http://ollama:11434", { signal: AbortSignal.timeout(5000) });
+        const res = await fetch("/api/ollama", { signal: AbortSignal.timeout(5000) });
         const data = await res.json();
         if (data.models && data.models.length > 0) {
           const names = data.models.map((m: { name: string }) => m.name.split(":")[0]);
@@ -153,26 +154,13 @@ export default function TopNav() {
       justifyContent: "space-between",
       padding: "14px 24px",
       marginBottom: "8px",
-      borderBottom: "1px solid var(--tc-border-light)",
+      borderBottom: "1px solid var(--tc-border)",
     }}>
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-        <div style={{
-          width: "28px", height: "28px", borderRadius: "var(--tc-radius-input)",
-          background: "linear-gradient(135deg, #d03020 0%, #a02018 100%)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 2px 8px rgba(208,48,32,0.3)",
-        }}>
-          <Shield size={14} color="#fff" />
-        </div>
-        <span style={{
-          fontSize: "13px",
-          fontWeight: 800,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: "var(--tc-text)",
-        }}>
-          THREATCLAW
+        <img src="/logo.png" alt="ThreatClaw" width={38} height={38} style={{ borderRadius: "6px" }} />
+        <span style={{ fontSize: "17px", fontWeight: 900, letterSpacing: "0.15em" }}>
+          <span style={{ color: "var(--tc-text)" }}>THREAT</span><span style={{ color: "#d03020" }}>CLAW</span>
         </span>
       </div>
 
@@ -216,6 +204,19 @@ export default function TopNav() {
             {llmStatus}
           </div>
         )}
+
+        {/* Logout */}
+        <button onClick={async () => {
+          await fetch("/api/auth/logout", { method: "POST" });
+          window.location.href = "/login";
+        }} style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
+          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
+          color: "var(--tc-text-muted)", cursor: "pointer", transition: "all 200ms",
+        }} title="Déconnexion">
+          <LogOut size={13} />
+        </button>
       </div>
     </nav>
   );

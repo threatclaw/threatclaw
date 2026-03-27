@@ -210,7 +210,14 @@ pub async fn start_server(
         .route(
             "/oauth/slack/callback",
             get(slack_relay_oauth_callback_handler),
-        );
+        )
+        // Dashboard auth endpoints (must be public — user is not yet authenticated)
+        .route("/api/auth/status", get(super::handlers::threatclaw_api::auth_status_handler))
+        .route("/api/auth/setup", post(super::handlers::threatclaw_api::auth_setup_handler))
+        .route("/api/auth/login", post(super::handlers::threatclaw_api::auth_login_handler))
+        .route("/api/auth/logout", post(super::handlers::threatclaw_api::auth_logout_handler))
+        .route("/api/auth/me", get(super::handlers::threatclaw_api::auth_me_handler))
+        .route("/api/auth/password", post(super::handlers::threatclaw_api::auth_change_password_handler));
 
     // Protected routes (require auth)
     let auth_state = AuthState { token: auth_token };

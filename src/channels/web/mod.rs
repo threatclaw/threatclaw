@@ -15,6 +15,7 @@
 //! ```
 
 pub mod auth;
+pub mod dashboard_auth;
 pub(crate) mod handlers;
 pub mod log_layer;
 pub mod openai_compat;
@@ -102,6 +103,7 @@ impl GatewayChannel {
             cost_guard: None,
             routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
             startup_time: std::time::Instant::now(),
+            hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(std::time::Duration::from_secs(3600))),
         });
 
         Self {
@@ -139,6 +141,7 @@ impl GatewayChannel {
             cost_guard: self.state.cost_guard.clone(),
             routine_engine: Arc::clone(&self.state.routine_engine),
             startup_time: self.state.startup_time,
+            hitl_nonce_manager: Arc::clone(&self.state.hitl_nonce_manager),
         };
         mutate(&mut new_state);
         self.state = Arc::new(new_state);
