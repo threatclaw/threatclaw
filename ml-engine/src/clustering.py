@@ -51,8 +51,8 @@ def run_clustering():
     # Get features for last 7 days (more stable than 24h)
     features = extract_asset_features(hours_back=168)
 
-    if len(features) < 3:
-        logger.info("Not enough assets for clustering (need >= 3, got %d)", len(features))
+    if len(features) < 5:
+        logger.info("Not enough assets for clustering (need >= 5, got %d). Skipping.", len(features))
         return {"clusters": {}, "outliers": [], "noise": []}
 
     asset_ids = list(features.keys())

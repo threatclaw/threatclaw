@@ -417,6 +417,44 @@ pub async fn send_hitl_to_telegram(
     }
 }
 
+/// Send a simple text HITL message to Telegram (no buttons, just notification with proposed actions).
+pub async fn send_hitl_to_telegram_text(
+    store: &dyn crate::db::Database,
+    text: &str,
+) -> Result<bool, String> {
+    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
+        .ok_or("Telegram bot token not configured")?;
+
+    let chat_id = match store.get_setting("_system", "tc_config_channels").await {
+        Ok(Some(channels)) => channels["telegram"]["chatId"].as_str()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+            .ok_or("Telegram chat_id not configured")?,
+        _ => return Err("Telegram channels not configured".to_string()),
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client.post(format!("https://api.telegram.org/bot{token}/sendMessage"))
+        .json(&serde_json::json!({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+        }))
+        .send().await
+        .map_err(|e| format!("Telegram send failed: {e}"))?;
+
+    let data: serde_json::Value = resp.json().await.unwrap_or_default();
+    if data["ok"].as_bool() == Some(true) {
+        tracing::info!("HITL: Telegram HITL proposal sent to chat_id={}", chat_id);
+        Ok(true)
+    } else {
+        Err(format!("Telegram error: {}", data["description"].as_str().unwrap_or("unknown")))
+    }
+}
+
 /// Send a JSON payload to a Slack webhook URL.
 async fn send_slack_webhook(webhook_url: &str, payload: &serde_json::Value) -> Result<(), String> {
     let client = reqwest::Client::builder()

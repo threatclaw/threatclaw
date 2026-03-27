@@ -57,6 +57,7 @@ COPY docs/ docs/
 COPY crates/ crates/
 COPY assets/ assets/
 COPY AGENT_SOUL.toml AGENT_SOUL.toml
+COPY templates/ templates/
 
 # Touch main.rs to invalidate the dummy and force a real build
 RUN touch src/main.rs
@@ -74,13 +75,16 @@ LABEL org.opencontainers.image.title="ThreatClaw Core" \
       org.opencontainers.image.source="https://github.com/threatclaw/threatclaw" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
-# Install minimal runtime dependencies
+# Install minimal runtime dependencies + Typst for PDF generation
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libpq5 \
         ca-certificates \
         curl \
-    && rm -rf /var/lib/apt/lists/*
+        fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -sSL https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-unknown-linux-musl.tar.xz \
+       | tar -xJ --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst
 
 # Copy the compiled binary
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
@@ -94,9 +98,10 @@ COPY --from=builder /app/registry /app/registry
 # Copy provider configuration
 COPY --from=builder /app/providers.json /app/providers.json
 
-# Copy AGENT_SOUL and OUI database
+# Copy AGENT_SOUL, OUI database, and report templates
 COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 COPY --from=builder /app/assets /app/assets
+COPY --from=builder /app/templates /app/templates
 
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \

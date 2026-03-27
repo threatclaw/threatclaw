@@ -75,6 +75,7 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
                 url: None,
                 os: None,
                 mac_vendor,
+            services: serde_json::json!([]),
                 source: "dhcp".into(),
                 owner: None,
                 location: None,
@@ -105,6 +106,7 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
                 mac_address: Some(lease.mac.clone()),
                 hostname: lease.hostname.clone(),
                 fqdn: None, url: None, os: None, mac_vendor,
+            services: serde_json::json!([]),
                 source: "dhcp".into(), owner: None, location: None,
                 tags: vec!["dhcp-discovered".into()],
             };

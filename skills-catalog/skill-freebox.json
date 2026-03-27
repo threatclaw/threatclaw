@@ -1,0 +1,36 @@
+{
+  "id": "skill-freebox",
+  "name": "Freebox",
+  "version": "1.0.0",
+  "description": "Connecteur Freebox OS — découverte automatique de tous les appareils du réseau local via l'API REST. MAC, IP, hostname, fabricant, type d'appareil, statut en ligne/hors ligne.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "execution": {
+    "mode": "poll",
+    "interval_seconds": 300,
+    "endpoint": "/api/tc/connectors/freebox/sync"
+  },
+  "config": {
+    "freebox_url": {
+      "type": "string",
+      "description": "URL de la Freebox (défaut: http://mafreebox.freebox.fr)",
+      "default": "http://mafreebox.freebox.fr",
+      "required": false
+    },
+    "freebox_app_token": {
+      "type": "string",
+      "description": "Token d'application (obtenu automatiquement lors de l'appairage)",
+      "required": true,
+      "secret": true
+    }
+  },
+  "outputs": {
+    "assets": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "wifi"
+}

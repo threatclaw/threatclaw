@@ -1,0 +1,32 @@
+{
+  "id": "skill-grype",
+  "name": "Grype Vulnerability Scanner",
+  "version": "1.0.0",
+  "description": "Scan de vulnerabilites dans les images Docker et les artefacts. Compatible SBOM Syft.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "anchore/grype:latest",
+    "command": "grype {TARGET} -o json",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target_image": {
+      "type": "string",
+      "description": "Image Docker a scanner (ex: nginx:latest)",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "server"
+}

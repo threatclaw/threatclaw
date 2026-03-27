@@ -219,7 +219,7 @@ This is a maintenance task — no user interaction needed."#,
 1. Check for critical findings with status=open
 2. Verify AGENT_SOUL.toml integrity (hash check)
 3. Test connectivity to configured targets
-4. Check service health (PostgreSQL, Redis, Ollama, Fluent Bit)
+4. Check service health (PostgreSQL, Ollama, Fluent Bit)
 5. Check log volume anomalies
 
 Report findings as alerts. Never execute corrective actions.

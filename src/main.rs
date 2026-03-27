@@ -189,21 +189,13 @@ async fn async_main() -> anyhow::Result<()> {
 
     // ── Agent startup ──────────────────────────────────────────────────
 
-    // Enhanced first-run detection
+    // CLI wizard disabled by default — configuration is done via the web dashboard.
+    // Use `threatclaw onboard` explicitly if you need the CLI wizard.
     #[cfg(any(feature = "postgres", feature = "libsql"))]
-    if !cli.no_onboard
-        && let Some(reason) = threatclaw::setup::check_onboard_needed()
-    {
-        println!("Onboarding needed: {}", reason);
-        println!();
-        let mut wizard = SetupWizard::try_with_config_and_toml(
-            SetupConfig {
-                quick: true,
-                ..Default::default()
-            },
-            cli.config.as_deref(),
-        )?;
-        wizard.run().await?;
+    if !cli.no_onboard {
+        if let Some(reason) = threatclaw::setup::check_onboard_needed() {
+            tracing::info!("First-run detected ({}). Configure via the dashboard at http://localhost:3001/setup", reason);
+        }
     }
 
     // Load initial config from env + disk + optional TOML (before DB is available).

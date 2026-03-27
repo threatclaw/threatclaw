@@ -123,6 +123,7 @@ pub async fn sync_glpi(store: &dyn Database, config: &GlpiConfig) -> GlpiSyncRes
                 vlan: None,
                 vm_id: uuid,
                 criticality: None,
+            services: serde_json::json!([]),
                 source: "glpi".into(),
             };
 
@@ -162,6 +163,7 @@ pub async fn sync_glpi(store: &dyn Database, config: &GlpiConfig) -> GlpiSyncRes
                         vlan: None,
                         vm_id: None,
                         criticality: Some("high".into()),
+            services: serde_json::json!([]),
                         source: "glpi".into(),
                     };
 

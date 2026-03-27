@@ -97,10 +97,18 @@ def get_dns_queries(hours_back=24, limit=5000):
 
 
 def write_finding(skill_id, title, description, severity, category, asset, source, metadata):
-    """Write a ML finding to the findings table."""
+    """Write a ML finding to the findings table. Skip if identical open finding exists."""
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            # Dedup: don't create if same title + asset already open
+            cur.execute("""
+                SELECT id FROM findings
+                WHERE title = %s AND asset = %s AND status = 'open'
+                LIMIT 1
+            """, (title, asset))
+            if cur.fetchone():
+                return None  # Already exists, skip
             cur.execute("""
                 INSERT INTO findings (skill_id, title, description, severity, category, asset, source, metadata)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
@@ -158,15 +166,49 @@ def run_maintenance(retention_days=90):
 
 
 def write_heartbeat():
-    """Write ML engine heartbeat to settings."""
+    """Write ML engine heartbeat to settings with training status."""
+    import pathlib
+    model_dir = pathlib.Path("/app/models") if pathlib.Path("/app/models").exists() else pathlib.Path("models")
+    stats_path = model_dir / "feature_stats.json"
+    model_exists = (model_dir / "isolation_forest.pkl").exists()
+
+    # Read training stats if available
+    training_info = {"model_trained": model_exists}
+    if stats_path.exists():
+        try:
+            with open(stats_path) as f:
+                stats = json.loads(f.read())
+            training_info["trained_at"] = stats.get("trained_at")
+            training_info["samples"] = stats.get("samples", 0)
+        except:
+            pass
+
+    # Count days of data available for training (distinct dates in logs)
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
+                SELECT COUNT(DISTINCT DATE(timestamp)) as days,
+                       MIN(DATE(timestamp)) as first_day
+                FROM logs
+                WHERE timestamp > NOW() - INTERVAL '30 days'
+            """)
+            row = cur.fetchone()
+            if row:
+                training_info["data_days"] = row[0] or 0
+                training_info["first_data_day"] = row[1].isoformat() if row[1] else None
+            else:
+                training_info["data_days"] = 0
+
+            cur.execute("""
                 INSERT INTO settings (user_id, key, value)
                 VALUES ('_system', 'ml_heartbeat', %s::jsonb)
                 ON CONFLICT (user_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-            """, (json.dumps({"alive": True, "timestamp": datetime.utcnow().isoformat()}),))
+            """, (json.dumps({
+                "alive": True,
+                "timestamp": datetime.utcnow().isoformat(),
+                **training_info,
+            }),))
             conn.commit()
     except:
         pass

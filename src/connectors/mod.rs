@@ -6,6 +6,7 @@
 
 pub mod active_directory;
 pub mod cloudflare;
+pub mod freebox;
 pub mod crowdsec;
 pub mod defectdojo;
 pub mod dhcp_parser;

@@ -158,7 +158,7 @@ export default function IntelligencePage() {
   const [actors, setActors] = useState<ThreatActorAnalysis | null>(null);
   const [identity, setIdentity] = useState<IdentityAnalysis | null>(null);
   const [assetStats, setAssetStats] = useState<AssetStats | null>(null);
-  const [blastAsset, setBlastAsset] = useState("srv-prod-01");
+  const [blastAsset, setBlastAsset] = useState("");
   const [blast, setBlast] = useState<BlastRadius | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<string>("");

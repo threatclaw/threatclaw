@@ -94,6 +94,22 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
         let ports: Vec<u16> = host.ports.iter().map(|p| p.port).collect();
         result.open_ports_total += ports.len();
 
+        // Build services JSON from nmap port details
+        let services_json: serde_json::Value = host.ports.iter().map(|p| {
+            serde_json::json!({
+                "port": p.port,
+                "proto": p.protocol,
+                "service": p.service,
+                "product": p.product,
+                "version": p.version,
+            })
+        }).collect();
+
+        // Try to build a meaningful name from MAC vendor if no hostname
+        let mac_vendor = host.mac.as_ref().and_then(|m| {
+            crate::enrichment::mac_oui_lookup::lookup(m).vendor
+        });
+
         let discovered = DiscoveredAsset {
             mac: host.mac.clone(),
             hostname: host.hostname.clone(),
@@ -101,6 +117,7 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
             ip: Some(host.ip.clone()),
             os: host.os.clone(),
             ports: if ports.is_empty() { None } else { Some(ports) },
+            services: services_json,
             ou: None,
             vlan: None,
             vm_id: None,
@@ -202,6 +219,8 @@ struct NmapPort {
     port: u16,
     protocol: String,
     service: String,
+    product: String,
+    version: String,
 }
 
 /// Parse nmap XML output into structured hosts.
@@ -260,19 +279,33 @@ fn parse_nmap_xml(xml: &str) -> Vec<NmapHost> {
             if trimmed.contains("<port ") && trimmed.contains("portid=") {
                 if let (Some(portid), Some(protocol)) = (extract_attr(trimmed, "portid"), extract_attr(trimmed, "protocol")) {
                     if let Ok(port_num) = portid.parse::<u16>() {
-                        let service = if trimmed.contains("<service ") {
-                            extract_attr(trimmed, "name").unwrap_or_default()
+                        // Only keep open ports
+                        if !trimmed.contains("state=\"open\"") && !trimmed.contains("state=\"open|filtered\"") {
+                            continue;
+                        }
+                        let (service, product, version) = if trimmed.contains("<service ") {
+                            (
+                                extract_attr(trimmed, "name").unwrap_or_default(),
+                                extract_attr(trimmed, "product").unwrap_or_default(),
+                                extract_attr(trimmed, "version").unwrap_or_default(),
+                            )
                         } else {
-                            String::new()
+                            (String::new(), String::new(), String::new())
                         };
-                        host.ports.push(NmapPort { port: port_num, protocol, service });
+                        host.ports.push(NmapPort { port: port_num, protocol, service, product, version });
                     }
                 }
             } else if trimmed.contains("<service ") && !trimmed.contains("<port ") {
-                // Service on separate line
-                if let Some(name) = extract_attr(trimmed, "name") {
-                    if let Some(last_port) = host.ports.last_mut() {
+                // Service on separate line — extract all details
+                if let Some(last_port) = host.ports.last_mut() {
+                    if let Some(name) = extract_attr(trimmed, "name") {
                         last_port.service = name;
+                    }
+                    if let Some(product) = extract_attr(trimmed, "product") {
+                        last_port.product = product;
+                    }
+                    if let Some(version) = extract_attr(trimmed, "version") {
+                        last_port.version = version;
                     }
                 }
             }

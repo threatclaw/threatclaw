@@ -521,6 +521,7 @@ mod tests {
             cost_guard: None,
             routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
             startup_time: std::time::Instant::now(),
+            hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(std::time::Duration::from_secs(3600))),
         }
     }
 }

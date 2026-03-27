@@ -239,14 +239,27 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
     let known_ips: Vec<String> = asset_ip_map.keys().cloned().collect();
 
     // ── Process alerts — classify IPs and create graph relationships ──
-    // Only process alerts newer than last sync for incremental updates
-    let all_alerts = store.list_alerts(None, None, 200, 0).await.unwrap_or_default();
-    let alerts: Vec<_> = all_alerts.into_iter()
-        .filter(|a| a.matched_at.as_str() > last_sync.as_str())
-        .collect();
+    // Full scan when assets table is empty (first run), otherwise incremental
+    let force_full = assets.is_empty();
+    let all_alerts = store.list_alerts(None, None, 500, 0).await.unwrap_or_default();
+    let alerts: Vec<_> = if force_full {
+        tracing::info!("GRAPH: No assets in DB — running full alert scan for auto-discovery");
+        all_alerts
+    } else {
+        all_alerts.into_iter()
+            .filter(|a| a.matched_at.as_str() > last_sync.as_str())
+            .collect()
+    };
     for a in &alerts {
-        if let Some(ref ip) = a.source_ip {
-            let clean_ip = ip.split('/').next().unwrap_or("").trim();
+        // Extract IP from source_ip OR hostname (test scenarios put IP in hostname)
+        let raw_ip = a.source_ip.as_deref()
+            .or(a.hostname.as_deref())
+            .unwrap_or("");
+        let clean_ip = raw_ip.split('/').next().unwrap_or("").trim();
+        // Wrap in Option to match existing code flow
+        let ip_opt = if clean_ip.is_empty() { None } else { Some(clean_ip.to_string()) };
+        if let Some(ref ip) = ip_opt {
+            let clean_ip = ip.as_str();
             if clean_ip.is_empty() { continue; }
 
             let classification = ip_classifier::classify(clean_ip, &networks, &known_ips);
@@ -295,6 +308,7 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
                             url: None,
                             os: None,
                             mac_vendor: None,
+            services: serde_json::json!([]),
                             source: "alert-auto".into(),
                             owner: None,
                             location: None,

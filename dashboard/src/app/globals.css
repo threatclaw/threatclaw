@@ -20,12 +20,12 @@
   --tc-nav:          rgba(10, 10, 16, 0.85);
 
   --tc-text:         #e8e4e0;
-  --tc-text-sec:     #9a918a;
-  --tc-text-muted:   #6a625c;
+  --tc-text-sec:     #b0a8a0;
+  --tc-text-muted:   #7a726c;
   --tc-text-faint:   #4a4440;
 
-  --tc-border:       rgba(255, 255, 255, 0.06);
-  --tc-border-light: rgba(255, 255, 255, 0.04);
+  --tc-border:       rgba(255, 255, 255, 0.10);
+  --tc-border-light: rgba(255, 255, 255, 0.06);
   --tc-border-accent:rgba(208, 48, 32, 0.30);
 
   --tc-red:          #d03020;
@@ -41,10 +41,10 @@
   --tc-purple-soft:  rgba(144, 96, 208, 0.10);
 
   /* Neumorphic (dark mode) */
-  --tc-neu-outer:    #12121a;
-  --tc-neu-inner:    rgba(14, 14, 20, 0.7);
-  --tc-neu-text:     #c8c0b8;
-  --tc-neu-text-sec: #8a8480;
+  --tc-neu-outer:    #1a1a24;
+  --tc-neu-inner:    rgba(26, 26, 38, 0.85);
+  --tc-neu-text:     #d0c8c0;
+  --tc-neu-text-sec: #9a9490;
 
   /* Shapes & Radius */
   --tc-radius-sm:    6px;

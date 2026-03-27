@@ -225,22 +225,17 @@ impl SetupWizard {
             self.step_model_selection().await?;
             self.persist_after_step().await;
         } else {
-            let total_steps = 10;
+            // ThreatClaw simplified CLI wizard — only essential steps.
+            // Full configuration is done via the web dashboard at /setup.
+            let total_steps = 3;
 
             // Step 1: Database
             print_step(1, total_steps, "Database Connection");
             self.step_database().await?;
 
-            // After establishing a DB connection, load any previously saved
-            // settings so we recover progress from prior partial runs.
-            // We must load BEFORE persisting, otherwise persist_after_step()
-            // would overwrite prior settings with defaults.
-            // Save Step 1 choices first so they aren't clobbered by stale
-            // DB values (merge_from only applies non-default fields).
             let step1_settings = self.settings.clone();
             self.try_load_existing_settings().await;
             self.settings.merge_from(&step1_settings);
-
             self.persist_after_step().await;
 
             // Step 2: Security
@@ -248,48 +243,15 @@ impl SetupWizard {
             self.step_security().await?;
             self.persist_after_step().await;
 
-            // Step 3: Primary AI provider (inference provider + model)
-            if !self.config.skip_auth {
-                print_step(3, total_steps, "Primary AI");
-                self.step_inference_provider().await?;
-            } else {
-                print_info("Skipping inference provider setup (using existing config)");
-            }
-            self.persist_after_step().await;
-
-            // Step 4: Model selection
-            print_step(4, total_steps, "Model Selection");
-            self.step_model_selection().await?;
-            self.persist_after_step().await;
-
-            // Step 5: Cloud AI Fallback (optional)
-            print_step(5, total_steps, "Cloud AI Fallback (optional)");
-            self.step_cloud_fallback().await?;
-            self.persist_after_step().await;
-
-            // Step 6: Embeddings
-            print_step(6, total_steps, "Embeddings (Semantic Search)");
-            self.step_embeddings()?;
-            self.persist_after_step().await;
-
-            // Step 7: Channel configuration
-            print_step(7, total_steps, "Channel Configuration");
+            // Step 3: Channel configuration (Telegram, Slack, etc.)
+            print_step(3, total_steps, "Notification Channels");
             self.step_channels().await?;
             self.persist_after_step().await;
 
-            // Step 8: Extensions (tools)
-            print_step(8, total_steps, "Extensions");
-            self.step_extensions().await?;
-
-            // Step 9: Docker Sandbox
-            print_step(9, total_steps, "Docker Sandbox");
-            self.step_docker_sandbox().await?;
-            self.persist_after_step().await;
-
-            // Step 10: Heartbeat
-            print_step(10, total_steps, "Background Tasks");
-            self.step_heartbeat()?;
-            self.persist_after_step().await;
+            // AI models, embeddings, extensions, sandbox, heartbeat
+            // are pre-configured by ThreatClaw and managed via the dashboard.
+            print_info("AI models (L1/L2/L2.5) are pre-configured — no setup needed.");
+            print_info("For full configuration, visit the dashboard: http://localhost:3001/setup");
         }
 
         // Save settings and print summary

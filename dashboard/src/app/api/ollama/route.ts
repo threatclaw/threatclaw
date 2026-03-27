@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEFAULT_URL = "http://ollama:11434";
+const DEFAULT_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 
 /** GET /api/ollama?url=... — list models */
 export async function GET(req: NextRequest) {

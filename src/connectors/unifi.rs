@@ -121,6 +121,7 @@ pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSync
                 url: None,
                 os: None,
                 mac_vendor,
+            services: serde_json::json!([]),
                 source: "unifi".into(),
                 owner: None,
                 location: c["essid"].as_str().map(|s| format!("SSID: {}", s)),

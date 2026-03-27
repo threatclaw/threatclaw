@@ -110,10 +110,13 @@ async fn get_configured_channels(store: &dyn Database) -> Vec<String> {
 
         if check("telegram", "botToken") { configured.push("telegram".into()); }
         if check("slack", "botToken") { configured.push("slack".into()); }
+        if check("discord", "botToken") { configured.push("discord".into()); }
         if check("mattermost", "webhookUrl") { configured.push("mattermost".into()); }
         if check("ntfy", "topic") { configured.push("ntfy".into()); }
         if check("gotify", "appToken") { configured.push("gotify".into()); }
         if check("email", "host") { configured.push("email".into()); }
+        if check("signal", "account") { configured.push("signal".into()); }
+        if check("whatsapp", "accessToken") { configured.push("whatsapp".into()); }
     }
 
     configured
@@ -175,6 +178,135 @@ async fn send_to_channel(
                 &crate::integrations::gotify_notify::GotifyConfig { enabled: true, server_url: url, app_token: token },
                 "ThreatClaw", message, "high",
             ).await
+        }
+        "slack" => {
+            let token = get_channel_field(store, "slack", "botToken").await
+                .ok_or("Slack bot token not configured")?;
+            // Use Slack chat.postMessage API — need a default channel
+            // Slack requires a channel ID or name. Use #general as fallback.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build().map_err(|e| e.to_string())?;
+
+            let resp = client.post("https://slack.com/api/chat.postMessage")
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&json!({
+                    "channel": "#general",
+                    "text": message,
+                    "unfurl_links": false,
+                }))
+                .send().await.map_err(|e| e.to_string())?;
+
+            if resp.status().is_success() {
+                let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                if body["ok"].as_bool() == Some(true) { Ok(()) }
+                else { Err(format!("Slack API error: {}", body["error"].as_str().unwrap_or("unknown"))) }
+            } else { Err(format!("Slack HTTP {}", resp.status())) }
+        }
+        "discord" => {
+            // Discord webhook — botToken field stores the webhook URL for notifications
+            let webhook_url = get_channel_field(store, "discord", "botToken").await
+                .ok_or("Discord webhook not configured")?;
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build().map_err(|e| e.to_string())?;
+
+            let resp = client.post(&webhook_url)
+                .json(&json!({
+                    "content": message,
+                    "username": "ThreatClaw",
+                }))
+                .send().await.map_err(|e| e.to_string())?;
+
+            if resp.status().is_success() || resp.status().as_u16() == 204 { Ok(()) }
+            else { Err(format!("Discord HTTP {}", resp.status())) }
+        }
+        "email" => {
+            let host = get_channel_field(store, "email", "host").await
+                .ok_or("Email SMTP host not configured")?;
+            let port: u16 = get_channel_field(store, "email", "port").await
+                .and_then(|p| p.parse().ok()).unwrap_or(587);
+            let from = get_channel_field(store, "email", "from").await
+                .ok_or("Email from address not configured")?;
+            let to = get_channel_field(store, "email", "to").await
+                .ok_or("Email to address not configured")?;
+
+            // Use lettre crate for SMTP if available, otherwise raw TCP
+            // For now, use a simple HTTP approach via a local sendmail or direct SMTP
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(15))
+                .danger_accept_invalid_certs(true)
+                .build().map_err(|e| e.to_string())?;
+
+            // Try SMTP via direct socket (minimal implementation)
+            use std::io::{Read, Write};
+            let addr = format!("{}:{}", host, port);
+            match std::net::TcpStream::connect_timeout(&addr.parse().map_err(|e: std::net::AddrParseError| e.to_string())?, std::time::Duration::from_secs(10)) {
+                Ok(mut stream) => {
+                    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                    let mut buf = [0u8; 512];
+                    let _ = stream.read(&mut buf); // Read greeting
+                    let commands = [
+                        format!("EHLO threatclaw\r\n"),
+                        format!("MAIL FROM:<{}>\r\n", from),
+                        format!("RCPT TO:<{}>\r\n", to),
+                        "DATA\r\n".to_string(),
+                        format!("From: ThreatClaw <{}>\r\nTo: {}\r\nSubject: ThreatClaw Security Alert\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n.\r\n", from, to, message),
+                        "QUIT\r\n".to_string(),
+                    ];
+                    for cmd in &commands {
+                        let _ = stream.write_all(cmd.as_bytes());
+                        let _ = stream.read(&mut buf);
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(format!("SMTP connection to {} failed: {}", addr, e)),
+            }
+        }
+        "signal" => {
+            let http_url = get_channel_field(store, "signal", "httpUrl").await
+                .unwrap_or("http://localhost:8080".into());
+            let account = get_channel_field(store, "signal", "account").await
+                .ok_or("Signal account not configured")?;
+            // Signal-cli REST API
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build().map_err(|e| e.to_string())?;
+
+            let resp = client.post(format!("{}/v2/send", http_url))
+                .json(&json!({
+                    "message": message,
+                    "number": account,
+                    "recipients": [account],
+                }))
+                .send().await.map_err(|e| e.to_string())?;
+
+            if resp.status().is_success() { Ok(()) }
+            else { Err(format!("Signal HTTP {}", resp.status())) }
+        }
+        "whatsapp" => {
+            let access_token = get_channel_field(store, "whatsapp", "accessToken").await
+                .ok_or("WhatsApp access token not configured")?;
+            let phone_id = get_channel_field(store, "whatsapp", "phoneNumberId").await
+                .ok_or("WhatsApp phone number ID not configured")?;
+
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build().map_err(|e| e.to_string())?;
+
+            let resp = client.post(format!("https://graph.facebook.com/v18.0/{}/messages", phone_id))
+                .header("Authorization", format!("Bearer {}", access_token))
+                .json(&json!({
+                    "messaging_product": "whatsapp",
+                    "to": phone_id,
+                    "type": "text",
+                    "text": { "body": message },
+                }))
+                .send().await.map_err(|e| e.to_string())?;
+
+            if resp.status().is_success() { Ok(()) }
+            else { Err(format!("WhatsApp HTTP {}", resp.status())) }
         }
         _ => Err(format!("Channel {} not implemented for routing", channel)),
     }

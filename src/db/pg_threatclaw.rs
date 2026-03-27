@@ -117,7 +117,7 @@ impl ThreatClawStore for PgBackend {
                 r#"SELECT id, skill_id, title, description, severity, status, category, asset, source,
                           metadata, detected_at::text, resolved_at::text, resolved_by
                    FROM findings
-                   WHERE ($1::text IS NULL OR severity = $1)
+                   WHERE ($1::text IS NULL OR UPPER(severity) = UPPER($1))
                      AND ($2::text IS NULL OR status = $2)
                      AND ($3::text IS NULL OR skill_id = $3)
                    ORDER BY detected_at DESC
@@ -144,7 +144,7 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_one(
             r#"SELECT COUNT(*)::bigint FROM findings
-               WHERE ($1::text IS NULL OR severity = $1)
+               WHERE ($1::text IS NULL OR UPPER(severity) = UPPER($1))
                  AND ($2::text IS NULL OR status = $2)
                  AND ($3::text IS NULL OR skill_id = $3)"#,
             &[&severity, &status, &skill_id],
@@ -208,7 +208,7 @@ impl ThreatClawStore for PgBackend {
                 r#"SELECT id, rule_id, level, title, status, hostname,
                           host(source_ip), username, matched_at::text, matched_fields
                    FROM sigma_alerts
-                   WHERE ($1::text IS NULL OR level = $1)
+                   WHERE ($1::text IS NULL OR UPPER(level) = UPPER($1))
                      AND ($2::text IS NULL OR status = $2)
                    ORDER BY matched_at DESC
                    LIMIT $3 OFFSET $4"#,
@@ -227,7 +227,7 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_one(
             r#"SELECT COUNT(*)::bigint FROM sigma_alerts
-               WHERE ($1::text IS NULL OR level = $1)
+               WHERE ($1::text IS NULL OR UPPER(level) = UPPER($1))
                  AND ($2::text IS NULL OR status = $2)"#,
             &[&level, &status],
         ).await.map_err(query_err)?;
@@ -694,8 +694,8 @@ impl ThreatClawStore for PgBackend {
         conn.execute(
             r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
                 ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
-                source, owner, location, tags, last_seen)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+                services, source, owner, location, tags, last_seen)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name, category = EXCLUDED.category,
                 subcategory = COALESCE(EXCLUDED.subcategory, assets.subcategory),
@@ -708,11 +708,12 @@ impl ThreatClawStore for PgBackend {
                 url = COALESCE(EXCLUDED.url, assets.url),
                 os = COALESCE(EXCLUDED.os, assets.os),
                 mac_vendor = COALESCE(EXCLUDED.mac_vendor, assets.mac_vendor),
+                services = CASE WHEN EXCLUDED.services != '[]'::jsonb THEN EXCLUDED.services ELSE assets.services END,
                 last_seen = NOW(),
                 updated_at = NOW()"#,
             &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
               &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
-              &a.source, &a.owner, &a.location, &tags],
+              &a.services, &a.source, &a.owner, &a.location, &tags],
         ).await.map_err(query_err)?;
         Ok(a.id.clone())
     }

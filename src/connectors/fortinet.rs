@@ -73,6 +73,7 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                                 vlan: extract_vlan(iface),
                                 vm_id: None,
                                 criticality: None,
+            services: serde_json::json!([]),
                                 source: "fortinet".into(),
                             };
                             asset_resolution::resolve_asset(store, &discovered).await;

@@ -112,6 +112,7 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                             vlan,
                             vm_id: None,
                             criticality: None,
+            services: serde_json::json!([]),
                             source: config.fw_type.source_name().into(),
                         };
                         asset_resolution::resolve_asset(store, &discovered).await;
@@ -147,6 +148,7 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                             vlan,
                             vm_id: None,
                             criticality: None,
+            services: serde_json::json!([]),
                             source: "dhcp".into(),
                         };
                         asset_resolution::resolve_asset(store, &discovered).await;

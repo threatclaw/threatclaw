@@ -31,11 +31,25 @@ async function proxyRequest(req: NextRequest) {
     }
 
     const resp = await fetch(targetUrl, fetchOptions);
-    const data = await resp.text();
+    const contentType = resp.headers.get("Content-Type") || "application/json";
 
+    // Binary responses (PDF, etc.) — pass through as-is
+    if (!contentType.includes("json") && !contentType.includes("text")) {
+      const buffer = await resp.arrayBuffer();
+      const respHeaders: Record<string, string> = { "Content-Type": contentType };
+      const disposition = resp.headers.get("Content-Disposition");
+      if (disposition) respHeaders["Content-Disposition"] = disposition;
+      return new NextResponse(buffer, {
+        status: resp.status,
+        headers: respHeaders,
+      });
+    }
+
+    // JSON/text responses
+    const data = await resp.text();
     return new NextResponse(data, {
       status: resp.status,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": contentType },
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Proxy error";

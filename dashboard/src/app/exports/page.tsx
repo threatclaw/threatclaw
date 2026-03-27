@@ -25,6 +25,9 @@ const EXPORTS: ExportItem[] = [
   { id: "nis2-intermediate", title: "Rapport NIS2 — Intermédiaire (72h)", description: "Analyse préliminaire des causes, IOCs identifiés, actions correctives en cours.", icon: FileText, formats: ["PDF", "JSON"], color: "#e04040", tier: "reglementaire", endpoint: "/api/tc/exports/nis2-intermediate" },
   { id: "nis2-final", title: "Rapport NIS2 — Final (1 mois)", description: "Analyse complète post-incident, root cause, timeline, recommandations.", icon: Shield, formats: ["PDF", "JSON"], color: "#e04040", tier: "reglementaire", endpoint: "/api/tc/exports/nis2-final" },
   { id: "nis2-art21", title: "Conformité NIS2 Article 21", description: "Checklist des 10 mesures obligatoires avec score et preuves par mesure.", icon: Lock, formats: ["PDF", "JSON"], color: "#d06020", tier: "reglementaire", endpoint: "/api/tc/exports/nis2-article21" },
+  { id: "gdpr-art33", title: "RGPD — Notification CNIL (Art. 33)", description: "Violation de données personnelles. Nature, personnes concernées, mesures prises.", icon: Shield, formats: ["PDF", "JSON"], color: "#e04040", tier: "reglementaire", endpoint: "/api/tc/exports/gdpr-article33" },
+  { id: "nist-incident", title: "NIST SP 800-61 — Incident Report", description: "Format NIST CSF 2.0. Compatible agences fédérales US et standard international.", icon: Globe, formats: ["PDF", "JSON"], color: "#d06020", tier: "reglementaire", endpoint: "/api/tc/exports/nist-incident" },
+  { id: "iso27001", title: "ISO 27001 — Rapport d'incident", description: "Contrôles A.5.24-A.5.28. Classification, réponse, preuves, leçons apprises.", icon: Lock, formats: ["PDF", "JSON"], color: "#d06020", tier: "reglementaire", endpoint: "/api/tc/exports/iso27001-incident" },
 
   // Tier 2 — Opérationnel
   { id: "executive", title: "Rapport exécutif — Direction", description: "Score sécurité, incidents du mois, risques business. Langage non-technique pour le COMEX.", icon: BarChart3, formats: ["PDF"], color: "#3080d0", tier: "operationnel", endpoint: "/api/tc/exports/executive-report" },
@@ -41,7 +44,7 @@ const EXPORTS: ExportItem[] = [
 ];
 
 const SECTIONS = [
-  { id: "reglementaire", title: "Rapports réglementaires", subtitle: "Obligatoires NIS2 — générés automatiquement", icon: Shield, color: "#e04040" },
+  { id: "reglementaire", title: "Rapports réglementaires", subtitle: "NIS2, RGPD, NIST, ISO 27001 — générés automatiquement", icon: Shield, color: "#e04040" },
   { id: "operationnel", title: "Rapports opérationnels", subtitle: "Direction, RSSI, audit — langage adapté au destinataire", icon: BarChart3, color: "#3080d0" },
   { id: "technique", title: "Exports techniques", subtitle: "STIX, MISP, CSV — intégration SIEM, EDR, ticketing", icon: Database, color: "#9060d0" },
 ];
@@ -63,22 +66,50 @@ export default function ExportsPage() {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Erreur serveur" }));
-        alert(err.error || "Erreur lors de la génération");
+        const text = await res.text().catch(() => "Erreur serveur");
+        alert(text || "Erreur lors de la génération");
         setGenerating(null);
         return;
       }
 
-      const data = await res.json();
+      const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      const isPdf = format.toLowerCase() === "pdf";
+      const isCsv = format.toLowerCase() === "csv";
 
-      // Download the result
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      let blob: Blob;
+      let filename: string;
+
+      if (isPdf) {
+        // PDF → binary download
+        const contentDisposition = res.headers.get("Content-Disposition");
+        const bytes = await res.arrayBuffer();
+        blob = new Blob([bytes], { type: "application/pdf" });
+        // Extract filename from Content-Disposition header or generate one
+        const match = contentDisposition?.match(/filename="?([^"]+)"?/);
+        filename = match?.[1] || `threatclaw_${item.id}_${date}.pdf`;
+      } else if (isCsv) {
+        const data = await res.json();
+        // Convert JSON array to CSV
+        const rows = data.data || [];
+        if (rows.length === 0) {
+          blob = new Blob([""], { type: "text/csv" });
+        } else {
+          const headers = Object.keys(rows[0]);
+          const csv = [headers.join(","), ...rows.map((r: Record<string, unknown>) => headers.map(h => JSON.stringify(r[h] ?? "")).join(","))].join("\n");
+          blob = new Blob([csv], { type: "text/csv" });
+        }
+        filename = `threatclaw_${item.id}_${date}.csv`;
+      } else {
+        // JSON
+        const data = await res.json();
+        blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        filename = `threatclaw_${item.id}_${data.company_name || "threatclaw"}_${date}.json`;
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      const companyName = data.company_name || "threatclaw";
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      a.download = `threatclaw_${item.id}_${companyName}_${date}.${format.toLowerCase()}`;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
 

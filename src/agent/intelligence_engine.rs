@@ -794,6 +794,7 @@ fn build_asset_summary(asset: &AssetSituation) -> String {
 pub fn spawn_intelligence_ticker(
     store: Arc<dyn Database>,
     interval: std::time::Duration,
+    nonce_manager: Option<Arc<crate::agent::hitl_nonce::NonceManager>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tracing::info!("INTELLIGENCE: Engine started — cycle every {}s", interval.as_secs());
@@ -851,6 +852,13 @@ pub fn spawn_intelligence_ticker(
                                 store.as_ref(), &level_str, situation.global_score
                             ).await;
                         }
+
+                        // P1: For Critical situations, propose HITL remediation actions
+                        if situation.notification_level == NotificationLevel::Critical {
+                            if let Some(ref nm) = nonce_manager {
+                                propose_hitl_actions(store.as_ref(), &situation, nm.as_ref()).await;
+                            }
+                        }
                     }
                 } else {
                     tracing::debug!("INTELLIGENCE: Notification suppressed (cooldown active)");
@@ -858,6 +866,86 @@ pub fn spawn_intelligence_ticker(
             }
         }
     })
+}
+
+/// Propose HITL remediation actions for Critical situations.
+/// Extracts attacker IPs and affected assets, proposes concrete actions.
+async fn propose_hitl_actions(
+    store: &dyn Database,
+    situation: &SecuritySituation,
+    nonce_manager: &crate::agent::hitl_nonce::NonceManager,
+) {
+    use crate::agent::hitl_bridge;
+
+    let mut proposed_actions: Vec<(String, String, String)> = vec![]; // (action, target, description)
+
+    for asset in &situation.assets {
+        // Extract attacker IPs from the asset's alert summaries
+        if asset.score > 50.0 && asset.active_alerts > 0 {
+            // Propose scanning the at-risk asset
+            proposed_actions.push((
+                "scan".into(),
+                asset.asset.clone(),
+                format!("Scanner {} — score {:.0}, {} alertes actives", asset.asset, asset.score, asset.active_alerts),
+            ));
+        }
+
+        if asset.has_known_exploit {
+            proposed_actions.push((
+                "scan".into(),
+                asset.asset.clone(),
+                format!("Scanner en urgence {} — exploit connu détecté", asset.asset),
+            ));
+        }
+    }
+
+    // Get recent critical alerts to find attacker IPs
+    if let Ok(alerts) = store.list_alerts(Some("critical"), Some("new"), 10, 0).await {
+        for alert in &alerts {
+            if let Some(ref ip) = alert.source_ip {
+                let clean = ip.trim();
+                if !clean.is_empty() {
+                    proposed_actions.push((
+                        "block_ip".into(),
+                        clean.into(),
+                        format!("Bloquer {} — {}", clean, alert.title),
+                    ));
+                }
+            }
+        }
+    }
+
+    if proposed_actions.is_empty() {
+        tracing::debug!("INTELLIGENCE HITL: No actions to propose");
+        return;
+    }
+
+    // Deduplicate by target
+    proposed_actions.sort_by(|a, b| a.1.cmp(&b.1));
+    proposed_actions.dedup_by(|a, b| a.1 == b.1 && a.0 == b.0);
+
+    tracing::info!("INTELLIGENCE HITL: Proposing {} actions", proposed_actions.len());
+
+    // Build HITL message with proposed actions
+    let mut hitl_text = format!(
+        "*ALERTE CRITIQUE — Actions recommandées*\n\nScore sécurité : {:.0}/100\n\n",
+        situation.global_score
+    );
+    for (i, (action, target, desc)) in proposed_actions.iter().enumerate() {
+        hitl_text.push_str(&format!("{}. *{}* `{}` — {}\n", i + 1, action, target, desc));
+    }
+    hitl_text.push_str("\nRépondez avec la commande pour exécuter (ex: `bloque 185.220.101.34`) ou ignorez pour ne rien faire.");
+
+    // Send via all configured notification channels
+    let _ = crate::agent::notification_router::route_notification(
+        store,
+        NotificationLevel::Critical,
+        &hitl_text,
+        &hitl_text,
+    ).await;
+
+    // Also send HITL to Telegram with the proposed actions
+    let _ = hitl_bridge::send_hitl_to_telegram_text(store, &hitl_text).await;
 }
 
 // ══════════════════════════════════════════════════════════

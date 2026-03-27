@@ -30,7 +30,7 @@ export default function AlertsPage() {
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterLevel, setFilterLevel] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+  const [filterStatus, setFilterStatus] = useState("new");
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +182,32 @@ export default function AlertsPage() {
                         ))}
                       </div>
                     )}
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {a.status !== "resolved" && (
+                        <button className="tc-btn-embossed" onClick={async () => {
+                          await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "resolved" }) });
+                          load();
+                        }} style={{ fontSize: "10px", padding: "6px 12px" }}>
+                          <CheckCircle2 size={11} /> Résolu
+                        </button>
+                      )}
+                      {a.status !== "investigating" && a.status !== "resolved" && (
+                        <button className="tc-btn-embossed" onClick={async () => {
+                          await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "investigating" }) });
+                          load();
+                        }} style={{ fontSize: "10px", padding: "6px 12px" }}>
+                          <Clock size={11} /> En cours
+                        </button>
+                      )}
+                      {a.status !== "false_positive" && (
+                        <button className="tc-btn-embossed" onClick={async () => {
+                          await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "false_positive" }) });
+                          load();
+                        }} style={{ fontSize: "10px", padding: "6px 12px" }}>
+                          <X size={11} /> Faux positif
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </ChromeInsetCard>

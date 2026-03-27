@@ -1,0 +1,32 @@
+{
+  "id": "skill-syft",
+  "name": "Syft SBOM Generator",
+  "version": "1.0.0",
+  "description": "Generation de Software Bill of Materials (SBOM). Format SPDX/CycloneDX. Requis NIS2 supply chain.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "anchore/syft:latest",
+    "command": "syft {TARGET} -o json",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target_image": {
+      "type": "string",
+      "description": "Image Docker ou repertoire a analyser",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "database"
+}

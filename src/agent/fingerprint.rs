@@ -307,3 +307,61 @@ mod tests {
         assert_eq!(r.subcategory, Some("web".into()));
     }
 }
+
+/// Guess asset category from a DiscoveredAsset (used by asset_resolution).
+pub fn guess_category(discovered: &crate::graph::asset_resolution::DiscoveredAsset) -> &'static str {
+    // Try ports first
+    if let Some(ref ports) = discovered.ports {
+        if let Some(r) = classify_from_ports(ports) {
+            return match r.category.as_str() {
+                "server" => "server",
+                "workstation" => "workstation",
+                "network" => "network",
+                "printer" => "printer",
+                "camera" => "camera",
+                "ot" => "ot",
+                "iot" => "iot",
+                "mobile" => "mobile",
+                _ => "unknown",
+            };
+        }
+    }
+    // Try hostname
+    if let Some(ref hostname) = discovered.hostname {
+        if let Some(r) = classify_from_hostname(hostname) {
+            return match r.category.as_str() {
+                "server" => "server",
+                "workstation" => "workstation",
+                "network" => "network",
+                "printer" => "printer",
+                "camera" => "camera",
+                "mobile" => "mobile",
+                _ => "unknown",
+            };
+        }
+    }
+    "unknown"
+}
+
+/// Guess asset criticality from ports and services.
+pub fn guess_criticality(discovered: &crate::graph::asset_resolution::DiscoveredAsset) -> &'static str {
+    let ports = discovered.ports.as_deref().unwrap_or(&[]);
+    let has = |p: u16| ports.contains(&p);
+
+    // Critical: databases, AD, SCADA
+    if has(3306) || has(5432) || has(1433) || has(1521) || has(27017) { return "critical"; }  // DB
+    if has(389) && has(636) && has(88) { return "critical"; }  // AD/DC
+    if has(502) || has(102) || has(44818) { return "critical"; }  // SCADA/OT
+
+    // High: servers with multiple services, infrastructure
+    if has(22) && (has(80) || has(443)) { return "high"; }  // SSH + web = server
+    if has(53) && (has(80) || has(443)) { return "high"; }  // DNS + web = infrastructure
+    if has(21) && has(53) && has(80) { return "high"; }  // FTP + DNS + web = router/NAS
+    if ports.len() >= 5 { return "high"; }  // Many services = important asset
+
+    // Low: single service, tcpwrapped, unknown
+    if ports.len() <= 1 { return "low"; }
+
+    // Medium: everything else (2-4 services)
+    "medium"
+}

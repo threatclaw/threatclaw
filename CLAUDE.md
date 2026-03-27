@@ -240,46 +240,69 @@ strip_hostnames = true
 
 ---
 
-## ROADMAP — ORDRE DE DÉVELOPPEMENT
+## ROADMAP
 
-### Phase 1 — Semaine 1 (DÉMARRER ICI)
-- [ ] Fork ThreatClaw → threatclaw
-- [ ] Renommage branding (Cargo.toml, README, binaires)
-- [ ] Vérifier que `cargo build --release` compile
-- [ ] Créer docker-compose.yml avec core + db
-- [ ] Créer structure dossiers skills/
-- [ ] Créer README.md professionnel ThreatClaw
+### v0.1 → v1.9 — COMPLÉTÉ
+- [x] Fork IronClaw → ThreatClaw, renommage branding
+- [x] Docker 13 services (core, dashboard, ML, DB custom, Nginx, Fluent Bit, etc.)
+- [x] 15 connecteurs (AD, pfSense, Proxmox, Wazuh, GLPI, Zeek, Suricata, Pi-hole, UniFi, etc.)
+- [x] 15+ enrichissements (NVD, MITRE, CERT-FR, CISA KEV, EPSS, Shodan, VirusTotal, SSL Labs, etc.)
+- [x] Asset Intelligence (MAC OUI 52K vendors, IP Classifier, Fingerprinting)
+- [x] Graph Intelligence Apache AGE (STIX 2.1, Confidence, Lateral, Attack Paths, Blast Radius, Campaigns)
+- [x] Anonymisation (14 catégories, constant-time, reversible placeholders)
+- [x] NACE/NAF threat profiles (9 secteurs, MITRE ATT&CK mapping)
+- [x] Dashboard Next.js 14 (Status, Assets, Alertes, Findings, Intelligence, Skills, Config, Exports)
+- [x] Sécurité : 9/10 vulns fixées (SQL/Cypher injection, path traversal, timing attacks)
+- [x] 3568+ tests Rust
 
-### Phase 2 — Semaines 2-4
-- [ ] skill-vuln-scan (Nuclei + Grype + EPSS scoring)
-- [ ] skill-secrets (Gitleaks — Git history complet)
-- [ ] skill-email-audit (checkdmarc — DMARC/SPF/DKIM)
-- [ ] skill-darkweb (HIBP API + PasteHunter)
-- [ ] skill-phishing (GoPhish API + LLM templates)
-- [ ] Tests unitaires pour chaque skill
+### v2.0 — COMPLÉTÉ
+- [x] ML Engine Python (Isolation Forest per asset, DGA Random Forest, DBSCAN clustering)
+- [x] Intelligence Engine (cycle 5min, enrichment, scoring, notifications)
+- [x] ML scores intégrés dans Intelligence Engine (downgrade normal / boost anomalies)
+- [x] TimescaleDB (compression logs 90-95%, rétention 90j auto)
+- [x] 4 images Docker fonctionnelles (core 173MB, dashboard 158MB, ML 493MB, DB 1.9GB)
 
-### Phase 3 — Mois 2
-- [ ] Pipeline logs : Fluent Bit → Vector → PostgreSQL
-- [ ] Intégration Sigma rules (3000+ règles communautaires)
-- [ ] skill-soc-monitor (collecte + triage LLM)
-- [ ] skill-cloud-posture (Prowler AWS/Azure/GCP)
-- [ ] Couche anonymisation src/anonymizer/
-- [ ] Modifications scheduler cyber dans core Rust
+### v2.0.1 — COMPLÉTÉ (session 26 mars 2026)
+- [x] PDF reports via Typst (10 templates, zéro dépendance réseau)
+  - [x] NIS2 Early Warning 24h (Art.23(4)(a) — 7 sections, checkboxes, champs légaux)
+  - [x] NIS2 Intermédiaire 72h (Art.23(4)(b) — IOCs, évaluation, cause probable)
+  - [x] NIS2 Final 1 mois (Art.23(4)(d-e) — timeline, root cause, leçons, cycle notif)
+  - [x] NIS2 Article 21 (10 mesures obligatoires avec scores)
+  - [x] RGPD Article 33 (notification CNIL — nature violation, DPO, conséquences)
+  - [x] NIST SP 800-61r3 (CSF 2.0 — en anglais, format agences fédérales)
+  - [x] ISO 27001:2022 (A.5.24-28 — classification, réponse, preuves, leçons)
+  - [x] Rapport exécutif Direction/COMEX
+  - [x] Rapport technique RSSI
+  - [x] Journal d'audit
+- [x] Graph AGE → TTPs MITRE injectés dans les rapports
+- [x] ML scores → anomalies injectées dans rapport technique
+- [x] Détection RGPD automatique (data_leak, PII findings, DB assets → gdpr_required)
+- [x] Proxy Next.js corrigé pour binaires PDF (arrayBuffer)
+- [x] Espace disque réel depuis `df` (plus hardcodé)
+- [x] Statut DB réel depuis health check (plus hardcodé vert)
+- [x] Statut ML réel depuis Intelligence Engine (plus hardcodé "Active")
+- [x] Skills : 8 stubs grisés "En développement", 4 skills cachées rendues visibles
+- [x] Skills : install/uninstall persisté côté backend (plus localStorage seul)
+- [x] Skills : 3 enrichissements câblés (SecurityTrails, URLScan, Wordfence)
+- [x] Anonymisation : bouton "Voir les règles par défaut" avec les 13 catégories
+- [x] Document de référence multi-framework (docs/REPORT_FRAMEWORKS.md)
+- [x] Document architecture auth (docs/AUTH_ARCHITECTURE.md)
 
-### Phase 4 — Mois 2-3
-- [ ] skill-report-gen (PDF NIS2 français via LLM)
-- [ ] skill-compliance-nis2 (mapping Art.21 §1-10)
-- [ ] skill-compliance-iso27001 (93 contrôles Annexe A)
-- [ ] Dashboard RSSI Next.js v1 (score + findings + rapport)
-- [ ] Human-in-the-loop validation Slack
+### v2.1 — À FAIRE
+- [ ] **Authentification dashboard** (login/mdp, argon2id, sessions cookie HttpOnly)
+  - Voir docs/AUTH_ARCHITECTURE.md pour le design complet
+  - Option A : auth intégrée (recommandé court terme)
+  - Option C : OIDC optionnel en v2.5 (Keycloak/Azure AD en surcouche client)
+- [ ] Câbler les 4 outils Docker stub (httpx, subfinder, trivy, ZAP) dans le skill executor
+- [ ] Moteur Sigma Rules runtime (matching sur les logs)
+- [ ] wasmtime migration v36→v43
 
-### Phase 5 — Mois 3
-- [ ] docker-compose.yml production complet
-- [ ] installer/install.sh one-liner (< 5 min)
-- [ ] CI/CD GitHub Actions (build + test + Docker build)
-- [ ] Tests sur VPS Debian vierge
-- [ ] Documentation utilisateur
-- [ ] Tag v0.1.0 — Release publique
+### v2.5 — FUTUR
+- [ ] OIDC optionnel (paramètre `oidc_issuer` dans config, validation JWKS)
+- [ ] MFA TOTP (ajout sur l'auth intégrée)
+- [ ] Federated Graph (multi-instance ThreatClaw, partage d'IOCs)
+- [ ] Templates PDF supplémentaires (GDPR Art.34 communication personnes, NCSC UK CAF)
+- [ ] Split sous-traits (db/threatclaw_store.rs refactoring)
 
 ---
 

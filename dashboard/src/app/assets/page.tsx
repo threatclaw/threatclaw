@@ -269,18 +269,15 @@ export default function AssetsPage() {
           {search ? "Aucun asset avec ce filtre." : "Aucun asset. Ajoutez vos serveurs, postes, sites web et équipements réseau."}
         </NeuCard>
       ) : (
+        <div>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {filtered.map(a => {
             const cat = categories.find(c => c.id === a.category);
             const Icon = ICON_MAP[cat?.icon || "help-circle"] || HelpCircle;
             const crit = CRIT_COLORS[a.criticality] || { color: "var(--tc-text-muted)", label: a.criticality };
-            const isExpanded = expandedId === a.id;
             return (
               <div key={a.id}>
-                <NeuCard onClick={() => setExpandedId(isExpanded ? null : a.id)} style={{
-                  borderRadius: isExpanded ? "var(--tc-radius-md) var(--tc-radius-md) 0 0" : undefined,
-                  padding: "12px 14px", cursor: "pointer",
-                }}>
+                <NeuCard style={{ padding: "12px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   {/* Icon */}
                   <div style={{ width: "32px", height: "32px", borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: cat?.color || "var(--tc-text-muted)", flexShrink: 0 }}>
@@ -299,114 +296,138 @@ export default function AssetsPage() {
                       {a.source !== "manual" && <span style={{ fontSize: "8px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)" }}>{a.source}</span>}
                       {a.category === "unknown" && <span style={{ fontSize: "8px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)" }}>auto-détecté</span>}
                     </div>
-                    <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-                      {a.ip_addresses.length > 0 && <span>{a.ip_addresses.join(", ")}</span>}
+                    <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                      {a.ip_addresses.length > 0 && <span style={{ fontFamily: "monospace" }}>{a.ip_addresses.join(", ")}</span>}
                       {a.hostname && <span>{a.hostname}</span>}
                       {a.os && <span>{a.os}</span>}
                       {a.role && <span style={{ fontStyle: "italic" }}>{a.role}</span>}
+                      {a.services && Array.isArray(a.services) && a.services.length > 0 && (
+                        <span style={{ fontSize: "9px", color: "var(--tc-text-faint)" }}>
+                          {a.services.filter((s: any) => s.service).map((s: any) => s.service).slice(0, 5).join(", ")}
+                          {a.services.length > 5 && ` +${a.services.length - 5}`}
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {/* Actions */}
                   <div style={{ display: "flex", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setExpandedId(a.id)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
                     <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
                   </div>
 
-                  {isExpanded ? <ChevronRight size={12} style={{ color: "var(--tc-text-muted)", transform: "rotate(90deg)", transition: "transform 0.2s" }} /> : <ChevronRight size={12} style={{ color: "var(--tc-text-muted)" }} />}
                 </div>
                 </NeuCard>
 
-                {/* Expanded details */}
-                {isExpanded && (
-                  <div style={{
-                    background: "var(--tc-neu-inner)", borderRadius: "0 0 var(--tc-radius-md) var(--tc-radius-md)",
-                    padding: "14px", marginTop: "-4px",
-                    boxShadow: "inset 0 2px 6px rgba(0,0,0,0.2)",
-                  }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", fontSize: "10px" }}>
-                      <div>
-                        <span style={labelStyle}>Catégorie</span>
-                        <div style={{ color: "var(--tc-text)" }}>{cat?.label || a.category}{a.subcategory ? ` > ${a.subcategory}` : ""}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>Adresses IP</span>
-                        <div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.ip_addresses.join(", ") || "—"}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>MAC</span>
-                        <div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.mac_address || "—"} {a.mac_vendor && <span style={{ color: "var(--tc-text-muted)" }}>({a.mac_vendor})</span>}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>Hostname / FQDN</span>
-                        <div style={{ color: "var(--tc-text)" }}>{a.hostname || "—"}{a.fqdn ? ` (${a.fqdn})` : ""}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>Système d{"'"}exploitation</span>
-                        <div style={{ color: "var(--tc-text)" }}>{a.os || "—"} {a.os_confidence > 0 && a.os_confidence < 1 && <span style={{ color: "var(--tc-text-muted)" }}>({Math.round(a.os_confidence * 100)}%)</span>}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>Rôle</span>
-                        <div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div>
-                      </div>
-                      {a.url && <div>
-                        <span style={labelStyle}>URL</span>
-                        <div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div>
-                      </div>}
-                      <div>
-                        <span style={labelStyle}>Responsable</span>
-                        <div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div>
-                      </div>
-                      <div>
-                        <span style={labelStyle}>Localisation</span>
-                        <div style={{ color: "var(--tc-text)" }}>{a.location || "—"}</div>
-                      </div>
-                    </div>
-
-                    {/* Services */}
-                    {a.services && Array.isArray(a.services) && a.services.length > 0 && (
-                      <div style={{ marginTop: "12px", borderTop: "1px solid var(--tc-border)", paddingTop: "10px" }}>
-                        <span style={labelStyle}>Services détectés</span>
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                          {a.services.map((s: any, i: number) => (
-                            <span key={i} style={{ fontSize: "9px", padding: "2px 6px", borderRadius: "3px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", fontFamily: "monospace" }}>
-                              {s.port}/{s.proto || "tcp"} {s.service || ""} {s.product || ""}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tags */}
-                    {a.tags.length > 0 && (
-                      <div style={{ marginTop: "8px" }}>
-                        <span style={labelStyle}>Tags</span>
-                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                          {a.tags.map((t, i) => <span key={i} style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.15)" }}>{t}</span>)}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Notes */}
-                    {a.notes && (
-                      <div style={{ marginTop: "8px" }}>
-                        <span style={labelStyle}>Notes</span>
-                        <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", fontStyle: "italic" }}>{a.notes}</div>
-                      </div>
-                    )}
-
-                    {/* Metadata */}
-                    <div style={{ marginTop: "10px", display: "flex", gap: "16px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
-                      <span>Source: {a.source}</span>
-                      <span>Classification: {a.classification_method} ({Math.round(a.classification_confidence * 100)}%)</span>
-                      <span>Première vue: {new Date(a.first_seen).toLocaleDateString("fr-FR")}</span>
-                      <span>Dernière vue: {new Date(a.last_seen).toLocaleDateString("fr-FR")}</span>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
+        </div>
+
+        {/* Asset Detail Modal */}
+        {expandedId && (() => {
+          const a = assets.find(x => x.id === expandedId);
+          if (!a) return null;
+          const cat = categories.find(c => c.id === a.category);
+          const crit = CRIT_COLORS[a.criticality] || { color: "var(--tc-text-muted)", label: a.criticality };
+          const Icon = ICON_MAP[cat?.icon || "help-circle"] || HelpCircle;
+          return (
+            <div onClick={e => { if (e.target === e.currentTarget) setExpandedId(null); }}
+              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{
+              background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
+              padding: "24px", width: "520px", maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto",
+            }}>
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{ width: "40px", height: "40px", borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: cat?.color || "var(--tc-text-muted)" }}>
+                    <Icon size={20} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)" }}>{a.name}</div>
+                    <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>
+                      <span style={{ fontSize: "9px", fontWeight: 700, padding: "1px 6px", borderRadius: "3px", background: `${crit.color}15`, color: crit.color, border: `1px solid ${crit.color}30`, textTransform: "uppercase" }}>{crit.label}</span>
+                      <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: "var(--tc-input)", color: "var(--tc-text-muted)" }}>{cat?.label || a.category}</span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setExpandedId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><X size={16} /></button>
+              </div>
+
+              {/* Identification */}
+              <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Identification</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", marginBottom: "16px" }}>
+                <div><span style={labelStyle}>IP</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.ip_addresses.join(", ") || "—"}</div></div>
+                <div><span style={labelStyle}>MAC</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.mac_address || "—"} {a.mac_vendor && <span style={{ color: "var(--tc-text-muted)" }}>({a.mac_vendor})</span>}</div></div>
+                <div><span style={labelStyle}>Hostname</span><div style={{ color: "var(--tc-text)" }}>{a.hostname || "—"}{a.fqdn ? ` (${a.fqdn})` : ""}</div></div>
+                <div><span style={labelStyle}>OS</span><div style={{ color: "var(--tc-text)" }}>{a.os || "—"}</div></div>
+                <div><span style={labelStyle}>Rôle</span><div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div></div>
+                <div><span style={labelStyle}>Responsable</span><div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div></div>
+                {a.url && <div style={{ gridColumn: "1/3" }}><span style={labelStyle}>URL</span><div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div></div>}
+              </div>
+
+              {/* Services */}
+              {a.services && Array.isArray(a.services) && a.services.length > 0 && (
+                <>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Services détectés ({a.services.length})</div>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "16px" }}>
+                    {a.services.map((s: any, i: number) => (
+                      <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontWeight: 700, color: "var(--tc-blue)" }}>{s.port}</span>
+                        <span style={{ color: "var(--tc-text-muted)" }}>/</span>
+                        <span>{s.proto || "tcp"}</span>
+                        {s.service && <span style={{ color: "var(--tc-text-sec)" }}>{s.service}</span>}
+                        {s.product && <span style={{ color: "var(--tc-amber)", fontWeight: 600 }}>{s.product}</span>}
+                        {s.version && <span style={{ color: "var(--tc-text-muted)", fontSize: "8px" }}>v{s.version}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Graph Intelligence */}
+              <GraphIntelSection assetId={a.id} />
+
+              {/* Tags */}
+              {a.tags && a.tags.length > 0 && (
+                <div style={{ marginTop: "12px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Tags</div>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                    {a.tags.map((t: string, i: number) => <span key={i} style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.15)" }}>{t}</span>)}
+                  </div>
+                </div>
+              )}
+
+              {/* Notes */}
+              {a.notes && (
+                <div style={{ marginTop: "10px" }}>
+                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>Notes</div>
+                  <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", fontStyle: "italic" }}>{a.notes}</div>
+                </div>
+              )}
+
+              {/* Metadata */}
+              <div style={{ marginTop: "14px", paddingTop: "10px", borderTop: "1px solid var(--tc-border)", display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+                <span>Source: {a.source}</span>
+                <span>Première vue: {new Date(a.first_seen).toLocaleDateString("fr-FR")}</span>
+                <span>Dernière vue: {new Date(a.last_seen).toLocaleDateString("fr-FR")}</span>
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
+                <button onClick={() => openEdit(a)} style={{ flex: 1, padding: "8px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text-sec)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                  <Settings size={12} /> Modifier
+                </button>
+                <button onClick={() => handleDelete(a.id)} style={{ padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                  <Trash2 size={12} /> Supprimer
+                </button>
+              </div>
+            </div>
+            </div>
+          );
+        })()}
         </div>
       )}
 
@@ -456,6 +477,25 @@ export default function AssetsPage() {
             {/* Step 1: Form adapted to category */}
             {(modalStep === 1 || editAsset) && (
               <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+
+                {/* Services detected (read-only, shown on edit) */}
+                {editAsset && editAsset.services && Array.isArray(editAsset.services) && editAsset.services.length > 0 && (
+                  <div style={{ padding: "10px 12px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)" }}>
+                    <div style={{ fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Services détectés par scan</div>
+                    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                      {editAsset.services.map((s: any, i: number) => (
+                        <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                          <span style={{ fontWeight: 700, color: "var(--tc-blue)" }}>{s.port}</span>
+                          <span style={{ color: "var(--tc-text-muted)" }}>/</span>
+                          <span>{s.proto || "tcp"}</span>
+                          {s.service && <span style={{ color: "var(--tc-text-sec)" }}>{s.service}</span>}
+                          {s.product && <span style={{ color: "var(--tc-amber)", fontWeight: 600 }}>{s.product}</span>}
+                          {s.version && <span style={{ color: "var(--tc-text-muted)", fontSize: "8px" }}>v{s.version}</span>}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Name */}
                 <div>
@@ -599,6 +639,114 @@ export default function AssetsPage() {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Graph Intelligence Section (loaded on expand) ──
+
+function GraphIntelSection({ assetId }: { assetId: string }) {
+  const [data, setData] = useState<{ attackers?: any[]; cves?: any[]; blast?: any; confidence?: number; loading: boolean }>({ loading: true });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [attackersRes, contextRes] = await Promise.all([
+          fetch(`/api/tc/graph/attackers/${assetId}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/tc/graph/context/${assetId}`, { signal: AbortSignal.timeout(5000) }).then(r => r.json()).catch(() => ({})),
+        ]);
+        if (!cancelled) {
+          setData({
+            attackers: attackersRes.attackers || [],
+            cves: contextRes.cves || [],
+            confidence: contextRes.confidence,
+            blast: contextRes.blast_radius,
+            loading: false,
+          });
+        }
+      } catch {
+        if (!cancelled) setData({ loading: false });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [assetId]);
+
+  if (data.loading) {
+    return <div style={{ marginTop: "10px", fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "6px" }}><Loader2 size={10} className="animate-spin" /> Chargement intelligence graph...</div>;
+  }
+
+  const hasData = (data.attackers && data.attackers.length > 0) || (data.cves && data.cves.length > 0) || data.confidence != null;
+  if (!hasData) return null;
+
+  return (
+    <div style={{ marginTop: "12px", borderTop: "1px solid var(--tc-border)", paddingTop: "10px" }}>
+      <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+        <Shield size={11} /> Intelligence Graph
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", fontSize: "10px" }}>
+        {/* Confidence */}
+        {data.confidence != null && (
+          <div>
+            <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Indice de confiance</div>
+            <div style={{ fontSize: "16px", fontWeight: 800, color: data.confidence > 70 ? "#30a050" : data.confidence > 40 ? "var(--tc-amber)" : "var(--tc-text-muted)", marginTop: "2px" }}>
+              {Math.round(data.confidence)}%
+            </div>
+          </div>
+        )}
+
+        {/* Attackers */}
+        <div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Attaquants</div>
+          <div style={{ fontSize: "16px", fontWeight: 800, color: (data.attackers?.length || 0) > 0 ? "#e04040" : "#30a050", marginTop: "2px" }}>
+            {data.attackers?.length || 0}
+          </div>
+        </div>
+
+        {/* CVEs */}
+        <div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>CVEs affectant</div>
+          <div style={{ fontSize: "16px", fontWeight: 800, color: (data.cves?.length || 0) > 0 ? "var(--tc-amber)" : "#30a050", marginTop: "2px" }}>
+            {data.cves?.length || 0}
+          </div>
+        </div>
+      </div>
+
+      {/* Attacker IPs list */}
+      {data.attackers && data.attackers.length > 0 && (
+        <div style={{ marginTop: "8px" }}>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>IPs attaquantes :</div>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.attackers.slice(0, 10).map((a: any, i: number) => (
+              <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,48,32,0.08)", color: "#e04040", border: "1px solid rgba(208,48,32,0.15)" }}>
+                {a["ip.addr"] || a.addr || JSON.stringify(a).slice(0, 20)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* CVE list */}
+      {data.cves && data.cves.length > 0 && (
+        <div style={{ marginTop: "8px" }}>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>Vulnérabilités :</div>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.cves.slice(0, 8).map((c: any, i: number) => (
+              <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.15)" }}>
+                {c["c.id"] || c.id || JSON.stringify(c).slice(0, 20)} {c["c.cvss"] ? `(${c["c.cvss"]})` : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Low confidence hint */}
+      {data.confidence != null && data.confidence < 50 && (
+        <div style={{ marginTop: "8px", fontSize: "9px", color: "var(--tc-amber)", fontStyle: "italic" }}>
+          Confiance faible — activez des sources supplémentaires (AD, pfSense, nmap) dans Skills pour enrichir cet asset.
         </div>
       )}
     </div>

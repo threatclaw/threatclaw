@@ -34,7 +34,7 @@ services:
       POSTGRES_DB: threatclaw
       TC_DB_HOST: threatclaw-db
       TC_DB_PORT: "5432"
-      REDIS_URL: redis://redis:6379/0
+      # Redis removed — cooldowns use PostgreSQL settings table
       # LLM
       LLM_BACKEND: ollama
       OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
@@ -66,8 +66,6 @@ services:
       - shared-config:/shared
     depends_on:
       threatclaw-db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       ollama:
         condition: service_started
@@ -153,32 +151,6 @@ services:
         limits:
           memory: 512M
           cpus: "1.0"
-    networks:
-      - threatclaw-internal
-    logging: *default-logging
-
-  # ── Redis ────────────────────────────────────────────────
-  # Cache, rate limiting, pub/sub for real-time events
-  redis:
-    image: redis:7-alpine
-    command: >
-      redis-server
-      --maxmemory 128mb
-      --maxmemory-policy allkeys-lru
-      --appendonly yes
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 192M
-          cpus: "0.25"
     networks:
       - threatclaw-internal
     logging: *default-logging
@@ -337,7 +309,6 @@ networks:
 volumes:
   pgdata:             # PostgreSQL data (persist across restarts)
   core-data:          # Core runtime data (memory, workspace)
-  redis-data:         # Redis AOF persistence
   ollama-data:        # LLM model weights (~5-20GB per model)
   nuclei-data:        # Nuclei templates cache
   trivy-cache:        # Trivy vulnerability DB cache

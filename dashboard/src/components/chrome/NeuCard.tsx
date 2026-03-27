@@ -25,10 +25,10 @@ export function NeuCard({ variant = "inset", children, style, className }: NeuCa
           position: "relative",
           backgroundColor: "var(--tc-neu-outer)",
           boxShadow: `
-            inset 0 3px 8px rgba(0,0,0,0.45),
-            inset 0 1px 3px rgba(0,0,0,0.35),
+            inset 0 2px 6px rgba(0,0,0,0.3),
+            inset 0 1px 2px rgba(0,0,0,0.2),
             inset 0 -1px 1px rgba(255,255,255,0.06),
-            0 1px 0 rgba(255,255,255,0.12)
+            0 1px 0 rgba(255,255,255,0.1)
           `,
           ...outerStyle,
         }}
@@ -42,9 +42,9 @@ export function NeuCard({ variant = "inset", children, style, className }: NeuCa
           flexDirection: "column",
           backgroundColor: "var(--tc-neu-inner)",
           boxShadow: `
-            inset 0 4px 10px rgba(0,0,0,0.4),
-            inset 0 2px 4px rgba(0,0,0,0.3),
-            inset 0 -2px 4px rgba(255,255,255,0.04)
+            inset 0 2px 6px rgba(0,0,0,0.2),
+            inset 0 1px 3px rgba(0,0,0,0.15),
+            inset 0 -1px 2px rgba(255,255,255,0.05)
           `,
           color: "var(--tc-neu-text)",
         }}>

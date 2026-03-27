@@ -113,6 +113,7 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
                         vlan: None,
                         vm_id: None,
                         criticality: None,
+            services: serde_json::json!([]),
                         source: "ad".into(),
                     };
                     asset_resolution::resolve_asset(store, &discovered).await;

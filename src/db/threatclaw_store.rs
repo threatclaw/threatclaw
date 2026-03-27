@@ -135,6 +135,7 @@ pub struct NewAsset {
     pub url: Option<String>,
     pub os: Option<String>,
     pub mac_vendor: Option<String>,
+    pub services: serde_json::Value,  // JSON array of {port, proto, service, product, version}
     pub source: String,
     pub owner: Option<String>,
     pub location: Option<String>,

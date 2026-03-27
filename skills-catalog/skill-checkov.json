@@ -1,0 +1,32 @@
+{
+  "id": "skill-checkov",
+  "name": "Checkov IaC Scanner",
+  "version": "1.0.0",
+  "description": "Analyse de securite Infrastructure-as-Code. Terraform, CloudFormation, Kubernetes, Docker, Ansible.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "bridgecrew/checkov:latest",
+    "command": "checkov -d {TARGET} --output json",
+    "timeout_seconds": 300,
+    "network": "none",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target_path": {
+      "type": "string",
+      "description": "Chemin du repertoire IaC a analyser",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

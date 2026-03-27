@@ -33,6 +33,8 @@ pub struct DiscoveredAsset {
     pub os: Option<String>,
     /// Open ports (from nmap).
     pub ports: Option<Vec<u16>>,
+    /// Services detected (JSON array: [{port, proto, service, product, version}]).
+    pub services: serde_json::Value,
     /// Organizational Unit (from AD).
     pub ou: Option<String>,
     /// VLAN ID (from pfSense/switch).
@@ -66,6 +68,46 @@ pub enum ResolutionAction {
     Merged,
     Updated,
     Conflict,
+}
+
+/// Build a meaningful name for an asset from available data.
+fn build_asset_name(discovered: &DiscoveredAsset) -> String {
+    // Priority: hostname > mac_vendor+ip_suffix > ip
+    if let Some(ref hostname) = discovered.hostname {
+        return hostname.clone();
+    }
+    // Try MAC vendor for a meaningful name
+    if let Some(ref mac) = discovered.mac {
+        let oui = crate::enrichment::mac_oui_lookup::lookup(mac);
+        if let Some(ref vendor) = oui.vendor {
+            let short_vendor = vendor.split_whitespace().next().unwrap_or(vendor).trim_end_matches(',');
+            if let Some(ref ip) = discovered.ip {
+                let suffix = ip.rsplit('.').next().unwrap_or(ip);
+                return format!("{}-{}", short_vendor, suffix);
+            }
+            return short_vendor.to_string();
+        }
+    }
+    // Try to use main service as hint
+    if let Some(ref ports) = discovered.ports {
+        if let Some(ref ip) = discovered.ip {
+            let suffix = ip.rsplit('.').next().unwrap_or(ip);
+            if ports.contains(&80) || ports.contains(&443) {
+                return format!("web-{}", suffix);
+            }
+            if ports.contains(&22) {
+                return format!("srv-{}", suffix);
+            }
+            if ports.contains(&53) {
+                return format!("dns-{}", suffix);
+            }
+            if ports.contains(&3306) || ports.contains(&5432) {
+                return format!("db-{}", suffix);
+            }
+        }
+    }
+    // Fallback: IP
+    discovered.ip.clone().unwrap_or_else(|| "unknown".into())
 }
 
 /// Resolve a discovered asset: find existing match or create new.
@@ -262,7 +304,30 @@ async fn merge_asset(
     );
     mutate(store, &cypher).await;
 
-    tracing::debug!("ASSET MERGE: {} enriched by {} (confidence: {:.2})",
+    // Also upsert to PostgreSQL assets table (enriches existing or creates if missing)
+    let category = crate::agent::fingerprint::guess_category(discovered);
+    let _ = store.upsert_asset(&crate::db::threatclaw_store::NewAsset {
+        id: existing.id.clone(),
+        name: build_asset_name(discovered),
+        category: category.into(),
+        subcategory: None,
+        role: None,
+        criticality: discovered.criticality.clone().unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
+        ip_addresses: discovered.ip.iter().cloned().collect(),
+        mac_address: discovered.mac.clone(),
+        hostname: discovered.hostname.clone(),
+        fqdn: discovered.fqdn.clone(),
+        url: None,
+        os: discovered.os.clone(),
+        mac_vendor: None,
+        services: discovered.services.clone(),
+        source: discovered.source.clone(),
+        owner: None,
+        location: None,
+        tags: vec!["discovered".into()],
+    }).await;
+
+    tracing::info!("ASSET MERGE: {} enriched by {} (confidence: {:.2})",
         existing.id, discovered.source, confidence);
 
     ResolutionResult {
@@ -326,6 +391,29 @@ async fn create_new_asset(
 
     let cypher = format!("CREATE (a:Asset {{{}}})", props.join(", "));
     mutate(store, &cypher).await;
+
+    // Also write to PostgreSQL assets table (the source of truth for the dashboard)
+    let category = crate::agent::fingerprint::guess_category(discovered);
+    let _ = store.upsert_asset(&crate::db::threatclaw_store::NewAsset {
+        id: asset_id.clone(),
+        name: build_asset_name(discovered),
+        category: category.into(),
+        subcategory: None,
+        role: None,
+        criticality: discovered.criticality.clone().unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
+        ip_addresses: discovered.ip.iter().cloned().collect(),
+        mac_address: discovered.mac.clone(),
+        hostname: discovered.hostname.clone(),
+        fqdn: discovered.fqdn.clone(),
+        url: None,
+        os: discovered.os.clone(),
+        mac_vendor: None,
+        services: discovered.services.clone(),
+        source: discovered.source.clone(),
+        owner: None,
+        location: None,
+        tags: vec!["discovered".into()],
+    }).await;
 
     tracing::info!("ASSET NEW: {} from {} (confidence: {:.2})",
         asset_id, discovered.source, confidence);
@@ -467,6 +555,7 @@ mod tests {
             hostname: Some("PC-COMPTA-03".into()),
             fqdn: None, ip: Some("192.168.30.15".into()),
             os: None, ports: None, ou: None, vlan: None,
+            services: serde_json::json!([]),
             vm_id: None, criticality: None, source: "nmap".into(),
         };
         assert_eq!(generate_asset_id(&d), "pc-compta-03");
@@ -478,6 +567,7 @@ mod tests {
             mac: Some("00:1A:2B:3C:4D:5E".into()),
             hostname: None, fqdn: None, ip: None,
             os: None, ports: None, ou: None, vlan: None,
+            services: serde_json::json!([]),
             vm_id: None, criticality: None, source: "arp".into(),
         };
         assert_eq!(generate_asset_id(&d), "asset-001a2b3c4d5e");
@@ -489,6 +579,7 @@ mod tests {
             mac: None, hostname: None, fqdn: None,
             ip: Some("192.168.1.10".into()),
             os: None, ports: None, ou: None, vlan: None,
+            services: serde_json::json!([]),
             vm_id: None, criticality: None, source: "nmap".into(),
         };
         assert_eq!(generate_asset_id(&d), "asset-192-168-1-10");

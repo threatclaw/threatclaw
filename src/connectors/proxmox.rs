@@ -127,6 +127,7 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                     vlan: None,
                     vm_id: Some(format!("pve-{}-{}", res.node, res.vmid)),
                     criticality: None,
+            services: serde_json::json!([]),
                     source: "proxmox".into(),
                 };
                 asset_resolution::resolve_asset(store, &discovered).await;
@@ -145,6 +146,7 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                     vlan: None,
                     vm_id: Some(format!("pve-lxc-{}-{}", res.node, res.vmid)),
                     criticality: None,
+            services: serde_json::json!([]),
                     source: "proxmox".into(),
                 };
                 asset_resolution::resolve_asset(store, &discovered).await;
