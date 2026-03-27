@@ -11,7 +11,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://threatclaw:threatclaw@
 
 
 def get_conn():
-    return psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(DATABASE_URL)
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO threatclaw, public")
+    return conn
 
 
 def get_alerts(hours_back=24, limit=5000):
