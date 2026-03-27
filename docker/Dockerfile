@@ -75,16 +75,22 @@ LABEL org.opencontainers.image.title="ThreatClaw Core" \
       org.opencontainers.image.source="https://github.com/threatclaw/threatclaw" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
-# Install minimal runtime dependencies + Typst for PDF generation
+# Install minimal runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libpq5 \
         ca-certificates \
         curl \
-        fonts-noto-core \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -sSL https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-unknown-linux-musl.tar.xz \
-       | tar -xJ --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst
+        xz-utils \
+        fonts-noto-core || true \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Typst for PDF generation
+RUN curl -sSfL https://github.com/typst/typst/releases/download/v0.13.1/typst-x86_64-unknown-linux-musl.tar.xz \
+       -o /tmp/typst.tar.xz \
+    && tar -xJf /tmp/typst.tar.xz --strip-components=1 -C /usr/local/bin typst-x86_64-unknown-linux-musl/typst \
+    && rm /tmp/typst.tar.xz \
+    && typst --version
 
 # Copy the compiled binary
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
