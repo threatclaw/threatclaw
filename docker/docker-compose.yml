@@ -177,6 +177,7 @@ services:
         #       capabilities: [gpu]
     networks:
       - threatclaw-internal
+      - threatclaw-frontend  # Needs internet access to pull models from HuggingFace/Ollama
     logging: *default-logging
     labels:
       - "com.threatclaw.role=llm"
