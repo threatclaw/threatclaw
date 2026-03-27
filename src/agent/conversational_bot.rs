@@ -163,6 +163,15 @@ pub fn spawn_telegram_bot(
                 }
 
                 had_messages = true;
+
+                // Check if system is paused
+                if let Ok(Some(paused)) = store.get_setting("_system", "tc_paused").await {
+                    if paused.as_bool() == Some(true) {
+                        send_telegram(&token, &chat_id, "ThreatClaw est en pause. Reprenez depuis le dashboard.").await;
+                        continue;
+                    }
+                }
+
                 tracing::info!("CONV_BOT: Message from @{from} (chat={chat_id}): {text}");
 
                 // Check if this is a confirmation response

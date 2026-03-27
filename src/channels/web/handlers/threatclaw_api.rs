@@ -497,14 +497,61 @@ pub struct KillSwitchStatus {
 }
 
 pub async fn kill_switch_status_handler(
-    State(_state): State<Arc<GatewayState>>,
-) -> ApiResult<KillSwitchStatus> {
-    // In production, this would read from a shared KillSwitch instance.
-    // For now, return the default state (active).
-    Ok(Json(KillSwitchStatus {
-        active: true,
-        kill_reason: None,
-    }))
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let paused = store.get_setting("_system", "tc_paused").await
+        .ok().flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Ok(Json(serde_json::json!({
+        "paused": paused,
+        "active": !paused,
+    })))
+}
+
+/// POST /api/tc/pause — toggle pause/resume all services.
+pub async fn pause_toggle_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let currently_paused = store.get_setting("_system", "tc_paused").await
+        .ok().flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let new_state = !currently_paused;
+    store.set_setting("_system", "tc_paused", &serde_json::json!(new_state)).await.map_err(db_err)?;
+
+    if new_state {
+        tracing::warn!("PAUSE: All services paused by dashboard user");
+        // Stop the Telegram bot
+        BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+    } else {
+        tracing::info!("RESUME: All services resumed by dashboard user");
+        // Restart the Telegram bot
+        if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
+                if channels["telegram"]["enabled"].as_bool() == Some(true)
+                    && channels["telegram"]["botToken"].as_str().map(|t| !t.is_empty()) == Some(true)
+                {
+                    crate::agent::conversational_bot::spawn_telegram_bot(
+                        store.clone(),
+                        std::time::Duration::from_secs(1),
+                    );
+                    tracing::info!("RESUME: Telegram bot restarted");
+                } else {
+                    BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "paused": new_state,
+        "message": if new_state { "Services en pause" } else { "Services repris" },
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -513,11 +560,13 @@ pub struct KillSwitchTriggerRequest {
 }
 
 pub async fn kill_switch_trigger_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Json(req): Json<KillSwitchTriggerRequest>,
 ) -> ApiResult<serde_json::Value> {
     tracing::error!("KILL SWITCH triggered via API by: {}", req.triggered_by);
-    // In production, this would engage the shared KillSwitch instance.
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store.set_setting("_system", "tc_paused", &serde_json::json!(true)).await.map_err(db_err)?;
+    BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
     Ok(Json(serde_json::json!({
         "status": "kill_switch_engaged",
         "triggered_by": req.triggered_by,

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Network, BrainCircuit, Sun, Moon, LogOut } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Pause, Network, BrainCircuit, Sun, Moon, LogOut } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
@@ -86,6 +86,24 @@ export default function TopNav() {
   const [connStatus, setConnStatus] = useState<ConnStatus>("offline");
   const [llmStatus, setLlmStatus] = useState<string>("");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [paused, setPaused] = useState(false);
+
+  // Check pause status
+  useEffect(() => {
+    fetch("/api/tc/pause").then(r => r.json()).then(d => setPaused(d.paused || false)).catch(() => {});
+    const interval = setInterval(() => {
+      fetch("/api/tc/pause").then(r => r.json()).then(d => setPaused(d.paused || false)).catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const togglePause = async () => {
+    try {
+      const res = await fetch("/api/tc/pause", { method: "POST" });
+      const d = await res.json();
+      setPaused(d.paused);
+    } catch {}
+  };
 
   // Init theme from localStorage
   useEffect(() => {
@@ -204,6 +222,18 @@ export default function TopNav() {
             {llmStatus}
           </div>
         )}
+
+        {/* Pause/Resume */}
+        <button onClick={togglePause} style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
+          background: paused ? "rgba(208,48,32,0.15)" : "rgba(48,160,80,0.15)",
+          border: paused ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(48,160,80,0.3)",
+          color: paused ? "#d03020" : "#30a050",
+          cursor: "pointer", transition: "all 200ms",
+        }} title={paused ? "Reprendre les services" : "Mettre en pause"}>
+          {paused ? <Play size={13} /> : <Pause size={13} />}
+        </button>
 
         {/* Logout */}
         <button onClick={async () => {

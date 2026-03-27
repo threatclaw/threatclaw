@@ -91,6 +91,26 @@ pub struct GraphIntelSummary {
 pub async fn run_intelligence_cycle(
     store: Arc<dyn Database>,
 ) -> SecuritySituation {
+    // Check if paused
+    if let Ok(Some(paused)) = store.get_setting("_system", "tc_paused").await {
+        if paused.as_bool() == Some(true) {
+            tracing::debug!("INTELLIGENCE: Cycle skipped — system paused");
+            return SecuritySituation {
+                global_score: 100.0,
+                notification_level: NotificationLevel::Silence,
+                assets: vec![],
+                new_findings_count: 0,
+                new_alerts_count: 0,
+                total_open_findings: 0,
+                total_active_alerts: 0,
+                digest_message: "System paused".into(),
+                alert_message: None,
+                computed_at: chrono::Utc::now().to_rfc3339(),
+                graph_intel: None,
+            };
+        }
+    }
+
     let now = chrono::Utc::now();
 
     // ── 0. Sync the threat graph from DB ──
