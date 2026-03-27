@@ -16,6 +16,11 @@ export function useLocale(): Locale {
     const saved = localStorage.getItem("tc-language") as Locale | null;
     if (saved && (saved === "fr" || saved === "en")) {
       setLocale(saved);
+    } else {
+      // Auto-detect browser language (default to English for international users)
+      const browserLang = navigator.language?.toLowerCase() || "";
+      const detected: Locale = browserLang.startsWith("fr") ? "fr" : "en";
+      setLocale(detected);
     }
 
     // Listen for changes (when user switches language in Config)

@@ -2,12 +2,22 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
 export default function LoginPage() {
   const router = useRouter();
-  const locale = useLocale();
+  const detectedLocale = useLocale();
+  const [locale, setLocale] = useState<Locale>("en");
+
+  useEffect(() => { setLocale(detectedLocale); }, [detectedLocale]);
+
+  const toggleLocale = () => {
+    const next = locale === "fr" ? "en" : "fr";
+    setLocale(next);
+    localStorage.setItem("tc-language", next);
+    window.dispatchEvent(new Event("tc-locale-change"));
+  };
   const [mode, setMode] = useState<"loading" | "setup" | "login">("loading");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -91,6 +101,17 @@ export default function LoginPage() {
       background: "#0a0a0f",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     }}>
+      {/* Language toggle */}
+      <button onClick={toggleLocale} style={{
+        position: "absolute", top: "20px", right: "20px",
+        padding: "6px 12px", fontSize: "11px", fontWeight: 700,
+        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "8px", color: "rgba(255,255,255,0.5)", cursor: "pointer",
+        transition: "all 0.2s", letterSpacing: "0.05em",
+      }}>
+        {locale === "fr" ? "EN" : "FR"}
+      </button>
+
       <div style={{
         width: "100%", maxWidth: "380px", padding: "40px",
         background: "rgba(20,20,28,0.95)",
