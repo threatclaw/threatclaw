@@ -75,13 +75,14 @@ LABEL org.opencontainers.image.title="ThreatClaw Core" \
       org.opencontainers.image.source="https://github.com/threatclaw/threatclaw" \
       org.opencontainers.image.licenses="AGPL-3.0-or-later"
 
-# Install minimal runtime dependencies
+# Install minimal runtime dependencies + PostgreSQL client (for entrypoint pg_isready/psql)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl3 \
         libpq5 \
         ca-certificates \
         curl \
         xz-utils \
+        postgresql-client \
         fonts-noto-core || true \
     && rm -rf /var/lib/apt/lists/*
 
