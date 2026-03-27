@@ -38,8 +38,15 @@ fi
 
 # ── Write token to shared volume for dashboard ──
 if [ -d "/shared" ]; then
-  echo "TC_CORE_TOKEN=${GATEWAY_AUTH_TOKEN}" > /shared/.env.token
-  echo "[init] Token written to /shared/.env.token for dashboard"
+  set +e
+  touch /shared/.env.token 2>/dev/null || chmod 777 /shared 2>/dev/null
+  echo "TC_CORE_TOKEN=${GATEWAY_AUTH_TOKEN}" > /shared/.env.token 2>/dev/null
+  if [ $? -eq 0 ]; then
+    echo "[init] Token written to /shared/.env.token for dashboard"
+  else
+    echo "[init] WARN: Could not write token to /shared — set TC_CORE_TOKEN manually"
+  fi
+  set -e
 fi
 
 # ── Pull Ollama models if configured ──
