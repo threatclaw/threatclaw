@@ -374,6 +374,7 @@ async fn call_ollama_l0(
             { "role": "user", "content": user_message }
         ],
         "stream": false,
+        "keep_alive": -1,  // Keep model in RAM permanently (no reload delay)
         "options": { "temperature": 0.7, "num_predict": 500 }
     });
 
@@ -558,6 +559,7 @@ async fn call_llm_fallback(
                 { "role": "user", "content": user_message }
             ],
             "stream": false,
+            "keep_alive": -1,
             "options": { "temperature": 0.7, "num_predict": 500 }
         });
         match client.post(format!("{}/api/chat", base_url)).json(&body).send().await {

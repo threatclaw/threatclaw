@@ -149,6 +149,7 @@ Réponds UNIQUEMENT en JSON valide :
         "model": parse_model,
         "messages": [{ "role": "user", "content": prompt }],
         "stream": false,
+        "keep_alive": -1,
         "options": { "temperature": 0.1, "num_predict": 512 }
     });
 
