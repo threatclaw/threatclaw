@@ -132,7 +132,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.db
-    image: threatclaw/db:latest
+    image: ghcr.io/threatclaw/db:latest
     environment:
       POSTGRES_DB: threatclaw
       POSTGRES_USER: threatclaw
