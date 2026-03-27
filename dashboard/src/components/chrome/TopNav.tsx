@@ -200,28 +200,21 @@ export default function TopNav() {
           {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
         </button>
 
-        {/* Connectivity indicator */}
-        <div style={{
+        {/* Language toggle */}
+        <button onClick={() => {
+          const next = locale === "fr" ? "en" : "fr";
+          localStorage.setItem("tc-language", next);
+          window.dispatchEvent(new Event("tc-locale-change"));
+          window.location.reload();
+        }} style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
           background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-          color: connColor, cursor: "default",
-        }} title={connLabel}>
-          {connStatus === "offline" ? <WifiOff size={13} /> : <Wifi size={13} />}
-        </div>
-
-        {/* LLM status */}
-        {llmStatus && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: "5px",
-            padding: "5px 10px", borderRadius: "var(--tc-radius-sm)",
-            background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
-            fontSize: "10px", fontWeight: 500, color: "var(--tc-green)",
-          }}>
-            <Cpu size={11} />
-            {llmStatus}
-          </div>
-        )}
+          color: "var(--tc-text-muted)", cursor: "pointer", transition: "all 200ms",
+          fontSize: "10px", fontWeight: 800, letterSpacing: "0.03em",
+        }} title={locale === "fr" ? "Switch to English" : "Passer en français"}>
+          {locale === "fr" ? "EN" : "FR"}
+        </button>
 
         {/* Pause/Resume */}
         <button onClick={togglePause} style={{
