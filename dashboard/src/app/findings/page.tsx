@@ -163,7 +163,7 @@ export default function FindingsPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.title}</div>
                     <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", display: "flex", gap: "12px", marginTop: "2px" }}>
-                      {f.asset && <span>{f.asset}</span>}
+                      {f.asset && <a href={`/assets?search=${encodeURIComponent(f.asset)}`} style={{ color: "var(--tc-blue)", textDecoration: "none" }}>{f.asset}</a>}
                       <span>{f.skill_id}</span>
                       <span>{new Date(f.detected_at).toLocaleDateString("fr-FR")}</span>
                     </div>

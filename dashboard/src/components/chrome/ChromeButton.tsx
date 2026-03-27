@@ -8,12 +8,13 @@ interface ChromeButtonProps {
   disabled?: boolean;
   className?: string;
   variant?: "primary" | "glass" | "danger";
+  style?: React.CSSProperties;
 }
 
-export function ChromeButton({ children, onClick, disabled, className = "", variant = "glass" }: ChromeButtonProps) {
+export function ChromeButton({ children, onClick, disabled, className = "", variant = "glass", style: extraStyle }: ChromeButtonProps) {
   if (variant === "primary") {
     return (
-      <button className={`tc-btn-embossed ${className}`} onClick={onClick} disabled={disabled}>
+      <button className={`tc-btn-embossed ${className}`} onClick={onClick} disabled={disabled} style={extraStyle}>
         {children}
       </button>
     );
@@ -51,6 +52,7 @@ export function ChromeButton({ children, onClick, disabled, className = "", vari
         display: "inline-flex",
         alignItems: "center",
         gap: "6px",
+        ...extraStyle,
       }}
     >
       {children}

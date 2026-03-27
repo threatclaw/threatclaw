@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
@@ -49,6 +51,7 @@ const PERM_LEVELS = [
 interface ConfigPageProps { onResetWizard: () => void; }
 
 export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
+  const locale = useLocale();
   const [activeTab, setActiveTab] = useState("general");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -509,10 +512,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         <ChromeButton onClick={onResetWizard} variant="glass">
           <RotateCcw size={14} /> Relancer assistant
         </ChromeButton>
-        <ChromeButton onClick={handleSave} disabled={saving} variant="primary">
+        <ChromeButton onClick={handleSave} disabled={saving} variant="primary" style={{ minWidth: "220px" }}>
           {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-          {saved ? "Sauvegardé" : "Enregistrer la configuration"}
-          {!saved && <ArrowRight size={14} />}
+          {saved ? tr("save", locale) + " ✓" : tr("save", locale)}
         </ChromeButton>
       </div>
     </div>
@@ -1422,9 +1424,9 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
               </ChromeButton>
             ))}
           </div>
-          <ChromeButton onClick={saveRouting} disabled={saving} variant="primary">
+          <ChromeButton onClick={saveRouting} disabled={saving} variant="primary" style={{ minWidth: "140px" }}>
             {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-            {saved ? "Sauvegardé" : "Enregistrer"}
+            {saved ? "Saved ✓" : "Save"}
           </ChromeButton>
         </div>
 

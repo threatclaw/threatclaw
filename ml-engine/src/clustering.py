@@ -183,17 +183,22 @@ def create_findings_for_outliers(result):
 
     # Also create findings for noise assets (don't fit any cluster)
     for noise_asset in result.get("noise", []):
+        # Try to get hostname for better readability
+        asset_info = db.get_asset_info(noise_asset) if hasattr(db, 'get_asset_info') else None
+        hostname = asset_info.get("hostname", "") if asset_info else ""
+        display_name = f"{hostname} ({noise_asset})" if hostname else noise_asset
         db.write_finding(
             skill_id="ml-clustering",
-            title=f"Unclustered asset: {noise_asset} doesn't match any behavioral group",
-            description=f"Asset '{noise_asset}' has a unique behavioral pattern that doesn't match "
-                        f"any other asset group. This could indicate a compromised device or "
-                        f"a misconfigured service.",
+            title=f"Unclustered asset: {display_name} — unique behavioral pattern",
+            description=f"Asset '{display_name}' has a unique behavioral pattern that doesn't match "
+                        f"any other asset group. This could indicate a compromised device, "
+                        f"a misconfigured service, or a new device not yet profiled. "
+                        f"Review this asset in the Assets page.",
             severity="LOW",
             category="ml-clustering",
             asset=noise_asset,
             source="ML DBSCAN Clustering",
-            metadata={"noise": True},
+            metadata={"noise": True, "hostname": hostname},
         )
         findings_created += 1
 
