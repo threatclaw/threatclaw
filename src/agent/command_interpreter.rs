@@ -76,16 +76,8 @@ pub async fn parse_command_with_context(
     context: &str,
     llm_config: &crate::agent::llm_router::LlmRouterConfig,
 ) -> ParsedCommand {
-    if context.is_empty() {
-        return parse_command(message, llm_config).await;
-    }
-
-    // Enhanced prompt with context
-    let contextual_message = format!(
-        "Contexte de la conversation :\n{context}\n\nNouveau message du RSSI : {message}"
-    );
-
-    parse_command(&contextual_message, llm_config).await
+    // Always parse the ORIGINAL message first (not polluted by context)
+    parse_command(message, llm_config).await
 }
 
 /// Parse a natural language message into a structured command using L1 LLM.
@@ -93,6 +85,15 @@ pub async fn parse_command(
     message: &str,
     llm_config: &crate::agent::llm_router::LlmRouterConfig,
 ) -> ParsedCommand {
+    // Fast path: try keyword fallback first for simple commands
+    // This is instant and reliable — no LLM needed for "status", "findings", etc.
+    let fast = fallback_parse(message);
+    if !matches!(fast.execution_type, ExecutionType::Unknown) {
+        tracing::info!("CMD_INTERPRETER: fast-parsed '{}' → action={}", message, fast.action);
+        return fast;
+    }
+
+    // Slow path: complex messages go to LLM for natural language understanding
     let prompt = format!(
         r#"Tu es un interpréteur de commandes pour ThreatClaw, un agent de cybersécurité.
 Le RSSI envoie un message en langage naturel. Tu dois le traduire en action structurée.
@@ -137,8 +138,15 @@ Réponds UNIQUEMENT en JSON valide :
         Err(_) => return fallback_parse(message),
     };
 
+    // Use threatclaw-l1 for command parsing (not the user-configured model which may not have the right prompt)
+    let parse_model = if llm_config.primary.model.contains("threatclaw") {
+        llm_config.primary.model.clone()
+    } else {
+        "threatclaw-l1".to_string()
+    };
+
     let body = json!({
-        "model": llm_config.primary.model,
+        "model": parse_model,
         "messages": [{ "role": "user", "content": prompt }],
         "stream": false,
         "options": { "temperature": 0.1, "num_predict": 512 }
@@ -207,35 +215,49 @@ fn parse_llm_json(content: &str) -> Option<ParsedCommand> {
 
 /// Fallback keyword-based parsing when LLM is unavailable.
 fn fallback_parse(message: &str) -> ParsedCommand {
-    let lower = message.to_lowercase();
+    let lower = message.to_lowercase().trim().to_string();
 
     // Extract IP addresses
     let ip = extract_ip(&lower);
 
-    let (action, execution_type, summary) = if lower.contains("scan") && (lower.contains("port") || lower.contains("nmap")) {
+    // Word boundary check — match whole words not substrings
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let has_word = |w: &str| words.iter().any(|word| word.trim_matches(|c: char| !c.is_alphanumeric()) == w);
+    let has_prefix = |p: &str| lower.contains(p);
+
+    let (action, execution_type, summary) = if has_word("scan") && (has_word("port") || has_word("nmap")) {
         ("scan_port".into(), ExecutionType::Skill { skill_id: "skill-vuln-scan".into() },
          format!("Scanner les ports{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
-    } else if lower.contains("scan") && lower.contains("vuln") {
+    } else if has_word("scan") && (has_prefix("vuln") || has_word("réseau") || has_word("network")) {
         ("scan_vuln".into(), ExecutionType::Skill { skill_id: "skill-vuln-scan".into() },
          format!("Scanner les vulnérabilités{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
-    } else if lower.contains("block") || lower.contains("bloqu") {
+    } else if has_word("scan") || (has_word("scanne") && ip.is_some()) {
+        ("scan_port".into(), ExecutionType::Skill { skill_id: "skill-nmap-discovery".into() },
+         format!("Scanner{}", ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()))
+    } else if has_prefix("bloqu") || has_word("block") || has_word("ban") {
         ("block_ip".into(), ExecutionType::Remediation { cmd_id: "net-001".into() },
          format!("Bloquer l'IP{}", ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()))
-    } else if lower.contains("reputation") || lower.contains("abuseipdb") || (lower.contains("check") && lower.contains("ip")) {
+    } else if has_word("reputation") || has_word("abuseipdb") || has_word("vérifie") || has_word("verifie") || has_word("lookup") {
         ("lookup_ip".into(), ExecutionType::Skill { skill_id: "skill-abuseipdb".into() },
          format!("Vérifier la réputation{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
-    } else if lower.contains("playbook") {
+    } else if has_word("playbook") {
         ("playbook".into(), ExecutionType::Instruct { gen_type: "playbook".into() }, "Générer un playbook".into())
-    } else if lower.contains("rapport") || lower.contains("report") {
+    } else if has_word("rapport") || has_word("report") {
         ("report".into(), ExecutionType::Instruct { gen_type: "report".into() }, "Générer un rapport".into())
-    } else if lower.contains("status") || lower.contains("état") || lower.contains("statut") {
+    } else if has_word("sigma") {
+        ("sigma".into(), ExecutionType::Instruct { gen_type: "sigma".into() }, "Générer une règle Sigma".into())
+    } else if has_word("status") || has_word("statut") || has_word("état") || has_word("etat") {
         ("status".into(), ExecutionType::Query { query_type: "status".into() }, "Afficher le statut".into())
-    } else if lower.contains("finding") || lower.contains("vulnérab") {
-        ("findings".into(), ExecutionType::Query { query_type: "findings".into() }, "Afficher les findings".into())
-    } else if lower.contains("alert") || lower.contains("sigma") {
+    } else if has_prefix("finding") || has_prefix("vulnérab") || has_prefix("vulnerab") {
+        ("findings".into(), ExecutionType::Query { query_type: "findings".into() }, "Afficher les vulnérabilités".into())
+    } else if has_prefix("alert") || has_prefix("alerte") || has_word("détection") || has_word("detection") {
         ("alerts".into(), ExecutionType::Query { query_type: "alerts".into() }, "Afficher les alertes".into())
-    } else if lower.contains("react") || lower.contains("analyse") {
+    } else if has_word("react") || has_word("analyse") || has_word("analyze") {
         ("react".into(), ExecutionType::ReactCycle, "Lancer un cycle d'analyse".into())
+    } else if ip.is_some() {
+        // Just an IP with no command → lookup
+        ("lookup_ip".into(), ExecutionType::Skill { skill_id: "skill-abuseipdb".into() },
+         format!("Vérifier {}", ip.as_ref().unwrap()))
     } else {
         ("unknown".into(), ExecutionType::Unknown, "Commande non reconnue".into())
     };
@@ -293,12 +315,21 @@ async fn execute_query(query_type: &str, store: &dyn Database) -> CommandResult 
 
     match query_type {
         "status" => {
-            let mode = store.get_setting("_system", "agent_mode").await.ok().flatten()
-                .and_then(|v| v.as_str().map(String::from)).unwrap_or("investigator".into());
+            let situation = store.get_setting("_system", "security_situation").await.ok().flatten();
+            let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
+            let alerts_count = store.count_alerts_filtered(None, Some("new")).await.unwrap_or(0);
+            let findings_count = store.count_findings_filtered(None, Some("open"), None).await.unwrap_or(0);
+            let assets_count = store.count_assets_filtered(None, None).await.unwrap_or(0);
+
+            let score_label = if score >= 80.0 { "Situation saine" } else if score >= 50.0 { "Points d'attention" } else { "Situation dégradée" };
+
             CommandResult {
                 success: true,
-                message: format!("ThreatClaw — Mode: {mode}"),
-                data: Some(json!({ "mode": mode })),
+                message: format!(
+                    "*ThreatClaw — Status*\n\nScore sécurité : *{:.0}/100* — {}\nAlertes actives : {}\nVulnérabilités ouvertes : {}\nAssets surveillés : {}",
+                    score, score_label, alerts_count, findings_count, assets_count
+                ),
+                data: Some(json!({ "score": score, "alerts": alerts_count, "findings": findings_count, "assets": assets_count })),
             }
         }
         "findings" => {

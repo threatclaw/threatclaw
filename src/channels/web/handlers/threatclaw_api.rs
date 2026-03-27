@@ -40,6 +40,7 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -133,6 +134,8 @@ pub struct HealthResponse {
     pub version: &'static str,
     pub database: bool,
     pub llm: &'static str,
+    pub disk_free: Option<String>,
+    pub ml: Option<serde_json::Value>,
 }
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, String)>;
@@ -159,6 +162,7 @@ pub async fn tc_health_handler(
     if db_ok && !SERVICES_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
         if let Some(store) = state.store.as_ref() {
             let store_clone = store.clone();
+            let nonce_mgr = Arc::clone(&state.hitl_nonce_manager);
             tokio::spawn(async move {
                 // Wait a bit for all channels to initialize
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -168,6 +172,7 @@ pub async fn tc_health_handler(
                     crate::agent::intelligence_engine::spawn_intelligence_ticker(
                         store_clone.clone(),
                         std::time::Duration::from_secs(300),
+                        Some(nonce_mgr.clone()),
                     );
                     tracing::info!("AUTO-START: Intelligence Engine started (cycle every 5min)");
                 }
@@ -181,7 +186,7 @@ pub async fn tc_health_handler(
                         {
                             crate::agent::conversational_bot::spawn_telegram_bot(
                                 store_clone.clone(),
-                                std::time::Duration::from_secs(3),
+                                std::time::Duration::from_secs(1),
                             );
                             tracing::info!("AUTO-START: Telegram bot started (poll every 3s)");
                         } else {
@@ -194,11 +199,34 @@ pub async fn tc_health_handler(
         }
     }
 
+    // Get ML engine status from heartbeat
+    let ml = if db_ok {
+        if let Some(store) = state.store.as_ref() {
+            store.get_setting("_system", "ml_heartbeat").await.ok().flatten()
+        } else { None }
+    } else { None };
+
+    // Get real disk space
+    let disk_free = {
+        let output = std::process::Command::new("df")
+            .args(["-h", "--output=avail", "/srv"])
+            .output();
+        match output {
+            Ok(o) => {
+                let s = String::from_utf8_lossy(&o.stdout);
+                s.lines().nth(1).map(|l| format!("{} libre", l.trim()))
+            }
+            Err(_) => None,
+        }
+    };
+
     Ok(Json(HealthResponse {
         status: if db_ok { "ok" } else { "degraded" },
         version: env!("CARGO_PKG_VERSION"),
         database: db_ok,
         llm: "ollama",
+        disk_free,
+        ml,
     }))
 }
 
@@ -596,20 +624,17 @@ pub struct HitlCallbackRequest {
 }
 
 pub async fn hitl_callback_handler(
-    State(_state): State<Arc<GatewayState>>,
+    State(state): State<Arc<GatewayState>>,
     Json(req): Json<HitlCallbackRequest>,
 ) -> ApiResult<serde_json::Value> {
-    use crate::agent::hitl_nonce::NonceManager;
-    use std::time::Duration;
-
-    // Create a temporary nonce manager (in production this would be shared via state)
-    let nonce_mgr = NonceManager::new(Duration::from_secs(3600));
+    // Use the shared NonceManager from GatewayState
+    let nonce_mgr = &state.hitl_nonce_manager;
 
     let result = crate::agent::hitl_bridge::process_slack_callback(
         &req.nonce,
         req.approved,
         &req.approved_by,
-        &nonce_mgr,
+        nonce_mgr,
         &req.params,
     )
     .await;
@@ -1041,12 +1066,21 @@ pub async fn config_get_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let mut config = serde_json::json!({});
-    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "conversational", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys"] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
             config[*key] = val;
         }
     }
+
+    // Add model catalog and RAM estimates for the dashboard
+    let catalog = crate::agent::llm_router::model_catalog();
+    let mut catalog_json = serde_json::json!({});
+    for (level, models) in &catalog {
+        catalog_json[*level] = serde_json::json!(models);
+    }
+    config["model_catalog"] = catalog_json;
+
     Ok(Json(config))
 }
 
@@ -1058,7 +1092,7 @@ pub async fn config_set_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Save each config section
-    for key in &["llm", "forensic", "instruct", "cloud", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys"] {
+    for key in &["llm", "forensic", "instruct", "cloud", "conversational", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys"] {
         if let Some(val) = body.get(*key) {
             let setting_key = format!("tc_config_{}", key);
             store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;
@@ -2025,89 +2059,29 @@ pub async fn conversation_mode_handler(
 }
 
 // ══════════════════════════════════════════════════════════
-// LICENSE
+// INSTANCE IDENTITY
 // ══════════════════════════════════════════════════════════
 
-/// GET /api/tc/license — get current license status + asset count.
+/// GET /api/tc/license — get instance identity + asset count (no limits).
 pub async fn license_status_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    // Get serial from DB settings
-    let serial = store.get_setting("tc_license", "serial").await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default();
+    let license = crate::config::license::load_license(store.as_ref()).await;
 
-    let license = crate::config::license::verify_serial(&serial);
-
-    // Count assets in graph
+    // Count assets
     let asset_stats = crate::graph::asset_resolution::asset_stats(store.as_ref()).await;
     let asset_count = asset_stats["total_assets"].as_i64().unwrap_or(0) as usize;
 
     Ok(Json(serde_json::json!({
+        "instance_id": license.instance_id,
         "tier": license.tier,
-        "max_assets": license.max_assets,
+        "max_assets": null,  // Unlimited
         "asset_count": asset_count,
-        "usage_percent": license.usage_percent(asset_count),
-        "over_limit": license.is_over_limit(asset_count),
+        "over_limit": false, // Never limited
         "client_name": license.client_name,
-        "expires": license.expires,
-        "valid": license.valid,
-        "days_remaining": license.days_remaining,
         "status_message": license.status_message(asset_count),
-    })))
-}
-
-/// POST /api/tc/license/activate — activate a serial.
-pub async fn license_activate_handler(
-    State(state): State<Arc<GatewayState>>,
-    Json(body): Json<serde_json::Value>,
-) -> ApiResult<serde_json::Value> {
-    let store = state.store.as_ref().ok_or_else(no_db)?;
-    let serial = body["serial"].as_str()
-        .ok_or((StatusCode::BAD_REQUEST, "Missing serial".to_string()))?;
-
-    // Verify the serial
-    let license = crate::config::license::verify_serial(serial);
-
-    if !license.valid || license.tier == crate::config::license::LicenseTier::Community {
-        if serial.trim().is_empty() {
-            // Clear the serial
-            let _ = store.set_setting("tc_license", "serial", &serde_json::json!("")).await;
-            return Ok(Json(serde_json::json!({
-                "activated": false,
-                "tier": "community",
-                "message": "Licence reinitialisee — mode Community",
-            })));
-        }
-        return Ok(Json(serde_json::json!({
-            "activated": false,
-            "tier": "community",
-            "message": if license.days_remaining.map(|d| d < 0).unwrap_or(false) {
-                "Serial expire — veuillez renouveler"
-            } else {
-                "Serial invalide — verifiez et reessayez"
-            },
-        })));
-    }
-
-    // Store the serial in DB
-    let _ = store.set_setting("tc_license", "serial", &serde_json::json!(serial)).await;
-
-    tracing::info!("LICENSE: Activated {} for '{}' — {} assets max",
-        license.tier, license.client_name, license.max_assets);
-
-    Ok(Json(serde_json::json!({
-        "activated": true,
-        "tier": license.tier,
-        "max_assets": license.max_assets,
-        "client_name": license.client_name,
-        "expires": license.expires,
-        "message": format!("Licence {} activee pour {} — {} assets max",
-            license.tier, license.client_name, license.max_assets),
     })))
 }
 
@@ -2688,6 +2662,7 @@ pub async fn intelligence_start_handler(
     crate::agent::intelligence_engine::spawn_intelligence_ticker(
         store.clone(),
         std::time::Duration::from_secs(300), // 5 min
+        Some(Arc::clone(&state.hitl_nonce_manager)),
     );
 
     tracing::info!("INTELLIGENCE: Engine started via API (cycle every 5min)");
@@ -2769,11 +2744,39 @@ pub async fn hitl_button_callback_handler(
 
     tracing::info!("HITL: Callback received — action={}, nonce={}", action, &nonce[..8.min(nonce.len())]);
 
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "action": action,
-        "message": if approved { "Action approuvée" } else { "Action rejetée" },
-    })))
+    // Use the shared NonceManager and process_slack_callback (works for all channels)
+    let nonce_mgr = &state.hitl_nonce_manager;
+
+    let result = crate::agent::hitl_bridge::process_slack_callback(
+        nonce,
+        approved,
+        "button_callback",
+        nonce_mgr,
+        &params,
+    ).await;
+
+    match result {
+        Ok(r) => {
+            tracing::info!("HITL: {} — cmd_id={}, executed={}, success={:?}",
+                if r.approved { "APPROVED" } else { "REJECTED" }, r.cmd_id, r.executed, r.execution_success);
+            Ok(Json(serde_json::json!({
+                "ok": true,
+                "action": if r.approved { "approved" } else { "rejected" },
+                "cmd_id": r.cmd_id,
+                "executed": r.executed,
+                "success": r.execution_success,
+                "output": r.execution_output,
+                "message": if r.approved { "Action approuvée et exécutée" } else { "Action rejetée" },
+            })))
+        }
+        Err(e) => {
+            tracing::warn!("HITL: Callback error: {}", e);
+            Ok(Json(serde_json::json!({
+                "ok": false,
+                "error": format!("{}", e),
+            })))
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2796,7 +2799,7 @@ pub async fn bot_start_handler(
     BOT_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
     crate::agent::conversational_bot::spawn_telegram_bot(
         store.clone(),
-        std::time::Duration::from_secs(3),
+        std::time::Duration::from_secs(1),
     );
 
     tracing::info!("CONV_BOT: Started via API");
@@ -3077,6 +3080,75 @@ pub async fn enrichment_spamhaus_handler(
     }
 }
 
+pub async fn enrichment_securitytrails_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(domain): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    if let Ok(Some(cached)) = store.get_enrichment_cache("securitytrails", &domain).await {
+        return Ok(Json(cached));
+    }
+    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-securitytrails", "SECURITYTRAILS_API_KEY").await;
+    match crate::enrichment::securitytrails::lookup_domain(&domain, &api_key).await {
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("securitytrails", &domain, &result, 24).await;
+            Ok(Json(result))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_urlscan_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = body["url"].as_str().unwrap_or("");
+    if url.is_empty() {
+        return Ok(Json(serde_json::json!({ "error": "Missing url field" })));
+    }
+    if let Ok(Some(cached)) = store.get_enrichment_cache("urlscan", url).await {
+        return Ok(Json(cached));
+    }
+    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-urlscan", "URLSCAN_API_KEY").await;
+    match crate::enrichment::urlscan::scan_url(url, &api_key).await {
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("urlscan", url, &result, 24).await;
+            Ok(Json(result))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+pub async fn enrichment_wordfence_handler() -> ApiResult<serde_json::Value> {
+    // Sync the Wordfence feed if needed, then return stats
+    if crate::enrichment::wordfence_intel::needs_sync() {
+        match crate::enrichment::wordfence_intel::sync_feed().await {
+            Ok(count) => {
+                return Ok(Json(serde_json::json!({
+                    "status": "synced",
+                    "vulnerabilities_loaded": count,
+                    "known_slugs": crate::enrichment::wordfence_intel::known_slugs_count(),
+                })));
+            }
+            Err(e) => return Ok(Json(serde_json::json!({ "error": e }))),
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "status": "cached",
+        "known_slugs": crate::enrichment::wordfence_intel::known_slugs_count(),
+    })))
+}
+
+pub async fn enrichment_wordfence_lookup_handler(
+    Path(slug): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let vulns = crate::enrichment::wordfence_intel::lookup_slug(&slug);
+    Ok(Json(serde_json::json!({ "slug": slug, "vulnerabilities": vulns, "count": vulns.len() })))
+}
+
 // ════════════════════════════════════════════════════════════════
 // CONNECTORS — WEB SECURITY (Tier 2)
 // ════════════════════════════════════════════════════════════════
@@ -3198,6 +3270,7 @@ pub async fn assets_upsert_handler(
         url: body["url"].as_str().map(String::from),
         os: body["os"].as_str().map(String::from),
         mac_vendor: body["mac_vendor"].as_str().map(String::from),
+            services: serde_json::json!([]),
         source: body["source"].as_str().unwrap_or("manual").to_string(),
         owner: body["owner"].as_str().map(String::from),
         location: body["location"].as_str().map(String::from),
@@ -3572,6 +3645,92 @@ pub async fn connector_dhcp_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+// ── Freebox Connector ──
+
+pub async fn connector_freebox_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_url").await;
+    // Token may be stored as JSON string "token" or raw — handle both
+    let app_token = {
+        let raw = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
+        let trimmed = raw.trim().trim_matches('"').to_string();
+        trimmed
+    };
+    tracing::debug!("FREEBOX SYNC: url={}, token_len={}", url, app_token.len());
+    if app_token.is_empty() {
+        return Ok(Json(serde_json::json!({"error": "Freebox app_token not configured. Run pairing first."})));
+    }
+    let config = crate::connectors::freebox::FreeboxConfig {
+        url: if url.is_empty() { "http://mafreebox.freebox.fr".into() } else { url },
+        app_token,
+    };
+    let result = crate::connectors::freebox::sync_freebox(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_freebox_pair_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = body["url"].as_str().unwrap_or("http://mafreebox.freebox.fr");
+
+    match crate::connectors::freebox::request_pairing(url).await {
+        Ok((token, track_id)) => {
+            let _ = store.set_setting("_system", "freebox_pending_token", &serde_json::json!({
+                "app_token": token,
+                "track_id": track_id,
+                "url": url,
+            })).await;
+            Ok(Json(serde_json::json!({
+                "status": "pending",
+                "track_id": track_id,
+                "message": "Appuyez sur le bouton de votre Freebox pour autoriser ThreatClaw.",
+            })))
+        }
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
+}
+
+pub async fn connector_freebox_pair_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Check if already paired (token exists and is non-empty)
+    let existing_token = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
+    let existing_trimmed = existing_token.trim().trim_matches('"');
+    if !existing_trimmed.is_empty() {
+        return Ok(Json(serde_json::json!({"status": "granted", "message": "Freebox appairée"})));
+    }
+
+    let pending = store.get_setting("_system", "freebox_pending_token").await.ok().flatten();
+    if pending.is_none() || pending.as_ref().map(|v| v.is_null()).unwrap_or(true) {
+        return Ok(Json(serde_json::json!({"status": "no_pending"})));
+    }
+    let pending = pending.unwrap();
+    let url = pending["url"].as_str().unwrap_or("http://mafreebox.freebox.fr");
+    let track_id = pending["track_id"].as_i64().unwrap_or(0);
+    let app_token = pending["app_token"].as_str().unwrap_or("");
+
+    match crate::connectors::freebox::check_pairing_status(url, track_id).await {
+        Ok(status) => {
+            if status == "granted" {
+                tracing::info!("FREEBOX PAIR: Granted! Token length: {}", app_token.len());
+                let _ = store.set_setting("skill-freebox", "freebox_app_token", &serde_json::Value::String(app_token.to_string())).await;
+                let _ = store.set_setting("skill-freebox", "freebox_url", &serde_json::Value::String(url.to_string())).await;
+                let _ = store.set_setting("_system", "freebox_pending_token", &serde_json::json!(null)).await;
+                Ok(Json(serde_json::json!({"status": "granted", "message": "Freebox appairée !"})))
+            } else {
+                Ok(Json(serde_json::json!({"status": status})))
+            }
+        }
+        Err(e) => Ok(Json(serde_json::json!({"status": "error", "error": e}))),
+    }
+}
+
 pub async fn enrichment_mac_handler(
     State(_state): State<Arc<GatewayState>>,
     Path(mac): Path<String>,
@@ -3771,13 +3930,64 @@ pub async fn export_stix2_handler(
     Ok(Json(bundle))
 }
 
-/// Report generation (NIS2, executive, technical) — structured JSON
-/// In production, L2.5 LLM generates the narrative text
+/// Compile a Typst template to PDF. Writes data.json to a temp dir, copies template + common.typ, runs typst compile.
+fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    let tmp = std::env::temp_dir().join(format!("tc-report-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).map_err(|e| format!("mkdir: {e}"))?;
+
+    // Write data.json
+    let data_path = tmp.join("data.json");
+    let mut f = std::fs::File::create(&data_path).map_err(|e| format!("data.json: {e}"))?;
+    f.write_all(serde_json::to_string_pretty(data).unwrap().as_bytes()).map_err(|e| format!("write: {e}"))?;
+
+    // Copy template + common.typ
+    let tpl_dir = std::path::Path::new("templates");
+    let common_src = tpl_dir.join("common.typ");
+    let tpl_src = tpl_dir.join(format!("{template_name}.typ"));
+
+    if !tpl_src.exists() {
+        return Err(format!("Template not found: {}", tpl_src.display()));
+    }
+
+    std::fs::copy(&common_src, tmp.join("common.typ")).map_err(|e| format!("copy common: {e}"))?;
+    std::fs::copy(&tpl_src, tmp.join(format!("{template_name}.typ"))).map_err(|e| format!("copy tpl: {e}"))?;
+
+    let output_pdf = tmp.join("output.pdf");
+
+    // Run typst compile
+    let result = std::process::Command::new("typst")
+        .arg("compile")
+        .arg(format!("{template_name}.typ"))
+        .arg("output.pdf")
+        .current_dir(&tmp)
+        .output()
+        .map_err(|e| format!("typst exec: {e}"))?;
+
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("typst compile failed: {stderr}"));
+    }
+
+    let pdf_bytes = std::fs::read(&output_pdf).map_err(|e| format!("read pdf: {e}"))?;
+
+    // Cleanup temp dir
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    Ok(pdf_bytes)
+}
+
+/// Report generation (NIS2, executive, technical) — JSON or PDF via Typst
 pub async fn export_report_handler(
     State(state): State<Arc<GatewayState>>,
     axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
-) -> ApiResult<serde_json::Value> {
-    let store = state.store.as_ref().ok_or_else(no_db)?;
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let format = body.get("format").and_then(|f| f.as_str()).unwrap_or("json");
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
+    };
     let company = store.get_company_profile().await.unwrap_or_default();
     let path = uri.path();
     let now = chrono::Utc::now();
@@ -3790,109 +4000,383 @@ pub async fn export_report_handler(
     let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
 
     let company_name = company.company_name.as_deref().unwrap_or("Organisation");
+    let sector = company.sector.as_str();
 
-    if path.contains("nis2-early") {
-        return Ok(Json(serde_json::json!({
-            "type": "nis2_early_warning",
-            "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
-            "deadline": "24 heures après détection",
-            "sections": {
-                "detection_time": now.to_rfc3339(),
-                "incident_nature": format!("{} alertes détectées, score sécurité {:.0}/100", alerts.len(), score),
-                "affected_systems": assets.iter().take(10).map(|a| &a.name).collect::<Vec<_>>(),
-                "initial_impact": if score < 50.0 { "Impact significatif — situation dégradée" } else { "Impact limité — situation sous contrôle" },
-                "immediate_measures": ["Surveillance renforcée activée", "ThreatClaw Engine en mode alerte", "Analyse comportementale en cours"],
-            },
-            "note": "Ce rapport est généré automatiquement par ThreatClaw. En production, le LLM L2.5 rédige le texte narratif complet."
-        })));
-    }
+    // ── Graph AGE: extract MITRE ATT&CK TTPs ──
+    let mitre_ttps: Vec<String> = {
+        let cypher = "MATCH (t:Technique) RETURN t.mitre_id, t.name, t.tactic LIMIT 20";
+        let results = crate::graph::threat_graph::query(store.as_ref(), cypher).await;
+        results.iter().filter_map(|r| {
+            let id = r.get("t.mitre_id").and_then(|v| v.as_str());
+            let name = r.get("t.name").and_then(|v| v.as_str());
+            match (id, name) {
+                (Some(i), Some(n)) => Some(format!("{i} — {n}")),
+                (Some(i), None) => Some(i.to_string()),
+                _ => None,
+            }
+        }).collect()
+    };
 
-    if path.contains("nis2-intermediate") {
-        return Ok(Json(serde_json::json!({
-            "type": "nis2_intermediate",
-            "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
-            "deadline": "72 heures après détection",
-            "sections": {
-                "incident_update": format!("{} alertes, {} findings, {} assets concernés", alerts.len(), findings.len(), assets.len()),
-                "preliminary_analysis": "Analyse en cours par ThreatClaw Engine + détection comportementale",
-                "iocs_identified": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).collect::<Vec<_>>(),
-                "corrective_actions": ["Isolation des assets compromis", "Blocage des IPs malveillantes", "Renforcement des règles firewall"],
-                "score_security": score,
-            },
-        })));
-    }
+    // ── ML scores: get anomaly scores for affected assets ──
+    let ml_anomalies: Vec<serde_json::Value> = {
+        let mut anomalies = Vec::new();
+        for asset in assets.iter().take(50) {
+            if let Ok(Some((ml_score, reason))) = store.get_ml_score(&asset.id).await {
+                if ml_score > 0.5 { // anomaly threshold (0=normal, 1=anomalous)
+                    anomalies.push(serde_json::json!({
+                        "asset": asset.name,
+                        "asset_id": asset.id,
+                        "ml_score": format!("{:.2}", ml_score),
+                        "reason": reason,
+                        "category": asset.category,
+                    }));
+                }
+            }
+        }
+        anomalies
+    };
 
-    if path.contains("nis2-final") {
-        return Ok(Json(serde_json::json!({
-            "type": "nis2_final_report",
-            "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
-            "deadline": "1 mois après détection",
-            "sections": {
-                "full_timeline": "Timeline complète de l'incident",
-                "root_cause_analysis": "Analyse des causes racines",
-                "total_alerts": alerts.len(),
-                "total_findings": findings.len(),
-                "affected_assets": assets.iter().map(|a| serde_json::json!({"name": a.name, "category": a.category, "criticality": a.criticality})).collect::<Vec<_>>(),
-                "corrective_measures": "Mesures correctives implémentées",
-                "recommendations": "Recommandations pour éviter la récurrence",
-                "final_score": score,
-            },
-        })));
-    }
+    // Common asset mapping for NIS2 reports
+    let asset_json = |a: &crate::db::threatclaw_store::AssetRecord| serde_json::json!({
+        "name": a.name, "category": a.category, "criticality": a.criticality,
+        "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
+    });
 
-    if path.contains("article21") {
-        return Ok(Json(serde_json::json!({
-            "type": "nis2_article21_compliance",
-            "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
-            "measures": [
-                {"id": 1, "title": "Politiques de sécurité des SI", "status": "partial", "score": 60, "covered_by": "ThreatClaw Engine + Config"},
-                {"id": 2, "title": "Gestion des incidents", "status": "covered", "score": 90, "covered_by": "Intelligence Engine + Alertes + Rapports NIS2"},
-                {"id": 3, "title": "Continuité d'activité", "status": "partial", "score": 40, "covered_by": "Monitoring uptime"},
-                {"id": 4, "title": "Sécurité chaîne d'approvisionnement", "status": "covered", "score": 70, "covered_by": "Supply Chain Graph Analysis"},
-                {"id": 5, "title": "Sécurité acquisition/développement", "status": "partial", "score": 50, "covered_by": "Trivy + Semgrep scans"},
-                {"id": 6, "title": "Évaluation efficacité mesures", "status": "covered", "score": 85, "covered_by": "Score sécurité + ML baselines"},
-                {"id": 7, "title": "Pratiques d'hygiène cyber", "status": "covered", "score": 75, "covered_by": "Lynis + Docker Bench audits"},
-                {"id": 8, "title": "Cryptographie", "status": "covered", "score": 80, "covered_by": "SSL Labs + Observatory checks"},
-                {"id": 9, "title": "Ressources humaines", "status": "not_covered", "score": 0, "covered_by": "Hors périmètre ThreatClaw"},
-                {"id": 10, "title": "Contrôle d'accès + authentification", "status": "covered", "score": 70, "covered_by": "AD Audit + HIBP + Identity Graph"},
-            ],
-            "global_compliance_score": 62,
-        })));
-    }
+    let notification_id = format!("TC-{}-{:03}", now.format("%Y-%m%d"), 1);
+    let incident_id = format!("TC-INC-{}-001", now.format("%Y%m%d"));
+    let generated_display = now.format("%d/%m/%Y %H:%M").to_string();
+    let critical_alerts: Vec<_> = alerts.iter().filter(|a| a.level == "critical").collect();
 
-    if path.contains("executive") {
-        return Ok(Json(serde_json::json!({
-            "type": "executive_report",
+    // Determine incident type from most frequent alert pattern
+    let incident_type = if alerts.iter().any(|a| a.title.to_lowercase().contains("ransomware") || a.title.to_lowercase().contains("chiffr")) {
+        "ransomware"
+    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("brute") || a.title.to_lowercase().contains("ssh") || a.title.to_lowercase().contains("intrusion")) {
+        "intrusion"
+    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("ddos") || a.title.to_lowercase().contains("flood")) {
+        "ddos"
+    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("fuite") || a.title.to_lowercase().contains("leak") || a.title.to_lowercase().contains("exfiltration")) {
+        "data_leak"
+    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("malware") || a.title.to_lowercase().contains("trojan") || a.title.to_lowercase().contains("virus")) {
+        "malware"
+    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("phishing") || a.title.to_lowercase().contains("hameçon")) {
+        "phishing"
+    } else {
+        "other"
+    };
+
+    let incident_type_label = match incident_type {
+        "ransomware" => "Ransomware / Chiffrement",
+        "intrusion" => "Accès non autorisé / Intrusion",
+        "ddos" => "DDoS / Déni de service",
+        "data_leak" => "Fuite de données",
+        "malware" => "Malware / Code malveillant",
+        "phishing" => "Hameçonnage ciblé",
+        _ => "Autre",
+    };
+
+    let incident_status = if score < 50.0 { "ongoing" } else if score < 80.0 { "contained" } else { "resolved" };
+    let incident_status_label = match incident_status {
+        "ongoing" => "En cours",
+        "contained" => "Contenu",
+        _ => "Résolu",
+    };
+
+    let severity = if score < 30.0 { "critical" } else if score < 50.0 { "high" } else if score < 70.0 { "medium" } else { "low" };
+
+    // ── RGPD Art.33 auto-detection ──
+    // Determine if personal data is likely involved → triggers CNIL notification
+    let gdpr_required = {
+        // Criterion 1: incident type is data leak
+        let is_data_leak = incident_type == "data_leak";
+        // Criterion 2: database assets are affected
+        let db_assets_affected = assets.iter().any(|a| {
+            let cat = a.category.to_lowercase();
+            cat.contains("base de donn") || cat.contains("database") || cat.contains("bdd")
+                || cat.contains("sql") || cat.contains("storage")
+        });
+        // Criterion 3: findings mention PII / personal data
+        let pii_findings = findings.iter().any(|f| {
+            let t = f.title.to_lowercase();
+            let d = f.description.as_deref().unwrap_or("").to_lowercase();
+            t.contains("pii") || t.contains("données personnelles") || t.contains("personal data")
+                || t.contains("rgpd") || t.contains("gdpr") || t.contains("fuite")
+                || t.contains("leak") || t.contains("exfiltration")
+                || d.contains("pii") || d.contains("données personnelles") || d.contains("personal data")
+        });
+        // Criterion 4: alerts mention data exfiltration
+        let exfil_alerts = alerts.iter().any(|a| {
+            let t = a.title.to_lowercase();
+            t.contains("exfiltration") || t.contains("data leak") || t.contains("fuite")
+                || t.contains("données personnelles") || t.contains("pii")
+        });
+
+        if is_data_leak || pii_findings || exfil_alerts {
+            "yes"
+        } else if db_assets_affected && (severity == "critical" || severity == "high") {
+            "likely"
+        } else {
+            "no"
+        }
+    };
+
+    // Build the report data JSON + determine template name
+    let (template_name, report_data) = if path.contains("nis2-early") {
+        let deadline_72h = (now + chrono::Duration::hours(72)).format("%d/%m/%Y %H:%M").to_string();
+        ("nis2-early-warning", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "sub_sector": company.nace_code.as_deref().unwrap_or("—"),
+            "nis2_status": "Entité Essentielle / Importante",
+            "security_contact": "RSSI",
+            "contact_email": "—",
+            "contact_phone": "—",
+            "notification_id": notification_id,
+            "generated_at_display": generated_display,
+            "incident_id": incident_id,
+            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+            "notified_at": generated_display,
+            "delay_hours": "0",
+            "incident_type": incident_type,
+            "incident_type_detail": if !critical_alerts.is_empty() { &critical_alerts[0].title } else { "Anomalie détectée" },
+            "incident_description": format!("{} alertes détectées par ThreatClaw Engine, dont {} critiques. Score sécurité : {:.0}/100.", alerts.len(), critical_alerts.len(), score),
+            "suspected_malicious": if critical_alerts.is_empty() { "unknown" } else { "yes" },
+            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+            "cross_border_impact": "unknown",
+            "incident_status": incident_status,
+            "deadline_72h": deadline_72h,
+        }))
+    } else if path.contains("nis2-intermediate") {
+        let deadline_final = (now + chrono::Duration::days(30)).format("%d/%m/%Y").to_string();
+        ("nis2-intermediate", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "notification_id": notification_id,
+            "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
+            "generated_at_display": generated_display,
+            "incident_id": incident_id,
+            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+            "incident_type_label": incident_type_label,
+            "incident_status_label": incident_status_label,
+            "alerts_count": alerts.len().to_string(),
+            "findings_count": findings.len().to_string(),
+            "assets_count": assets.len().to_string(),
+            "score": format!("{:.0}", score),
+            "severity": severity,
+            "impact_scope": format!("{} assets dans le périmètre impacté, {} alertes de sécurité détectées.", assets.len(), alerts.len()),
+            "affected_services": "En cours d'identification par ThreatClaw Engine.",
+            "probable_cause": "Analyse en cours par ThreatClaw Engine. Corrélation multi-source et détection comportementale activées.",
+            "attack_vector": "En cours d'identification",
+            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+            })).collect::<Vec<_>>(),
+            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+            "cross_border_impact": "unknown",
+            "deadline_final": deadline_final,
+        }))
+    } else if path.contains("nis2-final") {
+        ("nis2-final", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "notification_id": notification_id,
+            "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
+            "generated_at_display": generated_display,
+            "incident_id": incident_id,
+            "incident_type_label": incident_type_label,
+            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+            "closure_date": now.format("%d/%m/%Y").to_string(),
+            "incident_duration": "En cours d'évaluation",
+            "final_severity": severity,
+            "score": format!("{:.0}", score),
+            "alerts_count": alerts.len().to_string(),
+            "findings_count": findings.len().to_string(),
+            "assets_count": assets.len().to_string(),
+            "full_description": format!("L'incident a été détecté par ThreatClaw Engine. {} alertes ont été générées, dont {} critiques. {} vulnérabilités ont été identifiées sur {} assets.", alerts.len(), critical_alerts.len(), findings.len(), assets.len()),
+            "root_cause": "Analyse des causes racines consolidée par ThreatClaw Engine à partir des corrélations multi-sources et du graph d'attaque.",
+            "attack_vector": "En cours d'identification",
+            "operational_impact": if score < 50.0 { "Impact significatif détecté" } else { "Impact limité grâce à la détection précoce" },
+            "financial_impact": "En cours d'évaluation",
+            "data_exposed": "Aucune donnée personnelle identifiée comme exposée",
+            "affected_users": "—",
+            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+            "notified_authority": "ANSSI / CSIRT-FR",
+            "gdpr_notification_required": gdpr_required,
+            "timeline": [],
+            "mitre_ttps": mitre_ttps,
+        }))
+    } else if path.contains("article21") {
+        let measures = vec![
+            serde_json::json!({"title": "Politiques de sécurité des SI", "status": "partial", "score": "60", "covered_by": "ThreatClaw Engine + Config"}),
+            serde_json::json!({"title": "Gestion des incidents", "status": "covered", "score": "90", "covered_by": "Intelligence Engine + Alertes + Rapports NIS2"}),
+            serde_json::json!({"title": "Continuité d'activité", "status": "partial", "score": "40", "covered_by": "Monitoring uptime"}),
+            serde_json::json!({"title": "Sécurité chaîne d'approvisionnement", "status": "covered", "score": "70", "covered_by": "Supply Chain Graph Analysis"}),
+            serde_json::json!({"title": "Sécurité acquisition/développement", "status": "partial", "score": "50", "covered_by": "Trivy + Semgrep scans"}),
+            serde_json::json!({"title": "Évaluation efficacité mesures", "status": "covered", "score": "85", "covered_by": "Score sécurité + ML baselines"}),
+            serde_json::json!({"title": "Pratiques d'hygiène cyber", "status": "covered", "score": "75", "covered_by": "Lynis + Docker Bench audits"}),
+            serde_json::json!({"title": "Cryptographie", "status": "covered", "score": "80", "covered_by": "SSL Labs + Observatory checks"}),
+            serde_json::json!({"title": "Ressources humaines", "status": "not_covered", "score": "0", "covered_by": "Hors périmètre ThreatClaw"}),
+            serde_json::json!({"title": "Contrôle d'accès + authentification", "status": "covered", "score": "70", "covered_by": "AD Audit + HIBP + Identity Graph"}),
+        ];
+        ("nis2-article21", serde_json::json!({
             "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
+            "global_score": "62",
+            "measures": measures,
+        }))
+    } else if path.contains("executive") {
+        ("executive-report", serde_json::json!({
+            "company_name": company_name,
             "period": format!("{}", now.format("%B %Y")),
-            "security_score": score,
-            "summary": format!("Score sécurité ce mois : {:.0}/100. {} alertes détectées, {} assets surveillés.", score, alerts.len(), assets.len()),
-            "key_points": [
-                format!("{} alertes de sécurité ce mois", alerts.len()),
-                format!("{} vulnérabilités identifiées", findings.len()),
-                format!("{} assets dans l'inventaire", assets.len()),
-            ],
-            "recommendation": if score >= 80.0 { "Situation saine. Maintenir la surveillance." } else if score >= 50.0 { "Points d'attention à traiter. Voir détails." } else { "Situation dégradée. Actions correctives urgentes." },
-        })));
-    }
-
-    if path.contains("technical") {
-        return Ok(Json(serde_json::json!({
-            "type": "technical_report",
+            "score": format!("{:.0}", score),
+            "alerts_count": alerts.len().to_string(),
+            "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
+            "assets_count": assets.len().to_string(),
+            "alerts": alerts.iter().filter(|a| a.level == "critical").take(10).map(|a| serde_json::json!({
+                "date": a.matched_at.chars().take(10).collect::<String>(),
+                "title": a.title,
+                "source": a.source_ip.as_deref().unwrap_or("—"),
+            })).collect::<Vec<_>>(),
+        }))
+    } else if path.contains("technical") {
+        ("technical-report", serde_json::json!({
             "company_name": company_name,
-            "generated_at": now.to_rfc3339(),
-            "security_score": score,
-            "alerts": alerts,
-            "findings": findings,
-            "assets": assets.iter().map(|a| serde_json::json!({"name": a.name, "category": a.category, "criticality": a.criticality, "ips": a.ip_addresses})).collect::<Vec<_>>(),
-            "recommendations": "Rapport technique détaillé — tous les findings avec CVEs, TTPs MITRE, recommandations.",
-        })));
+            "period": format!("{}", now.format("%B %Y")),
+            "score": format!("{:.0}", score),
+            "alerts_count": alerts.len().to_string(),
+            "findings_count": findings.len().to_string(),
+            "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
+            "assets_count": assets.len().to_string(),
+            "alerts": alerts.iter().take(50).map(|a| serde_json::json!({
+                "level": a.level, "title": a.title, "date": a.matched_at.chars().take(10).collect::<String>(),
+                "source_ip": a.source_ip.as_deref().unwrap_or("—"),
+            })).collect::<Vec<_>>(),
+            "findings": findings.iter().take(50).map(|f| serde_json::json!({
+                "title": f.title, "severity": f.severity,
+                "asset": f.asset.as_deref().unwrap_or("—"),
+                "source": f.source.as_deref().unwrap_or("—"),
+            })).collect::<Vec<_>>(),
+            "assets": assets.iter().take(50).map(|a| serde_json::json!({
+                "name": a.name, "category": a.category, "criticality": a.criticality,
+                "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
+            })).collect::<Vec<_>>(),
+            "ml_anomalies": ml_anomalies,
+            "mitre_ttps": mitre_ttps,
+        }))
+    } else if path.contains("audit-trail") {
+        ("audit-trail", serde_json::json!({
+            "company_name": company_name,
+            "period": format!("{}", now.format("%B %Y")),
+            "period_start": now.format("%d/%m/%Y").to_string(),
+            "period_end": now.format("%d/%m/%Y").to_string(),
+            "entries": [],
+            "journal_hash": "sha256:pending",
+        }))
+    } else if path.contains("gdpr") {
+        let risk_level = if incident_type == "data_leak" { "high" } else if gdpr_required == "yes" { "high" } else if gdpr_required == "likely" { "medium" } else { "low" };
+        ("gdpr-article33", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "notification_id": format!("TC-RGPD-{}-001", now.format("%Y%m%d")),
+            "generated_at_display": generated_display,
+            "security_contact": "RSSI",
+            "contact_email": "—",
+            "contact_phone": "—",
+            "dpo_contact": "DPO",
+            "dpo_email": "—",
+            "incident_type_label": incident_type_label,
+            "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
+            "data_subject_categories": "En cours d'évaluation",
+            "affected_persons_count": "En cours d'évaluation",
+            "data_categories": "En cours d'évaluation",
+            "affected_records_count": "En cours d'évaluation",
+            "probable_consequences": "Évaluation en cours par ThreatClaw Engine.",
+            "risk_level": risk_level,
+            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+            "nis2_notification_sent": "yes",
+        }))
+    } else if path.contains("nist") {
+        ("nist-incident", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "generated_at_display": generated_display,
+            "incident_id": incident_id,
+            "security_contact": "RSSI",
+            "contact_email": "—",
+            "contact_phone": "—",
+            "alerts_count": alerts.len().to_string(),
+            "findings_count": findings.len().to_string(),
+            "assets_count": assets.len().to_string(),
+            "score": format!("{:.0}", score),
+            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+            "notified_at": generated_display,
+            "incident_status_label": incident_status_label,
+            "incident_type_label": incident_type_label,
+            "severity": severity,
+            "attack_vector": "Under investigation",
+            "incident_description": format!("{} alerts detected, {} critical. Security score: {:.0}/100.", alerts.len(), critical_alerts.len(), score),
+            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+            })).collect::<Vec<_>>(),
+            "root_cause": "Under investigation by ThreatClaw Engine.",
+            "operational_impact": if score < 50.0 { "Significant impact detected" } else { "Limited impact" },
+            "data_exposed": "No data exposure identified",
+            "financial_impact": "Under evaluation",
+            "recoverability": if score >= 70.0 { "Recoverable" } else { "Supplemented" },
+            "mitre_ttps": mitre_ttps,
+        }))
+    } else if path.contains("iso27001") {
+        ("iso27001-incident", serde_json::json!({
+            "org_name": company_name,
+            "sector": sector,
+            "generated_at_display": generated_display,
+            "incident_id": incident_id,
+            "incident_type_label": incident_type_label,
+            "severity": severity,
+            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+            "incident_status_label": incident_status_label,
+            "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
+            "alerts_count": alerts.len().to_string(),
+            "findings_count": findings.len().to_string(),
+            "assets_count": assets.len().to_string(),
+            "score": format!("{:.0}", score),
+            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+            })).collect::<Vec<_>>(),
+            "root_cause": "Analyse en cours par ThreatClaw Engine.",
+            "attack_vector": "En cours d'identification",
+            "notified_authority": "À évaluer",
+            "nis2_notification_sent": "no",
+            "gdpr_notification_required": gdpr_required,
+            "mitre_ttps": mitre_ttps,
+        }))
+    } else {
+        return (StatusCode::BAD_REQUEST, "Unknown report type").into_response();
+    };
+
+    // JSON format → return data as JSON
+    if format != "pdf" {
+        return Json(report_data).into_response();
     }
 
-    Ok(Json(serde_json::json!({"error": "Unknown report type"})))
+    // PDF format → compile via Typst
+    match compile_typst_pdf(template_name, &report_data) {
+        Ok(pdf_bytes) => {
+            let filename = format!("threatclaw_{}_{}_{}.pdf",
+                template_name,
+                company_name.replace(' ', "_"),
+                now.format("%Y%m%d"),
+            );
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/pdf")
+                .header("Content-Disposition", format!("attachment; filename=\"{filename}\""))
+                .header("Content-Length", pdf_bytes.len().to_string())
+                .body(axum::body::Body::from(pdf_bytes))
+                .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response())
+        }
+        Err(e) => {
+            tracing::error!("Typst PDF compilation failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("PDF generation failed: {e}")).into_response()
+        }
+    }
 }

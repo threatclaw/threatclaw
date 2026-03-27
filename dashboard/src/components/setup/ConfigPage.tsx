@@ -54,6 +54,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const [saving, setSaving] = useState(false);
 
   const [llm, setLlm] = useState({ backend: "ollama", url: "http://127.0.0.1:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
+  const [conversational, setConversational] = useState({ source: "disabled" as "disabled" | "local" | "cloud", localModel: "qwen3:14b", cloudBackend: "anthropic", cloudModel: "", cloudApiKey: "", anonymize: true });
   const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
   const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
@@ -87,6 +88,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         const res = await fetch("/api/tc/config");
         const cfg = await res.json();
         if (cfg.llm) setLlm(p => ({ ...p, ...cfg.llm }));
+        if (cfg.conversational) setConversational(p => ({ ...p, ...cfg.conversational }));
         if (cfg.forensic) setForensic(p => ({ ...p, ...cfg.forensic }));
         if (cfg.instruct) setInstruct(p => ({ ...p, ...cfg.instruct }));
         if (cfg.cloud) setCloud(p => ({ ...p, enabled: true, ...cfg.cloud }));
@@ -164,6 +166,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     setSaving(true);
     const config: Record<string, unknown> = {
       llm: { backend: llm.backend, url: llm.url, model: llm.model, apiKey: llm.apiKey },
+      conversational,
       forensic: { model: forensic.model, url: forensic.url || llm.url },
       instruct: { model: instruct.model, url: instruct.url || llm.url },
       channels,
@@ -280,8 +283,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               fontSize: "12px", fontWeight: 600, fontFamily: "inherit",
               cursor: "pointer", transition: "all 0.2s ease",
               background: active ? "rgba(208,48,32,0.08)" : "var(--tc-surface-alt)",
-              color: active ? "#d03020" : "var(--tc-text-muted)",
-              borderColor: active ? "rgba(208,48,32,0.15)" : "transparent",
+              color: active ? "#d03020" : "var(--tc-text-sec)",
+              borderColor: active ? "rgba(208,48,32,0.15)" : "var(--tc-border)",
               borderWidth: "1px", borderStyle: "solid",
             }}>
               <Icon size={14} /> {tab.label}
@@ -319,7 +322,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "company" && (<CompanyTab />)}
 
         {activeTab === "llm" && (<LlmTab
-          llm={llm} setLlm={setLlm} forensic={forensic} setForensic={setForensic}
+          llm={llm} setLlm={setLlm} conversational={conversational} setConversational={setConversational}
+          forensic={forensic} setForensic={setForensic}
           instruct={instruct} setInstruct={setInstruct}
           cloud={cloud} setCloud={setCloud} llmModels={llmModels} setLlmModels={setLlmModels}
           testOllama={testOllama} inputStyle={inputStyle} labelStyle={labelStyle}
@@ -522,6 +526,8 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 interface LlmTabProps {
   llm: { backend: string; url: string; model: string; apiKey: string; connected: boolean; testing: boolean; models: string[] };
   setLlm: React.Dispatch<React.SetStateAction<LlmTabProps["llm"]>>;
+  conversational: { source: "disabled" | "local" | "cloud"; localModel: string; cloudBackend: string; cloudModel: string; cloudApiKey: string; anonymize: boolean };
+  setConversational: React.Dispatch<React.SetStateAction<LlmTabProps["conversational"]>>;
   forensic: { model: string; url: string };
   setForensic: React.Dispatch<React.SetStateAction<LlmTabProps["forensic"]>>;
   instruct: { model: string; url: string };
@@ -559,7 +565,7 @@ function GlassSelect({ value, onChange, options, placeholder }: {
   );
 }
 
-function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
+function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
   const [pullModel, setPullModel] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<string | null>(null);
@@ -643,7 +649,35 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
     </div>
   );
 
-  // AI level definitions
+  // AI level definitions — curated model catalog per level with RAM estimates
+  const MODEL_CATALOG: Record<string, { value: string; label: string; detail: string; ram?: number }[]> = {
+    l0: [
+      { value: "mistral-small:24b", label: "Mistral Small 24B", detail: "Excellent FR · Tool calling natif", ram: 14 },
+      { value: "qwen3:14b", label: "Qwen3 14B", detail: "Bon FR · Rapide sur CPU", ram: 9.3 },
+      { value: "qwen3:8b", label: "Qwen3 8B", detail: "Basique · Très léger", ram: 5.2 },
+    ],
+    l1: [
+      { value: "threatclaw-l1", label: "ThreatClaw AI Triage", detail: "qwen3:8b + SOC prompt — Recommandé", ram: 5.8 },
+      { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: "Meilleur parsing · Plus lourd", ram: 9.3 },
+    ],
+    l2: [
+      { value: "threatclaw-l2", label: "ThreatClaw AI Reasoning", detail: "Foundation-Sec Q8_0 — Recommandé", ram: 8.5 },
+    ],
+    l25: [
+      { value: "threatclaw-l3", label: "ThreatClaw AI Instruct", detail: "Foundation-Sec Q4_K_M — Recommandé", ram: 5.0 },
+    ],
+  };
+
+  // RAM calculator
+  const l0Ram = conversational.source === "local"
+    ? (MODEL_CATALOG.l0.find(m => m.value === conversational.localModel)?.ram || 9.3)
+    : 0;
+  const l1Ram = MODEL_CATALOG.l1.find(m => m.value === (llm.model || "threatclaw-l1"))?.ram || 5.8;
+  const l2Ram = MODEL_CATALOG.l2[0]?.ram || 8.5;
+  const l25Ram = MODEL_CATALOG.l25[0]?.ram || 5.0;
+  const permanentRam = l0Ram + l1Ram;
+  const peakRam = permanentRam + Math.max(l2Ram, l25Ram);
+
   const aiLevels = [
     { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
     { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
@@ -656,91 +690,121 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
+            { level: "L0", label: "Conversation", desc: "Dialogue RSSI, tool calling", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
             { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
             { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
             { level: "L2.5", label: "Instruct", desc: "Playbooks, HITL", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
             { level: "L3", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
-            <div key={l.level} style={{ flex: 1, minWidth: "100px", padding: "10px 12px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
-              <div style={{ fontSize: "18px", fontWeight: 800, color: l.color }}>{l.level}</div>
-              <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)", marginTop: "2px" }}>{l.label}</div>
+            <div key={l.level} style={{ flex: 1, minWidth: "80px", padding: "10px 8px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
+              <div style={{ fontSize: "16px", fontWeight: 800, color: l.color }}>{l.level}</div>
+              <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text)", marginTop: "2px" }}>{l.label}</div>
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{l.desc}</div>
             </div>
           ))}
         </div>
       </ChromeInsetCard>
 
-      {/* ── Connexion Ollama ── */}
+      {/* ── RAM Usage Bar ── */}
       <ChromeInsetCard>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "15px", fontWeight: 700, marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <Cpu size={18} color="#d03020" /> Connexion Ollama
-        </ChromeEmbossedText>
-        <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-          <input style={{ ...inputStyle, flex: 1 }} value={llm.url} onChange={e => setLlm(p => ({ ...p, url: e.target.value }))}
-            placeholder="http://ollama:11434" />
-          <ChromeButton onClick={testOllama} disabled={llm.testing} variant={llm.connected ? "glass" : "primary"}>
-            {llm.testing ? <Loader2 size={14} className="animate-spin" /> : llm.connected ? <CheckCircle2 size={14} color="#30a050" /> : <Wifi size={14} />}
-            {llm.connected ? "Connecté" : "Connecter"}
-          </ChromeButton>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Mémoire estimée</span>
+          <span style={{ fontSize: "12px", fontWeight: 600, color: peakRam > 28 ? "#d03020" : "var(--tc-text-muted)" }}>
+            {permanentRam.toFixed(1)} GB permanent · {peakRam.toFixed(1)} GB pic
+          </span>
+        </div>
+        <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)", overflow: "hidden", display: "flex" }}>
+          {l0Ram > 0 && <div style={{ width: `${(l0Ram / 64) * 100}%`, background: "#d03020", transition: "width 0.3s" }} title={`L0: ${l0Ram} GB`} />}
+          <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`L1: ${l1Ram} GB`} />
+          <div style={{ width: `${(Math.max(l2Ram, l25Ram) / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`L2/L2.5: ${Math.max(l2Ram, l25Ram)} GB (on-demand)`} />
+        </div>
+        <div style={{ display: "flex", gap: "12px", marginTop: "6px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+          {l0Ram > 0 && <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "#d03020", marginRight: "4px" }} />L0: {l0Ram}GB</span>}
+          <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />L1: {l1Ram}GB</span>
+          <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />L2/L2.5: {Math.max(l2Ram, l25Ram)}GB (swap)</span>
+        </div>
+      </ChromeInsetCard>
+
+      {/* ── L0 — Conversational ── */}
+      <ChromeInsetCard glow={conversational.source !== "disabled"}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: conversational.source !== "disabled" ? "16px" : 0 }}>
+          <LevelBadge level="L0" color="#d03020" bg="rgba(208,48,32,0.12)" border="rgba(208,48,32,0.25)" />
+          <div style={{ flex: 1 }}>
+            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Conversationnel — Dialogue RSSI</ChromeEmbossedText>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Le "visage" de ThreatClaw — conversation naturelle, tool calling</div>
+          </div>
+          <GlassSelect value={conversational.source} onChange={v => setConversational(p => ({ ...p, source: v as "disabled" | "local" | "cloud" }))} options={[
+            { value: "disabled", label: "Désactivé" },
+            { value: "local", label: "Local (Ollama)" },
+            { value: "cloud", label: "Cloud" },
+          ]} />
         </div>
 
-        {/* Models installed */}
-        {llmModels.length > 0 && (
-          <div style={{ marginBottom: "16px" }}>
-            <div style={labelStyle}>Modèles installés ({llmModels.length})</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
-              {llmModels.map(m => {
-                const isL1 = m.name === llm.model;
-                const isL2 = m.name === forensic.model;
-                const tr = testResult[m.name];
-                return (
-                  <div key={m.name} style={{
-                    display: "flex", alignItems: "center", gap: "10px",
-                    padding: "8px 12px", borderRadius: "var(--tc-radius-md)",
-                    background: (isL1 || isL2) ? "rgba(48,128,208,0.04)" : "var(--tc-surface-alt)",
-                    border: `1px solid ${(isL1 || isL2) ? "rgba(48,128,208,0.12)" : "var(--tc-input)"}`,
-                  }}>
-                    <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", boxShadow: "0 0 6px rgba(48,160,80,0.3)", flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
-                      {m.size && <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{m.size}</span>}
-                    </div>
-                    {isL1 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(48,128,208,0.1)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.2)" }}>L1</span>}
-                    {isL2 && <span style={{ fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px", background: "rgba(208,144,32,0.1)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.2)" }}>L2</span>}
-                    {tr && (
-                      <span style={{ fontSize: "10px", color: tr.ok ? "#30a050" : "#d03020" }}>
-                        {tr.ok ? "OK" : "Erreur"}
-                      </span>
-                    )}
-                    <ChromeButton onClick={() => testModel(m.name)} disabled={testingModel === m.name} variant="glass">
-                      {testingModel === m.name ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-                    </ChromeButton>
-                  </div>
-                );
-              })}
-            </div>
+        {conversational.source === "local" && (
+          <div style={{ borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
+            <div style={labelStyle}>Modèle conversationnel</div>
+            <GlassSelect value={conversational.localModel} onChange={v => setConversational(p => ({ ...p, localModel: v }))}
+              options={MODEL_CATALOG.l0.map(m => ({ value: m.value, label: m.label, detail: `${m.ram}GB — ${m.detail}` }))}
+              placeholder="— Sélectionner —" />
+            {conversational.localModel.includes("mistral") && (
+              <div style={{ fontSize: "10px", color: "var(--tc-green)", marginTop: "6px", display: "flex", alignItems: "center", gap: "4px" }}>
+                <CheckCircle2 size={10} /> Tool calling natif — meilleure qualité de dialogue
+              </div>
+            )}
+            {conversational.localModel.includes("qwen") && (
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "6px" }}>
+                Tool calling via prompt — plus léger, compatible CPU
+              </div>
+            )}
           </div>
         )}
 
-        {/* Pull new model */}
-        {llm.connected && (
-          <div>
-            <div style={labelStyle}>Installer un modèle</div>
-            <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
-              <input style={{ ...inputStyle, flex: 1 }} value={pullModel} onChange={e => setPullModel(e.target.value)}
-                placeholder="Ex: qwen3:8b, llama3.1:8b, mistral:7b..."
-                onKeyDown={e => e.key === "Enter" && pullOllamaModel()} />
-              <ChromeButton onClick={pullOllamaModel} disabled={pulling || !pullModel} variant="primary">
-                {pulling ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                {pulling ? "Installation..." : "Installer"}
-              </ChromeButton>
+        {conversational.source === "cloud" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
+            <div>
+              <div style={labelStyle}>Provider</div>
+              <GlassSelect value={conversational.cloudBackend} onChange={v => setConversational(p => ({ ...p, cloudBackend: v }))} options={[
+                { value: "anthropic", label: "Anthropic Claude" },
+                { value: "mistral", label: "Mistral AI (souverain FR)" },
+                { value: "openai_compatible", label: "OpenAI / Compatible" },
+              ]} />
             </div>
-            {pullStatus && (
-              <div style={{ fontSize: "12px", marginTop: "8px", color: pullStatus.includes("Erreur") ? "#d03020" : "#30a050", display: "flex", alignItems: "center", gap: "6px" }}>
-                {pullStatus.includes("Erreur") ? <XCircle size={12} /> : pullStatus.includes("...") ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                {pullStatus}
+            <div>
+              <div style={labelStyle}>Clé API</div>
+              <input style={inputStyle} type="password" value={conversational.cloudApiKey}
+                onChange={e => setConversational(p => ({ ...p, cloudApiKey: e.target.value }))}
+                placeholder={conversational.cloudBackend === "anthropic" ? "sk-ant-..." : "..."} />
+            </div>
+            <div>
+              <div style={labelStyle}>Modèle</div>
+              <input style={inputStyle} value={conversational.cloudModel}
+                onChange={e => setConversational(p => ({ ...p, cloudModel: e.target.value }))}
+                placeholder={conversational.cloudBackend === "anthropic" ? "claude-sonnet-4-20250514" : conversational.cloudBackend === "mistral" ? "mistral-large-latest" : "gpt-4o"} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button onClick={() => setConversational(p => ({ ...p, anonymize: !p.anonymize }))}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                <div style={{
+                  width: "36px", height: "20px", borderRadius: "10px", position: "relative",
+                  background: conversational.anonymize ? "rgba(48,160,80,0.2)" : "var(--tc-input)",
+                  border: conversational.anonymize ? "1px solid rgba(48,160,80,0.3)" : "1px solid var(--tc-border)",
+                  transition: "all 0.25s",
+                }}>
+                  <div style={{
+                    width: "14px", height: "14px", borderRadius: "50%", position: "absolute", top: "2px",
+                    left: conversational.anonymize ? "19px" : "2px",
+                    background: conversational.anonymize ? "var(--tc-green)" : "var(--tc-text-muted)",
+                    transition: "all 0.25s",
+                  }} />
+                </div>
+              </button>
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>Anonymisation</div>
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
+                  {conversational.anonymize ? "IPs, hostnames, users anonymisés avant envoi" : "Données brutes envoyées au cloud"}
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
       </ChromeInsetCard>
@@ -766,19 +830,14 @@ function LlmTab({ llm, setLlm, forensic, setForensic, instruct, setInstruct, clo
           </div>
           {changingLevel === ai.id && (
             <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
-              {llm.connected && modelOptions.length > 0 ? (
-                <GlassSelect value={ai.model} onChange={v => ai.setModel(v)}
-                  options={modelOptions} placeholder="— Sélectionner un modèle —" />
-              ) : (
-                <div style={{ display: "flex", gap: "8px" }}>
-                  <input style={{ ...inputStyle, flex: 1 }} value={ai.model}
-                    onChange={e => ai.setModel(e.target.value)}
-                    placeholder={`${ai.defaultModel} (connectez Ollama pour voir la liste)`} />
+              <GlassSelect value={ai.model || ai.defaultModel} onChange={v => ai.setModel(v)}
+                options={MODEL_CATALOG[ai.id] || [{ value: ai.defaultModel, label: ai.defaultModel, detail: "Défaut" }]}
+                placeholder="— Sélectionner un modèle —" />
+              {(MODEL_CATALOG[ai.id] || []).length <= 1 && (
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "8px", fontStyle: "italic" }}>
+                  Des modèles supplémentaires seront disponibles dans les prochaines mises à jour.
                 </div>
               )}
-              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "6px" }}>
-                Recommandé : <strong style={{ color: ai.color }}>{ai.defaultModel}</strong>
-              </div>
             </div>
           )}
         </ChromeInsetCard>
@@ -1121,10 +1180,13 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
       const configured: string[] = [];
       if (channels.telegram?.enabled && channels.telegram?.botToken) configured.push("telegram");
       if (channels.slack?.enabled && channels.slack?.botToken) configured.push("slack");
+      if (channels.discord?.enabled && channels.discord?.botToken) configured.push("discord");
       if (channels.mattermost?.enabled && channels.mattermost?.webhookUrl) configured.push("mattermost");
       if (channels.ntfy?.enabled && channels.ntfy?.topic) configured.push("ntfy");
       if (channels.gotify?.enabled && channels.gotify?.appToken) configured.push("gotify");
       if (channels.email?.enabled && channels.email?.host) configured.push("email");
+      if (channels.signal?.enabled && channels.signal?.account) configured.push("signal");
+      if (channels.whatsapp?.enabled && channels.whatsapp?.accessToken) configured.push("whatsapp");
       setConfiguredChannels(configured);
     }).catch(() => {});
 
@@ -1309,6 +1371,67 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
 // ANONYMIZER SECTION (scrollable)
 // ═══════════════════════════════════════
 
+const DEFAULT_ANONYMIZER_RULES = [
+  { prefix: "IP", label: "Adresses IPv4 internes", pattern: "10.x.x.x, 172.16-31.x.x, 192.168.x.x", example: "192.168.1.42 → [IP-001]" },
+  { prefix: "IP", label: "Adresses IPv6 ULA", pattern: "fd00::/8", example: "fd12:3456::1 → [IP-002]" },
+  { prefix: "EMAIL", label: "Adresses email", pattern: "user@domain.tld", example: "admin@acme.fr → [EMAIL-001]" },
+  { prefix: "HOST", label: "Noms d'hôtes internes", pattern: "*.internal, *.local, *.corp, *.lan", example: "dc01.ad.corp → [HOST-001]" },
+  { prefix: "CRED", label: "Credentials (clé=valeur)", pattern: "password=, token=, api_key=, secret=", example: "password=s3cret → password=[CRED-001]" },
+  { prefix: "SSHKEY", label: "Clés privées SSH/RSA/EC", pattern: "-----BEGIN * PRIVATE KEY-----", example: "Clé entière → [SSHKEY-001]" },
+  { prefix: "AWSKEY", label: "Clés AWS (AKIA/ASIA)", pattern: "AKIA... / ASIA... (20 chars)", example: "AKIAIOSFODNN7EX → [AWSKEY-001]" },
+  { prefix: "AZURECONN", label: "Azure Connection Strings", pattern: "AccountKey=, DefaultEndpointsProtocol=", example: "AccountKey=base64... → [AZURECONN-001]" },
+  { prefix: "GCPKEY", label: "Clés GCP Service Account", pattern: '"type": "service_account"', example: "JSON SA détecté → [GCPKEY-001]" },
+  { prefix: "PHONE", label: "Téléphones français", pattern: "06 xx xx xx xx, +33 x xx xx xx xx", example: "06 12 34 56 78 → [PHONE-001]" },
+  { prefix: "SIRET", label: "SIRET (14 chiffres)", pattern: "xxx xxx xxx xxxxx", example: "123 456 789 00012 → [SIRET-001]" },
+  { prefix: "SIREN", label: "SIREN (9 chiffres)", pattern: "xxx xxx xxx", example: "123 456 789 → [SIREN-001]" },
+  { prefix: "MAC", label: "Adresses MAC (EUI-48)", pattern: "aa:bb:cc:dd:ee:ff", example: "00:1a:2b:3c:4d:5e → [MAC-001]" },
+];
+
+function DefaultRulesPanel() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: "16px" }}>
+      <button onClick={() => setOpen(!open)} style={{
+        background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
+        borderRadius: "var(--tc-radius-input)", padding: "8px 14px", cursor: "pointer",
+        fontSize: "12px", fontWeight: 600, color: "var(--tc-text-sec)", fontFamily: "inherit",
+        display: "flex", alignItems: "center", gap: "6px", width: "100%",
+      }}>
+        <Eye size={14} color="#d03020" />
+        {open ? "Masquer" : "Voir"} les {DEFAULT_ANONYMIZER_RULES.length} règles par défaut
+        <ChevronDown size={12} style={{ marginLeft: "auto", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+      </button>
+      {open && (
+        <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
+          {DEFAULT_ANONYMIZER_RULES.map((rule, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: "10px",
+              padding: "8px 12px", borderRadius: "var(--tc-radius-sm)",
+              background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
+            }}>
+              <span style={{
+                fontSize: "8px", fontWeight: 800, padding: "2px 6px", borderRadius: "3px",
+                background: "rgba(48,160,80,0.1)", color: "#30a050", fontFamily: "monospace",
+                minWidth: "70px", textAlign: "center",
+              }}>[{rule.prefix}]</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{rule.label}</div>
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontFamily: "monospace" }}>{rule.pattern}</div>
+              </div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-faint)", fontFamily: "monospace", whiteSpace: "nowrap" }}>{rule.example}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", padding: "8px 0", lineHeight: 1.5 }}>
+            Ces règles sont appliquées automatiquement avant tout envoi au LLM cloud.
+            Les données originales ne quittent jamais le serveur — seuls les placeholders sont transmis.
+            Le LLM répond avec les placeholders, ThreatClaw les remplace par les vraies valeurs localement.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSProperties; labelStyle: React.CSSProperties }) {
   const [rules, setRules] = useState<{ id: string; label: string; pattern: string; token_prefix: string }[]>([]);
   const [newLabel, setNewLabel] = useState("");
@@ -1353,9 +1476,10 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
           <Shield size={18} color="#d03020" /> Anonymisation
         </ChromeEmbossedText>
-        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)", marginBottom: "20px", lineHeight: 1.6 }}>
-          <strong style={{ color: "var(--tc-text-sec)" }}>17 catégories automatiques</strong> : IPs, MAC, emails, téléphones, clés API, IBAN, SIRET, chemins fichiers, Active Directory, etc.
+        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)", marginBottom: "12px", lineHeight: 1.6 }}>
+          <strong style={{ color: "var(--tc-text-sec)" }}>14 catégories automatiques</strong> protègent vos données avant tout envoi au LLM cloud.
         </div>
+        <DefaultRulesPanel />
 
         {/* Rules list - scrollable */}
         <div style={{ maxHeight: "400px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}

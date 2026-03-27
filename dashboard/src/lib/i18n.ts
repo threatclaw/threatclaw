@@ -93,16 +93,8 @@ const T: Record<string, Record<Locale, string>> = {
 
   // ── Config tabs ──
   general: { fr: "General", en: "General" },
-  license: { fr: "Licence", en: "License" },
+  about: { fr: "A propos", en: "About" },
   tests: { fr: "Tests", en: "Tests" },
-
-  // ── License ──
-  licenseTitle: { fr: "Licence ThreatClaw", en: "ThreatClaw License" },
-  activateLicense: { fr: "Activer une licence", en: "Activate a license" },
-  changeLicense: { fr: "Changer de licence", en: "Change license" },
-  activate: { fr: "Activer", en: "Activate" },
-  assetsUsed: { fr: "Assets utilises", en: "Assets used" },
-  expires: { fr: "Expire", en: "Expires" },
   daysRemaining: { fr: "j restants", en: "days left" },
   getLicense: { fr: "Obtenez une licence sur", en: "Get a license at" },
   limitReached: { fr: "Limite atteinte", en: "Limit reached" },

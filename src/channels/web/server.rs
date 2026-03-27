@@ -177,6 +177,8 @@ pub struct GatewayState {
     pub routine_engine: RoutineEngineSlot,
     /// Server startup time for uptime calculation.
     pub startup_time: std::time::Instant,
+    /// Shared HITL nonce manager — anti-replay for approval buttons.
+    pub hitl_nonce_manager: Arc<crate::agent::hitl_nonce::NonceManager>,
 }
 
 /// Start the gateway HTTP server.
@@ -420,9 +422,8 @@ pub async fn start_server(
         // Intent parser + conversation mode
         .route("/api/tc/command/intent", post(super::handlers::threatclaw_api::command_intent_handler))
         .route("/api/tc/conversation/mode", get(super::handlers::threatclaw_api::conversation_mode_handler))
-        // License
+        // Instance identity (no limits)
         .route("/api/tc/license", get(super::handlers::threatclaw_api::license_status_handler))
-        .route("/api/tc/license/activate", post(super::handlers::threatclaw_api::license_activate_handler))
         // Unified skill catalog + execution
         .route("/api/tc/catalog", get(super::handlers::threatclaw_api::tc_skills_catalog_handler))
         .route("/api/tc/skills/run/{skill_id}", post(super::handlers::threatclaw_api::skill_run_handler))
@@ -475,6 +476,10 @@ pub async fn start_server(
         .route("/api/tc/enrichment/wpscan/{slug}", get(super::handlers::threatclaw_api::enrichment_wpscan_handler))
         .route("/api/tc/enrichment/phishtank", post(super::handlers::threatclaw_api::enrichment_phishtank_handler))
         .route("/api/tc/enrichment/spamhaus/{ip}", get(super::handlers::threatclaw_api::enrichment_spamhaus_handler))
+        .route("/api/tc/enrichment/securitytrails/{domain}", get(super::handlers::threatclaw_api::enrichment_securitytrails_handler))
+        .route("/api/tc/enrichment/urlscan", post(super::handlers::threatclaw_api::enrichment_urlscan_handler))
+        .route("/api/tc/enrichment/wordfence/sync", post(super::handlers::threatclaw_api::enrichment_wordfence_handler))
+        .route("/api/tc/enrichment/wordfence/{slug}", get(super::handlers::threatclaw_api::enrichment_wordfence_lookup_handler))
         // New connectors (web security)
         .route("/api/tc/connectors/cloudflare/sync", post(super::handlers::threatclaw_api::connector_cloudflare_sync_handler))
         .route("/api/tc/connectors/crowdsec/sync", post(super::handlers::threatclaw_api::connector_crowdsec_sync_handler))
@@ -482,6 +487,9 @@ pub async fn start_server(
         .route("/api/tc/connectors/pihole/sync", post(super::handlers::threatclaw_api::connector_pihole_sync_handler))
         .route("/api/tc/connectors/unifi/sync", post(super::handlers::threatclaw_api::connector_unifi_sync_handler))
         .route("/api/tc/connectors/dhcp/sync", post(super::handlers::threatclaw_api::connector_dhcp_sync_handler))
+        .route("/api/tc/connectors/freebox/sync", post(super::handlers::threatclaw_api::connector_freebox_sync_handler))
+        .route("/api/tc/connectors/freebox/pair", post(super::handlers::threatclaw_api::connector_freebox_pair_handler))
+        .route("/api/tc/connectors/freebox/pair/status", get(super::handlers::threatclaw_api::connector_freebox_pair_status_handler))
         .route("/api/tc/connectors/zeek/sync", post(super::handlers::threatclaw_api::connector_zeek_sync_handler))
         .route("/api/tc/connectors/suricata/sync", post(super::handlers::threatclaw_api::connector_suricata_sync_handler))
         .route("/api/tc/enrichment/mac/{mac}", get(super::handlers::threatclaw_api::enrichment_mac_handler))
@@ -505,7 +513,10 @@ pub async fn start_server(
         .route("/api/tc/exports/executive-report", post(super::handlers::threatclaw_api::export_report_handler))
         .route("/api/tc/exports/technical-report", post(super::handlers::threatclaw_api::export_report_handler))
         .route("/api/tc/exports/misp-event", post(super::handlers::threatclaw_api::export_stix2_handler))
-        .route("/api/tc/exports/audit-trail", post(super::handlers::threatclaw_api::export_data_handler))
+        .route("/api/tc/exports/audit-trail", post(super::handlers::threatclaw_api::export_report_handler))
+        .route("/api/tc/exports/gdpr-article33", post(super::handlers::threatclaw_api::export_report_handler))
+        .route("/api/tc/exports/nist-incident", post(super::handlers::threatclaw_api::export_report_handler))
+        .route("/api/tc/exports/iso27001-incident", post(super::handlers::threatclaw_api::export_report_handler))
         .route("/api/tc/backup/import", post(super::handlers::threatclaw_api::backup_import_handler))
         .route("/api/tc/version/check", get(super::handlers::threatclaw_api::version_check_handler))
         // Test scenarios (demo + E2E testing)
@@ -3100,6 +3111,7 @@ mod tests {
             cost_guard: None,
             routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
             startup_time: std::time::Instant::now(),
+            hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(std::time::Duration::from_secs(3600))),
         })
     }
 

@@ -47,6 +47,7 @@ pub mod remediation_whitelist;
 pub mod skill_scheduler;
 pub mod soul;
 pub mod test_scenarios;
+pub mod tool_calling;
 pub mod tool_output_wrapper;
 mod heartbeat;
 pub mod job_monitor;

@@ -1,11 +1,13 @@
 //! LLM Router — orchestration multi-niveaux local + cloud.
 //!
+//! Niveau 0 : IA conversationnelle (dialogue RSSI, tool calling)
 //! Niveau 1 : IA locale rapide (triage, corrélation simple)
 //! Niveau 2 : IA locale enrichie (plus de contexte, 2ème chance)
 //! Niveau 3 : IA cloud anonymisée (corrélation profonde, fallback)
 //!
-//! Le client configure son IA principale (obligatoire) et son IA cloud (optionnel)
-//! via le wizard d'onboarding. Le router décide automatiquement quand escalader.
+//! Le client configure ses IA via le dashboard. L0 est le "visage" de ThreatClaw
+//! qui dialogue avec le RSSI. L1/L2/L2.5 sont les spécialistes pipeline.
+//! Le router décide automatiquement quand escalader.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,9 +15,226 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmTask {
     Chat,
+    Conversation,
     Correlation,
     Report,
     Triage,
+}
+
+/// Mode de tool calling supporté par le modèle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCallMode {
+    /// Ollama native tools API (Mistral, Llama 3.1+).
+    Native,
+    /// Outils décrits dans le system prompt, réponse JSON parsée (Qwen3, autres).
+    PromptBased,
+    /// Pas de tool calling — mode conversation simple.
+    None,
+}
+
+impl Default for ToolCallMode {
+    fn default() -> Self {
+        Self::PromptBased
+    }
+}
+
+/// Source du modèle L0 conversationnel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum L0Source {
+    /// Modèle local via Ollama.
+    Local,
+    /// Modèle cloud (Anthropic, Mistral, OpenAI compatible).
+    Cloud,
+    /// L0 désactivé — L1 gère tout (mode économique).
+    Disabled,
+}
+
+impl Default for L0Source {
+    fn default() -> Self {
+        Self::Local
+    }
+}
+
+/// Informations d'un modèle dans le catalogue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    /// Identifiant Ollama ou cloud du modèle.
+    pub model_id: String,
+    /// Nom affiché dans le dashboard.
+    pub display_name: String,
+    /// RAM estimée en GB (pour la barre mémoire dashboard).
+    pub ram_gb: f64,
+    /// Mode de tool calling supporté.
+    pub tool_call_mode: ToolCallMode,
+    /// Description courte.
+    pub detail: String,
+    /// RAM minimale recommandée pour le serveur.
+    pub recommended_ram: String,
+}
+
+/// Catalogue des modèles recommandés par niveau.
+pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>> {
+    let mut catalog = std::collections::HashMap::new();
+    catalog.insert("l0", vec![
+        ModelInfo {
+            model_id: "mistral-small:24b".into(),
+            display_name: "Mistral Small 24B".into(),
+            ram_gb: 14.0,
+            tool_call_mode: ToolCallMode::Native,
+            detail: "Excellent FR · Tool calling natif".into(),
+            recommended_ram: "64GB+".into(),
+        },
+        ModelInfo {
+            model_id: "qwen3:14b".into(),
+            display_name: "Qwen3 14B".into(),
+            ram_gb: 9.3,
+            tool_call_mode: ToolCallMode::PromptBased,
+            detail: "Bon FR · Rapide sur CPU".into(),
+            recommended_ram: "32GB+".into(),
+        },
+        ModelInfo {
+            model_id: "qwen3:8b".into(),
+            display_name: "Qwen3 8B".into(),
+            ram_gb: 5.2,
+            tool_call_mode: ToolCallMode::PromptBased,
+            detail: "Basique · Très léger".into(),
+            recommended_ram: "16GB+".into(),
+        },
+    ]);
+    catalog.insert("l1", vec![
+        ModelInfo {
+            model_id: "threatclaw-l1".into(),
+            display_name: "ThreatClaw AI Triage".into(),
+            ram_gb: 5.8,
+            tool_call_mode: ToolCallMode::None,
+            detail: "qwen3:8b + SOC prompt · Recommandé".into(),
+            recommended_ram: "16GB+".into(),
+        },
+        ModelInfo {
+            model_id: "qwen3:14b".into(),
+            display_name: "Qwen3 14B Triage".into(),
+            ram_gb: 9.3,
+            tool_call_mode: ToolCallMode::None,
+            detail: "Meilleur parsing · Plus lourd".into(),
+            recommended_ram: "32GB+".into(),
+        },
+    ]);
+    catalog.insert("l2", vec![
+        ModelInfo {
+            model_id: "threatclaw-l2".into(),
+            display_name: "ThreatClaw AI Reasoning".into(),
+            ram_gb: 8.5,
+            tool_call_mode: ToolCallMode::None,
+            detail: "Foundation-Sec Q8_0 · Recommandé".into(),
+            recommended_ram: "32GB+".into(),
+        },
+    ]);
+    catalog.insert("l25", vec![
+        ModelInfo {
+            model_id: "threatclaw-l3".into(),
+            display_name: "ThreatClaw AI Instruct".into(),
+            ram_gb: 5.0,
+            tool_call_mode: ToolCallMode::None,
+            detail: "Foundation-Sec Q4_K_M · Recommandé".into(),
+            recommended_ram: "32GB+".into(),
+        },
+    ]);
+    catalog
+}
+
+/// Configuration du LLM conversationnel L0 (dialogue RSSI).
+/// C'est le "visage" de ThreatClaw — celui qui parle au RSSI.
+/// Peut être local (Ollama) ou cloud (Anthropic/Mistral/OpenAI).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationalLlmConfig {
+    /// Source : local, cloud ou désactivé.
+    pub source: L0Source,
+    /// Modèle local Ollama (si source=local).
+    pub local_model: String,
+    /// Backend cloud (si source=cloud) : anthropic, mistral, openai_compatible.
+    pub cloud_backend: String,
+    /// Modèle cloud (si source=cloud).
+    pub cloud_model: String,
+    /// URL de base cloud (si openai_compatible).
+    pub cloud_base_url: Option<String>,
+    /// Clé API cloud (si source=cloud).
+    pub cloud_api_key: String,
+    /// Anonymiser les données avant envoi au cloud L0.
+    pub anonymize: bool,
+    /// Mode de tool calling (auto-détecté selon le modèle).
+    pub tool_call_mode: ToolCallMode,
+    /// URL Ollama pour les modèles locaux.
+    pub ollama_url: String,
+    /// RAM estimée du modèle actif (pour le dashboard).
+    pub ram_estimate_gb: f64,
+}
+
+impl Default for ConversationalLlmConfig {
+    fn default() -> Self {
+        Self {
+            source: L0Source::Disabled,
+            local_model: "qwen3:14b".to_string(),
+            cloud_backend: String::new(),
+            cloud_model: String::new(),
+            cloud_base_url: None,
+            cloud_api_key: String::new(),
+            anonymize: true,
+            tool_call_mode: ToolCallMode::PromptBased,
+            ollama_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            ram_estimate_gb: 0.0,
+        }
+    }
+}
+
+impl ConversationalLlmConfig {
+    /// Détecte le mode de tool calling basé sur le modèle sélectionné.
+    pub fn detect_tool_call_mode(&self) -> ToolCallMode {
+        if self.source == L0Source::Cloud {
+            return ToolCallMode::Native; // All cloud APIs support native tool calling
+        }
+        let model = self.local_model.to_lowercase();
+        if model.contains("mistral") || model.contains("llama3") || model.contains("command-r") {
+            ToolCallMode::Native
+        } else {
+            ToolCallMode::PromptBased
+        }
+    }
+
+    /// RAM estimée du modèle L0 actif.
+    pub fn estimated_ram_gb(&self) -> f64 {
+        if self.source != L0Source::Local {
+            return 0.0;
+        }
+        let catalog = model_catalog();
+        if let Some(models) = catalog.get("l0") {
+            for m in models {
+                if m.model_id == self.local_model {
+                    return m.ram_gb;
+                }
+            }
+        }
+        // Unknown model — estimate from name
+        if self.local_model.contains("24b") || self.local_model.contains("22b") {
+            14.0
+        } else if self.local_model.contains("14b") {
+            9.3
+        } else if self.local_model.contains("8b") || self.local_model.contains("7b") {
+            5.2
+        } else {
+            8.0 // conservative default
+        }
+    }
+
+    /// Est-ce que L0 est actif (local ou cloud configuré) ?
+    pub fn is_enabled(&self) -> bool {
+        match &self.source {
+            L0Source::Local => !self.local_model.is_empty(),
+            L0Source::Cloud => !self.cloud_api_key.is_empty(),
+            L0Source::Disabled => false,
+        }
+    }
 }
 
 /// Politique d'escalade vers le cloud.
@@ -122,6 +341,9 @@ pub struct CloudLlmConfig {
 /// Configuration complète du routeur LLM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRouterConfig {
+    /// IA conversationnelle L0 — dialogue RSSI, tool calling (optionnel).
+    #[serde(default)]
+    pub conversational: ConversationalLlmConfig,
     /// IA principale L1/L2 — triage et corrélation (obligatoire).
     pub primary: PrimaryLlmConfig,
     /// IA forensique L2 — analyse approfondie (chargé à la demande).
@@ -149,6 +371,7 @@ pub struct LlmRouterConfig {
 impl Default for LlmRouterConfig {
     fn default() -> Self {
         Self {
+            conversational: ConversationalLlmConfig::default(),
             primary: PrimaryLlmConfig::default(),
             forensic: ForensicLlmConfig::default(),
             instruct: InstructLlmConfig::default(),
@@ -256,8 +479,48 @@ impl LlmRouterConfig {
             }
         }
 
+        // ── Conversational L0 (tc_config_conversational) ──
+        if let Ok(Some(conv_val)) = store.get_setting("_system", "tc_config_conversational").await {
+            let source = match conv_val["source"].as_str().unwrap_or("disabled") {
+                "local" => L0Source::Local,
+                "cloud" => L0Source::Cloud,
+                _ => L0Source::Disabled,
+            };
+            config.conversational.source = source;
+
+            if let Some(model) = conv_val["localModel"].as_str() {
+                if !model.is_empty() {
+                    config.conversational.local_model = model.to_string();
+                }
+            }
+            if let Some(backend) = conv_val["cloudBackend"].as_str() {
+                config.conversational.cloud_backend = backend.to_string();
+            }
+            if let Some(model) = conv_val["cloudModel"].as_str() {
+                config.conversational.cloud_model = model.to_string();
+            }
+            if let Some(url) = conv_val["cloudBaseUrl"].as_str() {
+                if !url.is_empty() {
+                    config.conversational.cloud_base_url = Some(url.to_string());
+                }
+            }
+            if let Some(key) = conv_val["cloudApiKey"].as_str() {
+                config.conversational.cloud_api_key = key.to_string();
+            }
+            if let Some(anon) = conv_val["anonymize"].as_bool() {
+                config.conversational.anonymize = anon;
+            }
+
+            // Auto-detect tool call mode
+            config.conversational.tool_call_mode = config.conversational.detect_tool_call_mode();
+            config.conversational.ram_estimate_gb = config.conversational.estimated_ram_gb();
+            config.conversational.ollama_url = config.primary.base_url.clone();
+        }
+
         tracing::debug!(
-            "LLM config loaded: primary={}/{} cloud={}",
+            "LLM config loaded: L0={:?}/{} primary={}/{} cloud={}",
+            config.conversational.source,
+            if config.conversational.source == L0Source::Local { &config.conversational.local_model } else { &config.conversational.cloud_model },
             config.primary.backend, config.primary.model,
             config.cloud.as_ref().map(|c| format!("{}/{}", c.backend, c.model)).unwrap_or("none".into())
         );
@@ -350,6 +613,37 @@ impl LlmRouterConfig {
             _ => "qwen3:72b",
         }
     }
+
+    /// Estime la RAM totale utilisée par tous les modèles permanents (L0 + L1).
+    /// L2 et L2.5 sont à la demande et swappent avec les permanents.
+    pub fn total_permanent_ram_gb(&self) -> f64 {
+        let l0 = self.conversational.estimated_ram_gb();
+        let l1 = {
+            let catalog = model_catalog();
+            catalog.get("l1").and_then(|models| {
+                models.iter().find(|m| m.model_id == self.primary.model).map(|m| m.ram_gb)
+            }).unwrap_or(5.8) // conservative default for unknown model
+        };
+        l0 + l1
+    }
+
+    /// Estime la RAM maximale (L0 + L1 + max(L2, L2.5) en on-demand).
+    pub fn total_peak_ram_gb(&self) -> f64 {
+        let permanent = self.total_permanent_ram_gb();
+        let l2 = {
+            let catalog = model_catalog();
+            catalog.get("l2").and_then(|models| {
+                models.iter().find(|m| m.model_id == self.forensic.model).map(|m| m.ram_gb)
+            }).unwrap_or(8.5)
+        };
+        let l25 = {
+            let catalog = model_catalog();
+            catalog.get("l25").and_then(|models| {
+                models.iter().find(|m| m.model_id == self.instruct.model).map(|m| m.ram_gb)
+            }).unwrap_or(5.0)
+        };
+        permanent + l2.max(l25) // mutual exclusion: max of L2 and L2.5
+    }
 }
 
 #[cfg(test)]
@@ -404,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn test_critical_escalates_to_cloud() {
+    fn test_critical_retries_local_first() {
         let config = LlmRouterConfig {
             cloud: Some(CloudLlmConfig {
                 backend: "mistral".to_string(),
@@ -414,8 +708,12 @@ mod tests {
             }),
             ..Default::default()
         };
+        // CRITICAL first attempt → always retry local L2 first
         let decision = config.decide_escalation(0.90, "CRITICAL", false, false);
-        assert_eq!(decision, EscalationDecision::EscalateCloud);
+        assert_eq!(decision, EscalationDecision::RetryLocal);
+        // CRITICAL after L2 retry → escalate to cloud
+        let decision2 = config.decide_escalation(0.90, "CRITICAL", false, true);
+        assert_eq!(decision2, EscalationDecision::EscalateCloud);
     }
 
     #[test]
@@ -461,8 +759,12 @@ mod tests {
             ..Default::default()
         };
         assert!(!config.cloud_available());
+        // CRITICAL after retry without cloud → Accept (L2 analysis is sufficient for CRITICAL)
         let decision = config.decide_escalation(0.30, "CRITICAL", true, true);
-        assert_eq!(decision, EscalationDecision::AcceptDegraded);
+        assert_eq!(decision, EscalationDecision::Accept);
+        // LOW with low confidence, no cloud → AcceptDegraded
+        let decision2 = config.decide_escalation(0.30, "LOW", false, true);
+        assert_eq!(decision2, EscalationDecision::AcceptDegraded);
     }
 
     #[test]
@@ -544,5 +846,87 @@ mod tests {
         let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
         assert_eq!(config.model_for_task(LlmTask::Correlation), expected_model);
         assert_eq!(config.model_for_task(LlmTask::Chat), expected_model);
+    }
+
+    #[test]
+    fn test_l0_default_disabled() {
+        let config = LlmRouterConfig::default();
+        assert_eq!(config.conversational.source, L0Source::Disabled);
+        assert!(!config.conversational.is_enabled());
+        assert_eq!(config.conversational.estimated_ram_gb(), 0.0);
+    }
+
+    #[test]
+    fn test_l0_local_enabled() {
+        let config = LlmRouterConfig {
+            conversational: ConversationalLlmConfig {
+                source: L0Source::Local,
+                local_model: "mistral-small:24b".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(config.conversational.is_enabled());
+        assert_eq!(config.conversational.estimated_ram_gb(), 14.0);
+        assert_eq!(config.conversational.detect_tool_call_mode(), ToolCallMode::Native);
+    }
+
+    #[test]
+    fn test_l0_cloud_enabled() {
+        let config = LlmRouterConfig {
+            conversational: ConversationalLlmConfig {
+                source: L0Source::Cloud,
+                cloud_backend: "anthropic".into(),
+                cloud_model: "claude-sonnet-4-20250514".into(),
+                cloud_api_key: "sk-test".into(),
+                anonymize: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(config.conversational.is_enabled());
+        assert_eq!(config.conversational.estimated_ram_gb(), 0.0);
+        assert_eq!(config.conversational.detect_tool_call_mode(), ToolCallMode::Native);
+        assert!(config.conversational.anonymize);
+    }
+
+    #[test]
+    fn test_l0_qwen_prompt_based_tool_calling() {
+        let config = ConversationalLlmConfig {
+            source: L0Source::Local,
+            local_model: "qwen3:14b".into(),
+            ..Default::default()
+        };
+        assert_eq!(config.detect_tool_call_mode(), ToolCallMode::PromptBased);
+        assert_eq!(config.estimated_ram_gb(), 9.3);
+    }
+
+    #[test]
+    fn test_ram_estimates() {
+        let config = LlmRouterConfig {
+            conversational: ConversationalLlmConfig {
+                source: L0Source::Local,
+                local_model: "qwen3:14b".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        // L0 (9.3) + L1 (5.8 default)
+        assert!(config.total_permanent_ram_gb() > 14.0);
+        // + max(L2, L2.5) on-demand
+        assert!(config.total_peak_ram_gb() > config.total_permanent_ram_gb());
+    }
+
+    #[test]
+    fn test_model_catalog_completeness() {
+        let catalog = model_catalog();
+        assert!(catalog.contains_key("l0"));
+        assert!(catalog.contains_key("l1"));
+        assert!(catalog.contains_key("l2"));
+        assert!(catalog.contains_key("l25"));
+        assert!(!catalog["l0"].is_empty());
+        // Mistral Small should be native tool calling
+        let mistral = catalog["l0"].iter().find(|m| m.model_id.contains("mistral")).unwrap();
+        assert_eq!(mistral.tool_call_mode, ToolCallMode::Native);
     }
 }

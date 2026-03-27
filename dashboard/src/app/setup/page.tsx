@@ -11,7 +11,7 @@ import { useLocale } from "@/lib/useLocale";
 
 // Lazy load the sub-pages to avoid circular imports
 const SkillsContent = dynamic(() => import("../skills/page"), { ssr: false });
-const AssetsContent = dynamic(() => import("../infrastructure/page"), { ssr: false });
+const AssetsContent = dynamic(() => import("../assets/page"), { ssr: false });
 const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
 const LicenseContent = dynamic(() => Promise.resolve({ default: LicensePage }), { ssr: false });
 
@@ -20,132 +20,49 @@ const TABS = [
   { key: "skills", i18n: "skills", icon: Puzzle },
   { key: "assets", i18n: "assets", icon: Network },
   { key: "tests", i18n: "tests", icon: Play },
-  { key: "license", i18n: "license", icon: Key },
+  { key: "about", i18n: "about", icon: Key },
 ] as const;
 
-// ── License Tab Component ──
+// ── About Tab Component ──
 function LicensePage() {
-  const [license, setLicense] = React.useState<any>(null);
-  const [serial, setSerial] = React.useState("");
-  const [activating, setActivating] = React.useState(false);
-  const [message, setMessage] = React.useState("");
+  const [info, setInfo] = React.useState<any>(null);
 
   React.useEffect(() => {
-    fetch("/api/tc/license").then(r => r.json()).then(setLicense).catch(() => {});
+    fetch("/api/tc/license").then(r => r.json()).then(setInfo).catch(() => {});
   }, []);
-
-  const activate = async () => {
-    setActivating(true);
-    setMessage("");
-    try {
-      const res = await fetch("/api/tc/license/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serial }),
-      });
-      const data = await res.json();
-      setMessage(data.message || "");
-      // Refresh license status
-      const lic = await fetch("/api/tc/license").then(r => r.json());
-      setLicense(lic);
-    } catch (e: any) {
-      setMessage("Erreur: " + e.message);
-    }
-    setActivating(false);
-  };
-
-  const tierColor = license?.tier === "community" ? "var(--tc-text-muted)" : "var(--tc-green)";
-  const usagePct = license?.usage_percent || 0;
-  const barColor = usagePct >= 100 ? "var(--tc-red)" : usagePct >= 80 ? "var(--tc-amber)" : "var(--tc-green)";
 
   return (
     <div style={{ padding: "20px 24px" }}>
-      <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 16px" }}>Licence ThreatClaw</h2>
+      <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 16px" }}>ThreatClaw</h2>
 
-      {/* Current status */}
       <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-          <div>
-            <span style={{ fontSize: "14px", fontWeight: 700, color: tierColor, textTransform: "uppercase" }}>
-              {license?.tier || "Community"}
-            </span>
-            {license?.client_name && (
-              <span style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginLeft: "8px" }}>
-                — {license.client_name}
-              </span>
-            )}
-          </div>
-          {license?.expires && (
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
-              Expire: {license.expires}
-              {license.days_remaining !== null && license.days_remaining < 30 && (
-                <span style={{ color: "var(--tc-amber)", marginLeft: "6px" }}>
-                  ({license.days_remaining}j restants)
-                </span>
-              )}
-            </span>
-          )}
-        </div>
-
-        {/* Asset usage bar */}
-        <div style={{ marginBottom: "8px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Assets utilises</span>
-            <span style={{ fontSize: "11px", fontWeight: 700, color: barColor }}>
-              {license?.asset_count || 0} / {license?.max_assets || 150}
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Instance</span>
+            <span style={{ fontSize: "13px", fontWeight: 700, fontFamily: "monospace", color: "var(--tc-text)" }}>
+              {info?.instance_id || "..."}
             </span>
           </div>
-          <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)" }}>
-            <div style={{
-              width: `${Math.min(usagePct, 100)}%`, height: "100%", borderRadius: "4px",
-              background: barColor, transition: "width 500ms",
-            }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assets</span>
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>
+              {info?.asset_count || 0} <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontWeight: 400 }}>aucune limite</span>
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Licence</span>
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-green)" }}>
+              Community — Gratuit et illimité
+            </span>
           </div>
         </div>
-
-        {license?.status_message && (
-          <p style={{ fontSize: "11px", color: usagePct >= 80 ? "var(--tc-amber)" : "var(--tc-text-muted)", margin: "8px 0 0" }}>
-            {license.status_message}
-          </p>
-        )}
       </div>
 
-      {/* Serial input */}
       <div className="tc-card" style={{ padding: "20px" }}>
-        <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>
-          {license?.tier === "community" ? "Activer une licence" : "Changer de licence"}
-        </h3>
-        <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-          <input
-            type="text" value={serial}
-            onChange={e => setSerial(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && activate()}
-            placeholder="TC-PRO-XXXX...XXXX"
-            style={{
-              flex: 1, padding: "10px 14px", borderRadius: "var(--tc-radius-input)", fontSize: "13px",
-              fontFamily: "monospace", background: "var(--tc-input)", border: "1px solid var(--tc-border)",
-              color: "var(--tc-text)", outline: "none", letterSpacing: "0.05em",
-            }}
-          />
-          <EmbossedButton onClick={activate} disabled={activating || !serial.trim()}>
-            {activating ? "..." : "Activer"}
-          </EmbossedButton>
-        </div>
-
-        {message && (
-          <p style={{
-            fontSize: "12px", padding: "8px 12px", borderRadius: "var(--tc-radius-sm)",
-            background: message.includes("activee") ? "var(--tc-green-soft)" : "var(--tc-red-soft)",
-            color: message.includes("activee") ? "var(--tc-green)" : "var(--tc-red)",
-            margin: "8px 0 0",
-          }}>
-            {message}
-          </p>
-        )}
-
-        <p style={{ fontSize: "11px", color: "var(--tc-text-faint)", margin: "12px 0 0" }}>
-          Obtenez une licence sur <a href="https://threatclaw.io/pricing" target="_blank" rel="noopener noreferrer"
-            style={{ color: "var(--tc-red)", textDecoration: "none" }}>threatclaw.io/pricing</a>
+        <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: "1.6", margin: 0 }}>
+          ThreatClaw est un agent cybersécurité autonome pour PME.
+          <br />Développé par <a href="https://cyberconsulting.fr" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>CyberConsulting.fr</a>
+          <br />Licence AGPL v3 — <a href="https://threatclaw.io" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>threatclaw.io</a>
         </p>
       </div>
     </div>
@@ -235,7 +152,7 @@ export default function SetupPage() {
       {activeTab === "skills" && <SkillsContent />}
       {activeTab === "assets" && <AssetsContent />}
       {activeTab === "tests" && <TestsContent />}
-      {activeTab === "license" && <LicenseContent />}
+      {activeTab === "about" && <LicenseContent />}
     </div>
   );
 }
