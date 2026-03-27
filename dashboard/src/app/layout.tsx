@@ -14,6 +14,7 @@ export default function RootLayout({
 }) {
   const pathname = usePathname();
   const isSetupWizard = pathname === "/setup" && typeof window !== "undefined" && !localStorage.getItem("threatclaw_onboarded");
+  const isLoginPage = pathname === "/login";
 
   return (
     <html lang="fr">
@@ -46,7 +47,7 @@ export default function RootLayout({
           }} />
         </div>
         <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", maxWidth: "1100px", margin: "0 auto" }}>
-          {!isSetupWizard && <TopNav />}
+          {!isSetupWizard && !isLoginPage && <TopNav />}
           <main style={{ padding: "0 24px 48px" }}>
             {children}
           </main>
