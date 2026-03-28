@@ -279,6 +279,8 @@ const T: Record<string, Record<Locale, string>> = {
   resumeServices: { fr: "Reprendre les services", en: "Resume services" },
 
   // ── Skills page ──
+  beta: { fr: "Beta", en: "Beta" },
+  betaSkillHint: { fr: "Validation en cours", en: "Validation in progress" },
   official: { fr: "ThreatClaw", en: "ThreatClaw" },
   verified: { fr: "Vérifié", en: "Verified" },
   communautaire: { fr: "Communautaire", en: "Community" },

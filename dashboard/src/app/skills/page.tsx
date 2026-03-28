@@ -69,6 +69,18 @@ const NOT_FUNCTIONAL: Set<string> = new Set([
   "skill-httpx", "skill-subfinder", "skill-trivy", "skill-zap", "skill-sigma-rules",
 ]);
 
+// Skills with code written but not yet validated in production
+const BETA_SKILLS: Set<string> = new Set([
+  "skill-active-directory", "skill-pfsense", "skill-proxmox", "skill-fortinet",
+  "skill-wazuh", "skill-wazuh-connector", "skill-glpi", "skill-defectdojo",
+  "skill-pihole", "skill-unifi", "skill-zeek", "skill-suricata",
+  "skill-crowdsec-connector", "skill-cloudflare", "skill-uptimerobot",
+  "skill-semgrep", "skill-checkov", "skill-trufflehog", "skill-grype",
+  "skill-syft", "skill-docker-bench", "skill-lynis",
+  "skill-darkweb-monitor", "skill-email-audit", "skill-report-gen",
+  "skill-compliance-nis2", "skill-compliance-iso27001",
+]);
+
 function TrustBadge({ trust, locale }: { trust: string; locale: "fr" | "en" }) {
   const t = TRUST_UI[trust] || TRUST_UI["community"];
   return (
@@ -313,6 +325,9 @@ export default function SkillsPage() {
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "2px" }}>
                             <TrustBadge trust={trust} locale={locale} />
+                            {BETA_SKILLS.has(skill.id) && (
+                              <span style={{ fontSize: "7px", fontWeight: 800, padding: "1px 5px", borderRadius: "3px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase" }} title={tr("betaSkillHint", locale)}>{tr("beta", locale)}</span>
+                            )}
                             {skill.api_key_required && <Key size={9} color="var(--tc-amber)" />}
                           </div>
                         </div>
@@ -419,6 +434,9 @@ export default function SkillsPage() {
                         <TypeBadge type={skill.type} />
                         <TrustBadge trust={trust} locale={locale} />
                         {skill.api_key_required && <Key size={10} color="var(--tc-amber)" />}
+                        {BETA_SKILLS.has(skill.id) && (
+                          <span style={{ fontSize: "7px", fontWeight: 800, padding: "1px 5px", borderRadius: "3px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase" }} title={tr("betaSkillHint", locale)}>{tr("beta", locale)}</span>
+                        )}
                         {skill.premium && <span style={{ fontSize: "8px", fontWeight: 800, padding: "2px 5px", borderRadius: "3px", background: "rgba(208,168,32,0.15)", color: "#d0a820" }}>PREMIUM</span>}
                       </div>
                     </div>
