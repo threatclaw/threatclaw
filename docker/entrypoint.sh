@@ -53,7 +53,7 @@ BEGIN
     INSERT INTO logs (tag, time, data, hostname, collector)
     VALUES (COALESCE(NEW.tag, 'unknown'), COALESCE(NEW.time, NOW()), COALESCE(NEW.data, '{}'::jsonb),
             COALESCE(NEW.data->>'hostname', NEW.data->>'host'), COALESCE(NEW.data->>'collector', 'fluent-bit'));
-    RETURN NEW;
+    RETURN NULL; -- Don't keep data in staging table
 END; $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_fluentbit_ingest ON logs_fluentbit;
 CREATE TRIGGER trg_fluentbit_ingest AFTER INSERT ON logs_fluentbit FOR EACH ROW EXECUTE FUNCTION fn_fluentbit_to_logs();
