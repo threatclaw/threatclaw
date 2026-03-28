@@ -424,32 +424,32 @@ impl ThreatClawStore for PgBackend {
         limit: i64,
     ) -> Result<Vec<LogRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let interval = format!("{} minutes", minutes_back);
+        let interval_clause = format!("INTERVAL '{} minutes'", minutes_back);
 
-        // Build query with static params to avoid Send issues with dynamic Box<dyn>
+        // Build query — interval is safe (i64), limit is safe (i64)
         let rows = match (hostname, tag) {
             (Some(h), Some(t)) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND hostname = $2 AND tag = $3 ORDER BY time DESC LIMIT {}", limit),
-                    &[&interval, &h, &t],
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} AND hostname = $1 AND tag = $2 ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &[&h, &t],
                 ).await.map_err(query_err)?
             }
             (Some(h), None) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND hostname = $2 ORDER BY time DESC LIMIT {}", limit),
-                    &[&interval, &h],
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} AND hostname = $1 ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &[&h],
                 ).await.map_err(query_err)?
             }
             (None, Some(t)) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval AND tag = $2 ORDER BY time DESC LIMIT {}", limit),
-                    &[&interval, &t],
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} AND tag = $1 ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &[&t],
                 ).await.map_err(query_err)?
             }
             (None, None) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - $1::interval ORDER BY time DESC LIMIT {}", limit),
-                    &[&interval],
+                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &[],
                 ).await.map_err(query_err)?
             }
         };
@@ -519,11 +519,9 @@ impl ThreatClawStore for PgBackend {
 
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let interval = format!("{} minutes", minutes_back);
-        let row = conn.query_one(
-            "SELECT COUNT(*) FROM logs WHERE time >= NOW() - $1::interval",
-            &[&interval],
-        ).await.map_err(query_err)?;
+        // Use direct interval interpolation — safe because minutes_back is i64, not user input
+        let query = format!("SELECT COUNT(*) FROM logs WHERE time >= NOW() - INTERVAL '{} minutes'", minutes_back);
+        let row = conn.query_one(&query, &[]).await.map_err(query_err)?;
         Ok(row.get::<_, i64>(0))
     }
 

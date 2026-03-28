@@ -4462,11 +4462,20 @@ pub async fn log_stats_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Count logs (using existing count_logs method with minutes_back)
-    let today_count = store.count_logs(1440).await.unwrap_or(0); // 24h
-    let total_count = store.count_logs(43200).await.unwrap_or(0); // 30 days
+    let today_count = match store.count_logs(1440).await {
+        Ok(c) => c,
+        Err(e) => { tracing::error!("LOG_STATS: count_logs failed: {e}"); 0 }
+    };
+    let total_count = match store.count_logs(43200).await {
+        Ok(c) => c,
+        Err(e) => { tracing::error!("LOG_STATS: count_logs 30d failed: {e}"); 0 }
+    };
 
     // Get last log to find time + count distinct sources
-    let recent_logs = store.query_logs(60, None, None, 1).await.unwrap_or_default();
+    let recent_logs = match store.query_logs(60, None, None, 1).await {
+        Ok(l) => l,
+        Err(e) => { tracing::error!("LOG_STATS: query_logs failed: {e}"); vec![] }
+    };
     let last_received = recent_logs.first().map(|l| l.time.clone());
 
     // Count distinct hostnames from recent logs
