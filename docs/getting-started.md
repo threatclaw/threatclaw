@@ -2,91 +2,89 @@
 
 ## Requirements
 
-- **OS**: Linux (Debian 12+, Ubuntu 22.04+), macOS (13+), Windows (10/11)
-- **Rust**: 1.90+ with `wasm32-wasip2` target (for building from source)
-- **Docker**: Docker Engine 24+ / Docker Desktop
-- **RAM**: 8GB minimum, 16GB+ recommended for local LLM
-- **Disk**: 20GB minimum, 50GB+ if using Ollama models
+- **OS**: Linux (Debian 12+, Ubuntu 22.04+)
+- **Docker**: Docker Engine 24+ with Compose plugin
+- **RAM**: 16GB minimum (32GB+ recommended for AI models)
+- **Disk**: 30GB minimum (AI models download ~18GB on first boot)
+- **Network**: Internet access for initial model download
 
 ## Installation
 
-### Quick install (recommended)
+### One-line install (recommended)
 
-**Linux / macOS:**
 ```bash
-curl -fsSL https://get.threatclaw.io | sh
+curl -fsSL https://get.threatclaw.io | sudo bash
 ```
 
-**Windows (PowerShell):**
-```powershell
-irm https://get.threatclaw.io/windows | iex
-```
+This will:
+1. Install Docker if not present
+2. Download all configuration files
+3. Generate a secure database password and auth token
+4. Pull Docker images from `ghcr.io/threatclaw/`
+5. Start all services
+6. Download AI models in the background (~18GB, takes 10-15 min)
 
-### Build from source
+Open `http://your-server:3001` and create your admin account.
+
+### Docker Compose (manual)
 
 ```bash
 git clone https://github.com/threatclaw/threatclaw.git
-cd threatclaw
+cd threatclaw/docker
+cp .env.example .env
+# Edit .env to set your password and ports
+docker compose up -d
+```
+
+### From source (developers only)
+
+```bash
+git clone https://github.com/threatclaw/threatclaw.git && cd threatclaw
 cargo build --release
-```
-
-### 2. Start infrastructure
-
-```bash
-docker compose -f docker/docker-compose.core.yml up -d
-```
-
-This starts PostgreSQL, Redis, and Fluent Bit.
-
-### 3. Install a local LLM (recommended)
-
-```bash
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen3:14b    # for 16-32GB RAM
-# or
-ollama pull qwen3:8b     # for 8-16GB RAM
-```
-
-### 4. Run ThreatClaw
-
-```bash
 ./target/release/threatclaw run
+# Dashboard: cd dashboard && npm install && npm run build && npx next start -p 3001
 ```
 
-On first run, ThreatClaw will:
-- Apply database migrations
-- Load WASM skills from `~/.threatclaw/tools/`
-- Load WASM channels from `~/.threatclaw/channels/`
-- Start the web gateway on port 3000
+Requires: Rust 1.90+, PostgreSQL 16 with pgvector + Apache AGE, Ollama.
 
-### 5. Open the dashboard
+## First boot
 
-Start the dashboard:
+On first boot, ThreatClaw will:
+1. Create the database schema (28 migrations)
+2. Download AI models: L1 Triage (5GB), L2 Reasoning (8.5GB), L3 Instruct (5GB)
+3. Start the Intelligence Engine (cycle every 5 min)
+4. Start the dashboard on port 3001
 
-```bash
-cd dashboard
-npm install
-PORT=3001 npm run dev
-```
-
-Open `http://localhost:3001` and follow the setup wizard.
+**First access:** Open `http://your-server:3001` → Create your admin account → Follow the onboarding wizard.
 
 ## Configuration
 
-ThreatClaw reads configuration from:
+### Ports
 
-1. `~/.threatclaw/.env` — environment variables (DATABASE_URL, LLM_BACKEND, etc.)
-2. `~/.threatclaw/settings.json` — persistent settings
-3. `threatclaw.toml` — project configuration (optional)
+Edit `.env` before starting:
+```bash
+TC_DASHBOARD_PORT=3001    # Dashboard (default: 3001)
+TC_CORE_PORT=3000         # API (default: 3000)
+TC_SYSLOG_PORT=514        # Syslog receiver (default: 514)
+```
 
-### Minimal `.env`
+### Database password
 
 ```bash
-DATABASE_URL=postgres://threatclaw:PASSWORD@127.0.0.1:5432/threatclaw
-LLM_BACKEND=ollama
-OLLAMA_MODEL=qwen3:14b
-OLLAMA_BASE_URL=http://127.0.0.1:11434
+TC_DB_PASSWORD=your-secure-password
 ```
+
+The installer generates a random password automatically.
+
+### Cloud LLM (optional)
+
+Add a cloud LLM for enhanced conversation quality:
+```bash
+ANTHROPIC_API_KEY=sk-ant-...    # Claude
+MISTRAL_API_KEY=...              # Mistral AI
+```
+
+ThreatClaw works 100% locally without cloud. Cloud LLM is optional.
 
 ## Sending logs to ThreatClaw
 
@@ -95,13 +93,39 @@ ThreatClaw receives logs via Fluent Bit on port 514 (syslog).
 | Source | Configuration |
 |--------|--------------|
 | **Linux** | Add `*.* @@threatclaw-ip:514` to `/etc/rsyslog.conf` |
-| **Windows** | Install [NXLog CE](https://nxlog.co/products/nxlog-community-edition) (free) |
+| **Windows** | Install [NXLog CE](https://nxlog.co/products/nxlog-community-edition) |
 | **pfSense** | Status > System Logs > Settings > Enable Remote Logging |
 | **FortiGate** | `config log syslogd setting` → set server IP |
 | **Docker** | `--log-driver=fluentd --log-opt fluentd-address=threatclaw-ip:24224` |
 
+## Troubleshooting
+
+### Change port
+Edit `/opt/threatclaw/.env`, then: `docker compose down && docker compose up -d`
+
+### Change data directory
+Before first install: set `TC_DIR=/your/path` when running the installer.
+
+### Clean reinstall
+```bash
+cd /opt/threatclaw && docker compose down -v --rmi all
+rm -rf /opt/threatclaw
+curl -fsSL https://get.threatclaw.io | sudo bash
+```
+
+### Check service status
+```bash
+cd /opt/threatclaw && docker compose ps
+docker compose logs -f threatclaw-core    # Core logs
+docker compose logs -f ollama             # AI model logs
+```
+
+### AI models not downloading
+Ollama needs internet access. Check: `docker compose logs ollama | grep error`
+
 ## Next steps
 
-- [Configure communication channels](configuration.md#channels) (Slack, Telegram, Discord)
-- [Browse available skills](skills.md)
-- [Read the API documentation](api.md)
+- [Configuration options](configuration.md) — All settings
+- [Available skills](skills.md) — Connectors, Intelligence, Actions
+- [API documentation](api.md) — REST API endpoints
+- [Skill Development Guide](SKILL_DEVELOPMENT_GUIDE.md) — Build custom skills

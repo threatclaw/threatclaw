@@ -7,21 +7,21 @@
 <p align="center">Self-hosted · AI-powered · ML behavioral analysis · 100% on-premise</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0--beta-red" alt="Version">
-  <img src="https://img.shields.io/badge/tests-3579_passing-brightgreen" alt="Tests">
+  <img src="https://img.shields.io/badge/version-2.2.0--beta-red" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL_v3-blue" alt="License">
   <img src="https://img.shields.io/badge/status-BETA-orange" alt="Status">
+  <img src="https://img.shields.io/badge/pricing-Free_&_Unlimited-brightgreen" alt="Free">
 </p>
 
-> **BETA** — ThreatClaw is in active development. Features are functional and tested, but the product is not yet production-hardened. Use in test/lab environments.
+> **BETA** — ThreatClaw is in active development. Core features are functional and tested, but the product is not yet production-hardened.
 
 ---
 
 ## What is ThreatClaw?
 
-ThreatClaw is a **self-hosted, AI-powered cybersecurity agent** that monitors, detects, correlates, and proposes remediations for security threats. Originally forked from [IronClaw](https://github.com/nearai/ironclaw), it has been extensively rebuilt for **autonomous SOC operations** targeting SMBs.
+ThreatClaw is a **self-hosted, AI-powered cybersecurity agent** that monitors, detects, correlates, and proposes remediations for security threats. It has been built for **autonomous SOC operations** targeting SMBs.
 
-**All data stays on your infrastructure.** No cloud dependency required. NIS2-ready.
+**All data stays on your infrastructure.** No cloud dependency required. No asset limits. Free and unlimited.
 
 ### 3 layers of detection
 
@@ -33,103 +33,96 @@ Layer 3 — LLM Analysis       → "Here's what's happening and what to do" (exp
 
 ## Quick Start
 
-> The one-line installer (`get.threatclaw.io`) is available but not yet publicly tested. Use Docker Compose for now.
+**One-line install (recommended):**
+```bash
+curl -fsSL https://get.threatclaw.io | sudo bash
+```
+This installs Docker (if needed), downloads all services, and starts ThreatClaw. Open `http://your-server:3001` to create your admin account.
 
-**Docker Compose (recommended):**
+**Docker Compose (manual):**
 ```bash
 git clone https://github.com/threatclaw/threatclaw.git
-cd threatclaw
-docker compose -f docker/docker-compose.yml up -d
+cd threatclaw/docker
+cp .env.example .env
+docker compose up -d
 ```
 
-**From source:**
+**From source (developers):**
 ```bash
 git clone https://github.com/threatclaw/threatclaw.git && cd threatclaw
 cargo build --release
 ./target/release/threatclaw run
-# Dashboard: cd dashboard && npm install && npm run build && npx next start -p 3001
 ```
-
-Open `http://localhost:3001` — the onboarding wizard guides you through setup.
 
 ## Features
 
+### 5-level AI Architecture
+| Level | Name | Role |
+|-------|------|------|
+| L0 | ThreatClaw AI Ops | Conversational agent — talks to you, uses tool calling |
+| L1 | ThreatClaw AI Triage | Pipeline — JSON classification, scoring |
+| L2 | ThreatClaw AI Reasoning | Forensics — chain-of-thought, MITRE ATT&CK |
+| L3 | ThreatClaw AI Instruct | Playbooks — SOAR, Sigma rules, reports |
+| L4 | Cloud (optional) | Escalation — anonymized, Anthropic/Mistral/OpenAI |
+
 ### Core engine (Rust)
-- **AI Agent** — ReAct reasoning loop with 3-level escalation (local L1 → enriched L2 → anonymized cloud)
 - **Intelligence Engine** — Runs every 5 min, collects alerts/findings, scores assets, decides notifications
 - **Graph Intelligence** — Apache AGE (STIX 2.1): attack paths, lateral movement, campaigns, threat actors
-- **Asset Management** — 10 categories, auto-discovery, IP classification (internal/external/unknown), fingerprinting
-- **9 Test Scenarios** — APT multi-target, ransomware spread, WordPress compromise, SSH brute force, Log4Shell, C2, phishing, lateral movement, full intrusion
+- **Asset Management** — Auto-discovery, IP classification, MAC vendor lookup, fingerprinting
+- **Dashboard Authentication** — Login, sessions (argon2id), brute force protection
+- **Pause/Resume** — One-click to pause all services
+- **9 notification channels** — Telegram, Slack, Discord, Mattermost, Ntfy, Gotify, Email, Signal, WhatsApp
 
 ### ML Engine (Python)
 - **Isolation Forest** — Per-asset behavioral baseline (14 days), anomaly score 0-1
-- **DGA Detection** — Random Forest on DNS domain names, detects C2 algorithmically-generated domains
-- **DBSCAN Clustering** — Groups assets by behavior, detects "black sheep" outliers
+- **DGA Detection** — Random Forest on DNS domain names
+- **DBSCAN Clustering** — Groups assets by behavior, detects outliers
 - **Company Context** — Sector, business hours, geo scope adjust ML sensitivity
-- **Daemon mode** — Scores every 5 min, retrains nightly at 03:00
 
 ### Integrations (26 enrichments + 15 connectors)
 
 **Enrichment (automatic, zero config):**
-NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, IPinfo, OpenPhish, ThreatFox, MalwareBazaar, URLhaus, CrowdSec, OTX, Shodan, VirusTotal, HIBP, AbuseIPDB, Google Safe Browsing, SSL Labs, Mozilla Observatory, crt.sh, URLScan.io, WPScan, Wordfence Intelligence, PhishTank, Spamhaus DNSBL, SecurityTrails
+NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, VirusTotal, HIBP, and 15 more.
 
-**Connectors (client plugs their existing tools):**
-Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh SIEM, DefectDojo, Nmap, Cloudflare WAF, CrowdSec LAPI, UptimeRobot, Pi-hole, UniFi, Zeek, Suricata
-
-**Webhook receiver** — Generic endpoint with 8 parsers (Cloudflare, CrowdSec, Fail2ban, UptimeRobot, Uptime Kuma, Wordfence, Graylog, ChangeDetection)
+**Connectors (plug your existing tools):**
+Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh, Nmap, Zeek, Suricata, Pi-hole, UniFi, and more.
 
 ### Dashboard (Next.js 14)
-- 9 pages: Status, Assets, Findings, Alerts, Intelligence, Agent, Skills, Test, Config
-- Neumorphic design (NeuCard), dark/light theme
-- Onboarding wizard with company profile
+- Dark glass design, responsive, bilingual (FR/EN)
+- Onboarding wizard
 - Real-time security score, ML status, server health
+- Skills marketplace (Connectors / Intelligence / Actions)
+- Live system logs
 
-### Security
-- 5 security pillars: Immutable Soul, Command Whitelist, XML Injection Defense, HMAC Memory, Kill Switch
-- WASM sandbox (BLAKE3-signed skills)
-- 4 agent modes: Investigator (read-only) → Responder (HITL) → Autonomous Low → Autonomous High
-- Human-in-the-loop on ALL write actions
-- Gateway auth (constant-time token comparison)
-- SQL injection protection (parameterized queries)
-- Cypher injection protection (input validation)
-
-### NACE/NAF Threat Profiles
-9 sector-specific profiles (healthcare, finance, industry, retail, government, energy, transport, education, services) with:
-- MITRE ATT&CK technique mapping (Enterprise + ICS)
-- Compliance framework mapping (NIS2, HIPAA, PCI-DSS, IEC 62443, DORA, RGS)
-- Sensitivity multipliers per sector
+### PDF Reports
+- NIS2 (Early Warning 24h, Intermediate 72h, Final, Article 21)
+- RGPD Article 33, ISO 27001, NIST SP 800-61r3
+- Executive & Technical reports, Audit trail
 
 ## Pricing
 
-| | Community | Pro | Enterprise | MSSP |
-|---|-----------|-----|------------|------|
-| **Assets** | 150 free | 500 | Unlimited | Unlimited |
-| **Price** | Free | 49 EUR/month | 299 EUR/month | 800 EUR/month |
-| **ML Engine** | Included | Included | Included | Included |
-| **Support** | Community | Email | Priority | Dedicated |
-| **Updates** | Community | Auto | Auto | Auto + custom |
+**ThreatClaw is free and unlimited.** No asset limits. No feature gating.
+
+Future premium skills will be available on the marketplace (hub.threatclaw.io).
 
 ## Architecture
 
 ```
-Sources → PostgreSQL → ML Engine (5min) → Intelligence Engine → Graph AGE → LLM → RSSI
+Sources → PostgreSQL → ML Engine (5min) → Intelligence Engine → Graph AGE → LLM → User
                             ↑                       ↑
                     Isolation Forest          Asset correlation
                     DGA Detection            IP classification
                     DBSCAN Clustering        Fingerprinting
 ```
 
-- **Backend**: Rust (tokio async, axum HTTP, deadpool-postgres)
-- **Database**: PostgreSQL + Apache AGE (graph) + pgvector (future)
-- **ML**: Python (scikit-learn, pandas) in Docker container
-- **Dashboard**: Next.js 14 (React, TypeScript)
-- **LLM**: Ollama (local) or Anthropic/Mistral/OpenAI (cloud, anonymized)
+**Stack:** Rust (backend) · PostgreSQL + Apache AGE + pgvector (DB) · Python (ML) · Next.js 14 (dashboard) · Ollama (local LLM)
 
 ## Documentation
 
-- [Architecture v2](docs/ARCHITECTURE_V2_INTELLIGENCE.md) — Full system design (ML, assets, pipeline)
-- [Skills Integrations](docs/SKILLS_V2_INTEGRATIONS.md) — All 26 enrichment + 15 connector API specs
-- [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build official (Rust/WASM) or community (Python/Docker) skills
+- [Getting Started](docs/getting-started.md) — Installation and first steps
+- [Configuration](docs/configuration.md) — All settings and options
+- [API Reference](docs/api.md) — REST API endpoints
+- [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build custom skills
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — How to contribute
 - [Changelog](CHANGELOG.md) — Version history
@@ -144,22 +137,16 @@ ThreatClaw is and will remain open source. If this project is useful to you:
 
 **AGPL v3 + Commercial dual-license.**
 
-**You are NOT affected by AGPL if you:**
-- Install ThreatClaw on your own servers ✅
-- Use it to monitor your own infrastructure ✅
-- Modify it for your own use ✅
-- Are an MSSP deploying it for clients ✅ (with a commercial license)
+- Install on your own servers ✅
+- Monitor your own infrastructure ✅
+- Modify for your own use ✅
+- MSSP deploying for clients ✅ (with commercial license)
 
-**You ARE affected by AGPL if you:**
-- Build a SaaS product on top of ThreatClaw without publishing your modifications
-- Embed ThreatClaw in a commercial product you sell without a commercial license
+> 99% of users are not affected by AGPL restrictions.
 
-> 99% of users are in the first category.
-
-- Open source: [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-or-later)
+- Open source: [AGPL-3.0-or-later](LICENSE)
 - Commercial: [Commercial License](LICENSE-COMMERCIAL.md) — contact commercial@threatclaw.io
-- Third-party: [NOTICE](NOTICE) — IronClaw (Apache 2.0), Apache AGE, MITRE ATT&CK
 
 ---
 
-Built by [CyberConsulting.fr](https://cyberconsulting.fr) — RSSI as a Service for French SMBs
+Built by [CyberConsulting.fr](https://cyberconsulting.fr) — Cybersecurity consulting for SMBs
