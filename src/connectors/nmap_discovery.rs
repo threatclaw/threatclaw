@@ -17,7 +17,7 @@ pub struct NmapConfig {
     /// Target subnets (e.g., "192.168.1.0/24" or "10.0.0.0/24,192.168.2.0/24")
     pub targets: String,
     /// Number of top ports to scan (default: 1000)
-    #[serde(default = "default_top_ports")]
+    #[serde(default = "default_top_ports", deserialize_with = "deserialize_u16_lenient")]
     pub top_ports: u16,
     /// Timing template (T1-T5, default: T3)
     #[serde(default = "default_timing")]
@@ -29,6 +29,24 @@ pub struct NmapConfig {
 
 fn default_top_ports() -> u16 { 1000 }
 fn default_timing() -> String { "T3".into() }
+
+/// Accept both number (1000) and string ("1000") for top_ports
+fn deserialize_u16_lenient<'de, D>(deserializer: D) -> Result<u16, D::Error>
+where D: serde::Deserializer<'de> {
+    use serde::de;
+    struct U16Visitor;
+    impl<'de> de::Visitor<'de> for U16Visitor {
+        type Value = u16;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("a number or numeric string") }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u16, E> { Ok(v as u16) }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u16, E> { Ok(v as u16) }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<u16, E> { Ok(v as u16) }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<u16, E> {
+            v.parse::<u16>().map_err(|_| de::Error::custom(format!("invalid port number: {v}")))
+        }
+    }
+    deserializer.deserialize_any(U16Visitor)
+}
 
 /// Result of a nmap discovery scan.
 #[derive(Debug, Clone, Serialize)]

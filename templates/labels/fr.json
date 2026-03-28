@@ -1,0 +1,87 @@
+{
+  "_meta": { "language": "Français", "code": "fr" },
+
+  "brand_tagline": "Agent de cybersécurité autonome",
+  "generated_by": "Généré automatiquement par ThreatClaw",
+  "confidential": "CONFIDENTIEL",
+  "page": "Page",
+  "of": "sur",
+  "date": "Date",
+  "version": "Version",
+
+  "report_incident": "Rapport d'incident",
+  "report_executive": "Rapport exécutif",
+  "report_technical": "Rapport technique",
+  "report_audit": "Journal d'audit",
+  "report_compliance": "Rapport de conformité",
+
+  "section_summary": "Résumé",
+  "section_impact": "Impact",
+  "section_timeline": "Chronologie",
+  "section_root_cause": "Cause racine",
+  "section_actions_taken": "Actions prises",
+  "section_recommendations": "Recommandations",
+  "section_affected_systems": "Systèmes affectés",
+  "section_iocs": "Indicateurs de compromission",
+  "section_mitre": "Techniques MITRE ATT&CK",
+  "section_lessons_learned": "Leçons apprises",
+  "section_notification": "Notification",
+  "section_appendix": "Annexe",
+
+  "severity_critical": "CRITIQUE",
+  "severity_high": "ÉLEVÉ",
+  "severity_medium": "MOYEN",
+  "severity_low": "FAIBLE",
+
+  "status_open": "Ouvert",
+  "status_in_progress": "En cours",
+  "status_resolved": "Résolu",
+
+  "score_label": "Score de sécurité",
+  "score_healthy": "Situation saine",
+  "score_warning": "Points d'attention",
+  "score_critical": "Situation dégradée",
+
+  "assets_monitored": "Assets surveillés",
+  "alerts_active": "Alertes actives",
+  "findings_open": "Vulnérabilités ouvertes",
+
+  "nis2_title": "Notification d'incident — Directive NIS2",
+  "nis2_early_title": "Alerte précoce (Article 23.4a)",
+  "nis2_intermediate_title": "Notification intermédiaire (Article 23.4b)",
+  "nis2_final_title": "Rapport final (Article 23.4d-e)",
+  "nis2_article21_title": "Mesures de gestion des risques (Article 21)",
+  "nis2_entity_type": "Entité Essentielle / Importante",
+  "nis2_deadline_72h": "Délai 72h",
+  "nis2_measures": "Mesures obligatoires",
+  "nis2_measure_covered": "Couvert",
+  "nis2_measure_partial": "Partiel",
+  "nis2_measure_missing": "Manquant",
+
+  "gdpr_title": "Notification de violation de données — RGPD Article 33",
+  "gdpr_nature": "Nature de la violation",
+  "gdpr_persons_affected": "Personnes concernées",
+  "gdpr_consequences": "Conséquences probables",
+  "gdpr_measures_taken": "Mesures prises",
+  "gdpr_dpo": "Délégué à la protection des données",
+  "gdpr_authority": "Autorité de contrôle (CNIL)",
+
+  "nist_title": "Incident Report — NIST SP 800-61r3",
+  "iso_title": "Rapport d'incident — ISO 27001:2022",
+
+  "executive_kpi": "Indicateurs clés",
+  "executive_trends": "Tendances",
+  "executive_risks": "Risques identifiés",
+  "executive_actions": "Actions recommandées",
+
+  "technical_findings": "Vulnérabilités détectées",
+  "technical_alerts": "Alertes de sécurité",
+  "technical_assets": "Assets analysés",
+  "technical_ml": "Anomalies ML",
+
+  "audit_action": "Action",
+  "audit_user": "Utilisateur",
+  "audit_timestamp": "Horodatage",
+  "audit_result": "Résultat",
+  "audit_target": "Cible"
+}

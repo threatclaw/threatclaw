@@ -1,5 +1,6 @@
 // ThreatClaw — Common report styles and functions
 // Brand: #d03020 (red), #3080d0 (blue), #30a050 (green), #d09020 (amber)
+// Multilingual: loads labels from labels/{locale}.json
 
 #let tc-red = rgb("#d03020")
 #let tc-blue = rgb("#3080d0")
@@ -9,6 +10,14 @@
 #let tc-gray = rgb("#888888")
 #let tc-light = rgb("#f5f5f5")
 
+// ── Multilingual labels ──
+// Load labels based on locale from data.json
+// Usage in templates: #import "common.typ": L
+// Then use: #L.section_summary, #L.report_incident, etc.
+#let data = json("data.json")
+#let locale = if "locale" in data { data.locale } else { "fr" }
+#let L = json("labels/" + locale + ".json")
+
 #let tc-header(title, company, subtitle: none) = {
   grid(
     columns: (1fr, auto),
@@ -16,7 +25,7 @@
     [
       #text(size: 22pt, weight: "bold", fill: tc-red, tracking: 0.1em)[THREATCLAW]
       #v(2pt)
-      #text(size: 8pt, fill: tc-gray)[Agent de cybersécurité autonome]
+      #text(size: 8pt, fill: tc-gray)[#L.brand_tagline]
     ],
     [
       #text(size: 12pt, weight: "bold", fill: tc-dark)[#company]
@@ -77,8 +86,8 @@
   line(length: 100%, stroke: 0.5pt + rgb("#dddddd"))
   v(4pt)
   text(size: 7pt, fill: tc-gray)[
-    Rapport généré automatiquement par ThreatClaw v2.0 — #datetime.today().display("[day]/[month]/[year]")
+    #L.generated_by — v2.2 — #datetime.today().display("[day]/[month]/[year]")
     #linebreak()
-    Ce document est confidentiel et destiné uniquement à #company.
+    #L.confidential — #company
   ]
 }

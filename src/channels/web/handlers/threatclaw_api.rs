@@ -4002,6 +4002,20 @@ fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Ve
     std::fs::copy(&common_src, tmp.join("common.typ")).map_err(|e| format!("copy common: {e}"))?;
     std::fs::copy(&tpl_src, tmp.join(format!("{template_name}.typ"))).map_err(|e| format!("copy tpl: {e}"))?;
 
+    // Copy label files for multilingual templates
+    let labels_dir = tpl_dir.join("labels");
+    if labels_dir.exists() {
+        let tmp_labels = tmp.join("labels");
+        std::fs::create_dir_all(&tmp_labels).map_err(|e| format!("mkdir labels: {e}"))?;
+        if let Ok(entries) = std::fs::read_dir(&labels_dir) {
+            for entry in entries.flatten() {
+                if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
+                    let _ = std::fs::copy(entry.path(), tmp_labels.join(entry.file_name()));
+                }
+            }
+        }
+    }
+
     let output_pdf = tmp.join("output.pdf");
 
     // Run typst compile
@@ -4033,6 +4047,7 @@ pub async fn export_report_handler(
     Json(body): Json<serde_json::Value>,
 ) -> Response {
     let format = body.get("format").and_then(|f| f.as_str()).unwrap_or("json");
+    let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
@@ -4169,7 +4184,7 @@ pub async fn export_report_handler(
     };
 
     // Build the report data JSON + determine template name
-    let (template_name, report_data) = if path.contains("nis2-early") {
+    let (template_name, report_data_raw) = if path.contains("nis2-early") {
         let deadline_72h = (now + chrono::Duration::hours(72)).format("%d/%m/%Y %H:%M").to_string();
         ("nis2-early-warning", serde_json::json!({
             "org_name": company_name,
@@ -4402,6 +4417,12 @@ pub async fn export_report_handler(
         return (StatusCode::BAD_REQUEST, "Unknown report type").into_response();
     };
 
+    // Inject locale into report data for multilingual templates
+    let mut report_data = report_data_raw;
+    if let Some(obj) = report_data.as_object_mut() {
+        obj.insert("locale".into(), serde_json::json!(report_locale));
+    }
+
     // JSON format → return data as JSON
     if format != "pdf" {
         return Json(report_data).into_response();
@@ -4428,6 +4449,39 @@ pub async fn export_report_handler(
             (StatusCode::INTERNAL_SERVER_ERROR, format!("PDF generation failed: {e}")).into_response()
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════
+// LOG SOURCES STATS
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/logs/stats — log reception statistics for the Sources page.
+pub async fn log_stats_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Count logs (using existing count_logs method with minutes_back)
+    let today_count = store.count_logs(1440).await.unwrap_or(0); // 24h
+    let total_count = store.count_logs(43200).await.unwrap_or(0); // 30 days
+
+    // Get last log to find time + count distinct sources
+    let recent_logs = store.query_logs(60, None, None, 1).await.unwrap_or_default();
+    let last_received = recent_logs.first().map(|l| l.time.clone());
+
+    // Count distinct hostnames from recent logs
+    let all_recent = store.query_logs(1440, None, None, 1000).await.unwrap_or_default();
+    let sources: std::collections::HashSet<&str> = all_recent.iter()
+        .filter_map(|l| l.hostname.as_deref())
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "today": today_count,
+        "total_30d": total_count,
+        "last_received": last_received,
+        "sources_count": sources.len(),
+        "syslog_port": 514,
+    })))
 }
 
 // ══════════════════════════════════════════════════════════

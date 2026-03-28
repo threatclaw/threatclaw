@@ -336,6 +336,7 @@ pub async fn start_server(
         .route("/api/tc/pause", get(super::handlers::threatclaw_api::kill_switch_status_handler))
         .route("/api/tc/pause", post(super::handlers::threatclaw_api::pause_toggle_handler))
         .route("/api/tc/system-logs", get(super::handlers::threatclaw_api::system_logs_handler))
+        .route("/api/tc/logs/stats", get(super::handlers::threatclaw_api::log_stats_handler))
         .route("/api/tc/agent/audit", get(super::handlers::threatclaw_api::audit_entries_handler))
         .route("/api/tc/agent/soul", get(super::handlers::threatclaw_api::soul_info_handler))
         .route("/api/tc/agent/react-cycle", post(super::handlers::threatclaw_api::react_cycle_trigger_handler))
