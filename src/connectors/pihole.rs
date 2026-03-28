@@ -44,7 +44,6 @@ pub async fn sync_pihole(store: &dyn Database, config: &PiholeConfig) -> PiholeS
     // Authenticate
     let auth_resp = match client.post(&format!("{}/api/auth", base))
         .json(&serde_json::json!({"password": config.password}))
-        .timeout(std::time::Duration::from_secs(10))
         .send().await
     {
         Ok(r) => r,
