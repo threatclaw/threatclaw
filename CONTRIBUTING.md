@@ -99,7 +99,8 @@ cd dashboard && npm install && npm run dev
 ## Security
 
 **DO NOT** open public issues for security vulnerabilities.
-See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
+Use the ["Report a vulnerability"](https://github.com/threatclaw/threatclaw/security/advisories) button in the Security tab, or email security@cyberconsulting.fr.
+See [SECURITY.md](SECURITY.md) for details.
 
 ## Contributor Recognition
 

@@ -4,7 +4,9 @@
 
 **DO NOT** open a public GitHub issue for security vulnerabilities.
 
-Please report security issues to: **security@cyberconsulting.fr**
+**Preferred:** Use the **"Report a vulnerability"** button in the [Security tab](https://github.com/threatclaw/threatclaw/security/advisories) of this repository (GitHub Private Vulnerability Reporting).
+
+**Alternative:** Send an email to **security@cyberconsulting.fr**
 
 We will acknowledge within 48 hours and provide a fix timeline within 7 days.
 

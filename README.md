@@ -127,6 +127,16 @@ Sources → PostgreSQL → ML Engine (5min) → Intelligence Engine → Graph AG
 - [Contributing](CONTRIBUTING.md) — How to contribute
 - [Changelog](CHANGELOG.md) — Version history
 
+## Community & Support
+
+| Need | Where to go |
+|------|-------------|
+| 🐛 Bug report | [GitHub Issues](https://github.com/threatclaw/threatclaw/issues/new?template=bug_report.yml) |
+| 💡 Feature request | [GitHub Issues](https://github.com/threatclaw/threatclaw/issues/new?template=feature_request.yml) |
+| ❓ Question / Support | [GitHub Discussions](https://github.com/threatclaw/threatclaw/discussions) |
+| 🔒 Security vulnerability | [Security Advisories](https://github.com/threatclaw/threatclaw/security/advisories) (private) |
+| 📧 Commercial / Licensing | [contact@threatclaw.io](mailto:contact@threatclaw.io) |
+
 ## Support ThreatClaw
 
 ThreatClaw is and will remain open source. If this project is useful to you:
