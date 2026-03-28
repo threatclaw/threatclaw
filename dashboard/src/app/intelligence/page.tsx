@@ -184,7 +184,7 @@ export default function IntelligencePage() {
       setLastRefresh(new Date().toLocaleTimeString());
       setError(null);
     } catch {
-      setError("Backend non accessible — verifiez que le service tourne");
+      setError(tr("backendNotAccessible", locale));
     }
     setLoading(false);
   }, []);
@@ -343,8 +343,8 @@ export default function IntelligencePage() {
           {blast && (
             <div>
               <div style={{ display: "flex", gap: "16px", marginBottom: "10px" }}>
-                <StatBadge value={blast.total_impacted} label="Impact&eacute;s" color="#d06020" />
-                <StatBadge value={blast.critical_impacted} label="Critiques" color="#d03020" />
+                <StatBadge value={blast.total_impacted} label={locale === "fr" ? "Impactés" : "Impacted"} color="#d06020" />
+                <StatBadge value={blast.critical_impacted} label={locale === "fr" ? "Critiques" : "Critical"} color="#d03020" />
                 <StatBadge value={Math.round(blast.impact_score)} label="Score" color="#d06020" />
               </div>
               {blast.hops.filter(h => h.count > 0).map((h, i) => (
@@ -480,7 +480,7 @@ export default function IntelligencePage() {
         </EmbossedButton>
         <EmbossedButton onClick={async () => {
           await fetch(`${API}/coa/seed`, { method: "POST" });
-          alert("Mitigations MITRE chargees dans le graphe");
+          alert(locale === "fr" ? "Mitigations MITRE chargées dans le graphe" : "MITRE mitigations loaded into graph");
         }}>
           <Shield size={14} /> Charger playbooks MITRE
         </EmbossedButton>
