@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import {
   FileText, Shield, Download, Clock, Globe, Database,
@@ -44,12 +46,13 @@ const EXPORTS: ExportItem[] = [
 ];
 
 const SECTIONS = [
-  { id: "reglementaire", title: "Rapports réglementaires", subtitle: "NIS2, RGPD, NIST, ISO 27001 — générés automatiquement", icon: Shield, color: "#e04040" },
-  { id: "operationnel", title: "Rapports opérationnels", subtitle: "Direction, RSSI, audit — langage adapté au destinataire", icon: BarChart3, color: "#3080d0" },
-  { id: "technique", title: "Exports techniques", subtitle: "STIX, MISP, CSV — intégration SIEM, EDR, ticketing", icon: Database, color: "#9060d0" },
+  { id: "reglementaire", titleKey: "regulatoryReports", subtitle: "NIS2, RGPD, NIST, ISO 27001", icon: Shield, color: "#e04040" },
+  { id: "operationnel", titleKey: "operationalReports", subtitle: "Direction, RSSI, audit", icon: BarChart3, color: "#3080d0" },
+  { id: "technique", titleKey: "technicalExports", subtitle: "STIX, MISP, CSV — SIEM, EDR", icon: Database, color: "#9060d0" },
 ];
 
 export default function ExportsPage() {
+  const locale = useLocale();
   const [generating, setGenerating] = useState<string | null>(null);
   const [generated, setGenerated] = useState<string | null>(null);
 
@@ -66,7 +69,7 @@ export default function ExportsPage() {
       });
 
       if (!res.ok) {
-        const text = await res.text().catch(() => "Erreur serveur");
+        const text = await res.text().catch(() => tr("serverError", locale));
         alert(text || "Erreur lors de la génération");
         setGenerating(null);
         return;
@@ -138,7 +141,7 @@ export default function ExportsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
               <SectionIcon size={16} color={section.color} />
               <div>
-                <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{section.title}</div>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr(section.titleKey, locale)}</div>
                 <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{section.subtitle}</div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
@@ -298,7 +299,7 @@ export default function AssetsPage() {
       <div style={{ marginBottom: "16px", position: "relative" }}>
         <Search size={13} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
         <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Rechercher par nom, IP, hostname, rôle, OS..."
+          placeholder={tr("searchAssets", locale)}
           style={{ ...inputStyle, paddingLeft: "30px" }} />
       </div>
 
@@ -309,7 +310,7 @@ export default function AssetsPage() {
         </div>
       ) : filtered.length === 0 ? (
         <NeuCard style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)", fontSize: "12px" }}>
-          {search ? "Aucun asset avec ce filtre." : "Aucun asset. Ajoutez vos serveurs, postes, sites web et équipements réseau."}
+          {search ? tr("noAssetFilter", locale) : tr("noAssets", locale)}
         </NeuCard>
       ) : (
         <div>
@@ -671,7 +672,7 @@ export default function AssetsPage() {
                     ...btnPrimary, marginLeft: "auto",
                     opacity: form.name ? 1 : 0.5, cursor: form.name ? "pointer" : "default",
                   }}>
-                    <CheckCircle2 size={13} /> {editAsset ? "Mettre à jour" : "Ajouter"}
+                    <CheckCircle2 size={13} /> {editAsset ? tr("update", locale) : tr("add", locale)}
                   </button>
                 </div>
 

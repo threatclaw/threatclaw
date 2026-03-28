@@ -40,10 +40,10 @@ const TYPE_UI_BASE: Record<string, { labelKey: string; descKey: string; icon: Re
 };
 
 // ── Trust level badges ──
-const TRUST_UI: Record<string, { label: string; shortLabel: string; color: string; bg: string; border: string }> = {
-  "official": { label: "ThreatClaw", shortLabel: "TC", color: "#d03020", bg: "rgba(208,48,32,0.12)", border: "rgba(208,48,32,0.25)" },
-  "verified": { label: "Vérifié", shortLabel: "✓", color: "#30a050", bg: "rgba(48,160,80,0.12)", border: "rgba(48,160,80,0.25)" },
-  "community": { label: "Communautaire", shortLabel: "!", color: "#d09020", bg: "rgba(208,144,32,0.12)", border: "rgba(208,144,32,0.25)" },
+const TRUST_UI: Record<string, { labelKey: string; shortLabel: string; color: string; bg: string; border: string }> = {
+  "official": { labelKey: "official", shortLabel: "TC", color: "#d03020", bg: "rgba(208,48,32,0.12)", border: "rgba(208,48,32,0.25)" },
+  "verified": { labelKey: "verified", shortLabel: "✓", color: "#30a050", bg: "rgba(48,160,80,0.12)", border: "rgba(48,160,80,0.25)" },
+  "community": { labelKey: "communautaire", shortLabel: "!", color: "#d09020", bg: "rgba(208,144,32,0.12)", border: "rgba(208,144,32,0.25)" },
 };
 
 const RUNNABLE: Record<string, string> = {
@@ -69,7 +69,7 @@ const NOT_FUNCTIONAL: Set<string> = new Set([
   "skill-httpx", "skill-subfinder", "skill-trivy", "skill-zap", "skill-sigma-rules",
 ]);
 
-function TrustBadge({ trust }: { trust: string }) {
+function TrustBadge({ trust, locale }: { trust: string; locale: "fr" | "en" }) {
   const t = TRUST_UI[trust] || TRUST_UI["community"];
   return (
     <span style={{
@@ -77,7 +77,7 @@ function TrustBadge({ trust }: { trust: string }) {
       background: t.bg, color: t.color, border: `1px solid ${t.border}`,
       textTransform: "uppercase", letterSpacing: "0.03em", whiteSpace: "nowrap",
     }}>
-      {t.shortLabel === "✓" ? "✓ " : ""}{t.label}
+      {t.shortLabel === "✓" ? "✓ " : ""}{tr(t.labelKey, locale)}
     </span>
   );
 }
@@ -312,7 +312,7 @@ export default function SkillsPage() {
                             {isRunning && <div className="tc-spin-loader" />}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "2px" }}>
-                            <TrustBadge trust={trust} />
+                            <TrustBadge trust={trust} locale={locale} />
                             {skill.api_key_required && <Key size={9} color="var(--tc-amber)" />}
                           </div>
                         </div>
@@ -375,8 +375,8 @@ export default function SkillsPage() {
               {[
                 { key: "all", label: tr("allTypes", locale), color: "var(--tc-text-muted)" },
                 { key: "official", label: "TC", color: "#d03020" },
-                { key: "verified", label: "✓ Vérifié", color: "#30a050" },
-                { key: "community", label: "Communautaire", color: "#d09020" },
+                { key: "verified", label: `✓ ${tr("verified", locale)}`, color: "#30a050" },
+                { key: "community", label: tr("communautaire", locale), color: "#d09020" },
               ].map(f => (
                 <button key={f.key} onClick={() => setTrustFilter(f.key)} style={{
                   padding: "6px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
@@ -417,7 +417,7 @@ export default function SkillsPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
                         <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
                         <TypeBadge type={skill.type} />
-                        <TrustBadge trust={trust} />
+                        <TrustBadge trust={trust} locale={locale} />
                         {skill.api_key_required && <Key size={10} color="var(--tc-amber)" />}
                         {skill.premium && <span style={{ fontSize: "8px", fontWeight: 800, padding: "2px 5px", borderRadius: "3px", background: "rgba(208,168,32,0.15)", color: "#d0a820" }}>PREMIUM</span>}
                       </div>
@@ -503,7 +503,7 @@ export default function SkillsPage() {
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{modalSkill.name}</h2>
-                  <TrustBadge trust={modalSkill.trust || "official"} />
+                  <TrustBadge trust={modalSkill.trust || "official"} locale={locale} />
                   <TypeBadge type={modalSkill.type} />
                 </div>
                 <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>v{modalSkill.version} · {modalSkill.author || "ThreatClaw"}</span>
@@ -538,7 +538,7 @@ export default function SkillsPage() {
                         <label style={{ fontSize: "11px", color: "var(--tc-text)", display: "flex", alignItems: "center", gap: "8px" }}>
                           <input type="checkbox" className="tc-toggle" checked={val === "true" || (!val && field.default === true)}
                             onChange={e => setConfig(modalSkill.id, key, e.target.checked ? "true" : "false")} />
-                          {field.default ? "Actif" : "Inactif"} par défaut
+                          {field.default ? tr("activeByDefault", locale) : tr("inactiveByDefault", locale)}
                         </label>
                       ) : (
                         <input type={field.type === "password" ? "password" : "text"} value={val}
@@ -590,14 +590,15 @@ export default function SkillsPage() {
 
 // ── Freebox Pairing Flow ──
 function FreeboxPairingFlow({ url }: { url: string }) {
+  const locale = useLocale();
   const [status, setStatus] = useState<"idle" | "requesting" | "pending" | "granted" | "denied" | "error">("idle");
   const [message, setMessage] = useState("");
   const [polling, setPolling] = useState(false);
 
   useEffect(() => {
     fetch("/api/tc/connectors/freebox/pair/status").then(r => r.json()).then(d => {
-      if (d.status === "granted") { setStatus("granted"); setMessage("Freebox appairée"); }
-      else if (d.status === "pending") { setStatus("pending"); setMessage("En attente — appuyez sur le bouton de votre Freebox"); setPolling(true); }
+      if (d.status === "granted") { setStatus("granted"); setMessage(tr("freeboxPaired", locale)); }
+      else if (d.status === "pending") { setStatus("pending"); setMessage(tr("freeboxWaitButton", locale)); setPolling(true); }
     }).catch(() => {});
   }, []);
 
@@ -607,8 +608,8 @@ function FreeboxPairingFlow({ url }: { url: string }) {
       try {
         const res = await fetch("/api/tc/connectors/freebox/pair/status");
         const d = await res.json();
-        if (d.status === "granted") { setStatus("granted"); setMessage("Freebox appairée avec succès !"); setPolling(false); }
-        else if (d.status === "denied" || d.status === "timeout") { setStatus("denied"); setMessage("Appairage refusé ou expiré. Réessayez."); setPolling(false); }
+        if (d.status === "granted") { setStatus("granted"); setMessage(tr("freeboxPairedSuccess", locale)); setPolling(false); }
+        else if (d.status === "denied" || d.status === "timeout") { setStatus("denied"); setMessage(tr("freeboxDenied", locale)); setPolling(false); }
       } catch {}
     }, 2000);
     return () => clearInterval(interval);
@@ -620,14 +621,14 @@ function FreeboxPairingFlow({ url }: { url: string }) {
       const res = await fetch("/api/tc/connectors/freebox/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
       const d = await res.json();
       if (d.error) { setStatus("error"); setMessage(d.error); }
-      else { setStatus("pending"); setMessage("Appuyez sur le bouton de votre Freebox pour autoriser ThreatClaw."); setPolling(true); }
-    } catch (e: any) { setStatus("error"); setMessage(e.message || "Erreur réseau"); }
+      else { setStatus("pending"); setMessage(tr("freeboxPressButton", locale)); setPolling(true); }
+    } catch (e: any) { setStatus("error"); setMessage(e.message || tr("networkError", locale)); }
   };
 
   return (
     <div style={{ padding: "14px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", marginBottom: "16px" }}>
       <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
-        <Wifi size={13} color="var(--tc-blue)" /> Appairage Freebox
+        <Wifi size={13} color="var(--tc-blue)" /> {tr("freeboxPairing", locale)}
       </div>
       {status === "granted" ? (
         <div>
@@ -640,7 +641,7 @@ function FreeboxPairingFlow({ url }: { url: string }) {
             borderRadius: "var(--tc-radius-sm)", cursor: "pointer",
             background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text-muted)",
             display: "flex", alignItems: "center", gap: "4px",
-          }}><RefreshCw size={10} /> Réappairer</button>
+          }}><RefreshCw size={10} /> {tr("repairFreebox", locale)}</button>
         </div>
       ) : (
         <>
@@ -656,9 +657,9 @@ function FreeboxPairingFlow({ url }: { url: string }) {
               border: status === "pending" ? "1px solid rgba(208,144,32,0.3)" : "1px solid rgba(48,128,208,0.3)",
               display: "flex", alignItems: "center", gap: "6px", width: "100%", justifyContent: "center",
             }}>
-            {status === "requesting" ? <><Loader2 size={12} className="animate-spin" /> Demande en cours...</>
-              : status === "pending" ? <><Clock size={12} /> En attente du bouton Freebox...</>
-              : <><Wifi size={12} /> Appairer ma Freebox</>}
+            {status === "requesting" ? <><Loader2 size={12} className="animate-spin" /> {tr("requestInProgress", locale)}</>
+              : status === "pending" ? <><Clock size={12} /> {tr("waitingFreeboxButton", locale)}</>
+              : <><Wifi size={12} /> {tr("pairFreebox", locale)}</>}
           </button>
         </>
       )}
