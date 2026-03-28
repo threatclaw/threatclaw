@@ -110,6 +110,11 @@ COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 COPY --from=builder /app/assets /app/assets
 COPY --from=builder /app/templates /app/templates
 
+# Copy skill catalogs (manifests for dashboard display)
+COPY --from=builder /app/skills-catalog /app/skills-catalog
+COPY --from=builder /app/skills /app/skills
+COPY --from=builder /app/skills-src /app/skills-src
+
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \
     && useradd -r -u 1000 -g threatclaw -m -d /home/threatclaw -s /bin/bash threatclaw \
