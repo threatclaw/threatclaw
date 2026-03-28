@@ -191,10 +191,10 @@ def write_heartbeat():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT COUNT(DISTINCT DATE(timestamp)) as days,
-                       MIN(DATE(timestamp)) as first_day
+                SELECT COUNT(DISTINCT DATE(time)) as days,
+                       MIN(DATE(time)) as first_day
                 FROM logs
-                WHERE timestamp > NOW() - INTERVAL '30 days'
+                WHERE time > NOW() - INTERVAL '30 days'
             """)
             row = cur.fetchone()
             if row:
@@ -213,8 +213,9 @@ def write_heartbeat():
                 **training_info,
             }),))
             conn.commit()
-    except:
-        pass
+            logging.info("ML heartbeat written (data_days=%s, model_trained=%s)", training_info.get("data_days", 0), model_exists)
+    except Exception as e:
+        logging.error("Failed to write ML heartbeat: %s", e)
     finally:
         conn.close()
 
