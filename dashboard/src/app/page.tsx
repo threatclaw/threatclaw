@@ -98,7 +98,7 @@ export default function HomePage() {
       const ml = d.ml;
       if (ml && ml.alive) {
         const heartbeatAge = ml.timestamp ? (Date.now() - new Date(ml.timestamp).getTime()) / 1000 : 9999;
-        const isAlive = heartbeatAge < 120;
+        const isAlive = heartbeatAge < 600; // ML scores every 5 min, allow 10 min margin
         const dataDays = ml.data_days || 0;
         const modelTrained = ml.model_trained === true;
         // Real state: inactive (engine down) → learning (collecting data) → active (model trained)
