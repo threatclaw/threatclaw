@@ -58,6 +58,9 @@ COPY crates/ crates/
 COPY assets/ assets/
 COPY AGENT_SOUL.toml AGENT_SOUL.toml
 COPY templates/ templates/
+COPY skills/ skills/
+COPY skills-src/ skills-src/
+COPY skills-catalog/ skills-catalog/
 
 # Touch main.rs to invalidate the dummy and force a real build
 RUN touch src/main.rs
