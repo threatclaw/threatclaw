@@ -1,9 +1,17 @@
-# ThreatClaw — Dev Stack (lightweight)
-# Only core + db + essential scanners + redis
+# ThreatClaw — Development Stack
+# For developers building from source. Provides DB + Ollama only.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   cargo build --release
+#   ./target/release/threatclaw run
+#   cd dashboard && npm run dev
 
 services:
   threatclaw-db:
-    image: pgvector/pgvector:pg16
+    build:
+      context: .
+      dockerfile: Dockerfile.db
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -18,36 +26,22 @@ services:
       timeout: 3s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  ollama:
+    image: ollama/ollama:latest
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:11434:11434"
     volumes:
-      - redis-dev:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - ollama-dev:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
 
   nuclei:
     image: projectdiscovery/nuclei:latest
     volumes:
-      - nuclei-data-dev:/root/.local/nuclei
+      - nuclei-dev:/root/.local/nuclei
     entrypoint: ["tail", "-f", "/dev/null"]
-    mem_limit: 128m
-
-  trivy:
-    image: aquasec/trivy:latest
-    ports:
-      - "127.0.0.1:4954:4954"
-    command: ["server", "--listen", "0.0.0.0:4954"]
-    volumes:
-      - trivy-cache-dev:/root/.cache/trivy
-    mem_limit: 128m
 
 volumes:
   pgdata-dev:
-  redis-dev:
-  nuclei-data-dev:
-  trivy-cache-dev:
+  ollama-dev:
+  nuclei-dev:
