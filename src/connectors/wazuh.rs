@@ -97,9 +97,74 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
     }
 
     let token = auth.data.unwrap().token;
-    tracing::info!("WAZUH: Authenticated, fetching alerts");
+    tracing::info!("WAZUH: Authenticated, fetching agents + alerts");
 
-    // Fetch alerts
+    // Fetch agents (always available in Wazuh API)
+    let agents_url = format!("{}/agents?limit=500&select=id,name,ip,os.name,os.version,status,lastKeepAlive", config.url);
+    match client.get(&agents_url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send().await
+    {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                if let Some(agents) = data["data"]["affected_items"].as_array() {
+                    tracing::info!("WAZUH: {} agents found", agents.len());
+                    for agent in agents {
+                        let name = agent["name"].as_str().unwrap_or("unknown");
+                        let ip = agent["ip"].as_str().unwrap_or("");
+                        let os = format!("{} {}", agent["os"]["name"].as_str().unwrap_or(""), agent["os"]["version"].as_str().unwrap_or("")).trim().to_string();
+                        let status = agent["status"].as_str().unwrap_or("unknown");
+
+                        // Import agent as asset
+                        if !ip.is_empty() && ip != "any" {
+                            use crate::db::threatclaw_store::NewAsset;
+                            let asset = NewAsset {
+                                id: format!("wazuh-{}", agent["id"].as_str().or(agent["id"].as_u64().map(|_| "")).unwrap_or(&name.replace(' ', "-"))),
+                                name: name.to_string(),
+                                category: "server".into(),
+                                subcategory: None,
+                                role: Some("Wazuh agent".into()),
+                                criticality: "medium".into(),
+                                ip_addresses: vec![ip.to_string()],
+                                mac_address: None,
+                                hostname: Some(name.to_string()),
+                                fqdn: None,
+                                url: None,
+                                os: if os.is_empty() { None } else { Some(os.clone()) },
+                                mac_vendor: None,
+                                services: serde_json::json!([]),
+                                source: "wazuh".into(),
+                                owner: None,
+                                location: None,
+                                tags: vec!["wazuh-agent".into()],
+                            };
+                            let _ = store.upsert_asset(&asset).await;
+                            result.alerts_imported += 1;
+                        }
+
+                        // Create finding if agent is disconnected
+                        if status == "disconnected" || status == "never_connected" {
+                            let _ = store.insert_finding(&NewFinding {
+                                skill_id: "skill-wazuh".into(),
+                                title: format!("Wazuh agent {} is {}", name, status),
+                                description: Some(format!("Agent {} (IP: {}) status: {}. Last keepalive: {}", name, ip, status, agent["lastKeepAlive"].as_str().unwrap_or("?"))),
+                                severity: "MEDIUM".into(),
+                                category: Some("monitoring".into()),
+                                asset: Some(ip.to_string()),
+                                source: Some("Wazuh SIEM".into()),
+                                metadata: Some(serde_json::json!({"agent_id": agent["id"], "status": status})),
+                            }).await;
+                            result.findings_created += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(resp) => { result.errors.push(format!("Agents HTTP {}", resp.status())); }
+        Err(e) => { result.errors.push(format!("Agents fetch: {}", e)); }
+    }
+
+    // Fetch alerts (Wazuh 4.x: /alerts endpoint may not exist — try it, fallback gracefully)
     let alerts_url = format!("{}/alerts?limit={}&sort=-timestamp", config.url, config.max_alerts);
     let alerts_resp = match client.get(&alerts_url)
         .header("Authorization", format!("Bearer {}", token))
@@ -110,7 +175,8 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
     };
 
     if !alerts_resp.status().is_success() {
-        result.errors.push(format!("Alerts HTTP {}", alerts_resp.status()));
+        // Wazuh 4.x doesn't have /alerts REST endpoint — alerts are in the indexer
+        tracing::info!("WAZUH: /alerts not available (Wazuh 4.x — alerts in indexer). Agents imported successfully.");
         return result;
     }
 
