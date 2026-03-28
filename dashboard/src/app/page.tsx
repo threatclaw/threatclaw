@@ -95,12 +95,14 @@ export default function HomePage() {
       const ml = d.ml;
       if (ml && ml.alive) {
         const heartbeatAge = ml.timestamp ? (Date.now() - new Date(ml.timestamp).getTime()) / 1000 : 9999;
-        const isAlive = heartbeatAge < 120; // heartbeat < 2 min old
+        const isAlive = heartbeatAge < 120;
         const dataDays = ml.data_days || 0;
         const modelTrained = ml.model_trained === true;
+        // Real state: inactive (engine down) → learning (collecting data) → active (model trained)
+        const realState = !isAlive ? "inactive" : modelTrained ? "active" : "learning";
         setMlStatus({
-          anomaly: isAlive ? "active" : "inactive",
-          dns: isAlive ? "active" : "inactive",
+          anomaly: realState,
+          dns: realState,
           training: modelTrained ? "trained" : dataDays > 0 ? "learning" : "waiting",
           dataDays,
           modelTrained,
@@ -278,19 +280,25 @@ export default function HomePage() {
         Détection comportementale
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>Analyse comportementale</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-amber)", marginTop: "4px" }}>
-            {mlStatus.anomaly === "active" ? "Active" : mlStatus.anomaly === "checking" ? "Vérification..." : "Inactive"}
+          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
+            color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
+            {mlStatus.anomaly === "active" ? "Active" : mlStatus.anomaly === "learning" ? "En apprentissage" : mlStatus.anomaly === "checking" ? "Vérification..." : "Inactive"}
           </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Score toutes les 5 min</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+            {mlStatus.anomaly === "active" ? "Score toutes les 5 min" : mlStatus.anomaly === "learning" ? `Actif dans ${Math.max(0, 14 - mlStatus.dataDays)}j` : "En attente du moteur ML"}
+          </div>
         </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>Détection DNS</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-amber)", marginTop: "4px" }}>
-            {mlStatus.dns === "active" ? "Active" : mlStatus.dns === "checking" ? "Vérification..." : "Inactive"}
+          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
+            color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
+            {mlStatus.dns === "active" ? "Active" : mlStatus.dns === "learning" ? "En apprentissage" : mlStatus.dns === "checking" ? "Vérification..." : "Inactive"}
           </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>Domaines suspects</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+            {mlStatus.dns === "active" ? "Domaines suspects" : mlStatus.dns === "learning" ? `Actif dans ${Math.max(0, 14 - mlStatus.dataDays)}j` : "En attente du moteur ML"}
+          </div>
         </NeuCard>
         <NeuCard style={{ padding: "14px" }}>
           <div style={labelCaps}>Entraînement</div>
