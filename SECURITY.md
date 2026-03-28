@@ -68,5 +68,5 @@ network security model.
 
 | Version | Supported |
 |---------|-----------|
-| 0.2.x (beta) | Security fixes |
-| 0.1.x | No support |
+| 2.2.x (beta) | Security fixes |
+| < 2.2 | No support |

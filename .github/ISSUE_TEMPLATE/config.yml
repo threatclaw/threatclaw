@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "\U0001F4AC Questions & Support"
+    url: https://github.com/threatclaw/threatclaw/discussions
+    about: "Ask questions, get help, and discuss with the community"
+  - name: "\U0001F4E7 Commercial / Licensing"
+    url: mailto:contact@threatclaw.io
+    about: "For business inquiries, partnerships, and licensing questions"
+  - name: "\U0001F512 Security Vulnerability"
+    url: https://github.com/threatclaw/threatclaw/blob/main/SECURITY.md
+    about: "Report security vulnerabilities privately — DO NOT open a public issue"

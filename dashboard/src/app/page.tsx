@@ -283,26 +283,6 @@ export default function HomePage() {
         {tr("behavioralDetection", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.anomaly === "active" ? tr("active", locale) : mlStatus.anomaly === "learning" ? tr("learning", locale) : mlStatus.anomaly === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
-        <NeuCard style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.dns === "active" ? tr("active", locale) : mlStatus.dns === "learning" ? tr("learning", locale) : mlStatus.dns === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.dns === "active" ? tr("suspiciousDomains", locale) : mlStatus.dns === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
         <NeuCard style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>{tr("training", locale)}</div>
           {(() => {
@@ -344,6 +324,26 @@ export default function HomePage() {
               </>
             );
           })()}
+        </NeuCard>
+        <NeuCard style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
+          <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
+            color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
+            {mlStatus.anomaly === "active" ? tr("active", locale) : mlStatus.anomaly === "learning" ? tr("learning", locale) : mlStatus.anomaly === "checking" ? tr("checking", locale) : tr("inactive", locale)}
+          </div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+            {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
+          </div>
+        </NeuCard>
+        <NeuCard style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
+          <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
+            color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
+            {mlStatus.dns === "active" ? tr("active", locale) : mlStatus.dns === "learning" ? tr("learning", locale) : mlStatus.dns === "checking" ? tr("checking", locale) : tr("inactive", locale)}
+          </div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+            {mlStatus.dns === "active" ? tr("suspiciousDomains", locale) : mlStatus.dns === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
+          </div>
         </NeuCard>
       </div>
 
