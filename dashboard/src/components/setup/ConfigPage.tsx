@@ -42,10 +42,10 @@ import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 
 const PERM_LEVELS = [
-  { id: "READ_ONLY", icon: Eye, label: "Observation", desc: "Observation uniquement", color: "#5a6a8a" },
-  { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "var(--tc-green)", recommended: true },
-  { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine", color: "var(--tc-amber)" },
-  { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "var(--tc-red)", warning: true },
+  { id: "READ_ONLY", icon: Eye, labelKey: "observation", descKey: "observationOnly", color: "#5a6a8a" },
+  { id: "ALERT_ONLY", icon: Bell, labelKey: "alertsOnly", descKey: "alertsNoAction", color: "var(--tc-green)", recommended: true },
+  { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, labelKey: "remediationSupervised", descKey: "remediationWithApproval", color: "var(--tc-amber)" },
+  { id: "FULL_AUTO", icon: Zap, labelKey: "autoMode", descKey: "fullAutoDesc", color: "var(--tc-red)", warning: true },
 ];
 
 interface ConfigPageProps { onResetWizard: () => void; }
@@ -212,7 +212,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         body: JSON.stringify({ channel, token }),
       });
       return await res.json();
-    } catch { return { ok: false, error: "Connexion échouée" }; }
+    } catch { return { ok: false, error: tr("connectionFailed", locale) }; }
   };
 
   const sendTelegramTest = async () => {
@@ -259,18 +259,19 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "anonymizer", label: tr("anonymizer", locale), icon: Shield },
     { id: "backup", label: tr("backupUpdate", locale), icon: Download },
     { id: "logs", label: tr("logs", locale), icon: Eye },
+    { id: "sources", label: locale === "fr" ? "Sources de logs" : "Log Sources", icon: Radio },
   ];
 
   const channelDefs = [
     { key: "slack", label: "Slack", icon: <SlackIcon />, fields: [{ id: "botToken", label: "Bot Token (xoxb-...)", secret: true }, { id: "signingSecret", label: "Signing Secret", secret: true }] },
-    { key: "telegram", label: "Telegram", icon: <TelegramIcon />, fields: [{ id: "botToken", label: "Bot Token", secret: true }, { id: "botUsername", label: "Nom du bot (@...)", secret: false }, { id: "chatId", label: "Chat ID (pour notifications)", secret: false }] },
+    { key: "telegram", label: "Telegram", icon: <TelegramIcon />, fields: [{ id: "botToken", label: "Bot Token", secret: true }, { id: "botUsername", labelKey: "botUsername", secret: false }, { id: "chatId", labelKey: "chatIdNotif", secret: false }] },
     { key: "discord", label: "Discord", icon: <DiscordIcon />, fields: [{ id: "botToken", label: "Bot Token", secret: true }, { id: "publicKey", label: "Public Key", secret: false }] },
     { key: "whatsapp", label: "WhatsApp", icon: <MessageSquare size={18} color="#30a050" />, fields: [{ id: "accessToken", label: "Access Token", secret: true }, { id: "phoneNumberId", label: "Phone Number ID", secret: false }] },
-    { key: "signal", label: "Signal", icon: <Shield size={18} color="#3080d0" />, fields: [{ id: "httpUrl", label: "URL signal-cli", secret: false }, { id: "account", label: "Numéro (+33...)", secret: false }] },
-    { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", label: "De", secret: false }, { id: "to", label: "À", secret: false }] },
+    { key: "signal", label: "Signal", icon: <Shield size={18} color="#3080d0" />, fields: [{ id: "httpUrl", labelKey: "signalUrl", secret: false }, { id: "account", labelKey: "phoneNumber", secret: false }] },
+    { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", labelKey: "from", secret: false }, { id: "to", labelKey: "toField", secret: false }] },
     { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
-    { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", label: "Serveur Ntfy", secret: false }, { id: "topic", label: "Topic", secret: false }] },
-    { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", label: "URL Gotify", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
+    { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", labelKey: "ntfyServer", secret: false }, { id: "topic", label: "Topic", secret: false }] },
+    { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", labelKey: "gotifyUrl", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
   ];
 
   return (
@@ -304,7 +305,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "general" && (
           <ChromeInsetCard>
             <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-              <Globe size={18} color="#d03020" /> Configuration Générale
+              <Globe size={18} color="#d03020" /> {tr("configGeneral", locale)}
             </ChromeEmbossedText>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div>
@@ -312,9 +313,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                 <input style={inputStyle} value={general.instanceName} onChange={e => setGeneral(p => ({ ...p, instanceName: e.target.value }))} />
               </div>
               <div>
-                <div style={labelStyle}>Langue</div>
+                <div style={labelStyle}>{tr("language", locale)}</div>
                 <GlassSelect value={general.language} onChange={v => { setGeneral(p => ({ ...p, language: v })); localStorage.setItem("tc-language", v); window.dispatchEvent(new Event("tc-locale-change")); }} options={[
-                  { value: "fr", label: "Français" }, { value: "en", label: "English" },
+                  { value: "fr", label: tr("french", locale) }, { value: "en", label: tr("english", locale) },
                 ]} />
               </div>
               {/* NVD API key moved to Config > Enrichissement */}
@@ -354,7 +355,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
                     {ch.fields.map(f => (
                       <div key={f.id}>
-                        <div style={labelStyle}>{f.label}</div>
+                        <div style={labelStyle}>{(f as any).labelKey ? tr((f as any).labelKey, locale) : f.label}</div>
                         <input style={inputStyle}
                           type={f.secret ? "password" : "text"}
                           value={(chState[f.id] as string) || ""}
@@ -376,7 +377,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                             <Bot size={16} color={telegramStatus.ok ? "#30a050" : "#d03020"} />
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: "13px", fontWeight: 600, color: telegramStatus.ok ? "#30a050" : "#d03020" }}>
-                                {telegramStatus.ok ? `@${telegramStatus.username} — Connecté` : "Bot non connecté"}
+                                {telegramStatus.ok ? `@${telegramStatus.username} — ${tr("connected", locale)}` : tr("notConnected", locale)}
                               </div>
                               {telegramStatus.error && <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{String(telegramStatus.error)}</div>}
                             </div>
@@ -387,15 +388,15 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                         )}
 
                         {/* Send test message */}
-                        <div style={labelStyle}>Envoyer un message test</div>
+                        <div style={labelStyle}>{tr("sendTestMessage", locale)}</div>
                         <div style={{ display: "flex", gap: "8px" }}>
                           <input style={{ ...inputStyle, flex: 1 }} value={telegramTestMsg}
                             onChange={e => setTelegramTestMsg(e.target.value)}
-                            placeholder="Tapez un message à envoyer via Telegram..."
+                            placeholder={tr("telegramPlaceholder", locale)}
                             onKeyDown={e => e.key === "Enter" && sendTelegramTest()} />
                           <ChromeButton onClick={sendTelegramTest} disabled={telegramSending || !telegramTestMsg} variant="primary">
                             {telegramSending ? <Loader2 size={14} className="animate-spin" /> : telegramSent ? <CheckCircle2 size={14} /> : <Send size={14} />}
-                            {telegramSent ? "Envoyé!" : "Envoyer"}
+                            {telegramSent ? tr("sent", locale) : tr("send", locale)}
                           </ChromeButton>
                         </div>
                       </div>
@@ -411,7 +412,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "security" && (
           <ChromeInsetCard>
             <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
-              <ShieldAlert size={18} color="#d03020" /> Niveau de sécurité
+              <ShieldAlert size={18} color="#d03020" /> {tr("securityLevel", locale)}
             </ChromeEmbossedText>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {PERM_LEVELS.map(level => {
@@ -429,11 +430,11 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                     <LIcon size={20} color={level.color} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", display: "flex", alignItems: "center", gap: "8px" }}>
-                        {level.label}
-                        {level.recommended && <span style={{ fontSize: "9px", color: "var(--tc-green)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-green-soft)", borderRadius: "4px" }}>RECOMMANDÉ</span>}
-                        {level.warning && <span style={{ fontSize: "9px", color: "var(--tc-red)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-red-soft)", borderRadius: "4px", display: "inline-flex", alignItems: "center", gap: "3px" }}><AlertTriangle size={9} />AVANCÉ</span>}
+                        {tr(level.labelKey, locale)}
+                        {level.recommended && <span style={{ fontSize: "9px", color: "var(--tc-green)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-green-soft)", borderRadius: "4px" }}>{tr("recommended", locale)}</span>}
+                        {level.warning && <span style={{ fontSize: "9px", color: "var(--tc-red)", fontWeight: 600, padding: "2px 6px", background: "var(--tc-red-soft)", borderRadius: "4px", display: "inline-flex", alignItems: "center", gap: "3px" }}><AlertTriangle size={9} />{tr("advanced", locale)}</span>}
                       </div>
-                      <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{level.desc}</div>
+                      <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{tr(level.descKey, locale)}</div>
                     </div>
                     {sel && <Check size={18} color="#d03020" />}
                   </button>
@@ -448,11 +449,11 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
           <ChromeInsetCard>
             <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>ThreatClaw Engine</ChromeEmbossedText>
             <p style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-              L{"'"}agent autonome surveille votre infrastructure 24h/24. Contrôlez son comportement ici.
+              {tr("engineDesc", locale)}
             </p>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               <ChromeButton onClick={() => window.location.href = "/agent"} variant="glass">
-                <Activity size={14} /> Ouvrir la page Agent
+                <Activity size={14} /> {tr("openAgentPage", locale)}
               </ChromeButton>
             </div>
           </ChromeInsetCard>
@@ -475,6 +476,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
 
         {activeTab === "backup" && (<BackupTab />)}
         {activeTab === "logs" && (<LiveLogsTab />)}
+        {activeTab === "sources" && (<LogSourcesTab />)}
       </div>
 
       {/* Actions bar */}
@@ -486,7 +488,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
       }}>
         <ChromeButton onClick={onResetWizard} variant="glass">
-          <RotateCcw size={14} /> Relancer assistant
+          <RotateCcw size={14} /> {tr("restartWizard", locale)}
         </ChromeButton>
         <ChromeButton onClick={handleSave} disabled={saving} variant="primary" style={{ minWidth: "220px" }}>
           {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
@@ -545,6 +547,7 @@ function GlassSelect({ value, onChange, options, placeholder }: {
 
 // ── Model download status + pull button ──
 function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: string }) {
+  const locale = useLocale();
   const [status, setStatus] = useState<"checking" | "ready" | "not_found" | "downloading" | "error">("checking");
   const [elapsed, setElapsed] = useState(0);
 
@@ -604,16 +607,16 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
     <div style={{ marginTop: "10px" }}>
       {status === "ready" && (
         <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px", color: "var(--tc-green)" }}>
-          <CheckCircle2 size={11} /> Modèle installé
+          <CheckCircle2 size={11} /> {tr("modelInstalled2", locale)}
         </div>
       )}
       {status === "not_found" && (
         <div>
           <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "6px" }}>
-            Modèle non installé — téléchargement requis
+            {tr("modelNotInstalled", locale)}
           </div>
           <button onClick={startDownload} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "6px 14px" }}>
-            <Download size={11} /> Télécharger le modèle
+            <Download size={11} /> {tr("downloadModel", locale)}
           </button>
         </div>
       )}
@@ -621,7 +624,7 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
         <div>
           <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginBottom: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <Loader2 size={11} className="animate-spin" /> Téléchargement en cours...
+              <Loader2 size={11} className="animate-spin" /> {tr("downloadInProgress", locale)}
             </span>
             <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>{formatTime(elapsed)}</span>
           </div>
@@ -634,7 +637,7 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
             }} />
           </div>
           <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-            Cette opération peut prendre plusieurs minutes selon votre connexion
+            {tr("downloadMayTakeMinutes", locale)}
           </div>
           <style>{`@keyframes downloadPulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }`}</style>
         </div>
@@ -642,10 +645,10 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
       {status === "error" && (
         <div>
           <div style={{ fontSize: "10px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-            <AlertTriangle size={11} /> Erreur de connexion
+            <AlertTriangle size={11} /> {tr("connectionError", locale)}
           </div>
           <button onClick={() => { setStatus("not_found"); }} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "4px 10px" }}>
-            Réessayer
+            {tr("retry", locale)}
           </button>
         </div>
       )}
@@ -668,7 +671,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   const pullOllamaModel = async () => {
     if (!pullModel) return;
     setPulling(true);
-    setPullStatus(`Téléchargement de ${pullModel}...`);
+    setPullStatus(`${tr("downloading", locale)} ${pullModel}...`);
     try {
       const res = await fetch("/api/ollama", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -676,7 +679,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       });
       const data = await res.json();
       if (data.ok) {
-        setPullStatus(`${pullModel} installé`);
+        setPullStatus(`${pullModel} ${tr("modelPullDone", locale)}`);
         setPullModel("");
         // Refresh model list
         const listRes = await fetch(`/api/ollama?url=${encodeURIComponent(llm.url)}`);
@@ -689,10 +692,10 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
           })));
         }
       } else {
-        setPullStatus(`Erreur: ${data.error}`);
+        setPullStatus(`Error: ${data.error}`);
       }
     } catch (e) {
-      setPullStatus(`Erreur: ${e instanceof Error ? e.message : "inconnu"}`);
+      setPullStatus(`Error: ${e instanceof Error ? e.message : "unknown"}`);
     }
     setPulling(false);
     setTimeout(() => setPullStatus(null), 5000);
@@ -741,19 +744,19 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   // AI level definitions — curated model catalog per level with RAM estimates
   const MODEL_CATALOG: Record<string, { value: string; label: string; detail: string; ram?: number }[]> = {
     l0: [
-      { value: "mistral-small:24b", label: "ThreatClaw AI 24B Ops", detail: "Excellent FR · Tool calling natif", ram: 14 },
-      { value: "qwen3:14b", label: "ThreatClaw AI 14B Ops", detail: "Bon FR · Rapide sur CPU — Recommandé", ram: 9.3 },
-      { value: "qwen3:8b", label: "ThreatClaw AI 8B Ops", detail: "Basique · Très léger", ram: 5.2 },
+      { value: "mistral-small:24b", label: "ThreatClaw AI 24B Ops", detail: tr("modelDescMistralSmall", locale), ram: 14 },
+      { value: "qwen3:14b", label: "ThreatClaw AI 14B Ops", detail: tr("modelDescQwen14b", locale), ram: 9.3 },
+      { value: "qwen3:8b", label: "ThreatClaw AI 8B Ops", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
     l1: [
-      { value: "threatclaw-l1", label: "ThreatClaw AI 8B Triage", detail: "SOC prompt — Recommandé", ram: 5.8 },
-      { value: "qwen3:14b", label: "ThreatClaw AI 14B Triage", detail: "Meilleur parsing · Plus lourd", ram: 9.3 },
+      { value: "threatclaw-l1", label: "ThreatClaw AI 8B Triage", detail: tr("modelDescL1", locale), ram: 5.8 },
+      { value: "qwen3:14b", label: "ThreatClaw AI 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
     ],
     l2: [
-      { value: "threatclaw-l2", label: "ThreatClaw AI 8B Reasoning", detail: "Forensique — Recommandé", ram: 8.5 },
+      { value: "threatclaw-l2", label: "ThreatClaw AI 8B Reasoning", detail: tr("modelDescL2", locale), ram: 8.5 },
     ],
     l3: [
-      { value: "threatclaw-l3", label: "ThreatClaw AI 8B Instruct", detail: "Playbooks SOAR — Recommandé", ram: 5.0 },
+      { value: "threatclaw-l3", label: "ThreatClaw AI 8B Instruct", detail: tr("modelDescL3", locale), ram: 5.0 },
     ],
   };
 
@@ -779,11 +782,11 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L0", label: "Ops", desc: "Dialogue RSSI, tool calling", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
-            { level: "L1", label: "Triage", desc: "JSON structuré, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "L2", label: "Reasoning", desc: "Critical/High, MITRE", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L3", label: "Instruct", desc: "Playbooks, HITL", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
-            { level: "L4", label: "Cloud", desc: "Escalade anonymisée", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L0", label: "Ops", desc: tr("aiLevelL0Desc", locale), color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
+            { level: "L1", label: "Triage", desc: tr("aiLevelL1Desc", locale), color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "L2", label: "Reasoning", desc: tr("aiLevelL2Desc", locale), color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "L3", label: "Instruct", desc: tr("aiLevelL3Desc", locale), color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
+            { level: "L4", label: "Cloud", desc: tr("aiLevelL4Desc", locale), color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, minWidth: "80px", padding: "10px 8px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "16px", fontWeight: 800, color: l.color }}>{l.level}</div>
@@ -797,9 +800,9 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       {/* ── RAM Usage Bar ── */}
       <ChromeInsetCard>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-          <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Mémoire estimée</span>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("ramEstimated", locale)}</span>
           <span style={{ fontSize: "12px", fontWeight: 600, color: peakRam > 28 ? "#d03020" : "var(--tc-text-muted)" }}>
-            {permanentRam.toFixed(1)} GB permanent · {peakRam.toFixed(1)} GB pic
+            {permanentRam.toFixed(1)} GB {tr("permanent", locale)} · {peakRam.toFixed(1)} GB {tr("peak", locale)}
           </span>
         </div>
         <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)", overflow: "hidden", display: "flex" }}>
@@ -820,29 +823,29 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
           <LevelBadge level="L0" color="#d03020" bg="rgba(208,48,32,0.12)" border="rgba(208,48,32,0.25)" />
           <div style={{ flex: 1 }}>
             <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>ThreatClaw AI Ops</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Dialogue — conversation naturelle, tool calling</div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("aiOpsDesc", locale)}</div>
           </div>
           <GlassSelect value={conversational.source} onChange={v => setConversational(p => ({ ...p, source: v as "disabled" | "local" | "cloud" }))} options={[
-            { value: "disabled", label: "Désactivé" },
-            { value: "local", label: "Local" },
-            { value: "cloud", label: "Cloud" },
+            { value: "disabled", label: tr("disabled", locale) },
+            { value: "local", label: tr("local", locale) },
+            { value: "cloud", label: tr("cloud", locale) },
           ]} />
         </div>
 
         {conversational.source === "local" && (
           <div style={{ borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
-            <div style={labelStyle}>Modèle</div>
+            <div style={labelStyle}>{tr("model", locale)}</div>
             <GlassSelect value={conversational.localModel} onChange={v => setConversational(p => ({ ...p, localModel: v }))}
               options={MODEL_CATALOG.l0.map(m => ({ value: m.value, label: m.label, detail: `${m.ram}GB — ${m.detail}` }))}
-              placeholder="— Sélectionner —" />
+              placeholder={tr("selectModel", locale)} />
             {conversational.localModel.includes("mistral") && (
               <div style={{ fontSize: "10px", color: "var(--tc-green)", marginTop: "6px", display: "flex", alignItems: "center", gap: "4px" }}>
-                <CheckCircle2 size={10} /> Tool calling natif — meilleure qualité de dialogue
+                <CheckCircle2 size={10} /> {tr("nativeToolCalling", locale)}
               </div>
             )}
             {conversational.localModel.includes("qwen") && (
               <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "6px" }}>
-                Tool calling via prompt — plus léger, compatible CPU
+                {tr("promptToolCalling", locale)}
               </div>
             )}
             <ModelDownloadStatus model={conversational.localModel} ollamaUrl={llm.url} />
@@ -852,15 +855,15 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         {conversational.source === "cloud" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
             <div>
-              <div style={labelStyle}>Provider</div>
+              <div style={labelStyle}>{tr("provider", locale)}</div>
               <GlassSelect value={conversational.cloudBackend} onChange={v => setConversational(p => ({ ...p, cloudBackend: v }))} options={[
-                { value: "anthropic", label: "Anthropic Claude" },
-                { value: "mistral", label: "Mistral AI (souverain FR)" },
-                { value: "openai_compatible", label: "OpenAI / Compatible" },
+                { value: "anthropic", label: tr("anthropicClaude", locale) },
+                { value: "mistral", label: tr("mistralSovereign", locale) },
+                { value: "openai_compatible", label: tr("openaiCompatible", locale) },
               ]} />
             </div>
             <div>
-              <div style={labelStyle}>Clé API</div>
+              <div style={labelStyle}>{tr("apiKey", locale)}</div>
               <input style={inputStyle} type="password" value={conversational.cloudApiKey}
                 onChange={e => setConversational(p => ({ ...p, cloudApiKey: e.target.value }))}
                 placeholder={conversational.cloudBackend === "anthropic" ? "sk-ant-..." : "..."} />
@@ -1908,7 +1911,157 @@ function CompanyTab() {
   );
 }
 
-// ── Backup & Update Tab ──
+// ── Log Sources Tab ──
+
+function LogSourcesTab() {
+  const locale = useLocale();
+  const [stats, setStats] = useState<any>(null);
+  const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tc/logs/stats");
+      setStats(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { const i = setInterval(loadStats, 10000); return () => clearInterval(i); }, [loadStats]);
+
+  const serverIp = typeof window !== "undefined" ? window.location.hostname : "YOUR_IP";
+  const port = stats?.syslog_port || 514;
+  const hasLogs = (stats?.today || 0) > 0;
+
+  const testReception = async () => {
+    setTesting(true); setTestResult(null);
+    await new Promise(r => setTimeout(r, 5000));
+    await loadStats(); setTesting(false);
+    setTestResult(locale === "fr" ? "Vérification terminée. Consultez le compteur ci-dessus." : "Check complete. See the counter above.");
+    setTimeout(() => setTestResult(null), 5000);
+  };
+
+  const guides = [
+    { id: "linux", title: "Linux (rsyslog)", steps: [
+      { fr: "Ouvrez un terminal sur votre serveur Linux", en: "Open a terminal on your Linux server" },
+      { fr: "Exécutez cette commande :", en: "Run this command:", cmd: `echo "*.* @@${serverIp}:${port}" | sudo tee /etc/rsyslog.d/threatclaw.conf && sudo systemctl restart rsyslog` },
+      { fr: "Testez avec :", en: "Test with:", cmd: `logger -t threatclaw-test "Test log from $(hostname)"` },
+    ]},
+    { id: "windows", title: "Windows (NXLog)", steps: [
+      { fr: "Téléchargez NXLog Community Edition (gratuit)", en: "Download NXLog Community Edition (free)", cmd: "https://nxlog.co/downloads/nxlog-ce" },
+      { fr: "Ajoutez dans la config NXLog :", en: "Add to NXLog config:", cmd: `<Output out>\n  Module om_tcp\n  Host ${serverIp}\n  Port ${port}\n</Output>` },
+      { fr: "Redémarrez le service NXLog", en: "Restart the NXLog service" },
+    ]},
+    { id: "firewall", title: "Firewall (pfSense / FortiGate)", steps: [
+      { fr: "pfSense : Status > System Logs > Settings > Enable Remote Logging", en: "pfSense: Status > System Logs > Settings > Enable Remote Logging" },
+      { fr: "FortiGate :", en: "FortiGate:", cmd: `config log syslogd setting\n  set status enable\n  set server "${serverIp}"\n  set port ${port}\nend` },
+      { fr: `Entrez l'IP : ${serverIp}:${port}`, en: `Enter IP: ${serverIp}:${port}` },
+    ]},
+    { id: "docker", title: "Docker", steps: [
+      { fr: "Ajoutez le flag :", en: "Add the flag:", cmd: `docker run --log-driver=fluentd --log-opt fluentd-address=${serverIp}:24224 your-image` },
+      { fr: "Ou dans docker-compose.yml :", en: "Or in docker-compose.yml:", cmd: `logging:\n  driver: fluentd\n  options:\n    fluentd-address: "${serverIp}:24224"` },
+    ]},
+  ];
+
+  return (
+    <ChromeInsetCard>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "16px" }}>
+        {locale === "fr" ? "Sources de logs" : "Log Sources"}
+      </ChromeEmbossedText>
+
+      {/* Server address */}
+      <div style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", marginBottom: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "4px" }}>
+              {locale === "fr" ? "ThreatClaw écoute sur" : "ThreatClaw listens on"}
+            </div>
+            <div style={{ fontSize: "14px", fontWeight: 800, fontFamily: "monospace", color: "var(--tc-text)" }}>
+              {serverIp}:{port} <span style={{ fontSize: "10px", fontWeight: 400, color: "var(--tc-text-muted)" }}>TCP + UDP</span>
+            </div>
+          </div>
+          <button onClick={() => navigator.clipboard.writeText(`${serverIp}:${port}`)} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "6px 12px" }}>
+            {locale === "fr" ? "Copier" : "Copy"}
+          </button>
+        </div>
+        <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "8px" }}>
+          {locale === "fr" ? "Tout équipement compatible syslog peut envoyer ses logs à cette adresse." : "Any syslog-compatible device can send logs to this address."}
+        </div>
+      </div>
+
+      {/* Live status */}
+      <div style={{
+        padding: "14px 16px", borderRadius: "var(--tc-radius-sm)", marginBottom: "16px",
+        background: hasLogs ? "rgba(48,160,80,0.06)" : "rgba(208,144,32,0.06)",
+        border: hasLogs ? "1px solid rgba(48,160,80,0.15)" : "1px solid rgba(208,144,32,0.15)",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {hasLogs ? <CheckCircle2 size={14} color="#30a050" /> : <AlertTriangle size={14} color="var(--tc-amber)" />}
+            <span style={{ fontSize: "13px", fontWeight: 700, color: hasLogs ? "#30a050" : "var(--tc-amber)" }}>
+              {hasLogs ? `${stats.today.toLocaleString()} ${locale === "fr" ? "logs reçus aujourd'hui" : "logs received today"}` : (locale === "fr" ? "Aucun log reçu" : "No logs received")}
+            </span>
+          </div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "4px", display: "flex", gap: "12px" }}>
+            {stats?.last_received && <span>{locale === "fr" ? "Dernier" : "Last"}: {new Date(stats.last_received).toLocaleString()}</span>}
+            {stats?.sources_count > 0 && <span>{stats.sources_count} source(s)</span>}
+            {stats?.total_30d > 0 && <span>{stats.total_30d.toLocaleString()} / 30{locale === "fr" ? "j" : "d"}</span>}
+          </div>
+        </div>
+        <button onClick={testReception} disabled={testing} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "6px 12px" }}>
+          {testing ? <><Loader2 size={10} className="animate-spin" /></> : <><RefreshCw size={10} /> {locale === "fr" ? "Vérifier" : "Check"}</>}
+        </button>
+      </div>
+
+      {testResult && <div style={{ fontSize: "10px", color: "var(--tc-green)", marginBottom: "12px", padding: "6px 10px", borderRadius: "var(--tc-radius-sm)", background: "rgba(48,160,80,0.06)" }}>{testResult}</div>}
+
+      {/* Guides */}
+      <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "10px" }}>
+        {locale === "fr" ? "Guides de connexion" : "Connection guides"}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        {guides.map(g => {
+          const isExp = expandedGuide === g.id;
+          return (
+            <div key={g.id} style={{ borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: isExp ? "1px solid var(--tc-border-accent)" : "1px solid var(--tc-border)", overflow: "hidden" }}>
+              <button onClick={() => setExpandedGuide(isExp ? null : g.id)} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px",
+                background: "transparent", border: "none", cursor: "pointer", color: "var(--tc-text)",
+                fontSize: "12px", fontWeight: 600, fontFamily: "inherit", textAlign: "left",
+              }}>
+                {isExp ? <ChevronDown size={12} color="var(--tc-text-muted)" /> : <ChevronRight size={12} color="var(--tc-text-muted)" />}
+                {g.title}
+              </button>
+              {isExp && (
+                <div style={{ padding: "0 12px 12px", borderTop: "1px solid var(--tc-border)" }}>
+                  {g.steps.map((s, i) => (
+                    <div key={i} style={{ marginTop: "10px" }}>
+                      <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", marginBottom: "4px" }}>
+                        {i + 1}. {locale === "fr" ? s.fr : s.en}
+                      </div>
+                      {s.cmd && (
+                        <div style={{ position: "relative", padding: "8px 10px", borderRadius: "var(--tc-radius-sm)", background: "rgba(0,0,0,0.3)", fontFamily: "monospace", fontSize: "10px", color: "var(--tc-green)", whiteSpace: "pre-wrap", wordBreak: "break-all", border: "1px solid var(--tc-border)" }}>
+                          {s.cmd}
+                          <button onClick={() => navigator.clipboard.writeText(s.cmd!)} style={{ position: "absolute", top: "4px", right: "4px", padding: "2px 6px", fontSize: "8px", fontWeight: 700, background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", borderRadius: "4px", color: "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit" }}>
+                            {locale === "fr" ? "Copier" : "Copy"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </ChromeInsetCard>
+  );
+}
+
+// ── System Logs Tab ──
 
 function LiveLogsTab() {
   const [events, setEvents] = useState<any[]>([]);

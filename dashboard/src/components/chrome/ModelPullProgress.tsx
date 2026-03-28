@@ -2,10 +2,12 @@
 
 import React, { useState, useCallback } from "react";
 import { Download, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { t as tr, Locale } from "@/lib/i18n";
 
 interface Props {
   ollamaUrl: string;
   onComplete?: () => void;
+  locale?: Locale;
 }
 
 interface PullState {
@@ -17,7 +19,7 @@ interface PullState {
   message: string;
 }
 
-export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
+export default function ModelPullProgress({ ollamaUrl, onComplete, locale = "fr" }: Props) {
   const [pullModel, setPullModel] = useState("");
   const [state, setState] = useState<PullState>({
     status: "idle", model: "", progress: 0, downloaded: "", total: "", message: "",
@@ -26,7 +28,7 @@ export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
   const pull = useCallback(async () => {
     if (!pullModel.trim()) return;
 
-    setState({ status: "pulling", model: pullModel, progress: 0, downloaded: "", total: "", message: "Connexion..." });
+    setState({ status: "pulling", model: pullModel, progress: 0, downloaded: "", total: "", message: tr("connecting", locale) });
 
     try {
       // Ollama pull API streams NDJSON progress
@@ -59,7 +61,7 @@ export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
             const data = JSON.parse(line);
 
             if (data.status === "success") {
-              setState(s => ({ ...s, status: "done", progress: 100, message: `${s.model} installe` }));
+              setState(s => ({ ...s, status: "done", progress: 100, message: `${s.model} ${tr("modelPullDone", locale)}` }));
               onComplete?.();
               return;
             }
@@ -73,7 +75,7 @@ export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
                 progress: pct,
                 downloaded: `${dlMB} MB`,
                 total: `${totalMB} MB`,
-                message: data.status || "Telechargement...",
+                message: data.status || tr("downloading", locale),
               }));
             } else if (data.status) {
               setState(s => ({ ...s, message: data.status }));
@@ -83,10 +85,10 @@ export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
       }
 
       // If we get here without success, check final state
-      setState(s => s.status === "done" ? s : { ...s, status: "done", progress: 100, message: "Termine" });
+      setState(s => s.status === "done" ? s : { ...s, status: "done", progress: 100, message: tr("finished", locale) });
       onComplete?.();
     } catch (e: any) {
-      setState(s => ({ ...s, status: "error", message: e.message || "Erreur reseau" }));
+      setState(s => ({ ...s, status: "error", message: e.message || tr("networkError", locale) }));
     }
   }, [pullModel, ollamaUrl, onComplete]);
 
@@ -101,7 +103,7 @@ export default function ModelPullProgress({ ollamaUrl, onComplete }: Props) {
           type="text" value={pullModel}
           onChange={e => setPullModel(e.target.value)}
           onKeyDown={e => e.key === "Enter" && pull()}
-          placeholder="Nom du modele (ex: qwen3.5:9b)"
+          placeholder={tr("modelNamePlaceholder", locale)}
           disabled={state.status === "pulling"}
           style={{
             flex: 1, padding: "8px 12px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",

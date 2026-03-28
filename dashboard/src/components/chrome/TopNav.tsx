@@ -212,7 +212,7 @@ export default function TopNav() {
           background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
           color: "var(--tc-text-muted)", cursor: "pointer", transition: "all 200ms",
           fontSize: "10px", fontWeight: 800, letterSpacing: "0.03em",
-        }} title={locale === "fr" ? "Switch to English" : "Passer en français"}>
+        }} title={tr("switchLanguage", locale)}>
           {locale === "fr" ? "EN" : "FR"}
         </button>
 
@@ -224,7 +224,7 @@ export default function TopNav() {
           border: paused ? "1px solid rgba(208,48,32,0.3)" : "1px solid rgba(48,160,80,0.3)",
           color: paused ? "#d03020" : "#30a050",
           cursor: "pointer", transition: "all 200ms",
-        }} title={paused ? "Reprendre les services" : "Mettre en pause"}>
+        }} title={paused ? tr("resumeServices", locale) : tr("pauseServices", locale)}>
           {paused ? <Play size={13} /> : <Pause size={13} />}
         </button>
 
@@ -237,7 +237,7 @@ export default function TopNav() {
           width: "30px", height: "30px", borderRadius: "var(--tc-radius-input)",
           background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
           color: "var(--tc-text-muted)", cursor: "pointer", transition: "all 200ms",
-        }} title="Déconnexion">
+        }} title={tr("logout", locale)}>
           <LogOut size={13} />
         </button>
       </div>

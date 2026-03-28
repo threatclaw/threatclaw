@@ -2,6 +2,8 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { X, Maximize2, Minimize2, Eye, EyeOff, ExternalLink } from "lucide-react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 // ── SVG icon paths (24x24 viewBox) ──
 const SVG_ICONS: Record<string, string> = {
@@ -64,6 +66,7 @@ interface NodeDetail {
 
 // ═══ MINI CARD (for Intelligence page) ═══
 export function GraphCard({ onOpen }: { onOpen: () => void }) {
+  const locale = useLocale();
   const [stats, setStats] = useState({ nodes: 0, edges: 0, ips: 0 });
 
   useEffect(() => {
@@ -91,15 +94,15 @@ export function GraphCard({ onOpen }: { onOpen: () => void }) {
        onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--tc-red)")}
        onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--tc-border)")}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Graphe d&apos;attaque</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("attackGraph", locale)}</span>
         <ExternalLink size={12} color="var(--tc-text-muted)" />
       </div>
       <div style={{ display: "flex", gap: 16, fontSize: 10, color: "var(--tc-text-muted)" }}>
-        <span><b style={{ color: "var(--tc-text)", fontSize: 16 }}>{stats.nodes}</b> noeuds</span>
+        <span><b style={{ color: "var(--tc-text)", fontSize: 16 }}>{stats.nodes}</b> {tr("nodes", locale)}</span>
         <span><b style={{ color: "#e04040", fontSize: 16 }}>{stats.ips}</b> IPs</span>
       </div>
       <div style={{ fontSize: 9, color: "var(--tc-text-muted)", marginTop: 8, fontStyle: "italic" }}>
-        Cliquer pour ouvrir l&apos;investigation
+        {tr("clickToInvestigate", locale)}
       </div>
     </div>
   );
@@ -107,6 +110,7 @@ export function GraphCard({ onOpen }: { onOpen: () => void }) {
 
 // ═══ FULL MODAL GRAPH ═══
 export function GraphModal({ onClose }: { onClose: () => void }) {
+  const locale = useLocale();
   const cyRef = useRef<any>(null);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ nodes: 0, edges: 0 });
@@ -268,7 +272,7 @@ export function GraphModal({ onClose }: { onClose: () => void }) {
       cy.on("tap", (evt: any) => { if (evt.target === cy) setSelectedNode(null); });
       cy.fit(undefined, 50);
       cyRef.current = cy;
-    } catch (e: any) { setError(e.message || "Erreur"); }
+    } catch (e: any) { setError(e.message || tr("serverError", locale)); }
     setLoading(false);
   }, [simplified]);
 
@@ -279,11 +283,11 @@ export function GraphModal({ onClose }: { onClose: () => void }) {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", borderBottom: "1px solid var(--tc-border)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Investigation</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("investigation", locale)}</span>
           <button onClick={() => setSimplified(!simplified)} style={{ background: "none", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-muted)", padding: "3px 8px", display: "flex", alignItems: "center", gap: 4, fontSize: 9, fontFamily: "inherit" }}>
-            {simplified ? <Eye size={11} /> : <EyeOff size={11} />} {simplified ? "Simple" : "Complet"}
+            {simplified ? <Eye size={11} /> : <EyeOff size={11} />} {simplified ? tr("graphSimple", locale) : tr("graphFull", locale)}
           </button>
-          <span style={{ fontSize: 10, color: "var(--tc-text-muted)" }}>{stats.nodes} noeuds · {stats.edges} relations</span>
+          <span style={{ fontSize: 10, color: "var(--tc-text-muted)" }}>{stats.nodes} {tr("nodes", locale)} · {stats.edges} {tr("relations", locale)}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ display: "flex", gap: 8, fontSize: 9 }}>
@@ -294,14 +298,14 @@ export function GraphModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <button onClick={onClose} style={{ background: "none", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px 8px", display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontFamily: "inherit" }}>
-            <X size={12} /> Fermer
+            <X size={12} /> {tr("close", locale)}
           </button>
         </div>
       </div>
 
       {/* Body */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {loading && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tc-text-muted)" }}>Chargement...</div>}
+        {loading && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tc-text-muted)" }}>{tr("loading", locale)}</div>}
         {error && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#d03020" }}>{error}</div>}
 
         <div id="cy-modal" style={{ flex: 1, minHeight: 0 }} />
