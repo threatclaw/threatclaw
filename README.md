@@ -54,6 +54,23 @@ cargo build --release
 ./target/release/threatclaw run
 ```
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/dash.png" alt="Dashboard — Security score, ML detection, infrastructure status" width="800">
+  <br><em>Dashboard — Real-time security score, ML behavioral detection, infrastructure health</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/graph.png" alt="Graph Intelligence — Attack paths, threat actors, lateral movement" width="800">
+  <br><em>Graph Intelligence — STIX 2.1 attack graph, threat actors (APT attribution), lateral movement detection</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/export.png" alt="Reports & Exports — NIS2, RGPD, ISO 27001, STIX/MISP" width="800">
+  <br><em>Reports & Exports — NIS2, RGPD/CNIL, ISO 27001, NIST, STIX 2.1, MISP (PDF + JSON)</em>
+</p>
+
 ## Features
 
 ### 5-level AI Architecture
