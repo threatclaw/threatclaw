@@ -300,7 +300,7 @@ export default function HomePage() {
             {mlStatus.dns === "active" ? "Domaines suspects" : mlStatus.dns === "learning" ? `Actif dans ${Math.max(0, 14 - mlStatus.dataDays)}j` : "En attente du moteur ML"}
           </div>
         </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>Entraînement</div>
           {(() => {
             const days = mlStatus.dataDays;
@@ -316,20 +316,28 @@ export default function HomePage() {
                   {trainingState === "checking" ? "Vérification..." :
                    trainingState === "trained" ? "Opérationnel" :
                    trainingState === "learning" ? `Apprentissage ${days}/${target}j` :
-                   trainingState === "waiting" ? "En attente de données" : "Inactive"}
+                   trainingState === "waiting" ? "En attente de logs" : "Inactive"}
                 </div>
-                {/* Progress bar */}
-                <div style={{ width: "100%", height: "4px", borderRadius: "2px", background: "var(--tc-input)", marginTop: "6px", overflow: "hidden" }}>
-                  <div style={{
-                    width: `${pct}%`, height: "100%", borderRadius: "2px",
-                    background: trained ? "#30a050" : "var(--tc-amber)",
-                    transition: "width 0.5s ease",
-                  }} />
-                </div>
-                <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "3px", display: "flex", justifyContent: "space-between" }}>
-                  <span>{trained ? "Retrain nocturne 03h00" : remaining > 0 ? `${remaining}j restants` : "Baseline complète"}</span>
-                  <span style={{ fontWeight: 700 }}>{pct}%</span>
-                </div>
+                {trainingState !== "inactive" && (
+                  <>
+                    <div style={{ width: "100%", height: "4px", borderRadius: "2px", background: "var(--tc-input)", marginTop: "6px", overflow: "hidden" }}>
+                      <div style={{
+                        width: `${pct}%`, height: "100%", borderRadius: "2px",
+                        background: trained ? "#30a050" : "var(--tc-amber)",
+                        transition: "width 0.5s ease",
+                      }} />
+                    </div>
+                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "3px", display: "flex", justifyContent: "space-between" }}>
+                      <span>{trained ? "Retrain nocturne 03h00" : days === 0 ? "Connectez une source de logs" : `${remaining}j restants`}</span>
+                      <span style={{ fontWeight: 700 }}>{pct}%</span>
+                    </div>
+                  </>
+                )}
+                {trainingState === "inactive" && (
+                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
+                    En attente du moteur ML
+                  </div>
+                )}
               </>
             );
           })()}
