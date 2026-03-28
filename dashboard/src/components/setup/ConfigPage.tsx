@@ -73,7 +73,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     gotify: { enabled: false, url: "", appToken: "" },
   });
   const [permLevel, setPermLevel] = useState("ALERT_ONLY");
-  const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: "fr", nvdApiKey: "" });
+  const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: (typeof window !== "undefined" && localStorage.getItem("tc-language")) || "fr", nvdApiKey: "" });
 
   // Telegram status
   const [telegramStatus, setTelegramStatus] = useState<{ ok: boolean; username?: string; error?: string } | null>(null);

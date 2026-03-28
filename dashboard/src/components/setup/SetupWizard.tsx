@@ -388,12 +388,17 @@ export default function SetupWizard() {
               </div>
 
               <div>
-                <label style={labelStyle}>Zone géographique</label>
+                <label style={labelStyle}>{locale === "fr" ? "Connexions attendues depuis" : "Expected connections from"}</label>
                 <select value={company.geo_scope} onChange={e => setCompany(c => ({ ...c, geo_scope: e.target.value }))} style={inputStyle}>
-                  <option value="france">France uniquement</option>
-                  <option value="europe">Europe</option>
-                  <option value="international">International</option>
+                  <option value="local">{locale === "fr" ? "Mon pays uniquement" : "My country only"}</option>
+                  <option value="europe">{locale === "fr" ? "Europe" : "Europe"}</option>
+                  <option value="north_america">{locale === "fr" ? "Amérique du Nord" : "North America"}</option>
+                  <option value="europe_na">{locale === "fr" ? "Europe + Amérique du Nord" : "Europe + North America"}</option>
+                  <option value="international">{locale === "fr" ? "Monde entier" : "Worldwide"}</option>
                 </select>
+                <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
+                  {locale === "fr" ? "Les connexions hors de cette zone seront signalées comme suspectes" : "Connections from outside this zone will be flagged as suspicious"}
+                </div>
               </div>
 
               <div>
