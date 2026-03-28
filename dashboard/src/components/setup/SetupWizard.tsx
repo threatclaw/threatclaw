@@ -243,10 +243,10 @@ export default function SetupWizard() {
   const prev = () => setStep(s => Math.max(s - 1, 0));
 
   const permLevels = [
-    { id: "READ_ONLY", icon: Eye, label: "Observation", desc: "Observation uniquement — aucune action", color: "var(--tc-blue)" },
-    { id: "ALERT_ONLY", icon: Bell, label: "Alertes", desc: "Alertes sans action corrective", color: "var(--tc-green)", recommended: true },
-    { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: "Remédiation supervisée", desc: "Avec approbation humaine (HITL)", color: "var(--tc-amber)" },
-    { id: "FULL_AUTO", icon: Zap, label: "Automatisation complète", desc: "Environnement maîtrisé uniquement", color: "var(--tc-red)", warning: true },
+    { id: "READ_ONLY", icon: Eye, label: tr("observation", locale), desc: tr("observationOnly", locale), color: "var(--tc-blue)" },
+    { id: "ALERT_ONLY", icon: Bell, label: tr("alertsOnly", locale), desc: tr("alertsNoAction", locale), color: "var(--tc-green)", recommended: true },
+    { id: "REMEDIATE_WITH_APPROVAL", icon: ShieldCheck, label: tr("remediationSupervised", locale), desc: tr("remediationWithApproval", locale), color: "var(--tc-amber)" },
+    { id: "FULL_AUTO", icon: Zap, label: tr("autoMode", locale), desc: tr("fullAutoDesc", locale), color: "var(--tc-red)", warning: true },
   ];
 
   const channelDefs = [
@@ -314,7 +314,7 @@ export default function SetupWizard() {
             <h1 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 6px" }}>{tr("welcomeTitle", locale)}</h1>
             <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", margin: "0 0 4px" }}>{tr("welcomeSubtitle", locale)}</p>
             <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", margin: "0 0 16px", maxWidth: "380px", marginLeft: "auto", marginRight: "auto" }}>
-              Configurez votre agent en quelques étapes. Connectez votre IA, vos canaux de communication, et définissez votre niveau de sécurité.
+              {tr("welcomeDesc", locale)}
             </p>
             <button onClick={next} style={btnPrimary}>
               {tr("start", locale)} <ChevronRight size={14} />
@@ -330,7 +330,7 @@ export default function SetupWizard() {
               <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("company", locale)}</span>
             </div>
             <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
-              Ces informations aident ThreatClaw à adapter ses détections à votre contexte.
+              {tr("wizardCompanyDesc", locale)}
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -341,44 +341,44 @@ export default function SetupWizard() {
               </div>
 
               <div>
-                <label style={labelStyle}>Secteur d{"'"}activité</label>
+                <label style={labelStyle}>{tr("sector", locale)}</label>
                 <select value={company.sector} onChange={e => setCompany(c => ({ ...c, sector: e.target.value }))} style={inputStyle}>
-                  <option value="industry">Industrie / Manufacturing</option>
-                  <option value="healthcare">Santé / Médical</option>
-                  <option value="finance">Finance / Assurance</option>
-                  <option value="retail">Commerce / Retail</option>
-                  <option value="government">Collectivité / Administration</option>
-                  <option value="services">Services / Conseil</option>
-                  <option value="transport">Transport / Logistique</option>
-                  <option value="energy">Énergie</option>
-                  <option value="education">Éducation</option>
-                  <option value="other">Autre</option>
+                  <option value="industry">{tr("sectorIndustry", locale)}</option>
+                  <option value="healthcare">{tr("sectorHealth", locale)}</option>
+                  <option value="finance">{tr("sectorFinance", locale)}</option>
+                  <option value="retail">{tr("sectorRetail", locale)}</option>
+                  <option value="government">{tr("sectorGov", locale)}</option>
+                  <option value="services">{tr("sectorServices", locale)}</option>
+                  <option value="transport">{tr("sectorTransport", locale)}</option>
+                  <option value="energy">{tr("sectorEnergy", locale)}</option>
+                  <option value="education">{tr("sectorEducation", locale)}</option>
+                  <option value="other">{tr("sectorOther", locale)}</option>
                 </select>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                 <div>
-                  <label style={labelStyle}>Taille</label>
+                  <label style={labelStyle}>{tr("companySize", locale)}</label>
                   <select value={company.company_size} onChange={e => setCompany(c => ({ ...c, company_size: e.target.value }))} style={inputStyle}>
-                    <option value="micro">&lt; 10 personnes</option>
-                    <option value="small">10 - 50 personnes</option>
-                    <option value="medium">50 - 250 personnes</option>
-                    <option value="large">250+ personnes</option>
+                    <option value="micro">{tr("sizeMicro", locale)}</option>
+                    <option value="small">{tr("sizeSmall", locale)}</option>
+                    <option value="medium">{tr("sizeMedium", locale)}</option>
+                    <option value="large">{tr("sizeLarge", locale)}</option>
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>Horaires d{"'"}activité</label>
+                  <label style={labelStyle}>{tr("businessHours", locale)}</label>
                   <select value={company.business_hours} onChange={e => setCompany(c => ({ ...c, business_hours: e.target.value }))} style={inputStyle}>
-                    <option value="office">Bureau (personnalisé)</option>
-                    <option value="24x7">24h/7j</option>
-                    <option value="shifts">Par équipes</option>
+                    <option value="office">{tr("hoursCustom", locale)}</option>
+                    <option value="24x7">{tr("hours247", locale)}</option>
+                    <option value="shifts">{tr("hoursShifts", locale)}</option>
                   </select>
                   {company.business_hours !== "24x7" && (
                     <div style={{ display: "flex", gap: "8px", marginTop: "8px", alignItems: "center" }}>
                       <input type="time" value={company.business_hours_start || "08:00"}
                         onChange={e => setCompany(c => ({ ...c, business_hours_start: e.target.value }))}
                         style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
-                      <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>à</span>
+                      <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("to", locale)}</span>
                       <input type="time" value={company.business_hours_end || "18:00"}
                         onChange={e => setCompany(c => ({ ...c, business_hours_end: e.target.value }))}
                         style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
@@ -388,21 +388,21 @@ export default function SetupWizard() {
               </div>
 
               <div>
-                <label style={labelStyle}>{locale === "fr" ? "Connexions attendues depuis" : "Expected connections from"}</label>
+                <label style={labelStyle}>{tr("geoScope", locale)}</label>
                 <select value={company.geo_scope} onChange={e => setCompany(c => ({ ...c, geo_scope: e.target.value }))} style={inputStyle}>
-                  <option value="local">{locale === "fr" ? "Mon pays uniquement" : "My country only"}</option>
-                  <option value="europe">{locale === "fr" ? "Europe" : "Europe"}</option>
-                  <option value="north_america">{locale === "fr" ? "Amérique du Nord" : "North America"}</option>
-                  <option value="europe_na">{locale === "fr" ? "Europe + Amérique du Nord" : "Europe + North America"}</option>
-                  <option value="international">{locale === "fr" ? "Monde entier" : "Worldwide"}</option>
+                  <option value="local">{tr("geoMyCountry", locale)}</option>
+                  <option value="europe">{tr("geoEurope", locale)}</option>
+                  <option value="north_america">{tr("geoNorthAmerica", locale)}</option>
+                  <option value="europe_na">{tr("geoEuropeNA", locale)}</option>
+                  <option value="international">{tr("geoWorldwide", locale)}</option>
                 </select>
                 <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-                  {locale === "fr" ? "Les connexions hors de cette zone seront signalées comme suspectes" : "Connections from outside this zone will be flagged as suspicious"}
+                  {tr("geoSuspiciousHint", locale)}
                 </div>
               </div>
 
               <div>
-                <label style={labelStyle}>Réseaux internes (CIDR, un par ligne)</label>
+                <label style={labelStyle}>{tr("internalNetworks", locale)}</label>
                 <textarea value={company.internal_networks}
                   onChange={e => setCompany(c => ({ ...c, internal_networks: e.target.value }))}
                   placeholder={"192.168.1.0/24\n10.0.0.0/8"}
@@ -410,7 +410,7 @@ export default function SetupWizard() {
               </div>
 
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
-                Ces données restent 100% locales. Elles paramètrent les seuils de détection et ne quittent jamais votre serveur.
+                {tr("dataLocalHint", locale)}
               </div>
             </div>
           </div>
@@ -421,18 +421,18 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
               <Cpu size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>IA Principale</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("primaryAi", locale)}</span>
             </div>
             <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
-              Le cerveau de ThreatClaw. Choisissez comment connecter l{"'"}IA.
+              {locale === "fr" ? "Le cerveau de ThreatClaw. Choisissez comment connecter l'IA." : "The brain of ThreatClaw. Choose how to connect AI."}
             </p>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginBottom: "12px" }}>
               {[
-                { id: "ollama", label: "Ollama Local", desc: "100% on-premise", icon: Server, cloud: false },
-                { id: "ollama_remote", label: "Ollama Distant", desc: "Serveur existant", icon: Link2, cloud: false },
-                { id: "mistral", label: "Mistral AI", desc: "Souveraineté FR", icon: Shield, cloud: true },
-                { id: "anthropic", label: "Anthropic", desc: "Claude", icon: Cpu, cloud: true },
+                { id: "ollama", label: tr("ollamaLocal", locale), desc: tr("ollamaLocalDesc", locale), icon: Server, cloud: false },
+                { id: "ollama_remote", label: tr("ollamaRemote", locale), desc: tr("ollamaRemoteDesc", locale), icon: Link2, cloud: false },
+                { id: "mistral", label: tr("mistralAi", locale), desc: tr("mistralAiDesc", locale), icon: Shield, cloud: true },
+                { id: "anthropic", label: tr("anthropic", locale), desc: tr("anthropicDesc", locale), icon: Cpu, cloud: true },
               ].map(b => (
                 <button key={b.id} onClick={() => { setPrimary(p => ({ ...p, backend: b.id, connected: false, models: [] })); setAnonymizePrimary(b.cloud); }}
                   style={{
@@ -454,12 +454,12 @@ export default function SetupWizard() {
                     style={{ ...inputStyle, flex: 1 }} placeholder="http://localhost:11434" />
                   <button onClick={testOllamaConnection} disabled={primary.testing} style={btnSecondary}>
                     {primary.testing ? <Loader2 size={10} className="animate-spin" /> : <Wifi size={10} />}
-                    {primary.testing ? "Test..." : "Tester"}
+                    {primary.testing ? "Test..." : tr("test", locale)}
                   </button>
                 </div>
                 {primary.connected && (
                   <div style={{ fontSize: "9px", color: "var(--tc-green)", display: "flex", alignItems: "center", gap: "4px" }}>
-                    <CheckCircle2 size={10} /> Connecté — {primary.models.length} modèle(s)
+                    <CheckCircle2 size={10} /> {tr("connected", locale)} — {primary.models.length} {tr("modelsAvailable", locale)}
                   </div>
                 )}
                 {primary.models.length > 0 && (
@@ -473,7 +473,7 @@ export default function SetupWizard() {
             {(primary.backend === "mistral" || primary.backend === "anthropic") && (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <input value={primary.apiKey} onChange={e => setPrimary(p => ({ ...p, apiKey: e.target.value }))}
-                  style={inputStyle} type="password" placeholder={primary.backend === "mistral" ? "Clé API Mistral" : "Clé API Anthropic"} />
+                  style={inputStyle} type="password" placeholder={primary.backend === "mistral" ? `${tr("apiKey", locale)} Mistral` : `${tr("apiKey", locale)} Anthropic`} />
                 <input value={primary.model} onChange={e => setPrimary(p => ({ ...p, model: e.target.value }))}
                   style={inputStyle} placeholder={primary.backend === "mistral" ? "mistral-large-latest" : "claude-sonnet-4-20250514"} />
 
@@ -481,8 +481,8 @@ export default function SetupWizard() {
                 <button onClick={() => setAnonymizePrimary(!anonymizePrimary)}
                   style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
                   <div style={{ flex: 1, textAlign: "left" }}>
-                    <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text)" }}>Anonymiser avant envoi</div>
-                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>IPs, hostnames, emails et usernames anonymisés</div>
+                    <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text)" }}>{tr("anonymizeBeforeSend", locale)}</div>
+                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>{tr("anonymizeToggleDesc", locale)}</div>
                   </div>
                   <input type="checkbox" className="tc-toggle" checked={anonymizePrimary} readOnly />
                 </button>
@@ -496,14 +496,14 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <Cloud size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>IA de secours (Cloud)</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("backupAi", locale)} (Cloud)</span>
             </div>
 
             <button onClick={() => setCloud(c => ({ ...c, enabled: !c.enabled }))}
               style={{ display: "flex", width: "100%", alignItems: "center", gap: "8px", background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: "12px" }}>
               <div style={{ flex: 1, textAlign: "left" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>Activer le cloud de secours</div>
-                <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>L{"'"}IA locale reste prioritaire — le cloud n{"'"}intervient que si la confiance est faible</div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{tr("enableCloudBackup", locale)}</div>
+                <div style={{ fontSize: "8px", color: "var(--tc-text-muted)" }}>{tr("cloudBackupDesc", locale)}</div>
               </div>
               <input type="checkbox" className="tc-toggle" checked={cloud.enabled} readOnly />
             </button>
@@ -525,9 +525,9 @@ export default function SetupWizard() {
                   ))}
                 </div>
                 <input value={cloud.apiKey} onChange={e => setCloud(c => ({ ...c, apiKey: e.target.value }))}
-                  style={inputStyle} type="password" placeholder="Clé API" />
+                  style={inputStyle} type="password" placeholder={tr("apiKey", locale)} />
                 <input value={cloud.model} onChange={e => setCloud(c => ({ ...c, model: e.target.value }))}
-                  style={inputStyle} placeholder="Modèle (ex: claude-sonnet-4-20250514)" />
+                  style={inputStyle} placeholder={`${tr("model", locale)} (ex: claude-sonnet-4-20250514)`} />
               </div>
             )}
           </div>
@@ -538,9 +538,9 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <MessageSquare size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Communication</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("communication", locale)}</span>
             </div>
-            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>Optionnel — vous pourrez configurer plus tard dans Config.</p>
+            <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>{tr("comOptional", locale)}</p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {channelDefs.map(ch => {
@@ -567,8 +567,8 @@ export default function SetupWizard() {
                           {channelTest[ch.key]?.testing
                             ? <><Loader2 size={10} className="animate-spin" /> Test...</>
                             : channelTest[ch.key]?.result?.ok
-                              ? <><CheckCircle2 size={10} color="var(--tc-green)" /> Connecté</>
-                              : <><Wifi size={10} /> Tester</>}
+                              ? <><CheckCircle2 size={10} color="var(--tc-green)" /> {tr("connected", locale)}</>
+                              : <><Wifi size={10} /> {tr("test", locale)}</>}
                         </button>
                         {channelTest[ch.key]?.result && !channelTest[ch.key]?.result?.ok && (
                           <span style={{ fontSize: "8px", color: "var(--tc-red)" }}>{channelTest[ch.key]?.result?.error}</span>
@@ -587,7 +587,7 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <ShieldAlert size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Niveau de sécurité</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("securityLevelStep", locale)}</span>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {permLevels.map(level => {
@@ -602,8 +602,8 @@ export default function SetupWizard() {
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                         <span style={{ fontSize: "10px", fontWeight: 800, color: "var(--tc-text)" }}>{level.label}</span>
-                        {level.recommended && <span style={{ fontSize: "7px", fontWeight: 700, color: "var(--tc-green)", background: "rgba(48,160,80,0.08)", padding: "1px 4px", borderRadius: "6px", textTransform: "uppercase" }}>Recommandé</span>}
-                        {level.warning && <span style={{ fontSize: "7px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "2px" }}><AlertTriangle size={8} />Avancé</span>}
+                        {level.recommended && <span style={{ fontSize: "7px", fontWeight: 700, color: "var(--tc-green)", background: "rgba(48,160,80,0.08)", padding: "1px 4px", borderRadius: "6px", textTransform: "uppercase" }}>{tr("recommended", locale)}</span>}
+                        {level.warning && <span style={{ fontSize: "7px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "2px" }}><AlertTriangle size={8} />{tr("advanced", locale)}</span>}
                       </div>
                       <p style={{ fontSize: "8px", color: "var(--tc-text-muted)", margin: "2px 0 0" }}>{level.desc}</p>
                     </div>
@@ -626,15 +626,15 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
               <CheckCircle2 size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Récapitulatif</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("summary", locale)}</span>
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
               {[
-                { label: "IA Principale", value: `${primary.backend === "ollama" ? "Ollama local" : primary.backend === "ollama_remote" ? "Ollama distant" : primary.backend} — ${primary.model || "non configuré"}` },
-                { label: "IA Cloud", value: cloud.enabled ? `${cloud.backend} (${cloud.escalation})` : "Désactivé — 100% local" },
-                { label: "Communication", value: Object.entries(channels).filter(([, v]) => v.enabled).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ") || "Aucun canal" },
-                { label: "Sécurité", value: permLevels.find(l => l.id === permLevel)?.label || permLevel },
+                { label: tr("primaryAi", locale), value: `${primary.backend === "ollama" ? tr("ollamaLocal", locale) : primary.backend === "ollama_remote" ? tr("ollamaRemote", locale) : primary.backend} — ${primary.model || tr("notConfigured", locale)}` },
+                { label: "IA Cloud", value: cloud.enabled ? `${cloud.backend} (${cloud.escalation})` : tr("disabledLocal", locale) },
+                { label: tr("communication", locale), value: Object.entries(channels).filter(([, v]) => v.enabled).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ") || tr("noChannel", locale) },
+                { label: tr("security", locale), value: permLevels.find(l => l.id === permLevel)?.label || permLevel },
               ].map(item => (
                 <div key={item.label} style={{ ...cardSmStyle, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "9px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{item.label}</span>
@@ -665,12 +665,12 @@ export default function SetupWizard() {
         {/* Navigation */}
         {step > 0 && step < 6 && (
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: "16px" }}>
-            <button onClick={prev} style={btnSecondary}><ChevronLeft size={12} /> Précédent</button>
-            <button onClick={next} style={{ ...btnSecondary, color: "var(--tc-red)" }}>Suivant <ChevronRight size={12} /></button>
+            <button onClick={prev} style={btnSecondary}><ChevronLeft size={12} /> {tr("previous", locale)}</button>
+            <button onClick={next} style={{ ...btnSecondary, color: "var(--tc-red)" }}>{tr("next", locale)} <ChevronRight size={12} /></button>
           </div>
         )}
         {step === 6 && !saved && (
-          <button onClick={prev} style={{ ...btnSecondary, marginTop: "8px" }}><ChevronLeft size={12} /> Modifier</button>
+          <button onClick={prev} style={{ ...btnSecondary, marginTop: "8px" }}><ChevronLeft size={12} /> {tr("modify", locale)}</button>
         )}
       </div>
     </div>

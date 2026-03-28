@@ -1049,6 +1049,7 @@ const ENRICHMENT_SOURCES = [
 ];
 
 function EnrichmentTab() {
+  const locale = useLocale();
   const [status, setStatus] = useState<Record<string, { status: string; meta?: Record<string, unknown>; cache_count?: number; count?: number; synced_at?: string }>>({});
   const [syncing, setSyncing] = useState<string | null>(null);
   const [syncAllRunning, setSyncAllRunning] = useState(false);
@@ -1129,11 +1130,11 @@ function EnrichmentTab() {
       <ChromeInsetCard>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
           <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, display: "flex", alignItems: "center", gap: "10px" }}>
-            <Database size={18} color="#d03020" /> Sources d{"'"}enrichissement
+            <Database size={18} color="#d03020" /> {tr("enrichmentSources", locale)}
           </ChromeEmbossedText>
           <ChromeButton onClick={syncAll} disabled={syncAllRunning} variant="primary">
             {syncAllRunning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            {syncAllRunning ? "Synchronisation..." : "Tout synchroniser"}
+            {syncAllRunning ? tr("syncing", locale) : tr("syncAll", locale)}
           </ChromeButton>
         </div>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px", lineHeight: 1.6 }}>
@@ -1160,8 +1161,8 @@ function EnrichmentTab() {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)" }}>{src.name}</span>
-                    {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>Clé optionnelle</span>}
-                    {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>Clé requise</span>}
+                    {!src.noKey && src.id === "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.15)" }}>{tr("optionalKey", locale)}</span>}
+                    {!src.noKey && src.id !== "nvd" && <span style={{ fontSize: "9px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", border: "1px solid rgba(208,144,32,0.15)" }}>{tr("requiredKey", locale)}</span>}
                     <button onClick={() => setHelpOpen(helpOpen === src.id ? null : src.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
                       <HelpCircle size={13} color="var(--tc-text-muted)" />
                     </button>
@@ -1180,7 +1181,7 @@ function EnrichmentTab() {
                   color: (isSynced || src.onDemand) ? "#30a050" : "var(--tc-text-muted)",
                   border: `1px solid ${(isSynced || src.onDemand) ? "rgba(48,160,80,0.15)" : "var(--tc-input)"}`,
                 }}>
-                  {src.onDemand ? "Actif (à la demande)" : isSynced ? "Synchronisé" : "Non synchronisé"}
+                  {src.onDemand ? tr("activeOnDemand", locale) : isSynced ? tr("synchronized", locale) : tr("notSynchronized", locale)}
                 </span>
                 {src.syncable && (
                   <ChromeButton onClick={() => syncSource(src.id, src.syncUrl!)} disabled={syncing === src.id} variant="glass">
@@ -1197,7 +1198,7 @@ function EnrichmentTab() {
                       value={apiKeys[src.id] || ""}
                       onChange={e => updateApiKey(src.id, e.target.value)}
                       onBlur={() => saveApiKey(src.id)}
-                      placeholder={`Clé API ${src.name} (inscription gratuite)`}
+                      placeholder={tr("enrichmentApiKeyHint", locale).replace("{0}", src.name)}
                       style={{
                         flex: 1, background: "var(--tc-input)", border: "1px solid var(--tc-border)",
                         borderRadius: "var(--tc-radius-input)", padding: "8px 12px", fontSize: "12px", color: "var(--tc-text)",
@@ -1238,9 +1239,9 @@ function EnrichmentTab() {
 // ═══════════════════════════════════════
 
 const NOTIFICATION_LEVELS = [
-  { id: "digest", label: "Digest quotidien", desc: "Résumé journalier, findings low/medium", color: "var(--tc-blue)" },
-  { id: "alert", label: "Alerte", desc: "Nouveau High, corrélation suspecte", color: "var(--tc-amber)" },
-  { id: "critical", label: "Critique", desc: "Kill chain, Critical confirmé, HITL", color: "var(--tc-red)" },
+  { id: "digest", labelKey: "digestDaily", descKey: "digestDailyDesc", color: "var(--tc-blue)" },
+  { id: "alert", labelKey: "alertNotif", descKey: "alertNotifDesc", color: "var(--tc-amber)" },
+  { id: "critical", labelKey: "criticalNotif", descKey: "criticalNotifDesc", color: "var(--tc-red)" },
 ];
 
 const ALL_CHANNELS = [
@@ -1253,6 +1254,7 @@ const ALL_CHANNELS = [
 ];
 
 function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSProperties; labelStyle: React.CSSProperties }) {
+  const locale = useLocale();
   const [routing, setRouting] = useState<Record<string, string[]>>({ digest: ["telegram"], alert: ["telegram"], critical: ["telegram", "ntfy"] });
   const [configuredChannels, setConfiguredChannels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1330,7 +1332,7 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
       {situation && situation.global_score !== undefined && (
         <ChromeInsetCard>
           <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "16px", display: "flex", alignItems: "center", gap: "10px" }}>
-            <Shield size={18} color="#d03020" /> Situation actuelle
+            <Shield size={18} color="#d03020" /> {tr("currentSituation", locale)}
           </ChromeEmbossedText>
           <div style={{ display: "flex", gap: "16px" }}>
             <div style={{ textAlign: "center", padding: "12px 20px", borderRadius: "var(--tc-radius-md)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)" }}>
@@ -1346,7 +1348,7 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
                 </strong>
               </div>
               <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
-                {situation.open_findings || 0} findings ouverts — {situation.active_alerts || 0} alertes actives
+                {situation.open_findings || 0} {tr("openFindings", locale)}{situation.active_alerts || 0} {tr("activeAlerts", locale)}
               </div>
             </div>
           </div>
@@ -1359,9 +1361,9 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <AlertTriangle size={20} color="#d03020" />
             <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>Aucun canal configuré</div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>{tr("noChannelConfigured", locale)}</div>
               <div style={{ fontSize: "12px", color: "var(--tc-text-muted)" }}>
-                {"Allez dans l'onglet Canaux pour configurer au moins un moyen de communication."}
+                {locale === "fr" ? "Allez dans l'onglet Canaux pour configurer au moins un moyen de communication." : "Go to the Channels tab to configure at least one communication channel."}
               </div>
             </div>
           </div>
@@ -1371,10 +1373,10 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
       {/* Routing matrix */}
       <ChromeInsetCard>
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <Bell size={18} color="#d03020" /> Routing des notifications
+          <Bell size={18} color="#d03020" /> {tr("notifRouting", locale)}
         </ChromeEmbossedText>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px" }}>
-          Choisissez quels canaux reçoivent quels types de notifications. Silence = rien envoyé.
+          {tr("notifRoutingDesc", locale)}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1382,8 +1384,8 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
             <div key={level.id} style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-card)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                 <div style={{ width: "10px", height: "10px", borderRadius: "50%", background: level.color, boxShadow: `0 0 6px ${level.color}40` }} />
-                <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>{level.label}</span>
-                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>— {level.desc}</span>
+                <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>{tr(level.labelKey, locale)}</span>
+                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>— {tr(level.descKey, locale)}</span>
               </div>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                 {ALL_CHANNELS.map(ch => {
@@ -1415,13 +1417,13 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
           <div style={{ display: "flex", gap: "6px" }}>
             {NOTIFICATION_LEVELS.map(level => (
               <ChromeButton key={level.id} onClick={() => testNotification(level.id)} disabled={testing} variant="glass">
-                <Play size={12} /> Test {level.label.toLowerCase()}
+                <Play size={12} /> Test {tr(level.labelKey, locale).toLowerCase()}
               </ChromeButton>
             ))}
           </div>
           <ChromeButton onClick={saveRouting} disabled={saving} variant="primary" style={{ minWidth: "140px" }}>
             {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-            {saved ? "Saved ✓" : "Save"}
+            {saved ? `${tr("save", locale)} ✓` : tr("save", locale)}
           </ChromeButton>
         </div>
 
@@ -1526,6 +1528,7 @@ function DefaultRulesPanel() {
 }
 
 function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSProperties; labelStyle: React.CSSProperties }) {
+  const locale = useLocale();
   const [rules, setRules] = useState<{ id: string; label: string; pattern: string; token_prefix: string }[]>([]);
   const [newLabel, setNewLabel] = useState("");
   const [newPattern, setNewPattern] = useState("");
@@ -1567,10 +1570,10 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
     <>
       <ChromeInsetCard>
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <Shield size={18} color="#d03020" /> Anonymisation
+          <Shield size={18} color="#d03020" /> {tr("anonymization", locale)}
         </ChromeEmbossedText>
         <div style={{ fontSize: "13px", color: "var(--tc-text-muted)", marginBottom: "12px", lineHeight: 1.6 }}>
-          <strong style={{ color: "var(--tc-text-sec)" }}>14 catégories automatiques</strong> protègent vos données avant tout envoi au LLM cloud.
+          <strong style={{ color: "var(--tc-text-sec)" }}>{tr("autoCategories", locale)}</strong> {tr("autoCategoriesDesc", locale)}
         </div>
         <DefaultRulesPanel />
 
@@ -1579,7 +1582,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
           className="scrollbar-thin">
           {rules.length === 0 && (
             <div style={{ textAlign: "center", padding: "24px", color: "var(--tc-text-muted)", fontSize: "13px" }}>
-              Aucune règle personnalisée. Les 17 catégories automatiques protègent déjà vos données.
+              {tr("noCustomRules", locale)}
             </div>
           )}
           {rules.map(rule => (
@@ -1609,7 +1612,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
       {/* Add new rule */}
       <ChromeInsetCard>
         <ChromeEmbossedText as="h3" style={{ fontSize: "14px", fontWeight: 700, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Plus size={16} color="#d03020" /> Ajouter une règle
+          <Plus size={16} color="#d03020" /> {tr("addRule", locale)}
         </ChromeEmbossedText>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div>
@@ -1637,7 +1640,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
             </div>
             <ChromeButton onClick={addRule} disabled={adding || !newLabel || !newPattern} variant="primary">
               {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              Ajouter
+              {tr("add", locale)}
             </ChromeButton>
           </div>
         </div>
@@ -1649,6 +1652,7 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
 // ── Company Profile Tab ──
 
 function CompanyTab() {
+  const locale = useLocale();
   const [profile, setProfile] = useState<any>({});
   const [networks, setNetworks] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1657,9 +1661,9 @@ function CompanyTab() {
   const [showSchedule, setShowSchedule] = useState(false);
 
   const DAYS = [
-    { id: "mon", label: "Lundi" }, { id: "tue", label: "Mardi" }, { id: "wed", label: "Mercredi" },
-    { id: "thu", label: "Jeudi" }, { id: "fri", label: "Vendredi" },
-    { id: "sat", label: "Samedi" }, { id: "sun", label: "Dimanche" },
+    { id: "mon", label: locale === "fr" ? "Lundi" : "Monday" }, { id: "tue", label: locale === "fr" ? "Mardi" : "Tuesday" }, { id: "wed", label: locale === "fr" ? "Mercredi" : "Wednesday" },
+    { id: "thu", label: locale === "fr" ? "Jeudi" : "Thursday" }, { id: "fri", label: locale === "fr" ? "Vendredi" : "Friday" },
+    { id: "sat", label: locale === "fr" ? "Samedi" : "Saturday" }, { id: "sun", label: locale === "fr" ? "Dimanche" : "Sunday" },
   ];
 
   const defaultSchedule: Record<string, { open: string; close: string; closed: boolean }> = {
@@ -1749,37 +1753,37 @@ function CompanyTab() {
   return (
     <>
       <ChromeInsetCard>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "16px" }}>Profil entreprise</ChromeEmbossedText>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "16px" }}>{tr("companyProfile", locale)}</ChromeEmbossedText>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div>
-            <label style={labelStyle}>Nom de l{"'"}entreprise</label>
+            <label style={labelStyle}>{tr("companyName", locale)}</label>
             <input value={profile.company_name || ""} onChange={e => setProfile((p: any) => ({ ...p, company_name: e.target.value }))} placeholder="CyberConsulting.fr" style={inputStyle} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             <div>
-              <label style={labelStyle}>Secteur d{"'"}activité</label>
+              <label style={labelStyle}>{tr("sector", locale)}</label>
               <select value={profile.sector || "other"} onChange={e => setProfile((p: any) => ({ ...p, sector: e.target.value }))} style={inputStyle}>
-                <option value="industry">Industrie / Manufacturing</option>
-                <option value="healthcare">Santé / Médical</option>
-                <option value="finance">Finance / Assurance</option>
-                <option value="retail">Commerce / Retail</option>
-                <option value="government">Collectivité / Administration</option>
-                <option value="services">Services / Conseil</option>
-                <option value="transport">Transport / Logistique</option>
-                <option value="energy">Énergie</option>
-                <option value="education">Éducation</option>
-                <option value="other">Autre</option>
+                <option value="industry">{tr("sectorIndustry", locale)}</option>
+                <option value="healthcare">{tr("sectorHealth", locale)}</option>
+                <option value="finance">{tr("sectorFinance", locale)}</option>
+                <option value="retail">{tr("sectorRetail", locale)}</option>
+                <option value="government">{tr("sectorGov", locale)}</option>
+                <option value="services">{tr("sectorServices", locale)}</option>
+                <option value="transport">{tr("sectorTransport", locale)}</option>
+                <option value="energy">{tr("sectorEnergy", locale)}</option>
+                <option value="education">{tr("sectorEducation", locale)}</option>
+                <option value="other">{tr("sectorOther", locale)}</option>
               </select>
             </div>
             <div>
-              <label style={labelStyle}>Taille de l{"'"}entreprise</label>
+              <label style={labelStyle}>{tr("companySize", locale)}</label>
               <select value={profile.company_size || "small"} onChange={e => setProfile((p: any) => ({ ...p, company_size: e.target.value }))} style={inputStyle}>
-                <option value="micro">&lt; 10 personnes</option>
-                <option value="small">10 - 50 personnes</option>
-                <option value="medium">50 - 250 personnes</option>
-                <option value="large">250+ personnes</option>
+                <option value="micro">{tr("sizeMicro", locale)}</option>
+                <option value="small">{tr("sizeSmall", locale)}</option>
+                <option value="medium">{tr("sizeMedium", locale)}</option>
+                <option value="large">{tr("sizeLarge", locale)}</option>
               </select>
             </div>
           </div>
@@ -1826,13 +1830,13 @@ function CompanyTab() {
             border: "none", borderRadius: "var(--tc-radius-md)", alignSelf: "flex-start",
             display: "flex", alignItems: "center", gap: "6px",
           }}>
-            {saved ? "Sauvegardé" : saving ? "Sauvegarde..." : "Sauvegarder"}
+            {saved ? tr("saved2", locale) : saving ? tr("saving2", locale) : tr("save", locale)}
           </button>
         </div>
       </ChromeInsetCard>
 
       <ChromeInsetCard style={{ marginTop: "16px" }}>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Réseaux internes</ChromeEmbossedText>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("internalNetworksLabel", locale)}</ChromeEmbossedText>
         <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
           Déclarez vos plages réseau. ThreatClaw classifie les IPs (interne connu / inconnu / externe).
         </p>
@@ -1849,7 +1853,7 @@ function CompanyTab() {
         )}
         <div style={{ display: "flex", gap: "8px" }}>
           <input value={newCidr} onChange={e => setNewCidr(e.target.value)} placeholder="192.168.1.0/24" onKeyDown={e => e.key === "Enter" && addNetwork()} style={{ ...inputStyle, flex: 1 }} />
-          <button onClick={addNetwork} style={{ padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)" }}>Ajouter</button>
+          <button onClick={addNetwork} style={{ padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)" }}>{tr("add", locale)}</button>
         </div>
       </ChromeInsetCard>
 
@@ -1859,7 +1863,7 @@ function CompanyTab() {
           onClick={e => { if (e.target === e.currentTarget) setShowSchedule(false); }}>
           <div style={{ background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "24px", width: "480px", maxHeight: "80vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Horaires d{"'"}activité</h2>
+              <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("businessHoursLabel", locale)}</h2>
               <button onClick={() => setShowSchedule(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)" }}><X size={16} /></button>
             </div>
 
@@ -1869,10 +1873,10 @@ function CompanyTab() {
 
             {/* Quick apply */}
             <div style={{ display: "flex", gap: "6px", marginBottom: "16px", flexWrap: "wrap" }}>
-              <button onClick={() => applyToAll("08:00", "18:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>8h-18h pour tous</button>
-              <button onClick={() => applyToAll("09:00", "17:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>9h-17h pour tous</button>
-              <button onClick={() => { setSchedule(s => { const n = { ...s }; ["sat", "sun"].forEach(d => { n[d] = { ...n[d], closed: true }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>Fermé le week-end</button>
-              <button onClick={() => { setSchedule(s => { const n = { ...s }; DAYS.forEach(d => { n[d.id] = { open: "00:00", close: "23:59", closed: false }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>24h/7j</button>
+              <button onClick={() => applyToAll("08:00", "18:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>8h-18h</button>
+              <button onClick={() => applyToAll("09:00", "17:00")} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>9h-17h</button>
+              <button onClick={() => { setSchedule(s => { const n = { ...s }; ["sat", "sun"].forEach(d => { n[d] = { ...n[d], closed: true }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>{locale === "fr" ? "Fermé le week-end" : "Closed on weekends"}</button>
+              <button onClick={() => { setSchedule(s => { const n = { ...s }; DAYS.forEach(d => { n[d.id] = { open: "00:00", close: "23:59", closed: false }; }); return n; }); }} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "9px", cursor: "pointer", fontWeight: 600 }}>24/7</button>
             </div>
 
             {/* Per-day schedule */}
@@ -1891,7 +1895,7 @@ function CompanyTab() {
                         style={{ ...inputStyle, width: "100px", textAlign: "center" }} />
                     </>
                   ) : (
-                    <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>Fermé</span>
+                    <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>{tr("closed", locale)}</span>
                   )}
                 </div>
               ))}
@@ -1902,7 +1906,7 @@ function CompanyTab() {
               cursor: "pointer", background: "var(--tc-red)", color: "#fff",
               border: "none", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
             }}>
-              <CheckCircle2 size={14} /> Appliquer
+              <CheckCircle2 size={14} /> {tr("apply", locale)}
             </button>
           </div>
         </div>

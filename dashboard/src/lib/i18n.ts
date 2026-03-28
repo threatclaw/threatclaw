@@ -368,6 +368,7 @@ const T: Record<string, Record<Locale, string>> = {
   saved2: { fr: "Sauvegardé", en: "Saved" },
   saving2: { fr: "Sauvegarde...", en: "Saving..." },
   test: { fr: "Tester", en: "Test" },
+  activeAlerts: { fr: "alertes actives", en: "active alerts" },
   connectedModels: { fr: "Connecté — {0} modèle(s) disponible(s)", en: "Connected — {0} model(s) available" },
   connectionFailed: { fr: "Connexion échouée", en: "Connection failed" },
 
