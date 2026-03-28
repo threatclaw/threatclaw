@@ -42,8 +42,9 @@ export default function OnboardingBanner({ steps, completed, total, onDismiss, o
     if (step.done) return;
     if (onStepClick) onStepClick(step);
     if (step.href) {
-      const url = step.configTab ? `${step.href}?tab=${step.configTab}` : step.href;
-      router.push(url);
+      const url = step.configTab ? `${step.href}?configTab=${step.configTab}` : step.href;
+      // Use window.location for hash+query combo to work properly
+      window.location.href = url;
     }
   };
 

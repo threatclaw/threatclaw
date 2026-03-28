@@ -24,12 +24,12 @@ export interface OnboardingState {
 
 const STEP_DEFS: { id: string; labelKey: string; href?: string; configTab?: string }[] = [
   { id: "admin", labelKey: "obStepAdmin" },
-  { id: "company", labelKey: "obStepCompany", href: "/setup", configTab: "company" },
-  { id: "ai", labelKey: "obStepAi", href: "/setup", configTab: "llm" },
-  { id: "channel", labelKey: "obStepChannel", href: "/setup", configTab: "channels" },
-  { id: "networks", labelKey: "obStepNetworks", href: "/setup", configTab: "company" },
-  { id: "skill", labelKey: "obStepSkill", href: "/skills" },
-  { id: "logs", labelKey: "obStepLogs", href: "/setup", configTab: "sources" },
+  { id: "company", labelKey: "obStepCompany", href: "/setup#config", configTab: "company" },
+  { id: "ai", labelKey: "obStepAi", href: "/setup#config", configTab: "llm" },
+  { id: "channel", labelKey: "obStepChannel", href: "/setup#config", configTab: "channels" },
+  { id: "networks", labelKey: "obStepNetworks", href: "/setup#config", configTab: "company" },
+  { id: "skill", labelKey: "obStepSkill", href: "/skills?search=nmap" },
+  { id: "logs", labelKey: "obStepLogs", href: "/setup#config", configTab: "sources" },
   { id: "scan", labelKey: "obStepScan", href: "/skills" },
 ];
 
@@ -38,13 +38,14 @@ async function checkSteps(): Promise<Record<string, boolean>> {
   const checks: Record<string, boolean> = { admin: true }; // always true if logged in
 
   try {
-    // Fetch config, health, networks, logs stats, assets in parallel
-    const [configRes, healthRes, networksRes, logsRes, assetsRes] = await Promise.allSettled([
+    // Fetch config, health, networks, logs stats, assets, company in parallel
+    const [configRes, healthRes, networksRes, logsRes, assetsRes, companyRes] = await Promise.allSettled([
       fetch("/api/tc/config").then(r => r.json()),
       fetch("/api/tc/health").then(r => r.json()),
       fetch("/api/tc/networks").then(r => r.json()),
       fetch("/api/tc/logs/stats").then(r => r.json()),
       fetch("/api/tc/assets").then(r => r.json()),
+      fetch("/api/tc/company").then(r => r.json()),
     ]);
 
     const config = configRes.status === "fulfilled" ? configRes.value : {};
@@ -52,9 +53,10 @@ async function checkSteps(): Promise<Record<string, boolean>> {
     const networks = networksRes.status === "fulfilled" ? networksRes.value : {};
     const logs = logsRes.status === "fulfilled" ? logsRes.value : {};
     const assets = assetsRes.status === "fulfilled" ? assetsRes.value : {};
+    const company = companyRes.status === "fulfilled" ? companyRes.value : {};
 
     // Company profile — company_name non-empty
-    checks.company = !!(config.general?.instanceName && config.general.instanceName !== "threatclaw-dev" && config.general.instanceName !== "threatclaw");
+    checks.company = !!(company.company_name && company.company_name.trim());
 
     // AI configured — LLM connected
     checks.ai = !!(health.llm || (health.ml && health.ml.alive) || config.llm?.model);

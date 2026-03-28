@@ -111,8 +111,19 @@ export default function SkillsPage() {
   const locale = useLocale();
   const [allSkills, setAllSkills] = useState<SkillManifest[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
-  const [tab, setTab] = useState<"installed" | "catalog">("installed");
-  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<"installed" | "catalog">(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("search")) return "catalog";
+    }
+    return "installed";
+  });
+  const [search, setSearch] = useState(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("search") || "";
+    }
+    return "";
+  });
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [trustFilter, setTrustFilter] = useState<string>("all");
   const [modalSkill, setModalSkill] = useState<SkillManifest | null>(null);

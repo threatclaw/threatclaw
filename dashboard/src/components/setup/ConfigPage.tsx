@@ -52,7 +52,13 @@ interface ConfigPageProps { onResetWizard: () => void; }
 
 export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const locale = useLocale();
-  const [activeTab, setActiveTab] = useState("general");
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("configTab") || "general";
+    }
+    return "general";
+  });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
