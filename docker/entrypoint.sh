@@ -44,6 +44,22 @@ if [ -d "/shared" ]; then
 fi
 set -e
 
+# ── Ensure Fluent Bit staging trigger exists ──
+echo "[init] Setting up log ingestion trigger..."
+PGPASSWORD="${POSTGRES_PASSWORD:-threatclaw}" psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -q <<'TRIGGERSQL' 2>/dev/null || echo "[init] WARN: Could not create log trigger"
+CREATE TABLE IF NOT EXISTS logs_fluentbit (tag TEXT, time TIMESTAMPTZ DEFAULT NOW(), data JSONB DEFAULT '{}');
+CREATE OR REPLACE FUNCTION fn_fluentbit_to_logs() RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO logs (tag, time, data, hostname, collector)
+    VALUES (COALESCE(NEW.tag, 'unknown'), COALESCE(NEW.time, NOW()), COALESCE(NEW.data, '{}'::jsonb),
+            COALESCE(NEW.data->>'hostname', NEW.data->>'host'), COALESCE(NEW.data->>'collector', 'fluent-bit'));
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_fluentbit_ingest ON logs_fluentbit;
+CREATE TRIGGER trg_fluentbit_ingest AFTER INSERT ON logs_fluentbit FOR EACH ROW EXECUTE FUNCTION fn_fluentbit_to_logs();
+TRIGGERSQL
+echo "[init] Log ingestion trigger ready"
+
 # ── Pull Ollama models in BACKGROUND (non-blocking) ──
 pull_models_background() {
   OLLAMA_URL="${OLLAMA_BASE_URL:-http://ollama:11434}"
