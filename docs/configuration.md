@@ -2,14 +2,17 @@
 
 ## Environment Variables
 
-Set in `~/.threatclaw/.env`:
+Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source install):
 
 ### Core
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | — | PostgreSQL connection string |
-| `REDIS_URL` | — | Redis connection string |
+| `TC_DB_PASSWORD` | `threatclaw` | Database password |
+| `TC_CORE_PORT` | `3000` | API port |
+| `TC_DASHBOARD_PORT` | `3001` | Dashboard port |
+| `TC_AUTH_TOKEN` | auto-generated | Gateway auth token |
 | `RUST_LOG` | `info` | Log level (trace, debug, info, warn, error) |
 
 ### LLM
