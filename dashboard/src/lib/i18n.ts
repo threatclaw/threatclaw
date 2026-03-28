@@ -364,6 +364,7 @@ const T: Record<string, Record<Locale, string>> = {
   sendTestMessage: { fr: "Envoyer un message test", en: "Send test message" },
   telegramPlaceholder: { fr: "Tapez un message à envoyer via Telegram...", en: "Type a message to send via Telegram..." },
   sent: { fr: "Envoyé!", en: "Sent!" },
+  send: { fr: "Envoyer", en: "Send" },
   saved2: { fr: "Sauvegardé", en: "Saved" },
   saving2: { fr: "Sauvegarde...", en: "Saving..." },
   test: { fr: "Tester", en: "Test" },

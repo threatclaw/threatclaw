@@ -892,9 +892,9 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
                 </div>
               </button>
               <div>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>Anonymisation</div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{tr("anonymization", locale)}</div>
                 <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
-                  {conversational.anonymize ? "IPs, hostnames, users anonymisés avant envoi" : "Données brutes envoyées au cloud"}
+                  {conversational.anonymize ? tr("anonymizeOn", locale) : tr("anonymizeOff", locale)}
                 </div>
               </div>
             </div>
@@ -917,18 +917,18 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
               </span>
               <ChromeButton onClick={() => setChangingLevel(changingLevel === ai.id ? null : ai.id)} variant="glass">
                 {changingLevel === ai.id ? <X size={12} /> : <Settings size={12} />}
-                {changingLevel === ai.id ? "Fermer" : "Changer"}
+                {changingLevel === ai.id ? tr("close", locale) : tr("change", locale)}
               </ChromeButton>
             </div>
           </div>
           {changingLevel === ai.id && (
             <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
               <GlassSelect value={ai.model || ai.defaultModel} onChange={v => ai.setModel(v)}
-                options={MODEL_CATALOG[ai.id] || [{ value: ai.defaultModel, label: ai.defaultModel, detail: "Défaut" }]}
-                placeholder="— Sélectionner un modèle —" />
+                options={MODEL_CATALOG[ai.id] || [{ value: ai.defaultModel, label: ai.defaultModel, detail: tr("default2", locale) }]}
+                placeholder={tr("selectModel", locale)} />
               {(MODEL_CATALOG[ai.id] || []).length <= 1 && (
                 <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "8px", fontStyle: "italic" }}>
-                  Des modèles supplémentaires seront disponibles dans les prochaines mises à jour.
+                  {tr("moreModelsLater", locale)}
                 </div>
               )}
             </div>
@@ -941,8 +941,8 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: cloud.enabled ? "16px" : 0 }}>
           <LevelBadge level="L4" color="#a040d0" bg="rgba(160,64,208,0.12)" border="rgba(160,64,208,0.25)" />
           <div style={{ flex: 1 }}>
-            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>Cloud — Escalade anonymisée</ChromeEmbossedText>
-            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>Rapports NIS2, incidents critiques, confiance insuffisante</div>
+            <ChromeEmbossedText as="div" style={{ fontSize: "15px", fontWeight: 700 }}>{tr("cloudEscalation", locale)}</ChromeEmbossedText>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("cloudEscalationDesc", locale)}</div>
           </div>
           <button onClick={() => setCloud(p => ({ ...p, enabled: !p.enabled }))}
             style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
@@ -965,49 +965,49 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         {cloud.enabled && (
           <div style={{ display: "flex", flexDirection: "column", gap: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
             <div>
-              <div style={labelStyle}>Provider</div>
+              <div style={labelStyle}>{tr("provider", locale)}</div>
               <GlassSelect value={cloud.backend} onChange={v => setCloud(p => ({ ...p, backend: v }))} options={[
-                { value: "anthropic", label: "Anthropic Claude" },
-                { value: "mistral", label: "Mistral AI (souverain FR)" },
-                { value: "openai_compatible", label: "OpenAI / Compatible" },
+                { value: "anthropic", label: tr("anthropicClaude", locale) },
+                { value: "mistral", label: tr("mistralSovereign", locale) },
+                { value: "openai_compatible", label: tr("openaiCompatible", locale) },
               ]} />
             </div>
             <div>
-              <div style={labelStyle}>Clé API</div>
+              <div style={labelStyle}>{tr("apiKey", locale)}</div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <input style={{ ...inputStyle, flex: 1 }} type="password" value={cloud.apiKey}
                   onChange={e => setCloud(p => ({ ...p, apiKey: e.target.value }))}
                   placeholder={cloud.backend === "anthropic" ? "sk-ant-..." : cloud.backend === "mistral" ? "..." : "sk-..."} />
                 <ChromeButton onClick={testCloudApi} disabled={cloudTesting || !cloud.apiKey} variant={cloudTestResult?.ok ? "glass" : "primary"}>
                   {cloudTesting ? <Loader2 size={14} className="animate-spin" /> : cloudTestResult?.ok ? <CheckCircle2 size={14} color="#30a050" /> : <Cloud size={14} />}
-                  Tester
+                  {tr("test", locale)}
                 </ChromeButton>
               </div>
               {cloudTestResult && (
                 <div style={{ fontSize: "12px", marginTop: "8px", color: cloudTestResult.ok ? "#30a050" : "#d03020", display: "flex", alignItems: "center", gap: "6px" }}>
                   {cloudTestResult.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
                   {cloudTestResult.ok
-                    ? `Connecté — ${cloudTestResult.models?.length || 0} modèle(s) disponible(s)`
+                    ? `${tr("connected", locale)} — ${cloudTestResult.models?.length || 0} ${tr("modelsAvailable", locale)}`
                     : cloudTestResult.error}
                 </div>
               )}
             </div>
             <div>
-              <div style={labelStyle}>Modèle</div>
+              <div style={labelStyle}>{tr("model", locale)}</div>
               {cloudTestResult?.ok && cloudTestResult.models && cloudTestResult.models.length > 0 ? (
                 <GlassSelect value={cloud.model} onChange={v => setCloud(p => ({ ...p, model: v }))}
-                  options={cloudTestResult.models.map(m => ({ value: m, label: m }))} placeholder="— Sélectionner —" />
+                  options={cloudTestResult.models.map(m => ({ value: m, label: m }))} placeholder={tr("selectModel", locale)} />
               ) : (
                 <input style={inputStyle} value={cloud.model} onChange={e => setCloud(p => ({ ...p, model: e.target.value }))}
                   placeholder={cloud.backend === "anthropic" ? "claude-sonnet-4-20250514" : cloud.backend === "mistral" ? "mistral-large-latest" : "gpt-4o"} />
               )}
             </div>
             <div>
-              <div style={labelStyle}>Anonymisation</div>
+              <div style={labelStyle}>{tr("anonymization", locale)}</div>
               <GlassSelect value={cloud.escalation} onChange={v => setCloud(p => ({ ...p, escalation: v }))} options={[
-                { value: "anonymized", label: "Anonymisé", detail: "IPs, hostnames, users remplacés" },
-                { value: "direct", label: "Direct", detail: "données brutes (déconseillé)" },
-                { value: "never", label: "Désactivé", detail: "jamais d'escalade cloud" },
+                { value: "anonymized", label: tr("anonymized", locale), detail: tr("anonymizedDesc", locale) },
+                { value: "direct", label: tr("direct", locale), detail: tr("directDesc", locale) },
+                { value: "never", label: tr("cloudDisabled", locale), detail: tr("cloudDisabledDesc", locale) },
               ]} />
             </div>
           </div>
