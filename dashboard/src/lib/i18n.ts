@@ -542,6 +542,67 @@ const T: Record<string, Record<Locale, string>> = {
   aiLevelL2Desc: { fr: "Critical/High, MITRE", en: "Critical/High, MITRE" },
   aiLevelL3Desc: { fr: "Playbooks, HITL", en: "Playbooks, HITL" },
   aiLevelL4Desc: { fr: "Escalade anonymisée", en: "Anonymized escalation" },
+
+  // ── Enrichment sources ──
+  enrIntro: { fr: "Ces sources enrichissent automatiquement les analyses de l'Intelligence Engine. Plus de sources = meilleure corrélation = moins de faux positifs.", en: "These sources automatically enrich Intelligence Engine analyses. More sources = better correlation = fewer false positives." },
+  enrFreeNoSignup: { fr: "gratuites sans inscription", en: "free without registration" },
+
+  enrNvdDesc: { fr: "Base CVE officielle (260 000+)", en: "Official CVE database (260,000+)" },
+  enrNvdEnriches: { fr: "CVEs, scores CVSS, patches, références", en: "CVEs, CVSS scores, patches, references" },
+  enrNvdHelp: { fr: "Fonctionne sans clé (5 req/30s). Clé GRATUITE pour 50 req/30s :\n1. Allez sur https://nvd.nist.gov/developers/request-an-api-key\n2. Renseignez votre email\n3. Recevez la clé par email immédiatement\n\nRecommandé pour un usage en production.", en: "Works without a key (5 req/30s). FREE key for 50 req/30s:\n1. Go to https://nvd.nist.gov/developers/request-an-api-key\n2. Enter your email\n3. Receive the key by email immediately\n\nRecommended for production use." },
+
+  enrCisaDesc: { fr: "CVEs activement exploitées in-the-wild", en: "Actively exploited CVEs in-the-wild" },
+  enrCisaEnriches: { fr: "Transforme un High en Critical si la CVE est exploitée", en: "Upgrades High to Critical if CVE is actively exploited" },
+  enrCisaHelp: { fr: "Gratuit, sans inscription. Catalogue officiel US des vulnérabilités exploitées.\nSi une CVE est dans la KEV → patch obligatoire.\nhttps://www.cisa.gov/known-exploited-vulnerabilities-catalog", en: "Free, no registration. Official US catalog of exploited vulnerabilities.\nIf a CVE is in the KEV → mandatory patch.\nhttps://www.cisa.gov/known-exploited-vulnerabilities-catalog" },
+
+  enrMitreDesc: { fr: "Techniques et tactiques des attaquants (700+)", en: "Attacker techniques and tactics (700+)" },
+  enrMitreEnriches: { fr: "Mapping MITRE dans les analyses L2, kill chain detection", en: "MITRE mapping in L2 analyses, kill chain detection" },
+  enrMitreHelp: { fr: "Gratuit, sans inscription. Base de connaissances des techniques d'attaque.\nTéléchargé depuis GitHub (STIX JSON).\nhttps://attack.mitre.org/", en: "Free, no registration. Knowledge base of attack techniques.\nDownloaded from GitHub (STIX JSON).\nhttps://attack.mitre.org/" },
+
+  enrCertfrDesc: { fr: "Alertes sécurité françaises (ANSSI)", en: "French security alerts (ANSSI)" },
+  enrCertfrEnriches: { fr: "Alertes spécifiques au marché français, avis ANSSI", en: "French market-specific alerts, ANSSI advisories" },
+  enrCertfrHelp: { fr: "Gratuit, sans inscription. Flux RSS officiel de l'ANSSI.\nAlertes et avis de sécurité pour la France.\nhttps://www.cert.ssi.gouv.fr/", en: "Free, no registration. Official ANSSI RSS feed.\nSecurity alerts and advisories for France.\nhttps://www.cert.ssi.gouv.fr/" },
+
+  enrOpenphishDesc: { fr: "URLs de phishing en temps réel (~500)", en: "Real-time phishing URLs (~500)" },
+  enrOpenphishEnriches: { fr: "Détection phishing dans les logs et URLs suspectes", en: "Phishing detection in logs and suspicious URLs" },
+  enrOpenphishHelp: { fr: "Gratuit, sans inscription. Liste de ~500 URLs de phishing actives.\nMise à jour toutes les 6h.\nhttps://openphish.com/", en: "Free, no registration. List of ~500 active phishing URLs.\nUpdated every 6h.\nhttps://openphish.com/" },
+
+  enrGreynoiseDesc: { fr: "Filtre le bruit — scanner bénin vs attaque ciblée", en: "Noise filter — benign scanner vs targeted attack" },
+  enrGreynoiseEnriches: { fr: "Réduit les faux positifs IP, identifie les scanners de masse", en: "Reduces IP false positives, identifies mass scanners" },
+  enrGreynoiseHelp: { fr: "API Community gratuite sans clé. Clé optionnelle pour plus de détails.\nDistingue un scanner bénin (Shodan, Censys) d'une attaque ciblée.\nhttps://viz.greynoise.io/account/api-key", en: "Free Community API without key. Optional key for more details.\nDistinguishes benign scanners (Shodan, Censys) from targeted attacks.\nhttps://viz.greynoise.io/account/api-key" },
+
+  enrThreatfoxDesc: { fr: "IoCs : C2 servers, domaines malveillants", en: "IoCs: C2 servers, malicious domains" },
+  enrThreatfoxEnriches: { fr: "Corrélation IP/domaines avec des campagnes C2 connues", en: "IP/domain correlation with known C2 campaigns" },
+  enrThreatfoxHelp: { fr: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nLookup IoCs : IP, domaine, URL, hash.\nhttps://threatfox.abuse.ch/account/", en: "Free but API key required (free registration on abuse.ch).\nLookup IoCs: IP, domain, URL, hash.\nhttps://threatfox.abuse.ch/account/" },
+
+  enrMalwareDesc: { fr: "Lookup hash de fichier suspect", en: "Suspicious file hash lookup" },
+  enrMalwareEnriches: { fr: "Vérifie si un hash est un malware connu, avec signature et tags", en: "Checks if a hash is known malware, with signature and tags" },
+  enrMalwareHelp: { fr: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nVérifie SHA-256/MD5 d'un fichier suspect.\nhttps://bazaar.abuse.ch/account/", en: "Free but API key required (free registration on abuse.ch).\nChecks SHA-256/MD5 of a suspicious file.\nhttps://bazaar.abuse.ch/account/" },
+
+  enrUrlhausDesc: { fr: "URLs distribuant des malwares", en: "URLs distributing malware" },
+  enrUrlhausEnriches: { fr: "Vérifie si une URL sert à distribuer des malwares", en: "Checks if a URL is used to distribute malware" },
+  enrUrlhausHelp: { fr: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nhttps://urlhaus.abuse.ch/account/", en: "Free but API key required (free registration on abuse.ch).\nhttps://urlhaus.abuse.ch/account/" },
+
+  enrEpssDesc: { fr: "Probabilité d'exploitation d'une CVE dans les 30 prochains jours", en: "CVE exploitation probability within the next 30 days" },
+  enrEpssEnriches: { fr: "Transforme la priorisation — EPSS 94% + CVSS 5.5 = CRITICAL", en: "Transforms prioritization — EPSS 94% + CVSS 5.5 = CRITICAL" },
+  enrEpssHelp: { fr: "Gratuit, sans inscription. API officielle de FIRST.org.\nScore mis à jour quotidiennement par machine learning.\nhttps://www.first.org/epss/", en: "Free, no registration. Official FIRST.org API.\nScore updated daily by machine learning.\nhttps://www.first.org/epss/" },
+
+  enrIpinfoDesc: { fr: "Géolocalisation IP + ASN / organisation", en: "IP geolocation + ASN / organization" },
+  enrIpinfoEnriches: { fr: "Contextualise l'origine des alertes (pays, opérateur, cloud provider)", en: "Contextualizes alert origin (country, operator, cloud provider)" },
+  enrIpinfoHelp: { fr: "Gratuit sans clé pour les lookups basiques (50k/mois).\nRetourne : pays, ville, ASN, organisation.\nhttps://ipinfo.io/", en: "Free without key for basic lookups (50k/month).\nReturns: country, city, ASN, organization.\nhttps://ipinfo.io/" },
+
+  enrCrowdsecDesc: { fr: "Réputation IP communautaire — blocklists collaboratives", en: "Community IP reputation — collaborative blocklists" },
+  enrCrowdsecEnriches: { fr: "Score de réputation IP, signalements communautaires, catégories d'attaque", en: "IP reputation score, community reports, attack categories" },
+  enrCrowdsecHelp: { fr: "Gratuit avec inscription. API communautaire de réputation IP.\n1. Créez un compte sur https://app.crowdsec.net\n2. Allez dans Settings > API Keys\n3. Copiez votre clé CTI", en: "Free with registration. Community IP reputation API.\n1. Create an account at https://app.crowdsec.net\n2. Go to Settings > API Keys\n3. Copy your CTI key" },
+
+  // ── Enrichment vs Skills ──
+  enrVsSkillsTitle: { fr: "Enrichissement vs Skills", en: "Enrichment vs Skills" },
+  enrVsSkillsBody1: { fr: "Les sources d'enrichissement sont passives — elles enrichissent le contexte de l'IA sans action sur l'infrastructure. Les skills sont actives — elles scannent, détectent, génèrent.", en: "Enrichment sources are passive — they enrich the AI context without acting on infrastructure. Skills are active — they scan, detect, generate." },
+  enrVsSkillsBody2: { fr: "Enrichissement = ce que ThreatClaw sait. Skills = ce que ThreatClaw fait.", en: "Enrichment = what ThreatClaw knows. Skills = what ThreatClaw does." },
+
+  // ── Notification explanation ──
+  notifHowTitle: { fr: "Comment ça marche", en: "How it works" },
+  notifHowBody: { fr: "L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :\n\n• Silence (score ≥ 80) — rien à signaler, pas de notification\n• Digest (score 50-80) — résumé quotidien des activités\n• Alerte (score < 50) — notification immédiate, corrélation suspecte\n• Critique (kill chain, exploit connu) — tous les canaux, HITL\n\nLe RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien.", en: "The Intelligence Engine analyzes findings and alerts every 5 min. It calculates a global security score and decides the notification level:\n\n• Silence (score ≥ 80) — nothing to report, no notification\n• Digest (score 50-80) — daily activity summary\n• Alert (score < 50) — immediate notification, suspicious correlation\n• Critical (kill chain, known exploit) — all channels, HITL\n\nThe CISO is never flooded with notifications. No message = all clear." },
 };
 
 /** Get a translated string. Falls back to French if key missing. */

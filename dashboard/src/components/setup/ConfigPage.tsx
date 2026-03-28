@@ -1021,31 +1021,20 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
 // ENRICHMENT TAB — sources status + sync
 // ═══════════════════════════════════════
 
-const ENRICHMENT_SOURCES = [
-  { id: "nvd", name: "NVD NIST", desc: "Base CVE officielle (260 000+)", enriches: "CVEs, scores CVSS, patches, références", free: true, noKey: false, syncable: false,
-    help: "Fonctionne sans clé (5 req/30s). Clé GRATUITE pour 50 req/30s :\n1. Allez sur https://nvd.nist.gov/developers/request-an-api-key\n2. Renseignez votre email\n3. Recevez la clé par email immédiatement\n\nRecommandé pour un usage en production." },
-  { id: "cisa_kev", name: "CISA KEV", desc: "CVEs activement exploitées in-the-wild", enriches: "Transforme un High en Critical si la CVE est exploitée", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/kev/sync",
-    help: "Gratuit, sans inscription. Catalogue officiel US des vulnérabilités exploitées.\nSi une CVE est dans la KEV → patch obligatoire.\nhttps://www.cisa.gov/known-exploited-vulnerabilities-catalog" },
-  { id: "mitre", name: "MITRE ATT&CK", desc: "Techniques et tactiques des attaquants (700+)", enriches: "Mapping MITRE dans les analyses L2, kill chain detection", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/mitre/sync",
-    help: "Gratuit, sans inscription. Base de connaissances des techniques d'attaque.\nTéléchargé depuis GitHub (STIX JSON).\nhttps://attack.mitre.org/" },
-  { id: "certfr", name: "CERT-FR", desc: "Alertes sécurité françaises (ANSSI)", enriches: "Alertes spécifiques au marché français, avis ANSSI", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/certfr/sync",
-    help: "Gratuit, sans inscription. Flux RSS officiel de l'ANSSI.\nAlertes et avis de sécurité pour la France.\nhttps://www.cert.ssi.gouv.fr/" },
-  { id: "openphish", name: "OpenPhish", desc: "URLs de phishing en temps réel (~500)", enriches: "Détection phishing dans les logs et URLs suspectes", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/openphish/sync",
-    help: "Gratuit, sans inscription. Liste de ~500 URLs de phishing actives.\nMise à jour toutes les 6h.\nhttps://openphish.com/" },
-  { id: "greynoise", name: "GreyNoise", desc: "Filtre le bruit — scanner bénin vs attaque ciblée", enriches: "Réduit les faux positifs IP, identifie les scanners de masse", free: true, noKey: true, syncable: false, onDemand: true,
-    help: "API Community gratuite sans clé. Clé optionnelle pour plus de détails.\nDistingue un scanner bénin (Shodan, Censys) d'une attaque ciblée.\nhttps://viz.greynoise.io/account/api-key" },
-  { id: "threatfox", name: "ThreatFox", desc: "IoCs : C2 servers, domaines malveillants", enriches: "Corrélation IP/domaines avec des campagnes C2 connues", free: true, noKey: false, syncable: false, onDemand: true,
-    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nLookup IoCs : IP, domaine, URL, hash.\nhttps://threatfox.abuse.ch/account/" },
-  { id: "malware_bazaar", name: "MalwareBazaar", desc: "Lookup hash de fichier suspect", enriches: "Vérifie si un hash est un malware connu, avec signature et tags", free: true, noKey: false, syncable: false, onDemand: true,
-    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nVérifie SHA-256/MD5 d'un fichier suspect.\nhttps://bazaar.abuse.ch/account/" },
-  { id: "urlhaus", name: "URLhaus", desc: "URLs distribuant des malwares", enriches: "Vérifie si une URL sert à distribuer des malwares", free: true, noKey: false, syncable: false, onDemand: true,
-    help: "Gratuit mais clé API requise (inscription gratuite sur abuse.ch).\nhttps://urlhaus.abuse.ch/account/" },
-  { id: "epss", name: "EPSS (FIRST.org)", desc: "Probabilité d'exploitation d'une CVE dans les 30 prochains jours", enriches: "Transforme la priorisation — EPSS 94% + CVSS 5.5 = CRITICAL", free: true, noKey: true, syncable: false, onDemand: true,
-    help: "Gratuit, sans inscription. API officielle de FIRST.org.\nScore mis à jour quotidiennement par machine learning.\nhttps://www.first.org/epss/" },
-  { id: "ipinfo", name: "IPinfo", desc: "Géolocalisation IP + ASN / organisation", enriches: "Contextualise l'origine des alertes (pays, opérateur, cloud provider)", free: true, noKey: true, syncable: false, onDemand: true,
-    help: "Gratuit sans clé pour les lookups basiques (50k/mois).\nRetourne : pays, ville, ASN, organisation.\nhttps://ipinfo.io/" },
-  { id: "crowdsec", name: "CrowdSec CTI", desc: "Réputation IP communautaire — blocklists collaboratives", enriches: "Score de réputation IP, signalements communautaires, catégories d'attaque", free: true, noKey: false, syncable: false, onDemand: true,
-    help: "Gratuit avec inscription. API communautaire de réputation IP.\n1. Créez un compte sur https://app.crowdsec.net\n2. Allez dans Settings > API Keys\n3. Copiez votre clé CTI" },
+// Enrichment sources — desc/enriches/help use i18n keys, resolved at render time
+const ENRICHMENT_SOURCES_DEF = [
+  { id: "nvd", name: "NVD NIST", descKey: "enrNvdDesc", enrichesKey: "enrNvdEnriches", helpKey: "enrNvdHelp", free: true, noKey: false, syncable: false },
+  { id: "cisa_kev", name: "CISA KEV", descKey: "enrCisaDesc", enrichesKey: "enrCisaEnriches", helpKey: "enrCisaHelp", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/kev/sync" },
+  { id: "mitre", name: "MITRE ATT&CK", descKey: "enrMitreDesc", enrichesKey: "enrMitreEnriches", helpKey: "enrMitreHelp", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/mitre/sync" },
+  { id: "certfr", name: "CERT-FR", descKey: "enrCertfrDesc", enrichesKey: "enrCertfrEnriches", helpKey: "enrCertfrHelp", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/certfr/sync" },
+  { id: "openphish", name: "OpenPhish", descKey: "enrOpenphishDesc", enrichesKey: "enrOpenphishEnriches", helpKey: "enrOpenphishHelp", free: true, noKey: true, syncable: true, syncUrl: "/api/tc/enrichment/openphish/sync" },
+  { id: "greynoise", name: "GreyNoise", descKey: "enrGreynoiseDesc", enrichesKey: "enrGreynoiseEnriches", helpKey: "enrGreynoiseHelp", free: true, noKey: true, syncable: false, onDemand: true },
+  { id: "threatfox", name: "ThreatFox", descKey: "enrThreatfoxDesc", enrichesKey: "enrThreatfoxEnriches", helpKey: "enrThreatfoxHelp", free: true, noKey: false, syncable: false, onDemand: true },
+  { id: "malware_bazaar", name: "MalwareBazaar", descKey: "enrMalwareDesc", enrichesKey: "enrMalwareEnriches", helpKey: "enrMalwareHelp", free: true, noKey: false, syncable: false, onDemand: true },
+  { id: "urlhaus", name: "URLhaus", descKey: "enrUrlhausDesc", enrichesKey: "enrUrlhausEnriches", helpKey: "enrUrlhausHelp", free: true, noKey: false, syncable: false, onDemand: true },
+  { id: "epss", name: "EPSS (FIRST.org)", descKey: "enrEpssDesc", enrichesKey: "enrEpssEnriches", helpKey: "enrEpssHelp", free: true, noKey: true, syncable: false, onDemand: true },
+  { id: "ipinfo", name: "IPinfo", descKey: "enrIpinfoDesc", enrichesKey: "enrIpinfoEnriches", helpKey: "enrIpinfoHelp", free: true, noKey: true, syncable: false, onDemand: true },
+  { id: "crowdsec", name: "CrowdSec CTI", descKey: "enrCrowdsecDesc", enrichesKey: "enrCrowdsecEnriches", helpKey: "enrCrowdsecHelp", free: true, noKey: false, syncable: false, onDemand: true },
 ];
 
 function EnrichmentTab() {
@@ -1067,12 +1056,12 @@ function EnrichmentTab() {
       if (!cfg.enrichment_enabled) {
         // Default: all free sources enabled
         const defaults: Record<string, boolean> = {};
-        ENRICHMENT_SOURCES.forEach(s => { defaults[s.id] = s.noKey; });
+        ENRICHMENT_SOURCES_DEF.forEach(s => { defaults[s.id] = s.noKey; });
         setEnabled(defaults);
       }
     }).catch(() => {
       const defaults: Record<string, boolean> = {};
-      ENRICHMENT_SOURCES.forEach(s => { defaults[s.id] = s.noKey; });
+      ENRICHMENT_SOURCES_DEF.forEach(s => { defaults[s.id] = s.noKey; });
       setEnabled(defaults);
     });
   }, []);
@@ -1138,13 +1127,12 @@ function EnrichmentTab() {
           </ChromeButton>
         </div>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px", lineHeight: 1.6 }}>
-          Ces sources enrichissent automatiquement les analyses de l{"'"}Intelligence Engine.
-          Plus de sources = meilleure corrélation = moins de faux positifs.
-          <br />La plupart sont <strong style={{ color: "var(--tc-green)" }}>gratuites sans inscription</strong>. Celles marquées <span style={{ color: "var(--tc-amber)" }}>Clé requise</span> nécessitent une inscription gratuite.
+          {tr("enrIntro", locale)}
+          <br />{locale === "fr" ? "La plupart sont" : "Most are"} <strong style={{ color: "var(--tc-green)" }}>{tr("enrFreeNoSignup", locale)}</strong>. {locale === "fr" ? "Celles marquées" : "Those marked"} <span style={{ color: "var(--tc-amber)" }}>{tr("requiredKey", locale)}</span> {locale === "fr" ? "nécessitent une inscription gratuite." : "require free registration."}
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {ENRICHMENT_SOURCES.map(src => {
+          {ENRICHMENT_SOURCES_DEF.map(src => {
             const st = status[src.id];
             const isSynced = st?.status === "synced" || st?.status === "active";
             const count = st?.cache_count || st?.count || (st?.meta as Record<string, unknown>)?.count || (st?.meta as Record<string, unknown>)?.technique_count;
@@ -1167,8 +1155,8 @@ function EnrichmentTab() {
                       <HelpCircle size={13} color="var(--tc-text-muted)" />
                     </button>
                   </div>
-                  <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{src.desc}</div>
-                  <div style={{ fontSize: "10px", color: "var(--tc-blue)", marginTop: "2px" }}>{src.enriches}</div>
+                  <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr(src.descKey, locale)}</div>
+                  <div style={{ fontSize: "10px", color: "var(--tc-blue)", marginTop: "2px" }}>{tr(src.enrichesKey, locale)}</div>
                 </div>
                 {count !== undefined && count !== null && (
                   <span style={{ fontSize: "11px", color: "var(--tc-green)", fontFamily: "monospace" }}>
@@ -1212,7 +1200,7 @@ function EnrichmentTab() {
                 )}
                 {helpOpen === src.id && (
                   <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "var(--tc-radius-input)", background: "rgba(48,128,208,0.04)", border: "1px solid rgba(48,128,208,0.1)", fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                    {src.help}
+                    {tr(src.helpKey, locale)}
                   </div>
                 )}
               </div>
@@ -1223,11 +1211,11 @@ function EnrichmentTab() {
 
       <ChromeInsetCard>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
-          <strong style={{ color: "var(--tc-text)" }}>Enrichissement vs Skills</strong>
+          <strong style={{ color: "var(--tc-text)" }}>{tr("enrVsSkillsTitle", locale)}</strong>
           <br /><br />
-          {"Les sources d'enrichissement sont passives — elles enrichissent le contexte de l'IA sans action sur l'infrastructure. Les skills sont actives — elles scannent, détectent, génèrent."}
+          {tr("enrVsSkillsBody1", locale)}
           <br /><br />
-          {"Enrichissement = ce que ThreatClaw sait. Skills = ce que ThreatClaw fait."}
+          {tr("enrVsSkillsBody2", locale)}
         </div>
       </ChromeInsetCard>
     </>
@@ -1443,19 +1431,9 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
       {/* Explanation */}
       <ChromeInsetCard>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
-          <strong style={{ color: "var(--tc-text)" }}>Comment ça marche</strong>
+          <strong style={{ color: "var(--tc-text)" }}>{tr("notifHowTitle", locale)}</strong>
           <br /><br />
-          {"L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :"}
-          <br /><br />
-          {"• Silence (score ≥ 80) — rien à signaler, pas de notification"}
-          <br />
-          {"• Digest (score 50-80) — résumé quotidien des activités"}
-          <br />
-          {"• Alerte (score < 50) — notification immédiate, corrélation suspecte"}
-          <br />
-          {"• Critique (kill chain, exploit connu) — tous les canaux, HITL"}
-          <br /><br />
-          {"Le RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien."}
+          {tr("notifHowBody", locale)}
         </div>
       </ChromeInsetCard>
     </>
