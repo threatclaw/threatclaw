@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Shield, ChevronRight, ChevronLeft, Cpu, Link2, ShieldCheck, Calendar,
   CheckCircle2, Eye, Bell, ShieldAlert, Zap, MessageSquare, Mail, Server,
@@ -8,13 +10,13 @@ import {
 } from "lucide-react";
 
 const STEPS = [
-  { id: "welcome", label: "Bienvenue" },
-  { id: "company", label: "Entreprise" },
-  { id: "llm-primary", label: "IA Principale" },
-  { id: "llm-cloud", label: "IA de secours" },
-  { id: "communication", label: "Communication" },
-  { id: "security", label: "Sécurité" },
-  { id: "confirm", label: "Lancement" },
+  { id: "welcome", labelKey: "welcome" },
+  { id: "company", labelKey: "companyStep" },
+  { id: "llm-primary", labelKey: "primaryAi" },
+  { id: "llm-cloud", labelKey: "backupAi" },
+  { id: "communication", labelKey: "communication" },
+  { id: "security", labelKey: "security" },
+  { id: "confirm", labelKey: "launchStep" },
 ];
 
 interface PrimaryLlm {
@@ -91,6 +93,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export default function SetupWizard() {
+  const locale = useLocale();
   const [step, setStep] = useState(0);
 
   const [company, setCompany] = useState({
@@ -276,7 +279,7 @@ export default function SetupWizard() {
       {/* Skip button — top right */}
       <button onClick={skipOnboarding}
         style={{ position: "fixed", top: "16px", right: "16px", ...btnSecondary, fontSize: "10px", gap: "4px", opacity: 0.7 }}>
-        <X size={10} /> Configurer plus tard
+        <X size={10} /> {tr("configureLater", locale)}
       </button>
 
       {/* Progress */}
@@ -293,7 +296,7 @@ export default function SetupWizard() {
               }}>
                 {i < step ? <Check size={10} /> : i + 1}
               </div>
-              <span style={{ fontSize: "7px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: i === step ? "var(--tc-red)" : "var(--tc-text-muted)" }}>{s.label}</span>
+              <span style={{ fontSize: "7px", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: i === step ? "var(--tc-red)" : "var(--tc-text-muted)" }}>{tr(s.labelKey, locale)}</span>
             </div>
             {i < STEPS.length - 1 && <div style={{ flex: 1, height: "2px", borderRadius: "1px", background: i < step ? "var(--tc-green)" : "var(--tc-border)" }} />}
           </React.Fragment>
@@ -308,13 +311,13 @@ export default function SetupWizard() {
             <div style={{ width: "56px", height: "56px", borderRadius: "14px", margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)" }}>
               <Shield size={28} color="var(--tc-red)" />
             </div>
-            <h1 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 6px" }}>Bienvenue dans ThreatClaw</h1>
-            <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", margin: "0 0 4px" }}>Agent de cybersécurité autonome pour PME</p>
+            <h1 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 6px" }}>{tr("welcomeTitle", locale)}</h1>
+            <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", margin: "0 0 4px" }}>{tr("welcomeSubtitle", locale)}</p>
             <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", margin: "0 0 16px", maxWidth: "380px", marginLeft: "auto", marginRight: "auto" }}>
               Configurez votre agent en quelques étapes. Connectez votre IA, vos canaux de communication, et définissez votre niveau de sécurité.
             </p>
             <button onClick={next} style={btnPrimary}>
-              Commencer <ChevronRight size={14} />
+              {tr("start", locale)} <ChevronRight size={14} />
             </button>
           </div>
         )}
@@ -324,7 +327,7 @@ export default function SetupWizard() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
               <Shield size={18} color="var(--tc-red)" />
-              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>Votre entreprise</span>
+              <span style={{ fontSize: "14px", fontWeight: 800, color: "var(--tc-text)" }}>{tr("company", locale)}</span>
             </div>
             <p style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
               Ces informations aident ThreatClaw à adapter ses détections à votre contexte.
@@ -638,17 +641,17 @@ export default function SetupWizard() {
             {saved ? (
               <div style={{ textAlign: "center" }}>
                 <CheckCircle2 size={28} color="var(--tc-green)" style={{ margin: "0 auto 8px", display: "block" }} />
-                <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--tc-green)", marginBottom: "12px" }}>Configuration sauvegardée !</div>
+                <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--tc-green)", marginBottom: "12px" }}>{tr("configSaved", locale)}</div>
                 <button onClick={() => window.location.href = "/skills"} style={{ ...btnPrimary, width: "100%", justifyContent: "center" }}>
-                  <Puzzle size={14} /> Explorer les Skills
+                  <Puzzle size={14} /> {tr("exploreSkills", locale)}
                 </button>
                 <button onClick={() => window.location.href = "/"} style={{ display: "block", fontSize: "9px", color: "var(--tc-text-muted)", background: "none", border: "none", cursor: "pointer", textAlign: "center", marginTop: "8px", width: "100%", fontFamily: "inherit" }}>
-                  Aller au Dashboard
+                  {tr("goToDashboard", locale)}
                 </button>
               </div>
             ) : (
               <button onClick={handleSave} disabled={saving} style={{ ...btnPrimary, width: "100%", justifyContent: "center" }}>
-                {saving ? <><Loader2 size={14} className="animate-spin" /> Sauvegarde...</> : <><Zap size={14} /> Sauvegarder et lancer</>}
+                {saving ? <><Loader2 size={14} className="animate-spin" /> {tr("saving", locale)}</> : <><Zap size={14} /> {tr("saveAndLaunch", locale)}</>}
               </button>
             )}
           </div>
