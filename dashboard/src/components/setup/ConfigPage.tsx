@@ -546,61 +546,59 @@ function GlassSelect({ value, onChange, options, placeholder }: {
 // ── Model download status + pull button ──
 function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: string }) {
   const [status, setStatus] = useState<"checking" | "ready" | "not_found" | "downloading" | "error">("checking");
-  const [progress, setProgress] = useState(0);
-  const [totalGB, setTotalGB] = useState(0);
-  const [downloadedGB, setDownloadedGB] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
 
+  // Check if model exists
   useEffect(() => {
-    // Check if model is already downloaded
-    fetch(`/api/ollama?url=${encodeURIComponent(ollamaUrl)}`)
+    fetch("/api/ollama")
       .then(r => r.json())
       .then(d => {
-        const models = d.models || [];
-        const found = models.some((m: { name: string }) => m.name === model || m.name === model + ":latest");
+        const models = (d.models || []).map((m: { name: string }) => m.name);
+        const found = models.some((n: string) => n === model || n === model + ":latest");
         setStatus(found ? "ready" : "not_found");
       })
       .catch(() => setStatus("error"));
-  }, [model, ollamaUrl]);
+  }, [model]);
 
-  const startDownload = async () => {
+  const startDownload = () => {
     setStatus("downloading");
-    setProgress(0);
-    try {
-      const res = await fetch("/api/ollama", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "pull", model, url: ollamaUrl }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setStatus("ready");
-        setProgress(100);
-      } else {
-        setStatus("error");
-      }
-    } catch {
-      setStatus("error");
-    }
+    setElapsed(0);
+    // Fire & forget — the pull runs server-side
+    fetch("/api/ollama", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pull", model }),
+    }).then(r => r.json()).then(d => {
+      if (d.ok) setStatus("ready");
+      else setStatus("error");
+    }).catch(() => {
+      // Don't set error — the pull may still be running, polling will catch it
+    });
   };
 
-  // Poll progress during download
+  // Poll every 3s during download + elapsed timer
   useEffect(() => {
     if (status !== "downloading") return;
-    const interval = setInterval(async () => {
+    const timer = setInterval(() => setElapsed(e => e + 3), 3000);
+    const poller = setInterval(async () => {
       try {
-        const res = await fetch(`/api/ollama?url=${encodeURIComponent(ollamaUrl)}`);
+        const res = await fetch("/api/ollama");
         const d = await res.json();
-        const models = d.models || [];
-        if (models.some((m: { name: string }) => m.name === model || m.name === model + ":latest")) {
+        const models = (d.models || []).map((m: { name: string }) => m.name);
+        if (models.some((n: string) => n === model || n === model + ":latest")) {
           setStatus("ready");
-          setProgress(100);
         }
       } catch {}
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [status, model, ollamaUrl]);
+    }, 3000);
+    return () => { clearInterval(timer); clearInterval(poller); };
+  }, [status, model]);
 
   if (status === "checking") return null;
+
+  const formatTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    return m > 0 ? `${m}min ${s % 60}s` : `${s}s`;
+  };
 
   return (
     <div style={{ marginTop: "10px" }}>
@@ -621,17 +619,34 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
       )}
       {status === "downloading" && (
         <div>
-          <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <Loader2 size={11} className="animate-spin" /> Téléchargement en cours...
+          <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginBottom: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <Loader2 size={11} className="animate-spin" /> Téléchargement en cours...
+            </span>
+            <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>{formatTime(elapsed)}</span>
           </div>
           <div style={{ height: "6px", borderRadius: "3px", background: "var(--tc-input)", overflow: "hidden" }}>
-            <div style={{ width: "30%", height: "100%", background: "var(--tc-amber)", borderRadius: "3px", animation: "pulse 2s ease-in-out infinite" }} />
+            <div style={{
+              height: "100%", borderRadius: "3px", background: "var(--tc-amber)",
+              animation: "downloadPulse 2s ease-in-out infinite",
+              width: elapsed < 30 ? "15%" : elapsed < 120 ? "40%" : elapsed < 300 ? "65%" : "85%",
+              transition: "width 3s ease",
+            }} />
           </div>
+          <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
+            Cette opération peut prendre plusieurs minutes selon votre connexion
+          </div>
+          <style>{`@keyframes downloadPulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }`}</style>
         </div>
       )}
       {status === "error" && (
-        <div style={{ fontSize: "10px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "6px" }}>
-          <AlertTriangle size={11} /> Erreur — vérifiez la connexion Ollama
+        <div>
+          <div style={{ fontSize: "10px", color: "var(--tc-red)", display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+            <AlertTriangle size={11} /> Erreur de connexion
+          </div>
+          <button onClick={() => { setStatus("not_found"); }} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "4px 10px" }}>
+            Réessayer
+          </button>
         </div>
       )}
     </div>
