@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
@@ -18,14 +20,15 @@ const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: strin
   info: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-input)" },
 };
 
-const STATUS_LABELS: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  open: { label: "Ouvert", icon: <AlertTriangle size={12} />, color: "var(--tc-red)" },
-  in_progress: { label: "En cours", icon: <Clock size={12} />, color: "var(--tc-amber)" },
-  resolved: { label: "Résolu", icon: <CheckCircle2 size={12} />, color: "var(--tc-green)" },
-  false_positive: { label: "Faux positif", icon: <XCircle size={12} />, color: "var(--tc-text-muted)" },
+const STATUS_LABELS: Record<string, { labelKey: string; icon: React.ReactNode; color: string }> = {
+  open: { labelKey: "open", icon: <AlertTriangle size={12} />, color: "var(--tc-red)" },
+  in_progress: { labelKey: "inProgress", icon: <Clock size={12} />, color: "var(--tc-amber)" },
+  resolved: { labelKey: "resolved", icon: <CheckCircle2 size={12} />, color: "var(--tc-green)" },
+  false_positive: { labelKey: "falsePositive", icon: <XCircle size={12} />, color: "var(--tc-text-muted)" },
 };
 
 export default function FindingsPage() {
+  const locale = useLocale();
   const [findings, setFindings] = useState<Finding[]>([]);
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,7 @@ export default function FindingsPage() {
       setCounts(c);
       setError(null);
     } catch {
-      setError("Backend non accessible — verifiez que le service tourne");
+      setError(tr("backendNotAccessible", locale));
     }
     setLoading(false);
   }, [filterSeverity, filterStatus]);
@@ -136,7 +139,7 @@ export default function FindingsPage() {
               background: active ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
               color: active ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
             }}>
-              {STATUS_LABELS[st]?.label || st}
+              {STATUS_LABELS[st] ? tr(STATUS_LABELS[st].labelKey, locale) : st}
             </button>
           );
         })}
@@ -147,7 +150,7 @@ export default function FindingsPage() {
       {loading ? (
         <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>Chargement...</div></ChromeInsetCard>
       ) : filtered.length === 0 ? (
-        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>Aucun finding{filterSeverity || filterStatus ? " avec ces filtres" : ""}</div></ChromeInsetCard>
+        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("noFinding", locale)}{filterSeverity || filterStatus ? ` ${tr("withFilters", locale)}` : ""}</div></ChromeInsetCard>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {filtered.map(f => {
@@ -169,7 +172,7 @@ export default function FindingsPage() {
                     </div>
                   </div>
                   <span style={{ fontSize: "10px", color: st.color, display: "flex", alignItems: "center", gap: "4px" }}>
-                    {st.icon} {st.label}
+                    {st.icon} {tr(st.labelKey, locale)}
                   </span>
                   <ChevronDown size={14} color="var(--tc-text-muted)" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
                 </div>

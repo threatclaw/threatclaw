@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
@@ -20,6 +22,7 @@ const metricBig: React.CSSProperties = {
 };
 
 export default function HomePage() {
+  const locale = useLocale();
   const [services, setServices] = useState<{ name: string; icon: React.ReactNode; status: "ok" | "down" | "checking"; detail?: string }[]>([
     { name: "ThreatClaw Engine", icon: <Shield size={16} />, status: "checking" },
     { name: "ThreatClaw AI", icon: <Brain size={16} />, status: "checking" },
@@ -124,14 +127,14 @@ export default function HomePage() {
 
   const score = situation?.global_score;
   const scoreColor = score == null ? "var(--tc-text-muted)" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
-  const scoreLabel = score == null ? "En attente du premier cycle" : score >= 80 ? "Situation saine" : score >= 50 ? "Points d'attention" : "Situation dégradée";
+  const scoreLabel = score == null ? tr("waitingFirstCycle", locale) : score >= 80 ? tr("situationHealthy", locale) : score >= 50 ? tr("situationWarning", locale) : tr("situationCritical", locale);
 
   return (
     <div>
       {/* Header */}
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Dashboard</h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>Vue d{"'"}ensemble de votre agent de cybersécurité</p>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("dashboard", locale)}</h1>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>{tr("dashboardSubtitle", locale)}</p>
       </div>
 
       {/* Onboarding banner */}
@@ -139,11 +142,11 @@ export default function HomePage() {
         <NeuCard style={{ marginBottom: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>Configuration requise</div>
-              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>Lancez l{"'"}assistant pour configurer votre infrastructure.</div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>{tr("configRequired", locale)}</div>
+              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{tr("configRequiredDesc", locale)}</div>
             </div>
             <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary">
-              <Settings size={14} /> Configurer <ArrowRight size={14} />
+              <Settings size={14} /> {tr("configure", locale)} <ArrowRight size={14} />
             </ChromeButton>
           </div>
         </NeuCard>
@@ -239,7 +242,7 @@ export default function HomePage() {
                   <div>
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{svc.name}</div>
                     <div style={{ fontSize: "10px", color: statusColor }}>
-                      {svc.status === "checking" ? "Vérification..." : svc.detail || (svc.status === "ok" ? "Opérationnel" : "Hors ligne")}
+                      {svc.status === "checking" ? tr("checking", locale) : svc.detail || (svc.status === "ok" ? tr("operational", locale) : tr("offline", locale))}
                     </div>
                   </div>
                 </div>
@@ -267,41 +270,41 @@ export default function HomePage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", animation: "pulse 2s infinite" }} />
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>Agent autonome · Cycle toutes les 5 min</span>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{tr("agentAutonomous", locale)}</span>
           </div>
           <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-            <span>Dernier cycle : {lastCycle ? `il y a ${lastCycle}` : "en attente"}</span>
+            <span>{tr("lastCycle", locale)} : {lastCycle ? `${lastCycle} ${tr("ago", locale)}` : tr("waiting", locale)}</span>
           </div>
         </div>
       </NeuCard>
 
       {/* ══ Détection comportementale ══ */}
       <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        Détection comportementale
+        {tr("behavioralDetection", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>Analyse comportementale</div>
+          <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
             color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.anomaly === "active" ? "Active" : mlStatus.anomaly === "learning" ? "En apprentissage" : mlStatus.anomaly === "checking" ? "Vérification..." : "Inactive"}
+            {mlStatus.anomaly === "active" ? tr("active", locale) : mlStatus.anomaly === "learning" ? tr("learning", locale) : mlStatus.anomaly === "checking" ? tr("checking", locale) : tr("inactive", locale)}
           </div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.anomaly === "active" ? "Score toutes les 5 min" : mlStatus.anomaly === "learning" ? `Actif dans ${Math.max(0, 14 - mlStatus.dataDays)}j` : "En attente du moteur ML"}
+            {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : tr("waitingForMl", locale)}
           </div>
         </NeuCard>
         <NeuCard style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>Détection DNS</div>
+          <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
             color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.dns === "active" ? "Active" : mlStatus.dns === "learning" ? "En apprentissage" : mlStatus.dns === "checking" ? "Vérification..." : "Inactive"}
+            {mlStatus.dns === "active" ? tr("active", locale) : mlStatus.dns === "learning" ? tr("learning", locale) : mlStatus.dns === "checking" ? tr("checking", locale) : tr("inactive", locale)}
           </div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.dns === "active" ? "Domaines suspects" : mlStatus.dns === "learning" ? `Actif dans ${Math.max(0, 14 - mlStatus.dataDays)}j` : "En attente du moteur ML"}
+            {mlStatus.dns === "active" ? tr("suspiciousDomains", locale) : mlStatus.dns === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : tr("waitingForMl", locale)}
           </div>
         </NeuCard>
         <NeuCard style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>Entraînement</div>
+          <div style={labelCaps}>{tr("training", locale)}</div>
           {(() => {
             const days = mlStatus.dataDays;
             const target = 14;
@@ -313,10 +316,10 @@ export default function HomePage() {
             return (
               <>
                 <div style={{ fontSize: "12px", fontWeight: 700, color, marginTop: "4px" }}>
-                  {trainingState === "checking" ? "Vérification..." :
-                   trainingState === "trained" ? "Opérationnel" :
-                   trainingState === "learning" ? `Apprentissage ${days}/${target}j` :
-                   trainingState === "waiting" ? "En attente de logs" : "Inactive"}
+                  {trainingState === "checking" ? tr("checking", locale) :
+                   trainingState === "trained" ? tr("trainedOperational", locale) :
+                   trainingState === "learning" ? `${tr("learningProgress", locale)} ${days}/${target}${tr("days", locale)}` :
+                   trainingState === "waiting" ? tr("waitingForLogs", locale) : tr("inactive", locale)}
                 </div>
                 {trainingState !== "inactive" && (
                   <>
@@ -328,14 +331,14 @@ export default function HomePage() {
                       }} />
                     </div>
                     <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "3px", display: "flex", justifyContent: "space-between" }}>
-                      <span>{trained ? "Retrain nocturne 03h00" : days === 0 ? "Connectez une source de logs" : `${remaining}j restants`}</span>
+                      <span>{trained ? tr("retrainNightly", locale) : days === 0 ? tr("connectLogSource", locale) : `${remaining}${tr("daysRemaining", locale)}`}</span>
                       <span style={{ fontWeight: 700 }}>{pct}%</span>
                     </div>
                   </>
                 )}
                 {trainingState === "inactive" && (
                   <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-                    En attente du moteur ML
+                    {tr("waitingForMl", locale)}
                   </div>
                 )}
               </>

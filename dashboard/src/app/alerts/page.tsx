@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
@@ -18,14 +20,15 @@ const LEVEL_COLORS: Record<string, { color: string; bg: string; border: string }
   informational: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-input)" },
 };
 
-const STATUS_LABELS: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  new: { label: "Nouveau", icon: <Bell size={12} />, color: "var(--tc-red)" },
-  investigating: { label: "Investigation", icon: <Clock size={12} />, color: "var(--tc-amber)" },
-  resolved: { label: "Résolu", icon: <CheckCircle2 size={12} />, color: "var(--tc-green)" },
-  false_positive: { label: "Faux positif", icon: <XCircle size={12} />, color: "var(--tc-text-muted)" },
+const STATUS_LABELS: Record<string, { labelKey: string; icon: React.ReactNode; color: string }> = {
+  new: { labelKey: "new2", icon: <Bell size={12} />, color: "var(--tc-red)" },
+  investigating: { labelKey: "investigation", icon: <Clock size={12} />, color: "var(--tc-amber)" },
+  resolved: { labelKey: "resolved", icon: <CheckCircle2 size={12} />, color: "var(--tc-green)" },
+  false_positive: { labelKey: "falsePositive", icon: <XCircle size={12} />, color: "var(--tc-text-muted)" },
 };
 
 export default function AlertsPage() {
+  const locale = useLocale();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,7 @@ export default function AlertsPage() {
       setCounts(c);
       setError(null);
     } catch {
-      setError("Backend non accessible — verifiez que le service tourne");
+      setError(tr("backendNotAccessible", locale));
     }
     setLoading(false);
   }, [filterLevel, filterStatus]);
@@ -110,7 +113,7 @@ export default function AlertsPage() {
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "8px 12px" }}>
           <Search size={14} color="var(--tc-text-muted)" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher par titre, hostname, IP..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("searchAlerts", locale)}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--tc-text)", fontSize: "13px", fontFamily: "inherit" }} />
           {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="var(--tc-text-muted)" /></button>}
         </div>
@@ -123,7 +126,7 @@ export default function AlertsPage() {
               background: active ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
               color: active ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
             }}>
-              {STATUS_LABELS[st]?.label || st}
+              {STATUS_LABELS[st] ? tr(STATUS_LABELS[st].labelKey, locale) : st}
             </button>
           );
         })}
@@ -138,7 +141,7 @@ export default function AlertsPage() {
           <div style={{ textAlign: "center", padding: "32px" }}>
             <Shield size={24} color="#30a050" style={{ margin: "0 auto 8px" }} />
             <div style={{ fontSize: "14px", fontWeight: 600, color: "var(--tc-green)" }}>
-              {filterLevel || filterStatus ? "Aucune alerte avec ces filtres" : "Aucune alerte — tout est calme"}
+              {filterLevel || filterStatus ? tr("noAlerts", locale) : tr("allCalm", locale)}
             </div>
           </div>
         </ChromeInsetCard>
@@ -164,7 +167,7 @@ export default function AlertsPage() {
                     </div>
                   </div>
                   <span style={{ fontSize: "10px", color: st.color, display: "flex", alignItems: "center", gap: "4px" }}>
-                    {st.icon} {st.label}
+                    {st.icon} {tr(st.labelKey, locale)}
                   </span>
                   <ChevronDown size={14} color="var(--tc-text-muted)" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
                 </div>

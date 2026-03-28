@@ -248,17 +248,17 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   };
 
   const tabs = [
-    { id: "general", label: "Général", icon: Globe },
-    { id: "company", label: "Entreprise", icon: Shield },
-    { id: "llm", label: "ThreatClaw AI", icon: Cpu },
-    { id: "channels", label: "Canaux", icon: MessageSquare },
-    { id: "security", label: "Sécurité", icon: ShieldAlert },
-    { id: "agent", label: "Agent & Moteur", icon: Activity },
-    { id: "notifications", label: "Notifications", icon: Bell },
-    { id: "retention", label: "Rétention", icon: Clock },
-    { id: "anonymizer", label: "Anonymisation", icon: Shield },
-    { id: "backup", label: "Sauvegarde & MAJ", icon: Download },
-    { id: "logs", label: "Logs", icon: Eye },
+    { id: "general", label: tr("general", locale), icon: Globe },
+    { id: "company", label: tr("company", locale), icon: Shield },
+    { id: "llm", label: tr("threatclawAi", locale), icon: Cpu },
+    { id: "channels", label: tr("channels", locale), icon: MessageSquare },
+    { id: "security", label: tr("security", locale), icon: ShieldAlert },
+    { id: "agent", label: tr("agentEngine", locale), icon: Activity },
+    { id: "notifications", label: tr("notifications", locale), icon: Bell },
+    { id: "retention", label: tr("retention", locale), icon: Clock },
+    { id: "anonymizer", label: tr("anonymizer", locale), icon: Shield },
+    { id: "backup", label: tr("backupUpdate", locale), icon: Download },
+    { id: "logs", label: tr("logs", locale), icon: Eye },
   ];
 
   const channelDefs = [
@@ -308,7 +308,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
             </ChromeEmbossedText>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div>
-                <div style={labelStyle}>{"Nom de l'instance"}</div>
+                <div style={labelStyle}>{tr("instanceName", locale)}</div>
                 <input style={inputStyle} value={general.instanceName} onChange={e => setGeneral(p => ({ ...p, instanceName: e.target.value }))} />
               </div>
               <div>
@@ -654,6 +654,7 @@ function ModelDownloadStatus({ model, ollamaUrl }: { model: string; ollamaUrl: s
 }
 
 function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setForensic, instruct, setInstruct, cloud, setCloud, llmModels, setLlmModels, testOllama, inputStyle, labelStyle }: LlmTabProps) {
+  const locale = useLocale();
   const [pullModel, setPullModel] = useState("");
   const [pulling, setPulling] = useState(false);
   const [pullStatus, setPullStatus] = useState<string | null>(null);
@@ -707,7 +708,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       const data = await res.json();
       setTestResult(p => ({ ...p, [model]: { ok: data.ok, msg: data.ok ? data.response : data.error } }));
     } catch {
-      setTestResult(p => ({ ...p, [model]: { ok: false, msg: "Erreur réseau" } }));
+      setTestResult(p => ({ ...p, [model]: { ok: false, msg: tr("networkError", locale) } }));
     }
     setTestingModel(null);
   };
@@ -723,7 +724,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       const data = await res.json();
       setCloudTestResult(data);
     } catch {
-      setCloudTestResult({ ok: false, error: "Erreur réseau" });
+      setCloudTestResult({ ok: false, error: tr("networkError", locale) });
     }
     setCloudTesting(false);
   };
