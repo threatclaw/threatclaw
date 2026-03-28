@@ -32,8 +32,8 @@ pub async fn sync_pihole(store: &dyn Database, config: &PiholeConfig) -> PiholeS
     };
 
     let client = match reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(15))
+        .no_proxy()
         .build()
     {
         Ok(c) => c,
