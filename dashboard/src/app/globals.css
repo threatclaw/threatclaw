@@ -479,3 +479,55 @@ select:focus {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--tc-text-sec);
 }
+
+/* ─── Driver.js ThreatClaw Theme ─── */
+.tc-driver-popover {
+  background: var(--tc-bg) !important;
+  border: 1px solid var(--tc-border) !important;
+  border-radius: var(--tc-radius-md) !important;
+  color: var(--tc-text) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+.tc-driver-popover .driver-popover-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--tc-text) !important;
+  font-family: inherit !important;
+}
+.tc-driver-popover .driver-popover-description {
+  font-size: 12px !important;
+  color: var(--tc-text-sec) !important;
+  line-height: 1.6 !important;
+  font-family: inherit !important;
+}
+.tc-driver-popover .driver-popover-progress-text {
+  font-size: 10px !important;
+  color: var(--tc-text-muted) !important;
+}
+.tc-driver-popover .driver-popover-prev-btn,
+.tc-driver-popover .driver-popover-next-btn {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+  border-radius: var(--tc-radius-sm) !important;
+  padding: 6px 14px !important;
+}
+.tc-driver-popover .driver-popover-next-btn {
+  background: var(--tc-red) !important;
+  color: #fff !important;
+  border: none !important;
+}
+.tc-driver-popover .driver-popover-prev-btn {
+  background: var(--tc-input) !important;
+  color: var(--tc-text-sec) !important;
+  border: 1px solid var(--tc-border) !important;
+}
+.tc-driver-popover .driver-popover-close-btn {
+  color: var(--tc-text-muted) !important;
+}
+.tc-driver-popover .driver-popover-arrow-side-left,
+.tc-driver-popover .driver-popover-arrow-side-right,
+.tc-driver-popover .driver-popover-arrow-side-top,
+.tc-driver-popover .driver-popover-arrow-side-bottom {
+  border-color: var(--tc-bg) !important;
+}

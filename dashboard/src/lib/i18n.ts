@@ -543,6 +543,52 @@ const T: Record<string, Record<Locale, string>> = {
   aiLevelL3Desc: { fr: "Playbooks, HITL", en: "Playbooks, HITL" },
   aiLevelL4Desc: { fr: "Escalade anonymisée", en: "Anonymized escalation" },
 
+  // ── Onboarding ──
+  onboardingTitle: { fr: "Guide de démarrage", en: "Getting Started" },
+  onboardingDismissConfirm: { fr: "Masquer le guide de démarrage ? Vous pourrez le réactiver dans Config > Général.", en: "Hide the getting started guide? You can reactivate it in Config > General." },
+  onboardingDismissYes: { fr: "Masquer", en: "Hide" },
+  onboardingDismissNo: { fr: "Garder", en: "Keep" },
+  onboardingComplete: { fr: "Configuration terminée !", en: "Setup complete!" },
+
+  // Onboarding levels
+  onboardingChooseLevel: { fr: "Comment souhaitez-vous découvrir ThreatClaw ?", en: "How would you like to discover ThreatClaw?" },
+  onboardingDiscovery: { fr: "Découverte", en: "Discovery" },
+  onboardingDiscoveryDesc: { fr: "Parcours guidé complet — idéal si c'est votre premier outil de cybersécurité", en: "Full guided tour — ideal if this is your first cybersecurity tool" },
+  onboardingStandard: { fr: "Standard", en: "Standard" },
+  onboardingStandardDesc: { fr: "Checklist de progression, tours à la demande", en: "Progress checklist, tours on demand" },
+  onboardingExpert: { fr: "Expert", en: "Expert" },
+  onboardingExpertDesc: { fr: "Aucun guidage — pour les utilisateurs expérimentés", en: "No guidance — for experienced users" },
+
+  // Onboarding steps
+  obStepAdmin: { fr: "Créer le compte admin", en: "Create admin account" },
+  obStepCompany: { fr: "Remplir la fiche entreprise", en: "Fill company profile" },
+  obStepAi: { fr: "Configurer l'IA", en: "Configure AI" },
+  obStepChannel: { fr: "Connecter un canal", en: "Connect a channel" },
+  obStepNetworks: { fr: "Déclarer les réseaux", en: "Declare networks" },
+  obStepSkill: { fr: "Configurer un scan", en: "Configure a scan" },
+  obStepLogs: { fr: "Connecter les logs", en: "Connect logs" },
+  obStepScan: { fr: "Lancer le premier scan", en: "Run first scan" },
+
+  // Tour bubbles — Status page
+  tourStatusScore: { fr: "Votre score de sécurité global. 100 = tout va bien, il baisse quand des menaces sont détectées.", en: "Your global security score. 100 = all clear, it drops when threats are detected." },
+  tourStatusMl: { fr: "Le moteur ML apprend le comportement normal de votre réseau. Après 14 jours de données, il détecte les anomalies automatiquement.", en: "The ML engine learns your network's normal behavior. After 14 days of data, it detects anomalies automatically." },
+  tourStatusInfra: { fr: "État de vos services en temps réel : base de données, IA, canaux de notification, espace disque.", en: "Real-time status of your services: database, AI, notification channels, disk space." },
+
+  // Tour bubbles — Skills page
+  tourSkillsCatalog: { fr: "Le catalogue contient tous les outils disponibles. Installez-en un pour commencer à scanner votre réseau.", en: "The catalog contains all available tools. Install one to start scanning your network." },
+  tourSkillsNmap: { fr: "nmap est un scanner réseau. Il découvre les machines et ports ouverts sur votre réseau. Cliquez sur Installer.", en: "nmap is a network scanner. It discovers machines and open ports on your network. Click Install." },
+  tourSkillsInstalled: { fr: "Vos skills installées apparaissent ici. Cliquez sur la roue crantée pour configurer.", en: "Your installed skills appear here. Click the gear icon to configure." },
+  tourSkillsGear: { fr: "Configurez votre cible ici. Entrez l'IP ou le réseau à scanner (ex: 192.168.1.0/24).", en: "Configure your target here. Enter the IP or network to scan (e.g. 192.168.1.0/24)." },
+
+  // Tour bubbles — Intelligence page
+  tourIntelGraph: { fr: "Le graphe d'attaque montre les relations entre vos assets, les IPs suspectes et les techniques d'attaque en temps réel.", en: "The attack graph shows relationships between your assets, suspicious IPs, and attack techniques in real time." },
+  tourIntelActors: { fr: "ThreatClaw identifie automatiquement les acteurs de menace (APT) grâce au mapping MITRE ATT&CK.", en: "ThreatClaw automatically identifies threat actors (APTs) through MITRE ATT&CK mapping." },
+
+  // Tour bubbles — Config page
+  tourConfigTabs: { fr: "Chaque onglet configure un aspect de ThreatClaw : IA, canaux, sécurité, enrichissement, etc.", en: "Each tab configures an aspect of ThreatClaw: AI, channels, security, enrichment, etc." },
+
+  showOnboarding: { fr: "Afficher le guide de démarrage", en: "Show getting started guide" },
+
   // ── Enrichment sources ──
   enrIntro: { fr: "Ces sources enrichissent automatiquement les analyses de l'Intelligence Engine. Plus de sources = meilleure corrélation = moins de faux positifs.", en: "These sources automatically enrich Intelligence Engine analyses. More sources = better correlation = fewer false positives." },
   enrFreeNoSignup: { fr: "gratuites sans inscription", en: "free without registration" },

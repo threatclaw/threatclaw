@@ -5,6 +5,10 @@ import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
+import OnboardingBanner from "@/components/chrome/OnboardingBanner";
+import OnboardingLevelPicker from "@/components/chrome/OnboardingLevelPicker";
+import OnboardingTour from "@/components/chrome/OnboardingTour";
+import { useOnboarding } from "@/lib/useOnboarding";
 import {
   CheckCircle2, Loader2, Settings, Puzzle, Activity,
   Cpu, MessageSquare, Shield, Server, ArrowRight,
@@ -23,6 +27,8 @@ const metricBig: React.CSSProperties = {
 
 export default function HomePage() {
   const locale = useLocale();
+  const onboarding = useOnboarding();
+  const [showLevelPicker, setShowLevelPicker] = useState(false);
   const [services, setServices] = useState<{ name: string; icon: React.ReactNode; status: "ok" | "down" | "checking"; detail?: string }[]>([
     { name: "ThreatClaw Engine", icon: <Shield size={16} />, status: "checking" },
     { name: "ThreatClaw AI", icon: <Brain size={16} />, status: "checking" },
@@ -36,6 +42,16 @@ export default function HomePage() {
   const [diskFree, setDiskFree] = useState<string | null>(null);
   const [dbStatus, setDbStatus] = useState<"ok" | "down" | "checking">("checking");
   const [mlStatus, setMlStatus] = useState<{ anomaly: string; dns: string; training: string; dataDays: number; modelTrained: boolean }>({ anomaly: "checking", dns: "checking", training: "checking", dataDays: 0, modelTrained: false });
+
+  // Show level picker on first visit after onboarding (no level chosen yet)
+  useEffect(() => {
+    if (!onboarding.loading && onboarded !== false) {
+      const hasChosenLevel = localStorage.getItem("tc-onboarding-level-chosen");
+      if (!hasChosenLevel && !onboarding.dismissed) {
+        setShowLevelPicker(true);
+      }
+    }
+  }, [onboarding.loading, onboarded, onboarding.dismissed]);
 
   useEffect(() => {
     setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
@@ -152,8 +168,43 @@ export default function HomePage() {
         </NeuCard>
       )}
 
+      {/* Onboarding progress checklist */}
+      {!onboarding.loading && !onboarding.dismissed && onboarding.level !== "expert" && onboarding.completed < onboarding.total && (
+        <OnboardingBanner
+          steps={onboarding.steps}
+          completed={onboarding.completed}
+          total={onboarding.total}
+          onDismiss={onboarding.dismiss}
+        />
+      )}
+
+      {/* Level picker — shown once if no level set yet */}
+      {showLevelPicker && (
+        <OnboardingLevelPicker onSelect={(level) => {
+          onboarding.setLevel(level);
+          localStorage.setItem("tc-onboarding-level-chosen", "true");
+          setShowLevelPicker(false);
+        }} />
+      )}
+
+      {/* Contextual tour — Status page */}
+      {!onboarding.loading && (
+        <OnboardingTour
+          tourId="status"
+          locale={locale}
+          level={onboarding.level}
+          toursCompleted={onboarding.toursCompleted}
+          onComplete={onboarding.markTourCompleted}
+          steps={[
+            { element: "[data-tour='score']", descKey: "tourStatusScore" },
+            { element: "[data-tour='ml']", descKey: "tourStatusMl" },
+            { element: "[data-tour='infra']", descKey: "tourStatusInfra" },
+          ]}
+        />
+      )}
+
       {/* ══ Score + Services ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
+      <div data-tour="score" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard>
           <div style={{ textAlign: "center" }}>
             <div style={labelCaps}>Score sécurité</div>
@@ -279,7 +330,7 @@ export default function HomePage() {
       </NeuCard>
 
       {/* ══ Détection comportementale ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+      <div data-tour="ml" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
         {tr("behavioralDetection", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
@@ -348,8 +399,8 @@ export default function HomePage() {
       </div>
 
       {/* ══ Santé serveur ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        Infrastructure
+      <div data-tour="infra" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        {tr("infrastructure", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard style={{ padding: "14px" }}>
