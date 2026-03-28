@@ -95,7 +95,8 @@ export default function SetupWizard() {
 
   const [company, setCompany] = useState({
     company_name: "", sector: "other", company_size: "small",
-    business_hours: "office", geo_scope: "france",
+    business_hours: "office", business_hours_start: "08:00", business_hours_end: "18:00",
+    geo_scope: "france",
     internal_networks: "192.168.1.0/24",
   });
 
@@ -365,11 +366,21 @@ export default function SetupWizard() {
                 <div>
                   <label style={labelStyle}>Horaires d{"'"}activité</label>
                   <select value={company.business_hours} onChange={e => setCompany(c => ({ ...c, business_hours: e.target.value }))} style={inputStyle}>
-                    <option value="office">Bureau (8h-18h)</option>
+                    <option value="office">Bureau (personnalisé)</option>
                     <option value="24x7">24h/7j</option>
                     <option value="shifts">Par équipes</option>
-                    <option value="seasonal">Saisonnière</option>
                   </select>
+                  {company.business_hours !== "24x7" && (
+                    <div style={{ display: "flex", gap: "8px", marginTop: "8px", alignItems: "center" }}>
+                      <input type="time" value={company.business_hours_start || "08:00"}
+                        onChange={e => setCompany(c => ({ ...c, business_hours_start: e.target.value }))}
+                        style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                      <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>à</span>
+                      <input type="time" value={company.business_hours_end || "18:00"}
+                        onChange={e => setCompany(c => ({ ...c, business_hours_end: e.target.value }))}
+                        style={{ ...inputStyle, flex: 1, padding: "8px 10px" }} />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -628,10 +639,12 @@ export default function SetupWizard() {
               <div style={{ textAlign: "center" }}>
                 <CheckCircle2 size={28} color="var(--tc-green)" style={{ margin: "0 auto 8px", display: "block" }} />
                 <div style={{ fontSize: "12px", fontWeight: 800, color: "var(--tc-green)", marginBottom: "12px" }}>Configuration sauvegardée !</div>
-                <a href="/skills" style={{ ...btnPrimary, textDecoration: "none", justifyContent: "center", width: "100%" }}>
+                <button onClick={() => window.location.href = "/skills"} style={{ ...btnPrimary, width: "100%", justifyContent: "center" }}>
                   <Puzzle size={14} /> Explorer les Skills
-                </a>
-                <a href="/" style={{ display: "block", fontSize: "9px", color: "var(--tc-text-muted)", textDecoration: "none", textAlign: "center", marginTop: "8px" }}>Aller au Dashboard</a>
+                </button>
+                <button onClick={() => window.location.href = "/"} style={{ display: "block", fontSize: "9px", color: "var(--tc-text-muted)", background: "none", border: "none", cursor: "pointer", textAlign: "center", marginTop: "8px", width: "100%", fontFamily: "inherit" }}>
+                  Aller au Dashboard
+                </button>
               </div>
             ) : (
               <button onClick={handleSave} disabled={saving} style={{ ...btnPrimary, width: "100%", justifyContent: "center" }}>
