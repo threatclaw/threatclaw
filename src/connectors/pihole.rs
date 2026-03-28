@@ -31,7 +31,14 @@ pub async fn sync_pihole(store: &dyn Database, config: &PiholeConfig) -> PiholeS
         clients_seen: 0, findings_created: 0, errors: vec![],
     };
 
-    let client = reqwest::Client::new();
+    let client = match reqwest::Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => { result.errors.push(format!("Pi-hole HTTP client: {}", e)); return result; }
+    };
     let base = config.url.trim_end_matches('/');
 
     // Authenticate
