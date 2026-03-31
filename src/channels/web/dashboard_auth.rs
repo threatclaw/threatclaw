@@ -350,19 +350,28 @@ pub fn extract_session_cookie(cookie_header: &str) -> Option<String> {
 }
 
 /// Build Set-Cookie header for a new session.
-/// Flags: HttpOnly (no JS access), Secure (HTTPS only), SameSite=Strict (no CSRF).
+/// Flags: HttpOnly (no JS access), SameSite=Strict (no CSRF).
+/// Secure flag added only when behind HTTPS (detected via X-Forwarded-Proto or env).
 /// No Max-Age = session cookie — dies when browser closes (anti cookie theft).
 /// Server-side expiration still enforced via dashboard_sessions.expires_at.
 pub fn build_session_cookie(token: &str, _max_age_secs: i64) -> String {
+    let secure = if is_https() { "; Secure" } else { "" };
     format!(
-        "tc_session={}; HttpOnly; Secure; SameSite=Strict; Path=/",
-        token
+        "tc_session={}; HttpOnly; SameSite=Strict; Path=/{}",
+        token, secure
     )
 }
 
 /// Build Set-Cookie header to clear session.
 pub fn clear_session_cookie() -> String {
-    "tc_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0".to_string()
+    let secure = if is_https() { "; Secure" } else { "" };
+    format!("tc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{}", secure)
+}
+
+/// Detect if running behind HTTPS (nginx sets X-Forwarded-Proto, or TC_HTTPS env)
+fn is_https() -> bool {
+    std::env::var("TC_HTTPS").unwrap_or_default() == "true"
+        || std::env::var("HTTPS").unwrap_or_default() == "on"
 }
 
 // ── Audit ──
@@ -413,19 +422,29 @@ mod tests {
     fn test_session_cookie_format() {
         let c = build_session_cookie("tok", 3600);
         assert!(c.contains("HttpOnly"));
-        assert!(c.contains("Secure"));
         assert!(c.contains("SameSite=Strict"));
         assert!(c.contains("tc_session=tok"));
         // No Max-Age = session cookie, dies when browser closes
         assert!(!c.contains("Max-Age"));
+        // Secure flag only when TC_HTTPS=true (not set in tests = HTTP mode)
     }
 
     #[test]
-    fn test_clear_cookie_has_secure() {
+    fn test_clear_cookie_format() {
         let c = clear_session_cookie();
         assert!(c.contains("HttpOnly"));
-        assert!(c.contains("Secure"));
         assert!(c.contains("Max-Age=0"));
+    }
+
+    #[test]
+    fn test_secure_flag_when_https() {
+        // SAFETY: single-threaded test, no concurrent env access
+        unsafe { std::env::set_var("TC_HTTPS", "true"); }
+        let c = build_session_cookie("tok", 3600);
+        assert!(c.contains("Secure"));
+        let c2 = clear_session_cookie();
+        assert!(c2.contains("Secure"));
+        unsafe { std::env::remove_var("TC_HTTPS"); }
     }
 
     #[test]
