@@ -1,0 +1,34 @@
+{
+  "id": "skill-httpx",
+  "name": "httpx",
+  "version": "1.0.0",
+  "description": "Probe HTTP rapide — detecte les serveurs web actifs, titres, status codes, technologies. Ideal pour la reconnaissance d'assets web.",
+  "help": "httpx sonde rapidement une liste d'URLs ou d'adresses IP pour identifier les serveurs web actifs. Pour chaque serveur detecte, il remonte le code HTTP, le titre de la page, les technologies utilisees (serveur web, framework, CMS), les certificats TLS, et les headers de securite. Ideal apres un scan Subfinder pour identifier quels sous-domaines hebergent des applications web actives. Les resultats alimentent le graphe d'assets web de ThreatClaw.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "scanning",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "projectdiscovery/httpx:latest",
+    "timeout_seconds": 120,
+    "network": "host",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "URLs ou sous-reseaux a prober (une par ligne ou separes par virgule)",
+      "hint": "Liste d'URLs, sous-domaines ou adresses IP a tester. Plusieurs cibles peuvent etre separees par des virgules. Peut aussi recevoir la sortie de Subfinder.",
+      "placeholder": "app.monentreprise.fr,api.monentreprise.fr,192.168.1.0/24",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "globe"
+}

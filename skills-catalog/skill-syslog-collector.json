@@ -1,0 +1,62 @@
+{
+  "id": "skill-syslog-collector",
+  "name": "Syslog / Fluent Bit",
+  "version": "1.0.0",
+  "description": "Collecte de logs depuis vos serveurs via syslog (UDP/TCP). Fluent Bit écoute et injecte les logs dans PostgreSQL pour analyse par l'Intelligence Engine.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "monitoring",
+  "help": "Le collecteur Syslog permet de recevoir les logs de vos serveurs, routeurs, switches et applications via le protocole syslog standard (RFC 3164 / RFC 5424). Fluent Bit écoute en UDP et/ou TCP et injecte les logs dans PostgreSQL.\n\nThreatClaw analyse ensuite ces logs via l'Intelligence Engine pour détecter les tentatives de connexion échouées, les erreurs critiques, les redémarrages suspects et les comportements anormaux. C'est le connecteur le plus universel — tout équipement réseau sait envoyer du syslog.\n\nPrérequis :\n• Configurez vos serveurs/équipements pour envoyer les logs vers l'IP de ThreatClaw (port 514 par défaut)\n• Vérifiez que le port est ouvert dans votre firewall\n• Pour Linux : rsyslog ou systemd-journal-remote\n• Pour les équipements réseau : configuration syslog dans l'interface d'administration",
+  "execution": {
+    "mode": "persistent",
+    "protocol": "syslog",
+    "default_port": 514
+  },
+  "config": {
+    "listen_port": {
+      "type": "number",
+      "description": "Port d'écoute syslog",
+      "placeholder": "514",
+      "hint": "Le port sur lequel ThreatClaw écoute les logs syslog. Par défaut : 514 (port standard syslog). Utilisez un port > 1024 si ThreatClaw ne tourne pas en root.",
+      "default": 514
+    },
+    "listen_address": {
+      "type": "string",
+      "description": "Adresse d'écoute",
+      "placeholder": "0.0.0.0",
+      "hint": "L'adresse IP sur laquelle écouter. 0.0.0.0 = toutes les interfaces (recommandé). Utilisez 127.0.0.1 pour n'accepter que les logs locaux.",
+      "default": "0.0.0.0"
+    },
+    "protocol": {
+      "type": "select",
+      "description": "Protocole d'écoute",
+      "options": ["UDP + TCP", "UDP uniquement", "TCP uniquement"],
+      "hint": "UDP + TCP est recommandé. UDP est le standard syslog (rapide mais sans garantie de livraison). TCP est fiable et nécessaire pour TLS. Certains équipements ne supportent que UDP.",
+      "default": "UDP + TCP"
+    },
+    "log_retention_days": {
+      "type": "select",
+      "description": "Rétention des logs",
+      "options": ["7 jours", "14 jours", "30 jours", "90 jours", "365 jours"],
+      "hint": "Durée de conservation des logs dans PostgreSQL. 30 jours est un bon compromis. Pour la conformité (ISO 27001, NIS2), 90 jours minimum sont recommandés.",
+      "default": "30 jours"
+    },
+    "parse_format": {
+      "type": "select",
+      "description": "Format de parsing",
+      "options": ["Auto-detect", "RFC 3164 (BSD)", "RFC 5424", "JSON"],
+      "hint": "Le format des messages syslog entrants. Auto-detect fonctionne dans la majorité des cas. RFC 3164 pour les anciens équipements, RFC 5424 pour les récents, JSON pour les applications modernes.",
+      "default": "Auto-detect"
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 0,
+  "outputs": {
+    "logs": "db"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "file-text"
+}

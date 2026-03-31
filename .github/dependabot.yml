@@ -1,0 +1,56 @@
+version: 2
+updates:
+  # Rust (Cargo) dependencies
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - rust
+    groups:
+      security-critical:
+        patterns:
+          - "wasmtime*"
+          - "ring"
+          - "argon2"
+          - "axum*"
+          - "aes-gcm"
+          - "sha2"
+          - "hmac"
+
+  # Python skill dependencies
+  - package-ecosystem: pip
+    directory: /skills/skill-vuln-scan
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - python
+
+  # Dashboard (npm)
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - npm
+
+  # Docker images
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci

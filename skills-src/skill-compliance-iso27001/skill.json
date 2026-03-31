@@ -1,0 +1,13 @@
+{
+  "id": "skill-compliance-iso27001",
+  "name": "Conformité ISO 27001",
+  "version": "1.0.0",
+  "description": "Audit de conformite ISO 27001 — evaluation des controles de securite",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "compliance",
+  "runtime": "wasm",
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
+}

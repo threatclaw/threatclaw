@@ -1,0 +1,46 @@
+{
+  "id": "skill-fortinet",
+  "name": "Fortinet FortiGate",
+  "version": "1.0.0",
+  "description": "Synchronise la table ARP, les interfaces et VLANs depuis FortiGate. Peut bloquer des IPs via l'API.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "FortiGate est le firewall de Fortinet, très répandu en PME. Il expose une API REST complète permettant de récupérer la table ARP, les interfaces réseau, les VLANs, les routes et les sessions actives.\n\nThreatClaw interroge l'API FortiGate pour cartographier votre réseau dans le graphe. En mode remédiation (avec validation humaine), il peut aussi créer des règles de blocage d'IP via des address objects.\n\nPrérequis :\n• FortiGate accessible via HTTPS (port 443 par défaut)\n• Un API Token : System > Administrators > Create New > REST API Admin\n• Profil admin avec droits de lecture (au minimum Read sur Network, System, Firewall)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du FortiGate",
+      "placeholder": "https://192.168.1.1",
+      "hint": "L'adresse de votre FortiGate. Utilisez https:// et l'IP de l'interface de management.",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "API Key FortiGate",
+      "hint": "Créez un admin REST API dans FortiGate : System > Administrators > Create New > REST API Admin. Copiez le token généré. Attribuez un profil avec des droits de lecture uniquement.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "hint": "FortiGate utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat de confiance.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "shield"
+}

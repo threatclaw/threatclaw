@@ -1,0 +1,42 @@
+{
+  "id": "skill-trivy",
+  "name": "Trivy Container Scanner",
+  "version": "1.0.0",
+  "description": "Scan de vulnerabilites dans les images Docker, fichiers de config, et repositories.",
+  "help": "Trivy est un scanner polyvalent qui detecte les vulnerabilites (CVE) dans les images Docker, les mauvaises configurations dans les fichiers IaC, et les secrets exposes. Il couvre les paquets OS (Alpine, Debian, Ubuntu, RHEL...) et les dependances applicatives (npm, pip, maven, go modules...). Les resultats sont filtres par severite pour se concentrer sur les vulnerabilites critiques et hautes en priorite. Alternative ou complement a Grype pour la securite conteneur.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "aquasec/trivy:latest",
+    "command": "trivy image --format json --severity CRITICAL,HIGH {TARGET}",
+    "timeout_seconds": 300,
+    "network": "bridge",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "severity": {
+      "type": "string",
+      "description": "Niveaux de severite (CRITICAL,HIGH,MEDIUM,LOW)",
+      "hint": "Niveaux de severite a inclure dans les resultats, separes par des virgules. 'CRITICAL,HIGH' est recommande pour eviter le bruit. Ajoutez MEDIUM pour un scan plus complet.",
+      "placeholder": "CRITICAL,HIGH",
+      "default": "CRITICAL,HIGH"
+    },
+    "target": {
+      "type": "string",
+      "description": "Image Docker a scanner (ex: nginx:latest)",
+      "hint": "Nom de l'image Docker a analyser. Supporte les images locales et distantes. Format : nom:tag ou registre/nom:tag.",
+      "placeholder": "nginx:latest",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "container"
+}

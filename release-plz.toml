@@ -1,0 +1,6 @@
+[workspace]
+git_release_enable = false
+
+[[package]]
+name = "threatclaw_safety"
+release = false

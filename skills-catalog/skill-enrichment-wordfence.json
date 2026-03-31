@@ -1,0 +1,25 @@
+{
+    "id": "skill-enrichment-wordfence",
+    "name": "Wordfence Intelligence",
+    "version": "1.0.0",
+    "description": "Base de vulnerabilites WordPress temps reel (gratuit, sans cle API, feed complet)",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "Wordfence Intelligence fournit une base de vulnerabilites WordPress en temps reel couvrant le core, les plugins et les themes. Feed complet et gratuit, aucune cle API requise. Mis a jour en continu par l'equipe Wordfence Threat Intelligence.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://www.wordfence.com/api/intelligence/v2/vulnerabilities/production",
+        "triggers": ["wordpress"],
+        "cache_ttl_hours": 24
+    },
+    "config": {},
+    "outputs": {
+        "vulnerabilities": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "shield"
+}

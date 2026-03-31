@@ -1,0 +1,47 @@
+{
+  "id": "skill-intelligence-engine",
+  "name": "Intelligence Engine",
+  "version": "1.0.0",
+  "description": "Cerveau SOC de ThreatClaw. Cycle automatique toutes les 5 minutes : collecte findings + alertes, correlation par asset, enrichissement, scoring, investigation graph, detection comportementale, notification RSSI.",
+  "help": "L'Intelligence Engine est le cerveau autonome de ThreatClaw. A chaque cycle (par defaut 5 minutes), il collecte tous les nouveaux findings et alertes, les correle par asset dans le graphe, enrichit les indicateurs via des sources externes (VirusTotal, AbuseIPDB, Shodan), calcule un score de risque global, lance des investigations automatiques sur le graphe de menaces, et notifie le RSSI si un seuil critique est atteint. C'est le composant central qui transforme les donnees brutes des scans en intelligence actionnable.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "builtin": true
+  },
+  "config": {
+    "cycle_interval": {
+      "type": "select",
+      "description": "Intervalle du cycle d'analyse",
+      "hint": "Frequence du cycle d'analyse automatique. 5 minutes offre un bon equilibre entre reactivite et charge serveur. Reduisez a 1 minute pour les environnements critiques.",
+      "options": ["1 minute", "5 minutes", "15 minutes", "30 minutes"],
+      "default": "5 minutes"
+    },
+    "notification_cooldown": {
+      "type": "select",
+      "description": "Cooldown entre notifications (evite le spam)",
+      "hint": "Delai minimum entre deux notifications pour le meme type d'alerte. Evite de spammer le RSSI avec des alertes repetitives. 15 minutes est un bon compromis.",
+      "options": ["5 minutes", "15 minutes", "30 minutes", "1 heure"],
+      "default": "15 minutes"
+    },
+    "max_enrichment_per_cycle": {
+      "type": "number",
+      "description": "Nombre max de lookups externes par cycle",
+      "hint": "Limite le nombre de requetes vers les APIs externes (VirusTotal, AbuseIPDB, etc.) par cycle pour respecter les quotas. 15 par defaut, augmentez si vous avez des cles API premium.",
+      "placeholder": "15",
+      "default": 15
+    }
+  },
+  "outputs": {
+    "findings": "db",
+    "notifications": "channels",
+    "graph": "graph"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "brain"
+}

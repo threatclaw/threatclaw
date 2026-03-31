@@ -1,0 +1,33 @@
+{
+    "id": "skill-enrichment-nvd",
+    "name": "NVD NIST",
+    "version": "1.0.0",
+    "description": "Base de donnees CVE du NIST. CVSS score, description, patches. Cache 7 jours.",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "help": "Base nationale des vulnerabilites (NVD) du NIST. Fournit les scores CVSS, descriptions, references et patchs pour chaque CVE. Cle API optionnelle mais recommandee : sans cle, limite a 5 requetes par 30 secondes. Avec cle, 50 requetes par 30 secondes. Demandez votre cle gratuite sur nvd.nist.gov.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+        "rate_limit_per_minute": 5,
+        "cache_ttl_hours": 168
+    },
+    "config": {
+        "api_key": {
+            "type": "password",
+            "description": "Cle API NVD (optionnelle — 50 req/30s avec cle, 5 req/30s sans)",
+            "required": false,
+            "hint": "Optionnel mais recommande. Demandez une cle gratuite sur https://nvd.nist.gov/developers/request-an-api-key",
+            "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+    },
+    "outputs": {
+        "enrichment": "findings"
+    },
+    "default_active": true,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "database"
+}

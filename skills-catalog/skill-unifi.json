@@ -1,0 +1,59 @@
+{
+  "id": "skill-unifi",
+  "name": "UniFi Controller",
+  "version": "1.0.0",
+  "description": "Importe l'inventaire des clients WiFi/réseau depuis UniFi Controller (MAC, IP, hostname, SSID)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "UniFi Controller (Ubiquiti) gère vos bornes WiFi, switches et routeurs UniFi. Il maintient un inventaire complet des clients connectés avec leurs adresses MAC, IP, hostname, SSID et temps de connexion.\n\nThreatClaw interroge l'API REST du contrôleur pour découvrir automatiquement tous les appareils de votre réseau. Ces assets alimentent le graphe et permettent de détecter les appareils inconnus, les connexions suspectes et les changements de topologie.\n\nPrérequis :\n• UniFi Controller (Network Application) accessible (port 8443 par défaut)\n• Un compte local avec les droits de lecture (un compte admin limité suffit)\n• Le nom du site UniFi (par défaut : 'default')",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "unifi_url": {
+      "type": "string",
+      "description": "URL du UniFi Controller",
+      "placeholder": "https://192.168.1.1:8443",
+      "hint": "L'adresse de votre UniFi Controller avec le port (8443 par défaut). Utilisez https:// car le contrôleur utilise TLS par défaut.",
+      "required": true
+    },
+    "unifi_username": {
+      "type": "string",
+      "description": "Nom d'utilisateur UniFi",
+      "placeholder": "threatclaw-readonly",
+      "hint": "Créez un compte local dédié dans UniFi avec des droits de lecture seule. Évitez d'utiliser le compte admin principal.",
+      "required": true
+    },
+    "unifi_password": {
+      "type": "password",
+      "description": "Mot de passe UniFi",
+      "hint": "Le mot de passe du compte UniFi. Utilisez un mot de passe fort et unique.",
+      "required": true
+    },
+    "unifi_site": {
+      "type": "string",
+      "description": "Nom du site UniFi",
+      "placeholder": "default",
+      "hint": "Le nom du site dans UniFi. La plupart des installations n'ont qu'un site nommé 'default'. Vérifiez dans Settings > System > General.",
+      "required": false
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Le contrôleur UniFi utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un vrai certificat.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "wifi"
+}

@@ -1,0 +1,62 @@
+{
+  "id": "skill-ad-audit",
+  "name": "Active Directory Audit",
+  "version": "1.0.0",
+  "description": "Audit de securite Active Directory — comptes admin en trop, delegations Kerberos dangereuses, politiques de mots de passe faibles, comptes inactifs, GPO a risque. Via PowerShell Core + module AD.",
+  "help": "Cet outil audite la securite de votre Active Directory pour detecter les faiblesses courantes : comptes administrateurs excessifs, delegations Kerberos non contraintes (risque de Golden Ticket), politique de mots de passe trop permissive, comptes inactifs non desactives, GPO vulnerables, comptes de service avec SPN exploitables (Kerberoasting). Necessite uniquement un compte de lecture AD (pas besoin de droits admin). Les utilisateurs et groupes detectes alimentent le graphe ThreatClaw pour visualiser les chemins d'attaque.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "compliance",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "mcr.microsoft.com/powershell:latest",
+    "timeout_seconds": 600,
+    "network": "bridge"
+  },
+  "config": {
+    "dc_host": {
+      "type": "string",
+      "description": "Controleur de domaine (ex: dc01.corp.local)",
+      "hint": "Nom d'hote ou adresse IP du controleur de domaine a interroger. Doit etre accessible depuis le serveur ThreatClaw sur le port LDAP (389) ou LDAPS (636).",
+      "placeholder": "dc01.corp.local",
+      "required": true
+    },
+    "domain": {
+      "type": "string",
+      "description": "Nom de domaine (ex: corp.local)",
+      "hint": "Nom de domaine Active Directory complet (FQDN). Sera utilise pour construire le Base DN automatiquement.",
+      "placeholder": "corp.local",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Compte de lecture AD (ex: audit@corp.local) — pas besoin d'admin",
+      "hint": "Compte Active Directory avec droits de lecture. Un compte standard suffit, pas besoin de privileges administrateurs. Format : user@domaine ou DOMAINE\\user.",
+      "placeholder": "audit@corp.local",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe du compte",
+      "hint": "Mot de passe du compte de lecture AD. Stocke de maniere chiffree dans la configuration ThreatClaw.",
+      "placeholder": "",
+      "required": true
+    },
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence d'audit",
+      "hint": "Frequence de l'audit AD automatique. Un audit mensuel permet de detecter les derives de configuration et les nouveaux comptes a risque.",
+      "options": ["Manuel uniquement", "Chaque lundi a 2h", "1er du mois a 2h"],
+      "default": "1er du mois a 2h"
+    }
+  },
+  "outputs": {
+    "findings": "db",
+    "users": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "users"
+}

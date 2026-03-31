@@ -1,0 +1,46 @@
+{
+  "id": "skill-uptimerobot",
+  "name": "UptimeRobot",
+  "version": "1.0.0",
+  "description": "Importe le statut des monitors UptimeRobot (uptime, latence, SSL expiry)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "web-security",
+  "help": "UptimeRobot est un service de monitoring de disponibilité pour vos sites web et services. Il vérifie régulièrement que vos URLs répondent, mesure la latence et surveille l'expiration des certificats SSL.\n\nThreatClaw importe vos monitors UptimeRobot pour créer des findings en cas de service down, latence anormale ou certificat SSL bientôt expiré. Les assets web sont intégrés au graphe pour une vue complète de votre surface d'exposition.\n\nPrérequis :\n• Un compte UptimeRobot (gratuit ou Pro)\n• Une clé API Read-Only : My Settings > API Settings > Read-Only API Key\n• Au moins un monitor configuré dans UptimeRobot",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "uptimerobot_api_key": {
+      "type": "password",
+      "description": "Clé API UptimeRobot",
+      "hint": "Utilisez une clé API Read-Only (lecture seule). Disponible dans My Settings > API Settings. Ne partagez jamais la clé Main API Key.",
+      "required": true
+    },
+    "latency_threshold_ms": {
+      "type": "string",
+      "description": "Seuil d'alerte de latence (ms)",
+      "placeholder": "2000",
+      "hint": "Seuil en millisecondes au-delà duquel ThreatClaw génère un finding de type 'latence élevée'. Par défaut : 2000 ms. Ajustez selon vos SLA.",
+      "required": false
+    },
+    "cert_warn_days": {
+      "type": "string",
+      "description": "Alerte certificat SSL (jours avant expiration)",
+      "placeholder": "30",
+      "hint": "Nombre de jours avant l'expiration du certificat SSL pour déclencher une alerte. Par défaut : 30 jours. Recommandé : 30 pour Let's Encrypt (renouvellement tous les 90 jours).",
+      "required": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "monitors": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "activity"
+}

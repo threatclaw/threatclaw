@@ -1,0 +1,54 @@
+{
+  "id": "skill-defectdojo",
+  "name": "DefectDojo",
+  "version": "1.0.0",
+  "description": "Exporte les findings ThreatClaw vers DefectDojo pour la gestion centralisée des vulnérabilités.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "compliance",
+  "help": "DefectDojo est une plateforme open-source de gestion des vulnérabilités. Elle centralise les findings de plusieurs outils de sécurité (scanners, SIEM, etc.) dans un workflow unifié avec suivi, déduplication et métriques.\n\nThreatClaw exporte automatiquement ses findings vers DefectDojo pour les intégrer à votre processus de gestion des vulnérabilités existant. Chaque finding ThreatClaw devient un finding DefectDojo rattaché au produit et engagement configurés.\n\nPrérequis :\n• DefectDojo installé et accessible via HTTPS\n• Un API Token v2 : Configuration > API v2 Key (ou profil utilisateur)\n• Un Product et un Engagement créés dans DefectDojo pour recevoir les findings",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL de DefectDojo",
+      "placeholder": "https://defectdojo.corp.local",
+      "hint": "L'adresse de votre instance DefectDojo. Utilisez https:// en production.",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "API Token DefectDojo",
+      "hint": "Le token API v2 de DefectDojo. Disponible dans Configuration > API v2 Key ou dans votre profil utilisateur. Utilisez un compte dédié avec les droits d'écriture sur le produit cible.",
+      "required": true
+    },
+    "product_id": {
+      "type": "number",
+      "description": "Product ID dans DefectDojo",
+      "placeholder": "1",
+      "hint": "L'identifiant numérique du produit dans DefectDojo. Visible dans l'URL quand vous ouvrez le produit (ex: /product/1). Créez un produit dédié 'ThreatClaw' si nécessaire.",
+      "required": true
+    },
+    "engagement_id": {
+      "type": "number",
+      "description": "Engagement ID dans DefectDojo",
+      "placeholder": "1",
+      "hint": "L'identifiant numérique de l'engagement. Créez un engagement de type 'CI/CD' dans le produit pour recevoir les imports automatiques de ThreatClaw.",
+      "required": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 60,
+  "outputs": {
+    "findings": "external"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "database"
+}

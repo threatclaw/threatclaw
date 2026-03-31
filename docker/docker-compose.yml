@@ -1,0 +1,357 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  ThreatClaw v0.2.0.1-beta — Hardened Docker Stack           ║
+# ║                                                              ║
+# ║  Usage:  docker compose up -d                                ║
+# ║  That's it. Everything starts, configures, and connects.     ║
+# ║                                                              ║
+# ║  Dashboard: https://threatclaw.local (or your hostname)      ║
+# ║  API:       https://threatclaw.local/api                     ║
+# ║  All data stays on-premise (Model B+)                        ║
+# ║                                                              ║
+# ║  Security: cap_drop ALL, no-new-privileges, read-only FS,   ║
+# ║  network isolation, rate limiting, HTTPS-only                ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# ── Shared security defaults ──
+x-security-defaults: &security-defaults
+  security_opt:
+    - "no-new-privileges=true"
+  cap_drop:
+    - ALL
+  ipc: private
+  restart: unless-stopped
+
+services:
+  # ── Core API (Rust) ──────────────────────────────────────
+  # The brain: ReAct reasoning, LLM orchestration, skill execution
+  threatclaw-core:
+    <<: *security-defaults
+    image: ghcr.io/threatclaw/core:latest
+    entrypoint: ["/app/docker/entrypoint.sh"]
+    expose:
+      - "3000"
+    environment:
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD}@threatclaw-db:5432/threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: ${TC_DB_PASSWORD}
+      POSTGRES_DB: threatclaw
+      TC_DB_HOST: threatclaw-db
+      TC_DB_PORT: "5432"
+      LLM_BACKEND: ollama
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
+      OLLAMA_BASE_URL: http://ollama:11434
+      FORENSIC_MODEL: ${TC_FORENSIC_MODEL:-threatclaw-l2}
+      TC_AUTO_PULL_MODELS: "${TC_AUTO_PULL_MODELS:-true}"
+      TC_L1_MODEL: ${TC_L1_BASE_MODEL:-qwen3:8b}
+      GATEWAY_HOST: "0.0.0.0"
+      GATEWAY_PORT: "3000"
+      GATEWAY_AUTH_TOKEN: ${TC_AUTH_TOKEN:-}
+      HTTP_HOST: "0.0.0.0"
+      ONBOARD_COMPLETED: "true"
+      RUST_LOG: info
+      TC_PERMISSION_LEVEL: ${TC_PERMISSION_LEVEL:-ALERT_ONLY}
+      TC_INSTANCE_NAME: ${TC_INSTANCE_NAME:-threatclaw}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+    # Core needs docker.sock for ephemeral skill containers (nuclei, trivy, nmap)
+    # This is a known risk — mitigated by cap_drop ALL + no-new-privileges + read_only
+    # TODO: Replace with Docker-in-Docker or sysbox in Phase 2
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m,mode=1700,noexec,nosuid,nodev
+      - /app/cache:size=50m
+    volumes:
+      - ./AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
+      - ./threatclaw.toml:/app/threatclaw.toml:ro
+      - ./Modelfile.threatclaw-l1:/app/docker/Modelfile.threatclaw-l1:ro
+      - ./Modelfile.threatclaw-l2:/app/docker/Modelfile.threatclaw-l2:ro
+      - ./entrypoint.sh:/app/docker/entrypoint.sh:ro
+      - core-data:/app/data
+      - shared-config:/shared
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket
+    group_add:
+      - ${DOCKER_GID:-0}
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "2.0"
+    networks:
+      - threatclaw-internal   # DB, ML, Fluent-bit, Dashboard
+      - threatclaw-egress     # Internet (APIs, Telegram, cloud LLM)
+      - threatclaw-ollama     # Dedicated Ollama access
+    # NOT on threatclaw-frontend — nginx can't reach core directly
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=core"
+      - "com.threatclaw.security=high"
+
+  # ── Dashboard (Next.js) ──────────────────────────────────
+  threatclaw-dashboard:
+    # Security defaults applied individually (Next.js needs some capabilities)
+    security_opt:
+      - "no-new-privileges=true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    ipc: private
+    restart: unless-stopped
+    image: ghcr.io/threatclaw/dashboard:latest
+    expose:
+      - "3000"
+    environment:
+      TC_CORE_URL: http://threatclaw-core:3000
+      TC_CORE_TOKEN: ${TC_AUTH_TOKEN:-}
+      OLLAMA_URL: http://ollama:11434
+    # Note: read_only not used — Next.js standalone needs to write .next/cache, trace files
+    tmpfs:
+      - /tmp:size=50m,mode=1700,noexec,nosuid,nodev
+    volumes:
+      - shared-config:/shared:ro
+    depends_on:
+      threatclaw-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    networks:
+      - threatclaw-internal
+      - threatclaw-frontend
+      - threatclaw-ollama     # Access Ollama API for model management page
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=dashboard"
+
+  # ── PostgreSQL + pgvector + Apache AGE ───────────────────
+  threatclaw-db:
+    <<: *security-defaults
+    image: ghcr.io/threatclaw/db:latest
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - FOWNER
+      - DAC_READ_SEARCH
+    environment:
+      POSTGRES_DB: threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: ${TC_DB_PASSWORD}
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m
+      - /run/postgresql:size=10m
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "threatclaw", "-d", "threatclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    networks:
+      - threatclaw-internal
+    logging: *default-logging
+
+  # ── Ollama — Local LLM ──────────────────────────────────
+  ollama:
+    <<: *security-defaults
+    image: ollama/ollama:0.6.2
+    cap_add:
+      - NET_BIND_SERVICE
+    expose:
+      - "11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: "4.0"
+        # GPU acceleration (optional):
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
+    networks:
+      - threatclaw-ollama    # Dedicated network — only core can reach Ollama
+      - threatclaw-egress    # Internet for model downloads
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=llm"
+
+  # ── Fluent Bit — Syslog & Log Collector ─────────────────
+  fluent-bit:
+    <<: *security-defaults
+    image: fluent/fluent-bit:3.2
+    cap_add:
+      - NET_BIND_SERVICE
+      - DAC_READ_SEARCH
+    ports:
+      # Syslog: bind to specific interface if needed (default: all for network devices)
+      - "${TC_SYSLOG_BIND:-0.0.0.0}:${TC_SYSLOG_PORT:-514}:514/udp"
+      - "${TC_SYSLOG_BIND:-0.0.0.0}:${TC_SYSLOG_PORT:-514}:514/tcp"
+      - "127.0.0.1:5140:5140/udp"
+      - "127.0.0.1:24224:24224"
+    read_only: true
+    tmpfs:
+      - /tmp:size=20m,noexec,nosuid,nodev
+      - /var/log:size=50m    # Fluent-bit SQLite DB files (flb_auth.db, etc.)
+    environment:
+      TC_DB_PASSWORD: ${TC_DB_PASSWORD}
+    volumes:
+      - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+    depends_on:
+      threatclaw-core:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:2020/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+    networks:
+      - threatclaw-internal
+    logging: *default-logging
+
+  # ── ML Engine — Behavioral Analysis ──────────────────────
+  ml-engine:
+    <<: *security-defaults
+    image: ghcr.io/threatclaw/ml-engine:latest
+    environment:
+      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD}@threatclaw-db:5432/threatclaw
+      ML_MODEL_DIR: /models
+    read_only: true
+    tmpfs:
+      - /tmp:size=100m,noexec,nosuid,nodev
+    volumes:
+      - ml-models:/models
+    depends_on:
+      threatclaw-db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    networks:
+      - threatclaw-internal
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=ml-engine"
+
+  # ── Nginx Reverse Proxy (HTTPS) ────────────────────────────
+  nginx:
+    <<: *security-defaults
+    image: nginx:1.27.4-alpine
+    cap_add:
+      - NET_BIND_SERVICE
+      - CHOWN
+      - SETUID
+      - SETGID
+    ports:
+      - "${TC_HTTPS_PORT:-443}:443"
+      - "${TC_HTTP_PORT:-80}:80"
+    read_only: true
+    tmpfs:
+      - /tmp:size=10m,noexec,nosuid,nodev
+      - /var/cache/nginx:size=50m
+      - /var/run:size=5m
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./error-pages:/usr/share/nginx/error-pages:ro
+    depends_on:
+      threatclaw-core:
+        condition: service_healthy
+      threatclaw-dashboard:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:443/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+    networks:
+      - threatclaw-frontend
+    logging: *default-logging
+    labels:
+      - "com.threatclaw.role=proxy"
+      - "com.threatclaw.security=high"
+
+# ── Networks ────────────────────────────────────────────────
+# 4 isolated networks — principle of least privilege
+networks:
+  threatclaw-internal:
+    driver: bridge
+    internal: true    # No internet — DB, ML, Fluent-bit, inter-service
+  threatclaw-frontend:
+    driver: bridge    # Nginx + Dashboard + Core — proxied to outside
+  threatclaw-egress:
+    driver: bridge    # Core + Ollama — outbound internet (APIs, model downloads)
+  threatclaw-ollama:
+    driver: bridge
+    internal: true    # No internet — only Core ↔ Ollama (API isolation)
+
+# ── Volumes ─────────────────────────────────────────────────
+volumes:
+  pgdata:             # PostgreSQL data (persist across restarts)
+  core-data:          # Core runtime data (memory, workspace)
+  ollama-data:        # LLM model weights (~5-20GB per model)
+  shared-config:      # Auth token shared between core and dashboard
+  ml-models:          # ML model weights (Isolation Forest, DGA Random Forest)

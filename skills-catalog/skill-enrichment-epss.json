@@ -1,0 +1,15 @@
+{
+    "id": "skill-enrichment-epss",
+    "name": "EPSS",
+    "description": "Probabilite d exploitation dans les 30 prochains jours (0-100%)",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "trending-up",
+    "help": "Exploit Prediction Scoring System (FIRST.org). Fournit la probabilite qu'une CVE soit exploitee dans les 30 prochains jours (score de 0 a 100%). Utilise conjointement avec le CVSS pour prioriser les patchs. Aucune cle API requise, API publique gratuite.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://api.first.org/data/v1/epss"
+    }
+}

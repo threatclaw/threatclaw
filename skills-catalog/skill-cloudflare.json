@@ -1,0 +1,39 @@
+{
+  "id": "skill-cloudflare",
+  "name": "Cloudflare WAF",
+  "version": "1.0.0",
+  "description": "Importe les événements WAF, DDoS et bot scores depuis Cloudflare (GraphQL API)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "web-security",
+  "help": "Cloudflare protège vos sites web via son WAF (Web Application Firewall), sa protection DDoS et son système de détection de bots. L'API GraphQL expose les événements de sécurité en temps quasi-réel.\n\nThreatClaw récupère les événements WAF (injections SQL, XSS, etc.), les attaques DDoS et les scores de bots pour créer des findings. Les IP attaquantes sont corrélées avec les autres sources (CrowdSec, Suricata, etc.) dans le graphe de menaces.\n\nPrérequis :\n• Un compte Cloudflare avec au moins une zone configurée\n• Un API Token avec la permission Analytics:Read (Dashboard > My Profile > API Tokens)\n• Le Zone ID de votre domaine (visible sur la page Overview de la zone)",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "cf_api_token": {
+      "type": "password",
+      "description": "API Token Cloudflare",
+      "hint": "Créez un token dédié dans Cloudflare Dashboard > My Profile > API Tokens > Create Token. Donnez uniquement la permission 'Analytics:Read' pour la zone concernée.",
+      "required": true
+    },
+    "cf_zone_id": {
+      "type": "string",
+      "description": "Zone ID Cloudflare",
+      "placeholder": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+      "hint": "Identifiant unique de votre zone DNS. Visible dans Cloudflare Dashboard > votre domaine > Overview (colonne droite, en bas).",
+      "required": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "waf_events": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": true,
+  "icon": "cloud"
+}

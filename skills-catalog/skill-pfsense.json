@@ -1,0 +1,61 @@
+{
+  "id": "skill-pfsense",
+  "name": "pfSense / OPNsense",
+  "version": "1.0.0",
+  "description": "Synchronise la table ARP, baux DHCP, interfaces, VLANs et règles firewall. Cartographie réseau complète.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "pfSense et OPNsense sont des firewalls open-source qui protègent votre réseau. Ils contiennent des informations précieuses : table ARP (qui est sur le réseau), baux DHCP, interfaces réseau, VLANs et règles de filtrage.\n\nThreatClaw récupère ces données via l'API REST pour construire une cartographie réseau complète dans le graphe. Cela permet de détecter les machines inconnues, les VLANs mal segmentés et les règles firewall trop permissives.\n\nPrérequis :\n• pfSense avec le package API installé (pfSense-pkg-API) ou OPNsense (API intégrée)\n• Pour pfSense : un utilisateur API dédié (System > User Manager)\n• Pour OPNsense : une clé API (System > Access > Users > API keys)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du firewall",
+      "placeholder": "https://192.168.1.1",
+      "hint": "L'adresse de votre pfSense ou OPNsense. Utilisez https:// et l'IP de l'interface LAN.",
+      "required": true
+    },
+    "fw_type": {
+      "type": "select",
+      "description": "Type de firewall",
+      "options": ["pfsense", "opnsense"],
+      "hint": "Sélectionnez le type de votre firewall. L'API est différente entre pfSense et OPNsense.",
+      "required": true
+    },
+    "auth_user": {
+      "type": "string",
+      "description": "Utilisateur API ou clé API",
+      "placeholder": "threatclaw",
+      "hint": "Pour pfSense : nom d'utilisateur API (System > User Manager). Pour OPNsense : la clé API (System > Access > Users > votre utilisateur > API keys).",
+      "required": true
+    },
+    "auth_secret": {
+      "type": "password",
+      "description": "Mot de passe ou secret API",
+      "hint": "Pour pfSense : le mot de passe de l'utilisateur API. Pour OPNsense : le secret API associé à la clé.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "pfSense et OPNsense utilisent un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat Let's Encrypt ou PKI interne.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "graph",
+    "topology": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

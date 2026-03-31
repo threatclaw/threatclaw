@@ -1,0 +1,33 @@
+{
+    "id": "skill-enrichment-urlscan",
+    "name": "URLScan.io",
+    "version": "1.0.0",
+    "description": "Analyse sandbox d'URL : screenshot, scripts injectes, redirections, malware",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "URLScan.io analyse une URL dans un sandbox : capture d'ecran, detection de scripts malveillants, suivi des redirections, identification de malware. Cle API optionnelle : sans cle, vous pouvez consulter les scans publics existants. Avec une cle gratuite, vous pouvez lancer vos propres scans (limites genereses).",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://urlscan.io/api/v1",
+        "triggers": ["domain", "url"],
+        "cache_ttl_hours": 24
+    },
+    "config": {
+        "urlscan_api_key": {
+            "type": "password",
+            "description": "Cle API URLScan.io (optionnelle pour les lookups, requise pour lancer des scans)",
+            "required": false,
+            "hint": "Optionnel pour consulter les resultats existants. Creez un compte gratuit sur urlscan.io pour lancer vos propres scans.",
+            "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+        }
+    },
+    "outputs": {
+        "scan_results": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "scan"
+}

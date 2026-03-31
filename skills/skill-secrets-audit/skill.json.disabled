@@ -1,0 +1,23 @@
+{
+  "id": "skill-secrets-audit",
+  "name": "Audit Secrets",
+  "version": "1.0.0",
+  "description": "Détection de secrets exposés (clés API, tokens, mots de passe) via Gitleaks",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "scanning",
+  "docker_deps": {
+    "gitleaks": {
+      "image": "zricethezav/gitleaks:latest",
+      "default_mode": "docker",
+      "supports": ["docker", "local_binary"]
+    }
+  },
+  "requires_network": false,
+  "timeout_seconds": 300,
+  "memory_mb": 256,
+  "config_fields": [
+    { "key": "scan_path", "label": "Chemin à scanner", "type": "text", "default": "/app/data", "placeholder": "/path/to/repo" },
+    { "key": "scan_git", "label": "Scanner l'historique Git", "type": "toggle", "default": "true" }
+  ]
+}

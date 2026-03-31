@@ -1,0 +1,533 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════
+   THREATCLAW DESIGN SYSTEM — Themeable tokens
+
+   To add a new theme: copy [data-theme="light"]
+   and change the values. All components use
+   var(--tc-xxx) so they adapt automatically.
+   ═══════════════════════════════════════════════ */
+
+/* ─── DARK THEME (default) ─── */
+:root, [data-theme="dark"] {
+  --tc-bg:           #0a0a0f;
+  --tc-surface:      rgba(18, 18, 26, 0.7);
+  --tc-surface-hover:rgba(22, 22, 32, 0.85);
+  --tc-surface-alt:  rgba(255, 255, 255, 0.02);
+  --tc-input:        rgba(255, 255, 255, 0.04);
+  --tc-nav:          rgba(10, 10, 16, 0.85);
+
+  --tc-text:         #e8e4e0;
+  --tc-text-sec:     #b0a8a0;
+  --tc-text-muted:   #7a726c;
+  --tc-text-faint:   #4a4440;
+
+  --tc-border:       rgba(255, 255, 255, 0.10);
+  --tc-border-light: rgba(255, 255, 255, 0.06);
+  --tc-border-accent:rgba(208, 48, 32, 0.30);
+
+  --tc-red:          #d03020;
+  --tc-red-soft:     rgba(208, 48, 32, 0.08);
+  --tc-red-border:   rgba(208, 48, 32, 0.30);
+  --tc-green:        #30a050;
+  --tc-green-soft:   rgba(48, 160, 80, 0.10);
+  --tc-amber:        #d09020;
+  --tc-amber-soft:   rgba(208, 144, 32, 0.10);
+  --tc-blue:         #3080d0;
+  --tc-blue-soft:    rgba(48, 128, 208, 0.10);
+  --tc-purple:       #9060d0;
+  --tc-purple-soft:  rgba(144, 96, 208, 0.10);
+
+  /* Neumorphic (dark mode) */
+  --tc-neu-outer:    #1a1a24;
+  --tc-neu-inner:    rgba(26, 26, 38, 0.85);
+  --tc-neu-text:     #d0c8c0;
+  --tc-neu-text-sec: #9a9490;
+
+  /* Shapes & Radius */
+  --tc-radius-sm:    6px;
+  --tc-radius-md:    10px;
+  --tc-radius-lg:    14px;
+  --tc-radius-xl:    20px;
+  --tc-radius-card:  14px;
+  --tc-radius-btn:   10px;
+  --tc-radius-input: 8px;
+  --tc-radius-badge: 4px;
+  --tc-radius-pill:  20px;
+
+  /* Spacing */
+  --tc-space-xs:     4px;
+  --tc-space-sm:     8px;
+  --tc-space-md:     14px;
+  --tc-space-lg:     20px;
+  --tc-space-xl:     32px;
+
+  /* Font sizes */
+  --tc-font-xs:      9px;
+  --tc-font-sm:      11px;
+  --tc-font-md:      13px;
+  --tc-font-lg:      16px;
+  --tc-font-xl:      22px;
+
+  /* Shadows */
+  --tc-shadow-card:  0 4px 24px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --tc-shadow-hover: 0 8px 32px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4);
+  --tc-shadow-input: inset 0 2px 4px rgba(0,0,0,0.3);
+  --tc-shadow-btn:   0 2px 8px rgba(208,48,32,0.25);
+
+  /* Legacy compat */
+  --bg-base: var(--tc-bg);
+  --bg-surface: var(--tc-surface);
+  --bg-card: var(--tc-surface);
+  --bg-card-hover: var(--tc-surface-hover);
+  --bg-nav: var(--tc-nav);
+  --bg-input: var(--tc-input);
+  --glass-border: var(--tc-border);
+  --glass-shine: rgba(255, 255, 255, 0.02);
+  --glass-blur: 12px;
+  --text-primary: var(--tc-text);
+  --text-secondary: var(--tc-text-sec);
+  --text-muted: var(--tc-text-muted);
+  --text-logo: var(--tc-text);
+  --red: var(--tc-red);
+  --red-glow: var(--tc-red-soft);
+  --red-soft: var(--tc-red-soft);
+  --red-bright: #e84030;
+  --green: var(--tc-green);
+  --green-glow: var(--tc-green-soft);
+  --amber: var(--tc-amber);
+  --amber-glow: var(--tc-amber-soft);
+  --blue: var(--tc-blue);
+  --border-subtle: var(--tc-border);
+  --border-accent: var(--tc-border-accent);
+  --shadow-card: var(--tc-shadow-card);
+  --shadow-card-hover: var(--tc-shadow-hover);
+  --shadow-input: var(--tc-shadow-input);
+  --shadow-btn: var(--tc-shadow-btn);
+  --shadow-btn-hover: 0 4px 16px rgba(208,48,32,0.35);
+}
+
+/* ─── LIGHT THEME ─── */
+[data-theme="light"] {
+  --tc-bg:           #f4f2ef;
+  --tc-surface:      rgba(255, 255, 255, 0.95);
+  --tc-surface-hover:rgba(255, 255, 255, 1.0);
+  --tc-surface-alt:  rgba(255, 255, 255, 0.85);
+  --tc-input:        rgba(0, 0, 0, 0.05);
+  --tc-nav:          rgba(255, 255, 255, 0.88);
+
+  --tc-text:         #1a1a1a;
+  --tc-text-sec:     #555555;
+  --tc-text-muted:   #888888;
+  --tc-text-faint:   #aaaaaa;
+
+  --tc-border:       rgba(0, 0, 0, 0.08);
+  --tc-border-light: rgba(0, 0, 0, 0.05);
+  --tc-border-accent:rgba(192, 40, 24, 0.25);
+
+  --tc-red:          #c02818;
+  --tc-red-soft:     rgba(192, 40, 24, 0.07);
+  --tc-red-border:   rgba(192, 40, 24, 0.20);
+  --tc-green:        #1a8040;
+  --tc-green-soft:   rgba(26, 128, 64, 0.08);
+  --tc-amber:        #a06010;
+  --tc-amber-soft:   rgba(160, 96, 16, 0.08);
+  --tc-blue:         #2060b0;
+  --tc-blue-soft:    rgba(32, 96, 176, 0.08);
+  --tc-purple:       #7040b0;
+  --tc-purple-soft:  rgba(112, 64, 176, 0.08);
+
+  /* Neumorphic (light mode) */
+  --tc-neu-outer:    #e8e6e2;
+  --tc-neu-inner:    rgba(255, 255, 255, 0.85);
+  --tc-neu-text:     #1a1a22;
+  --tc-neu-text-sec: #4a4a56;
+
+  /* Shapes (can differ from dark — e.g. sharper for a corporate theme) */
+  --tc-radius-sm:    6px;
+  --tc-radius-md:    10px;
+  --tc-radius-lg:    14px;
+  --tc-radius-xl:    20px;
+  --tc-radius-card:  14px;
+  --tc-radius-btn:   10px;
+  --tc-radius-input: 8px;
+  --tc-radius-badge: 4px;
+  --tc-radius-pill:  20px;
+
+  /* Shadows (lighter for light mode) */
+  --tc-shadow-card:  0 2px 12px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --tc-shadow-hover: 0 4px 20px rgba(0,0,0,0.10);
+  --tc-shadow-input: inset 0 1px 3px rgba(0,0,0,0.06);
+  --tc-shadow-btn:   0 2px 8px rgba(192,40,24,0.15);
+
+  /* Legacy compat */
+  --bg-base: var(--tc-bg); --bg-surface: var(--tc-surface); --bg-card: var(--tc-surface);
+  --bg-card-hover: var(--tc-surface-hover); --bg-nav: var(--tc-nav); --bg-input: var(--tc-input);
+  --glass-border: var(--tc-border); --glass-shine: rgba(255,255,255,0.5);
+  --text-primary: var(--tc-text); --text-secondary: var(--tc-text-sec);
+  --text-muted: var(--tc-text-muted); --text-logo: var(--tc-text);
+  --red: var(--tc-red); --red-glow: var(--tc-red-soft); --red-soft: var(--tc-red-soft);
+  --green: var(--tc-green); --green-glow: var(--tc-green-soft);
+  --amber: var(--tc-amber); --amber-glow: var(--tc-amber-soft); --blue: var(--tc-blue);
+  --border-subtle: var(--tc-border); --border-accent: var(--tc-border-accent);
+  --shadow-card: var(--tc-shadow-card); --shadow-card-hover: var(--tc-shadow-hover);
+  --shadow-input: var(--tc-shadow-input); --shadow-btn: var(--tc-shadow-btn);
+  --shadow-btn-hover: 0 4px 16px rgba(192,40,24,0.25);
+}
+
+/* ─── THEME SWITCH OVERRIDES ───
+   React inline styles use var(--tc-*) which resolve correctly,
+   but background on cards can appear "stuck" because the browser
+   caches the computed RGBA value. These rules force a recompute
+   when data-theme changes by using the resolved values directly.
+   This is the standard approach for CSS-var theming with React inline styles.
+*/
+[data-theme="light"] [style*="--tc-surface"],
+[data-theme="light"] [style*="--tc-input"],
+[data-theme="light"] .glass-card,
+[data-theme="light"] .glass-card-sm,
+[data-theme="light"] .pit-xs {
+  background: var(--tc-surface-alt) !important;
+}
+[data-theme="light"] body {
+  background: var(--tc-bg) !important;
+  color: var(--tc-text) !important;
+}
+[data-theme="light"] nav {
+  background: var(--tc-nav) !important;
+}
+
+/* ─── BASE ─── */
+*, *::before, *::after {
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+body {
+  background: var(--tc-bg);
+  color: var(--tc-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+}
+
+/* ─── GLASS CARDS ─── */
+.glass-card {
+  background: var(--tc-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--tc-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.glass-card:hover { box-shadow: var(--shadow-card-hover); }
+.glass-card-sm {
+  background: var(--tc-surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--tc-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 14px;
+}
+
+/* ─── BUTTONS (Uiverse.io lenfear23 — soft embossed) ─── */
+/* ─── BUTTONS (soft embossed — matches page background) ─── */
+.tc-btn-embossed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  outline: none;
+  cursor: pointer;
+  padding: 8px 18px;
+  background-image: linear-gradient(to top, var(--tc-bg) 0%, var(--tc-surface-alt) 80%);
+  border-radius: 30px;
+  border: 1px solid var(--tc-border);
+  transition: all 0.2s ease;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tc-text-sec);
+  white-space: nowrap;
+}
+.tc-btn-embossed:hover {
+  box-shadow: inset 0 0 3px 2px var(--tc-border);
+}
+.tc-btn-embossed:active {
+  box-shadow: inset 0 0 5px 3px var(--tc-border), inset 0 0 20px var(--tc-input);
+}
+.tc-btn-embossed:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Legacy btn-primary (kept for compat) */
+.btn-primary {
+  background: linear-gradient(135deg, #d03020, #a02018);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  box-shadow: var(--shadow-btn);
+  padding: 8px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+}
+.btn-primary:hover { box-shadow: var(--shadow-btn-hover); transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0) scale(0.98); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-glass {
+  background: var(--tc-surface-alt);
+  border: 1px solid var(--tc-border);
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tc-text-sec);
+  cursor: pointer;
+}
+.btn-glass:hover { background: var(--tc-surface-hover); color: var(--tc-text); }
+
+/* ─── INPUTS ─── */
+.input-glass {
+  background: var(--tc-input);
+  border: 1px solid var(--tc-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-input);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--tc-text);
+  width: 100%;
+  outline: none;
+}
+.input-glass::placeholder { color: var(--tc-text-muted); }
+.input-glass:focus { border-color: var(--tc-border-accent); box-shadow: var(--shadow-input), 0 0 0 2px var(--tc-red-soft); }
+
+/* ─── SPIN LOADER (red ring — for running skills) ─── */
+.tc-spin-loader {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  animation: tcSpin 1s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes tcSpin {
+  0%   { transform: rotate(0deg);   box-shadow: 0 -1px 0 var(--tc-red); }
+  50%  { transform: rotate(180deg); box-shadow: 0 -1px 0 var(--tc-red); }
+  100% { transform: rotate(360deg); box-shadow: 0 -1px 0 var(--tc-red); }
+}
+
+/* ─── PILLS ─── */
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; border-radius: 20px; padding: 4px 12px; }
+.pill-ok { color: var(--tc-green); background: var(--tc-green-soft); border: 1px solid rgba(48,160,80,0.20); }
+.pill-danger { color: var(--tc-red); background: var(--tc-red-soft); border: 1px solid rgba(208,48,32,0.20); }
+.pill-warning { color: var(--tc-amber); background: var(--tc-amber-soft); border: 1px solid rgba(208,144,32,0.20); }
+.pill-muted { color: var(--tc-text-muted); background: var(--tc-surface-alt); border: 1px solid var(--tc-border); }
+
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.ok { background: var(--tc-green); box-shadow: 0 0 6px var(--tc-green); }
+.status-dot.danger { background: var(--tc-red); box-shadow: 0 0 6px var(--tc-red); }
+.status-dot.warning { background: var(--tc-amber); box-shadow: 0 0 6px var(--tc-amber); }
+.status-dot.muted { background: var(--tc-text-muted); }
+
+/* ─── PROGRESS BARS ─── */
+.bar-track { height: 6px; background: var(--tc-surface-alt); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+
+/* ─── TOGGLE ─── */
+/* ─── TOGGLE (Uiverse.io inspired — green/red) ─── */
+.tc-toggle {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(hsla(0,0%,0%,.1), hsla(0,0%,100%,.1)),
+                    linear-gradient(to right, #e04030 50%, #30a050 50%);
+  background-size: 100% 100%, 200% 100%;
+  background-position: 0 0, 0px 0;
+  border-radius: 25px;
+  box-shadow: inset 0 1px 4px hsla(0,0%,0%,.5),
+              inset 0 0 10px hsla(0,0%,0%,.3),
+              0 0 0 1px hsla(0,0%,0%,.1),
+              0 -1px 2px 2px hsla(0,0%,0%,.15),
+              0 2px 2px 2px hsla(0,0%,100%,.2);
+  cursor: pointer;
+  height: 16px;
+  padding-right: 16px;
+  width: 38px;
+  border: none;
+  transition: .25s;
+  flex-shrink: 0;
+}
+.tc-toggle:after {
+  background-color: #eee;
+  background-image: linear-gradient(hsla(0,0%,100%,.15), hsla(0,0%,0%,.1));
+  border-radius: 25px;
+  box-shadow: inset 0 1px 1px 1px hsla(0,0%,100%,1),
+              inset 0 -1px 1px 1px hsla(0,0%,0%,.2),
+              0 1px 3px 1px hsla(0,0%,0%,.4),
+              0 0 2px hsla(0,0%,0%,.2);
+  content: '';
+  display: block;
+  height: 16px;
+  width: 22px;
+}
+.tc-toggle:checked {
+  background-position: 0 0, 22px 0;
+  padding-left: 16px;
+  padding-right: 0;
+}
+/* Light mode adjustments */
+[data-theme="light"] .tc-toggle {
+  box-shadow: inset 0 1px 4px hsla(0,0%,0%,.2),
+              inset 0 0 10px hsla(0,0%,0%,.1),
+              0 0 0 1px hsla(0,0%,0%,.05),
+              0 1px 2px 1px hsla(0,0%,0%,.1);
+}
+
+/* Legacy toggle compat */
+.toggle-track { width: 40px; height: 22px; background: var(--tc-surface-alt); border: 1px solid var(--tc-border); border-radius: 11px; position: relative; cursor: pointer; padding: 3px; }
+.toggle-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--tc-text-muted); transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), background 0.25s ease; }
+.toggle-track.active { background: var(--tc-red-soft); border-color: var(--tc-border-accent); }
+.toggle-track.active .toggle-thumb { transform: translateX(18px); background: var(--tc-red); }
+
+/* ─── TYPOGRAPHY ─── */
+.label-caps { font-size: 10px; font-weight: 600; color: var(--tc-text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.metric-val { font-size: 22px; font-weight: 800; color: var(--tc-text); }
+.section-title { font-size: 14px; font-weight: 700; color: var(--tc-text); }
+
+/* ─── SCROLLBAR ─── */
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: var(--tc-text-muted) transparent; }
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background-color: var(--tc-text-muted); border-radius: 2px; opacity: 0.3; }
+
+/* ─── GRID ─── */
+.react-grid-layout { position: relative; }
+.react-grid-item { transition: all 200ms ease; }
+.react-grid-placeholder { background: var(--tc-red) !important; opacity: 0.1 !important; border-radius: 16px !important; }
+
+/* ─── GLOW ─── */
+.glow-red { box-shadow: 0 0 20px var(--tc-red-soft), 0 0 60px rgba(208,48,32,0.05); }
+.glow-green { box-shadow: 0 0 20px var(--tc-green-soft); }
+
+/* ─── BALL LOADER (Uiverse.io alexruix) ─── */
+.tc-ball-loader {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  position: relative;
+  left: -60px;
+  color: var(--tc-text-muted);
+  animation: tcBallRoll 2s linear infinite;
+}
+@keyframes tcBallRoll {
+  0%   { box-shadow: 0px 0 transparent, 0px 0 transparent, 0px 0 transparent, 0px 0 transparent; }
+  12%  { box-shadow: 50px 0 currentColor, 0px 0 transparent, 0px 0 transparent, 0px 0 transparent; }
+  25%  { box-shadow: 60px 0 currentColor, 50px 0 currentColor, 0px 0 transparent, 0px 0 transparent; }
+  36%  { box-shadow: 70px 0 currentColor, 60px 0 currentColor, 50px 0 currentColor, 0px 0 transparent; }
+  50%  { box-shadow: 80px 0 currentColor, 70px 0 currentColor, 60px 0 currentColor, 50px 0 currentColor; }
+  62%  { box-shadow: 120px 0 transparent, 80px 0 currentColor, 70px 0 currentColor, 60px 0 currentColor; }
+  75%  { box-shadow: 120px 0 transparent, 120px 0 transparent, 80px 0 currentColor, 70px 0 currentColor; }
+  87%  { box-shadow: 120px 0 transparent, 120px 0 transparent, 120px 0 transparent, 80px 0 currentColor; }
+  100% { box-shadow: 120px 0 transparent, 120px 0 transparent, 120px 0 transparent, 120px 0 transparent; }
+}
+
+/* ─── ANIMATE ─── */
+@keyframes pulse-glow { 0%,100%{opacity:0.6} 50%{opacity:1} }
+@keyframes spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+.animate-spin { animation: spin 1s linear infinite; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+/* ─── LEGACY ─── */
+.pit { composes: glass-card; }
+.pit-sm { composes: glass-card-sm; }
+.pit-xs { background: var(--tc-surface); border: 1px solid var(--tc-border); border-radius: 8px; padding: 8px; }
+
+/* ─── CUSTOM SELECT (replaces native browser select) ─── */
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px !important;
+  cursor: pointer;
+}
+select:focus {
+  border-color: var(--tc-red) !important;
+  outline: none;
+}
+
+/* ─── CUSTOM SCROLLBAR (replaces native) ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--tc-input);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--tc-text-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tc-text-sec);
+}
+
+/* ─── Driver.js ThreatClaw Theme ─── */
+.tc-driver-popover {
+  background: var(--tc-bg) !important;
+  border: 1px solid var(--tc-border) !important;
+  border-radius: var(--tc-radius-md) !important;
+  color: var(--tc-text) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+.tc-driver-popover .driver-popover-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--tc-text) !important;
+  font-family: inherit !important;
+}
+.tc-driver-popover .driver-popover-description {
+  font-size: 12px !important;
+  color: var(--tc-text-sec) !important;
+  line-height: 1.6 !important;
+  font-family: inherit !important;
+}
+.tc-driver-popover .driver-popover-progress-text {
+  font-size: 10px !important;
+  color: var(--tc-text-muted) !important;
+}
+.tc-driver-popover .driver-popover-prev-btn,
+.tc-driver-popover .driver-popover-next-btn {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  font-family: inherit !important;
+  border-radius: var(--tc-radius-sm) !important;
+  padding: 6px 14px !important;
+}
+.tc-driver-popover .driver-popover-next-btn {
+  background: var(--tc-red) !important;
+  color: #fff !important;
+  border: none !important;
+}
+.tc-driver-popover .driver-popover-prev-btn {
+  background: var(--tc-input) !important;
+  color: var(--tc-text-sec) !important;
+  border: 1px solid var(--tc-border) !important;
+}
+.tc-driver-popover .driver-popover-close-btn {
+  color: var(--tc-text-muted) !important;
+}
+.tc-driver-popover .driver-popover-arrow-side-left,
+.tc-driver-popover .driver-popover-arrow-side-right,
+.tc-driver-popover .driver-popover-arrow-side-top,
+.tc-driver-popover .driver-popover-arrow-side-bottom {
+  border-color: var(--tc-bg) !important;
+}

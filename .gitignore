@@ -1,0 +1,95 @@
+# Secrets and local config — NEVER commit
+.env
+.env.local
+.env.*
+!.env.example
+docker/.env
+dashboard/.env.local
+config/filebrowser.db
+
+# ThreatClaw local config
+threatclaw.local.toml
+~/.threatclaw/
+
+# Internal docs (drafts, not for public)
+docs/internal/
+
+# FileBrowser
+filebrowser.db
+
+# Node modules
+node_modules/
+dashboard/node_modules/
+dashboard/.next/
+
+# Claude Code worktrees and lock files
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Sidecar tool data
+.sidecar/
+.todos/
+
+target/
+
+# Python
+__pycache__/
+*.pyc
+
+# Benchmark results (local runs, not committed)
+bench-results/
+
+# Coverage reports (local runs, not committed)
+/coverage/
+
+# WASM build artifacts (loaded from disk, not bundled)
+*.wasm
+
+# Traces
+trace_*.json
+
+# Local Claude Code settings (machine-specific, should not be committed)
+.claude/settings.local.json
+.worktrees/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.internal/
+# ML models (generated, not committed)
+ml-engine/models/
+/tmp/ml-models/
+*.pkl
+
+# Next.js build
+dashboard/.next/
+dashboard/node_modules/
+
+# Textures (binary, downloaded at build)
+dashboard/public/textures/*.png
+
+# Secrets
+.env.local
+dashboard/.env.local
+
+# TLS certificates (generated at install)
+docker/certs/
+certs/
+*.pem
+*.key
+!docker/generate-certs.sh
+
+# PID files
+*.pid
+.next/
+internal/
+release-artifacts/
+.claude/
+deploy/
+docs/superpowers/
+Dockerfile.test
+Dockerfile.worker
+*.tsbuildinfo
+CLAUDE.md

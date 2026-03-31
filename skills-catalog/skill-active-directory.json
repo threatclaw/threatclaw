@@ -1,0 +1,69 @@
+{
+  "id": "skill-active-directory",
+  "name": "Active Directory",
+  "version": "1.0.0",
+  "description": "Synchronise utilisateurs, groupes, ordinateurs et admins depuis Active Directory via LDAP. Alimente le graphe d'identité.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "Active Directory (ou OpenLDAP) est l'annuaire central de votre entreprise. Il contient les comptes utilisateurs, groupes de sécurité, ordinateurs du domaine et comptes administrateurs.\n\nThreatClaw se connecte via LDAP(S) pour importer l'ensemble de ces objets dans le graphe d'identité. Cela permet de détecter les comptes à privilèges excessifs, les comptes dormants, les machines non conformes et les mouvements latéraux.\n\nPrérequis :\n• Un serveur AD/LDAP accessible (port 636 pour LDAPS, 389 pour LDAP)\n• Un compte de service en lecture seule (aucun droit d'écriture nécessaire)\n• Le Base DN de votre domaine (ex: dc=corp,dc=local)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "ldaps",
+    "default_port": 636
+  },
+  "config": {
+    "host": {
+      "type": "string",
+      "description": "Serveur AD / LDAP",
+      "placeholder": "dc01.corp.local",
+      "hint": "Le nom DNS ou l'adresse IP de votre contrôleur de domaine Active Directory (ou serveur OpenLDAP).",
+      "required": true
+    },
+    "port": {
+      "type": "number",
+      "description": "Port LDAP",
+      "placeholder": "636",
+      "hint": "Port 636 pour LDAPS (recommandé, chiffré), 389 pour LDAP en clair. Utilisez LDAPS en production.",
+      "default": 636
+    },
+    "base_dn": {
+      "type": "string",
+      "description": "Base DN de recherche",
+      "placeholder": "dc=corp,dc=local",
+      "hint": "Le point de départ de la recherche LDAP. Correspond généralement à votre nom de domaine (ex: corp.local → dc=corp,dc=local).",
+      "required": true
+    },
+    "bind_dn": {
+      "type": "string",
+      "description": "DN du compte de service",
+      "placeholder": "cn=tc-readonly,ou=ServiceAccounts,dc=corp,dc=local",
+      "hint": "Le Distinguished Name (DN) complet du compte de service. Créez un compte dédié avec des droits de lecture seule sur l'annuaire.",
+      "required": true
+    },
+    "bind_password": {
+      "type": "password",
+      "description": "Mot de passe du compte de service",
+      "hint": "Le mot de passe du compte de service LDAP. Utilisez un mot de passe fort et unique.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Activez cette option si votre AD utilise un certificat auto-signé (courant en lab). En production avec une PKI interne, désactivez-la.",
+      "default": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 60,
+  "outputs": {
+    "assets": "graph",
+    "users": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "users"
+}

@@ -1,0 +1,46 @@
+{
+  "id": "skill-zap",
+  "name": "OWASP ZAP",
+  "version": "1.0.0",
+  "description": "Scan DAST (Dynamic Application Security Testing) — detecte les vulnerabilites web (XSS, SQL injection, CSRF, etc.) sur une application cible.",
+  "help": "OWASP ZAP teste vos applications web en fonctionnement (analyse dynamique) pour detecter les vulnerabilites exploitables : injections SQL, XSS, CSRF, mauvaise gestion des sessions, headers de securite manquants, configurations TLS faibles. Trois modes disponibles : Baseline (rapide, verifie les headers et configurations basiques en 1-2 min), Full Scan (crawl complet + tests actifs, 30+ min), API Scan (teste une API REST via son schema OpenAPI/Swagger). Les findings alimentent le tableau de bord avec les preuves d'exploitation.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "ghcr.io/zaproxy/zaproxy:stable",
+    "command": "zap-baseline.py -t {TARGET} -J /zap/results.json",
+    "timeout_seconds": 600,
+    "network": "bridge",
+    "memory_limit": "1g"
+  },
+  "config": {
+    "scan_type": {
+      "type": "select",
+      "description": "Type de scan",
+      "hint": "Baseline : rapide et non intrusif (1-2 min), ideal pour un premier apercu. Full Scan : crawl complet et tests actifs (30+ min), plus exhaustif. API Scan : specifique aux APIs REST avec schema OpenAPI.",
+      "options": [
+        "Baseline (rapide, 1-2 min)",
+        "Full Scan (complet, 30+ min)",
+        "API Scan (OpenAPI/Swagger)"
+      ],
+      "default": "Baseline (rapide, 1-2 min)"
+    },
+    "target": {
+      "type": "string",
+      "description": "URL de l'application web a scanner (ex: https://app.monentreprise.fr)",
+      "hint": "URL complete de l'application web a tester. Doit etre accessible depuis le serveur ThreatClaw. Attention : le Full Scan genere du trafic important, testez d'abord en Baseline.",
+      "placeholder": "https://app.monentreprise.fr",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

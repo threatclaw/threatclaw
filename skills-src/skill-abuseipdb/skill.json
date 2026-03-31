@@ -1,0 +1,21 @@
+{
+  "id": "skill-abuseipdb",
+  "name": "AbuseIPDB",
+  "version": "1.0.0",
+  "description": "Verification reputation IP collaborative (score abus, pays, signalements)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "threat-intel",
+  "runtime": "wasm",
+  "type": "enrichment",
+  "api_key_required": true,
+  "requires_config": false,
+  "default_active": false,
+  "config": {
+    "api_key": {
+      "type": "password",
+      "description": "Cle API AbuseIPDB",
+      "required": true
+    }
+  }
+}

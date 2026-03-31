@@ -1,0 +1,5 @@
+scikit-learn==1.6.1
+numpy==2.2.3
+pandas==2.2.3
+psycopg2-binary==2.9.10
+schedule==1.2.2

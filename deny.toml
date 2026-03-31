@@ -1,0 +1,43 @@
+[advisories]
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+    # ── rustls-webpki 0.101.7 / 0.102.8 (transitive, pinned by upstream) ──
+    # CRL Distribution Point matching bypass — affects old rustls versions
+    # pulled by libsql 0.6.0 (rustls 0.22) and aws-smithy (rustls 0.21).
+    # Our direct rustls-webpki 0.103.10 is patched. These old versions cannot
+    # be upgraded without upstream releasing new libsql/aws-sdk versions.
+    "RUSTSEC-2026-0049",
+]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
+    "Zlib",
+    "MPL-2.0",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "CDLA-Permissive-2.0",
+]
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

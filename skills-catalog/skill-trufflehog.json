@@ -1,0 +1,35 @@
+{
+  "id": "skill-trufflehog",
+  "name": "TruffleHog Secrets Scanner",
+  "version": "1.0.0",
+  "description": "Detection de secrets, cles API, tokens dans le code source et les repositories Git.",
+  "help": "TruffleHog parcourt vos depots Git et repertoires pour detecter les secrets exposes : cles API AWS/GCP/Azure, tokens GitHub/GitLab, mots de passe en dur, cles privees SSH/TLS, credentials de bases de donnees. Analyse tout l'historique Git pour retrouver les secrets meme supprimes. Chaque secret detecte est verifie automatiquement (quand possible) pour confirmer s'il est encore actif. Indispensable pour eviter les fuites de credentials.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "trufflesecurity/trufflehog:latest",
+    "command": "trufflehog filesystem {TARGET} --json",
+    "timeout_seconds": 300,
+    "network": "none",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "Chemin du depot Git ou repertoire a scanner",
+      "hint": "Chemin absolu vers le depot Git ou le repertoire contenant le code source a analyser. L'historique Git complet sera parcouru si c'est un depot Git.",
+      "placeholder": "/opt/monapp",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "key"
+}

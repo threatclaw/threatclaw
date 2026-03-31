@@ -1,0 +1,46 @@
+{
+  "id": "skill-lynis",
+  "name": "Lynis Hardening Audit",
+  "version": "1.0.0",
+  "description": "Audit de durcissement Linux — verifie la configuration systeme, les permissions, les services, le kernel, le reseau. Score de hardening + liste des corrections prioritaires. Conforme NIS2 Article 21.",
+  "help": "Lynis audite la securite et le durcissement de vos serveurs Linux. Il verifie plus de 300 points : configuration SSH, permissions fichiers sensibles, services inutiles actifs, politique de mots de passe, configuration firewall, mises a jour disponibles, configuration kernel, logging, et bien plus. Produit un score de durcissement (0-100) et une liste priorisee de corrections. Conforme aux exigences de l'Article 21 de la directive NIS2. Peut s'executer en local ou sur un serveur distant via SSH.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "compliance",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "cisofy/lynis:latest",
+    "command": "lynis audit system --no-colors --report-file /dev/stdout",
+    "timeout_seconds": 300,
+    "network": "none",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "target_host": {
+      "type": "string",
+      "description": "Serveur cible (SSH) ou 'local' pour le serveur ThreatClaw",
+      "hint": "Adresse du serveur a auditer. 'local' pour auditer le serveur ThreatClaw lui-meme. Pour un serveur distant, indiquez l'adresse SSH (ex: user@serveur.local).",
+      "placeholder": "local",
+      "default": "local"
+    },
+    "profile": {
+      "type": "select",
+      "description": "Profil d'audit",
+      "hint": "Profil adapte au type de machine. 'server' pour les serveurs de production, 'workstation' pour les postes de travail, 'default' pour un audit generique.",
+      "options": [
+        "default",
+        "server",
+        "workstation"
+      ],
+      "default": "server"
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "shield"
+}

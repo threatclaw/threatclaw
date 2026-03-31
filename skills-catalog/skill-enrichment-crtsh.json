@@ -1,0 +1,25 @@
+{
+    "id": "skill-enrichment-crtsh",
+    "name": "Certificate Transparency (crt.sh)",
+    "version": "1.0.0",
+    "description": "Surveille les certificats emis pour un domaine, detecte les sous-domaines et rogue certs",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "Interroge les logs Certificate Transparency via crt.sh pour lister tous les certificats SSL/TLS emis pour un domaine. Permet de decouvrir des sous-domaines inconnus et de detecter des certificats frauduleux (rogue certs). Aucune cle API requise, service public gratuit.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://crt.sh/",
+        "triggers": ["domain"],
+        "cache_ttl_hours": 24
+    },
+    "config": {},
+    "outputs": {
+        "certificates": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "file-certificate"
+}

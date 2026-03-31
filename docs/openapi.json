@@ -1,0 +1,240 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ThreatClaw API",
+    "version": "0.1.0",
+    "description": "API REST de l'agent de cybersécurité autonome ThreatClaw. Authentification Bearer token requise sur tous les endpoints.",
+    "license": { "name": "Apache-2.0" },
+    "contact": { "name": "CyberConsulting.fr" }
+  },
+  "servers": [
+    { "url": "http://localhost:3000", "description": "Core API (direct)" },
+    { "url": "http://localhost:3001/api/tc", "description": "Dashboard proxy" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Finding": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "skill_id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"] },
+          "status": { "type": "string", "enum": ["open", "in_progress", "resolved", "false_positive"] },
+          "category": { "type": "string", "nullable": true },
+          "asset": { "type": "string", "nullable": true },
+          "source": { "type": "string", "nullable": true },
+          "metadata": { "type": "object" },
+          "detected_at": { "type": "string" },
+          "resolved_at": { "type": "string", "nullable": true },
+          "resolved_by": { "type": "string", "nullable": true }
+        }
+      },
+      "NewFinding": {
+        "type": "object",
+        "required": ["skill_id", "title", "severity"],
+        "properties": {
+          "skill_id": { "type": "string" },
+          "title": { "type": "string" },
+          "severity": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "asset": { "type": "string" },
+          "source": { "type": "string" },
+          "metadata": { "type": "object" }
+        }
+      },
+      "Alert": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "rule_id": { "type": "string" },
+          "level": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "string" },
+          "hostname": { "type": "string", "nullable": true },
+          "source_ip": { "type": "string", "nullable": true },
+          "username": { "type": "string", "nullable": true },
+          "matched_at": { "type": "string" },
+          "matched_fields": { "type": "object", "nullable": true }
+        }
+      },
+      "DashboardMetrics": {
+        "type": "object",
+        "properties": {
+          "security_score": { "type": "number" },
+          "findings_critical": { "type": "integer" },
+          "findings_high": { "type": "integer" },
+          "findings_medium": { "type": "integer" },
+          "findings_low": { "type": "integer" },
+          "alerts_total": { "type": "integer" },
+          "alerts_new": { "type": "integer" },
+          "cloud_score": { "type": "number" },
+          "darkweb_leaks": { "type": "integer" }
+        }
+      },
+      "AgentMode": {
+        "type": "object",
+        "properties": {
+          "current_mode": { "type": "string" },
+          "mode_name": { "type": "string" },
+          "description": { "type": "string" },
+          "react_enabled": { "type": "boolean" },
+          "auto_execute": { "type": "boolean" },
+          "hitl_required": { "type": "boolean" },
+          "available_modes": { "type": "array", "items": { "$ref": "#/components/schemas/ModeInfo" } }
+        }
+      },
+      "ModeInfo": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "enum": ["analyst", "investigator", "responder", "autonomous_low"] },
+          "name": { "type": "string" },
+          "description": { "type": "string" },
+          "react_enabled": { "type": "boolean" },
+          "auto_execute": { "type": "boolean" }
+        }
+      },
+      "ReactAnalysis": {
+        "type": "object",
+        "properties": {
+          "analysis": { "type": "string" },
+          "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+          "correlations": { "type": "array", "items": { "type": "string" } },
+          "proposed_actions": { "type": "array", "items": {
+            "type": "object",
+            "properties": {
+              "cmd_id": { "type": "string" },
+              "params": { "type": "object" },
+              "rationale": { "type": "string" }
+            }
+          }},
+          "injection_detected": { "type": "boolean" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/tc/health": {
+      "get": {
+        "summary": "Santé du système",
+        "tags": ["System"],
+        "responses": {
+          "200": { "description": "Status, version, database, LLM backend" }
+        }
+      }
+    },
+    "/api/tc/findings": {
+      "get": {
+        "summary": "Lister les findings",
+        "tags": ["Findings"],
+        "parameters": [
+          { "name": "severity", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "skill_id", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "Liste des findings avec total" }
+        }
+      },
+      "post": {
+        "summary": "Créer un finding",
+        "tags": ["Findings"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewFinding" } } } },
+        "responses": {
+          "201": { "description": "Finding créé avec ID" }
+        }
+      }
+    },
+    "/api/tc/findings/counts": {
+      "get": {
+        "summary": "Compteurs findings par sévérité",
+        "tags": ["Findings"],
+        "responses": { "200": { "description": "Tableau label/count" } }
+      }
+    },
+    "/api/tc/findings/{id}": {
+      "get": {
+        "summary": "Détail d'un finding",
+        "tags": ["Findings"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Finding complet" }, "404": { "description": "Not found" } }
+      }
+    },
+    "/api/tc/findings/{id}/status": {
+      "put": {
+        "summary": "Mettre à jour le statut d'un finding",
+        "tags": ["Findings"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "resolved_by": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Statut mis à jour" } }
+      }
+    },
+    "/api/tc/alerts": {
+      "get": {
+        "summary": "Lister les alertes SOC",
+        "tags": ["Alerts"],
+        "parameters": [
+          { "name": "level", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "Liste des alertes" } }
+      }
+    },
+    "/api/tc/alerts/counts": {
+      "get": { "summary": "Compteurs alertes par niveau", "tags": ["Alerts"], "responses": { "200": { "description": "Tableau level/count" } } }
+    },
+    "/api/tc/alerts/{id}/status": {
+      "put": {
+        "summary": "Mettre à jour le statut d'une alerte",
+        "tags": ["Alerts"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "notes": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Statut mis à jour" } }
+      }
+    },
+    "/api/tc/config/{skill_id}": {
+      "get": { "summary": "Lire la config d'un skill", "tags": ["Config"], "parameters": [{ "name": "skill_id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "Clés-valeurs du skill" } } },
+      "post": { "summary": "Écrire une config skill", "tags": ["Config"], "parameters": [{ "name": "skill_id", "in": "path", "required": true, "schema": { "type": "string" } }], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "key": { "type": "string" }, "value": { "type": "string" } } } } } }, "responses": { "200": { "description": "Config sauvegardée" } } }
+    },
+    "/api/tc/metrics": {
+      "get": { "summary": "Métriques dashboard agrégées", "tags": ["Metrics"], "responses": { "200": { "description": "DashboardMetrics", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardMetrics" } } } } } }
+    },
+    "/api/tc/agent/mode": {
+      "get": { "summary": "Mode agent actuel + modes disponibles", "tags": ["Agent"], "responses": { "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentMode" } } } } } },
+      "post": { "summary": "Changer le mode agent", "tags": ["Agent"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "mode": { "type": "string", "enum": ["analyst", "investigator", "responder", "autonomous_low"] } } } } } }, "responses": { "200": { "description": "Mode changé" } } }
+    },
+    "/api/tc/agent/kill-switch": {
+      "get": { "summary": "Status du kill switch", "tags": ["Agent"], "responses": { "200": { "description": "active + kill_reason" } } },
+      "post": { "summary": "Déclencher le kill switch (arrêt d'urgence)", "tags": ["Agent"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "triggered_by": { "type": "string" } } } } } }, "responses": { "200": { "description": "Kill switch engagé" } } }
+    },
+    "/api/tc/agent/soul": {
+      "get": { "summary": "Vérification du soul agent", "tags": ["Agent"], "responses": { "200": { "description": "Status, name, version, rules_count" } } }
+    },
+    "/api/tc/agent/audit": {
+      "get": { "summary": "Journal d'audit agent", "tags": ["Agent"], "responses": { "200": { "description": "Entrées d'audit ordonnées par date" } } }
+    },
+    "/api/tc/agent/react-cycle": {
+      "post": { "summary": "Déclencher un cycle ReAct manuellement", "tags": ["Agent"], "responses": { "200": { "description": "Résultat du cycle (status, observations, analysis)", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" }, "observations": { "type": "integer" }, "analysis": { "$ref": "#/components/schemas/ReactAnalysis" }, "error": { "type": "string", "nullable": true } } } } } } } }
+    },
+    "/api/tc/agent/hitl-callback": {
+      "post": { "summary": "Callback HITL (approve/reject une action)", "tags": ["Agent"], "requestBody": { "content": { "application/json": { "schema": { "type": "object", "required": ["nonce", "approved", "approved_by", "params"], "properties": { "nonce": { "type": "string" }, "approved": { "type": "boolean" }, "approved_by": { "type": "string" }, "params": { "type": "object" } } } } } }, "responses": { "200": { "description": "Résultat de l'approbation/exécution" } } }
+    }
+  },
+  "tags": [
+    { "name": "System", "description": "Santé et version" },
+    { "name": "Findings", "description": "Vulnérabilités et résultats de scan" },
+    { "name": "Alerts", "description": "Alertes SOC (Sigma)" },
+    { "name": "Config", "description": "Configuration par skill" },
+    { "name": "Metrics", "description": "Métriques dashboard" },
+    { "name": "Agent", "description": "Contrôle de l'agent IA (mode, kill switch, ReAct, HITL)" }
+  ]
+}

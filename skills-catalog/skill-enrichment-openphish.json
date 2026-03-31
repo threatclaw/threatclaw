@@ -1,0 +1,15 @@
+{
+    "id": "skill-enrichment-openphish",
+    "name": "OpenPhish",
+    "description": "URLs de phishing (feed gratuit, ~500 URLs, sync 6h).",
+    "type": "enrichment",
+    "category": "threat-intel",
+    "default_active": true,
+    "api_key_required": false,
+    "icon": "fish",
+    "help": "Feed communautaire d'URLs de phishing detectees automatiquement par OpenPhish. Contient environ 500 URLs, mis a jour toutes les 6 heures. Permet de verifier si une URL visitee par un utilisateur est un site de phishing connu. Aucune cle API requise.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://openphish.com/feed.txt"
+    }
+}

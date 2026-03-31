@@ -1,0 +1,35 @@
+{
+  "id": "skill-syft",
+  "name": "Syft SBOM Generator",
+  "version": "1.0.0",
+  "description": "Generation de Software Bill of Materials (SBOM). Format SPDX/CycloneDX. Requis NIS2 supply chain.",
+  "help": "Syft genere un inventaire complet (SBOM) de tous les composants logiciels presents dans une image Docker ou un repertoire : paquets systeme, bibliotheques, dependances applicatives, avec leurs versions exactes. Le SBOM est au format standard SPDX ou CycloneDX, requis par la directive NIS2 pour la traçabilite de la chaine d'approvisionnement logicielle. Le SBOM genere peut ensuite etre analyse par Grype pour detecter les CVE. Indispensable pour savoir exactement ce qui tourne en production.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "anchore/syft:latest",
+    "command": "syft {TARGET} -o json",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "Image Docker ou repertoire a analyser",
+      "hint": "Image Docker (locale ou distante) ou chemin vers un repertoire de code. Syft detectera automatiquement les gestionnaires de paquets (npm, pip, maven, etc.).",
+      "placeholder": "monapp:production",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "database"
+}

@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust-check:
+    name: Rust Build & Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: threatclaw
+          POSTGRES_PASSWORD: threatclaw
+          POSTGRES_DB: threatclaw
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libssl-dev libpq-dev protobuf-compiler nmap
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo check
+        run: cargo check --all
+
+      - name: cargo test (lib)
+        run: cargo test --lib -p threatclaw 2>&1 | tee /tmp/test-output.txt
+        env:
+          DATABASE_URL: postgres://threatclaw:threatclaw@localhost:5432/threatclaw
+
+      - name: Test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          PASS=$(grep "test result:" /tmp/test-output.txt | grep -oP '\d+ passed' | head -1 || echo "0 passed")
+          FAIL=$(grep "test result:" /tmp/test-output.txt | grep -oP '\d+ failed' | head -1 || echo "0 failed")
+          echo "- $PASS" >> $GITHUB_STEP_SUMMARY
+          echo "- $FAIL" >> $GITHUB_STEP_SUMMARY
+
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --quiet 2>/dev/null || true
+          cargo audit 2>&1 || true
+
+      - name: License check
+        run: |
+          echo "## License" >> $GITHUB_STEP_SUMMARY
+          echo "AGPL-3.0-or-later" >> $GITHUB_STEP_SUMMARY
+          grep -q "AGPL-3.0-or-later" Cargo.toml && echo "License field OK" || echo "WARNING: license field missing"
+
+      - name: Build ID
+        run: |
+          echo "## Build" >> $GITHUB_STEP_SUMMARY
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  dashboard:
+    name: Dashboard Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npx next build
+
+  skill-catalog:
+    name: Skill Catalog Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate skill manifests
+        run: |
+          echo "## Skill Catalog" >> $GITHUB_STEP_SUMMARY
+          TOTAL=0
+          VALID=0
+          INVALID=0
+          for f in skills-catalog/*.json skills-src/*/skill.json skills/*/skill.json; do
+            [ -f "$f" ] || continue
+            TOTAL=$((TOTAL + 1))
+            if python3 -c "import json; json.load(open('$f'))" 2>/dev/null; then
+              VALID=$((VALID + 1))
+            else
+              INVALID=$((INVALID + 1))
+              echo "INVALID: $f"
+            fi
+          done
+          echo "- Total: $TOTAL manifests" >> $GITHUB_STEP_SUMMARY
+          echo "- Valid: $VALID" >> $GITHUB_STEP_SUMMARY
+          echo "- Invalid: $INVALID" >> $GITHUB_STEP_SUMMARY
+          [ "$INVALID" -eq 0 ] || exit 1

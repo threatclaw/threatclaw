@@ -1,0 +1,54 @@
+{
+  "id": "skill-proxmox",
+  "name": "Proxmox VE",
+  "version": "1.0.0",
+  "description": "Synchronise VMs, containers et noeuds depuis Proxmox VE. Alimente le graphe d'infrastructure.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "Proxmox VE est un hyperviseur open-source (KVM + LXC) très utilisé en PME. Il gère vos machines virtuelles et containers avec une API REST complète.\n\nThreatClaw récupère l'inventaire de toutes vos VMs, containers LXC et noeuds physiques pour les intégrer au graphe d'infrastructure. Cela permet de cartographier votre parc virtualisé, détecter les VMs orphelines et corréler les alertes avec l'hôte physique.\n\nPrérequis :\n• Proxmox VE accessible (port 8006 par défaut)\n• Un API Token : Datacenter > Permissions > API Tokens > Add\n• Créez un utilisateur dédié (ex: tc-audit@pam) avec le rôle PVEAuditor (lecture seule)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 30,
+    "protocol": "https",
+    "default_port": 8006
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Proxmox VE",
+      "placeholder": "https://192.168.10.10:8006",
+      "hint": "L'adresse de votre serveur Proxmox avec le port (8006 par défaut). Utilisez https://.",
+      "required": true
+    },
+    "token_id": {
+      "type": "string",
+      "description": "API Token ID",
+      "placeholder": "tc-audit@pam!tc-token",
+      "hint": "L'identifiant complet du token au format utilisateur@realm!nom-du-token. Créez-le dans Datacenter > Permissions > API Tokens.",
+      "required": true
+    },
+    "token_secret": {
+      "type": "password",
+      "description": "API Token Secret",
+      "hint": "Le secret du token, affiché une seule fois à la création. Si vous l'avez perdu, supprimez le token et recréez-en un.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Proxmox utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez configuré Let's Encrypt ou une PKI interne.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 30,
+  "outputs": {
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "server"
+}

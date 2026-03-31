@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThreatClaw</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a0f;
+    color: #e8e4e0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(208, 48, 32, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(208, 48, 32, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    animation: gridPulse 8s ease-in-out infinite;
+  }
+
+  @keyframes gridPulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+  }
+
+  body::after {
+    content: '';
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(208, 48, 32, 0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    max-width: 560px;
+    padding: 0 24px;
+  }
+
+  .logo {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 32px;
+    opacity: 0.6;
+    filter: drop-shadow(0 0 20px rgba(208, 48, 32, 0.3));
+    animation: logoPulse 4s ease-in-out infinite;
+  }
+
+  @keyframes logoPulse {
+    0%, 100% { opacity: 0.5; filter: drop-shadow(0 0 20px rgba(208, 48, 32, 0.2)); }
+    50% { opacity: 0.8; filter: drop-shadow(0 0 30px rgba(208, 48, 32, 0.4)); }
+  }
+
+  .error-code {
+    font-size: 120px;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -4px;
+    background: linear-gradient(135deg, #d03020 0%, #ff6050 40%, #d03020 100%);
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradientShift 6s ease infinite;
+    margin-bottom: 8px;
+  }
+
+  @keyframes gradientShift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  .error-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #e8e4e0;
+    margin-bottom: 16px;
+    letter-spacing: -0.3px;
+  }
+
+  .error-desc {
+    font-size: 14px;
+    font-weight: 300;
+    color: rgba(232, 228, 224, 0.5);
+    line-height: 1.7;
+    margin-bottom: 32px;
+  }
+
+  .fix-card {
+    background: rgba(18, 18, 26, 0.7);
+    border: 1px solid rgba(208, 48, 32, 0.15);
+    border-radius: 12px;
+    padding: 20px 24px;
+    text-align: left;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    margin-bottom: 32px;
+  }
+
+  .fix-card-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #d03020;
+    margin-bottom: 12px;
+  }
+
+  .fix-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    font-size: 13px;
+    color: rgba(232, 228, 224, 0.7);
+    line-height: 1.5;
+  }
+
+  .fix-item + .fix-item {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
+  .fix-arrow {
+    flex-shrink: 0;
+    width: 16px;
+    margin-top: 2px;
+    color: #d03020;
+    opacity: 0.7;
+  }
+
+  .fix-cmd {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    background: rgba(208, 48, 32, 0.1);
+    border: 1px solid rgba(208, 48, 32, 0.15);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #ff6050;
+    display: inline-block;
+    margin-top: 4px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 28px;
+    background: rgba(208, 48, 32, 0.12);
+    border: 1px solid rgba(208, 48, 32, 0.25);
+    border-radius: 8px;
+    color: #e8e4e0;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    background: rgba(208, 48, 32, 0.2);
+    border-color: rgba(208, 48, 32, 0.4);
+    box-shadow: 0 0 20px rgba(208, 48, 32, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .btn svg { width: 16px; height: 16px; }
+
+  .status-line {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: rgba(232, 228, 224, 0.25);
+    letter-spacing: 0.5px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #d03020;
+    animation: dotBlink 2s ease-in-out infinite;
+  }
+
+  @keyframes dotBlink {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+
+  .scanline {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(208, 48, 32, 0.3), transparent);
+    animation: scanDown 8s linear infinite;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  @keyframes scanDown {
+    0% { top: -2px; }
+    100% { top: 100vh; }
+  }
+
+  @media (max-width: 480px) {
+    .error-code { font-size: 80px; }
+    .error-title { font-size: 18px; }
+    .fix-card { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<div class="container">
+
+  <svg class="logo" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M160 70c-10-30-40-50-70-50S40 40 30 70c-5 15-5 30 0 45 8 25 30 45 55 55 5 2 10 3 15 3s10-1 15-3c25-10 47-30 55-55 5-15 5-30 0-45z" stroke="#d03020" stroke-width="4" fill="none"/>
+    <path d="M100 50c-20 0-38 12-45 30-4 10-4 22 0 32 6 18 22 32 40 40l5 2 5-2c18-8 34-22 40-40 4-10 4-22 0-32-7-18-25-30-45-30z" stroke="#d03020" stroke-width="3" fill="rgba(208,48,32,0.05)"/>
+    <circle cx="90" cy="85" r="4" fill="#d03020" opacity="0.8"/>
+    <path d="M70 90h60" stroke="#d03020" stroke-width="2" opacity="0.3"/>
+    <path d="M75 100h50" stroke="#d03020" stroke-width="1.5" opacity="0.2"/>
+    <path d="M80 108h40" stroke="#d03020" stroke-width="1" opacity="0.15"/>
+  </svg>
+
+  <!-- NGINX SSI will substitute the correct block based on status code -->
+
+  <!-- 400 -->
+  <!--# if expr="$status = 400" -->
+  <div class="error-code">400</div>
+  <div class="error-title">Requete invalide</div>
+  <div class="error-desc">Le serveur n'a pas compris la requete. Le format ou les parametres envoyes sont incorrects.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez que vous utilisez https:// et non http:// sur le port HTTPS</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Si vous utilisez l'API, controlez le format JSON de votre requete</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Videz le cache de votre navigateur</span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 401 -->
+  <!--# if expr="$status = 401" -->
+  <div class="error-code">401</div>
+  <div class="error-title">Authentification requise</div>
+  <div class="error-desc">Vous devez vous connecter pour acceder a cette ressource. Votre session a peut-etre expire.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Reconnectez-vous depuis la page de login</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez que votre token API est valide <span class="fix-cmd">TC_AUTH_TOKEN</span></span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 403 -->
+  <!--# if expr="$status = 403" -->
+  <div class="error-code">403</div>
+  <div class="error-title">Acces interdit</div>
+  <div class="error-desc">Vous n'avez pas les droits necessaires. Le module de securite a bloque la requete.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez votre role utilisateur (admin requis pour cette page)</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez le header <span class="fix-cmd">Authorization: Bearer &lt;token&gt;</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Cette action est peut-etre restreinte par la politique HITL</span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 404 -->
+  <!--# if expr="$status = 404" -->
+  <div class="error-code">404</div>
+  <div class="error-title">Page introuvable</div>
+  <div class="error-desc">La ressource demandee n'existe pas. Elle a peut-etre ete deplacee ou supprimee.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez l'URL — une faute de frappe est vite arrivee</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Accedez au dashboard depuis la page d'accueil</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Les endpoints API sont sous <span class="fix-cmd">/api/</span></span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 429 -->
+  <!--# if expr="$status = 429" -->
+  <div class="error-code">429</div>
+  <div class="error-title">Trop de requetes</div>
+  <div class="error-desc">Le systeme anti-brute-force a temporairement limite vos requetes. C'est un mecanisme de securite.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Attendez 30 secondes avant de reessayer</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Limite par defaut : 30 requetes/seconde</span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 500 -->
+  <!--# if expr="$status = 500" -->
+  <div class="error-code">500</div>
+  <div class="error-title">Erreur interne</div>
+  <div class="error-desc">Le serveur a rencontre une erreur inattendue.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Consultez les logs <span class="fix-cmd">docker compose logs -f threatclaw-core</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Redemarrez le service <span class="fix-cmd">docker compose restart threatclaw-core</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez l'espace disque et la RAM disponible</span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 502 -->
+  <!--# if expr="$status = 502" -->
+  <div class="error-code">502</div>
+  <div class="error-title">Passerelle indisponible</div>
+  <div class="error-desc">Nginx n'arrive pas a joindre ThreatClaw. Le core est peut-etre en cours de redemarrage.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez que les services tournent <span class="fix-cmd">docker compose ps</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Redemarrez la stack <span class="fix-cmd">docker compose restart</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Les modeles IA mettent ~2 min a charger au demarrage</span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 503 -->
+  <!--# if expr="$status = 503" -->
+  <div class="error-code">503</div>
+  <div class="error-title">Service indisponible</div>
+  <div class="error-desc">ThreatClaw est en cours de demarrage ou de mise a jour. Ca devrait se resoudre automatiquement.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Attendez 30 secondes et rechargez la page</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Premier demarrage : les modeles se telechargent (~18 GB)</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez le health <span class="fix-cmd">curl -k https://localhost/api/health</span></span></div>
+  </div>
+  <!--# endif -->
+
+  <!-- 504 -->
+  <!--# if expr="$status = 504" -->
+  <div class="error-code">504</div>
+  <div class="error-title">Timeout passerelle</div>
+  <div class="error-desc">L'analyse IA a depasse la limite de temps (300s). Le dossier d'incident est peut-etre volumineux.</div>
+  <div class="fix-card">
+    <div class="fix-card-title">Actions recommandees</div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>L'investigation est peut-etre encore en cours en arriere-plan</span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez les logs <span class="fix-cmd">docker compose logs threatclaw-core | grep INVESTIGATION</span></span></div>
+    <div class="fix-item"><svg class="fix-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg><span>Verifiez qu'Ollama repond <span class="fix-cmd">docker compose logs ollama</span></span></div>
+  </div>
+  <!--# endif -->
+
+  <a href="/" class="btn">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
+    Dashboard
+  </a>
+</div>
+
+<div class="status-line">
+  <span class="status-dot"></span>
+  ThreatClaw Agent
+</div>
+
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "id": "skill-docker-bench",
+  "name": "Docker Bench Security",
+  "version": "1.0.0",
+  "description": "Audit de securite Docker conforme CIS Benchmark. Verifie la configuration du daemon, les images, les containers, les volumes, les reseaux.",
+  "help": "Docker Bench Security audite votre installation Docker selon le benchmark CIS (Center for Internet Security). Verifie la configuration du daemon Docker, les permissions des fichiers de configuration, la securite des conteneurs en cours d'execution (privileges, capabilities, volumes sensibles montes), la configuration reseau, et les bonnes pratiques pour les images. Produit un rapport PASS/WARN/FAIL pour chaque controle. Indispensable si vous hebergez des applications en conteneurs.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "docker/docker-bench-security:latest",
+    "command": "docker-bench-security",
+    "timeout_seconds": 300,
+    "network": "none",
+    "memory_limit": "256m",
+    "volumes": [
+      "/var/run/docker.sock:/var/run/docker.sock:ro",
+      "/etc:/host/etc:ro",
+      "/var/lib:/host/var/lib:ro"
+    ]
+  },
+  "config": {},
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "container"
+}

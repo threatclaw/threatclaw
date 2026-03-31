@@ -1,0 +1,38 @@
+{
+  "id": "skill-sigma-rules",
+  "name": "Sigma Rules",
+  "version": "1.0.0",
+  "description": "Detection d'alertes dans les logs via regles Sigma. Analyse les logs syslog en temps reel et genere des alertes quand un pattern malveillant est detecte.",
+  "help": "Le moteur Sigma analyse vos logs systeme en temps reel pour detecter les comportements malveillants : connexions suspectes, escalades de privileges, execution de commandes dangereuses, mouvements lateraux, exfiltration de donnees. Les regles Sigma sont un standard ouvert utilise par la communaute securite mondiale. ThreatClaw inclut des regles integrees couvrant les menaces courantes, et peut aussi charger les regles SigmaHQ (communaute) ou vos regles personnalisees. Chaque detection genere une alerte dans le tableau de bord.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "monitoring",
+  "execution": {
+    "mode": "persistent",
+    "builtin": true
+  },
+  "config": {
+    "rule_sources": {
+      "type": "select",
+      "description": "Source des regles Sigma",
+      "hint": "Source des regles de detection. 'Regles integrees ThreatClaw' couvre les menaces les plus courantes. 'SigmaHQ' ajoute les regles de la communaute (plus de detections, mais plus de faux positifs). 'Regles custom' pour vos propres regles.",
+      "options": ["Regles integrees ThreatClaw", "SigmaHQ (community)", "Regles custom"],
+      "default": "Regles integrees ThreatClaw"
+    },
+    "severity_threshold": {
+      "type": "select",
+      "description": "Severite minimum pour generer une alerte",
+      "hint": "Seuil de severite minimum pour generer une alerte. 'medium' est recommande pour un bon equilibre detection/bruit. 'high' reduit le bruit mais peut manquer des menaces.",
+      "options": ["low", "medium", "high", "critical"],
+      "default": "medium"
+    }
+  },
+  "outputs": {
+    "alerts": "db"
+  },
+  "default_active": true,
+  "requires_config": false,
+  "api_key_required": false,
+  "icon": "alert-triangle"
+}

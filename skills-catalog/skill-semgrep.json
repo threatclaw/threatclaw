@@ -1,0 +1,42 @@
+{
+  "id": "skill-semgrep",
+  "name": "Semgrep SAST",
+  "version": "1.0.0",
+  "description": "Analyse statique de code source (SAST). Detecte les vulnerabilites, injections SQL, XSS, secrets hardcodes.",
+  "help": "Semgrep analyse le code source de vos applications sans les executer (analyse statique). Il detecte les vulnerabilites courantes : injections SQL, XSS, deserialisation non securisee, secrets en dur dans le code, mauvaises pratiques cryptographiques. Supporte Python, JavaScript, TypeScript, Java, Go, Ruby, PHP et bien d'autres. Les resultats sont classes par severite et alimentent le tableau de bord ThreatClaw. Ideal pour integrer la securite dans votre cycle de developpement.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "appsec",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "semgrep/semgrep:latest",
+    "command": "semgrep scan --config auto --json {TARGET}",
+    "timeout_seconds": 600,
+    "network": "none",
+    "memory_limit": "1g"
+  },
+  "config": {
+    "rules": {
+      "type": "string",
+      "description": "Regles Semgrep (auto, p/owasp-top-ten, p/security-audit)",
+      "hint": "Jeu de regles a appliquer. 'auto' detecte le langage et applique les regles recommandees. 'p/owasp-top-ten' cible les 10 risques OWASP. 'p/security-audit' est plus exhaustif.",
+      "placeholder": "auto",
+      "default": "auto"
+    },
+    "target": {
+      "type": "string",
+      "description": "Chemin du code source a analyser",
+      "hint": "Chemin absolu vers le repertoire contenant le code source de votre application. ThreatClaw montera ce repertoire dans le conteneur d'analyse.",
+      "placeholder": "/opt/monapp/src",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "code"
+}

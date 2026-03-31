@@ -1,0 +1,33 @@
+{
+    "id": "skill-enrichment-phishtank",
+    "name": "PhishTank",
+    "version": "1.0.0",
+    "description": "Verifie si une URL est connue comme phishing dans la base PhishTank",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "PhishTank est une base communautaire d'URLs de phishing verifiees. Permet de controler si une URL ou un domaine est repertorie comme site de phishing. Cle API optionnelle : sans cle, les requetes sont limitees. Avec une App Key gratuite, vous obtenez des limites plus elevees.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://checkurl.phishtank.com/checkurl/",
+        "triggers": ["domain", "url"],
+        "cache_ttl_hours": 24
+    },
+    "config": {
+        "phishtank_app_key": {
+            "type": "password",
+            "description": "PhishTank App Key (optionnelle, limites plus elevees)",
+            "required": false,
+            "hint": "Optionnel. Creez un compte sur phishtank.org pour obtenir une App Key gratuite.",
+            "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+    },
+    "outputs": {
+        "phishing_status": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "fish"
+}

@@ -1,0 +1,39 @@
+# ThreatClaw DB — PostgreSQL 16 + pgvector + Apache AGE + TimescaleDB
+# All extensions in a single PostgreSQL instance.
+
+FROM pgvector/pgvector:pg16
+
+# Install Apache AGE (graph database extension)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates build-essential git postgresql-server-dev-16 \
+        libreadline-dev zlib1g-dev flex bison \
+        curl gnupg \
+    && git clone --branch PG16/v1.5.0-rc0 --depth 1 \
+        https://github.com/apache/age.git /tmp/age \
+    && cd /tmp/age \
+    && make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config \
+    && make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config install \
+    && rm -rf /tmp/age
+
+# Install TimescaleDB (full version with TSL — compression + retention)
+RUN echo "deb https://packagecloud.io/timescale/timescaledb/ubuntu/ jammy main" \
+        > /etc/apt/sources.list.d/timescaledb.list \
+    && curl -fsSL https://packagecloud.io/timescale/timescaledb/gpgkey \
+        | gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        timescaledb-2-postgresql-16 \
+    && apt-get purge -y ca-certificates build-essential git postgresql-server-dev-16 \
+        libreadline-dev zlib1g-dev flex bison \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configure shared_preload_libraries
+RUN echo "shared_preload_libraries = 'timescaledb'" \
+    >> /usr/share/postgresql/16/postgresql.conf.sample
+
+# Auto-create extensions on first boot
+RUN echo "CREATE EXTENSION IF NOT EXISTS vector;" > /docker-entrypoint-initdb.d/00-extensions.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS age;" >> /docker-entrypoint-initdb.d/00-extensions.sql \
+    && echo "CREATE EXTENSION IF NOT EXISTS timescaledb;" >> /docker-entrypoint-initdb.d/00-extensions.sql \
+    && echo "LOAD 'age';" >> /docker-entrypoint-initdb.d/00-extensions.sql

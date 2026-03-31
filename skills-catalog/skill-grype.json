@@ -1,0 +1,35 @@
+{
+  "id": "skill-grype",
+  "name": "Grype Vulnerability Scanner",
+  "version": "1.0.0",
+  "description": "Scan de vulnerabilites dans les images Docker et les artefacts. Compatible SBOM Syft.",
+  "help": "Grype scanne vos images Docker pour detecter les vulnerabilites connues (CVE) dans les paquets systeme et les dependances applicatives. Compatible avec les SBOM generes par Syft pour une analyse supply chain complete. Identifie les CVE critiques avec leur score CVSS, le paquet affecte et la version corrigee disponible. Essentiel pour securiser vos conteneurs en production et repondre aux exigences NIS2 sur la chaine d'approvisionnement logicielle.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "containers",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "anchore/grype:latest",
+    "command": "grype {TARGET} -o json",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "512m"
+  },
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "Image Docker a scanner (ex: nginx:latest)",
+      "hint": "Nom complet de l'image Docker a analyser. Peut etre une image locale ou distante (Docker Hub, registre prive). Format : nom:tag ou registre/nom:tag.",
+      "placeholder": "nginx:latest",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "server"
+}

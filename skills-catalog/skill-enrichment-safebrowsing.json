@@ -1,0 +1,33 @@
+{
+    "id": "skill-enrichment-safebrowsing",
+    "name": "Google Safe Browsing",
+    "version": "1.0.0",
+    "description": "Verifie si une URL est blacklistee par Google (malware, phishing, social engineering)",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "Google Safe Browsing verifie si une URL est connue pour heberger du malware, du phishing ou du social engineering. Cle API Google obligatoire (gratuite). Creez un projet sur Google Cloud Console, activez l'API Safe Browsing, puis generez une cle API. Limite : 10 000 requetes/jour gratuites.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://safebrowsing.googleapis.com/v4/threatMatches:find",
+        "triggers": ["domain", "url"],
+        "cache_ttl_hours": 24
+    },
+    "config": {
+        "google_safebrowsing_key": {
+            "type": "password",
+            "description": "Cle API Google Safe Browsing",
+            "required": true,
+            "hint": "Obligatoire. Creez un projet sur console.cloud.google.com, activez l'API Safe Browsing et generez une cle.",
+            "placeholder": "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+        }
+    },
+    "outputs": {
+        "threats": "graph"
+    },
+    "default_active": false,
+    "requires_config": true,
+    "api_key_required": true,
+    "icon": "shield-alert"
+}

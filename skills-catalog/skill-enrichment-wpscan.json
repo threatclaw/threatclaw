@@ -1,0 +1,54 @@
+{
+    "id": "skill-enrichment-wpscan",
+    "name": "WPScan Vulnerabilities",
+    "version": "1.0.0",
+    "description": "Vulnerabilites WordPress : plugins, themes et core (25 req/jour gratuit)",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "WPScan interroge la base de vulnerabilites WordPress (core, plugins, themes) maintenue par WPScan. Cle API obligatoire (gratuite, 25 requetes/jour). Peut aussi scanner un site WordPress pour enumerer les plugins, themes et versions installees.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://wpscan.com/api/v3",
+        "triggers": ["wordpress"],
+        "cache_ttl_hours": 24
+    },
+    "config": {
+        "api_key": {
+            "type": "password",
+            "description": "Token API WPScan",
+            "required": true,
+            "hint": "Obligatoire. Inscrivez-vous sur wpscan.com pour obtenir un token gratuit (25 req/jour).",
+            "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "wordpress_url": {
+            "type": "string",
+            "description": "URL du site WordPress a scanner",
+            "required": false,
+            "hint": "URL complete du site WordPress cible (ex: https://monsite.fr). Laissez vide pour utiliser uniquement le lookup de vulnerabilites.",
+            "placeholder": "https://monsite.example.com"
+        },
+        "enumerate": {
+            "type": "string",
+            "description": "Elements a enumerer lors du scan",
+            "required": false,
+            "hint": "Types d'elements a enumerer : p (plugins), t (themes), u (utilisateurs), vp (plugins vulnerables), vt (themes vulnerables). Combinables : vp,vt",
+            "placeholder": "vp,vt"
+        },
+        "scan_type": {
+            "type": "string",
+            "description": "Type de scan a effectuer",
+            "required": false,
+            "hint": "Mode de scan : 'passive' (lookup API uniquement) ou 'active' (scan du site WordPress). Le mode passif ne contacte pas le site cible.",
+            "placeholder": "passive"
+        }
+    },
+    "outputs": {
+        "vulnerabilities": "graph"
+    },
+    "default_active": false,
+    "requires_config": true,
+    "api_key_required": true,
+    "icon": "wordpress"
+}

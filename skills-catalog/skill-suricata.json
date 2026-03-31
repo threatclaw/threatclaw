@@ -1,0 +1,38 @@
+{
+  "id": "skill-suricata",
+  "name": "Suricata IDS",
+  "version": "1.0.0",
+  "description": "IDS/IPS réseau — ingère eve.json de Suricata (alertes signatures, DNS, flows, TLS). 40K+ règles de détection.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "ids",
+  "help": "Suricata est un IDS/IPS réseau open-source qui analyse le trafic en temps réel. Il détecte les intrusions via plus de 40 000 règles de signatures (Emerging Threats) et produit un fichier eve.json contenant les alertes, flows, requêtes DNS et connexions TLS.\n\nThreatClaw lit le fichier eve.json en continu pour importer les alertes comme findings et les flows/DNS dans le graphe réseau. Cela permet de détecter les communications C2, les scans de ports, les exploits réseau et les résolutions DNS suspectes.\n\nPrérequis :\n• Suricata installé et configuré en mode IDS (sur un port miroir/SPAN ou inline)\n• Le fichier eve.json accessible par ThreatClaw (montage Docker ou chemin local)\n• 2 à 4 Go de RAM recommandés pour Suricata",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "docker_image": "jasonish/suricata:latest",
+    "network": "host",
+    "note": "Requires --network host for traffic capture. 2-4 GB RAM."
+  },
+  "config": {
+    "eve_json_path": {
+      "type": "string",
+      "description": "Chemin vers le fichier eve.json",
+      "placeholder": "/var/log/suricata/eve.json",
+      "hint": "Le chemin complet vers le fichier eve.json de Suricata. Par défaut : /var/log/suricata/eve.json. Si Suricata tourne dans Docker, montez ce fichier dans le container ThreatClaw.",
+      "required": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "alerts": "db",
+    "flows": "graph",
+    "dns": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

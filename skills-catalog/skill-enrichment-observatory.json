@@ -1,0 +1,25 @@
+{
+    "id": "skill-enrichment-observatory",
+    "name": "Mozilla Observatory",
+    "version": "1.0.0",
+    "description": "Score securite des headers HTTP (CSP, HSTS, X-Frame-Options) avec note A+ a F",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "Mozilla Observatory analyse les en-tetes HTTP de securite d'un site (CSP, HSTS, X-Frame-Options, etc.) et attribue une note de A+ a F. Ideal pour verifier la configuration securite d'un serveur web. Aucune cle API requise, service public gratuit de Mozilla.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://observatory-api.mdn.mozilla.net/api/v2/scan",
+        "triggers": ["domain"],
+        "cache_ttl_hours": 168
+    },
+    "config": {},
+    "outputs": {
+        "headers_grade": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "eye"
+}

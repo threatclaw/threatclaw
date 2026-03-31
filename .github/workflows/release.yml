@@ -1,0 +1,90 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libssl-dev libpq-dev protobuf-compiler
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Build release binary
+        run: cargo build --release --bin threatclaw
+
+      - name: Build Docker images
+        run: |
+          docker build -t threatclaw/core:${{ steps.version.outputs.VERSION }} \
+                       -t threatclaw/core:latest \
+                       -f Dockerfile .
+          docker build -t threatclaw/dashboard:${{ steps.version.outputs.VERSION }} \
+                       -t threatclaw/dashboard:latest \
+                       -f dashboard/Dockerfile ./dashboard
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Extract changelog for this version, or generate from commits
+          if [ -f CHANGELOG.md ]; then
+            # Try to extract section for this version
+            CHANGELOG=$(sed -n "/^## .*${{ steps.version.outputs.VERSION }}/,/^## /p" CHANGELOG.md | head -n -1)
+          fi
+          if [ -z "$CHANGELOG" ]; then
+            # Fall back to commits since last tag
+            PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
+            else
+              CHANGELOG=$(git log --pretty=format:"- %s (%h)" -20)
+            fi
+          fi
+          # Write to file for the release body
+          echo "$CHANGELOG" > /tmp/release-notes.md
+
+      - name: Prepare release asset
+        run: |
+          cp target/release/threatclaw threatclaw-linux-amd64
+          chmod +x threatclaw-linux-amd64
+          tar czf threatclaw-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz \
+            threatclaw-linux-amd64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ThreatClaw v${{ steps.version.outputs.VERSION }}
+          body_path: /tmp/release-notes.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+          files: |
+            threatclaw-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz

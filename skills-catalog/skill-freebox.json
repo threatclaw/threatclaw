@@ -1,0 +1,42 @@
+{
+  "id": "skill-freebox",
+  "name": "Freebox",
+  "version": "1.0.0",
+  "description": "Connecteur Freebox OS — découverte automatique de tous les appareils du réseau local via l'API REST. MAC, IP, hostname, fabricant, type d'appareil, statut en ligne/hors ligne.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "La Freebox (Free) expose une API REST locale (Freebox OS) qui permet de lister tous les appareils connectés à votre réseau domestique ou de petite entreprise : adresses MAC, IP, hostname, fabricant, type d'appareil et statut en ligne/hors ligne.\n\nThreatClaw utilise cette API pour découvrir automatiquement vos assets réseau. C'est particulièrement utile pour les TPE/PME qui utilisent une Freebox comme routeur principal — aucun équipement réseau supplémentaire n'est nécessaire.\n\nPrérequis :\n• Une Freebox (Revolution, Delta, Pop, Ultra) avec Freebox OS activé\n• L'appairage initial se fait sur l'écran LCD de la Freebox (validation physique)\n• ThreatClaw doit être sur le même réseau local que la Freebox",
+  "execution": {
+    "mode": "poll",
+    "interval_seconds": 300,
+    "endpoint": "/api/tc/connectors/freebox/sync"
+  },
+  "config": {
+    "freebox_url": {
+      "type": "string",
+      "description": "URL de la Freebox",
+      "placeholder": "http://mafreebox.freebox.fr",
+      "hint": "L'adresse de votre Freebox. Par défaut : http://mafreebox.freebox.fr. Vous pouvez aussi utiliser l'IP directe (ex: http://192.168.1.254).",
+      "default": "http://mafreebox.freebox.fr",
+      "required": false
+    },
+    "freebox_app_token": {
+      "type": "string",
+      "description": "Token d'application Freebox",
+      "hint": "Le token est obtenu lors de l'appairage initial. ThreatClaw envoie une demande d'autorisation et vous devez valider physiquement sur l'écran LCD de la Freebox (flèche droite). Le token est ensuite conservé automatiquement.",
+      "required": true,
+      "secret": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "wifi"
+}

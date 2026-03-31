@@ -1,0 +1,13 @@
+{
+  "id": "skill-compliance-nis2",
+  "name": "Conformité NIS2",
+  "version": "1.0.0",
+  "description": "Audit de conformite NIS2 Article 21 — cartographie des obligations",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "compliance",
+  "runtime": "wasm",
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
+}

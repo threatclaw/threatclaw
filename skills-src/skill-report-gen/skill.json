@@ -1,0 +1,13 @@
+{
+  "id": "skill-report-gen",
+  "name": "Rapports Sécurité",
+  "version": "1.0.0",
+  "description": "Generation de rapports de securite (PDF, Markdown) depuis les findings et alertes",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "rapports",
+  "runtime": "wasm",
+  "type": "tool",
+  "requires_config": false,
+  "default_active": false
+}

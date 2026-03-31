@@ -1,0 +1,57 @@
+{
+  "id": "skill-nmap-discovery",
+  "name": "Nmap Network Discovery",
+  "version": "1.0.0",
+  "description": "Decouverte automatique du reseau : hotes actifs, ports ouverts, OS fingerprint. Alimente le graphe d'assets.",
+  "help": "Nmap decouvre automatiquement les machines actives sur votre reseau, identifie les ports ouverts et les services qui tournent (SSH, HTTP, RDP, SMB...), et tente de detecter le systeme d'exploitation. Les resultats alimentent le graphe d'assets de ThreatClaw pour visualiser votre surface d'attaque interne. Utile pour detecter les machines non inventoriees, les ports inattendus, ou les services obsoletes. Configurez les sous-reseaux a scanner et la frequence souhaitee.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "discovery",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "instrumentisto/nmap:latest",
+    "command": "nmap -sV --top-ports 1000 -T3 --open -oX - {TARGET}",
+    "timeout_seconds": 300,
+    "network": "host",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "scan_schedule": {
+      "type": "select",
+      "description": "Frequence de scan",
+      "hint": "Choisissez la frequence de scan reseau. Un scan quotidien a 2h du matin permet de detecter les changements sans impacter la production.",
+      "options": [
+        "Manuel uniquement",
+        "Toutes les heures",
+        "Tous les jours a 2h",
+        "Tous les jours a 22h",
+        "Chaque lundi a 2h",
+        "1er du mois a 2h"
+      ],
+      "default": "Tous les jours a 2h"
+    },
+    "top_ports": {
+      "type": "number",
+      "description": "Nombre de ports a scanner",
+      "hint": "Nombre de ports les plus courants a tester. 1000 couvre la majorite des services standards. Augmentez a 5000 ou 65535 pour un scan exhaustif (plus lent).",
+      "placeholder": "1000",
+      "default": 1000
+    },
+    "targets": {
+      "type": "string",
+      "description": "Cibles à scanner (IP, CIDR ou plage)",
+      "hint": "Indiquez les plages IP de votre reseau interne a decouvrir. Plusieurs sous-reseaux peuvent etre separes par des virgules. Utilisez la notation CIDR.",
+      "placeholder": "192.168.1.0/24",
+      "required": true
+    }
+  },
+  "outputs": {
+    "assets": "graph",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "network"
+}

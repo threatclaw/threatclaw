@@ -1,0 +1,25 @@
+{
+    "id": "skill-enrichment-ssllabs",
+    "name": "SSL Labs Audit",
+    "version": "1.0.0",
+    "description": "Audit SSL/TLS complet avec note (A+ a F), protocoles, expiration certificat",
+    "author": "ThreatClaw",
+    "trust": "official",
+    "type": "enrichment",
+    "category": "web-security",
+    "help": "Qualys SSL Labs effectue un audit complet de la configuration SSL/TLS d'un serveur : protocoles supportes, suites de chiffrement, chaine de certificats, expiration, et attribue une note de A+ a F. Aucune cle API requise, API publique gratuite. L'analyse peut prendre 1 a 2 minutes par domaine.",
+    "execution": {
+        "mode": "api",
+        "base_url": "https://api.ssllabs.com/api/v3/analyze",
+        "triggers": ["domain"],
+        "cache_ttl_hours": 168
+    },
+    "config": {},
+    "outputs": {
+        "ssl_grade": "graph"
+    },
+    "default_active": false,
+    "requires_config": false,
+    "api_key_required": false,
+    "icon": "lock"
+}

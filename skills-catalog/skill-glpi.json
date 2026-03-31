@@ -1,0 +1,57 @@
+{
+  "id": "skill-glpi",
+  "name": "GLPI CMDB",
+  "version": "1.1.0",
+  "description": "Importe les assets depuis GLPI (ordinateurs, équipements réseau) et permet de créer des tickets d'incident depuis les findings ThreatClaw.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "discovery",
+  "help": "GLPI est un outil open-source de gestion de parc informatique (CMDB) et de helpdesk/ticketing.\n\nThreatClaw s'y connecte pour :\n• Importer l'inventaire des machines (ordinateurs, serveurs, équipements réseau) comme assets\n• Créer des tickets d'incident automatiquement quand un finding critique est détecté\n\nPrérequis :\n• GLPI avec l'API REST activée (Configuration > Générale > API)\n• Un App-Token (Configuration > Générale > API > Clé d'application)\n• Un User-Token (Administration > Utilisateurs > glpi > Clés d'accès distantes)\n• L'adresse IP de ThreatClaw autorisée dans les clients API GLPI",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 60,
+    "protocol": "https"
+  },
+  "config": {
+    "glpi_url": {
+      "type": "string",
+      "description": "URL de GLPI",
+      "placeholder": "http://192.168.1.10:9090",
+      "hint": "L'adresse de votre serveur GLPI. L'API REST doit être activée dans Configuration > Générale > API.",
+      "required": true
+    },
+    "glpi_app_token": {
+      "type": "password",
+      "description": "App-Token GLPI",
+      "hint": "Le token d'application GLPI. Se trouve dans Configuration > Générale > API. Nécessaire pour toute requête API.",
+      "required": true
+    },
+    "glpi_user_token": {
+      "type": "password",
+      "description": "User-Token GLPI",
+      "hint": "Le token utilisateur. Se trouve dans Administration > Utilisateurs > votre user > Clés d'accès distantes > Régénérer.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "hint": "Activez si GLPI utilise un certificat auto-signé.",
+      "default": false
+    },
+    "auto_ticket": {
+      "type": "boolean",
+      "description": "Créer automatiquement des tickets pour les findings CRITICAL",
+      "hint": "Si activé, ThreatClaw crée un ticket GLPI pour chaque finding de sévérité CRITICAL confirmé par le pipeline d'investigation.",
+      "default": false
+    }
+  },
+  "outputs": {
+    "assets": "graph",
+    "tickets": "glpi"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "database"
+}

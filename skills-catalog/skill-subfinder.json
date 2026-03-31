@@ -1,0 +1,34 @@
+{
+  "id": "skill-subfinder",
+  "name": "Subfinder",
+  "version": "1.0.0",
+  "description": "Enumeration de sous-domaines — decouvre les sous-domaines d'un domaine cible via sources passives (DNS, certificats, archives web).",
+  "help": "Subfinder decouvre tous les sous-domaines associes a votre domaine en interrogeant des sources passives : enregistrements DNS, certificats TLS (Certificate Transparency), archives web, moteurs de recherche. Aucun trafic n'est envoye directement vers la cible. Permet d'identifier les sous-domaines oublies, les services exposes non inventories, ou les anciennes applications encore accessibles. Les resultats peuvent ensuite etre analyses par httpx pour verifier quels sous-domaines hebergent des services actifs.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "scanning",
+  "execution": {
+    "mode": "ephemeral",
+    "docker_image": "projectdiscovery/subfinder:latest",
+    "timeout_seconds": 120,
+    "network": "bridge",
+    "memory_limit": "256m"
+  },
+  "config": {
+    "target": {
+      "type": "string",
+      "description": "Domaine cible (ex: monentreprise.fr)",
+      "hint": "Nom de domaine principal a enumerer. Subfinder trouvera tous les sous-domaines associes (mail.monentreprise.fr, vpn.monentreprise.fr, etc.).",
+      "placeholder": "monentreprise.fr",
+      "required": true
+    }
+  },
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "search"
+}

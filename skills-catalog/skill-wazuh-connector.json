@@ -1,0 +1,81 @@
+{
+  "id": "skill-wazuh-connector",
+  "name": "Wazuh SIEM",
+  "version": "1.1.0",
+  "description": "Importe les agents et alertes de sécurité depuis Wazuh SIEM — brute force, rootkits, file integrity, CVE, avec mapping MITRE ATT&CK automatique.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "monitoring",
+  "help": "Wazuh est un SIEM open-source qui surveille vos machines via des agents installés sur chaque poste (Windows, Linux, Mac). Il détecte les intrusions, modifications de fichiers critiques, vulnérabilités (CVE), rootkits et non-conformités.\n\nThreatClaw se connecte à l'API Wazuh Manager pour importer vos agents comme assets, puis récupère les alertes de sécurité depuis l'indexer OpenSearch pour créer des findings.\n\nPrérequis :\n• Wazuh Manager accessible (port 55000 par défaut)\n• Credentials API (utilisateur wazuh par défaut)\n• Pour les alertes : Wazuh Indexer (OpenSearch) accessible (port 9200)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https",
+    "default_port": 55000
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du Wazuh Manager",
+      "placeholder": "https://192.168.1.10:55000",
+      "hint": "L'adresse de votre Wazuh Manager avec le port (55000 par défaut). Utilisez https:// sauf si vous avez désactivé TLS.",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Utilisateur API Wazuh",
+      "placeholder": "wazuh",
+      "hint": "L'utilisateur par défaut est 'wazuh'. Vous pouvez créer un utilisateur dédié dans Wazuh > Security.",
+      "default": "wazuh",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe API Wazuh",
+      "hint": "Le mot de passe par défaut est 'wazuh'. Changez-le en production !",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "hint": "Activez cette option si Wazuh utilise un certificat auto-signé (cas par défaut). En production avec un vrai certificat, désactivez-la.",
+      "default": true
+    },
+    "indexer_url": {
+      "type": "string",
+      "description": "URL de l'indexer OpenSearch (alertes)",
+      "placeholder": "https://192.168.1.10:9200",
+      "hint": "L'adresse de votre Wazuh Indexer (OpenSearch). Sans cette URL, seuls les agents seront importés. Les alertes de sécurité (findings) nécessitent l'accès à l'indexer.",
+      "required": false
+    },
+    "indexer_username": {
+      "type": "string",
+      "description": "Utilisateur indexer",
+      "placeholder": "admin",
+      "hint": "L'utilisateur par défaut de l'indexer OpenSearch est 'admin'.",
+      "default": "admin",
+      "required": false
+    },
+    "indexer_password": {
+      "type": "password",
+      "description": "Mot de passe indexer",
+      "hint": "Le mot de passe par défaut est 'admin'. Changez-le en production.",
+      "required": false
+    },
+    "max_alerts": {
+      "type": "number",
+      "description": "Nombre max d'alertes par sync",
+      "hint": "Limite le nombre d'alertes récupérées à chaque synchronisation. 100 par défaut, augmentez si vous avez beaucoup d'alertes.",
+      "default": 100
+    }
+  },
+  "outputs": {
+    "assets": "db",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

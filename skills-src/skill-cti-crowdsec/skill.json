@@ -1,0 +1,21 @@
+{
+  "id": "skill-cti-crowdsec",
+  "name": "CrowdSec CTI",
+  "version": "1.0.0",
+  "description": "Reputation IP communautaire CrowdSec — scenarios d'attaque, classification, score de confiance. Cle gratuite sur crowdsec.net.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "threat-intel",
+  "runtime": "wasm",
+  "type": "enrichment",
+  "api_key_required": true,
+  "requires_config": false,
+  "default_active": false,
+  "config": {
+    "api_key": {
+      "type": "password",
+      "description": "Cle API CrowdSec CTI (gratuite sur crowdsec.net)",
+      "required": true
+    }
+  }
+}

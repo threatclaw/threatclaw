@@ -1,0 +1,47 @@
+# ThreatClaw — Development Stack
+# For developers building from source. Provides DB + Ollama only.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#   cargo build --release
+#   ./target/release/threatclaw run
+#   cd dashboard && npm run dev
+
+services:
+  threatclaw-db:
+    build:
+      context: .
+      dockerfile: Dockerfile.db
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: threatclaw
+      POSTGRES_USER: threatclaw
+      POSTGRES_PASSWORD: threatclaw
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U threatclaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-dev:/root/.ollama
+    environment:
+      OLLAMA_HOST: "0.0.0.0"
+
+  nuclei:
+    image: projectdiscovery/nuclei:latest
+    volumes:
+      - nuclei-dev:/root/.local/nuclei
+    entrypoint: ["tail", "-f", "/dev/null"]
+
+volumes:
+  pgdata-dev:
+  ollama-dev:
+  nuclei-dev:

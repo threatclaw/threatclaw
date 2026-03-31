@@ -1,0 +1,87 @@
+{
+  "_meta": { "language": "Deutsch", "code": "de" },
+
+  "brand_tagline": "Autonomer Cybersicherheitsagent",
+  "generated_by": "Automatisch erstellt von ThreatClaw",
+  "confidential": "VERTRAULICH",
+  "page": "Seite",
+  "of": "von",
+  "date": "Datum",
+  "version": "Version",
+
+  "report_incident": "Vorfallbericht",
+  "report_executive": "Managementbericht",
+  "report_technical": "Technischer Bericht",
+  "report_audit": "Prüfprotokoll",
+  "report_compliance": "Konformitätsbericht",
+
+  "section_summary": "Zusammenfassung",
+  "section_impact": "Auswirkungen",
+  "section_timeline": "Zeitverlauf",
+  "section_root_cause": "Ursachenanalyse",
+  "section_actions_taken": "Ergriffene Maßnahmen",
+  "section_recommendations": "Empfehlungen",
+  "section_affected_systems": "Betroffene Systeme",
+  "section_iocs": "Kompromittierungsindikatoren",
+  "section_mitre": "MITRE ATT&CK Techniken",
+  "section_lessons_learned": "Erkenntnisse",
+  "section_notification": "Meldung",
+  "section_appendix": "Anhang",
+
+  "severity_critical": "KRITISCH",
+  "severity_high": "HOCH",
+  "severity_medium": "MITTEL",
+  "severity_low": "NIEDRIG",
+
+  "status_open": "Offen",
+  "status_in_progress": "In Bearbeitung",
+  "status_resolved": "Gelöst",
+
+  "score_label": "Sicherheitsbewertung",
+  "score_healthy": "Gesund",
+  "score_warning": "Aufmerksamkeit erforderlich",
+  "score_critical": "Kritisch",
+
+  "assets_monitored": "Überwachte Assets",
+  "alerts_active": "Aktive Warnungen",
+  "findings_open": "Offene Schwachstellen",
+
+  "nis2_title": "Vorfallmeldung — NIS2-Richtlinie",
+  "nis2_early_title": "Frühwarnung (Artikel 23.4a)",
+  "nis2_intermediate_title": "Zwischenmeldung (Artikel 23.4b)",
+  "nis2_final_title": "Abschlussbericht (Artikel 23.4d-e)",
+  "nis2_article21_title": "Risikomanagementmaßnahmen (Artikel 21)",
+  "nis2_entity_type": "Wesentliche / Wichtige Einrichtung",
+  "nis2_deadline_72h": "72h-Frist",
+  "nis2_measures": "Pflichtmaßnahmen",
+  "nis2_measure_covered": "Abgedeckt",
+  "nis2_measure_partial": "Teilweise",
+  "nis2_measure_missing": "Fehlend",
+
+  "gdpr_title": "Meldung einer Datenschutzverletzung — DSGVO Artikel 33",
+  "gdpr_nature": "Art der Verletzung",
+  "gdpr_persons_affected": "Betroffene Personen",
+  "gdpr_consequences": "Wahrscheinliche Folgen",
+  "gdpr_measures_taken": "Ergriffene Maßnahmen",
+  "gdpr_dpo": "Datenschutzbeauftragter",
+  "gdpr_authority": "Aufsichtsbehörde (BSI)",
+
+  "nist_title": "Vorfallbericht — NIST SP 800-61r3",
+  "iso_title": "Vorfallbericht — ISO 27001:2022",
+
+  "executive_kpi": "Leistungskennzahlen",
+  "executive_trends": "Trends",
+  "executive_risks": "Identifizierte Risiken",
+  "executive_actions": "Empfohlene Maßnahmen",
+
+  "technical_findings": "Erkannte Schwachstellen",
+  "technical_alerts": "Sicherheitswarnungen",
+  "technical_assets": "Analysierte Assets",
+  "technical_ml": "ML-Anomalien",
+
+  "audit_action": "Aktion",
+  "audit_user": "Benutzer",
+  "audit_timestamp": "Zeitstempel",
+  "audit_result": "Ergebnis",
+  "audit_target": "Ziel"
+}
