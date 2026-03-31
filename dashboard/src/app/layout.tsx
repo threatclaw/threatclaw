@@ -47,17 +47,46 @@ export default function RootLayout({
           }} />
         </div>
         <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", maxWidth: "1100px", margin: "0 auto" }}>
-          {/* Beta banner */}
-          {!isLoginPage && (
-            <div style={{
-              background: "linear-gradient(90deg, rgba(208,48,32,0.15), rgba(208,144,32,0.1))",
-              borderBottom: "1px solid rgba(208,48,32,0.2)",
-              padding: "6px 16px", textAlign: "center",
-              fontSize: "10px", color: "rgba(255,255,255,0.6)", letterSpacing: "0.03em",
-            }}>
-              <span style={{ fontWeight: 700, color: "#d09020" }}>BETA</span> — Early access release. Some features are still being refined. <a href="https://github.com/threatclaw/threatclaw/issues" target="_blank" rel="noopener noreferrer" style={{ color: "#d03020", textDecoration: "none", fontWeight: 600 }}>Report an issue</a>
-            </div>
-          )}
+          {/* Environment banner — DEV (yellow), STAGING (orange), BETA (red), PROD (hidden) */}
+          {(() => {
+            const env = process.env.TC_ENV || process.env.NEXT_PUBLIC_TC_ENV || "";
+            if (env === "production") return null;
+            const config: Record<string, { bg: string; border: string; color: string; label: string; text: string }> = {
+              dev: {
+                bg: "linear-gradient(90deg, rgba(234,179,8,0.2), rgba(234,179,8,0.1))",
+                border: "1px solid rgba(234,179,8,0.3)",
+                color: "#eab308",
+                label: "DEV",
+                text: "Development environment — local builds, not for production.",
+              },
+              staging: {
+                bg: "linear-gradient(90deg, rgba(249,115,22,0.2), rgba(249,115,22,0.1))",
+                border: "1px solid rgba(249,115,22,0.3)",
+                color: "#f97316",
+                label: "STAGING",
+                text: "Staging environment — testing before release.",
+              },
+              beta: {
+                bg: "linear-gradient(90deg, rgba(208,48,32,0.15), rgba(208,144,32,0.1))",
+                border: "1px solid rgba(208,48,32,0.2)",
+                color: "#d09020",
+                label: "BETA",
+                text: "Early access release. Some features are still being refined.",
+              },
+            };
+            const c = config[env] || config.beta;
+            if (isLoginPage) return null;
+            return (
+              <div style={{
+                background: c.bg,
+                borderBottom: c.border,
+                padding: "6px 16px", textAlign: "center",
+                fontSize: "10px", color: "rgba(255,255,255,0.6)", letterSpacing: "0.03em",
+              }}>
+                <span style={{ fontWeight: 700, color: c.color }}>{c.label}</span> — {c.text}
+              </div>
+            );
+          })()}
           {!isSetupWizard && !isLoginPage && <TopNav />}
           <main style={{ padding: "0 24px 48px" }}>
             {children}
