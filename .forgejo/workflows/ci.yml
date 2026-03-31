@@ -14,3 +14,4 @@ jobs:
 
       - name: Security audit
         run: cd /srv/threatclaw && cargo audit 2>&1 | tail -10 || true
+# CI test
