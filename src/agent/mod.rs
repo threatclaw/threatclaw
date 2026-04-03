@@ -32,6 +32,7 @@ pub mod hitl_nonce;
 pub mod incident_dossier;
 pub mod intelligence_engine;
 pub mod ioc_bloom;
+pub mod sigma_engine;
 pub mod investigation;
 pub mod investigation_skills;
 pub mod fingerprint;

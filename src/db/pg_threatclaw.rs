@@ -625,6 +625,30 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT id, title, level, logsource_category, logsource_product, logsource_service, tags, detection_json FROM sigma_rules WHERE enabled = true",
+            &[],
+        ).await.map_err(query_err)?;
+        let mut results = Vec::new();
+        for row in &rows {
+            let tags: Vec<String> = row.try_get::<_, Vec<String>>(6).unwrap_or_default();
+            let detection: serde_json::Value = row.try_get(7).unwrap_or(serde_json::Value::Null);
+            results.push(serde_json::json!({
+                "id": row.get::<_, &str>(0),
+                "title": row.get::<_, &str>(1),
+                "level": row.get::<_, &str>(2),
+                "logsource_category": row.try_get::<_, &str>(3).ok(),
+                "logsource_product": row.try_get::<_, &str>(4).ok(),
+                "logsource_service": row.try_get::<_, &str>(5).ok(),
+                "tags": tags,
+                "detection_json": detection,
+            }));
+        }
+        Ok(results)
+    }
+
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Use direct interval interpolation — safe because minutes_back is i64, not user input

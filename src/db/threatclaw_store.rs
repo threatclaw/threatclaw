@@ -311,6 +311,9 @@ pub trait ThreatClawStore: Send + Sync {
         username: Option<&str>,
     ) -> Result<i64, DatabaseError>;
 
+    /// List all enabled Sigma rules with their detection_json for the native engine.
+    async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
 

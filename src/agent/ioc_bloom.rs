@@ -142,6 +142,9 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
         }
     }
 
+    // MISP CIRCL OSINT
+    crate::enrichment::misp_circl::load_into_bloom(store, &mut filter).await;
+
     // CISA KEV CVE IDs (for cross-reference)
     if let Ok(entries) = store.list_settings("_kev").await {
         for row in &entries {

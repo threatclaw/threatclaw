@@ -461,6 +461,9 @@ pub async fn run_intelligence_cycle(
         }
     }
 
+    // ── 5k. SIGMA ENGINE — native rule matching on recent logs ──
+    crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
+
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
     // All enrichment is wrapped in timeout + rate limiting.
     // External API failures must NEVER crash the engine.
@@ -961,9 +964,11 @@ pub fn spawn_intelligence_ticker(
             let _ = crate::enrichment::mitre_attack::sync_attack_techniques(store_sync.as_ref()).await;
             let _ = crate::enrichment::certfr::sync_certfr_alerts(store_sync.as_ref()).await;
             let _ = crate::enrichment::openphish::sync_feed(store_sync.as_ref()).await;
+            let _ = crate::enrichment::misp_circl::sync_feed(store_sync.as_ref()).await;
             tracing::info!("INTELLIGENCE: Background enrichment sync complete");
-            // Build Bloom filter from cached feeds
+            // Build Bloom filter from cached feeds (includes MISP)
             crate::agent::ioc_bloom::init(store_sync.as_ref()).await;
+            crate::agent::sigma_engine::init(store_sync.as_ref()).await;
         });
 
         let mut ticker = tokio::time::interval(interval);
@@ -976,6 +981,18 @@ pub fn spawn_intelligence_ticker(
             ticker.tick().await;
             cycle_count += 1;
 
+            // 6-hour MISP sync (every 72 cycles × 5min = 6h)
+            if cycle_count % 72 == 0 && cycle_count % 288 != 0 {
+                let store_misp = store.clone();
+                tokio::spawn(async move {
+                    match crate::enrichment::misp_circl::sync_feed(store_misp.as_ref()).await {
+                        Ok(count) => tracing::info!("MISP: Synced {} IoC from CIRCL OSINT", count),
+                        Err(e) => tracing::warn!("MISP: Sync failed: {e}"),
+                    }
+                    crate::agent::ioc_bloom::refresh(store_misp.as_ref()).await;
+                });
+            }
+
             // Daily re-sync (every 288 cycles × 5min = 24h)
             if cycle_count % 288 == 0 {
                 tracing::info!("INTELLIGENCE: Daily enrichment re-sync");
@@ -986,6 +1003,7 @@ pub fn spawn_intelligence_ticker(
                     let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;
                     // Rebuild Bloom filter with fresh feed data
                     crate::agent::ioc_bloom::refresh(store_resync.as_ref()).await;
+                    crate::agent::sigma_engine::reload(store_resync.as_ref()).await;
                 });
             }
 

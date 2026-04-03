@@ -10,6 +10,7 @@ pub mod hibp_lookup;
 pub mod ipinfo;
 pub mod mac_oui_lookup;
 pub mod malware_bazaar;
+pub mod misp_circl;
 pub mod mitre_attack;
 pub mod mozilla_observatory;
 pub mod openphish;
