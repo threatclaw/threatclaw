@@ -608,7 +608,16 @@ export default function SkillsPage() {
             {modalSkill.config && Object.keys(modalSkill.config).length > 0 && (
               <div style={{ marginBottom: "16px" }}>
                 <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>Configuration</div>
-                {Object.entries(modalSkill.config).map(([key, field]: [string, any]) => {
+                {Object.entries(modalSkill.config)
+                  .sort(([, a]: [string, any], [, b]: [string, any]) => {
+                    // Required fields first, then by type (string > password > boolean > number)
+                    const reqA = a?.required ? 0 : 1;
+                    const reqB = b?.required ? 0 : 1;
+                    if (reqA !== reqB) return reqA - reqB;
+                    const typeOrder: Record<string, number> = { string: 0, password: 1, boolean: 2, number: 3 };
+                    return (typeOrder[a?.type] ?? 4) - (typeOrder[b?.type] ?? 4);
+                  })
+                  .map(([key, field]: [string, any]) => {
                   if (!field) return null;
                   const val = configValues[modalSkill.id]?.[key] || "";
                   return (

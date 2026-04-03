@@ -15,10 +15,13 @@ use std::time::Duration;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlpiConfig {
     /// GLPI URL (e.g., "https://glpi.corp.local")
+    #[serde(alias = "glpi_url")]
     pub url: String,
     /// App-Token (configured in GLPI Setup > General > API)
+    #[serde(alias = "glpi_app_token")]
     pub app_token: String,
     /// User token or empty for basic auth
+    #[serde(alias = "glpi_user_token")]
     pub user_token: String,
     #[serde(default)]
     pub no_tls_verify: bool,

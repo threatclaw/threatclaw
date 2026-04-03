@@ -281,7 +281,7 @@ async fn fetch_alerts_from_indexer(
         "query": {
             "bool": {
                 "filter": [
-                    { "range": { "rule.level": { "gte": 7 } } },
+                    { "range": { "rule.level": { "gte": 5 } } },
                     { "range": { "timestamp": { "gte": "now-24h" } } }
                 ]
             }
