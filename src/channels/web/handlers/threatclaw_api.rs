@@ -3284,6 +3284,46 @@ pub async fn enrichment_spamhaus_handler(
     }
 }
 
+/// GET /api/tc/enrichment/vulnlookup/{cve_id} — Vulnerability-Lookup (CIRCL) multi-source CVE + sightings.
+pub async fn enrichment_vulnlookup_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(cve_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Cache check (24h TTL)
+    if let Ok(Some(cached)) = store.get_enrichment_cache("vulnlookup", &cve_id).await {
+        return Ok(Json(cached));
+    }
+    match crate::enrichment::vuln_lookup::lookup_cve(&cve_id).await {
+        Ok(r) => {
+            let result = serde_json::json!(r);
+            let _ = store.set_enrichment_cache("vulnlookup", &cve_id, &result, 24).await;
+            Ok(Json(result))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/vulnlookup/{cve_id}/sightings — Exploit sightings for a CVE.
+pub async fn enrichment_vulnlookup_sightings_handler(
+    Path(cve_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::vuln_lookup::fetch_sightings(&cve_id).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
+/// GET /api/tc/enrichment/vulnlookup/{cve_id}/rules — Detection rules (Sigma/YARA) for a CVE.
+pub async fn enrichment_vulnlookup_rules_handler(
+    Path(cve_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    match crate::enrichment::vuln_lookup::fetch_detection_rules(&cve_id).await {
+        Ok(r) => Ok(Json(serde_json::json!(r))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
+}
+
 pub async fn enrichment_securitytrails_handler(
     State(state): State<Arc<GatewayState>>,
     Path(domain): Path<String>,

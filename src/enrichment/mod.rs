@@ -25,4 +25,5 @@ pub mod urlhaus;
 pub mod urlscan;
 pub mod virustotal_lookup;
 pub mod wordfence_intel;
+pub mod vuln_lookup;
 pub mod wpscan;

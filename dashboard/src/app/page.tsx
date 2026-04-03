@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { CpuCard } from "@/components/chrome/CpuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import OnboardingBanner from "@/components/chrome/OnboardingBanner";
 import OnboardingLevelPicker from "@/components/chrome/OnboardingLevelPicker";
@@ -203,9 +204,28 @@ export default function HomePage() {
         />
       )}
 
+      {/* ══ Central Processor ══ */}
+      <NeuCard accent="red" style={{ marginBottom: "20px", padding: "10px 16px" }}>
+        <CpuCard
+          score={score}
+          scoreLabel={scoreLabel}
+          version={services.find(s => s.name === "ThreatClaw Engine")?.detail || ""}
+          services={[
+            { name: "PostgreSQL", connected: dbStatus === "ok", color: "#3080d0", detail: "Base de données PG16" },
+            { name: "AI", connected: aiModels.length > 0, color: "#9060d0", detail: `${aiModels.length} modèle(s)`, restartable: true },
+            { name: "Intel. Engine", connected: services[0]?.status === "ok", color: "#d03020", detail: "Corrélation & scoring" },
+            { name: "ML Engine", connected: mlStatus.anomaly !== "inactive", color: "#d09020", detail: mlStatus.modelTrained ? "Modèle entraîné" : "En attente", restartable: true },
+            { name: "Skills", connected: services[0]?.status === "ok", color: "#06b6d4", detail: "49 skills" },
+            { name: "Channels", connected: activeChannels.length > 0, color: "#30a050", detail: activeChannels.join(", ") || "Non configuré" },
+            { name: "Logs", connected: dbStatus === "ok", color: "#f97316", detail: "Syslog + FluentBit" },
+            { name: "Dashboard", connected: true, color: "#b0a8a0", detail: "Next.js frontend" },
+          ]}
+        />
+      </NeuCard>
+
       {/* ══ Score + Services ══ */}
       <div data-tour="score" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard>
+        <NeuCard accent="grid">
           <div style={{ textAlign: "center" }}>
             <div style={labelCaps}>Score sécurité</div>
             <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
@@ -255,7 +275,7 @@ export default function HomePage() {
             const isAI = svc.name === "ThreatClaw AI";
             const statusColor = svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)";
             return (
-              <NeuCard key={svc.name} style={{ padding: "14px" }}>
+              <NeuCard key={svc.name} accent={isEngine ? "dots" : isAI ? "purple" : "blue"} style={{ padding: "14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <div style={{
                     width: "32px", height: "32px", borderRadius: isEngine ? "50%" : "var(--tc-radius-sm)",
@@ -317,7 +337,7 @@ export default function HomePage() {
       <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
         ThreatClaw Engine
       </div>
-      <NeuCard style={{ marginBottom: "20px", padding: "14px 16px" }}>
+      <NeuCard accent="scan" style={{ marginBottom: "20px", padding: "14px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", animation: "pulse 2s infinite" }} />
@@ -334,7 +354,7 @@ export default function HomePage() {
         {tr("behavioralDetection", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
+        <NeuCard accent="amber" style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>{tr("training", locale)}</div>
           {(() => {
             const days = mlStatus.dataDays;
@@ -376,7 +396,7 @@ export default function HomePage() {
             );
           })()}
         </NeuCard>
-        <NeuCard style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
+        <NeuCard accent="hex" style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
             color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
@@ -386,7 +406,7 @@ export default function HomePage() {
             {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
           </div>
         </NeuCard>
-        <NeuCard style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
+        <NeuCard accent="rings" style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
           <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
             color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
@@ -403,7 +423,7 @@ export default function HomePage() {
         {tr("infrastructure", locale)}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard accent="grid" style={{ padding: "14px" }}>
           <div style={labelCaps}>Sécurité</div>
           {config?.permissions ? (
             <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
@@ -415,7 +435,7 @@ export default function HomePage() {
             </button>
           )}
         </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard accent="blue" style={{ padding: "14px" }}>
           <div style={labelCaps}>Canaux</div>
           {activeChannels.length > 0 ? (
             <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
@@ -427,14 +447,14 @@ export default function HomePage() {
             </button>
           )}
         </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard accent="green" style={{ padding: "14px" }}>
           <div style={labelCaps}>Base de données</div>
           <div style={{ fontSize: "12px", fontWeight: 700, color: dbStatus === "ok" ? "#30a050" : dbStatus === "checking" ? "var(--tc-text-muted)" : "#d03020", marginTop: "4px" }}>
             {dbStatus === "ok" ? "Opérationnel" : dbStatus === "checking" ? "Vérification..." : "Non connecté"}
           </div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PG16 + AGE + TimescaleDB</div>
         </NeuCard>
-        <NeuCard style={{ padding: "14px" }}>
+        <NeuCard accent="dots" style={{ padding: "14px" }}>
           <div style={labelCaps}>Disque</div>
           <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>{diskFree || "—"}</div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>sur /srv</div>

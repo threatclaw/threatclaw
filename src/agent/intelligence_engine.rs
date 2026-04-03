@@ -430,6 +430,37 @@ pub async fn run_intelligence_cycle(
         }
     }
 
+    // ── 5j. BLOOM FILTER — real-time IoC check on recent logs ──
+    // Complements the batch scan above: checks ALL recent logs via in-memory Bloom filter.
+    // No API calls, no LIMIT — every log is checked in microseconds.
+    {
+        let bloom_logs = store.query_logs(5, None, None, 2000).await.unwrap_or_default();
+        let mut bloom_hits = 0u32;
+        for log in &bloom_logs {
+            let detected = crate::agent::ioc_bloom::check_log(&log.data, log.hostname.as_deref(), store.as_ref()).await;
+            for ioc in &detected {
+                let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+                    skill_id: "bloom-ioc".into(),
+                    title: format!("{} malveillant détecté: {}", ioc.ioc_type.to_uppercase(), ioc.ioc_value),
+                    description: Some(format!("IoC de type {} identifié par Bloom filter, confirmé par {}", ioc.ioc_type, ioc.source)),
+                    severity: ioc.severity.clone(),
+                    category: Some("ioc-detection".into()),
+                    asset: ioc.hostname.clone(),
+                    source: Some(ioc.source.clone()),
+                    metadata: Some(serde_json::json!({
+                        "ioc_type": ioc.ioc_type,
+                        "ioc_value": ioc.ioc_value,
+                        "detection": "bloom-filter"
+                    })),
+                }).await;
+                bloom_hits += 1;
+            }
+        }
+        if bloom_hits > 0 {
+            tracing::info!("BLOOM: {} IoC confirmed from {} logs", bloom_hits, bloom_logs.len());
+        }
+    }
+
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
     // All enrichment is wrapped in timeout + rate limiting.
     // External API failures must NEVER crash the engine.
@@ -931,6 +962,8 @@ pub fn spawn_intelligence_ticker(
             let _ = crate::enrichment::certfr::sync_certfr_alerts(store_sync.as_ref()).await;
             let _ = crate::enrichment::openphish::sync_feed(store_sync.as_ref()).await;
             tracing::info!("INTELLIGENCE: Background enrichment sync complete");
+            // Build Bloom filter from cached feeds
+            crate::agent::ioc_bloom::init(store_sync.as_ref()).await;
         });
 
         let mut ticker = tokio::time::interval(interval);
@@ -951,6 +984,8 @@ pub fn spawn_intelligence_ticker(
                     let _ = crate::enrichment::cisa_kev::sync_kev(store_resync.as_ref()).await;
                     let _ = crate::enrichment::certfr::sync_certfr_alerts(store_resync.as_ref()).await;
                     let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;
+                    // Rebuild Bloom filter with fresh feed data
+                    crate::agent::ioc_bloom::refresh(store_resync.as_ref()).await;
                 });
             }
 
