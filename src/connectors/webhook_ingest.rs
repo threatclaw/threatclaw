@@ -67,7 +67,7 @@ pub async fn process_webhook(
 
     // Body size check (Zeek/Suricata allow larger payloads for bulk log ingestion)
     let max_size = match source {
-        "zeek" | "suricata" => MAX_BODY_SIZE_LOGS,
+        "zeek" | "suricata" | "osquery" => MAX_BODY_SIZE_LOGS,
         _ => MAX_BODY_SIZE,
     };
     if body.len() > max_size {
@@ -88,6 +88,13 @@ pub async fn process_webhook(
     match source {
         "zeek" => parse_zeek(store, &json).await,
         "suricata" => parse_suricata(store, &json).await,
+        "osquery" => {
+            let hostname = json["hostname"].as_str()
+                .or_else(|| json["host"].as_str())
+                .unwrap_or("unknown");
+            let result = crate::connectors::osquery::process_osquery_webhook(store, hostname, &json).await;
+            result.alerts_created as u32
+        }
         "cloudflare" => parse_cloudflare(store, &json).await,
         "crowdsec" => parse_crowdsec(store, &json).await,
         "fail2ban" => parse_fail2ban(store, &json).await,

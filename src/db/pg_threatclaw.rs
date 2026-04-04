@@ -931,6 +931,22 @@ impl ThreatClawStore for PgBackend {
     // INTERNAL NETWORKS
     // ═══════════════════════════════════════════════════════════
 
+    async fn update_asset_software(&self, id: &str, software: &serde_json::Value) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            r#"UPDATE assets SET software = (
+                SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+                FROM (
+                    SELECT elem FROM jsonb_array_elements(COALESCE(assets.software, '[]'::jsonb)) AS elem
+                    UNION
+                    SELECT elem FROM jsonb_array_elements($2::jsonb) AS elem
+                ) sub
+            ), updated_at = NOW() WHERE id = $1"#,
+            &[&id, software],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query("SELECT id, cidr, label, zone FROM internal_networks ORDER BY id", &[]).await.map_err(query_err)?;

@@ -393,6 +393,9 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn delete_internal_network(&self, id: i64) -> Result<(), DatabaseError>;
 
+    /// Merge software inventory into an asset (union, not replace). See ADR-044.
+    async fn update_asset_software(&self, id: &str, software: &serde_json::Value) -> Result<(), DatabaseError>;
+
     // ── Company Profile ──
 
     async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError>;

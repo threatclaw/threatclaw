@@ -15,6 +15,7 @@ pub mod fortinet;
 pub mod glpi;
 pub mod nmap_discovery;
 pub mod olvid;
+pub mod osquery;
 pub mod pfsense;
 pub mod pihole;
 pub mod suricata;

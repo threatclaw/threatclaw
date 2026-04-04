@@ -1,0 +1,47 @@
+{
+  "id": "skill-osquery",
+  "name": "ThreatClaw Agent (osquery)",
+  "version": "1.0.0",
+  "description": "Agent endpoint — inventaire logiciels, connexions réseau par process, DNS cache, file integrity, détection kill chain. Basé sur osquery (Linux Foundation).",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "endpoints",
+  "help": "L'agent ThreatClaw est basé sur osquery (Linux Foundation, Apache 2.0). Il s'installe sur chaque machine du parc et remonte en temps réel :\n\n• Inventaire logiciels + versions (corrélé automatiquement avec les CVE connues)\n• Connexions réseau par processus (détection C2 par croisement Bloom filter)\n• Cache DNS (alimentation DGA detection ML)\n• Événements fichiers (FIM — modification de /etc/passwd, authorized_keys...)\n• Événements processus (kill chain — Word lance cmd.exe lance powershell...)\n• Informations OS, hardware, mises à jour\n\n📡 Deux modes de connexion :\n\n1. Agent installé — Installez l'agent sur chaque machine via le one-liner.\n   Les résultats sont envoyés automatiquement à ThreatClaw.\n\n2. osquery existant — Si osquery est déjà déployé (via Fleet, Kolide...),\n   configurez l'envoi des logs JSON vers ThreatClaw via webhook.\n\nInstallation de l'agent :\n  curl -fsSL get.threatclaw.io/agent | bash\n\nOu via webhook depuis un osquery existant :\n  POST /api/tc/webhook/ingest/osquery?token=VOTRE_TOKEN",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "note": "Agent osquery sur chaque endpoint. Résultats via webhook HTTP."
+  },
+  "config": {
+    "connection_mode": {
+      "type": "string",
+      "description": "Mode de connexion",
+      "placeholder": "webhook",
+      "hint": "\"agent\" si vous installez l'agent ThreatClaw. \"webhook\" si vous avez déjà osquery/Fleet déployé.",
+      "required": true,
+      "default": "webhook",
+      "enum": ["agent", "webhook"]
+    },
+    "webhook_token": {
+      "type": "password",
+      "description": "Token webhook (généré automatiquement)",
+      "hint": "Ce token sécurise la réception des résultats osquery. Configurez-le dans l'agent ou dans votre Fleet.",
+      "required": false,
+      "auto_generate": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "software": "db",
+    "connections": "db",
+    "dns": "db",
+    "alerts": "db",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "monitor"
+}
