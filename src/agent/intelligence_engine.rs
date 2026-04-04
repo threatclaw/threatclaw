@@ -471,10 +471,7 @@ pub async fn run_intelligence_cycle(
     crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
 
     // ── 5l. NDR — JA3 fingerprinting, beacon detection, TLS scoring ──
-    // Analyzes Zeek ssl.log and conn.log for C2 indicators.
-    // JA3: known-bad TLS client fingerprints via Bloom filter (O(1) per check)
-    // Beacon: regular communication intervals (coefficient of variation < 0.20)
-    // TLS: certificate anomalies (self-signed, expired, no SNI, short validity)
+    // NDR analysis — See ADR-005, ADR-007
     let ja3_result = crate::agent::ndr_ja3::scan_ja3(store.clone(), 5).await;
     let beacon_result = crate::agent::ndr_beacon::scan_beacons(store.clone(), 60).await; // 1h window for timing analysis
     let tls_result = crate::agent::ndr_tls::scan_tls(store.clone(), 5).await;
