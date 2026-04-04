@@ -186,8 +186,7 @@ impl AppBuilder {
             Some(k) => k,
             None => {
                 // No secrets DB available, but we can still load tokens from
-                // OS credential stores (e.g., Anthropic OAuth via Claude Code's
-                // macOS Keychain / Linux ~/.claude/.credentials.json).
+                // OS credential stores (e.g., macOS Keychain, Linux keyring).
                 crate::config::inject_os_credentials();
 
                 // Consume unused handles

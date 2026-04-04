@@ -118,7 +118,7 @@ docker run --rm -p 3003:3003 \
 |----------|---------|---------|
 | `GATEWAY_PORT` | Change the listen port | `3003` (default) |
 | `GATEWAY_AUTH_TOKEN` | Auth token for API | `test` (default) |
-| `NEARAI_MODEL` | Override LLM model | `claude-3-5-sonnet-20241022` |
+| `NEARAI_MODEL` | Override LLM model | (provider-specific) |
 | `RUST_LOG` | Logging verbosity | `threatclaw=debug` |
 | `ROUTINES_ENABLED` | Enable routines | `true`/`false` |
 | `SKILLS_ENABLED` | Enable skills system | `true` (default) |
@@ -132,61 +132,12 @@ docker run --rm -d --name ic-test-a -p 3003:3003 -e ONBOARD_COMPLETED=true -e CL
 docker run --rm -d --name ic-test-b -p 3004:3003 -e ONBOARD_COMPLETED=true -e CLI_ENABLED=false -e NEARAI_API_KEY=dummy threatclaw-test
 ```
 
-## Chrome MCP Testing Workflow
+## Browser Testing
 
-Use the Claude for Chrome browser automation tools to test the web UI.
-
-### Step 1: Get Browser Context
-
-```
-mcp__claude-in-chrome__tabs_context_mcp
-```
-
-Always start here to see current tabs and get fresh tab IDs.
-
-### Step 2: Open the Gateway
-
-```
-mcp__claude-in-chrome__tabs_create_mcp  url=http://localhost:3003/?token=test
-```
-
-### Step 3: Verify the Page
-
-```
-mcp__claude-in-chrome__read_page
-```
-
-Check for:
+Open `http://localhost:3003/?token=test` and verify:
 - "Connected" indicator in top-right
 - All tabs visible: Chat, Memory, Jobs, Routines, Extensions, Skills
-
-### Step 4: Take Screenshots
-
-```
-mcp__claude-in-chrome__computer  action=screenshot
-```
-
-### Step 5: Test Mobile Viewport
-
-```
-mcp__claude-in-chrome__resize_window  width=375  height=812
-mcp__claude-in-chrome__computer  action=screenshot
-```
-
-Reset to desktop:
-```
-mcp__claude-in-chrome__resize_window  width=1280  height=800
-```
-
-### Step 6: Run JavaScript Checks
-
-```
-mcp__claude-in-chrome__javascript_tool  script="document.querySelector('.connection-status')?.textContent"
-```
-
-### Step 7: Test Interactions
-
-Click tabs, send messages, search skills — use `computer` tool with `action=click` and coordinate-based clicks, or use `find` + `form_input` for text entry.
+- Test mobile viewport (375x812) and desktop (1280x800)
 
 ## Cleanup
 

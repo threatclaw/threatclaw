@@ -22,7 +22,7 @@ node_modules/
 dashboard/node_modules/
 dashboard/.next/
 
-# Claude Code worktrees and lock files
+# Dev tool worktrees and lock files
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 
@@ -48,7 +48,7 @@ bench-results/
 # Traces
 trace_*.json
 
-# Local Claude Code settings (machine-specific, should not be committed)
+# Local dev tool settings (machine-specific)
 .claude/settings.local.json
 .worktrees/
 
@@ -94,5 +94,9 @@ Dockerfile.worker
 *.tsbuildinfo
 CLAUDE.md
 
-# LLM system prompts (sensitive — baked into Docker image at build)
+# LLM system prompts (baked into Docker image at build)
 docker/Modelfile.*
+
+# Disabled CI workflows (internal dev tooling)
+.github/workflows/disabled/claude-review.yml
+.github/workflows/disabled/staging-ci.yml
