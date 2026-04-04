@@ -1,6 +1,6 @@
 //! Intelligence Engine — threat correlation and scoring. See ADR-012, ADR-024.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Timelike;
@@ -9,6 +9,45 @@ use serde_json::json;
 
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
+
+// ── Investigation dedup: skip LLM for patterns already investigated recently ──
+
+static INVESTIGATION_BLOOM: std::sync::LazyLock<Arc<tokio::sync::RwLock<InvestigationDedup>>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::RwLock::new(InvestigationDedup::new())));
+
+struct InvestigationDedup {
+    seen: HashSet<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl InvestigationDedup {
+    fn new() -> Self {
+        Self { seen: HashSet::new(), created_at: chrono::Utc::now() }
+    }
+
+    fn is_stale(&self) -> bool {
+        (chrono::Utc::now() - self.created_at).num_hours() >= 24
+    }
+
+    fn maybe_seen(&self, key: &str) -> bool {
+        self.seen.contains(key)
+    }
+
+    fn record(&mut self, key: String) {
+        if self.is_stale() {
+            self.seen.clear();
+            self.created_at = chrono::Utc::now();
+        }
+        self.seen.insert(key);
+    }
+}
+
+fn investigation_key(asset: &str, situation: &AssetSituation) -> String {
+    let flags = format!("c{}h{}a{}kc{}",
+        situation.findings_critical, situation.findings_high,
+        situation.active_alerts, situation.has_kill_chain as u8);
+    format!("{}:{}", asset, flags)
+}
 
 /// Notification level decided by the engine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -199,6 +238,10 @@ pub async fn run_intelligence_cycle(
 
     let now = chrono::Utc::now();
 
+    // ── Per-cycle caches (cleared every cycle, avoid redundant DB queries) ──
+    // Asset resolution cache: hostname/IP → resolved asset name
+    let mut asset_cache: HashMap<String, String> = HashMap::new();
+
     // ── 0. Sync the threat graph from DB ──
     crate::graph::threat_graph::sync_graph_from_db(store.as_ref()).await;
 
@@ -235,31 +278,36 @@ pub async fn run_intelligence_cycle(
 
     // ── 3. Overlay alerts on assets (resolve hostnames/IPs to asset names) ──
     // Resolution cascade: IP → hostname/name → source_ip → raw fallback
+    // Uses per-cycle cache to avoid repeated DB queries for the same hostname
     for a in &alerts {
         let raw_host = a.hostname.as_deref().unwrap_or("unknown");
 
-        // Strategy 1: raw_host is an IP → find asset by IP
-        let asset_name = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
-            found.name.clone()
-        }
-        // Strategy 2: raw_host is a hostname/name (e.g. "case", "TARS-HOST") → find by hostname or name
-        else if let Ok(Some(found)) = store.find_asset_by_hostname(raw_host).await {
-            found.name.clone()
-        }
-        // Strategy 3: alert has a source_ip → find asset that owns this IP
-        else if let Some(ref src_ip) = a.source_ip {
-            let clean_ip = src_ip.split('/').next().unwrap_or("").trim();
-            if !clean_ip.is_empty() {
-                if let Ok(Some(found)) = store.find_asset_by_ip(clean_ip).await {
-                    found.name.clone()
+        // Check per-cycle cache first (~0ns vs ~2ms DB query)
+        let asset_name = if let Some(cached) = asset_cache.get(raw_host) {
+            cached.clone()
+        } else {
+            // Cache miss → resolve via DB cascade
+            let resolved = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
+                found.name.clone()
+            } else if let Ok(Some(found)) = store.find_asset_by_hostname(raw_host).await {
+                found.name.clone()
+            } else if let Some(ref src_ip) = a.source_ip {
+                let clean_ip = src_ip.split('/').next().unwrap_or("").trim();
+                if !clean_ip.is_empty() {
+                    if let Ok(Some(found)) = store.find_asset_by_ip(clean_ip).await {
+                        found.name.clone()
+                    } else {
+                        raw_host.to_string()
+                    }
                 } else {
                     raw_host.to_string()
                 }
             } else {
                 raw_host.to_string()
-            }
-        } else {
-            raw_host.to_string()
+            };
+            // Store in cache for this cycle
+            asset_cache.insert(raw_host.to_string(), resolved.clone());
+            resolved
         };
 
         let entry = asset_map.entry(asset_name.clone()).or_insert_with(|| AssetSituation {
@@ -398,11 +446,11 @@ pub async fn run_intelligence_cycle(
     }
 
     // ── 5i. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
-    // This is where the engine becomes a true SOC brain — it reads raw logs,
-    // extracts indicators, and cross-references with enrichment sources.
+    let mut finding_dedup: HashSet<String> = HashSet::new();
     let log_scan_results = scan_logs_for_threats(store.clone()).await;
     for threat in &log_scan_results {
-        // Auto-create finding for each threat detected in logs
+        let dedup_key = format!("{}|{}|{}", threat.title, threat.asset.as_deref().unwrap_or(""), threat.source);
+        if !finding_dedup.insert(dedup_key) { continue; }
         let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
             skill_id: "intelligence-engine".into(),
             title: threat.title.clone(),
@@ -445,6 +493,8 @@ pub async fn run_intelligence_cycle(
         for log in &bloom_logs {
             let detected = crate::agent::ioc_bloom::check_log(&log.data, log.hostname.as_deref(), store.as_ref()).await;
             for ioc in &detected {
+                let dedup_key = format!("bloom|{}|{}", ioc.ioc_type, ioc.ioc_value);
+                if !finding_dedup.insert(dedup_key) { continue; }
                 let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
                     skill_id: "bloom-ioc".into(),
                     title: format!("{} malveillant détecté: {}", ioc.ioc_type.to_uppercase(), ioc.ioc_value),
@@ -1034,7 +1084,17 @@ pub fn spawn_intelligence_ticker(
                     .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
                 {
                     let registry = crate::agent::investigation::get_registry();
-                    if !registry.is_investigating(&worst_asset.asset).await {
+                    let inv_key = investigation_key(&worst_asset.asset, worst_asset);
+
+                    // Skip if same pattern already investigated in the last 24h
+                    let already_investigated = {
+                        let dedup = INVESTIGATION_BLOOM.read().await;
+                        !dedup.is_stale() && dedup.maybe_seen(&inv_key)
+                    };
+
+                    if already_investigated {
+                        tracing::debug!("INTELLIGENCE: Skipping investigation for {} — same pattern already investigated", worst_asset.asset);
+                    } else if !registry.is_investigating(&worst_asset.asset).await {
                         // Build dossier from the worst asset's data
                         let dossier = build_dossier_from_situation(
                             store.as_ref(),
@@ -1050,6 +1110,7 @@ pub fn spawn_intelligence_ticker(
                             let asset_name = worst_asset.asset.clone();
                             let registry_ref = crate::agent::investigation::get_registry();
                             let nm_ref = nonce_manager.clone();
+                            let inv_key_owned = inv_key.clone();
 
                             tokio::spawn(async move {
                                 let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store_inv.as_ref()).await;
@@ -1058,6 +1119,9 @@ pub fn spawn_intelligence_ticker(
                                 let result = crate::agent::investigation::run_investigation(
                                     dossier.clone(), store_inv.clone(), &llm_config, &inv_config
                                 ).await;
+
+                                // Record pattern in dedup cache (skip re-investigation for 24h)
+                                INVESTIGATION_BLOOM.write().await.record(inv_key_owned);
 
                                 tracing::info!(
                                     "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
