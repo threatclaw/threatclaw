@@ -248,16 +248,36 @@ pub async fn run_intelligence_cycle(
     }
 
     // ── 3. Overlay alerts on assets (resolve hostnames/IPs to asset names) ──
+    // Resolution cascade: IP → hostname/name → source_ip → raw fallback
     for a in &alerts {
         let raw_host = a.hostname.as_deref().unwrap_or("unknown");
-        // Try to resolve hostname/IP to a known asset name
-        let asset = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
+
+        // Strategy 1: raw_host is an IP → find asset by IP
+        let asset_name = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
             found.name.clone()
+        }
+        // Strategy 2: raw_host is a hostname/name (e.g. "case", "TARS-HOST") → find by hostname or name
+        else if let Ok(Some(found)) = store.find_asset_by_hostname(raw_host).await {
+            found.name.clone()
+        }
+        // Strategy 3: alert has a source_ip → find asset that owns this IP
+        else if let Some(ref src_ip) = a.source_ip {
+            let clean_ip = src_ip.split('/').next().unwrap_or("").trim();
+            if !clean_ip.is_empty() {
+                if let Ok(Some(found)) = store.find_asset_by_ip(clean_ip).await {
+                    found.name.clone()
+                } else {
+                    raw_host.to_string()
+                }
+            } else {
+                raw_host.to_string()
+            }
         } else {
             raw_host.to_string()
         };
-        let entry = asset_map.entry(asset.clone()).or_insert_with(|| AssetSituation {
-            asset: asset.clone(), score: 0.0,
+
+        let entry = asset_map.entry(asset_name.clone()).or_insert_with(|| AssetSituation {
+            asset: asset_name.clone(), score: 0.0,
             findings_critical: 0, findings_high: 0, findings_medium: 0, findings_low: 0,
             active_alerts: 0, has_kill_chain: false, has_known_exploit: false,
             has_active_attack: false, summary: String::new(),
@@ -463,6 +483,21 @@ pub async fn run_intelligence_cycle(
 
     // ── 5k. SIGMA ENGINE — native rule matching on recent logs ──
     crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
+
+    // ── 5l. NDR — JA3 fingerprinting, beacon detection, TLS scoring ──
+    // Analyzes Zeek ssl.log and conn.log for C2 indicators.
+    // JA3: known-bad TLS client fingerprints via Bloom filter (O(1) per check)
+    // Beacon: regular communication intervals (coefficient of variation < 0.20)
+    // TLS: certificate anomalies (self-signed, expired, no SNI, short validity)
+    let ja3_result = crate::agent::ndr_ja3::scan_ja3(store.clone(), 5).await;
+    let beacon_result = crate::agent::ndr_beacon::scan_beacons(store.clone(), 60).await; // 1h window for timing analysis
+    let tls_result = crate::agent::ndr_tls::scan_tls(store.clone(), 5).await;
+    if ja3_result.matches_found + beacon_result.beacons_detected + tls_result.anomalies_found > 0 {
+        tracing::info!(
+            "NDR: JA3={} beacons={} TLS={}",
+            ja3_result.matches_found, beacon_result.beacons_detected, tls_result.anomalies_found
+        );
+    }
 
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
     // All enrichment is wrapped in timeout + rate limiting.

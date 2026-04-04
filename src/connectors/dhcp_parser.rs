@@ -6,7 +6,7 @@
 //! Creates/updates assets from discovered devices.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewAsset};
+use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,48 +44,23 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
             seen_macs.insert(lease.mac.clone());
             result.leases_parsed += 1;
 
-            let mac_vendor = crate::enrichment::mac_oui_lookup::lookup(&lease.mac).vendor;
-
-            let asset_id = format!("dhcp-{}", lease.mac.replace(':', "-"));
-            let name = lease.hostname.clone().unwrap_or_else(|| format!("DHCP {}", &lease.mac));
-
-            let category = if let Some(ref h) = lease.hostname {
-                crate::agent::fingerprint::classify_from_hostname(h)
-                    .map(|f| f.category)
-                    .unwrap_or_else(|| "unknown".into())
-            } else if let Some(ref v) = mac_vendor {
-                crate::agent::fingerprint::classify_from_mac_vendor(v)
-                    .map(|f| f.category)
-                    .unwrap_or_else(|| "unknown".into())
-            } else {
-                "unknown".into()
-            };
-
-            let asset = NewAsset {
-                id: asset_id,
-                name,
-                category,
-                subcategory: None,
-                role: None,
-                criticality: "low".into(),
-                ip_addresses: vec![lease.ip.clone()],
-                mac_address: Some(lease.mac.clone()),
+            let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                mac: Some(lease.mac.clone()),
                 hostname: lease.hostname.clone(),
                 fqdn: None,
-                url: None,
+                ip: Some(lease.ip.clone()),
                 os: None,
-                mac_vendor,
-            services: serde_json::json!([]),
+                ports: None,
+                services: serde_json::json!([]),
+                ou: None,
+                vlan: None,
+                vm_id: None,
+                criticality: Some("low".into()),
                 source: "dhcp".into(),
-                owner: None,
-                location: None,
-                tags: vec!["dhcp-discovered".into()],
             };
-
-            match store.upsert_asset(&asset).await {
-                Ok(_) => result.assets_created += 1,
-                Err(e) => result.errors.push(format!("DHCP asset: {}", e)),
-            }
+            let res = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+            tracing::debug!("DHCP ASSET: {} → {:?} ({})", lease.mac, res.action, res.asset_id);
+            result.assets_created += 1;
         }
 
         // Parse dnsmasq format: "dnsmasq-dhcp: DHCPACK(eth0) 192.168.1.50 00:1a:2b:3c:4d:5e hostname"
@@ -94,24 +69,22 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
             seen_macs.insert(lease.mac.clone());
             result.leases_parsed += 1;
 
-            let mac_vendor = crate::enrichment::mac_oui_lookup::lookup(&lease.mac).vendor;
-            let asset_id = format!("dhcp-{}", lease.mac.replace(':', "-"));
-            let name = lease.hostname.clone().unwrap_or_else(|| format!("DHCP {}", &lease.mac));
-
-            let asset = NewAsset {
-                id: asset_id, name,
-                category: "unknown".into(), subcategory: None, role: None,
-                criticality: "low".into(),
-                ip_addresses: vec![lease.ip.clone()],
-                mac_address: Some(lease.mac.clone()),
+            let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                mac: Some(lease.mac.clone()),
                 hostname: lease.hostname.clone(),
-                fqdn: None, url: None, os: None, mac_vendor,
-            services: serde_json::json!([]),
-                source: "dhcp".into(), owner: None, location: None,
-                tags: vec!["dhcp-discovered".into()],
+                fqdn: None,
+                ip: Some(lease.ip.clone()),
+                os: None,
+                ports: None,
+                services: serde_json::json!([]),
+                ou: None,
+                vlan: None,
+                vm_id: None,
+                criticality: Some("low".into()),
+                source: "dhcp".into(),
             };
-
-            let _ = store.upsert_asset(&asset).await;
+            let res = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+            tracing::debug!("DHCP ASSET (dnsmasq): {} → {:?}", lease.mac, res.action);
             result.assets_created += 1;
         }
     }

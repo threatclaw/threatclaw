@@ -3526,7 +3526,21 @@ pub async fn assets_upsert_handler(
     };
 
     match store.upsert_asset(&asset).await {
-        Ok(aid) => Ok(Json(serde_json::json!({ "status": "ok", "id": aid }))),
+        Ok(ref aid) => {
+            // Track which fields the user manually changed (protects from auto-discovery overwrite)
+            let mut modified_fields: Vec<&str> = vec![];
+            if body.get("name").is_some() { modified_fields.push("name"); }
+            if body.get("hostname").is_some() { modified_fields.push("hostname"); }
+            if body.get("category").is_some() { modified_fields.push("category"); }
+            if body.get("criticality").is_some() { modified_fields.push("criticality"); }
+            if body.get("owner").is_some() { modified_fields.push("owner"); }
+            if body.get("location").is_some() { modified_fields.push("location"); }
+            if body.get("tags").is_some() { modified_fields.push("tags"); }
+            if !modified_fields.is_empty() {
+                let _ = store.mark_asset_user_modified(aid, &modified_fields).await;
+            }
+            Ok(Json(serde_json::json!({ "status": "ok", "id": aid })))
+        }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }

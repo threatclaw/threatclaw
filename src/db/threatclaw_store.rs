@@ -118,6 +118,9 @@ pub struct AssetRecord {
     pub classification_method: String,
     pub classification_confidence: f32,
     pub status: String,
+    pub sources: Vec<String>,
+    pub software: serde_json::Value,
+    pub user_modified: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -373,6 +376,13 @@ pub trait ThreatClawStore: Send + Sync {
     async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError>;
 
     async fn find_asset_by_mac(&self, mac: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+
+    /// Find an asset by hostname or name (case-insensitive).
+    /// Used by the Intelligence Engine to resolve alert hostnames to known assets.
+    async fn find_asset_by_hostname(&self, hostname: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+
+    /// Mark specific fields as user-modified (protected from auto-discovery overwrite).
+    async fn mark_asset_user_modified(&self, id: &str, fields: &[&str]) -> Result<(), DatabaseError>;
 
     // ── Internal Networks ──
 

@@ -48,6 +48,8 @@ impl ThreatClawStore for LibSqlBackend {
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> { Err(not_supported()) }
     async fn find_asset_by_ip(&self, _: &str) -> Result<Option<AssetRecord>, DatabaseError> { Err(not_supported()) }
     async fn find_asset_by_mac(&self, _: &str) -> Result<Option<AssetRecord>, DatabaseError> { Err(not_supported()) }
+    async fn find_asset_by_hostname(&self, _: &str) -> Result<Option<AssetRecord>, DatabaseError> { Err(not_supported()) }
+    async fn mark_asset_user_modified(&self, _: &str, _: &[&str]) -> Result<(), DatabaseError> { Err(not_supported()) }
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> { Err(not_supported()) }
     async fn add_internal_network(&self, _: &str, _: Option<&str>, _: Option<&str>) -> Result<i64, DatabaseError> { Err(not_supported()) }
     async fn delete_internal_network(&self, _: i64) -> Result<(), DatabaseError> { Err(not_supported()) }

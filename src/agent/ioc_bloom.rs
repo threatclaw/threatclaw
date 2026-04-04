@@ -153,6 +153,9 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
         if !entries.is_empty() { tracing::debug!("BLOOM: loaded {} KEV CVEs", entries.len()); }
     }
 
+    // JA3 fingerprints (malicious TLS client identification)
+    super::ndr_ja3::load_ja3_into_bloom(store, &mut filter).await;
+
     tracing::info!(
         "BLOOM: Filter ready — {} IoC, {} KB RAM, ~1% FP rate",
         filter.ioc_count(), filter.memory_kb()

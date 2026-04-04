@@ -21,6 +21,7 @@ static RATE_LIMITS: std::sync::LazyLock<Mutex<HashMap<String, (u32, chrono::Date
 
 const MAX_REQUESTS_PER_MINUTE: u32 = 60;
 const MAX_BODY_SIZE: usize = 65_536; // 64 KB
+const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log ingestion
 
 /// Verify the webhook token for a source.
 pub async fn verify_token(store: &dyn Database, source: &str, token: &str) -> bool {
@@ -73,8 +74,12 @@ pub async fn process_webhook(
         return 0;
     }
 
-    // Body size check
-    if body.len() > MAX_BODY_SIZE {
+    // Body size check (Zeek/Suricata allow larger payloads for bulk log ingestion)
+    let max_size = match source {
+        "zeek" | "suricata" => MAX_BODY_SIZE_LOGS,
+        _ => MAX_BODY_SIZE,
+    };
+    if body.len() > max_size {
         tracing::warn!("WEBHOOK: body too large for source {} ({}b)", source, body.len());
         return 0;
     }
@@ -90,6 +95,8 @@ pub async fn process_webhook(
 
     // Dispatch to source-specific parser
     match source {
+        "zeek" => parse_zeek(store, &json).await,
+        "suricata" => parse_suricata(store, &json).await,
         "cloudflare" => parse_cloudflare(store, &json).await,
         "crowdsec" => parse_crowdsec(store, &json).await,
         "fail2ban" => parse_fail2ban(store, &json).await,
@@ -122,6 +129,158 @@ pub async fn generate_token(store: &dyn Database, source: &str) -> Result<String
 }
 
 // ── Source-specific parsers ──
+
+// ── Zeek & Suricata — bulk log ingestion (from remote Fluent-Bit agents) ──
+
+/// Parse Zeek JSON logs pushed from a remote Fluent-Bit agent.
+/// Accepts single entry or array of entries. Each entry is inserted as a log
+/// with the appropriate tag (zeek.conn, zeek.dns, zeek.ssl, etc.).
+/// The tag is auto-detected from the entry fields.
+async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
+    let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
+        arr.iter().collect()
+    } else {
+        vec![json]
+    };
+
+    let mut count = 0u32;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    for entry in entries {
+        // Auto-detect Zeek log type from entry fields
+        let tag = detect_zeek_log_type(entry);
+        let hostname = entry["id.orig_h"].as_str()
+            .or_else(|| entry["host"].as_str())
+            .unwrap_or("");
+
+        if store.insert_log(&tag, hostname, entry, &now).await.is_ok() {
+            count += 1;
+        }
+
+        // Generate sigma alerts for notable events (same logic as zeek.rs connector)
+        match tag.as_str() {
+            "zeek.ssl" => {
+                let validation = entry["validation_status"].as_str().unwrap_or("");
+                if validation.contains("expired") || validation.contains("self signed") {
+                    let server = entry["server_name"].as_str().unwrap_or("unknown");
+                    let title = format!("Zeek: SSL issue on {} — {}", server, validation);
+                    let _ = store.insert_sigma_alert("zeek-ssl-issue", "medium", &title,
+                        entry["id.resp_h"].as_str().unwrap_or(""), None, None).await;
+                }
+            }
+            "zeek.conn" => {
+                // Long connection (> 1h) to external IP
+                let duration = entry["duration"].as_f64().unwrap_or(0.0);
+                let dst = entry["id.resp_h"].as_str().unwrap_or("");
+                if duration > 3600.0 && !dst.starts_with("10.") && !dst.starts_with("192.168.") && !dst.starts_with("127.") {
+                    let title = format!("Zeek: Long connection to {} ({:.0}min)", dst, duration / 60.0);
+                    let _ = store.insert_sigma_alert("zeek-long-conn", "medium", &title,
+                        hostname, Some(dst), None).await;
+                }
+                // Large upload (> 10 MB)
+                let orig_bytes = entry["orig_bytes"].as_u64().unwrap_or(0);
+                if orig_bytes > 10_000_000 {
+                    let title = format!("Zeek: Large upload to {} ({:.1} MB)", dst, orig_bytes as f64 / 1_000_000.0);
+                    let _ = store.insert_sigma_alert("zeek-large-upload", "high", &title,
+                        hostname, Some(dst), None).await;
+                }
+            }
+            "zeek.ssh" => {
+                let auth_success = entry["auth_success"].as_bool().unwrap_or(true);
+                let src = entry["id.orig_h"].as_str().unwrap_or("");
+                if !auth_success && !src.starts_with("10.") && !src.starts_with("192.168.") {
+                    let title = format!("Zeek: SSH auth failure from {}", src);
+                    let _ = store.insert_sigma_alert("zeek-ssh-fail", "medium", &title,
+                        entry["id.resp_h"].as_str().unwrap_or(""), Some(src), None).await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if count > 0 {
+        tracing::info!("WEBHOOK-ZEEK: ingested {} log entries", count);
+    }
+    count
+}
+
+/// Detect Zeek log type from JSON entry fields.
+fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
+    // Check for tag field first (Fluent-Bit may set this)
+    if let Some(tag) = entry["_tag"].as_str().or_else(|| entry["tag"].as_str()) {
+        if tag.starts_with("zeek.") { return tag.to_string(); }
+    }
+    // Auto-detect from fields unique to each log type
+    if entry.get("query").is_some() && entry.get("qtype_name").is_some() { return "zeek.dns".into(); }
+    if entry.get("server_name").is_some() || entry.get("ja3").is_some() || entry.get("validation_status").is_some() { return "zeek.ssl".into(); }
+    if entry.get("method").is_some() && entry.get("uri").is_some() && entry.get("status_code").is_some() { return "zeek.http".into(); }
+    if entry.get("auth_success").is_some() || entry.get("client").is_some() && entry.get("server").is_some() && entry.get("cipher_alg").is_some() { return "zeek.ssh".into(); }
+    if entry.get("fuid").is_some() && entry.get("mime_type").is_some() { return "zeek.files".into(); }
+    if entry.get("conn_state").is_some() || entry.get("duration").is_some() && entry.get("orig_bytes").is_some() { return "zeek.conn".into(); }
+    // Fallback
+    "zeek.unknown".into()
+}
+
+/// Parse Suricata EVE JSON logs pushed from a remote Fluent-Bit agent.
+/// Accepts single entry or array. Each entry is inserted as a log and
+/// alerts are auto-created for IDS detections.
+async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
+    let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
+        arr.iter().collect()
+    } else {
+        vec![json]
+    };
+
+    let mut count = 0u32;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    for entry in entries {
+        let event_type = entry["event_type"].as_str().unwrap_or("");
+        let src_ip = entry["src_ip"].as_str().unwrap_or("");
+        let dest_ip = entry["dest_ip"].as_str().unwrap_or("");
+        let tag = format!("suricata.{}", if event_type.is_empty() { "unknown" } else { event_type });
+
+        if store.insert_log(&tag, dest_ip, entry, &now).await.is_ok() {
+            count += 1;
+        }
+
+        // Create sigma alerts for Suricata IDS alerts
+        if event_type == "alert" {
+            let signature = entry["alert"]["signature"].as_str().unwrap_or("Unknown alert");
+            let severity = entry["alert"]["severity"].as_u64().unwrap_or(3);
+            let sig_id = entry["alert"]["signature_id"].as_u64().unwrap_or(0);
+            let category = entry["alert"]["category"].as_str().unwrap_or("");
+
+            let level = match severity {
+                1 => "critical",
+                2 => "high",
+                3 => "medium",
+                _ => "low",
+            };
+
+            let title = format!("[Suricata {}] {}", sig_id, signature);
+            let _ = store.insert_sigma_alert(
+                &format!("suricata-{}", sig_id), level, &title,
+                dest_ip, Some(src_ip), None,
+            ).await;
+        }
+
+        // Detect large flows (> 50 MB exfiltration)
+        if event_type == "flow" {
+            let bytes_out = entry["flow"]["bytes_toserver"].as_u64().unwrap_or(0);
+            if bytes_out > 50_000_000 && !dest_ip.starts_with("10.") && !dest_ip.starts_with("192.168.") {
+                let title = format!("Suricata: Large outbound flow to {} ({:.1} MB)", dest_ip, bytes_out as f64 / 1_000_000.0);
+                let _ = store.insert_sigma_alert("suricata-exfil", "high", &title,
+                    src_ip, Some(dest_ip), None).await;
+            }
+        }
+    }
+
+    if count > 0 {
+        tracing::info!("WEBHOOK-SURICATA: ingested {} EVE entries", count);
+    }
+    count
+}
 
 async fn parse_cloudflare(store: &dyn Database, json: &serde_json::Value) -> u32 {
     let mut count = 0;

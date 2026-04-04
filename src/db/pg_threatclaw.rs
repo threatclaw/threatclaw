@@ -834,29 +834,48 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let ips: Vec<&str> = a.ip_addresses.iter().map(|s| s.as_str()).collect();
         let tags: Vec<&str> = a.tags.iter().map(|s| s.as_str()).collect();
+        let source_arr = vec![a.source.as_str()];
         conn.execute(
             r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
                 ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
-                services, source, owner, location, tags, last_seen)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
+                services, source, sources, owner, location, tags, last_seen)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
             ON CONFLICT (id) DO UPDATE SET
-                name = EXCLUDED.name, category = EXCLUDED.category,
+                -- Protect user-edited fields from auto-discovery overwrite
+                name = CASE WHEN 'name' = ANY(assets.user_modified) THEN assets.name
+                            ELSE COALESCE(EXCLUDED.name, assets.name) END,
+                category = CASE WHEN 'category' = ANY(assets.user_modified) THEN assets.category
+                                ELSE EXCLUDED.category END,
                 subcategory = COALESCE(EXCLUDED.subcategory, assets.subcategory),
                 role = COALESCE(EXCLUDED.role, assets.role),
-                criticality = EXCLUDED.criticality,
-                ip_addresses = EXCLUDED.ip_addresses,
+                criticality = CASE WHEN 'criticality' = ANY(assets.user_modified) THEN assets.criticality
+                                   ELSE EXCLUDED.criticality END,
+                -- IPs: union of existing + new (never lose an IP)
+                ip_addresses = CASE
+                    WHEN EXCLUDED.ip_addresses = '{}' THEN assets.ip_addresses
+                    ELSE (SELECT ARRAY(SELECT DISTINCT unnest(assets.ip_addresses || EXCLUDED.ip_addresses)))
+                END,
                 mac_address = COALESCE(EXCLUDED.mac_address, assets.mac_address),
-                hostname = COALESCE(EXCLUDED.hostname, assets.hostname),
+                hostname = CASE WHEN 'hostname' = ANY(assets.user_modified) THEN assets.hostname
+                                ELSE COALESCE(EXCLUDED.hostname, assets.hostname) END,
                 fqdn = COALESCE(EXCLUDED.fqdn, assets.fqdn),
                 url = COALESCE(EXCLUDED.url, assets.url),
                 os = COALESCE(EXCLUDED.os, assets.os),
                 mac_vendor = COALESCE(EXCLUDED.mac_vendor, assets.mac_vendor),
                 services = CASE WHEN EXCLUDED.services != '[]'::jsonb THEN EXCLUDED.services ELSE assets.services END,
+                -- Sources: union (track all discovery origins)
+                sources = (SELECT ARRAY(SELECT DISTINCT unnest(assets.sources || EXCLUDED.sources))),
+                owner = CASE WHEN 'owner' = ANY(assets.user_modified) THEN assets.owner
+                             ELSE COALESCE(EXCLUDED.owner, assets.owner) END,
+                location = CASE WHEN 'location' = ANY(assets.user_modified) THEN assets.location
+                                ELSE COALESCE(EXCLUDED.location, assets.location) END,
+                -- Tags: union (never lose a tag)
+                tags = (SELECT ARRAY(SELECT DISTINCT unnest(assets.tags || EXCLUDED.tags))),
                 last_seen = NOW(),
                 updated_at = NOW()"#,
             &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
               &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
-              &a.services, &a.source, &a.owner, &a.location, &tags],
+              &a.services, &a.source, &source_arr, &a.owner, &a.location, &tags],
         ).await.map_err(query_err)?;
         Ok(a.id.clone())
     }
@@ -886,6 +905,26 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query("SELECT * FROM assets WHERE mac_address = $1 LIMIT 1", &[&mac]).await.map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))
+    }
+
+    async fn find_asset_by_hostname(&self, hostname: &str) -> Result<Option<AssetRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let lower = hostname.to_lowercase();
+        let rows = conn.query(
+            "SELECT * FROM assets WHERE LOWER(hostname) = $1 OR LOWER(name) = $1 ORDER BY CASE WHEN LOWER(hostname) = $1 THEN 0 ELSE 1 END LIMIT 1",
+            &[&lower],
+        ).await.map_err(query_err)?;
+        Ok(rows.first().map(parse_asset_row))
+    }
+
+    async fn mark_asset_user_modified(&self, id: &str, fields: &[&str]) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let fields_vec: Vec<String> = fields.iter().map(|f| f.to_string()).collect();
+        conn.execute(
+            "UPDATE assets SET user_modified = (SELECT ARRAY(SELECT DISTINCT unnest(user_modified || $2::text[]))) WHERE id = $1",
+            &[&id, &fields_vec],
+        ).await.map_err(query_err)?;
+        Ok(())
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1083,5 +1122,8 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
         classification_method: r.try_get::<_, String>("classification_method").unwrap_or_else(|_| "manual".into()),
         classification_confidence: r.try_get::<_, f32>("classification_confidence").unwrap_or(1.0),
         status: r.get("status"),
+        sources: r.try_get::<_, Vec<String>>("sources").unwrap_or_default(),
+        software: r.try_get::<_, serde_json::Value>("software").unwrap_or(serde_json::json!([])),
+        user_modified: r.try_get::<_, Vec<String>>("user_modified").unwrap_or_default(),
     }
 }

@@ -6,7 +6,7 @@
 //! Discovers: MAC, IP, hostname, SSID, signal, traffic stats.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewAsset};
+use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,47 +91,23 @@ pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSync
 
             if mac.is_empty() { continue; }
 
-            let asset_id = format!("unifi-{}", mac.replace(':', "-"));
-            let name = if !hostname.is_empty() { hostname.clone() } else { format!("WiFi {}", &mac[..8]) };
-
-            // Use MAC OUI for vendor
-            let mac_vendor = if !oui.is_empty() {
-                Some(oui.clone())
-            } else {
-                let lookup = crate::enrichment::mac_oui_lookup::lookup(&mac);
-                lookup.vendor
-            };
-
-            // Fingerprint category from hostname
-            let category = crate::agent::fingerprint::classify_from_hostname(&name)
-                .map(|f| f.category)
-                .unwrap_or_else(|| "unknown".into());
-
-            let asset = NewAsset {
-                id: asset_id,
-                name,
-                category,
-                subcategory: None,
-                role: None,
-                criticality: "low".into(),
-                ip_addresses: if ip.is_empty() { vec![] } else { vec![ip] },
-                mac_address: Some(mac),
+            let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                mac: Some(mac),
                 hostname: if hostname.is_empty() { None } else { Some(hostname) },
                 fqdn: None,
-                url: None,
+                ip: if ip.is_empty() { None } else { Some(ip) },
                 os: None,
-                mac_vendor,
-            services: serde_json::json!([]),
+                ports: None,
+                services: serde_json::json!([]),
+                ou: None,
+                vlan: None,
+                vm_id: None,
+                criticality: Some("low".into()),
                 source: "unifi".into(),
-                owner: None,
-                location: c["essid"].as_str().map(|s| format!("SSID: {}", s)),
-                tags: vec!["wifi".into()],
             };
-
-            match store.upsert_asset(&asset).await {
-                Ok(_) => result.assets_created += 1,
-                Err(e) => result.errors.push(format!("Asset upsert: {}", e)),
-            }
+            let res = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+            tracing::debug!("UNIFI ASSET: {} → {:?}", res.asset_id, res.action);
+            result.assets_created += 1;
         }
     }
 

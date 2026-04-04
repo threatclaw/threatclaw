@@ -123,30 +123,24 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
                         let os = format!("{} {}", agent["os"]["name"].as_str().unwrap_or(""), agent["os"]["version"].as_str().unwrap_or("")).trim().to_string();
                         let status = agent["status"].as_str().unwrap_or("unknown");
 
-                        // Import agent as asset
+                        // Import agent as asset via resolution pipeline (dedup with other sources)
                         if !ip.is_empty() && ip != "any" {
-                            use crate::db::threatclaw_store::NewAsset;
-                            let asset = NewAsset {
-                                id: format!("wazuh-{}", agent["id"].as_str().or(agent["id"].as_u64().map(|_| "")).unwrap_or(&name.replace(' ', "-"))),
-                                name: name.to_string(),
-                                category: "server".into(),
-                                subcategory: None,
-                                role: Some("Wazuh agent".into()),
-                                criticality: "medium".into(),
-                                ip_addresses: vec![ip.to_string()],
-                                mac_address: None,
+                            let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                                mac: None,
                                 hostname: Some(name.to_string()),
                                 fqdn: None,
-                                url: None,
+                                ip: Some(ip.to_string()),
                                 os: if os.is_empty() { None } else { Some(os.clone()) },
-                                mac_vendor: None,
+                                ports: None,
                                 services: serde_json::json!([]),
+                                ou: None,
+                                vlan: None,
+                                vm_id: None,
+                                criticality: Some("medium".into()),
                                 source: "wazuh".into(),
-                                owner: None,
-                                location: None,
-                                tags: vec!["wazuh-agent".into()],
                             };
-                            let _ = store.upsert_asset(&asset).await;
+                            let res = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+                            tracing::debug!("WAZUH ASSET: {} → {:?} ({})", name, res.action, res.asset_id);
                             result.alerts_imported += 1;
                         }
 
@@ -216,7 +210,7 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
     result
 }
 
-/// Import a single Wazuh alert as a ThreatClaw finding
+/// Import a single Wazuh alert — routes to sigma_alerts (events) or findings (vulns)
 async fn import_wazuh_alert(store: &dyn Database, alert: &serde_json::Value, result: &mut WazuhSyncResult) {
     let rule_level = alert["rule"]["level"].as_u64().unwrap_or(0) as u8;
     let rule_desc = alert["rule"]["description"].as_str().unwrap_or("");
@@ -224,46 +218,56 @@ async fn import_wazuh_alert(store: &dyn Database, alert: &serde_json::Value, res
     let agent_name = alert["agent"]["name"].as_str().unwrap_or("");
     let agent_ip = alert["agent"]["ip"].as_str().unwrap_or("");
     let src_ip = alert["data"]["srcip"].as_str();
+    let username = alert["data"]["dstuser"].as_str()
+        .or_else(|| alert["data"]["srcuser"].as_str());
     let timestamp = alert["timestamp"].as_str().unwrap_or("");
 
     if rule_level > result.highest_level { result.highest_level = rule_level; }
 
-    // Only import level >= 7 (skip noise)
-    if rule_level < 7 { return; }
+    if rule_level < 5 { return; }
 
     let severity = match rule_level {
-        0..=5 => "LOW",
-        6..=9 => "MEDIUM",
-        10..=12 => "HIGH",
-        _ => "CRITICAL",
+        0..=5 => "low",
+        6..=9 => "medium",
+        10..=12 => "high",
+        _ => "critical",
     };
 
-    let mitre_ids: Vec<String> = alert["rule"]["mitre"]["id"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-        .unwrap_or_default();
+    // Wazuh vulnerability rules (5500-5599) → findings (dedup OK)
+    // Everything else (auth, intrusion, file integrity) → sigma_alerts (each event counts)
+    let rule_num: u32 = rule_id.parse().unwrap_or(0);
+    let is_vuln_rule = (5500..5600).contains(&rule_num);
 
-    let _ = store.insert_finding(&NewFinding {
-        skill_id: "skill-wazuh".into(),
-        title: format!("[Wazuh {}] {}", rule_id, rule_desc),
-        description: Some(format!(
-            "Agent: {} ({})\nSource: {}\nTimestamp: {}\nMITRE: {}",
-            agent_name, agent_ip, src_ip.unwrap_or("N/A"),
-            timestamp, mitre_ids.join(", ")
-        )),
-        severity: severity.into(),
-        category: Some("wazuh-alert".into()),
-        asset: Some(agent_name.into()),
-        source: Some("Wazuh SIEM".into()),
-        metadata: Some(serde_json::json!({
-            "wazuh_rule_id": rule_id,
-            "rule_level": rule_level,
-            "agent_ip": agent_ip,
-            "src_ip": src_ip,
-            "mitre": mitre_ids,
-        })),
-    }).await;
-
-    result.findings_created += 1;
+    if is_vuln_rule {
+        // Vulnerability → finding (deduplicated)
+        let _ = store.insert_finding(&NewFinding {
+            skill_id: "skill-wazuh".into(),
+            title: format!("[Wazuh {}] {}", rule_id, rule_desc),
+            description: Some(format!("Agent: {} ({})\nSource: {}\nTimestamp: {}",
+                agent_name, agent_ip, src_ip.unwrap_or("N/A"), timestamp)),
+            severity: severity.to_uppercase(),
+            category: Some("wazuh-vuln".into()),
+            asset: Some(agent_name.into()),
+            source: Some("Wazuh SIEM".into()),
+            metadata: Some(serde_json::json!({
+                "wazuh_rule_id": rule_id, "rule_level": rule_level,
+            })),
+        }).await;
+        result.findings_created += 1;
+    } else {
+        // Security event → sigma_alert (each occurrence counts for scoring)
+        let sigma_rule_id = format!("wazuh-{}", rule_id);
+        let title = format!("[Wazuh {}] {}", rule_id, rule_desc);
+        let _ = store.insert_sigma_alert(
+            &sigma_rule_id,
+            severity,
+            &title,
+            agent_name,
+            src_ip,
+            username,
+        ).await;
+        result.alerts_imported += 1;
+    }
 }
 
 /// Fetch Wazuh alerts from OpenSearch/Elasticsearch indexer
