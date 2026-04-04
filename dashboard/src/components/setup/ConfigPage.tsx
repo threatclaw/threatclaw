@@ -10,6 +10,8 @@ import {
   Clock, Download, Play, XCircle, Cloud, ChevronDown, ChevronRight, X, Settings, RefreshCw, HelpCircle, Activity,
 } from "lucide-react";
 
+import RemediationTab from "./RemediationTab";
+
 // ── Channel SVG icons (no emojis) ──
 function SlackIcon() {
   return (
@@ -260,6 +262,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { id: "llm", label: tr("threatclawAi", locale), icon: Cpu },
     { id: "channels", label: tr("channels", locale), icon: MessageSquare },
     { id: "security", label: tr("security", locale), icon: ShieldAlert },
+    { id: "remediation", label: locale === "fr" ? "Remédiation" : "Remediation", icon: Shield },
     { id: "agent", label: tr("agentEngine", locale), icon: Activity },
     { id: "notifications", label: tr("notifications", locale), icon: Bell },
     { id: "retention", label: tr("retention", locale), icon: Clock },
@@ -482,6 +485,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
           <AnonymizerSection inputStyle={inputStyle} labelStyle={labelStyle} />
         )}
 
+        {activeTab === "remediation" && (<RemediationTab />)}
         {activeTab === "backup" && (<BackupTab />)}
         {activeTab === "logs" && (<LiveLogsTab />)}
         {activeTab === "sources" && (<LogSourcesTab />)}

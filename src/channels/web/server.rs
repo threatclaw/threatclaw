@@ -545,6 +545,8 @@ pub async fn start_server(
         .route("/api/tc/incidents/{id}", get(super::handlers::threatclaw_api::incident_detail_handler))
         .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler))
         .route("/api/tc/incidents/{id}/status", post(super::handlers::threatclaw_api::incident_status_handler))
+        // Settings read (for config tabs)
+        .route("/api/tc/settings/{user_id}/{key}", get(super::handlers::threatclaw_api::settings_read_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API

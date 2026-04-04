@@ -1147,6 +1147,13 @@ pub async fn config_set_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
+    // ADR-044: Save remediation / HITL config
+    for rkey in &["tc_protected_assets", "tc_hitl_approvers", "tc_hitl_approvers_config", "tc_hitl_limits"] {
+        if let Some(val) = body.get(*rkey) {
+            store.set_setting("_system", rkey, val).await.map_err(db_err)?;
+        }
+    }
+
     // Save each config section
     for key in &["llm", "forensic", "instruct", "cloud", "conversational", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys"] {
         if let Some(val) = body.get(*key) {
@@ -5139,4 +5146,17 @@ pub async fn incident_status_handler(
     let status = body["status"].as_str().unwrap_or("open");
     store.update_incident_status(id, status).await.map_err(db_err)?;
     Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "new_status": status })))
+}
+
+/// GET /api/tc/settings/{user_id}/{key} — read a setting value
+pub async fn settings_read_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path((user_id, key)): Path<(String, String)>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.get_setting(&user_id, &key).await {
+        Ok(Some(val)) => Ok(Json(serde_json::json!({ "user_id": user_id, "key": key, "value": val }))),
+        Ok(None) => Ok(Json(serde_json::json!({ "user_id": user_id, "key": key, "value": null }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e))),
+    }
 }
