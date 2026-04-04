@@ -89,6 +89,77 @@ pub async fn route_notification(
     results
 }
 
+/// See ADR-043: Route an incident notification with HITL inline buttons.
+pub async fn route_incident_notification(
+    store: &dyn Database,
+    incident_id: i32,
+    asset: &str,
+    title: &str,
+    summary: &str,
+    severity: &str,
+    alert_count: i32,
+) -> Vec<(String, Result<(), String>)> {
+    let routing = load_routing(store).await;
+    let configured = get_configured_channels(store).await;
+    let channels = &routing.alert;
+
+    let text = format!(
+        "🔴 *INCIDENT #{}* — {}\n\n📍 Asset: `{}`\n⚠️ Sévérité: {}\n📊 {} alertes corrélées\n\n{}",
+        incident_id, title, asset, severity, alert_count,
+        if summary.is_empty() { "Investigation en cours..." } else { summary }
+    );
+
+    let mut results = vec![];
+    for channel in channels {
+        if !configured.contains(channel) { continue; }
+
+        let result = if channel == "telegram" {
+            send_telegram_with_buttons(store, &text, incident_id).await
+        } else {
+            send_to_channel(store, channel, &text, NotificationLevel::Alert).await
+        };
+
+        if let Err(ref e) = result {
+            tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
+        } else {
+            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {}", incident_id, channel);
+        }
+        results.push((channel.clone(), result));
+    }
+    results
+}
+
+/// Send Telegram message with inline HITL buttons for an incident.
+async fn send_telegram_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
+    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
+        .ok_or("Telegram token not configured")?;
+    let chat_id = get_channel_field(store, "telegram", "chatId").await
+        .ok_or("Telegram chat_id not configured")?;
+
+    let keyboard = json!({
+        "inline_keyboard": [[
+            { "text": "✅ Remédier", "callback_data": format!("incident_{}_approve", incident_id) },
+            { "text": "❌ Faux positif", "callback_data": format!("incident_{}_reject", incident_id) },
+            { "text": "🔍 Investiguer", "callback_data": format!("incident_{}_investigate", incident_id) },
+        ]]
+    });
+
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?
+        .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+        .json(&json!({
+            "chat_id": chat_id.trim(),
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": keyboard,
+        }))
+        .send().await.map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() { Ok(()) }
+    else { Err(format!("Telegram HTTP {}", resp.status())) }
+}
+
 /// Get list of channels that have been configured (have tokens/URLs).
 async fn get_configured_channels(store: &dyn Database) -> Vec<String> {
     let mut configured = vec![];

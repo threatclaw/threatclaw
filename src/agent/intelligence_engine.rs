@@ -1175,6 +1175,20 @@ pub fn spawn_intelligence_ticker(
                                         &inv_log,
                                     ).await;
                                     tracing::info!("INCIDENT #{}: verdict={} confidence={:.0}%", incident_id, result.verdict.verdict_type(), result.verdict.confidence() * 100.0);
+
+                                    // Send incident notification with HITL buttons
+                                    if result.verdict.should_notify() {
+                                        let summary = format!("{:?}", result.verdict);
+                                        crate::agent::notification_router::route_incident_notification(
+                                            store_inv.as_ref(),
+                                            incident_id,
+                                            &asset_name,
+                                            &dossier.summary(),
+                                            &summary,
+                                            result.verdict.verdict_type(),
+                                            dossier.findings.len() as i32,
+                                        ).await;
+                                    }
                                 }
 
                                 // Notify only if verdict warrants it + delta check

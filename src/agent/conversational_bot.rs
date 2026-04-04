@@ -103,29 +103,68 @@ pub fn spawn_telegram_bot(
 
                     tracing::info!("CONV_BOT: Callback query from @{}: {}", cb_from, data);
 
-                    // Parse callback data: "hitl_approve_{nonce}" or "hitl_reject_{nonce}"
-                    if data.starts_with("hitl_") {
+                    // See ADR-043: Handle incident HITL callbacks
+                    if data.starts_with("incident_") {
                         let parts: Vec<&str> = data.splitn(3, '_').collect();
                         if parts.len() >= 3 {
-                            let action = parts[1]; // "approve" or "reject"
-                            let nonce = parts[2];
+                            let incident_id: i32 = parts[1].parse().unwrap_or(0);
+                            let action = parts[2]; // "approve", "reject", "investigate"
+
+                            let _ = reqwest::Client::new()
+                                .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
+                                .json(&json!({ "callback_query_id": callback_id, "text": match action { "approve" => "Remédiation approuvée", "reject" => "Marqué faux positif", _ => "Investigation demandée" } }))
+                                .send().await;
+
+                            // Update incident in DB
+                            {
+                                let response = match action {
+                                    "approve" => "approve_remediate",
+                                    "reject" => "false_positive",
+                                    _ => "investigate_more",
+                                };
+                                let _ = store.update_incident_hitl(incident_id, "responded", "telegram", response).await;
+                                if action == "approve" {
+                                    let _ = store.update_incident_status(incident_id, "resolved").await;
+                                } else if action == "reject" {
+                                    let _ = store.update_incident_status(incident_id, "closed").await;
+                                }
+                                tracing::info!("INCIDENT #{}: HITL {} by @{} via Telegram", incident_id, response, cb_from);
+                            }
+
+                            let status_emoji = match action { "approve" => "✅", "reject" => "❌", _ => "🔍" };
+                            let status_text = format!("{} Incident #{} — {} par @{}", status_emoji, incident_id,
+                                match action { "approve" => "Remédiation approuvée", "reject" => "Marqué faux positif", _ => "Investigation demandée" }, cb_from);
+
+                            let _ = reqwest::Client::new()
+                                .post(format!("https://api.telegram.org/bot{token}/editMessageText"))
+                                .json(&json!({
+                                    "chat_id": cb_chat_id,
+                                    "message_id": cb_message_id,
+                                    "text": status_text,
+                                    "parse_mode": "Markdown",
+                                }))
+                                .send().await;
+                        }
+                    }
+                    // Legacy HITL callbacks (hitl_approve/hitl_reject)
+                    else if data.starts_with("hitl_") {
+                        let parts: Vec<&str> = data.splitn(3, '_').collect();
+                        if parts.len() >= 3 {
+                            let action = parts[1];
+                            let _nonce = parts[2];
                             let approved = action == "approve";
 
-                            // Answer the callback (remove spinning indicator)
                             let _ = reqwest::Client::new()
                                 .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
                                 .json(&json!({ "callback_query_id": callback_id, "text": if approved { "Approuvé" } else { "Rejeté" } }))
                                 .send().await;
 
-                            // TODO: verify nonce via shared NonceManager and execute
-                            // For now, send confirmation message
                             let status_text = if approved {
-                                format!("Action approuvée par @{cb_from}. Exécution en cours...")
+                                format!("✅ Action approuvée par @{cb_from}.")
                             } else {
-                                format!("Action rejetée par @{cb_from}.")
+                                format!("❌ Action rejetée par @{cb_from}.")
                             };
 
-                            // Edit the original message to show the result
                             let _ = reqwest::Client::new()
                                 .post(format!("https://api.telegram.org/bot{token}/editMessageText"))
                                 .json(&json!({
