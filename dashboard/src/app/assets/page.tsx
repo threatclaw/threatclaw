@@ -93,6 +93,134 @@ const SEV_COLORS: Record<string, string> = {
   CRITICAL: "#e84040", HIGH: "#d07020", MEDIUM: "var(--tc-amber)", LOW: "var(--tc-blue)",
 };
 
+function SecurityTab({ assetId }: { assetId: string }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const locale = useLocale();
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`/api/tc/assets/${assetId}/security`)
+      .then(r => r.json())
+      .then(d => setData(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [assetId]);
+
+  if (loading) return <div style={{ textAlign: "center", padding: "20px", color: "var(--tc-text-muted)", fontSize: "10px" }}>Chargement...</div>;
+
+  if (!data || !data.has_agent) return (
+    <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
+      {locale === "fr"
+        ? "Aucune donnée agent. Installez l'agent ThreatClaw sur cette machine pour alimenter cet onglet."
+        : "No agent data. Install the ThreatClaw Agent on this machine to populate this tab."}
+      <div style={{ marginTop: "12px" }}>
+        <code style={{ fontSize: "10px", padding: "4px 8px", borderRadius: "4px", background: "var(--tc-input)", color: "var(--tc-blue)" }}>
+          curl -fsSL get.threatclaw.io/agent | sudo bash
+        </code>
+      </div>
+    </div>
+  );
+
+  const Section = ({ title, children, count }: { title: string; children: React.ReactNode; count?: number }) => (
+    <div style={{ marginBottom: "14px" }}>
+      <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+        {title}{count !== undefined ? ` (${count})` : ""}
+      </div>
+      {children}
+    </div>
+  );
+
+  const Badge = ({ text, color }: { text: string; color: string }) => (
+    <span style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: `${color}15`, color, border: `1px solid ${color}30`, fontFamily: "monospace" }}>{text}</span>
+  );
+
+  return (
+    <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+      {/* Users */}
+      {data.users && Array.isArray(data.users) && data.users.length > 0 && (
+        <Section title={locale === "fr" ? "Utilisateurs" : "Users"} count={data.users.length}>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.users.map((u: any, i: number) => (
+              <Badge key={i} text={`${u.username || u.user || "?"}${u.uid === "0" || u.uid === 0 ? " (root)" : ""}`}
+                color={u.uid === "0" || u.uid === 0 || u.is_admin ? "#d03020" : "var(--tc-blue)"} />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* SSH Keys */}
+      {data.ssh_keys && (
+        <Section title={locale === "fr" ? "Clés SSH autorisées" : "Authorized SSH keys"}>
+          <div style={{ fontSize: "10px", color: "var(--tc-text-sec)" }}>
+            {typeof data.ssh_keys === "number" ? `${data.ssh_keys} clé(s)` :
+             Array.isArray(data.ssh_keys) ? `${data.ssh_keys.length} clé(s)` :
+             JSON.stringify(data.ssh_keys)}
+          </div>
+        </Section>
+      )}
+
+      {/* Listening ports */}
+      {data.listening_ports && Array.isArray(data.listening_ports) && data.listening_ports.length > 0 && (
+        <Section title={locale === "fr" ? "Ports en écoute" : "Listening ports"} count={data.listening_ports.length}>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.listening_ports.slice(0, 30).map((p: any, i: number) => {
+              const port = p.port || 0;
+              const suspicious = [4444, 5555, 1337, 31337].includes(Number(port));
+              return <Badge key={i} text={`${port}/${p.protocol || "tcp"} ${p.name || ""}`} color={suspicious ? "#d03020" : "var(--tc-blue)"} />;
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Recent logins */}
+      {data.logins && Array.isArray(data.logins) && data.logins.length > 0 && (
+        <Section title={locale === "fr" ? "Connexions récentes" : "Recent logins"} count={data.logins.length}>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.logins.map((l: any, i: number) => (
+              <Badge key={i} text={`${l.user || l.username || "?"} ${l.host ? `from ${l.host}` : ""}`} color="var(--tc-text-sec)" />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Docker containers */}
+      {data.docker_containers && Array.isArray(data.docker_containers) && data.docker_containers.length > 0 && (
+        <Section title="Docker" count={data.docker_containers.length}>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.docker_containers.map((c: any, i: number) => (
+              <Badge key={i} text={`${c.name || c.id || "?"} (${c.status || c.state || "?"})`} color="#06b6d4" />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Shared folders */}
+      {data.shared_folders && Array.isArray(data.shared_folders) && data.shared_folders.length > 0 && (
+        <Section title={locale === "fr" ? "Partages réseau" : "Shared folders"} count={data.shared_folders.length}>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+            {data.shared_folders.map((s: any, i: number) => (
+              <Badge key={i} text={s.name || s.path || "?"} color="var(--tc-amber)" />
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {/* Patches */}
+      {data.patches && Array.isArray(data.patches) && data.patches.length > 0 && (
+        <Section title={locale === "fr" ? "Mises à jour" : "Patches"} count={data.patches.length}>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>
+            {data.patches.slice(0, 5).map((p: any, i: number) => (
+              <div key={i}>{p.hotfix_id || p.title || p.name || JSON.stringify(p)}</div>
+            ))}
+            {data.patches.length > 5 && <div>... +{data.patches.length - 5}</div>}
+          </div>
+        </Section>
+      )}
+    </div>
+  );
+}
+
 function AssetFindings({ asset }: { asset: any }) {
   const [findings, setFindings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -617,10 +745,7 @@ export default function AssetsPage() {
 
                     {/* ── Tab: Sécurité ── */}
                     {activeTab === "security" && (
-                      <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
-                        Users, clés SSH, tâches planifiées, startups, containers, extensions navigateur.<br />
-                        Installez l&apos;agent ThreatClaw pour alimenter cet onglet.
-                      </div>
+                      <SecurityTab assetId={a.id} />
                     )}
 
                     {/* ── Tab: Findings ── */}

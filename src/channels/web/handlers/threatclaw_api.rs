@@ -3606,6 +3606,48 @@ pub async fn assets_get_handler(
     }
 }
 
+/// GET /api/tc/assets/{id}/security — osquery security data for an asset
+pub async fn asset_security_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let asset = match store.get_asset(&id).await {
+        Ok(Some(a)) => a,
+        _ => return Ok(Json(serde_json::json!({ "error": "Asset not found" }))),
+    };
+    let h = asset.hostname.clone().unwrap_or_else(|| asset.name.clone());
+    let hn = h.as_str();
+
+    let latest = |logs: Vec<crate::db::threatclaw_store::LogRecord>| -> Option<serde_json::Value> {
+        logs.into_iter().next().map(|r| r.data)
+    };
+
+    let users = latest(store.query_logs(1440, Some(hn), Some("osquery.users"), 1).await.unwrap_or_default());
+    let ssh_keys = latest(store.query_logs(1440, Some(hn), Some("osquery.ssh_keys"), 1).await.unwrap_or_default());
+    let ports = latest(store.query_logs(1440, Some(hn), Some("osquery.ports"), 1).await.unwrap_or_default());
+    let logins = latest(store.query_logs(1440, Some(hn), Some("osquery.logins"), 1).await.unwrap_or_default());
+    let docker = latest(store.query_logs(1440, Some(hn), Some("osquery.docker"), 1).await.unwrap_or_default());
+    let shares = latest(store.query_logs(1440, Some(hn), Some("osquery.shares"), 1).await.unwrap_or_default());
+    let patches = latest(store.query_logs(1440, Some(hn), Some("osquery.patches"), 1).await.unwrap_or_default());
+
+    let has_agent = users.is_some() || ports.is_some();
+
+    Ok(Json(serde_json::json!({
+        "asset_id": id,
+        "hostname": hn,
+        "users": users.as_ref().and_then(|d| d.get("users")),
+        "ssh_keys": ssh_keys.as_ref().and_then(|d| d.get("keys").or_else(|| d.get("keys_count"))),
+        "listening_ports": ports.as_ref().and_then(|d| d.get("ports")),
+        "logins": logins.as_ref().and_then(|d| d.get("users")),
+        "docker_containers": docker.as_ref().and_then(|d| d.get("containers")),
+        "shared_folders": shares.as_ref().and_then(|d| d.get("shares")),
+        "patches": patches.as_ref().and_then(|d| d.get("patches")),
+        "has_agent": has_agent,
+    })))
+}
+
 pub async fn assets_upsert_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,

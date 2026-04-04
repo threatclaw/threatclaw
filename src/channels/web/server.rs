@@ -469,6 +469,7 @@ pub async fn start_server(
         .route("/api/tc/assets/categories", get(super::handlers::threatclaw_api::assets_categories_handler))
         .route("/api/tc/assets/categories", post(super::handlers::threatclaw_api::assets_category_upsert_handler))
         .route("/api/tc/assets/{id}", get(super::handlers::threatclaw_api::assets_get_handler))
+        .route("/api/tc/assets/{id}/security", get(super::handlers::threatclaw_api::asset_security_handler))
         .route("/api/tc/assets/{id}", axum::routing::delete(super::handlers::threatclaw_api::assets_delete_handler))
         // Internal networks
         .route("/api/tc/networks", get(super::handlers::threatclaw_api::networks_list_handler))
