@@ -1,29 +1,4 @@
-//! ThreatClaw Cyber Scheduler
-//!
-//! Provides default security routines for autonomous cybersecurity operations.
-//! These routines are created on first boot and integrate with the existing
-//! RoutineEngine and cron system.
-//!
-//! ```text
-//! ┌────────────────────────────────────────────────────┐
-//! │              Cyber Scheduler                        │
-//! │                                                     │
-//! │  ┌──────────────┐  ┌──────────────┐                │
-//! │  │  vuln-scan   │  │ darkweb-mon  │  cron-based    │
-//! │  │  daily 02:00 │  │  every 6h    │  routines      │
-//! │  └──────────────┘  └──────────────┘                │
-//! │                                                     │
-//! │  ┌──────────────┐  ┌──────────────┐                │
-//! │  │ cloud-posture│  │  soc-monitor │  continuous    │
-//! │  │ weekly Mon   │  │  every 5min  │  monitoring    │
-//! │  └──────────────┘  └──────────────┘                │
-//! │                                                     │
-//! │  ┌──────────────┐  ┌──────────────┐                │
-//! │  │ phishing-sim │  │ report-gen   │  periodic      │
-//! │  │  monthly     │  │  weekly Fri  │  campaigns     │
-//! │  └──────────────┘  └──────────────┘                │
-//! └────────────────────────────────────────────────────┘
-//! ```
+//! Cyber Scheduler — default security routines. See ADR-030.
 
 use std::time::Duration;
 

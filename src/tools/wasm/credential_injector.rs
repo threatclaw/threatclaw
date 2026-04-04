@@ -1,26 +1,4 @@
-//! Credential injection for WASM HTTP requests.
-//!
-//! Injects secrets into HTTP requests at the host boundary.
-//! WASM tools NEVER see the actual credential values.
-//!
-//! # Injection Flow
-//!
-//! ```text
-//! WASM requests HTTP ──► Host receives request ──► Match credentials by host
-//!                                                        │
-//!                                    ┌───────────────────┘
-//!                                    ▼
-//!                        Decrypt secret from store
-//!                                    │
-//!                                    ▼
-//!                        Inject into request:
-//!                        ├─► Authorization header (Bearer/Basic)
-//!                        ├─► Custom header (X-API-Key, etc.)
-//!                        └─► Query parameter
-//!                                    │
-//!                                    ▼
-//!                        Execute HTTP request
-//! ```
+//! WASM credential injection at host boundary. See ADR-035.
 
 use std::collections::HashMap;
 use std::sync::RwLock;

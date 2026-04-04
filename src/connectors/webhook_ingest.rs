@@ -1,14 +1,5 @@
 #![allow(unused_imports)]
-//! Webhook Ingest — generic endpoint for receiving security events from external tools.
-//!
-//! Route: POST /api/tc/webhook/ingest/{source}?token={hmac_token}
-//! Security:
-//!   - HMAC token per source (generated on activation)
-//!   - Native signature verification where supported (Cloudflare, Shopify)
-//!   - Rate limit: 60/min/source
-//!   - Always returns 200 OK (silent drop on errors, no info leak)
-//!   - Body max: 64 KB
-//!   - Disabled by default
+//! Webhook ingest endpoint.
 
 use crate::db::Database;
 use crate::db::threatclaw_store::{ThreatClawStore, NewFinding};

@@ -1,13 +1,4 @@
-//! Docker Skill Executor — runs any security tool in an ephemeral container.
-//!
-//! Generic executor that:
-//! 1. Pulls the Docker image (if not cached)
-//! 2. Runs the command with resource limits
-//! 3. Captures stdout (JSON or text)
-//! 4. Parses results into findings
-//! 5. Injects findings into ThreatClaw DB
-//!
-//! Used by all "tool" type skills (semgrep, checkov, trivy, etc.)
+//! Docker skill executor. See ADR-036.
 
 use crate::db::Database;
 use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};

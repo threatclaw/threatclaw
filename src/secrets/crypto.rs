@@ -1,17 +1,4 @@
-//! Cryptographic operations for secret storage.
-//!
-//! Uses AES-256-GCM for authenticated encryption with per-secret key derivation.
-//!
-//! # Key Derivation
-//!
-//! ```text
-//! master_key (from env) ─┬─► HKDF-SHA256 ─► derived_key (per secret)
-//!                        │
-//! per-secret salt ───────┘
-//! ```
-//!
-//! Each secret has its own randomly-generated salt, so even if two secrets
-//! have the same plaintext, they'll have different ciphertexts.
+//! Secret storage cryptographic operations. See ADR-034.
 
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,

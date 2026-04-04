@@ -1,17 +1,4 @@
-//! Tool Calling Layer — gives the conversational LLM access to real system data.
-//!
-//! Supports two modes:
-//! - Native: Uses Ollama's tools API (Mistral, Llama 3.1+) or cloud API tool calling
-//! - PromptBased: Describes tools in system prompt, parses JSON response
-//!
-//! Available tools:
-//! - get_security_status: Global score, alert/finding/asset counts
-//! - get_recent_alerts: Alerts filtered by severity and time window
-//! - get_recent_findings: Findings filtered by severity and status
-//! - get_asset_info: Asset details and risk score
-//! - get_ml_anomalies: Recent ML anomaly detections
-//! - search_logs: Search recent log entries
-//! - get_threat_profile: NACE/NAF sector threat profile
+//! Tool Calling Layer. See ADR-032.
 
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};

@@ -1,12 +1,4 @@
-//! Master Password — Argon2id key derivation for human-memorable passwords.
-//!
-//! Instead of a raw hex key in an env var, the RSSI can set a master password
-//! in the wizard. The password is derived into a 256-bit key via Argon2id.
-//!
-//! Flow:
-//! 1. First setup: RSSI enters password → derive key → encrypt canary → store salt+canary
-//! 2. Restart: RSSI enters password → derive key → decrypt canary → verify → unlock vault
-//! 3. Password change: re-derive → re-encrypt all secrets with new key
+//! Master password key derivation. See ADR-008, ADR-034.
 
 use argon2::{Argon2, Algorithm, Params, Version};
 use secrecy::{ExposeSecret, SecretString};

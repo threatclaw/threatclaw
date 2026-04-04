@@ -1,18 +1,4 @@
-//! HITL Bridge — connects the ReAct cycle to Slack approval flow.
-//!
-//! Flow:
-//! 1. ReAct cycle proposes validated actions
-//! 2. Bridge creates ApprovalRequest with nonce
-//! 3. Sends Block Kit message to Slack via webhook
-//! 4. Webhook callback validates nonce + executes via executor
-//! 5. Result written to audit log
-//!
-//! This module is the glue between:
-//! - `react_cycle.rs` (proposes actions)
-//! - `hitl_nonce.rs` (anti-replay)
-//! - `slack_hitl.rs` (Slack Block Kit)
-//! - `executor.rs` (executes validated commands)
-//! - `remediation_whitelist.rs` (validates commands)
+//! HITL Bridge — approval flow. See ADR-031.
 
 use std::sync::Arc;
 

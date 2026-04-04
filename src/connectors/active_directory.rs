@@ -1,11 +1,4 @@
-//! Active Directory / LDAP Connector — real LDAP queries via ldap3 crate.
-//!
-//! Discovers users, computers, groups, OUs, and admin accounts from AD.
-//! Feeds everything into the ThreatClaw graph via Asset Resolution Pipeline.
-//!
-//! Protocol: LDAPS (port 636) or LDAP+STARTTLS (port 389)
-//! Auth: Simple bind with a read-only service account
-//! Pagination: Automatic (AD hard limit = 1000 results per search)
+//! Active Directory / LDAP connector.
 
 use crate::db::Database;
 use crate::graph::asset_resolution::{self, DiscoveredAsset};

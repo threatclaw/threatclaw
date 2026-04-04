@@ -1,19 +1,4 @@
-//! HTTP endpoint allowlist validation.
-//!
-//! Validates that HTTP requests from WASM tools only go to allowed endpoints.
-//! This is the first line of defense against unauthorized API access.
-//!
-//! # Validation Flow
-//!
-//! ```text
-//! WASM HTTP request ──► Parse URL ──► Check allowlist ──► Allow/Deny
-//!                          │               │
-//!                          │               ├─► Host match?
-//!                          │               ├─► Path prefix match?
-//!                          │               └─► Method allowed?
-//!                          │
-//!                          └─► Validate URL format
-//! ```
+//! WASM HTTP endpoint allowlist. See ADR-035.
 
 use std::fmt;
 

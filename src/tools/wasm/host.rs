@@ -1,26 +1,4 @@
-//! Host functions for WASM sandbox.
-//!
-//! Implements a minimal, security-focused host API following VMLogic patterns
-//! from NEAR blockchain. The principle is: deny by default, grant minimal capabilities.
-//!
-//! # Extended API (V2)
-//!
-//! In addition to the basic log/time/workspace functions, the host now provides:
-//!
-//! - **http_request**: Make HTTP requests to allowlisted endpoints with credential injection
-//! - **tool_invoke**: Call other tools via aliases
-//! - **secret_exists**: Check if a secret exists (never read values)
-//!
-//! # Security Architecture
-//!
-//! ```text
-//! WASM Tool ──▶ Host Function ──▶ Allowlist ──▶ Credential ──▶ Execute
-//! (untrusted)   (boundary)        Validator     Injector       Request
-//!                                                    │
-//!                                                    ▼
-//!                              ◀────── Leak Detector ◀────── Response
-//!                          (sanitized, no secrets)
-//! ```
+//! WASM sandbox host functions. See ADR-013, ADR-035.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

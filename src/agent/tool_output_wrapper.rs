@@ -1,10 +1,4 @@
-//! Pilier III — XML Wrapper sur tous les outputs d'outils (OWASP ASI01: Indirect Injection)
-//!
-//! Principe : les données provenant d'outils externes ne peuvent JAMAIS être
-//! interprétées comme des instructions par le LLM. Chaque output est :
-//! 1. Scanné pour les patterns d'injection cyber-spécifiques
-//! 2. Wrappé dans un bloc XML avec instruction explicite au LLM
-//! 3. Marqué comme `trusted="false"` et `treat_as="data_only"`
+//! Tool output sanitization. See ADR-033.
 
 use std::sync::LazyLock;
 

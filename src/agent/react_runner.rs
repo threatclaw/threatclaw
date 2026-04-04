@@ -1,10 +1,4 @@
-//! ReAct Runner — exécute le cycle ReAct sécurisé avec escalade 3 niveaux.
-//!
-//! Niveau 1 : IA locale rapide → si confiance ≥ 70% → terminé
-//! Niveau 2 : IA locale enrichie → si confiance ≥ 50% après retry → terminé
-//! Niveau 3 : IA cloud anonymisée → analyse profonde → terminé
-//!
-//! Le runner connecte tous les piliers au monde réel et orchestre l'escalade.
+//! ReAct Runner — multi-level AI orchestration. See ADR-011.
 
 use std::path::Path;
 use std::sync::Arc;

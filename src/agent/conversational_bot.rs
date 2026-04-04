@@ -1,13 +1,4 @@
-//! Conversational Bot — listens to channels and executes RSSI commands.
-//!
-//! Runs as a background task, polling Telegram (and other channels)
-//! for incoming messages. Parses commands via LLM and executes them.
-//!
-//! Architecture:
-//!   RSSI sends message → poll → parse (L1) → confirm → execute → respond
-//!
-//! Supported channels: Telegram (polling), Slack (webhook), any future channel.
-//! Commands are channel-agnostic — the interpreter is shared.
+//! Conversational Bot — channel listener and command executor. See ADR-029.
 
 use std::sync::Arc;
 use std::collections::HashMap;

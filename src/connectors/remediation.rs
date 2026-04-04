@@ -1,11 +1,4 @@
-//! Remediation Actions — ThreatClaw acts on the infrastructure.
-//!
-//! IMPORTANT: All actions require HITL approval before execution.
-//! These are WRITE operations on client infrastructure.
-//!
-//! Supported actions:
-//! - pfSense/OPNsense: block IP via firewall API
-//! - Active Directory: disable compromised account via LDAP
+//! Remediation actions (HITL required). See ADR-031.
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

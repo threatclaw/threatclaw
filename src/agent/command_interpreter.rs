@@ -1,14 +1,4 @@
-//! Command Interpreter — parse natural language commands from RSSI.
-//!
-//! Receives messages from any channel (Telegram, Slack, Signal, etc.)
-//! and translates them into structured actions.
-//!
-//! Flow:
-//! 1. RSSI sends: "scan de port sur 192.168.1.50"
-//! 2. L1 LLM parses → { action: "scan", target: "192.168.1.50", params: {...} }
-//! 3. Agent confirms: "Je vais lancer un scan Nmap sur 192.168.1.50. Confirmer ?"
-//! 4. RSSI replies: "oui" / "ok" / "go"
-//! 5. Agent executes and returns results on the same channel
+//! Command Interpreter — NL to structured action. See ADR-029.
 
 use std::collections::HashMap;
 use std::sync::Arc;
