@@ -3127,6 +3127,7 @@ pub async fn anonymizer_rules_delete_handler(
 pub async fn webhook_ingest_handler(
     State(state): State<Arc<GatewayState>>,
     Path(source): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> StatusCode {
@@ -3134,7 +3135,10 @@ pub async fn webhook_ingest_handler(
         Some(s) => s.as_ref(),
         None => return StatusCode::OK, // Silent drop
     };
-    let token = params.get("token").map(|s| s.as_str()).unwrap_or("");
+    // See ADR-040: prefer header over query param (query params are logged by proxies)
+    let token = headers.get("x-webhook-token").and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("token").map(|s| s.as_str()))
+        .unwrap_or("");
     let count = crate::connectors::webhook_ingest::process_webhook(store, &source, token, &body).await;
     if count > 0 {
         tracing::info!("WEBHOOK: {} events from source {}", count, source);
@@ -3148,7 +3152,13 @@ pub async fn webhook_generate_token_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::connectors::webhook_ingest::generate_token(store.as_ref(), &source).await {
-        Ok(token) => Ok(Json(serde_json::json!({ "source": source, "token": token, "endpoint": format!("/api/tc/webhook/ingest/{}?token={}", source, token) }))),
+        Ok(token) => Ok(Json(serde_json::json!({
+            "source": source,
+            "token": token,
+            "endpoint": format!("/api/tc/webhook/ingest/{}", source),
+            "header": "X-Webhook-Token",
+            "endpoint_legacy": format!("/api/tc/webhook/ingest/{}?token={}", source, token)
+        }))),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
