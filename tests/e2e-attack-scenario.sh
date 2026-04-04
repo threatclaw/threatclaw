@@ -2,14 +2,14 @@
 # ═══════════════════════════════════════════════════════════
 # ThreatClaw E2E Test — Simulated APT Attack
 #
-# Executed FROM CASE (10.10.10.3) AGAINST TARS (10.10.10.2)
-# Wazuh agent on TARS detects → alerts → ThreatClaw IE processes
+# Executed from monitoring server against target lab
+# Wazuh agent on target detects → alerts → ThreatClaw IE processes
 #
 # Phases: Recon → Brute Force → Access → C2 simulation → Lateral
 # ═══════════════════════════════════════════════════════════
 
 set -e
-TARS="10.10.10.2"
+TARS="${TC_LAB_TARGET:-10.0.0.2}"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -106,7 +106,7 @@ sshpass -p "LabSSH2026!" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
 # Try to reach other services from inside (lateral movement)
 curl -s --max-time 2 http://localhost:80 >/dev/null 2>&1 && echo 'HTTP reached internally'
 # Simulate pivot attempt
-for target in 10.10.10.3 10.10.10.1 10.10.10.4; do
+for target in 10.0.0.3 10.0.0.1 10.0.0.4; do
     nc -zw1 \$target 22 2>/dev/null && echo \"SSH open on \$target\" || true
 done
 " 2>/dev/null || log "  (Lateral movement simulation failed)"
@@ -125,5 +125,5 @@ echo "║  4. IE: kill chain detected (finding + alert)        ║"
 echo "║  5. Score global drops → investigation LLM           ║"
 echo "║  6. Graph: lateral movement detection                ║"
 echo "║                                                      ║"
-echo "║  Check: https://163.172.53.55:8445                   ║"
+echo "║  Check: https://your-server:8445                     ║"
 echo -e "╚══════════════════════════════════════════════════════╝${NC}"

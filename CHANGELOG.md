@@ -12,7 +12,7 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 - **TLS hardened** — TLS 1.2/1.3 uniquement, AEAD ciphers, session tickets désactivés, ECDH secp384r1
 - **Security headers** — HSTS preload, CSP, Permissions-Policy, X-Frame-Options, X-Content-Type-Options
 - **Docker hardening** — `cap_drop: ALL` + `no-new-privileges` + `read_only` filesystem + `ipc: private` sur tous les containers
-- **Network isolation** — 4 réseaux Docker isolés (internal, frontend, egress, ollama)
+- **Network isolation** — Isolated Docker networks (defense-in-depth)
 - **Image pinning** — nginx:1.27.4-alpine, ollama:0.6.2, fluent-bit:3.2 (anti supply chain)
 - **Ollama port fermé** — plus exposé sur l'hôte, accessible uniquement via réseau interne Docker
 - **Session cookie** — `HttpOnly; Secure; SameSite=Strict`, meurt à la fermeture du navigateur
@@ -23,10 +23,10 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 - **Paths bloqués** — `.env`, `.git`, `wp-admin`, `phpmyadmin`, `.php`, injection SQL dans l'URL
 
 ### Added
-- **Pipeline SOC Intelligence V3** — IE filtre → ReAct investigue avec LLM + skills → notification sur verdict uniquement
-- **Investigation autonome** — boucle ReAct avec 6 skills read-only (IP reputation, CVE lookup, MITRE, ThreatFox, logs, assets)
-- **Verdict-based notification** — le RSSI reçoit 1 message complet au lieu de 44 alertes brutes
-- **Delta re-notification** — plus de cooldown temporel, re-notifie uniquement si le verdict change
+- **Pipeline SOC Intelligence V3** — Automated investigation with verdict-based notifications
+- **Investigation autonome** — AI-powered incident investigation with enrichment
+- **Verdict-based notification** — Only confirmed incidents reach the RSSI (no alert spam)
+- **Delta re-notification** — Re-notifies only when verdict changes
 - **Error pages branded** — pages d'erreur dark theme ThreatClaw (400, 401, 403, 404, 429, 500, 502, 503, 504)
 - **Page 404 dashboard** — full-screen avec Nedry GIF
 - **Certificats TLS auto-générés** — CA + server cert avec SAN (hostname + localhost + IP), 10 ans
@@ -74,8 +74,7 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 
 ### Security
 - 0 CVE dans le binaire (wasmtime 36, aws-lc-sys, serde_yaml_ng)
-- 5 piliers de sécurité compilés (Soul HMAC, Whitelist, XML wrapper, Memory HMAC, Kill switch)
-- Zero Trust Agent Architecture (OWASP ASI 2026)
+- Multi-layered agent security architecture (OWASP ASI 2026)
 
 ## [0.1.0] — 2026-03-18
 

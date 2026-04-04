@@ -93,3 +93,6 @@ Dockerfile.test
 Dockerfile.worker
 *.tsbuildinfo
 CLAUDE.md
+
+# LLM system prompts (sensitive — baked into Docker image at build)
+docker/Modelfile.*

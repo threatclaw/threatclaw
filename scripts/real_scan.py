@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sdk", "python"
 
 from threatclaw_sdk import ThreatClawClient, Finding, Severity
 
-TARGET = "192.168.1.132"
+TARGET = os.environ.get("TC_SCAN_TARGET", "127.0.0.1")
 API_URL = "http://127.0.0.1:3000"
 API_TOKEN = os.environ.get("TC_API_TOKEN", "")
 

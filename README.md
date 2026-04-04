@@ -26,9 +26,9 @@ ThreatClaw is a **self-hosted, AI-powered cybersecurity agent** that monitors, d
 ### 3 layers of detection
 
 ```
-Layer 1 — Sigma Rules        → "I know this attack" (signatures)
-Layer 2 — ML Isolation Forest → "This behavior is abnormal" (anomaly detection)
-Layer 3 — LLM Analysis       → "Here's what's happening and what to do" (explanation)
+Layer 1 — Signature-based   → "I know this attack"
+Layer 2 — Behavioral ML     → "This behavior is abnormal"
+Layer 3 — AI Analysis       → "Here's what's happening and what to do"
 ```
 
 ## Quick Start
@@ -73,28 +73,21 @@ cargo build --release
 
 ## Features
 
-### 5-level AI Architecture
-| Level | Name | Role |
-|-------|------|------|
-| L0 | ThreatClaw AI Ops | Conversational agent — talks to you, uses tool calling |
-| L1 | ThreatClaw AI Triage | Pipeline — JSON classification, scoring |
-| L2 | ThreatClaw AI Reasoning | Forensics — chain-of-thought, MITRE ATT&CK |
-| L3 | ThreatClaw AI Instruct | Playbooks — SOAR, Sigma rules, reports |
-| L4 | Cloud (optional) | Escalation — anonymized, Anthropic/Mistral/OpenAI |
+### Multi-level AI Architecture
+ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and private. Cloud escalation is optional, always anonymized.
 
 ### Core engine (Rust)
-- **Intelligence Engine** — Runs every 5 min, collects alerts/findings, scores assets, decides notifications
-- **Graph Intelligence** — Apache AGE (STIX 2.1): attack paths, lateral movement, campaigns, threat actors
-- **Asset Management** — Auto-discovery, IP classification, MAC vendor lookup, fingerprinting
-- **Dashboard Authentication** — Login, sessions (argon2id), brute force protection
-- **Pause/Resume** — One-click to pause all services
+- **Intelligence Engine** — Automated threat correlation and scoring
+- **Graph Intelligence** — STIX 2.1 attack graph: attack paths, lateral movement, campaigns
+- **Asset Management** — Auto-discovery, classification, fingerprinting
+- **Dashboard Authentication** — Login, sessions, brute force protection
 - **9 notification channels** — Telegram, Slack, Discord, Mattermost, Ntfy, Gotify, Email, Signal, WhatsApp
 
 ### ML Engine (Python)
-- **Isolation Forest** — Per-asset behavioral baseline (14 days), anomaly score 0-1
-- **DGA Detection** — Random Forest on DNS domain names
-- **DBSCAN Clustering** — Groups assets by behavior, detects outliers
-- **Company Context** — Sector, business hours, geo scope adjust ML sensitivity
+- **Behavioral analysis** — Per-asset anomaly detection, baseline learning
+- **DNS threat detection** — Algorithmically-generated domain detection
+- **Asset clustering** — Behavioral grouping, outlier detection
+- **Company Context** — Sector, business hours, geo scope adjust sensitivity
 
 ### Integrations (26 enrichments + 15 connectors)
 
@@ -125,14 +118,10 @@ Future premium skills will be available on the marketplace (hub.threatclaw.io).
 ## Architecture
 
 ```
-Sources → PostgreSQL → ML Engine (5min) → Intelligence Engine → Graph AGE → LLM → User
-                            ↑                       ↑
-                    Isolation Forest          Asset correlation
-                    DGA Detection            IP classification
-                    DBSCAN Clustering        Fingerprinting
+Sources → Database → ML Engine → Intelligence Engine → Graph → AI → User
 ```
 
-**Stack:** Rust (backend) · PostgreSQL + Apache AGE + pgvector (DB) · Python (ML) · Next.js 14 (dashboard) · Ollama (local LLM)
+**Stack:** Rust (backend) · PostgreSQL (DB) · Python (ML) · Next.js 14 (dashboard) · Local LLM
 
 ## Documentation
 

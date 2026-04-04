@@ -37,32 +37,5 @@ jobs:
           done
           echo "No critical CVEs on security packages"
 
-  check-upstream:
-    name: Check IronClaw Upstream
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Check for upstream updates
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          CURRENT=$(cat UPSTREAM_VERSION | tr -d '[:space:]')
-          LATEST=$(gh api repos/nearai/ironclaw/releases/latest --jq '.tag_name' 2>/dev/null || echo "$CURRENT")
-
-          if [ "$CURRENT" != "$LATEST" ]; then
-            NOTES=$(gh api repos/nearai/ironclaw/releases/latest --jq '.body' 2>/dev/null || echo "")
-            gh issue create \
-              --title "IronClaw upstream update: $LATEST" \
-              --body "Current: $CURRENT | New: $LATEST
-
-$NOTES
-
-- [ ] Review changelog
-- [ ] Merge relevant changes
-- [ ] Update UPSTREAM_VERSION" \
-              --label "upstream-update" || echo "Issue creation skipped"
-          else
-            echo "Fork is up to date"
-          fi
+  # Upstream sync check — run locally, not in public CI
+  # See internal/ADR/ for details
