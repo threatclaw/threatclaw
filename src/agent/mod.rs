@@ -59,6 +59,7 @@ pub mod tool_calling;
 pub mod verdict;
 pub mod tool_output_wrapper;
 pub mod remediation_guard;
+pub mod remediation_engine;
 mod heartbeat;
 pub mod job_monitor;
 mod router;

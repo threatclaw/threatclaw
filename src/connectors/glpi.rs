@@ -260,3 +260,22 @@ pub async fn create_ticket(
         Err(format!("GLPI ticket error: HTTP {} — {:?}", status, body))
     }
 }
+
+/// Create a GLPI ticket from a ThreatClaw incident. See ADR-043.
+pub async fn create_ticket_from_incident(
+    url: &str, app_token: &str, user_token: &str,
+    incident_id: i32, asset: &str, title: &str,
+) -> Result<i64, String> {
+    let config = GlpiConfig {
+        url: url.into(),
+        app_token: app_token.into(),
+        user_token: user_token.into(),
+        no_tls_verify: true,
+    };
+    let description = format!(
+        "Incident ThreatClaw #{}\nAsset: {}\n\nCree automatiquement par ThreatClaw apres approbation HITL.",
+        incident_id, asset
+    );
+    let result = create_ticket(&config, &format!("[ThreatClaw #{}] {}", incident_id, title), &description, 4).await?;
+    Ok(result["ticket_id"].as_i64().unwrap_or(0))
+}

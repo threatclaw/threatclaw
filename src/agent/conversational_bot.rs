@@ -137,7 +137,8 @@ pub fn spawn_telegram_bot(
                                 .json(&json!({ "callback_query_id": callback_id, "text": match action { "approve" => "Remédiation approuvée", "reject" => "Marqué faux positif", _ => "Investigation demandée" } }))
                                 .send().await;
 
-                            // Update incident in DB
+                            // Update incident in DB + execute remediation
+                            let remediation_msg;
                             {
                                 let response = match action {
                                     "approve" => "approve_remediate",
@@ -145,17 +146,30 @@ pub fn spawn_telegram_bot(
                                     _ => "investigate_more",
                                 };
                                 let _ = store.update_incident_hitl(incident_id, "responded", "telegram", response).await;
+
                                 if action == "approve" {
-                                    let _ = store.update_incident_status(incident_id, "resolved").await;
+                                    // ADR-044: Execute real remediation
+                                    let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+                                        store.clone(), incident_id, response
+                                    ).await;
+                                    remediation_msg = if success {
+                                        let _ = store.update_incident_status(incident_id, "resolved").await;
+                                        format!("✅ {}", msg)
+                                    } else {
+                                        format!("⚠️ Approuve mais echec execution: {}", msg)
+                                    };
                                 } else if action == "reject" {
                                     let _ = store.update_incident_status(incident_id, "closed").await;
+                                    remediation_msg = "Marque faux positif".into();
+                                } else {
+                                    remediation_msg = "Investigation supplementaire demandee".into();
                                 }
-                                tracing::info!("INCIDENT #{}: HITL {} by @{} via Telegram", incident_id, response, cb_from);
+                                tracing::info!("INCIDENT #{}: HITL {} by @{} (id:{}) via Telegram — {}", incident_id, response, cb_from, cb_from_id, remediation_msg);
                             }
 
                             let status_emoji = match action { "approve" => "✅", "reject" => "❌", _ => "🔍" };
-                            let status_text = format!("{} Incident #{} — {} par @{}", status_emoji, incident_id,
-                                match action { "approve" => "Remédiation approuvée", "reject" => "Marqué faux positif", _ => "Investigation demandée" }, cb_from);
+                            let status_text = format!("{} Incident #{} — {} par @{} (id:{})\n\n{}", status_emoji, incident_id,
+                                match action { "approve" => "Remediation", "reject" => "Faux positif", _ => "Investigation" }, cb_from, cb_from_id, remediation_msg);
 
                             let _ = reqwest::Client::new()
                                 .post(format!("https://api.telegram.org/bot{token}/editMessageText"))

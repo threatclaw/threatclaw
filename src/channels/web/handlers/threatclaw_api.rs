@@ -5100,7 +5100,7 @@ pub async fn incident_detail_handler(
     }
 }
 
-/// POST /api/tc/incidents/:id/hitl — HITL response (approve/reject)
+/// POST /api/tc/incidents/:id/hitl — HITL response (approve/reject) — See ADR-044
 pub async fn incident_hitl_handler(
     State(state): State<Arc<GatewayState>>,
     Path(id): Path<i32>,
@@ -5113,7 +5113,15 @@ pub async fn incident_hitl_handler(
     store.update_incident_hitl(id, "responded", responded_by, response).await.map_err(db_err)?;
 
     if response.starts_with("approve") || response == "execute" {
-        store.update_incident_status(id, "resolved").await.map_err(db_err)?;
+        // ADR-044: Execute real remediation through the guard
+        let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+            store.clone(), id, response
+        ).await;
+        tracing::info!("INCIDENT #{}: HITL {} via {} — success={} msg={}", id, response, responded_by, success, msg);
+        if success {
+            store.update_incident_status(id, "resolved").await.map_err(db_err)?;
+        }
+        return Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "response": response, "remediation": { "success": success, "message": msg } })));
     } else if response == "false_positive" {
         store.update_incident_status(id, "closed").await.map_err(db_err)?;
     }
