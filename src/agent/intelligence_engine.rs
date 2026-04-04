@@ -1040,18 +1040,20 @@ pub fn spawn_intelligence_ticker(
             crate::agent::sigma_engine::init(store_sync.as_ref()).await;
         });
 
-        let mut ticker = tokio::time::interval(interval);
-        ticker.tick().await; // skip first immediate tick
+        // See ADR-032: dynamic cycle interval based on situation score
+        let mut next_interval = interval;
+        let mut last_misp_sync = chrono::Utc::now();
+        let mut last_daily_sync = chrono::Utc::now();
 
-        // ── Daily re-sync counter (every 288 cycles at 5min = 24h) ──
-        let mut cycle_count: u64 = 0;
+        // Skip first tick to let boot complete
+        tokio::time::sleep(interval).await;
 
         loop {
-            ticker.tick().await;
-            cycle_count += 1;
+            let now = chrono::Utc::now();
 
-            // 6-hour MISP sync (every 72 cycles × 5min = 6h)
-            if cycle_count % 72 == 0 && cycle_count % 288 != 0 {
+            // 6-hour MISP sync (timestamp-based, works with any cycle interval)
+            if (now - last_misp_sync).num_hours() >= 6 {
+                last_misp_sync = now;
                 let store_misp = store.clone();
                 tokio::spawn(async move {
                     match crate::enrichment::misp_circl::sync_feed(store_misp.as_ref()).await {
@@ -1062,21 +1064,35 @@ pub fn spawn_intelligence_ticker(
                 });
             }
 
-            // Daily re-sync (every 288 cycles × 5min = 24h)
-            if cycle_count % 288 == 0 {
+            // Daily re-sync (timestamp-based)
+            if (now - last_daily_sync).num_hours() >= 24 {
+                last_daily_sync = now;
                 tracing::info!("INTELLIGENCE: Daily enrichment re-sync");
                 let store_resync = store.clone();
                 tokio::spawn(async move {
                     let _ = crate::enrichment::cisa_kev::sync_kev(store_resync.as_ref()).await;
                     let _ = crate::enrichment::certfr::sync_certfr_alerts(store_resync.as_ref()).await;
                     let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;
-                    // Rebuild Bloom filter with fresh feed data
                     crate::agent::ioc_bloom::refresh(store_resync.as_ref()).await;
                     crate::agent::sigma_engine::reload(store_resync.as_ref()).await;
                 });
             }
 
             let situation = run_intelligence_cycle(store.clone()).await;
+
+            // Dynamic interval: adapt speed to threat level
+            let has_kill_chain = situation.assets.iter().any(|a| a.has_kill_chain || a.has_active_attack);
+            next_interval = if has_kill_chain {
+                std::time::Duration::from_secs(30)
+            } else if situation.global_score < 50.0 {
+                std::time::Duration::from_secs(60)
+            } else if situation.global_score < 80.0 {
+                std::time::Duration::from_secs(120)
+            } else {
+                interval // default (5 min)
+            };
+
+            tracing::debug!("INTELLIGENCE: Next cycle in {}s (score={:.0})", next_interval.as_secs(), situation.global_score);
 
             // ── V3: Escalate to ReAct investigation instead of notifying directly ──
             if situation.notification_level >= NotificationLevel::Alert {
@@ -1186,6 +1202,9 @@ pub fn spawn_intelligence_ticker(
                     }
                 }
             }
+
+            // See ADR-032: wait dynamic interval before next cycle
+            tokio::time::sleep(next_interval).await;
         }
     })
 }
