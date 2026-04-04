@@ -289,7 +289,6 @@ services:
   ml-engine:
     <<: *security-defaults
     image: ghcr.io/threatclaw/ml-engine:latest
-    user: "1000:1000"
     entrypoint: ["/bin/sh", "-c", "export DATABASE_URL=\"postgres://threatclaw:$(cat /run/secrets/tc_db_password)@threatclaw-db:5432/threatclaw?sslmode=require\" && exec python -m src.main"]
     environment:
       ML_MODEL_DIR: /models
