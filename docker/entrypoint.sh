@@ -47,10 +47,24 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
+# ── Inject DB password into DATABASE_URL (read from Docker secret) ──
+if [ -n "${POSTGRES_PASSWORD:-}" ] && echo "${DATABASE_URL:-}" | grep -q '@'; then
+  # Insert password into URL: postgres://user@host → postgres://user:pass@host
+  export DATABASE_URL=$(echo "$DATABASE_URL" | sed "s|://\([^@]*\)@|://\1:${POSTGRES_PASSWORD}@|")
+fi
+
+# ── Trust our CA cert for PostgreSQL TLS (self-signed CA) ──
+if [ -f /app/certs/ca.crt ]; then
+  cp /app/certs/ca.crt /usr/local/share/ca-certificates/threatclaw-ca.crt 2>/dev/null || true
+  update-ca-certificates 2>/dev/null || true
+  export SSL_CERT_FILE=/app/certs/ca.crt
+fi
+
 # ── Setup .pgpass for secure DB access (no PGPASSWORD in env) ──
-echo "${TC_DB_HOST:-threatclaw-db}:${TC_DB_PORT:-5432}:${POSTGRES_DB:-threatclaw}:${POSTGRES_USER:-threatclaw}:${POSTGRES_PASSWORD}" > /tmp/.pgpass
-chmod 600 /tmp/.pgpass
-export PGPASSFILE=/tmp/.pgpass
+# Use the writable data volume (core-data mounted at /app/data)
+echo "${TC_DB_HOST:-threatclaw-db}:${TC_DB_PORT:-5432}:${POSTGRES_DB:-threatclaw}:${POSTGRES_USER:-threatclaw}:${POSTGRES_PASSWORD}" > /app/data/.pgpass
+chmod 600 /app/data/.pgpass
+export PGPASSFILE=/app/data/.pgpass
 
 # ── Generate auth token if not provided ──
 if [ -z "${GATEWAY_AUTH_TOKEN:-}" ]; then
