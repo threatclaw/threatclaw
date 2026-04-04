@@ -40,19 +40,15 @@ impl std::str::FromStr for DatabaseBackend {
     }
 }
 
-/// PostgreSQL SSL/TLS mode, matching libpq semantics for the common cases.
-///
-/// Default is `Prefer`: attempt TLS, fall back to plaintext.  This is the
-/// safest non-breaking default — local Postgres without TLS keeps working
-/// while managed providers (Neon, Supabase, RDS) automatically get TLS.
+/// PostgreSQL SSL/TLS mode. See ADR-037.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SslMode {
     /// Never use TLS (equivalent to libpq `sslmode=disable`).
     Disable,
-    /// Try TLS first; fall back to plaintext on failure (default).
-    #[default]
+    /// Try TLS first; fall back to plaintext on failure.
     Prefer,
-    /// Require TLS; fail if the server does not support it.
+    /// Require TLS; fail if the server does not support it (default).
+    #[default]
     Require,
 }
 

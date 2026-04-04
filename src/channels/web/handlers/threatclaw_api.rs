@@ -2026,9 +2026,12 @@ pub async fn graph_coa_asset_handler(
 pub async fn enrichment_shodan_handler(
     State(state): State<Arc<GatewayState>>,
     Path(ip): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("api_key").map(|s| s.as_str()))
+        .unwrap_or("");
     match crate::enrichment::shodan_lookup::lookup_ip(&ip, api_key).await {
         Ok(result) => Ok(Json(serde_json::json!(result))),
         Err(e) => Ok(Json(serde_json::json!({"error": e}))),
@@ -2039,9 +2042,12 @@ pub async fn enrichment_shodan_handler(
 pub async fn enrichment_vt_ip_handler(
     State(state): State<Arc<GatewayState>>,
     Path(ip): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("api_key").map(|s| s.as_str()))
+        .unwrap_or("");
     match crate::enrichment::virustotal_lookup::lookup_ip(&ip, api_key).await {
         Ok(result) => Ok(Json(serde_json::json!(result))),
         Err(e) => Ok(Json(serde_json::json!({"error": e}))),
@@ -2052,9 +2058,12 @@ pub async fn enrichment_vt_ip_handler(
 pub async fn enrichment_vt_hash_handler(
     State(state): State<Arc<GatewayState>>,
     Path(hash): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("api_key").map(|s| s.as_str()))
+        .unwrap_or("");
     match crate::enrichment::virustotal_lookup::lookup_hash(&hash, api_key).await {
         Ok(result) => Ok(Json(serde_json::json!(result))),
         Err(e) => Ok(Json(serde_json::json!({"error": e}))),
@@ -2065,9 +2074,12 @@ pub async fn enrichment_vt_hash_handler(
 pub async fn enrichment_hibp_handler(
     State(state): State<Arc<GatewayState>>,
     Path(email): Path<String>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = params.get("api_key").map(|s| s.as_str()).unwrap_or("");
+    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("api_key").map(|s| s.as_str()))
+        .unwrap_or("");
     match crate::enrichment::hibp_lookup::check_email(&email, api_key).await {
         Ok(result) => Ok(Json(serde_json::json!(result))),
         Err(e) => Ok(Json(serde_json::json!({"error": e}))),
