@@ -386,6 +386,10 @@ pub async fn start_server(
         .route("/api/tc/telegram/send", post(super::handlers::threatclaw_api::telegram_send_handler))
         .route("/api/tc/telegram/poll", post(super::handlers::threatclaw_api::telegram_poll_handler))
         .route("/api/tc/telegram/status", get(super::handlers::threatclaw_api::telegram_status_handler))
+        // Olvid (ANSSI-certified messenger)
+        .route("/api/tc/olvid/send", post(super::handlers::threatclaw_api::olvid_send_handler))
+        .route("/api/tc/olvid/status", get(super::handlers::threatclaw_api::olvid_status_handler))
+        .route("/api/tc/olvid/discussions", get(super::handlers::threatclaw_api::olvid_discussions_handler))
         // Anonymizer custom rules
         .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
         .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))

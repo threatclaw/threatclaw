@@ -77,6 +77,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     mattermost: { enabled: false, webhookUrl: "" },
     ntfy: { enabled: false, server: "https://ntfy.sh", topic: "" },
     gotify: { enabled: false, url: "", appToken: "" },
+    olvid: { enabled: false, daemonUrl: "http://localhost:50051", clientKey: "", discussionId: "" },
   });
   const [permLevel, setPermLevel] = useState("ALERT_ONLY");
   const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: (typeof window !== "undefined" && localStorage.getItem("tc-language")) || "fr", nvdApiKey: "" });
@@ -278,6 +279,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
     { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", labelKey: "ntfyServer", secret: false }, { id: "topic", label: "Topic", secret: false }] },
     { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", labelKey: "gotifyUrl", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
+    { key: "olvid", label: "Olvid (certifié ANSSI)", icon: <Shield size={18} color="#1a56db" />, fields: [{ id: "daemonUrl", label: "URL daemon gRPC", secret: false }, { id: "clientKey", label: "Client Key", secret: true }, { id: "discussionId", label: "Discussion ID (alertes)", secret: false }] },
   ];
 
   return (

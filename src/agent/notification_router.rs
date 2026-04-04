@@ -108,6 +108,7 @@ async fn get_configured_channels(store: &dyn Database) -> Vec<String> {
         if check("email", "host") { configured.push("email".into()); }
         if check("signal", "account") { configured.push("signal".into()); }
         if check("whatsapp", "accessToken") { configured.push("whatsapp".into()); }
+        if check("olvid", "clientKey") { configured.push("olvid".into()); }
     }
 
     configured
@@ -298,6 +299,17 @@ async fn send_to_channel(
 
             if resp.status().is_success() { Ok(()) }
             else { Err(format!("WhatsApp HTTP {}", resp.status())) }
+        }
+        "olvid" => {
+            // See ADR-044: Olvid certified ANSSI messenger integration
+            let daemon_url = get_channel_field(store, "olvid", "daemonUrl").await
+                .unwrap_or("http://localhost:50051".into());
+            let client_key = get_channel_field(store, "olvid", "clientKey").await
+                .ok_or("Olvid client key not configured")?;
+            let discussion_id = get_channel_field(store, "olvid", "discussionId").await
+                .ok_or("Olvid discussion ID not configured")?;
+
+            crate::connectors::olvid::send_message(&daemon_url, &client_key, &discussion_id, message).await
         }
         _ => Err(format!("Channel {} not implemented for routing", channel)),
     }

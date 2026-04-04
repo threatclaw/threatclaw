@@ -1267,6 +1267,14 @@ pub async fn config_test_channel_handler(
                 Err(e) => serde_json::json!({ "ok": false, "error": e }),
             }
         }
+        "olvid" => {
+            let daemon_url = body.get("daemonUrl").and_then(|v| v.as_str()).unwrap_or("http://localhost:50051");
+            let client_key = body.get("clientKey").and_then(|v| v.as_str()).unwrap_or(token);
+            match crate::connectors::olvid::test_connection(daemon_url, client_key).await {
+                Ok(detail) => serde_json::json!({ "ok": true, "detail": detail }),
+                Err(e) => serde_json::json!({ "ok": false, "error": e }),
+            }
+        }
         _ => serde_json::json!({ "ok": false, "error": format!("Test not available for channel: {}", channel) }),
     };
 
@@ -1501,6 +1509,7 @@ fn bridge_channel_tokens(channels: &serde_json::Value) {
         ("slack", &[("botToken", "SLACK_BOT_TOKEN"), ("signingSecret", "SLACK_SIGNING_SECRET")]),
         ("discord", &[("botToken", "DISCORD_BOT_TOKEN")]),
         ("whatsapp", &[("accessToken", "WHATSAPP_ACCESS_TOKEN")]),
+        ("olvid", &[("clientKey", "OLVID_CLIENT_KEY"), ("daemonUrl", "OLVID_DAEMON_URL")]),
     ];
 
     for (channel, fields) in mappings {
@@ -1702,6 +1711,83 @@ pub async fn get_telegram_token(store: &dyn crate::db::Database) -> Option<Strin
     }
 
     None
+}
+
+// ══════════════════════════════════════════════════════════
+// OLVID (ANSSI-certified messenger) — See ADR-044
+// ══════════════════════════════════════════════════════════
+
+pub async fn olvid_send_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let text = body["text"].as_str().unwrap_or("").to_string();
+    if text.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing text" })));
+    }
+
+    let channels = store.get_setting("_system", "tc_config_channels").await
+        .ok().flatten().unwrap_or_default();
+    let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("http://localhost:50051");
+    let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
+    let discussion_id = body["discussion_id"].as_str()
+        .or_else(|| channels["olvid"]["discussionId"].as_str())
+        .unwrap_or("");
+
+    if client_key.is_empty() || discussion_id.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Olvid not configured (clientKey or discussionId missing)" })));
+    }
+
+    match crate::connectors::olvid::send_message(daemon_url, client_key, discussion_id, &text).await {
+        Ok(()) => Ok(Json(serde_json::json!({ "ok": true }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
+}
+
+pub async fn olvid_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let channels = store.get_setting("_system", "tc_config_channels").await
+        .ok().flatten().unwrap_or_default();
+    let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("");
+    let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
+
+    if daemon_url.is_empty() || client_key.is_empty() {
+        return Ok(Json(serde_json::json!({ "configured": false, "ok": false, "error": "Olvid not configured" })));
+    }
+
+    match crate::connectors::olvid::test_connection(daemon_url, client_key).await {
+        Ok(detail) => Ok(Json(serde_json::json!({ "configured": true, "ok": true, "detail": detail }))),
+        Err(e) => Ok(Json(serde_json::json!({ "configured": true, "ok": false, "error": e }))),
+    }
+}
+
+pub async fn olvid_discussions_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let channels = store.get_setting("_system", "tc_config_channels").await
+        .ok().flatten().unwrap_or_default();
+    let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("");
+    let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
+
+    if daemon_url.is_empty() || client_key.is_empty() {
+        return Ok(Json(serde_json::json!({ "ok": false, "error": "Olvid not configured" })));
+    }
+
+    match crate::connectors::olvid::list_discussions(daemon_url, client_key).await {
+        Ok(discussions) => {
+            let list: Vec<serde_json::Value> = discussions.iter()
+                .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+                .collect();
+            Ok(Json(serde_json::json!({ "ok": true, "discussions": list })))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
+    }
 }
 
 // ══════════════════════════════════════════════════════════
