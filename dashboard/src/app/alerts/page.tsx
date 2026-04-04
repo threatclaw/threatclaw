@@ -64,9 +64,9 @@ export default function AlertsPage() {
   return (
     <div>
       <div style={{ marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Détections</h1>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("detections", locale)}</h1>
         <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          Vulnérabilités, alertes de sécurité et anomalies comportementales
+          {tr("detectionsSubtitle", locale)}
         </p>
       </div>
 
@@ -77,14 +77,14 @@ export default function AlertsPage() {
           cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
           background: "var(--tc-input)", color: "var(--tc-text-muted)", border: "1px solid var(--tc-border)",
         }}>
-          Vulnérabilités
+          {tr("vulnerabilities", locale)}
         </button>
         <button style={{
           padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
           cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
           background: "var(--tc-red)", color: "#fff", border: "none",
         }}>
-          Alertes de sécurité ({total})
+          {tr("securityAlerts", locale)} ({total})
         </button>
       </div>
 

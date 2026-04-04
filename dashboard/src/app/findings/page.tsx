@@ -73,9 +73,9 @@ export default function FindingsPage() {
   return (
     <div>
       <div style={{ marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>Détections</h1>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("detections", locale)}</h1>
         <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          Vulnérabilités, alertes de sécurité et anomalies comportementales
+          {tr("detectionsSubtitle", locale)}
         </p>
       </div>
 
@@ -88,7 +88,7 @@ export default function FindingsPage() {
           color: activeTab === "findings" ? "#fff" : "var(--tc-text-muted)",
           border: activeTab === "findings" ? "none" : "1px solid var(--tc-border)",
         }}>
-          Vulnérabilités ({total})
+          {tr("vulnerabilities", locale)} ({total})
         </button>
         <button onClick={() => { setActiveTab("alerts"); window.location.href = "/alerts"; }} style={{
           padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
