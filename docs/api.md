@@ -2,7 +2,7 @@
 
 ThreatClaw exposes a REST API on port 3000 (configurable). All endpoints require Bearer token authentication.
 
-The full OpenAPI 3.1 specification is available at `GET /api/tc/openapi.json`.
+The full OpenAPI 3.1 specification is available to authenticated users via the dashboard.
 
 ## Authentication
 
@@ -19,7 +19,7 @@ The token is displayed at startup or set via `GATEWAY_AUTH_TOKEN`.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/tc/health` | System health, version, LLM status |
-| GET | `/api/tc/openapi.json` | OpenAPI specification |
+| GET | `/api/tc/openapi.json` | OpenAPI specification (authenticated) |
 
 ### Findings
 
@@ -49,16 +49,7 @@ The token is displayed at startup or set via `GATEWAY_AUTH_TOKEN`.
 
 ### Agent Control
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/agent/mode` | Current mode + available modes |
-| POST | `/api/tc/agent/mode` | Change agent mode |
-| GET | `/api/tc/agent/kill-switch` | Kill switch status |
-| POST | `/api/tc/agent/kill-switch` | Trigger emergency stop |
-| GET | `/api/tc/agent/soul` | Verify agent soul integrity |
-| GET | `/api/tc/agent/audit` | Audit log entries |
-| POST | `/api/tc/agent/react-cycle` | Trigger a ReAct analysis cycle |
-| POST | `/api/tc/agent/hitl-callback` | HITL approval callback |
+Agent control routes (mode, audit, HITL callback, integrity verification) are authenticated and documented in the runtime OpenAPI spec once logged in. They are not listed here to reduce unauthorized enumeration.
 
 ### Infrastructure
 

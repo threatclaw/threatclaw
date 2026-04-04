@@ -9,7 +9,7 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | — | PostgreSQL connection string |
-| `TC_DB_PASSWORD` | `threatclaw` | Database password |
+| `TC_DB_PASSWORD` | (required) | Database password — must be set, weak values rejected |
 | `TC_CORE_PORT` | `3000` | API port |
 | `TC_DASHBOARD_PORT` | `3001` | Dashboard port |
 | `TC_AUTH_TOKEN` | auto-generated | Gateway auth token |
@@ -20,7 +20,7 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_BACKEND` | `ollama` | Provider: `ollama`, `mistral`, `anthropic`, `openai_compatible` |
-| `OLLAMA_MODEL` | `qwen3:14b` | Model name for Ollama |
+| `OLLAMA_MODEL` | (configurable) | Model name for local LLM backend |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
 | `MISTRAL_API_KEY` | — | Mistral AI API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |

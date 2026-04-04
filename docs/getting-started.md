@@ -236,7 +236,7 @@ Ollama a besoin d'un accès Internet. Les modèles (~18 GB) sont téléchargés 
 docker compose logs ollama | tail -20
 
 # Relancer le téléchargement manuellement
-docker compose exec ollama ollama pull qwen3:8b
+docker compose exec ollama ollama pull <model-name>
 ```
 
 ## Next steps

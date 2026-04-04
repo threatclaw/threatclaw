@@ -101,6 +101,9 @@ CLAUDE.md
 # LLM system prompts (baked into Docker image at build)
 docker/Modelfile.*
 
+# Agent identity (hash compiled into binary, rules private)
+AGENT_SOUL.toml
+
 # Disabled CI workflows (internal dev tooling)
 .github/workflows/disabled/claude-review.yml
 .github/workflows/disabled/staging-ci.yml

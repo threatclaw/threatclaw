@@ -13,14 +13,14 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 - **Security headers** — HSTS preload, CSP, Permissions-Policy, X-Frame-Options, X-Content-Type-Options
 - **Docker hardening** — `cap_drop: ALL` + `no-new-privileges` + `read_only` filesystem + `ipc: private` sur tous les containers
 - **Network isolation** — Isolated Docker networks (defense-in-depth)
-- **Image pinning** — nginx:1.27.4-alpine, ollama:0.6.2, fluent-bit:3.2 (anti supply chain)
+- **Image pinning** — Docker images pinned to specific versions (anti supply chain)
 - **Ollama port fermé** — plus exposé sur l'hôte, accessible uniquement via réseau interne Docker
 - **Session cookie** — `HttpOnly; Secure; SameSite=Strict`, meurt à la fermeture du navigateur
-- **Inactivity timeout** — session expire après 15 min d'inactivité (sliding window, renouvelé à chaque requête)
-- **Token renforcé** — 256 bits (au lieu de 128), permissions 600 (au lieu de 777)
-- **Rate limiting** — 5/min sur login (anti brute force), 30/s sur API, 100/s sur webhooks
-- **Mot de passe par défaut rejeté** — le core refuse de démarrer si TC_DB_PASSWORD est "threatclaw"
-- **Paths bloqués** — `.env`, `.git`, `wp-admin`, `phpmyadmin`, `.php`, injection SQL dans l'URL
+- **Inactivity timeout** — session expiry with sliding window
+- **Reinforced tokens** — cryptographic strength upgraded
+- **Rate limiting** — anti brute force on auth endpoints, per-endpoint throttling
+- **Weak password rejection** — core refuses to start with default/weak credentials
+- **WAF protections** — common attack patterns and sensitive path access blocked
 
 ### Added
 - **Pipeline SOC Intelligence V3** — Automated investigation with verdict-based notifications
@@ -48,7 +48,7 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 ## [0.2.0-beta] — 2026-03-29
 
 ### Added
-- **L0 Conversationnel** — Chatbot Telegram/Dashboard avec tool calling (6 outils DB). Support Mistral Small 24B / Qwen3 14B
+- **L0 Conversationnel** — Chatbot Telegram/Dashboard avec tool calling (6 outils DB)
 - **Skills Marketplace** — 49 skills (connectors, enrichment, actions) installables depuis le dashboard
 - **Skills éphémères** — Nuclei, Trivy, ZAP, Subfinder, httpx en containers Docker on-demand
 - **Wazuh OpenSearch** — Import alertes via indexer (fallback Wazuh 4.x)
@@ -73,7 +73,7 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 - **3 568+ tests Rust**, 9 scénarios d'attaque end-to-end
 
 ### Security
-- 0 CVE dans le binaire (wasmtime 36, aws-lc-sys, serde_yaml_ng)
+- 0 CVE dans le binaire (cargo audit clean)
 - Multi-layered agent security architecture (OWASP ASI 2026)
 
 ## [0.1.0] — 2026-03-18
