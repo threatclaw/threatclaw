@@ -1,16 +1,4 @@
-//! WASM channel binary storage with integrity verification.
-//!
-//! Stores compiled WASM channels in the database with BLAKE3 hash verification.
-//! Mirrors the pattern in `crate::tools::wasm::storage` but without capabilities table.
-//!
-//! # Storage Flow
-//!
-//! ```text
-//! WASM bytes ──► BLAKE3 hash ──► Store in database
-//!                    │               (binary + hash)
-//!                    │
-//!                    └──► Later: Load ──► Verify hash ──► Return bytes
-//! ```
+//! WASM channel binary storage with integrity verification. See ADR-007.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

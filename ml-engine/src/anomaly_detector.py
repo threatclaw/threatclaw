@@ -29,7 +29,7 @@ FEATURE_COLS = [
 
 
 def train():
-    """Train Isolation Forest on historical data (last 14 days).
+    """Train anomaly detection model. See ADR-002.
 
     Collects features for each asset over each 24h window,
     then trains a global model on all asset-day feature vectors.

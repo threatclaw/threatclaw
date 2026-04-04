@@ -27,7 +27,7 @@ FEATURE_COLS = [
 
 
 def run_clustering():
-    """Run DBSCAN clustering on all assets and detect outliers.
+    """Run behavioral clustering and detect outliers. See ADR-003.
 
     Returns: {
         clusters: { cluster_id: [asset_ids] },

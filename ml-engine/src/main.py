@@ -48,7 +48,7 @@ def run_train():
 
 
 def run_clustering():
-    """Run DBSCAN clustering and detect behavioral outliers."""
+    """Run behavioral clustering and detect outliers. See ADR-003."""
     from .clustering import run_clustering as cluster, create_findings_for_outliers
 
     logger.info("── ML CLUSTERING START ──")

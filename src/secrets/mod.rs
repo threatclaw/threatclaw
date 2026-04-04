@@ -1,32 +1,4 @@
-//! Secrets management for secure credential storage and injection.
-//!
-//! This module provides:
-//! - AES-256-GCM encrypted secret storage
-//! - Per-secret key derivation (HKDF-SHA256)
-//! - PostgreSQL persistence
-//! - OS keychain integration for master key
-//! - Access control for WASM tools
-//!
-//! # Security Model
-//!
-//! ```text
-//! ┌─────────────────────────────────────────────────────────────────────────────┐
-//! │                              Secret Lifecycle                                │
-//! │                                                                              │
-//! │   User stores secret ──► Encrypt with AES-256-GCM ──► Store in PostgreSQL  │
-//! │                          (per-secret key via HKDF)                          │
-//! │                                                                              │
-//! │   WASM requests HTTP ──► Host checks allowlist ──► Decrypt secret ──►       │
-//! │                          & allowed_secrets        (in memory only)           │
-//! │                                                         │                    │
-//! │                                                         ▼                    │
-//! │                          Inject into request ──► Execute HTTP call          │
-//! │                          (WASM never sees value)                            │
-//! │                                                         │                    │
-//! │                                                         ▼                    │
-//! │                          Leak detector scans ──► Return response to WASM   │
-//! │                          response for secrets                               │
-//! └─────────────────────────────────────────────────────────────────────────────┘
+//! Secrets management. See ADR-034, ADR-035.
 //! ```
 //!
 //! # Master Key Storage

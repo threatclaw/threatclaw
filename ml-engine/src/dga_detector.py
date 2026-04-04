@@ -107,7 +107,7 @@ def _generate_training_data():
 
 
 def train():
-    """Train DGA detection model (Random Forest)."""
+    """Train DGA detection model. See ADR-004."""
     logger.info("Training DGA detection model...")
 
     X, y = _generate_training_data()

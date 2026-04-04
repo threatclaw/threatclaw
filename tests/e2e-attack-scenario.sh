@@ -53,7 +53,7 @@ pause 15
 # ── PHASE 3: Successful Access ──
 phase "3 — INITIAL ACCESS (T1078 Valid Accounts)"
 log "SSH login with valid credentials..."
-sshpass -p "LabSSH2026!" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
+sshpass -p "${TC_LAB_SSH_PASSWORD:-changeme}" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
 echo '=== PHASE 3: Authenticated ==='
 whoami
 id
@@ -64,7 +64,7 @@ pause 10
 # ── PHASE 4: Post-exploitation ──
 phase "4 — POST-EXPLOITATION (Execution T1059, Discovery T1082)"
 log "Running suspicious commands via SSH..."
-sshpass -p "LabSSH2026!" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
+sshpass -p "${TC_LAB_SSH_PASSWORD:-changeme}" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
 # System enumeration (T1082)
 cat /etc/passwd 2>/dev/null | wc -l
 cat /etc/shadow 2>/dev/null | wc -l
@@ -102,7 +102,7 @@ pause 15
 # ── PHASE 6: Lateral Movement Simulation ──
 phase "6 — LATERAL MOVEMENT (T1021 Remote Services)"
 log "SSH from TARS to other internal services..."
-sshpass -p "LabSSH2026!" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
+sshpass -p "${TC_LAB_SSH_PASSWORD:-changeme}" ssh -o StrictHostKeyChecking=no -p 2222 admin@$TARS "
 # Try to reach other services from inside (lateral movement)
 curl -s --max-time 2 http://localhost:80 >/dev/null 2>&1 && echo 'HTTP reached internally'
 # Simulate pivot attempt
