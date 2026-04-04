@@ -1040,7 +1040,7 @@ pub fn spawn_intelligence_ticker(
             crate::agent::sigma_engine::init(store_sync.as_ref()).await;
         });
 
-        // See ADR-032: dynamic cycle interval based on situation score
+        // See ADR-041: dynamic cycle interval based on situation score
         let mut next_interval = interval;
         let mut last_misp_sync = chrono::Utc::now();
         let mut last_daily_sync = chrono::Utc::now();
@@ -1203,7 +1203,7 @@ pub fn spawn_intelligence_ticker(
                 }
             }
 
-            // See ADR-032: wait dynamic interval before next cycle
+            // See ADR-041: wait dynamic interval before next cycle
             tokio::time::sleep(next_interval).await;
         }
     })
