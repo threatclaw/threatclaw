@@ -759,7 +759,16 @@ pub async fn process_osquery_webhook(
     if let Some(software) = body["software"].as_array() {
         let (count, _) = ingest_software_inventory(store, hostname, software).await;
         result.software_items = count;
-        if count > 0 { result.assets_enriched += 1; }
+        if count > 0 {
+            result.assets_enriched += 1;
+            // Auto-CVE correlation: cross-reference software with NVD/KEV
+            if let Ok(Some(asset)) = store.find_asset_by_hostname(hostname).await {
+                let vuln_result = crate::enrichment::software_vuln::scan_asset_software(
+                    store, &asset.id, &asset.name, software
+                ).await;
+                result.alerts_created += vuln_result.findings_created;
+            }
+        }
     }
 
     if let Some(sockets) = body["process_open_sockets"].as_array() {

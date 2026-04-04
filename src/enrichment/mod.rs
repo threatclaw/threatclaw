@@ -19,6 +19,7 @@ pub mod phishtank;
 pub mod priority_score;
 pub mod securitytrails;
 pub mod shodan_lookup;
+pub mod software_vuln;
 pub mod spamhaus;
 pub mod ssl_labs;
 pub mod threatfox;

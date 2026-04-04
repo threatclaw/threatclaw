@@ -1075,6 +1075,8 @@ pub fn spawn_intelligence_ticker(
                     let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;
                     crate::agent::ioc_bloom::refresh(store_resync.as_ref()).await;
                     crate::agent::sigma_engine::reload(store_resync.as_ref()).await;
+                    // Daily software vulnerability scan across all assets
+                    crate::enrichment::software_vuln::scan_all_assets(store_resync).await;
                 });
             }
 
