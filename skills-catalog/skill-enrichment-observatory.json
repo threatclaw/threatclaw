@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "Mozilla Observatory analyse les en-tetes HTTP de securite d'un site (CSP, HSTS, X-Frame-Options, etc.) et attribue une note de A+ a F. Ideal pour verifier la configuration securite d'un serveur web. Aucune cle API requise, service public gratuit de Mozilla.",
     "execution": {
         "mode": "api",

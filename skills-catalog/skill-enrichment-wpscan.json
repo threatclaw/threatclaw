@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "WPScan interroge la base de vulnerabilites WordPress (core, plugins, themes) maintenue par WPScan. Cle API obligatoire (gratuite, 25 requetes/jour). Peut aussi scanner un site WordPress pour enumerer les plugins, themes et versions installees.",
     "execution": {
         "mode": "api",

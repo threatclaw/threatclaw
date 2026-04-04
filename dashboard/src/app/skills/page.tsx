@@ -40,6 +40,17 @@ const TYPE_UI_BASE: Record<string, { labelKey: string; descKey: string; icon: Re
   "tool": { labelKey: "actions", descKey: "remediationResponse", icon: Zap, color: "var(--tc-amber)" },
 };
 
+// ── Category definitions for UI ──
+const CATEGORY_UI: Record<string, { label: string; labelEn: string; icon: React.ElementType; color: string }> = {
+  "network":      { label: "Réseau",           labelEn: "Network",            icon: Network,  color: "#d03020" },
+  "endpoints":    { label: "Endpoints",         labelEn: "Endpoints",          icon: Monitor,  color: "#9060d0" },
+  "inventory":    { label: "Inventaire",        labelEn: "Inventory",          icon: Database, color: "#3080d0" },
+  "scan":         { label: "Scan",              labelEn: "Scan",               icon: Crosshair, color: "#d09020" },
+  "threat-intel": { label: "Threat Intel",      labelEn: "Threat Intel",       icon: Eye,      color: "#06b6d4" },
+  "web":          { label: "Web",               labelEn: "Web",                icon: Shield,   color: "#30a050" },
+};
+const CATEGORY_ORDER = ["network", "endpoints", "inventory", "scan", "threat-intel", "web"];
+
 // ── Trust level badges ──
 const TRUST_UI: Record<string, { labelKey: string; shortLabel: string; color: string; bg: string; border: string }> = {
   "official": { labelKey: "official", shortLabel: "TC", color: "#d03020", bg: "rgba(208,48,32,0.12)", border: "rgba(208,48,32,0.25)" },
@@ -133,6 +144,7 @@ export default function SkillsPage() {
   });
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [trustFilter, setTrustFilter] = useState<string>("all");
+  const [catFilter, setCatFilter] = useState<string>("all");
   const [modalSkill, setModalSkill] = useState<SkillManifest | null>(null);
   const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});
   const [running, setRunning] = useState<string | null>(null);
@@ -206,7 +218,7 @@ export default function SkillsPage() {
   const mySkills = allSkills.filter(s => enabled.has(s.id));
   const catalogSkills = allSkills.filter(s => !enabled.has(s.id));
 
-  // Group installed skills by type
+  // Group installed skills by type (legacy)
   const groupByType = (skills: SkillManifest[]) => {
     const groups: Record<string, SkillManifest[]> = { connector: [], enrichment: [], tool: [] };
     for (const s of skills) {
@@ -217,8 +229,21 @@ export default function SkillsPage() {
     return groups;
   };
 
+  // Group installed skills by category (new)
+  const groupByCategory = (skills: SkillManifest[]) => {
+    const groups: Record<string, SkillManifest[]> = {};
+    for (const cat of CATEGORY_ORDER) groups[cat] = [];
+    for (const s of skills) {
+      const cat = s.category || "scan";
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(s);
+    }
+    return groups;
+  };
+
   // Filter catalog
   const filteredCatalog = catalogSkills
+    .filter(s => catFilter === "all" || s.category === catFilter)
     .filter(s => typeFilter === "all" || s.type === typeFilter)
     .filter(s => trustFilter === "all" || (s.trust || "official") === trustFilter)
     .filter(s => !search.trim() || s.name.toLowerCase().includes(search.toLowerCase()) || s.description.toLowerCase().includes(search.toLowerCase()));
@@ -340,7 +365,7 @@ export default function SkillsPage() {
         ))}
       </div>
 
-      {/* ═══ INSTALLED — grouped by type ═══ */}
+      {/* ═══ INSTALLED — grouped by category ═══ */}
       {tab === "installed" && (
         <div>
           {mySkills.length === 0 && (
@@ -349,18 +374,18 @@ export default function SkillsPage() {
             </div>
           )}
 
-          {(["connector", "enrichment", "tool"] as const).map(type => {
-            const skills = installedGroups[type] || [];
+          {CATEGORY_ORDER.map(cat => {
+            const catGroups = groupByCategory(mySkills);
+            const skills = catGroups[cat] || [];
             if (skills.length === 0) return null;
-            const ui = TYPE_UI_BASE[type];
+            const ui = CATEGORY_UI[cat];
             const Icon = ui.icon;
             return (
-              <div key={type} style={{ marginBottom: "20px" }}>
+              <div key={cat} style={{ marginBottom: "20px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px", paddingBottom: "6px", borderBottom: `2px solid ${ui.color}20` }}>
                   <Icon size={15} color={ui.color} />
-                  <span style={{ fontSize: "12px", fontWeight: 800, color: ui.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr(ui.labelKey, locale)}</span>
+                  <span style={{ fontSize: "12px", fontWeight: 800, color: ui.color, textTransform: "uppercase", letterSpacing: "0.05em" }}>{locale === "fr" ? ui.label : ui.labelEn}</span>
                   <span style={{ fontSize: "10px", color: "var(--tc-text-faint)" }}>({skills.length})</span>
-                  <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic", marginLeft: "auto" }}>{tr(ui.descKey, locale)}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "8px" }}>
                   {skills.map(skill => {
@@ -382,6 +407,9 @@ export default function SkillsPage() {
                             {isRunning && <div className="tc-spin-loader" />}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "2px" }}>
+                            {(() => { const tui = TYPE_UI_BASE[skill.type]; return tui ? (
+                              <span style={{ fontSize: "7px", fontWeight: 800, padding: "1px 5px", borderRadius: "3px", background: `${tui.color}18`, color: tui.color, textTransform: "uppercase" }}>{tr(tui.labelKey, locale)}</span>
+                            ) : null; })()}
                             <TrustBadge trust={trust} locale={locale} />
                             {BETA_SKILLS.has(skill.id) && (
                               <span style={{ fontSize: "7px", fontWeight: 800, padding: "1px 5px", borderRadius: "3px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase" }} title={tr("betaSkillHint", locale)}>{tr("beta", locale)}</span>
@@ -398,8 +426,8 @@ export default function SkillsPage() {
                   })}
                 </div>
 
-                {/* Lock notice for Actions section */}
-                {type === "tool" && (
+                {/* Lock notice for scan category (tools run with elevated privileges) */}
+                {cat === "scan" && skills.some(s => s.type === "tool") && (
                   <div style={{
                     display: "flex", alignItems: "center", gap: "8px", marginTop: "8px",
                     padding: "8px 12px", borderRadius: "var(--tc-radius-sm)",
@@ -426,6 +454,28 @@ export default function SkillsPage() {
               <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("search", locale)}
                 style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
                   background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none" }} />
+            </div>
+            {/* Category filter pills */}
+            <div style={{ display: "flex", gap: "3px", flexWrap: "wrap" }}>
+              <button onClick={() => setCatFilter("all")} style={{
+                padding: "5px 8px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
+                background: catFilter === "all" ? "var(--tc-surface-alt)" : "transparent",
+                border: catFilter === "all" ? "1px solid var(--tc-border)" : "1px solid transparent",
+                color: catFilter === "all" ? "var(--tc-text)" : "var(--tc-text-muted)",
+              }}>{locale === "fr" ? "Tous" : "All"}</button>
+              {CATEGORY_ORDER.map(cat => {
+                const ui = CATEGORY_UI[cat];
+                const CatIcon = ui.icon;
+                return (
+                  <button key={cat} onClick={() => setCatFilter(cat)} style={{
+                    padding: "5px 8px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: "4px",
+                    background: catFilter === cat ? "var(--tc-surface-alt)" : "transparent",
+                    border: catFilter === cat ? `1px solid ${ui.color}40` : "1px solid transparent",
+                    color: catFilter === cat ? ui.color : "var(--tc-text-muted)",
+                  }}><CatIcon size={10} />{locale === "fr" ? ui.label : ui.labelEn}</button>
+                );
+              })}
             </div>
             {/* Type filter pills */}
             <div style={{ display: "flex", gap: "4px" }}>

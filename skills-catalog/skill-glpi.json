@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
+  "category": "inventory",
   "help": "GLPI est un outil open-source de gestion de parc informatique (CMDB) et de helpdesk/ticketing.\n\nThreatClaw s'y connecte pour :\n• Importer l'inventaire des machines (ordinateurs, serveurs, équipements réseau) comme assets\n• Créer des tickets d'incident automatiquement quand un finding critique est détecté\n\nPrérequis :\n• GLPI avec l'API REST activée (Configuration > Générale > API)\n• Un App-Token (Configuration > Générale > API > Clé d'application)\n• Un User-Token (Administration > Utilisateurs > glpi > Clés d'accès distantes)\n• L'adresse IP de ThreatClaw autorisée dans les clients API GLPI",
   "execution": {
     "mode": "persistent",

@@ -1,36 +1,52 @@
 {
   "id": "skill-zeek",
   "name": "Zeek Network Monitor",
-  "version": "1.0.0",
-  "description": "Analyse réseau passive — ingère les logs JSON Zeek (conn, dns, http, ssl, ssh). Détecte les connexions longues, uploads massifs, certificats invalides.",
+  "version": "2.0.0",
+  "description": "Analyse réseau passive — ingère les logs JSON Zeek (conn, dns, http, ssl, ssh). Détecte les C2 (JA3, beacon timing), exfiltration, certificats suspects.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
-  "help": "Zeek (anciennement Bro) est un outil d'analyse réseau passive. Contrairement à Suricata qui se base sur des signatures, Zeek produit des logs structurés décrivant chaque connexion, requête DNS, échange TLS, session HTTP, etc.\n\nThreatClaw ingère les logs JSON de Zeek pour alimenter le graphe réseau. Cela permet de détecter les connexions longue durée (C2), les transferts de données massifs (exfiltration), les certificats TLS invalides et les comportements réseau anormaux.\n\nPrérequis :\n• Zeek installé et configuré pour écouter sur un port miroir/SPAN\n• Les logs doivent être au format JSON (policy/tuning/json-logs.zeek)\n• Le répertoire de logs accessible par ThreatClaw (montage Docker ou chemin local)\n• Capabilities réseau : NET_RAW, NET_ADMIN",
+  "category": "network",
+  "help": "Zeek (anciennement Bro) est un outil d'analyse réseau passive. Il produit des logs structurés décrivant chaque connexion, requête DNS, échange TLS, session HTTP, etc.\n\nThreatClaw analyse les logs Zeek pour détecter :\n• Outils d'attaque via JA3 fingerprinting (Cobalt Strike, Sliver, Emotet...)\n• Communications C2 via analyse des intervalles (beacon timing)\n• Infrastructure malveillante via scoring des certificats TLS\n• Connexions longue durée, uploads massifs, exfiltration\n\n📡 Deux modes de connexion :\n\n1. Même serveur — Zeek tourne sur la même machine que ThreatClaw.\n   Indiquez le répertoire des logs. Utile pour la self-protection de ThreatClaw.\n   ⚠️ Zeek n'analysera que le trafic de cette machine.\n\n2. Serveur distant — Zeek tourne sur votre firewall (pfSense, OPNsense, Linux).\n   Installez Fluent-Bit sur le serveur Zeek et envoyez les logs via webhook.\n   C'est le mode recommandé pour surveiller tout le réseau.\n\nPour le mode distant, configurez Fluent-Bit sur le serveur Zeek :\n\n[INPUT]\n    Name   tail\n    Path   /opt/zeek/logs/current/*.log\n    Tag    zeek.*\n    Parser json\n\n[OUTPUT]\n    Name   http\n    Match  zeek.*\n    Host   IP_THREATCLAW\n    Port   8445\n    URI    /api/tc/webhook/ingest/zeek?token=VOTRE_TOKEN\n    Format json\n    tls    On",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
-    "docker_image": "zeek/zeek:latest",
-    "network": "host",
-    "note": "Requires --network host or a SPAN port. cap_add: NET_RAW, NET_ADMIN."
+    "note": "Mode local: lit les fichiers JSON. Mode distant: reçoit via webhook HTTP."
   },
   "config": {
+    "connection_mode": {
+      "type": "string",
+      "description": "Mode de connexion",
+      "placeholder": "remote",
+      "hint": "\"local\" si Zeek tourne sur ce serveur (self-protection uniquement). \"remote\" si Zeek est sur un autre serveur (firewall, routeur). Le mode distant est recommandé pour surveiller tout le réseau.",
+      "required": true,
+      "default": "remote",
+      "enum": ["local", "remote"]
+    },
     "zeek_log_dir": {
       "type": "string",
-      "description": "Répertoire des logs JSON Zeek",
+      "description": "Répertoire des logs Zeek (mode local)",
       "placeholder": "/opt/zeek/logs/current",
-      "hint": "Le répertoire contenant les logs JSON de Zeek (conn.log, dns.log, http.log, ssl.log, etc.). Par défaut : /opt/zeek/logs/current. Assurez-vous que les logs sont au format JSON.",
-      "required": true
+      "hint": "Uniquement en mode local. Le répertoire contenant les logs JSON de Zeek. Assurez-vous que les logs sont au format JSON (policy/tuning/json-logs.zeek).",
+      "required": false
+    },
+    "webhook_token": {
+      "type": "password",
+      "description": "Token webhook (mode distant)",
+      "hint": "En mode distant, ce token sécurise la réception des logs. Il sera généré automatiquement. Configurez ce même token dans Fluent-Bit sur votre serveur Zeek.",
+      "required": false,
+      "auto_generate": true
     }
   },
   "auto_sync": true,
   "sync_interval": 5,
+  "ndr_engines": ["ja3", "beacon", "tls-scoring"],
   "outputs": {
     "connections": "graph",
     "dns": "graph",
     "ssl": "graph",
-    "alerts": "db"
+    "alerts": "db",
+    "findings": "db"
   },
   "default_active": false,
   "requires_config": true,

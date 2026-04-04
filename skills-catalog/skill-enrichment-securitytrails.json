@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "SecurityTrails fournit de l'intelligence DNS avancee : enumeration de sous-domaines, historique des enregistrements DNS, changements detectes et donnees WHOIS. Cle API obligatoire. Le plan gratuit offre 50 requetes par mois. Le cache est configure a 30 jours pour economiser le quota.",
     "execution": {
         "mode": "api",

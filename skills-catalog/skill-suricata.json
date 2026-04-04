@@ -1,27 +1,41 @@
 {
   "id": "skill-suricata",
   "name": "Suricata IDS",
-  "version": "1.0.0",
-  "description": "IDS/IPS réseau — ingère eve.json de Suricata (alertes signatures, DNS, flows, TLS). 40K+ règles de détection.",
+  "version": "2.0.0",
+  "description": "IDS/IPS réseau — ingère eve.json de Suricata (alertes signatures, DNS, flows, TLS). 40K+ règles de détection Emerging Threats.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "ids",
-  "help": "Suricata est un IDS/IPS réseau open-source qui analyse le trafic en temps réel. Il détecte les intrusions via plus de 40 000 règles de signatures (Emerging Threats) et produit un fichier eve.json contenant les alertes, flows, requêtes DNS et connexions TLS.\n\nThreatClaw lit le fichier eve.json en continu pour importer les alertes comme findings et les flows/DNS dans le graphe réseau. Cela permet de détecter les communications C2, les scans de ports, les exploits réseau et les résolutions DNS suspectes.\n\nPrérequis :\n• Suricata installé et configuré en mode IDS (sur un port miroir/SPAN ou inline)\n• Le fichier eve.json accessible par ThreatClaw (montage Docker ou chemin local)\n• 2 à 4 Go de RAM recommandés pour Suricata",
+  "category": "network",
+  "help": "Suricata est un IDS/IPS réseau open-source qui analyse le trafic en temps réel via plus de 40 000 règles de signatures (Emerging Threats).\n\nThreatClaw lit le fichier eve.json pour importer les alertes IDS comme findings, les flows dans le graphe réseau, et les métadonnées TLS/DNS pour l'analyse comportementale.\n\n📡 Deux modes de connexion :\n\n1. Même serveur — Suricata tourne sur la même machine que ThreatClaw.\n   Indiquez le chemin vers eve.json.\n\n2. Serveur distant — Suricata tourne sur votre firewall ou une sonde réseau.\n   Installez Fluent-Bit et envoyez les logs via webhook.\n\nPour le mode distant, configurez Fluent-Bit sur le serveur Suricata :\n\n[INPUT]\n    Name   tail\n    Path   /var/log/suricata/eve.json\n    Tag    suricata.alert\n    Parser json\n\n[OUTPUT]\n    Name   http\n    Match  suricata.*\n    Host   IP_THREATCLAW\n    Port   8445\n    URI    /api/tc/webhook/ingest/suricata?token=VOTRE_TOKEN\n    Format json\n    tls    On",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
-    "docker_image": "jasonish/suricata:latest",
-    "network": "host",
-    "note": "Requires --network host for traffic capture. 2-4 GB RAM."
+    "note": "Mode local: lit eve.json. Mode distant: reçoit via webhook HTTP."
   },
   "config": {
+    "connection_mode": {
+      "type": "string",
+      "description": "Mode de connexion",
+      "placeholder": "remote",
+      "hint": "\"local\" si Suricata tourne sur ce serveur. \"remote\" si Suricata est sur un autre serveur. Le mode distant est recommandé.",
+      "required": true,
+      "default": "remote",
+      "enum": ["local", "remote"]
+    },
     "eve_json_path": {
       "type": "string",
-      "description": "Chemin vers le fichier eve.json",
+      "description": "Chemin vers eve.json (mode local)",
       "placeholder": "/var/log/suricata/eve.json",
-      "hint": "Le chemin complet vers le fichier eve.json de Suricata. Par défaut : /var/log/suricata/eve.json. Si Suricata tourne dans Docker, montez ce fichier dans le container ThreatClaw.",
-      "required": true
+      "hint": "Uniquement en mode local. Le chemin complet vers le fichier eve.json de Suricata.",
+      "required": false
+    },
+    "webhook_token": {
+      "type": "password",
+      "description": "Token webhook (mode distant)",
+      "hint": "En mode distant, ce token sécurise la réception des logs. Il sera généré automatiquement. Configurez ce même token dans Fluent-Bit sur votre serveur Suricata.",
+      "required": false,
+      "auto_generate": true
     }
   },
   "auto_sync": true,
@@ -29,7 +43,8 @@
   "outputs": {
     "alerts": "db",
     "flows": "graph",
-    "dns": "graph"
+    "dns": "graph",
+    "findings": "db"
   },
   "default_active": false,
   "requires_config": true,

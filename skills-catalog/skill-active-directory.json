@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
+  "category": "inventory",
   "help": "Active Directory (ou OpenLDAP) est l'annuaire central de votre entreprise. Il contient les comptes utilisateurs, groupes de sécurité, ordinateurs du domaine et comptes administrateurs.\n\nThreatClaw se connecte via LDAP(S) pour importer l'ensemble de ces objets dans le graphe d'identité. Cela permet de détecter les comptes à privilèges excessifs, les comptes dormants, les machines non conformes et les mouvements latéraux.\n\nPrérequis :\n• Un serveur AD/LDAP accessible (port 636 pour LDAPS, 389 pour LDAP)\n• Un compte de service en lecture seule (aucun droit d'écriture nécessaire)\n• Le Base DN de votre domaine (ex: dc=corp,dc=local)",
   "execution": {
     "mode": "persistent",

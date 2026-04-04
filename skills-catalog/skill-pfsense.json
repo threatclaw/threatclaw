@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
+  "category": "network",
   "help": "pfSense et OPNsense sont des firewalls open-source qui protègent votre réseau. Ils contiennent des informations précieuses : table ARP (qui est sur le réseau), baux DHCP, interfaces réseau, VLANs et règles de filtrage.\n\nThreatClaw récupère ces données via l'API REST pour construire une cartographie réseau complète dans le graphe. Cela permet de détecter les machines inconnues, les VLANs mal segmentés et les règles firewall trop permissives.\n\nPrérequis :\n• pfSense avec le package API installé (pfSense-pkg-API) ou OPNsense (API intégrée)\n• Pour pfSense : un utilisateur API dédié (System > User Manager)\n• Pour OPNsense : une clé API (System > Access > Users > API keys)",
   "execution": {
     "mode": "persistent",

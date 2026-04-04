@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "Qualys SSL Labs effectue un audit complet de la configuration SSL/TLS d'un serveur : protocoles supportes, suites de chiffrement, chaine de certificats, expiration, et attribue une note de A+ a F. Aucune cle API requise, API publique gratuite. L'analyse peut prendre 1 a 2 minutes par domaine.",
     "execution": {
         "mode": "api",

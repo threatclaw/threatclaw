@@ -349,6 +349,33 @@ export default function HomePage() {
         </div>
       </NeuCard>
 
+      {/* ══ Moteurs ThreatClaw ══ */}
+      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
+        {locale === "fr" ? "Moteurs de détection" : "Detection Engines"}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px", marginBottom: "20px" }}>
+        {[
+          { name: "Intelligence Engine", detail: locale === "fr" ? "Corrélation & scoring" : "Correlation & scoring", active: services[0]?.status === "ok", color: "#d03020" },
+          { name: "Sigma Engine", detail: locale === "fr" ? "Règles de détection" : "Detection rules", active: services[0]?.status === "ok", color: "#9060d0" },
+          { name: "Bloom Filter", detail: locale === "fr" ? "IoC temps réel" : "Real-time IoC", active: services[0]?.status === "ok", color: "#06b6d4" },
+          { name: "NDR (JA3/Beacon/TLS)", detail: locale === "fr" ? "Analyse réseau Zeek" : "Zeek network analysis", active: services[0]?.status === "ok", color: "#f97316" },
+          { name: "ML Engine", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : (locale === "fr" ? "En apprentissage" : "Learning"), active: mlStatus.anomaly !== "inactive", color: "#d09020" },
+          { name: "Graph Intelligence", detail: locale === "fr" ? "STIX 2.1 + corrélation" : "STIX 2.1 + correlation", active: services[0]?.status === "ok", color: "#30a050" },
+        ].map(engine => (
+          <NeuCard key={engine.name} style={{ padding: "10px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0,
+                background: engine.active ? engine.color : "var(--tc-text-faint)",
+                boxShadow: engine.active ? `0 0 6px ${engine.color}60` : "none" }} />
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{engine.name}</div>
+                <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "1px" }}>{engine.detail}</div>
+              </div>
+            </div>
+          </NeuCard>
+        ))}
+      </div>
+
       {/* ══ Détection comportementale ══ */}
       <div data-tour="ml" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
         {tr("behavioralDetection", locale)}

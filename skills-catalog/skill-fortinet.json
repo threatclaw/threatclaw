@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
+  "category": "network",
   "help": "FortiGate est le firewall de Fortinet, très répandu en PME. Il expose une API REST complète permettant de récupérer la table ARP, les interfaces réseau, les VLANs, les routes et les sessions actives.\n\nThreatClaw interroge l'API FortiGate pour cartographier votre réseau dans le graphe. En mode remédiation (avec validation humaine), il peut aussi créer des règles de blocage d'IP via des address objects.\n\nPrérequis :\n• FortiGate accessible via HTTPS (port 443 par défaut)\n• Un API Token : System > Administrators > Create New > REST API Admin\n• Profil admin avec droits de lecture (au minimum Read sur Network, System, Firewall)",
   "execution": {
     "mode": "persistent",

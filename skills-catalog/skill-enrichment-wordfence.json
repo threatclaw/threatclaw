@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "Wordfence Intelligence fournit une base de vulnerabilites WordPress en temps reel couvrant le core, les plugins et les themes. Feed complet et gratuit, aucune cle API requise. Mis a jour en continu par l'equipe Wordfence Threat Intelligence.",
     "execution": {
         "mode": "api",

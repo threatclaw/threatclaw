@@ -7,7 +7,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",
-  "category": "containers",
+  "category": "scan",
   "execution": {
     "mode": "ephemeral",
     "docker_image": "docker/docker-bench-security:latest",

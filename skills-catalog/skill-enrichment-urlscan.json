@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "URLScan.io analyse une URL dans un sandbox : capture d'ecran, detection de scripts malveillants, suivi des redirections, identification de malware. Cle API optionnelle : sans cle, vous pouvez consulter les scans publics existants. Avec une cle gratuite, vous pouvez lancer vos propres scans (limites genereses).",
     "execution": {
         "mode": "api",

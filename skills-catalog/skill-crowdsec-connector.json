@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "ids",
+  "category": "network",
   "help": "CrowdSec est un IDS/IPS collaboratif open-source. Il analyse les logs de vos services (SSH, Nginx, etc.) et partage les IP malveillantes avec la communauté. Les décisions de ban sont appliquées via des bouncers.\n\nThreatClaw se connecte à la LAPI (Local API) de CrowdSec pour importer les décisions actives (IP bannies, captcha, throttle). Ces informations enrichissent le graphe de menaces et permettent de corréler les IP attaquantes avec d'autres sources.\n\nPrérequis :\n• CrowdSec installé et la LAPI accessible (port 8080 par défaut)\n• Un bouncer enregistré : cscli bouncers add threatclaw\n• Copiez la clé API générée par cette commande",
   "execution": {
     "mode": "connector",

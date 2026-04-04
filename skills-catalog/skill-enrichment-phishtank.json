@@ -6,7 +6,7 @@
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
-    "category": "web-security",
+    "category": "web",
     "help": "PhishTank est une base communautaire d'URLs de phishing verifiees. Permet de controler si une URL ou un domaine est repertorie comme site de phishing. Cle API optionnelle : sans cle, les requetes sont limitees. Avec une App Key gratuite, vous obtenez des limites plus elevees.",
     "execution": {
         "mode": "api",

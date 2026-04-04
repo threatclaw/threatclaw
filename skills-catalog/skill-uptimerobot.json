@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "web-security",
+  "category": "web",
   "help": "UptimeRobot est un service de monitoring de disponibilité pour vos sites web et services. Il vérifie régulièrement que vos URLs répondent, mesure la latence et surveille l'expiration des certificats SSL.\n\nThreatClaw importe vos monitors UptimeRobot pour créer des findings en cas de service down, latence anormale ou certificat SSL bientôt expiré. Les assets web sont intégrés au graphe pour une vue complète de votre surface d'exposition.\n\nPrérequis :\n• Un compte UptimeRobot (gratuit ou Pro)\n• Une clé API Read-Only : My Settings > API Settings > Read-Only API Key\n• Au moins un monitor configuré dans UptimeRobot",
   "execution": {
     "mode": "connector",

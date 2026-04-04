@@ -7,7 +7,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",
-  "category": "scanning",
+  "category": "scan",
   "execution": {
     "mode": "ephemeral",
     "docker_image": "projectdiscovery/httpx:latest",

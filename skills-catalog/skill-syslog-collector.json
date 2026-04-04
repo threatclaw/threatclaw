@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "monitoring",
+  "category": "endpoints",
   "help": "Le collecteur Syslog permet de recevoir les logs de vos serveurs, routeurs, switches et applications via le protocole syslog standard (RFC 3164 / RFC 5424). Fluent Bit écoute en UDP et/ou TCP et injecte les logs dans PostgreSQL.\n\nThreatClaw analyse ensuite ces logs via l'Intelligence Engine pour détecter les tentatives de connexion échouées, les erreurs critiques, les redémarrages suspects et les comportements anormaux. C'est le connecteur le plus universel — tout équipement réseau sait envoyer du syslog.\n\nPrérequis :\n• Configurez vos serveurs/équipements pour envoyer les logs vers l'IP de ThreatClaw (port 514 par défaut)\n• Vérifiez que le port est ouvert dans votre firewall\n• Pour Linux : rsyslog ou systemd-journal-remote\n• Pour les équipements réseau : configuration syslog dans l'interface d'administration",
   "execution": {
     "mode": "persistent",

@@ -6,7 +6,7 @@
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
-  "category": "discovery",
+  "category": "network",
   "help": "La Freebox (Free) expose une API REST locale (Freebox OS) qui permet de lister tous les appareils connectés à votre réseau domestique ou de petite entreprise : adresses MAC, IP, hostname, fabricant, type d'appareil et statut en ligne/hors ligne.\n\nThreatClaw utilise cette API pour découvrir automatiquement vos assets réseau. C'est particulièrement utile pour les TPE/PME qui utilisent une Freebox comme routeur principal — aucun équipement réseau supplémentaire n'est nécessaire.\n\nPrérequis :\n• Une Freebox (Revolution, Delta, Pop, Ultra) avec Freebox OS activé\n• L'appairage initial se fait sur l'écran LCD de la Freebox (validation physique)\n• ThreatClaw doit être sur le même réseau local que la Freebox",
   "execution": {
     "mode": "poll",
