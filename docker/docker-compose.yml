@@ -181,15 +181,10 @@ services:
       - /run/postgresql:size=10m
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./certs/pg-server.crt:/etc/postgresql/server.crt:ro
-      - ./certs/pg-server.key:/etc/postgresql/server.key:ro
-      - ./certs/ca.crt:/etc/postgresql/ca.crt:ro
-    command: >
-      postgres
-      -c ssl=on
-      -c ssl_cert_file=/etc/postgresql/server.crt
-      -c ssl_key_file=/etc/postgresql/server.key
-      -c ssl_ca_file=/etc/postgresql/ca.crt
+      - ./certs/pg-server.crt:/var/lib/postgresql/server.crt:ro
+      - ./certs/pg-server.key:/var/lib/postgresql/server.key
+      - ./certs/ca.crt:/var/lib/postgresql/ca.crt:ro
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/var/lib/postgresql/server.crt", "-c", "ssl_key_file=/var/lib/postgresql/server.key", "-c", "ssl_ca_file=/var/lib/postgresql/ca.crt"]
     secrets:
       - tc_db_password
     healthcheck:
@@ -260,6 +255,8 @@ services:
     tmpfs:
       - /tmp:size=20m,noexec,nosuid,nodev
       - /var/log:size=50m    # Fluent-bit SQLite DB files (flb_auth.db, etc.)
+    # Fluent-bit pgsql plugin requires password as env var (no file support)
+    entrypoint: ["/bin/sh", "-c", "export TC_DB_PASSWORD=$(cat /run/secrets/tc_db_password) && exec /fluent-bit/bin/fluent-bit -c /fluent-bit/etc/fluent-bit.conf"]
     environment:
       PGSSLMODE: require
       PGSSLROOTCERT: /fluent-bit/certs/ca.crt
@@ -292,9 +289,8 @@ services:
     <<: *security-defaults
     image: ghcr.io/threatclaw/ml-engine:latest
     user: "1000:1000"
+    entrypoint: ["/bin/sh", "-c", "export DATABASE_URL=\"postgres://threatclaw:$(cat /run/secrets/tc_db_password)@threatclaw-db:5432/threatclaw?sslmode=require\" && exec python -m src.main"]
     environment:
-      DATABASE_URL: postgres://threatclaw@threatclaw-db:5432/threatclaw?sslmode=require
-      TC_DB_PASSWORD_FILE: /run/secrets/tc_db_password
       ML_MODEL_DIR: /models
     read_only: true
     tmpfs:
