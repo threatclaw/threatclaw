@@ -469,7 +469,7 @@ export default function AssetsPage() {
               style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{
               background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
-              padding: "24px", width: "520px", maxWidth: "90vw", maxHeight: "85vh", overflowY: "auto",
+              padding: "24px", width: "700px", maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto",
             }}>
               {/* Header */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
@@ -482,81 +482,159 @@ export default function AssetsPage() {
                     <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>
                       <span style={{ fontSize: "9px", fontWeight: 700, padding: "1px 6px", borderRadius: "3px", background: `${crit.color}15`, color: crit.color, border: `1px solid ${crit.color}30`, textTransform: "uppercase" }}>{crit.label}</span>
                       <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: "var(--tc-input)", color: "var(--tc-text-muted)" }}>{cat?.label || a.category}</span>
+                      {(a as any).sources?.length > 0 && <span style={{ fontSize: "8px", padding: "1px 6px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)" }}>Sources: {(a as any).sources.join(", ")}</span>}
                     </div>
                   </div>
                 </div>
-                <button onClick={() => setExpandedId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><X size={16} /></button>
-              </div>
-
-              {/* Identification */}
-              <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Identification</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", marginBottom: "16px" }}>
-                <div><span style={labelStyle}>IP</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.ip_addresses.join(", ") || "—"}</div></div>
-                <div><span style={labelStyle}>MAC</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.mac_address || "—"} {a.mac_vendor && <span style={{ color: "var(--tc-text-muted)" }}>({a.mac_vendor})</span>}</div></div>
-                <div><span style={labelStyle}>Hostname</span><div style={{ color: "var(--tc-text)" }}>{a.hostname || "—"}{a.fqdn ? ` (${a.fqdn})` : ""}</div></div>
-                <div><span style={labelStyle}>OS</span><div style={{ color: "var(--tc-text)" }}>{a.os || "—"}</div></div>
-                <div><span style={labelStyle}>Rôle</span><div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div></div>
-                <div><span style={labelStyle}>Responsable</span><div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div></div>
-                {a.url && <div style={{ gridColumn: "1/3" }}><span style={labelStyle}>URL</span><div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div></div>}
-              </div>
-
-              {/* Services */}
-              {a.services && Array.isArray(a.services) && a.services.length > 0 && (
-                <>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Services détectés ({a.services.length})</div>
-                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "16px" }}>
-                    {a.services.map((s: any, i: number) => (
-                      <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                        <span style={{ fontWeight: 700, color: "var(--tc-blue)" }}>{s.port}</span>
-                        <span style={{ color: "var(--tc-text-muted)" }}>/</span>
-                        <span>{s.proto || "tcp"}</span>
-                        {s.service && <span style={{ color: "var(--tc-text-sec)" }}>{s.service}</span>}
-                        {s.product && <span style={{ color: "var(--tc-amber)", fontWeight: 600 }}>{s.product}</span>}
-                        {s.version && <span style={{ color: "var(--tc-text-muted)", fontSize: "8px" }}>v{s.version}</span>}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {/* Graph Intelligence */}
-              <GraphIntelSection assetId={a.id} />
-
-              {/* Tags */}
-              {a.tags && a.tags.length > 0 && (
-                <div style={{ marginTop: "12px" }}>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Tags</div>
-                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                    {a.tags.map((t: string, i: number) => <span key={i} style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.15)" }}>{t}</span>)}
-                  </div>
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  <button onClick={() => openEdit(a)} style={{ padding: "6px 10px", fontSize: "10px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text-sec)", cursor: "pointer" }}>Modifier</button>
+                  <button onClick={() => setExpandedId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><X size={16} /></button>
                 </div>
-              )}
-
-              {/* Notes */}
-              {a.notes && (
-                <div style={{ marginTop: "10px" }}>
-                  <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>Notes</div>
-                  <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", fontStyle: "italic" }}>{a.notes}</div>
-                </div>
-              )}
-
-              {/* Vulnérabilités / Findings */}
-              <AssetFindings asset={a} />
-
-              {/* Metadata */}
-              <div style={{ marginTop: "14px", paddingTop: "10px", borderTop: "1px solid var(--tc-border)", display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "9px", color: "var(--tc-text-muted)" }}>
-                <span>Source: {a.source}</span>
-                <span>Première vue: {new Date(a.first_seen).toLocaleDateString("fr-FR")}</span>
-                <span>Dernière vue: {new Date(a.last_seen).toLocaleDateString("fr-FR")}</span>
               </div>
 
-              {/* Actions */}
-              <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
-                <button onClick={() => openEdit(a)} style={{ flex: 1, padding: "8px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text-sec)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                  <Settings size={12} /> Modifier
-                </button>
-                <button onClick={() => handleDelete(a.id)} style={{ padding: "8px 14px", fontSize: "11px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-                  <Trash2 size={12} /> Supprimer
+              {/* Tabs */}
+              {(() => {
+                const software = (a as any).software || [];
+                const hasSoftware = Array.isArray(software) && software.length > 0;
+                const hasServices = a.services && Array.isArray(a.services) && a.services.length > 0;
+                const tabs = [
+                  { id: "summary", label: "Résumé" },
+                  { id: "software", label: `Logiciels${hasSoftware ? ` (${software.length})` : ""}` },
+                  { id: "network", label: "Réseau" },
+                  { id: "security", label: "Sécurité" },
+                  { id: "findings", label: "Findings" },
+                ];
+                const [activeTab, setActiveTab] = [
+                  (window as any).__assetTab || "summary",
+                  (t: string) => { (window as any).__assetTab = t; setExpandedId(a.id); }
+                ];
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid var(--tc-border)", paddingBottom: "0" }}>
+                      {tabs.map(tab => (
+                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+                          padding: "8px 14px", fontSize: "10px", fontWeight: 700, fontFamily: "inherit",
+                          background: "transparent", border: "none", borderBottom: activeTab === tab.id ? "2px solid var(--tc-red)" : "2px solid transparent",
+                          color: activeTab === tab.id ? "var(--tc-text)" : "var(--tc-text-muted)",
+                          cursor: "pointer", transition: "all 150ms",
+                        }}>{tab.label}</button>
+                      ))}
+                    </div>
+
+                    {/* ── Tab: Résumé ── */}
+                    {activeTab === "summary" && (
+                      <div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", marginBottom: "16px" }}>
+                          <div><span style={labelStyle}>IP</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.ip_addresses.join(", ") || "—"}</div></div>
+                          <div><span style={labelStyle}>MAC</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.mac_address || "—"} {a.mac_vendor && <span style={{ color: "var(--tc-text-muted)" }}>({a.mac_vendor})</span>}</div></div>
+                          <div><span style={labelStyle}>Hostname</span><div style={{ color: "var(--tc-text)" }}>{a.hostname || "—"}{a.fqdn ? ` (${a.fqdn})` : ""}</div></div>
+                          <div><span style={labelStyle}>OS</span><div style={{ color: "var(--tc-text)" }}>{a.os || "—"}</div></div>
+                          <div><span style={labelStyle}>Rôle</span><div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div></div>
+                          <div><span style={labelStyle}>Responsable</span><div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div></div>
+                          {a.url && <div style={{ gridColumn: "1/3" }}><span style={labelStyle}>URL</span><div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div></div>}
+                        </div>
+                        <GraphIntelSection assetId={a.id} />
+                        {a.tags && a.tags.length > 0 && (
+                          <div style={{ marginTop: "12px" }}>
+                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Tags</div>
+                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                              {a.tags.map((t: string, i: number) => <span key={i} style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.15)" }}>{t}</span>)}
+                            </div>
+                          </div>
+                        )}
+                        {a.notes && (
+                          <div style={{ marginTop: "10px" }}>
+                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>Notes</div>
+                            <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", fontStyle: "italic" }}>{a.notes}</div>
+                          </div>
+                        )}
+                        <div style={{ marginTop: "14px", paddingTop: "10px", borderTop: "1px solid var(--tc-border)", display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+                          <span>Source: {a.source}</span>
+                          <span>Première vue: {new Date(a.first_seen).toLocaleDateString("fr-FR")}</span>
+                          <span>Dernière vue: {new Date(a.last_seen).toLocaleDateString("fr-FR")}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Tab: Logiciels ── */}
+                    {activeTab === "software" && (
+                      <div>
+                        {hasSoftware ? (
+                          <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                            <table style={{ width: "100%", fontSize: "10px", borderCollapse: "collapse" }}>
+                              <thead>
+                                <tr style={{ borderBottom: "1px solid var(--tc-border)", textAlign: "left" }}>
+                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Nom</th>
+                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Version</th>
+                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Source</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {software.map((s: any, i: number) => (
+                                  <tr key={i} style={{ borderBottom: "1px solid var(--tc-border)" }}>
+                                    <td style={{ padding: "5px 8px", color: "var(--tc-text)", fontWeight: 600 }}>{s.name}</td>
+                                    <td style={{ padding: "5px 8px", fontFamily: "monospace", color: "var(--tc-text-sec)" }}>{s.version || "—"}</td>
+                                    <td style={{ padding: "5px 8px", color: "var(--tc-text-muted)" }}>{s.source || "—"}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
+                            Aucun logiciel détecté. Installez l&apos;agent ThreatClaw sur cette machine pour obtenir l&apos;inventaire logiciel.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Tab: Réseau ── */}
+                    {activeTab === "network" && (
+                      <div>
+                        {hasServices ? (
+                          <>
+                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Services / Ports ({a.services.length})</div>
+                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "16px" }}>
+                              {a.services.map((s: any, i: number) => (
+                                <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                  <span style={{ fontWeight: 700, color: "var(--tc-blue)" }}>{s.port}</span>
+                                  <span style={{ color: "var(--tc-text-muted)" }}>/</span>
+                                  <span>{s.proto || "tcp"}</span>
+                                  {s.service && <span style={{ color: "var(--tc-text-sec)" }}>{s.service}</span>}
+                                  {s.product && <span style={{ color: "var(--tc-amber)", fontWeight: 600 }}>{s.product}</span>}
+                                  {s.version && <span style={{ color: "var(--tc-text-muted)", fontSize: "8px" }}>v{s.version}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
+                            Aucun service réseau détecté. Lancez un scan Nmap ou installez l&apos;agent ThreatClaw.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Tab: Sécurité ── */}
+                    {activeTab === "security" && (
+                      <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
+                        Users, clés SSH, tâches planifiées, startups, containers, extensions navigateur.<br />
+                        Installez l&apos;agent ThreatClaw pour alimenter cet onglet.
+                      </div>
+                    )}
+
+                    {/* ── Tab: Findings ── */}
+                    {activeTab === "findings" && (
+                      <AssetFindings asset={a} />
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Delete button (bottom) */}
+              <div style={{ marginTop: "14px", textAlign: "right" }}>
+                <button onClick={() => handleDelete(a.id)} style={{ padding: "6px 12px", fontSize: "10px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020", cursor: "pointer" }}>
+                  <Trash2 size={10} /> Supprimer
                 </button>
               </div>
             </div>

@@ -14,7 +14,7 @@ import {
   CheckCircle2, Loader2, Settings, Puzzle, Activity,
   Cpu, MessageSquare, Shield, Server, ArrowRight,
   HardDrive, Clock, Brain, Database, Eye, Wifi,
-  ChevronRight,
+  ChevronRight, Monitor,
 } from "lucide-react";
 
 const labelCaps: React.CSSProperties = {
@@ -346,6 +346,32 @@ export default function HomePage() {
           <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
             <span>{tr("lastCycle", locale)} : {lastCycle ? `${lastCycle} ${tr("ago", locale)}` : tr("waiting", locale)}</span>
           </div>
+        </div>
+      </NeuCard>
+
+      {/* ══ ThreatClaw Agent ══ */}
+      <NeuCard accent="blue" style={{ marginBottom: "20px", padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <Monitor size={16} color="var(--tc-blue)" />
+            <div>
+              <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>ThreatClaw Agent</div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "1px" }}>
+                {locale === "fr"
+                  ? "Installez l'agent sur vos machines pour l'inventaire logiciel, la détection de menaces et le suivi temps réel."
+                  : "Install the agent on your endpoints for software inventory, threat detection and real-time monitoring."}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button onClick={() => { navigator.clipboard.writeText("curl -fsSL get.threatclaw.io/agent | sudo bash"); }}
+              className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 10px" }}>
+              {locale === "fr" ? "Copier la commande" : "Copy command"}
+            </button>
+          </div>
+        </div>
+        <div style={{ marginTop: "8px", padding: "6px 10px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-neu-inner)", fontFamily: "monospace", fontSize: "10px", color: "var(--tc-blue)", userSelect: "all" }}>
+          curl -fsSL get.threatclaw.io/agent | sudo bash
         </div>
       </NeuCard>
 
