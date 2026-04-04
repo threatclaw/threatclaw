@@ -1,10 +1,4 @@
-//! Conversation Modes — controls how the bot responds to RSSI messages.
-//!
-//! local:          L1 local LLM parses + responds (current default)
-//! cloud_assisted: Cloud LLM understands → local executes → Cloud reformulates
-//! cloud_direct:   Cloud LLM with anonymized data (existing L3 behavior)
-//!
-//! The pipeline auto (Intelligence Engine) is ALWAYS 100% local regardless of mode.
+//! Conversation Modes — controls bot response pipeline. See ADR-011.
 
 use crate::agent::cloud_intent;
 use crate::db::Database;

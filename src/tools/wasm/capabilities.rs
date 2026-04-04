@@ -1,14 +1,4 @@
-//! Extended capabilities for WASM sandbox.
-//!
-//! Defines the capability system that controls what a WASM tool can do.
-//! All capabilities are opt-in; tools have NO access by default.
-//!
-//! # Capability Types
-//!
-//! - **Workspace**: Read files from the agent's workspace
-//! - **HTTP**: Make HTTP requests to allowlisted endpoints
-//! - **ToolInvoke**: Call other tools via aliases
-//! - **Secrets**: Check if secrets exist (never read values)
+//! WASM capability system. See ADR-014.
 
 use std::collections::HashMap;
 use std::sync::Arc;

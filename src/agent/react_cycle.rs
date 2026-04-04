@@ -1,15 +1,4 @@
-//! ReAct Cycle Sécurisé — Orchestrateur principal de l'agent ThreatClaw.
-//!
-//! Ce module ne réécrit PAS l'agentic_loop existant. Il orchestre un cycle
-//! complet au-dessus : collecte observations → build prompt → appelle le LLM
-//! → parse la réponse JSON → valide les actions → HITL → exécute.
-//!
-//! À chaque étape, les piliers de sécurité sont vérifiés :
-//! - Soul hash (Pilier I)
-//! - Whitelist validation (Pilier II)
-//! - XML wrapping (Pilier III)
-//! - Memory integrity (Pilier IV)
-//! - Kill switch check (Pilier V)
+//! Secured ReAct cycle orchestrator. See ADR-026.
 
 use std::path::Path;
 use std::sync::Arc;

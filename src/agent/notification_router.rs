@@ -1,13 +1,4 @@
-//! Notification Router — dispatches alerts to the right channels based on RSSI preferences.
-//!
-//! The RSSI configures which channels receive which notification levels:
-//!   - Silence → nothing (no channel)
-//!   - Digest  → email, or telegram (1x/day)
-//!   - Alert   → telegram + ntfy (immediate)
-//!   - Critical → ALL configured channels (immediate + HITL)
-//!
-//! Configuration stored in DB as `tc_config_notification_routing`.
-//! Default routing applied if no config exists.
+//! Notification Router — dispatches alerts to configured channels.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;

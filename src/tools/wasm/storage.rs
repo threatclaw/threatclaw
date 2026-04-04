@@ -1,16 +1,4 @@
-//! WASM binary storage with integrity verification.
-//!
-//! Stores compiled WASM tools in PostgreSQL with BLAKE3 hash verification.
-//! On load, the hash is verified to detect tampering.
-//!
-//! # Storage Flow
-//!
-//! ```text
-//! WASM bytes ──► BLAKE3 hash ──► Store in PostgreSQL
-//!                    │               (binary + hash)
-//!                    │
-//!                    └──► Later: Load ──► Verify hash ──► Return bytes
-//! ```
+//! WASM binary storage with integrity verification. See ADR-007.
 
 use std::collections::HashMap;
 

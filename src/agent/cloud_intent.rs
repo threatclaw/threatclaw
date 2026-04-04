@@ -1,15 +1,4 @@
-//! Cloud-Assisted Intent Parser — uses Cloud LLM to understand RSSI commands.
-//!
-//! Flow:
-//! 1. RSSI types natural language in Telegram/Mattermost
-//! 2. Message sent to Cloud LLM (Claude/Mistral) — ONLY the text, no data
-//! 3. Cloud returns a structured intent (JSON action plan)
-//! 4. ThreatClaw executes the plan LOCALLY (graph, enrichment, scans)
-//! 5. Results anonymized → Cloud reformulates in natural French
-//! 6. Response sent back to RSSI
-//!
-//! RULE: The Cloud NEVER sees real IPs, hostnames, CVEs, or credentials.
-//! The anonymizer strips everything before sending to Cloud.
+//! Cloud-Assisted Intent Parser. See ADR-011, ADR-021.
 
 use serde::{Deserialize, Serialize};
 

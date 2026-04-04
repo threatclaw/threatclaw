@@ -1,8 +1,4 @@
-//! Production Safeguards — prevents the Intelligence Engine from
-//! creating duplicate findings, spamming notifications, or overloading
-//! external enrichment APIs.
-//!
-//! These are the guardrails that make ThreatClaw production-ready.
+//! Production safeguards for the Intelligence Engine.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
