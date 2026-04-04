@@ -255,9 +255,10 @@ services:
     tmpfs:
       - /tmp:size=20m,noexec,nosuid,nodev
       - /var/log:size=50m    # Fluent-bit SQLite DB files (flb_auth.db, etc.)
-    # Fluent-bit pgsql plugin requires password as env var (no file support)
-    entrypoint: ["/bin/sh", "-c", "export TC_DB_PASSWORD=$(cat /run/secrets/tc_db_password) && exec /fluent-bit/bin/fluent-bit -c /fluent-bit/etc/fluent-bit.conf"]
+    # Fluent-bit distroless image has no shell — password must be env var
+    # Mitigated: container is on internal network only, no interactive access
     environment:
+      TC_DB_PASSWORD: ${TC_DB_PASSWORD}
       PGSSLMODE: require
       PGSSLROOTCERT: /fluent-bit/certs/ca.crt
     volumes:
