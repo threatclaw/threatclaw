@@ -78,15 +78,24 @@ ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and pr
 
 ### Core engine (Rust)
 - **Intelligence Engine** — Automated threat correlation and scoring
+- **Incidents** — Synthesized view with AI verdict, HITL buttons, remediation tracking
 - **Graph Intelligence** — STIX 2.1 attack graph: attack paths, lateral movement, campaigns
 - **Asset Management** — Auto-discovery, classification, fingerprinting
 - **Dashboard Authentication** — Login, sessions, brute force protection
-- **9 notification channels** — Telegram, Slack, Discord, Mattermost, Ntfy, Gotify, Email, Signal, WhatsApp
+- **10 notification channels** — Telegram, Slack, Discord, Mattermost, Ntfy, Gotify, Email, Signal, WhatsApp, Olvid
 
-### ML Engine (Python)
-- **Behavioral analysis** — Per-asset anomaly detection, baseline learning
-- **DNS threat detection** — Algorithmically-generated domain detection
-- **Asset clustering** — Behavioral grouping, outlier detection
+### ClawSuite — Detection & Response
+- **ClawMatch** — Real-time IoC matching across millions of indicators
+- **ClawTrace** — Network threat detection (TLS fingerprints, C2 beacons, certificate anomalies)
+- **ClawHunt** — Autonomous AI investigation on confirmed threats
+- **ClawStrike** — Guarded remediation (block IP, disable account, create ticket) with HITL
+- **ClawShield** — 5-layer protection preventing unauthorized remediation
+- **ClawVault** — Encrypted credential storage for all integrations
+
+### Behavioral Intelligence (ML)
+- **Per-asset anomaly detection** — Baseline learning over 14 days
+- **Peer Analysis** — Behavioral grouping, outlier detection ("the black sheep")
+- **DNS Threat Analyzer** — Malicious domain detection (C2, DGA patterns)
 - **Company Context** — Sector, business hours, geo scope adjust sensitivity
 
 ### Integrations (26 enrichments + 15 connectors)

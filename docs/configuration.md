@@ -35,7 +35,7 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 | `GATEWAY_PORT` | `3000` | Gateway port |
 | `WASM_ENABLED` | `true` | Enable WASM tool loading |
 | `WASM_CHANNELS_ENABLED` | `true` | Enable WASM channel loading |
-| `EMBEDDING_ENABLED` | `false` | Enable pgvector embeddings |
+| `EMBEDDING_ENABLED` | `false` | Enable vector embeddings |
 | `EMBEDDING_PROVIDER` | `ollama` | Embedding provider |
 | `HEARTBEAT_ENABLED` | `false` | Enable proactive monitoring |
 | `HEARTBEAT_INTERVAL_SECS` | `1800` | Heartbeat interval (seconds) |

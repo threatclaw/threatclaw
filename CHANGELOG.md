@@ -62,13 +62,13 @@ Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = mileston
 - **Telegram direct API** — send, poll, status endpoints
 - **Cloud anonymization** — 17 catégories, avant envoi vers tout LLM cloud
 - **Multi-platform installers** — Linux, macOS (launchd), Windows (PowerShell)
-- **ML Engine** — Isolation Forest, DGA detection, DBSCAN clustering
-- **Graph Intelligence** — Apache AGE, STIX 2.1, kill chain, lateral movement, campaigns
+- **ML Engine** — Behavioral Intelligence, DNS Threat Analyzer, Peer Analysis
+- **Graph Intelligence** — STIX 2.1, kill chain, lateral movement, campaigns
 - **ReAct reasoning loop** — escalade 3 niveaux (local → enriched → cloud anonymized)
 - **10 templates PDF** — NIS2 (24h, 72h, final), RGPD Art.33, NIST, ISO 27001, exécutif, technique, audit
 - **26 enrichissements** — NVD, CISA KEV, EPSS, CERT-FR, MITRE ATT&CK, GreyNoise, CrowdSec, etc.
 - **15 connecteurs** — Wazuh, Pi-hole, UniFi, Freebox, Cloudflare WAF, Proxmox, GLPI, etc.
-- **Credential vault** — AES-256-GCM + HKDF + Argon2id
+- **ClawVault** — Encrypted credential vault
 - **HITL** — Human-in-the-Loop via Telegram/Slack avec nonce anti-replay
 - **3 568+ tests Rust**, 9 scénarios d'attaque end-to-end
 

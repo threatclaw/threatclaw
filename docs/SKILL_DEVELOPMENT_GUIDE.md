@@ -45,7 +45,7 @@ ThreatClaw DECIDES and ACTS.
 | **Language** | Python | Rust |
 | **Runtime** | Docker container (isolated) | WASM sandbox (fuel-metered) |
 | **Who writes it** | Anyone | ThreatClaw team |
-| **Security** | network:none, 256MB RAM, read-only FS, timeout 5min | BLAKE3-signed, 10MB RAM, fuel-metered |
+| **Security** | network:none, 256MB RAM, read-only FS, timeout 5min | Cryptographically signed, 10MB RAM, fuel-metered |
 | **Distribution** | GitHub PR → review → merge | Ships with ThreatClaw |
 | **Best for** | API integrations, compliance checks, custom scanners | Core functionality, high-performance |
 
@@ -602,7 +602,7 @@ Official skills are written in Rust and compiled to WebAssembly. They run in the
 
 - **Fuel metering:** max 1.2 billion operations per execution
 - **Memory:** max 10 MB
-- **Signed:** BLAKE3 hash verified at load time
+- **Signed:** cryptographic integrity verified at load time
 - **No filesystem:** only `host::workspace_read()` with validated paths
 - **HTTP allowlist:** only declared endpoints are reachable
 - **Credential injection:** API keys are injected at the HTTP boundary, never visible to WASM code

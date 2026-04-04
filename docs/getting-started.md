@@ -104,7 +104,7 @@ cargo build --release
 # Dashboard: cd dashboard && npm install && npm run build && npx next start -p 3001
 ```
 
-Requires: Rust 1.90+, PostgreSQL 16 with pgvector + Apache AGE, Ollama.
+Requires: Rust 1.90+, PostgreSQL 16 with graph extensions, local LLM runtime.
 
 ## First boot
 

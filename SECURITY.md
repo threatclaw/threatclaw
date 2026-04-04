@@ -17,18 +17,18 @@ ThreatClaw implements a **Zero Trust Agent** architecture with defense-in-depth:
 - Immutable agent identity (compile-time verified)
 - Command allowlisting with strict validation
 - WASM sandboxed skill execution (deny-by-default capabilities)
-- Encrypted credential vault (AES-256-GCM at rest)
+- ClawVault — encrypted credential storage at rest
 - Multi-trigger kill switch
 - OWASP ASI Top 10 2026 mitigations
 
-### Remediation Security (HITL)
+### ClawShield — Remediation Security (HITL)
 
-All remediation actions require Human-in-the-Loop approval. The system implements 5 independent protection layers:
+All remediation actions (ClawStrike) require Human-in-the-Loop approval. ClawShield provides 5 independent protection layers:
 
 1. **Immutable rules** — Compile-time verified constraints that cannot be modified at runtime
 2. **Boot-locked configuration** — Protected infrastructure list read at startup and locked in memory
-3. **Compiled validation** — Action allowlisting, target validation, LDAP escaping, rate limiting
-4. **Cryptographic nonces** — Anti-replay and anti-parameter-swap protection (CSPRNG)
+3. **Compiled validation** — Action allowlisting, target validation, input escaping, rate limiting
+4. **Cryptographic nonces** — Anti-replay and anti-parameter-swap protection
 5. **Approver verification** — Identity-based authorization (numeric IDs, not spoofable usernames)
 
 ### Infrastructure Security
