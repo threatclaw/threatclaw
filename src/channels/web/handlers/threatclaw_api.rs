@@ -167,6 +167,9 @@ pub async fn tc_health_handler(
                 // Wait a bit for all channels to initialize
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
+                // ADR-044: Init remediation guard (boot-lock protected infrastructure)
+                crate::agent::remediation_guard::init_protected_infrastructure(store_clone.as_ref()).await;
+
                 // Start Intelligence Engine (cycle every 5 min)
                 if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     crate::agent::intelligence_engine::spawn_intelligence_ticker(
@@ -213,25 +216,25 @@ pub async fn tc_health_handler(
         } else { None }
     } else { None };
 
-    // Get real disk space
-    let disk_free = {
-        let output = std::process::Command::new("df")
+    // Get real disk space (spawn_blocking to avoid blocking async runtime)
+    let disk_free = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("df")
             .args(["-h", "--output=avail", "/srv"])
-            .output();
-        match output {
-            Ok(o) => {
+            .output()
+            .ok()
+            .and_then(|o| {
                 let s = String::from_utf8_lossy(&o.stdout);
                 s.lines().nth(1).map(|l| format!("{} libre", l.trim()))
-            }
-            Err(_) => None,
-        }
-    };
+            })
+    }).await.ok().flatten();
 
     Ok(Json(HealthResponse {
         status: if db_ok { "ok" } else { "degraded" },
         version: env!("CARGO_PKG_VERSION"),
         database: db_ok,
-        llm: "ollama",
+        llm: if std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty()).is_some() { "cloud (anthropic)" }
+             else if std::env::var("MISTRAL_API_KEY").ok().filter(|k| !k.is_empty()).is_some() { "cloud (mistral)" }
+             else { "ollama (local)" },
         disk_free,
         ml,
     }))

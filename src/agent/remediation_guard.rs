@@ -51,6 +51,16 @@ pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
 
     let count = protected.len();
     PROTECTED_IPS.set(protected).ok();
+
+    // Boot-lock rate limits from DB (RSSI-configured via dashboard)
+    if let Ok(Some(val)) = store.get_setting("_system", "tc_hitl_limits").await {
+        let iso = val["max_isolations_per_hour"].as_u64().unwrap_or(3) as u32;
+        let appr = val["max_approvals_per_hour"].as_u64().unwrap_or(10) as u32;
+        MAX_ISOLATIONS.set(iso.max(1).min(10)).ok(); // clamp 1-10
+        MAX_APPROVALS.set(appr.max(1).min(50)).ok(); // clamp 1-50
+        tracing::info!("REMEDIATION_GUARD: Limits boot-locked — isolations={}/h, approvals={}/h", iso, appr);
+    }
+
     tracing::info!("REMEDIATION_GUARD: {} protected IPs/hosts locked at boot (self={})", count, self_ip);
 }
 
@@ -67,15 +77,18 @@ pub fn is_protected_target(target: &str) -> bool {
     }
 }
 
-// ── Layer 3: Rate limits (hardcoded, not configurable at runtime) ──
+// ── Layer 3: Rate limits (boot-locked from DB, fallback to hardcoded) ──
 
 static ISOLATION_COUNT_1H: AtomicU32 = AtomicU32::new(0);
 static ISOLATION_LAST_RESET: AtomicU64 = AtomicU64::new(0);
 static HITL_APPROVALS_1H: AtomicU32 = AtomicU32::new(0);
 static HITL_LAST_RESET: AtomicU64 = AtomicU64::new(0);
 
-const MAX_ISOLATIONS_PER_HOUR: u32 = 3;
-const MAX_HITL_APPROVALS_PER_HOUR: u32 = 10;
+static MAX_ISOLATIONS: OnceLock<u32> = OnceLock::new();
+static MAX_APPROVALS: OnceLock<u32> = OnceLock::new();
+
+fn max_isolations_per_hour() -> u32 { *MAX_ISOLATIONS.get().unwrap_or(&3) }
+fn max_approvals_per_hour() -> u32 { *MAX_APPROVALS.get().unwrap_or(&10) }
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
@@ -102,12 +115,12 @@ fn check_rate_limit(counter: &AtomicU32, reset_ts: &AtomicU64, max: u32, name: &
 
 /// Check if an isolation action is allowed (rate limit).
 pub fn can_isolate() -> bool {
-    check_rate_limit(&ISOLATION_COUNT_1H, &ISOLATION_LAST_RESET, MAX_ISOLATIONS_PER_HOUR, "isolation")
+    check_rate_limit(&ISOLATION_COUNT_1H, &ISOLATION_LAST_RESET, max_isolations_per_hour(), "isolation")
 }
 
 /// Check if a HITL approval is allowed (rate limit against alert fatigue).
 pub fn can_approve_hitl() -> bool {
-    check_rate_limit(&HITL_APPROVALS_1H, &HITL_LAST_RESET, MAX_HITL_APPROVALS_PER_HOUR, "HITL approval")
+    check_rate_limit(&HITL_APPROVALS_1H, &HITL_LAST_RESET, max_approvals_per_hour(), "HITL approval")
 }
 
 // ── Layer 3: LDAP escaping (RFC 4515) ──
