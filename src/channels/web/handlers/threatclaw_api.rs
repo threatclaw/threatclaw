@@ -3830,10 +3830,10 @@ pub async fn backup_export_handler(
 
     // Full mode: include alerts + findings + logs
     if full {
-        let alerts = store.list_alerts(None, None, 50000, 0).await.unwrap_or_default();
+        let alerts = store.list_alerts(None, None, 5000, 0).await.unwrap_or_default();
         backup["alerts"] = serde_json::json!(alerts);
 
-        let findings = store.list_findings(None, None, None, 50000, 0).await.unwrap_or_default();
+        let findings = store.list_findings(None, None, None, 5000, 0).await.unwrap_or_default();
         backup["findings"] = serde_json::json!(findings);
 
         let logs = store.query_logs(60 * 24 * 30, None, None, 100000).await.unwrap_or_default(); // last 30 days
@@ -4176,7 +4176,7 @@ pub async fn export_data_handler(
     }
 
     if path.contains("alerts") {
-        let alerts = store.list_alerts(None, None, 50000, 0).await.unwrap_or_default();
+        let alerts = store.list_alerts(None, None, 5000, 0).await.unwrap_or_default();
         return Ok(Json(serde_json::json!({
             "type": "alerts", "company_name": company.company_name,
             "exported_at": chrono::Utc::now().to_rfc3339(), "count": alerts.len(),
@@ -4185,7 +4185,7 @@ pub async fn export_data_handler(
     }
 
     if path.contains("findings") {
-        let findings = store.list_findings(None, None, None, 50000, 0).await.unwrap_or_default();
+        let findings = store.list_findings(None, None, None, 5000, 0).await.unwrap_or_default();
         return Ok(Json(serde_json::json!({
             "type": "findings", "company_name": company.company_name,
             "exported_at": chrono::Utc::now().to_rfc3339(), "count": findings.len(),
@@ -4200,7 +4200,7 @@ pub async fn export_data_handler(
         for a in &alerts {
             if let Some(ref ip) = a.source_ip {
                 let clean = ip.split('/').next().unwrap_or("").trim().to_string();
-                if !clean.is_empty() && !clean.starts_with("192.168.") && !clean.starts_with("10.") {
+                if !clean.is_empty() && !crate::agent::ip_classifier::is_non_routable(&clean) {
                     ips.insert(clean);
                 }
             }

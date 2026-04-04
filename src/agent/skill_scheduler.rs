@@ -24,27 +24,8 @@ pub struct SkillSchedule {
 /// Default schedules for built-in skills.
 pub fn default_schedules() -> Vec<SkillSchedule> {
     vec![
-        SkillSchedule {
-            skill_id: "skill-vuln-scan".into(),
-            enabled: true,
-            cron: "0 2 * * *".into(),
-            description: "Scan vulnérabilités quotidien à 2h".into(),
-            last_run: None, next_run: None,
-        },
-        SkillSchedule {
-            skill_id: "skill-darkweb-monitor".into(),
-            enabled: true,
-            cron: "0 */6 * * *".into(),
-            description: "Surveillance dark web toutes les 6h".into(),
-            last_run: None, next_run: None,
-        },
-        SkillSchedule {
-            skill_id: "skill-cloud-posture".into(),
-            enabled: true,
-            cron: "0 3 * * 1".into(),
-            description: "Audit cloud chaque lundi à 3h".into(),
-            last_run: None, next_run: None,
-        },
+        // Legacy Python skills disabled — moved to _future/, not functional.
+        // Re-enable when reimplemented as Rust/Docker skills.
         SkillSchedule {
             skill_id: "skill-email-audit".into(),
             enabled: true,
@@ -140,7 +121,7 @@ mod tests {
     #[test]
     fn test_defaults() {
         let defaults = default_schedules();
-        assert!(defaults.len() >= 5);
-        assert!(defaults.iter().any(|s| s.skill_id == "skill-vuln-scan"));
+        assert!(!defaults.is_empty());
+        assert!(defaults.iter().any(|s| s.skill_id == "skill-email-audit"));
     }
 }
