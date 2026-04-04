@@ -1,9 +1,4 @@
-//! Main anonymizer logic.
-//!
-//! The [`Anonymizer`] struct takes raw text destined for a cloud LLM and
-//! replaces all sensitive tokens with numbered placeholders (`[IP_1]`,
-//! `[HOST_2]`, etc.).  A reverse mapping is returned so that LLM responses
-//! can be de-anonymized before display.
+//! LLM anonymizer — reversible placeholder substitution. See ADR-021.
 
 use std::collections::HashMap;
 

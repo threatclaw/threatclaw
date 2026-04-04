@@ -1,12 +1,4 @@
-//! Native Sigma rule matching engine.
-//!
-//! Loads enabled rules from PostgreSQL at boot, compiles detection_json into
-//! in-memory matchers, and evaluates logs against all rules every IE cycle.
-//!
-//! Supports: field exact match, contains, startswith, endswith, wildcards,
-//! anyof (list), boolean conditions (and/or/not), count aggregation with timeframe.
-//!
-//! Without Wazuh, this is the primary detection engine.
+//! Native Sigma rule matching engine. See ADR-020.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};

@@ -1,9 +1,4 @@
-"""Anomaly Detection — Isolation Forest per asset.
-
-Learns "normal" behavior per asset over 7-14 days.
-Scores each asset's current behavior as anomaly (0=normal, 1=anomalous).
-Retrains nightly. Model persisted to disk.
-"""
+"""Per-asset anomaly detection. See ADR-002."""
 
 import os
 import json
@@ -61,8 +56,7 @@ def train():
     # Handle NaN/Inf
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # Train Isolation Forest
-    # contamination=0.05 means we expect ~5% of training data to be anomalous
+    # See ADR-002
     model = IsolationForest(
         n_estimators=100,
         contamination=0.05,
@@ -127,7 +121,7 @@ def score_assets():
         vector = np.array([[feats.get(col, 0) for col in FEATURE_COLS]], dtype=np.float64)
         vector = np.nan_to_num(vector, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Isolation Forest: decision_function returns negative for anomalies
+        # Raw score inversion
         raw_score = model.decision_function(vector)[0]
         # Convert to 0-1 where 1 = most anomalous
         # decision_function: positive = normal, negative = anomaly

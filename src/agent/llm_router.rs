@@ -1,13 +1,4 @@
-//! LLM Router — orchestration multi-niveaux local + cloud.
-//!
-//! Niveau 0 : IA conversationnelle (dialogue RSSI, tool calling)
-//! Niveau 1 : IA locale rapide (triage, corrélation simple)
-//! Niveau 2 : IA locale enrichie (plus de contexte, 2ème chance)
-//! Niveau 3 : IA cloud anonymisée (corrélation profonde, fallback)
-//!
-//! Le client configure ses IA via le dashboard. L0 est le "visage" de ThreatClaw
-//! qui dialogue avec le RSSI. L1/L2/L2.5 sont les spécialistes pipeline.
-//! Le router décide automatiquement quand escalader.
+//! LLM Router — multi-level orchestration. See ADR-011.
 
 use serde::{Deserialize, Serialize};
 

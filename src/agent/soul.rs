@@ -1,16 +1,11 @@
-//! Pilier I — System Prompt Immuable (OWASP ASI01: Goal Hijack)
-//!
-//! L'AGENT_SOUL.toml définit l'identité et les règles intouchables de l'agent.
-//! Son hash SHA-256 est compilé dans le binaire via build.rs.
-//! Au démarrage, le hash est vérifié — toute modification = arrêt immédiat.
+//! Agent identity integrity verification. See ADR-009.
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Hash SHA-256 de AGENT_SOUL.toml calculé à la compilation.
-/// Généré par build.rs — impossible à falsifier sans recompiler.
+/// Compile-time integrity hash.
 const COMPILED_SOUL_HASH: &str = include_str!(concat!(env!("OUT_DIR"), "/soul_hash.txt"));
 
 #[derive(Debug, Clone)]

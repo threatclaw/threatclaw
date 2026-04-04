@@ -1,11 +1,4 @@
-//! Bloom filter for real-time IoC detection in logs.
-//!
-//! Loaded at boot from cached feeds (OpenPhish, ThreatFox, URLhaus, MalwareBazaar).
-//! Refreshed every 6 hours when feeds sync.
-//! Checks every log at insertion time — O(1) per IoC, ~200ns per lookup.
-//!
-//! False positive rate: ~1% (eliminated by DB verification).
-//! False negative rate: 0% (guaranteed by Bloom filter properties).
+//! Real-time IoC detection in logs. See ADR-001.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

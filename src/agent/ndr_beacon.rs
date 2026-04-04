@@ -1,17 +1,4 @@
-//! C2 Beacon timing detection — identify regular communication patterns.
-//!
-//! A C2 beacon contacts its server at regular intervals (e.g., every 60s).
-//! Even with jitter, the coefficient of variation (CV) stays low.
-//! Normal browsing has irregular intervals; beacons are suspiciously regular.
-//!
-//! Algorithm:
-//! 1. Group connections by (src_ip, dst_ip, dst_port) from Zeek conn.log
-//! 2. Compute time intervals between successive connections
-//! 3. Calculate coefficient of variation: CV = stddev / mean
-//! 4. CV < 0.15 with 5+ connections in 1h = beacon candidate
-//!
-//! This catches ~70% of real C2 frameworks (Cobalt Strike, Sliver, Metasploit).
-//! Sophisticated red teamers add jitter, but most real attackers don't bother.
+//! C2 Beacon timing detection. See ADR-005.
 
 use std::collections::HashMap;
 use crate::db::Database;

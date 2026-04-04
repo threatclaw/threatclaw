@@ -1,8 +1,4 @@
-//! Pilier V — Kill Switch (OWASP ASI08: Cascading Failures + ASI10: Rogue Agent)
-//!
-//! Si l'agent devient incontrôlable, arrêt immédiat et irrévocable.
-//! Le kill switch est vérifié à chaque action de l'agent.
-//! Il peut être déclenché automatiquement ou manuellement par le RSSI.
+//! Emergency kill switch. See ADR-010.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;

@@ -1,11 +1,4 @@
-//! JA3 fingerprint detection — identify malicious TLS clients via Bloom filter.
-//!
-//! JA3 is a hash of TLS Client Hello parameters (version, ciphers, extensions).
-//! Each malware family produces a unique JA3 fingerprint, even over encrypted traffic.
-//! Zeek computes JA3 automatically in ssl.log.
-//!
-//! Feed: abuse.ch JA3 fingerprint list + manual RSSI additions.
-//! Lookup: Bloom filter (O(1), ~200ns per check, zero false negatives).
+//! JA3 fingerprint threat detection.
 
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;

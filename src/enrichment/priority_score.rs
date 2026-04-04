@@ -1,12 +1,4 @@
-//! Priority Score — the ThreatClaw scoring engine.
-//!
-//! Combines CVSS + CISA KEV + EPSS into a single priority decision.
-//! This is what makes ThreatClaw smarter than raw CVSS scoring:
-//!
-//! CVSS 9.8 + KEV + EPSS 0.95 → CRITICAL IMMEDIATE
-//! CVSS 9.8 + no KEV + EPSS 0.02 → High (theoretically severe but not exploited)
-//! CVSS 5.5 + no KEV + EPSS 0.94 → CRITICAL (low CVSS but actively targeted)
-//! CVSS 3.0 + no KEV + EPSS 0.01 → Low (ignore)
+//! Composite vulnerability priority scoring. See ADR-018.
 
 use serde::{Deserialize, Serialize};
 

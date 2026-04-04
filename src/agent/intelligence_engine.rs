@@ -1,18 +1,4 @@
-//! Intelligence Engine — the brain of ThreatClaw.
-//!
-//! Runs every 5 minutes, collects all new events (findings, alerts, enrichment),
-//! deduplicates, correlates by asset, computes a global security score,
-//! and decides what level of notification the RSSI needs.
-//!
-//! KEY PRINCIPLE: The RSSI should NOT be drowned in notifications.
-//! Silence = everything is fine. Only escalate when there's real signal.
-//!
-//! Flow:
-//!   Events (findings, sigma alerts) → Buffer → Deduplicate → Correlate → Score → Decide → Notify
-//!
-//! Scale: This module does NOT call LLM for every event.
-//! It uses simple rules for 95% of decisions, and only calls L1 when
-//! the score crosses a threshold (suspected incident).
+//! Intelligence Engine — threat correlation and scoring. See ADR-012, ADR-024.
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -1,9 +1,4 @@
-"""DGA Detection — Random Forest classifier for domain names.
-
-Detects algorithmically-generated domain names used by malware for C2.
-Features: entropy, length, consonant ratio, digit ratio, bigram frequency.
-Trained on a mix of legitimate domains + known DGA samples.
-"""
+"""Malicious domain name detection. See ADR-004."""
 
 import os
 import pickle

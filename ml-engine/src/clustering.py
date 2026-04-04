@@ -1,15 +1,4 @@
-"""Behavioral Clustering — DBSCAN to group assets by similar behavior.
-
-Groups assets into behavioral clusters (e.g., "web servers", "workstations").
-When an asset deviates from its cluster = "mouton noir" = anomaly.
-
-How it works:
-1. Extract features for all assets (same as anomaly_detector)
-2. Normalize features
-3. DBSCAN clustering (no need to specify number of clusters)
-4. For each asset, compute distance to cluster centroid
-5. If distance > threshold = outlier within its peer group
-"""
+"""Behavioral asset clustering. See ADR-003."""
 
 import os
 import json
@@ -63,9 +52,7 @@ def run_clustering():
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # DBSCAN — eps and min_samples tuned for small networks (5-50 assets)
-    # eps=1.5 means assets within 1.5 standard deviations are in the same cluster
-    # min_samples=2 means a cluster needs at least 2 members
+    # See ADR-003
     dbscan = DBSCAN(eps=1.5, min_samples=2, metric="euclidean")
     labels = dbscan.fit_predict(X_scaled)
 

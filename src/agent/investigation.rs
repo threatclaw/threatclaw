@@ -1,8 +1,4 @@
-//! Investigation Runner — the ReAct investigation loop (stage 2).
-//!
-//! Triggered by the Intelligence Engine when a dossier crosses the alert threshold.
-//! Runs autonomously: calls LLM, requests skills, iterates until verdict or timeout.
-//! One investigation per asset at a time (InvestigationRegistry).
+//! Investigation Runner — automated incident investigation. See ADR-024.
 
 use std::collections::HashMap;
 use std::sync::Arc;

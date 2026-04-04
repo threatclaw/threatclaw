@@ -1,15 +1,4 @@
-//! TLS certificate anomaly scoring — detect suspicious encrypted connections.
-//!
-//! Analyzes Zeek ssl.log entries to score TLS certificates for red flags:
-//! - Self-signed certificate on outbound connection (C2 infrastructure)
-//! - SNI mismatch (server_name vs certificate subject)
-//! - Very short certificate validity (< 30 days — Let's Encrypt C2)
-//! - Expired certificate still in use (misconfiguration or malware)
-//! - Missing or empty SNI (technique to evade SNI-based filtering)
-//!
-//! Each anomaly adds points. Score > threshold → finding created.
-//! This complements JA3 (which identifies the client) by analyzing
-//! the server's certificate (which identifies the infrastructure).
+//! TLS certificate anomaly scoring.
 
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
