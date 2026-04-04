@@ -5181,6 +5181,36 @@ pub async fn incident_hitl_handler(
     Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "response": response })))
 }
 
+/// GET /api/tc/incidents/:id/hitl?response=X&responded_by=Y — HITL via URL link (Slack/Discord/Ntfy buttons)
+pub async fn incident_hitl_get_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+    Query(params): Query<HashMap<String, String>>,
+) -> axum::response::Response {
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::INTERNAL_SERVER_ERROR, "No database").into_response(),
+    };
+    let response = params.get("response").map(|s| s.as_str()).unwrap_or("reject");
+    let responded_by = params.get("responded_by").map(|s| s.as_str()).unwrap_or("link");
+
+    let _ = store.update_incident_hitl(id, "responded", responded_by, response).await;
+
+    if response.starts_with("approve") || response == "execute" {
+        let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+            store.clone(), id, response
+        ).await;
+        if success { let _ = store.update_incident_status(id, "resolved").await; }
+        tracing::info!("INCIDENT #{}: HITL {} via {} (GET link) — {}", id, response, responded_by, msg);
+    } else if response == "false_positive" {
+        let _ = store.update_incident_status(id, "closed").await;
+    }
+
+    // Redirect to dashboard incidents page
+    let dashboard = params.get("redirect").map(|s| s.as_str()).unwrap_or("/incidents");
+    axum::response::Redirect::to(dashboard).into_response()
+}
+
 /// POST /api/tc/incidents/:id/status — update incident status
 pub async fn incident_status_handler(
     State(state): State<Arc<GatewayState>>,

@@ -544,7 +544,7 @@ pub async fn start_server(
         // Incidents (See ADR-043)
         .route("/api/tc/incidents", get(super::handlers::threatclaw_api::incidents_list_handler))
         .route("/api/tc/incidents/{id}", get(super::handlers::threatclaw_api::incident_detail_handler))
-        .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler))
+        .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler).get(super::handlers::threatclaw_api::incident_hitl_get_handler))
         .route("/api/tc/incidents/{id}/status", post(super::handlers::threatclaw_api::incident_status_handler))
         // Settings read (for config tabs)
         .route("/api/tc/settings/{user_id}/{key}", get(super::handlers::threatclaw_api::settings_read_handler))

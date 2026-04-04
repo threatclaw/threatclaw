@@ -109,20 +109,29 @@ pub async fn route_incident_notification(
         if summary.is_empty() { "Investigation en cours..." } else { summary }
     );
 
+    // Get dashboard URL for channels without interactive buttons
+    let dashboard_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or_else(|| "https://your-threatclaw/incidents".into());
+    let text_with_link = format!("{}\n\n→ Repondre: {}", text, dashboard_url);
+
     let mut results = vec![];
     for channel in channels {
         if !configured.contains(channel) { continue; }
 
-        let result = if channel == "telegram" {
-            send_telegram_with_buttons(store, &text, incident_id).await
-        } else {
-            send_to_channel(store, channel, &text, NotificationLevel::Alert).await
+        // See ADR-044: send with HITL buttons where supported, text+link otherwise
+        let result = match channel.as_str() {
+            "telegram" => send_telegram_with_buttons(store, &text, incident_id).await,
+            "slack" => send_slack_with_buttons(store, &text, incident_id).await,
+            "mattermost" => send_mattermost_with_buttons(store, &text, incident_id).await,
+            "ntfy" => send_ntfy_with_buttons(store, &text, incident_id).await,
+            "discord" => send_discord_with_buttons(store, &text, incident_id).await,
+            _ => send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await,
         };
 
         if let Err(ref e) = result {
             tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
         } else {
-            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {}", incident_id, channel);
+            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {} (with HITL buttons)", incident_id, channel);
         }
         results.push((channel.clone(), result));
     }
@@ -158,6 +167,133 @@ async fn send_telegram_with_buttons(store: &dyn Database, text: &str, incident_i
 
     if resp.status().is_success() { Ok(()) }
     else { Err(format!("Telegram HTTP {}", resp.status())) }
+}
+
+/// Send Slack message with Block Kit HITL buttons for an incident.
+async fn send_slack_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
+    let token = get_channel_field(store, "slack", "botToken").await
+        .ok_or("Slack bot token not configured")?;
+    let channel = get_channel_field(store, "slack", "channel").await
+        .unwrap_or("#general".into());
+
+    // Get callback URL for button actions
+    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or("http://localhost:3000".into());
+
+    let blocks = json!([
+        { "type": "section", "text": { "type": "mrkdwn", "text": text } },
+        { "type": "actions", "elements": [
+            { "type": "button", "text": { "type": "plain_text", "text": "Remedier" }, "style": "danger",
+              "url": format!("{}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=slack", callback_url, incident_id) },
+            { "type": "button", "text": { "type": "plain_text", "text": "Faux positif" },
+              "url": format!("{}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=slack", callback_url, incident_id) },
+            { "type": "button", "text": { "type": "plain_text", "text": "Investiguer" },
+              "url": format!("{}/api/tc/incidents/{}/hitl?response=investigate_more&responded_by=slack", callback_url, incident_id) },
+        ]}
+    ]);
+
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?
+        .post("https://slack.com/api/chat.postMessage")
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&json!({ "channel": channel, "text": text, "blocks": blocks }))
+        .send().await.map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() { Ok(()) }
+    else { Err(format!("Slack HTTP {}", resp.status())) }
+}
+
+/// Send Mattermost message with interactive buttons for an incident.
+async fn send_mattermost_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
+    let webhook_url = get_channel_field(store, "mattermost", "webhookUrl").await
+        .ok_or("Mattermost webhook not configured")?;
+    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or("http://localhost:3000".into());
+
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?
+        .post(&webhook_url)
+        .json(&json!({
+            "text": text,
+            "attachments": [{
+                "actions": [
+                    { "name": "Remedier", "type": "button", "style": "danger",
+                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
+                                       "context": { "response": "approve_remediate", "responded_by": "mattermost" } } },
+                    { "name": "Faux positif", "type": "button",
+                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
+                                       "context": { "response": "false_positive", "responded_by": "mattermost" } } },
+                    { "name": "Investiguer", "type": "button",
+                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
+                                       "context": { "response": "investigate_more", "responded_by": "mattermost" } } },
+                ]
+            }]
+        }))
+        .send().await.map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() { Ok(()) }
+    else { Err(format!("Mattermost HTTP {}", resp.status())) }
+}
+
+/// Send Discord message with button components for an incident.
+async fn send_discord_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
+    let webhook_url = get_channel_field(store, "discord", "botToken").await
+        .ok_or("Discord webhook not configured")?;
+    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or("http://localhost:3000".into());
+
+    // Discord webhooks don't support interactive buttons — use link buttons
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?
+        .post(&webhook_url)
+        .json(&json!({
+            "content": text,
+            "username": "ThreatClaw",
+            "components": [{
+                "type": 1,
+                "components": [
+                    { "type": 2, "style": 5, "label": "Remedier",
+                      "url": format!("{}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=discord", callback_url, incident_id) },
+                    { "type": 2, "style": 5, "label": "Faux positif",
+                      "url": format!("{}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=discord", callback_url, incident_id) },
+                    { "type": 2, "style": 5, "label": "Dashboard",
+                      "url": format!("{}/incidents", callback_url) },
+                ]
+            }]
+        }))
+        .send().await.map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() || resp.status().as_u16() == 204 { Ok(()) }
+    else { Err(format!("Discord HTTP {}", resp.status())) }
+}
+
+/// Send Ntfy notification with HTTP action buttons for an incident.
+async fn send_ntfy_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
+    let server = get_channel_field(store, "ntfy", "server").await.unwrap_or("https://ntfy.sh".into());
+    let topic = get_channel_field(store, "ntfy", "topic").await
+        .ok_or("Ntfy topic not configured")?;
+    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or("http://localhost:3000".into());
+
+    let resp = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build().map_err(|e| e.to_string())?
+        .post(format!("{}/{}", server, topic))
+        .header("Title", format!("Incident #{}", incident_id))
+        .header("Priority", "urgent")
+        .header("Tags", "rotating_light,shield")
+        .header("Actions", format!(
+            "http, Remedier, {}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=ntfy, method=POST; http, Faux positif, {}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=ntfy, method=POST; view, Dashboard, {}/incidents",
+            callback_url, incident_id, callback_url, incident_id, callback_url
+        ))
+        .body(text.to_string())
+        .send().await.map_err(|e| e.to_string())?;
+
+    if resp.status().is_success() { Ok(()) }
+    else { Err(format!("Ntfy HTTP {}", resp.status())) }
 }
 
 /// Get list of channels that have been configured (have tokens/URLs).
