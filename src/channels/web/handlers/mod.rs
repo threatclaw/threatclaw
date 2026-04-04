@@ -6,3 +6,4 @@ pub mod skills;
 pub mod threatclaw_api;
 pub mod jobs;
 pub mod routines;
+pub mod channel_incoming;

@@ -546,6 +546,11 @@ pub async fn start_server(
         .route("/api/tc/incidents/{id}", get(super::handlers::threatclaw_api::incident_detail_handler))
         .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler).get(super::handlers::threatclaw_api::incident_hitl_get_handler))
         .route("/api/tc/incidents/{id}/status", post(super::handlers::threatclaw_api::incident_status_handler))
+        // Channel incoming — conversational bot on all channels
+        .route("/api/tc/channel/slack/incoming", post(super::handlers::channel_incoming::slack_incoming_handler))
+        .route("/api/tc/channel/mattermost/incoming", post(super::handlers::channel_incoming::mattermost_incoming_handler))
+        .route("/api/tc/channel/discord/incoming", post(super::handlers::channel_incoming::discord_incoming_handler))
+        .route("/api/tc/channel/{name}/incoming", post(super::handlers::channel_incoming::generic_incoming_handler))
         // Settings read (for config tabs)
         .route("/api/tc/settings/{user_id}/{key}", get(super::handlers::threatclaw_api::settings_read_handler))
         // Gateway control plane
