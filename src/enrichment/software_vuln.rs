@@ -44,7 +44,7 @@ pub async fn scan_asset_software(
     // Load existing CVE findings for this asset (avoid duplicates)
     let existing_findings = store.list_findings(None, None, Some(asset_name), 500, 0).await.unwrap_or_default();
     let existing_cves: std::collections::HashSet<String> = existing_findings.iter()
-        .filter_map(|f| f.metadata.as_ref()?.get("cve")?.as_str().map(String::from))
+        .filter_map(|f| f.metadata.get("cve")?.as_str().map(String::from))
         .collect();
 
     for sw in software {

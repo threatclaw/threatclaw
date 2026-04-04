@@ -58,6 +58,7 @@ pub mod test_scenarios;
 pub mod tool_calling;
 pub mod verdict;
 pub mod tool_output_wrapper;
+pub mod remediation_guard;
 mod heartbeat;
 pub mod job_monitor;
 mod router;

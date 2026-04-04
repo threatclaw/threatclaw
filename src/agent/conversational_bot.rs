@@ -93,15 +93,37 @@ pub fn spawn_telegram_bot(
                     }
                 }
 
-                // Handle callback_query (HITL button clicks)
+                // Handle callback_query (HITL button clicks) — See ADR-044
                 if let Some(callback) = update.get("callback_query") {
                     let callback_id = callback["id"].as_str().unwrap_or("");
                     let data = callback["data"].as_str().unwrap_or("");
                     let cb_chat_id = callback["message"]["chat"]["id"].as_i64().unwrap_or(0).to_string();
                     let cb_message_id = callback["message"]["message_id"].as_i64().unwrap_or(0);
+                    let cb_from_id = callback["from"]["id"].as_i64().unwrap_or(0);
                     let cb_from = callback["from"]["username"].as_str().unwrap_or("unknown");
 
-                    tracing::info!("CONV_BOT: Callback query from @{}: {}", cb_from, data);
+                    // ADR-044 Couche 5: verify chat_id matches allowed chat
+                    if cb_chat_id != allowed_chat_id {
+                        tracing::warn!("HITL_SECURITY: Callback from unauthorized chat {} (expected {}), user @{} (id:{})", cb_chat_id, allowed_chat_id, cb_from, cb_from_id);
+                        let _ = reqwest::Client::new()
+                            .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
+                            .json(&json!({ "callback_query_id": callback_id, "text": "Non autorise", "show_alert": true }))
+                            .send().await;
+                        continue;
+                    }
+
+                    // ADR-044 Couche 5: verify approver is authorized (by numeric ID, not spoofable username)
+                    let allowed_approvers = get_allowed_approvers(&store).await;
+                    if !allowed_approvers.is_empty() && !allowed_approvers.contains(&cb_from_id) {
+                        tracing::warn!("HITL_SECURITY: Callback from unauthorized user @{} (id:{}) — not in approver list", cb_from, cb_from_id);
+                        let _ = reqwest::Client::new()
+                            .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
+                            .json(&json!({ "callback_query_id": callback_id, "text": "Vous n'etes pas autorise a approuver", "show_alert": true }))
+                            .send().await;
+                        continue;
+                    }
+
+                    tracing::info!("CONV_BOT: Callback from @{} (id:{}): {}", cb_from, cb_from_id, data);
 
                     // See ADR-043: Handle incident HITL callbacks
                     if data.starts_with("incident_") {
@@ -226,6 +248,17 @@ pub fn spawn_telegram_bot(
         }
         // end of loop
     })
+}
+
+/// ADR-044: Get list of authorized Telegram approver IDs (numeric, not spoofable).
+async fn get_allowed_approvers(store: &Arc<dyn Database>) -> Vec<i64> {
+    if let Ok(Some(val)) = store.get_setting("_system", "tc_hitl_approvers").await {
+        if let Some(arr) = val.as_array() {
+            return arr.iter().filter_map(|v| v.as_i64()).collect();
+        }
+    }
+    // Fallback: empty list = anyone in the allowed chat can approve (backward compat)
+    vec![]
 }
 
 /// Get Telegram config from DB.

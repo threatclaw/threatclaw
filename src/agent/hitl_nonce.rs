@@ -38,6 +38,7 @@ struct NonceEntry {
     created_at: Instant,
     used: bool,
     cmd_id: String,
+    params_hash: String,
     ttl: Duration,
 }
 
@@ -56,49 +57,61 @@ impl NonceManager {
         }
     }
 
-    /// Génère un nonce unique pour une action.
+    /// See ADR-044: Generate nonce bound to cmd_id + params (anti-replay + anti-swap).
     pub async fn generate(&self, cmd_id: &str) -> String {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        self.generate_with_params(cmd_id, "").await
+    }
 
-        let random: u64 = rand_u64();
+    /// Generate nonce bound to specific params. Params are hashed into the nonce.
+    /// If params change between approval and execution, the nonce is invalid.
+    pub async fn generate_with_params(&self, cmd_id: &str, params_str: &str) -> String {
+        // ADR-044: Use OS CSPRNG instead of weak custom PRNG
+        let mut random_bytes = [0u8; 32];
+        if getrandom::getrandom(&mut random_bytes).is_err() {
+            // Fallback: timestamp-based (less secure but functional)
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_nanos();
+            random_bytes[..16].copy_from_slice(&ts.to_le_bytes());
+        }
 
         let mut hasher = Sha256::new();
         hasher.update(cmd_id.as_bytes());
-        hasher.update(timestamp.to_le_bytes());
-        hasher.update(random.to_le_bytes());
+        hasher.update(params_str.as_bytes());
+        hasher.update(&random_bytes);
         let nonce = format!("{:x}", hasher.finalize());
-
-        // Tronquer à 32 chars pour Slack
         let nonce = nonce[..32].to_string();
+
+        // Hash params separately for verification at consume time
+        let mut params_hasher = Sha256::new();
+        params_hasher.update(params_str.as_bytes());
+        let params_hash = format!("{:x}", params_hasher.finalize())[..16].to_string();
 
         let entry = NonceEntry {
             created_at: Instant::now(),
             used: false,
             cmd_id: cmd_id.to_string(),
+            params_hash,
             ttl: self.default_ttl,
         };
 
         self.nonces.write().await.insert(nonce.clone(), entry);
-
         tracing::debug!("HITL nonce generated for {}: {}", cmd_id, &nonce[..8]);
         nonce
     }
 
-    /// Vérifie et consomme un nonce. Ne peut être appelé qu'une seule fois.
+    /// See ADR-044: Verify and consume nonce. Checks params haven't been swapped.
     pub async fn verify_and_consume(&self, nonce: &str) -> Result<String, NonceError> {
-        let mut nonces = self.nonces.write().await;
+        self.verify_and_consume_with_params(nonce, "").await
+    }
 
+    /// Verify nonce AND that params match what was originally approved.
+    pub async fn verify_and_consume_with_params(&self, nonce: &str, params_str: &str) -> Result<String, NonceError> {
+        let mut nonces = self.nonces.write().await;
         let entry = nonces.get_mut(nonce).ok_or(NonceError::NotFound)?;
 
         if entry.used {
-            tracing::error!(
-                "SECURITY: Nonce replay attempt detected for cmd_id={}, nonce={}",
-                entry.cmd_id,
-                &nonce[..8]
-            );
+            tracing::error!("SECURITY: Nonce replay attempt detected for cmd_id={}, nonce={}", entry.cmd_id, &nonce[..8]);
             return Err(NonceError::AlreadyUsed);
         }
 
@@ -106,9 +119,19 @@ impl NonceManager {
             return Err(NonceError::Expired);
         }
 
+        // ADR-044: Verify params haven't been swapped (TOCTOU protection)
+        if !params_str.is_empty() {
+            let mut hasher = Sha256::new();
+            hasher.update(params_str.as_bytes());
+            let check_hash = format!("{:x}", hasher.finalize())[..16].to_string();
+            if check_hash != entry.params_hash {
+                tracing::error!("SECURITY: Nonce params mismatch for cmd_id={} — possible TOCTOU attack", entry.cmd_id);
+                return Err(NonceError::NotFound); // Treat as invalid
+            }
+        }
+
         entry.used = true;
         let cmd_id = entry.cmd_id.clone();
-
         tracing::info!("HITL nonce consumed for {}: {}", cmd_id, &nonce[..8]);
         Ok(cmd_id)
     }
@@ -130,15 +153,7 @@ impl NonceManager {
     }
 }
 
-/// Pseudo-random u64 sans dépendance externe (utilise l'adresse stack + timestamp).
-fn rand_u64() -> u64 {
-    let stack_addr = &0u8 as *const u8 as u64;
-    let time = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
-    stack_addr.wrapping_mul(6364136223846793005).wrapping_add(time)
-}
+// ADR-044: PRNG removed — using getrandom CSPRNG directly in generate()
 
 #[cfg(test)]
 mod tests {

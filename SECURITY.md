@@ -17,9 +17,28 @@ ThreatClaw implements a **Zero Trust Agent** architecture with defense-in-depth:
 - Immutable agent identity (compile-time verified)
 - Command allowlisting with strict validation
 - WASM sandboxed skill execution (deny-by-default capabilities)
-- Encrypted credential vault
+- Encrypted credential vault (AES-256-GCM at rest)
 - Multi-trigger kill switch
 - OWASP ASI Top 10 2026 mitigations
+
+### Remediation Security (HITL)
+
+All remediation actions require Human-in-the-Loop approval. The system implements 5 independent protection layers:
+
+1. **Immutable rules** — Compile-time verified constraints that cannot be modified at runtime
+2. **Boot-locked configuration** — Protected infrastructure list read at startup and locked in memory
+3. **Compiled validation** — Action allowlisting, target validation, LDAP escaping, rate limiting
+4. **Cryptographic nonces** — Anti-replay and anti-parameter-swap protection (CSPRNG)
+5. **Approver verification** — Identity-based authorization (numeric IDs, not spoofable usernames)
+
+### Infrastructure Security
+
+- PostgreSQL TLS enforced (sslmode=require)
+- Docker secrets for credential management
+- Docker socket proxy (filtered API access)
+- 5 isolated Docker networks
+- Inter-service authentication via bearer tokens
+- Webhook HMAC authentication with constant-time comparison
 
 ## Known CVE Status
 
