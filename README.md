@@ -4,7 +4,7 @@
 </p>
 <p align="center"><em>"They use AI to attack. We use AI to fight back."</em></p>
 <p align="center"><strong>Autonomous cybersecurity agent for SMBs</strong></p>
-<p align="center">Self-hosted · AI-powered · ML behavioral analysis · 100% on-premise</p>
+<p align="center">Self-hosted · AI-powered · Behavioral Intelligence · HITL remediation · 100% on-premise</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.2.0--beta-red" alt="Version">
@@ -23,12 +23,13 @@ ThreatClaw is a **self-hosted, AI-powered cybersecurity agent** that monitors, d
 
 **All data stays on your infrastructure.** No cloud dependency required. No asset limits. Free and unlimited.
 
-### 3 layers of detection
+### 4 layers of detection & response
 
 ```
-Layer 1 — Signature-based   → "I know this attack"
-Layer 2 — Behavioral ML     → "This behavior is abnormal"
-Layer 3 — AI Analysis       → "Here's what's happening and what to do"
+Layer 1 — Signature-based    → "I know this attack"         (ClawMatch, Sigma rules)
+Layer 2 — Network analysis   → "This traffic is suspicious" (ClawTrace)
+Layer 3 — Behavioral ML      → "This behavior is abnormal"  (Peer Analysis, anomaly detection)
+Layer 4 — AI reasoning       → "Here's what to do about it" (ClawMind + HITL response)
 ```
 
 ## Quick Start
@@ -37,7 +38,7 @@ Layer 3 — AI Analysis       → "Here's what's happening and what to do"
 ```bash
 curl -fsSL https://get.threatclaw.io | sudo bash
 ```
-This installs Docker (if needed), downloads all services, and starts ThreatClaw. Open `http://your-server:3001` to create your admin account.
+This installs Docker (if needed), downloads all services, and starts ThreatClaw behind an HTTPS reverse proxy. Open `https://your-server` to create your admin account.
 
 **Docker Compose (manual):**
 ```bash
@@ -98,18 +99,29 @@ ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and pr
 - **DNS Threat Analyzer** — Malicious domain detection (C2, DGA patterns)
 - **Company Context** — Sector, business hours, geo scope adjust sensitivity
 
-### Integrations (26 enrichments + 15 connectors)
+### Integrations (30+ enrichments · 20+ connectors · 47 skills)
 
-**Enrichment (automatic, zero config):**
-NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, VirusTotal, HIBP, and 15 more.
+**Threat Intelligence (automatic, zero config):**
+NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, VirusTotal, HIBP, OpenPhish, ThreatFox, URLhaus, MalwareBazaar, MISP, OTX, SSL Labs, Mozilla Observatory, and more.
 
 **Connectors (plug your existing tools):**
-Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh, Nmap, Zeek, Suricata, Pi-hole, UniFi, and more.
+Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh, Nmap, Zeek, Suricata, Pi-hole, UniFi, Freebox, Cloudflare, and more.
+
+**Remediation connectors:**
+pfSense/OPNsense (block IP), Active Directory (disable account), GLPI (create ticket) — all gated by ClawShield HITL.
+
+### Incident Workflow (HITL)
+- **Synthesized incidents** — Raw alerts are correlated into actionable incidents with AI verdict
+- **Interactive HITL** — Approve/reject remediation via Telegram, Slack, Mattermost, Discord, Ntfy, or dashboard
+- **Bidirectional sync** — Response on any channel updates the dashboard in real-time
+- **Conversational bot** — Ask ThreatClaw in natural language ("status", "scan server-01", "block IP")
+- **Audit trail** — Every HITL decision logged (who approved, when, from where)
 
 ### Dashboard (Next.js 14)
 - Dark glass design, responsive, bilingual (FR/EN)
 - Onboarding wizard
 - Real-time security score, ML status, server health
+- Incidents page with filters, HITL buttons, MITRE ATT&CK badges
 - Skills marketplace (Connectors / Intelligence / Actions)
 - Live system logs
 
@@ -127,7 +139,28 @@ Future premium skills will be available on the marketplace (hub.threatclaw.io).
 ## Architecture
 
 ```
-Sources → Database → ML Engine → Intelligence Engine → Graph → AI → User
+       Sources (syslog, webhooks, connectors)
+              │
+              ▼
+       ClawMatch + ClawTrace        (real-time detection)
+              │
+              ▼
+       Behavioral Intelligence      (ML anomalies, peer analysis)
+              │
+              ▼
+       Intelligence Engine          (correlation, scoring)
+              │
+              ▼
+       ClawMind                     (AI investigation on threats)
+              │
+              ▼
+       Incidents                    (synthesized view)
+              │
+              ▼
+       ClawResponse + ClawShield    (HITL remediation, protected)
+              │
+              ▼
+       Channels (Telegram/Slack/Dashboard)
 ```
 
 **Stack:** Rust (backend) · PostgreSQL (DB) · Python (ML) · Next.js 14 (dashboard) · Local LLM
