@@ -87,8 +87,8 @@ ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and pr
 ### ClawSuite — Detection & Response
 - **ClawMatch** — Real-time IoC matching across millions of indicators
 - **ClawTrace** — Network threat detection (TLS fingerprints, C2 beacons, certificate anomalies)
-- **ClawHunt** — Autonomous AI investigation on confirmed threats
-- **ClawStrike** — Guarded remediation (block IP, disable account, create ticket) with HITL
+- **ClawMind** — Autonomous AI reasoning on confirmed threats
+- **ClawResponse** — Guarded incident response (block IP, disable account, create ticket) with HITL
 - **ClawShield** — 5-layer protection preventing unauthorized remediation
 - **ClawVault** — Encrypted credential storage for all integrations
 

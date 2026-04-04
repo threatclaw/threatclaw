@@ -23,7 +23,7 @@ ThreatClaw implements a **Zero Trust Agent** architecture with defense-in-depth:
 
 ### ClawShield — Remediation Security (HITL)
 
-All remediation actions (ClawStrike) require Human-in-the-Loop approval. ClawShield provides 5 independent protection layers:
+All remediation actions (ClawResponse) require Human-in-the-Loop approval. ClawShield provides 5 independent protection layers:
 
 1. **Immutable rules** — Compile-time verified constraints that cannot be modified at runtime
 2. **Boot-locked configuration** — Protected infrastructure list read at startup and locked in memory
