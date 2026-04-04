@@ -96,9 +96,7 @@ pub fn is_special(ip: &str) -> bool {
     }
 }
 
-/// Check if an IP is non-routable (private RFC 1918 + loopback + link-local + multicast).
-/// Use this to decide "should we enrich/alert on this IP?".
-/// Does NOT require declared networks — uses standard RFC ranges.
+// See ADR-031: single source of truth for IP classification
 pub fn is_non_routable(ip: &str) -> bool {
     is_private(ip) || is_special(ip)
 }

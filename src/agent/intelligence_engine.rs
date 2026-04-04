@@ -10,8 +10,7 @@ use serde_json::json;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 
-// ── Investigation dedup: skip LLM for patterns already investigated recently ──
-
+// See ADR-030: investigation dedup (24h window)
 static INVESTIGATION_BLOOM: std::sync::LazyLock<Arc<tokio::sync::RwLock<InvestigationDedup>>> =
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::RwLock::new(InvestigationDedup::new())));
 
@@ -238,8 +237,7 @@ pub async fn run_intelligence_cycle(
 
     let now = chrono::Utc::now();
 
-    // ── Per-cycle caches (cleared every cycle, avoid redundant DB queries) ──
-    // Asset resolution cache: hostname/IP → resolved asset name
+    // See ADR-030: per-cycle caches
     let mut asset_cache: HashMap<String, String> = HashMap::new();
 
     // ── 0. Sync the threat graph from DB ──
