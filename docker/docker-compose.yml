@@ -37,12 +37,12 @@ services:
     expose:
       - "3000"
     environment:
-      DATABASE_URL: postgres://threatclaw:${TC_DB_PASSWORD}@threatclaw-db:5432/threatclaw
+      DATABASE_URL: postgres://threatclaw@threatclaw-db:5432/threatclaw?sslmode=require
       POSTGRES_USER: threatclaw
-      POSTGRES_PASSWORD: ${TC_DB_PASSWORD}
       POSTGRES_DB: threatclaw
       TC_DB_HOST: threatclaw-db
       TC_DB_PORT: "5432"
+      TC_DB_PASSWORD_FILE: /run/secrets/tc_db_password
       LLM_BACKEND: ollama
       OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
       OLLAMA_BASE_URL: http://ollama:11434
@@ -51,7 +51,7 @@ services:
       TC_L1_MODEL: ${TC_L1_BASE_MODEL:-qwen3:8b}
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "3000"
-      GATEWAY_AUTH_TOKEN: ${TC_AUTH_TOKEN:-}
+      GATEWAY_AUTH_TOKEN_FILE: /run/secrets/tc_auth_token
       HTTP_HOST: "0.0.0.0"
       ONBOARD_COMPLETED: "true"
       RUST_LOG: info
@@ -78,6 +78,12 @@ services:
       - core-data:/app/data
       - shared-config:/shared
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Read-only Docker socket
+      - ./certs/pg-client.crt:/app/certs/pg-client.crt:ro
+      - ./certs/pg-client.key:/app/certs/pg-client.key:ro
+      - ./certs/ca.crt:/app/certs/ca.crt:ro
+    secrets:
+      - tc_db_password
+      - tc_auth_token
     group_add:
       - ${DOCKER_GID:-0}
     depends_on:
@@ -132,6 +138,8 @@ services:
       - /tmp:size=50m,mode=1700,noexec,nosuid,nodev
     volumes:
       - shared-config:/shared:ro
+    secrets:
+      - tc_auth_token
     depends_on:
       threatclaw-core:
         condition: service_healthy
@@ -155,6 +163,7 @@ services:
       - "com.threatclaw.role=dashboard"
 
   # ── PostgreSQL + pgvector + Apache AGE ───────────────────
+  # See ADR-039: TLS enforced for all DB connections
   threatclaw-db:
     <<: *security-defaults
     image: ghcr.io/threatclaw/db:latest
@@ -167,13 +176,24 @@ services:
     environment:
       POSTGRES_DB: threatclaw
       POSTGRES_USER: threatclaw
-      POSTGRES_PASSWORD: ${TC_DB_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/tc_db_password
     read_only: true
     tmpfs:
       - /tmp:size=100m
       - /run/postgresql:size=10m
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./certs/pg-server.crt:/etc/postgresql/server.crt:ro
+      - ./certs/pg-server.key:/etc/postgresql/server.key:ro
+      - ./certs/ca.crt:/etc/postgresql/ca.crt:ro
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/etc/postgresql/server.crt
+      -c ssl_key_file=/etc/postgresql/server.key
+      -c ssl_ca_file=/etc/postgresql/ca.crt
+    secrets:
+      - tc_db_password
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "threatclaw", "-d", "threatclaw"]
       interval: 5s
@@ -243,10 +263,14 @@ services:
       - /tmp:size=20m,noexec,nosuid,nodev
       - /var/log:size=50m    # Fluent-bit SQLite DB files (flb_auth.db, etc.)
     environment:
-      TC_DB_PASSWORD: ${TC_DB_PASSWORD}
+      PGSSLMODE: require
+      PGSSLROOTCERT: /fluent-bit/certs/ca.crt
     volumes:
       - ./fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
       - ./fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+      - ./certs/ca.crt:/fluent-bit/certs/ca.crt:ro
+    secrets:
+      - tc_db_password
     depends_on:
       threatclaw-core:
         condition: service_healthy
@@ -354,4 +378,12 @@ volumes:
   core-data:          # Core runtime data (memory, workspace)
   ollama-data:        # LLM model weights (~5-20GB per model)
   shared-config:      # Auth token shared between core and dashboard
-  ml-models:          # ML model weights (Isolation Forest, DGA Random Forest)
+  ml-models:          # ML model weights
+
+# ── Secrets — See ADR-039, ADR-040 ────────────────────────
+# Mounted as /run/secrets/<name> — never visible in docker inspect
+secrets:
+  tc_db_password:
+    file: ./secrets/tc_db_password.txt
+  tc_auth_token:
+    file: ./secrets/tc_auth_token.txt

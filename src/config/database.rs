@@ -40,7 +40,7 @@ impl std::str::FromStr for DatabaseBackend {
     }
 }
 
-/// PostgreSQL SSL/TLS mode. See ADR-037.
+/// PostgreSQL SSL/TLS mode. See ADR-039.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SslMode {
     /// Never use TLS (equivalent to libpq `sslmode=disable`).

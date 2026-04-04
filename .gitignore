@@ -77,6 +77,10 @@ dashboard/.env.local
 # TLS certificates (generated at install)
 docker/certs/
 certs/
+
+# Docker secrets (generated at install — NEVER commit)
+secrets/
+docker/secrets/
 *.pem
 *.key
 !docker/generate-certs.sh

@@ -7,18 +7,30 @@ echo "╔═══════════════════════�
 echo "║          ThreatClaw — Starting...                ║"
 echo "╚══════════════════════════════════════════════════╝"
 
+# ── Load secrets from Docker secret files (See ADR-039) ──
+if [ -f /run/secrets/tc_db_password ]; then
+  export POSTGRES_PASSWORD="$(cat /run/secrets/tc_db_password)"
+  export TC_DB_PASSWORD="$POSTGRES_PASSWORD"
+  echo "[init] DB password loaded from Docker secret"
+elif [ -n "${TC_DB_PASSWORD:-}" ]; then
+  export POSTGRES_PASSWORD="${TC_DB_PASSWORD}"
+fi
+
+if [ -f /run/secrets/tc_auth_token ]; then
+  export GATEWAY_AUTH_TOKEN="$(cat /run/secrets/tc_auth_token)"
+  echo "[init] Auth token loaded from Docker secret"
+fi
+
 # ── Security: reject default credentials ──
 if [ "${POSTGRES_PASSWORD:-}" = "threatclaw" ] || [ -z "${POSTGRES_PASSWORD:-}" ]; then
-  if [ "${TC_DB_PASSWORD:-}" = "threatclaw" ] || [ -z "${TC_DB_PASSWORD:-}" ]; then
     echo ""
     echo "[SECURITY] ════════════════════════════════════════════"
     echo "[SECURITY]  FATAL: Default database password detected!"
-    echo "[SECURITY]  Set TC_DB_PASSWORD in your .env file."
+    echo "[SECURITY]  Set TC_DB_PASSWORD in .env or use Docker secrets."
     echo "[SECURITY]  ThreatClaw refuses to start with default credentials."
     echo "[SECURITY] ════════════════════════════════════════════"
     echo ""
     exit 1
-  fi
 fi
 
 # ── Wait for PostgreSQL ──
@@ -35,9 +47,14 @@ for i in $(seq 1 60); do
   sleep 1
 done
 
+# ── Setup .pgpass for secure DB access (no PGPASSWORD in env) ──
+echo "${TC_DB_HOST:-threatclaw-db}:${TC_DB_PORT:-5432}:${POSTGRES_DB:-threatclaw}:${POSTGRES_USER:-threatclaw}:${POSTGRES_PASSWORD}" > /tmp/.pgpass
+chmod 600 /tmp/.pgpass
+export PGPASSFILE=/tmp/.pgpass
+
 # ── Generate auth token if not provided ──
 if [ -z "${GATEWAY_AUTH_TOKEN:-}" ]; then
-  EXISTING_TOKEN=$(PGPASSWORD="${POSTGRES_PASSWORD:-threatclaw}" psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -tAc \
+  EXISTING_TOKEN=$(psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -tAc \
     "SELECT trim(both '\"' from value::text) FROM settings WHERE key = 'channels.gateway_auth_token' LIMIT 1" 2>/dev/null || echo "")
 
   if [ -n "$EXISTING_TOKEN" ] && [ "$EXISTING_TOKEN" != "" ]; then
@@ -60,7 +77,7 @@ set -e
 
 # ── Ensure Fluent Bit staging trigger exists ──
 echo "[init] Setting up log ingestion trigger..."
-PGPASSWORD="${POSTGRES_PASSWORD:-threatclaw}" psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -q <<'TRIGGERSQL' 2>/dev/null || echo "[init] WARN: Could not create log trigger"
+psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -q <<'TRIGGERSQL' 2>/dev/null || echo "[init] WARN: Could not create log trigger"
 CREATE TABLE IF NOT EXISTS logs_fluentbit (tag TEXT, time TIMESTAMPTZ DEFAULT NOW(), data JSONB DEFAULT '{}');
 CREATE OR REPLACE FUNCTION fn_fluentbit_to_logs() RETURNS TRIGGER AS $$
 BEGIN

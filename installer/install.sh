@@ -456,16 +456,38 @@ download_configs() {
     curl -fsSL "${REPO_RAW}/docker/.env.example" -o .env
     local db_pass=$(generate_password 24)
     local auth_token=$(generate_password 64)
-    sed -i "s/^TC_DB_PASSWORD=.*/TC_DB_PASSWORD=${db_pass}/" .env
     sed -i "s/^TC_DASHBOARD_PORT=.*/TC_DASHBOARD_PORT=${TC_PORT}/" .env
     sed -i "s/^TC_CORE_PORT=.*/TC_CORE_PORT=${TC_CORE_PORT}/" .env
-    sed -i "s/^TC_AUTH_TOKEN=.*/TC_AUTH_TOKEN=${auth_token}/" .env
     # Docker socket GID for ephemeral skill containers
     local docker_gid=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "0")
     echo "DOCKER_GID=${docker_gid}" >> .env
-    log_info "Generated .env with secure password and auth token"
+
+    # Docker secrets (See ADR-039) — passwords in files, not env vars
+    mkdir -p secrets
+    echo -n "${db_pass}" > secrets/tc_db_password.txt
+    echo -n "${auth_token}" > secrets/tc_auth_token.txt
+    chmod 700 secrets
+    chmod 600 secrets/*.txt
+    log_info "Generated Docker secrets (secrets/)"
+
+    # Keep .env fallback for backward compatibility (non-sensitive vars only)
+    sed -i "s/^TC_DB_PASSWORD=.*/# TC_DB_PASSWORD managed via Docker secrets (secrets\/tc_db_password.txt)/" .env
+    sed -i "s/^TC_AUTH_TOKEN=.*/# TC_AUTH_TOKEN managed via Docker secrets (secrets\/tc_auth_token.txt)/" .env
+    log_info "Generated .env (secrets in Docker secret files, not .env)"
   else
     log_warn ".env exists — keeping current config"
+    # Migrate existing installs: create secrets from .env if not present
+    if [ ! -d secrets ]; then
+      mkdir -p secrets
+      local existing_pass=$(grep '^TC_DB_PASSWORD=' .env 2>/dev/null | cut -d= -f2)
+      local existing_token=$(grep '^TC_AUTH_TOKEN=' .env 2>/dev/null | cut -d= -f2)
+      if [ -n "$existing_pass" ]; then
+        echo -n "$existing_pass" > secrets/tc_db_password.txt
+        echo -n "$existing_token" > secrets/tc_auth_token.txt
+        chmod 700 secrets && chmod 600 secrets/*.txt
+        log_info "Migrated existing credentials to Docker secrets"
+      fi
+    fi
   fi
 
   # Entrypoint + model files

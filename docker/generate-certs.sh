@@ -56,15 +56,57 @@ openssl x509 -req -in "${CERT_DIR}/server.csr" \
     -out "${CERT_DIR}/server.crt" -days 3650 \
     -extfile "${CERT_DIR}/san.cnf" -extensions v3_req 2>/dev/null
 
-# Cleanup temp files
-rm -f "${CERT_DIR}/server.csr" "${CERT_DIR}/san.cnf" "${CERT_DIR}/ca.srl"
+# ── Step 3: Generate PostgreSQL server cert ──
+echo "[certs] Creating PostgreSQL server certificate..."
+openssl ecparam -genkey -name prime256v1 -noout -out "${CERT_DIR}/pg-server.key" 2>/dev/null
+openssl req -new -key "${CERT_DIR}/pg-server.key" -out "${CERT_DIR}/pg-server.csr" \
+    -subj "/CN=threatclaw-db/O=ThreatClaw" 2>/dev/null
 
-# Restrict permissions
-chmod 600 "${CERT_DIR}/ca.key" "${CERT_DIR}/server.key"
-chmod 644 "${CERT_DIR}/ca.crt" "${CERT_DIR}/server.crt"
+cat > "${CERT_DIR}/pg-san.cnf" <<EOF
+[v3_req]
+subjectAltName = DNS:threatclaw-db,DNS:localhost,IP:127.0.0.1
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+EOF
+
+openssl x509 -req -in "${CERT_DIR}/pg-server.csr" \
+    -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" -CAcreateserial \
+    -out "${CERT_DIR}/pg-server.crt" -days 3650 \
+    -extfile "${CERT_DIR}/pg-san.cnf" -extensions v3_req 2>/dev/null
+
+# ── Step 4: Generate PostgreSQL client cert (shared by core, fluent-bit, ml-engine) ──
+echo "[certs] Creating PostgreSQL client certificate..."
+openssl ecparam -genkey -name prime256v1 -noout -out "${CERT_DIR}/pg-client.key" 2>/dev/null
+openssl req -new -key "${CERT_DIR}/pg-client.key" -out "${CERT_DIR}/pg-client.csr" \
+    -subj "/CN=threatclaw/O=ThreatClaw" 2>/dev/null
+
+cat > "${CERT_DIR}/pg-client-san.cnf" <<EOF
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+EOF
+
+openssl x509 -req -in "${CERT_DIR}/pg-client.csr" \
+    -CA "${CERT_DIR}/ca.crt" -CAkey "${CERT_DIR}/ca.key" -CAcreateserial \
+    -out "${CERT_DIR}/pg-client.crt" -days 3650 \
+    -extfile "${CERT_DIR}/pg-client-san.cnf" -extensions v3_req 2>/dev/null
+
+# Cleanup temp files
+rm -f "${CERT_DIR}/server.csr" "${CERT_DIR}/san.cnf" "${CERT_DIR}/ca.srl" \
+      "${CERT_DIR}/pg-server.csr" "${CERT_DIR}/pg-san.cnf" \
+      "${CERT_DIR}/pg-client.csr" "${CERT_DIR}/pg-client-san.cnf"
+
+# Restrict permissions — See ADR-039
+chmod 600 "${CERT_DIR}/ca.key" "${CERT_DIR}/server.key" "${CERT_DIR}/pg-server.key" "${CERT_DIR}/pg-client.key"
+chmod 644 "${CERT_DIR}/ca.crt" "${CERT_DIR}/server.crt" "${CERT_DIR}/pg-server.crt" "${CERT_DIR}/pg-client.crt"
+
+# PostgreSQL requires server key owned by postgres user (UID 999 in official image)
+chown 999:999 "${CERT_DIR}/pg-server.key" "${CERT_DIR}/pg-server.crt" 2>/dev/null || true
 
 echo ""
-echo "[certs] ✅ Certificates generated in ${CERT_DIR}/"
+echo "[certs] Certificates generated in ${CERT_DIR}/"
 echo ""
 echo "  Server cert : ${CERT_DIR}/server.crt"
 echo "  Server key  : ${CERT_DIR}/server.key"
