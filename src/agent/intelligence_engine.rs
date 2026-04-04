@@ -329,11 +329,14 @@ pub async fn run_intelligence_cycle(
     }
 
     // ── 4. Score each asset (with ML adjustment) ──
+    // See ADR-030: batch fetch all ML scores in one query instead of N queries
+    let ml_scores = store.get_all_ml_scores().await.unwrap_or_default();
     for entry in asset_map.values_mut() {
         entry.score = compute_asset_score(entry);
 
-        // Consult ML score if available (from dedicated ml_scores table)
-        if let Ok(Some((ml_score, ml_reason))) = store.get_ml_score(&entry.asset).await {
+        if let Some((ml_score, ml_reason)) = ml_scores.get(&entry.asset) {
+            let ml_score = *ml_score;
+            let ml_reason = ml_reason.clone();
             if ml_score < 0.3 && entry.score < 50.0 {
                 // ML says this is normal behavior → downgrade
                 entry.score = (entry.score * 0.5).max(0.0);
@@ -443,9 +446,12 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // ── 5i. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    // See ADR-030: single log fetch shared between scan_logs, Bloom check, and NDR skills
     let mut finding_dedup: HashSet<String> = HashSet::new();
-    let log_scan_results = scan_logs_for_threats(store.clone()).await;
+    let recent_logs = store.query_logs(10, None, None, 2000).await.unwrap_or_default();
+
+    // ── 5i. SCAN RECENT LOGS for IoCs (URLs, IPs, hashes) ──
+    let log_scan_results = scan_logs_for_threats(store.clone(), &recent_logs).await;
     for threat in &log_scan_results {
         let dedup_key = format!("{}|{}|{}", threat.title, threat.asset.as_deref().unwrap_or(""), threat.source);
         if !finding_dedup.insert(dedup_key) { continue; }
@@ -482,13 +488,10 @@ pub async fn run_intelligence_cycle(
         }
     }
 
-    // ── 5j. BLOOM FILTER — real-time IoC check on recent logs ──
-    // Complements the batch scan above: checks ALL recent logs via in-memory Bloom filter.
-    // No API calls, no LIMIT — every log is checked in microseconds.
+    // ── 5j. BLOOM FILTER — uses shared recent_logs (See ADR-030)
     {
-        let bloom_logs = store.query_logs(5, None, None, 2000).await.unwrap_or_default();
         let mut bloom_hits = 0u32;
-        for log in &bloom_logs {
+        for log in &recent_logs {
             let detected = crate::agent::ioc_bloom::check_log(&log.data, log.hostname.as_deref(), store.as_ref()).await;
             for ioc in &detected {
                 let dedup_key = format!("bloom|{}|{}", ioc.ioc_type, ioc.ioc_value);
@@ -511,7 +514,7 @@ pub async fn run_intelligence_cycle(
             }
         }
         if bloom_hits > 0 {
-            tracing::info!("BLOOM: {} IoC confirmed from {} logs", bloom_hits, bloom_logs.len());
+            tracing::info!("BLOOM: {} IoC confirmed from {} logs", bloom_hits, recent_logs.len());
         }
     }
 
@@ -1285,24 +1288,17 @@ struct DetectedThreat {
 
 /// Scan recent logs for IoCs and cross-reference with enrichment sources.
 /// Creates findings for any threats detected.
-async fn scan_logs_for_threats(store: Arc<dyn Database>) -> Vec<DetectedThreat> {
-    use crate::db::threatclaw_store::ThreatClawStore;
+// See ADR-030: accepts pre-fetched logs to avoid duplicate query_logs call
+async fn scan_logs_for_threats(store: Arc<dyn Database>, prefetched_logs: &[crate::db::threatclaw_store::LogRecord]) -> Vec<DetectedThreat> {
     use crate::enrichment::ioc_extractor;
 
     let mut threats = vec![];
 
-    // Query logs from last 10 minutes
-    let logs = match store.query_logs(10, None, None, 500).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::debug!("INTELLIGENCE: Log scan skipped — {e}");
-            return threats;
-        }
-    };
-
-    if logs.is_empty() {
+    if prefetched_logs.is_empty() {
         return threats;
     }
+
+    let logs = prefetched_logs;
 
     tracing::debug!("INTELLIGENCE: Scanning {} recent logs for IoCs", logs.len());
 

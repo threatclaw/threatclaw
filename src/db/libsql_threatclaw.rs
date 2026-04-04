@@ -60,5 +60,6 @@ impl ThreatClawStore for LibSqlBackend {
     async fn get_enrichment_cache(&self, _: &str, _: &str) -> Result<Option<serde_json::Value>, DatabaseError> { Err(not_supported()) }
     async fn set_enrichment_cache(&self, _: &str, _: &str, _: &serde_json::Value, _: i64) -> Result<(), DatabaseError> { Err(not_supported()) }
     async fn get_ml_score(&self, _: &str) -> Result<Option<(f64, String)>, DatabaseError> { Err(not_supported()) }
+    async fn get_all_ml_scores(&self) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> { Err(not_supported()) }
     async fn set_ml_score(&self, _: &str, _: f64, _: &str, _: &serde_json::Value) -> Result<(), DatabaseError> { Err(not_supported()) }
 }

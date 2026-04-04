@@ -1,5 +1,6 @@
 //! ThreatClaw-specific database operations for findings, alerts, skill configs, and metrics.
 
+use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -413,6 +414,9 @@ pub trait ThreatClawStore: Send + Sync {
     // ── ML Scores (dedicated table) ──
 
     async fn get_ml_score(&self, asset_id: &str) -> Result<Option<(f64, String)>, DatabaseError>;
+
+    /// Batch fetch all ML scores in one query. See ADR-030.
+    async fn get_all_ml_scores(&self) -> Result<HashMap<String, (f64, String)>, DatabaseError>;
 
     async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError>;
 }

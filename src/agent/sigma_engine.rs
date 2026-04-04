@@ -453,6 +453,7 @@ pub async fn match_log(log: &Value, log_tag: Option<&str>) -> Vec<SigmaMatch> {
 }
 
 /// Run sigma matching on recent logs and create alerts. Called from IE cycle.
+// See ADR-030: sigma dedup uses in-memory HashSet before DB fallback
 pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: i64) {
     let rules = SIGMA_RULES.read().await;
     if rules.is_empty() { return; }
@@ -463,14 +464,18 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     };
 
     let mut alerts_created = 0u32;
+    let mut cycle_dedup: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for log in &logs {
         for rule in rules.iter() {
             if let Some(m) = match_rule(rule, &log.data, log.tag.as_deref()) {
                 let hostname = log.hostname.as_deref().unwrap_or("unknown");
-
-                // Dedup: check if same rule + host already alerted recently (15 min)
                 let dedup_key = format!("{}_{}", m.rule_id, hostname);
+
+                // Fast in-memory dedup (skip DB query for same rule+host within this cycle)
+                if !cycle_dedup.insert(dedup_key.clone()) { continue; }
+
+                // DB dedup fallback (15 min window across cycles)
                 if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
                     if let Some(at) = prev["at"].as_str() {
                         if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(at) {

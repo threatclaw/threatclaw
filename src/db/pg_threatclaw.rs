@@ -1080,6 +1080,21 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.first().map(|r| (r.get::<_, f32>(0) as f64, r.get::<_, String>(1))))
     }
 
+    async fn get_all_ml_scores(&self) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT asset_id, score, COALESCE(reason, '') FROM ml_scores", &[],
+        ).await.map_err(query_err)?;
+        let mut map = std::collections::HashMap::new();
+        for r in &rows {
+            let id: String = r.get(0);
+            let score: f32 = r.get(1);
+            let reason: String = r.get(2);
+            map.insert(id, (score as f64, reason));
+        }
+        Ok(map)
+    }
+
     async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let score_f32 = score as f32;
