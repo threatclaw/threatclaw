@@ -332,6 +332,7 @@ const T: Record<string, Record<Locale, string>> = {
 
   // ── Nav ──
   status: { fr: "Status", en: "Status" },
+  incidents: { fr: "Incidents", en: "Incidents" },
   detections: { fr: "Détections", en: "Detections" },
   exports: { fr: "Rapports", en: "Reports" },
   findings: { fr: "Findings", en: "Findings" },

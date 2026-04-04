@@ -5070,3 +5070,65 @@ pub async fn auth_me_handler(
         "authenticated": false,
     }))).into_response()
 }
+
+// ══════════════════════════════════════════════════════════
+// INCIDENTS — See ADR-043
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/incidents — list incidents
+pub async fn incidents_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = params.get("status").map(|s| s.as_str());
+    let limit = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50i64);
+    let offset = params.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0i64);
+    let incidents = store.list_incidents(status, limit, offset).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "incidents": incidents, "total": incidents.len() })))
+}
+
+/// GET /api/tc/incidents/:id — get incident detail
+pub async fn incident_detail_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.get_incident(id).await.map_err(db_err)? {
+        Some(incident) => Ok(Json(incident)),
+        None => Err((StatusCode::NOT_FOUND, "Incident not found".into())),
+    }
+}
+
+/// POST /api/tc/incidents/:id/hitl — HITL response (approve/reject)
+pub async fn incident_hitl_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let response = body["response"].as_str().unwrap_or("reject");
+    let responded_by = body["responded_by"].as_str().unwrap_or("dashboard");
+
+    store.update_incident_hitl(id, "responded", responded_by, response).await.map_err(db_err)?;
+
+    if response.starts_with("approve") || response == "execute" {
+        store.update_incident_status(id, "resolved").await.map_err(db_err)?;
+    } else if response == "false_positive" {
+        store.update_incident_status(id, "closed").await.map_err(db_err)?;
+    }
+
+    Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "response": response })))
+}
+
+/// POST /api/tc/incidents/:id/status — update incident status
+pub async fn incident_status_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = body["status"].as_str().unwrap_or("open");
+    store.update_incident_status(id, status).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "new_status": status })))
+}

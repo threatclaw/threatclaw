@@ -62,4 +62,11 @@ impl ThreatClawStore for LibSqlBackend {
     async fn get_ml_score(&self, _: &str) -> Result<Option<(f64, String)>, DatabaseError> { Err(not_supported()) }
     async fn get_all_ml_scores(&self) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> { Err(not_supported()) }
     async fn set_ml_score(&self, _: &str, _: f64, _: &str, _: &serde_json::Value) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn create_incident(&self, _: &str, _: &str, _: &str, _: &[i32], _: &[i32], _: i32) -> Result<i32, DatabaseError> { Err(not_supported()) }
+    async fn update_incident_verdict(&self, _: i32, _: &str, _: f64, _: &str, _: &[String], _: &serde_json::Value, _: &serde_json::Value) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn update_incident_hitl(&self, _: i32, _: &str, _: &str, _: &str) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn list_incidents(&self, _: Option<&str>, _: i64, _: i64) -> Result<Vec<serde_json::Value>, DatabaseError> { Err(not_supported()) }
+    async fn get_incident(&self, _: i32) -> Result<Option<serde_json::Value>, DatabaseError> { Err(not_supported()) }
+    async fn find_open_incident_for_asset(&self, _: &str) -> Result<Option<i32>, DatabaseError> { Err(not_supported()) }
 }

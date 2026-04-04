@@ -419,4 +419,20 @@ pub trait ThreatClawStore: Send + Sync {
     async fn get_all_ml_scores(&self) -> Result<HashMap<String, (f64, String)>, DatabaseError>;
 
     async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError>;
+
+    // ── Incidents (See ADR-043) ──
+
+    async fn create_incident(&self, asset: &str, title: &str, severity: &str, alert_ids: &[i32], finding_ids: &[i32], alert_count: i32) -> Result<i32, DatabaseError>;
+
+    async fn update_incident_verdict(&self, id: i32, verdict: &str, confidence: f64, summary: &str, mitre: &[String], proposed_actions: &serde_json::Value, investigation_log: &serde_json::Value) -> Result<(), DatabaseError>;
+
+    async fn update_incident_hitl(&self, id: i32, status: &str, responded_by: &str, response: &str) -> Result<(), DatabaseError>;
+
+    async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
+
+    async fn list_incidents(&self, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError>;
 }

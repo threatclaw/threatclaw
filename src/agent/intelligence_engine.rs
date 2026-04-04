@@ -1121,6 +1121,21 @@ pub fn spawn_intelligence_ticker(
 
                         tracing::info!("INTELLIGENCE: Escalating to investigation — {}", dossier.summary());
 
+                        // See ADR-043: create incident in DB before investigation
+                        let alert_ids: Vec<i32> = vec![];
+                        let finding_ids: Vec<i32> = dossier.findings.iter().map(|f| f.id as i32).collect();
+                        let incident_id = store.create_incident(
+                            &worst_asset.asset,
+                            &dossier.summary(),
+                            &format!("{:?}", situation.notification_level),
+                            &alert_ids,
+                            &finding_ids,
+                            worst_asset.active_alerts as i32,
+                        ).await.unwrap_or(-1);
+                        if incident_id > 0 {
+                            tracing::info!("INTELLIGENCE: Incident #{} created for {}", incident_id, worst_asset.asset);
+                        }
+
                         let dossier_id = dossier.id;
                         if registry.try_register(&worst_asset.asset, dossier_id).await {
                             let store_inv = store.clone();
@@ -1144,6 +1159,23 @@ pub fn spawn_intelligence_ticker(
                                     "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
                                     asset_name, result.verdict.verdict_type(), result.verdict.confidence() * 100.0, result.duration_secs
                                 );
+
+                                // See ADR-043: update incident with verdict
+                                if incident_id > 0 {
+                                    let mitre: Vec<String> = vec![];
+                                    let proposed = serde_json::json!([]);
+                                    let inv_log = serde_json::json!({"duration_secs": result.duration_secs});
+                                    let _ = store_inv.update_incident_verdict(
+                                        incident_id,
+                                        result.verdict.verdict_type(),
+                                        result.verdict.confidence() as f64,
+                                        &format!("{:?}", result.verdict),
+                                        &mitre,
+                                        &proposed,
+                                        &inv_log,
+                                    ).await;
+                                    tracing::info!("INCIDENT #{}: verdict={} confidence={:.0}%", incident_id, result.verdict.verdict_type(), result.verdict.confidence() * 100.0);
+                                }
 
                                 // Notify only if verdict warrants it + delta check
                                 if result.verdict.should_notify() {

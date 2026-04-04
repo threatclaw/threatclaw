@@ -1104,6 +1104,121 @@ impl ThreatClawStore for PgBackend {
         ).await.map_err(query_err)?;
         Ok(())
     }
+
+    // ── Incidents (See ADR-043) ──
+
+    async fn create_incident(&self, asset: &str, title: &str, severity: &str, alert_ids: &[i32], finding_ids: &[i32], alert_count: i32) -> Result<i32, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            "INSERT INTO incidents (asset, title, severity, alert_ids, finding_ids, alert_count) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+            &[&asset, &title, &severity, &alert_ids, &finding_ids, &alert_count],
+        ).await.map_err(query_err)?;
+        Ok(row.get("id"))
+    }
+
+    async fn update_incident_verdict(&self, id: i32, verdict: &str, confidence: f64, summary: &str, mitre: &[String], proposed_actions: &serde_json::Value, investigation_log: &serde_json::Value) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let conf_f32 = confidence as f32;
+        conn.execute(
+            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, status = CASE WHEN $2 = 'false_positive' THEN 'closed' ELSE 'investigating' END, updated_at = NOW() WHERE id = $1",
+            &[&id, &verdict, &conf_f32, &summary, &mitre, proposed_actions, investigation_log],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn update_incident_hitl(&self, id: i32, status: &str, responded_by: &str, response: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET hitl_status = $2, hitl_responded_by = $3, hitl_response = $4, hitl_responded_at = NOW(), updated_at = NOW() WHERE id = $1",
+            &[&id, &status, &responded_by, &response],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let resolved = if status == "resolved" || status == "closed" { "NOW()" } else { "NULL" };
+        conn.execute(
+            &format!("UPDATE incidents SET status = $2, resolved_at = {}, updated_at = NOW() WHERE id = $1", resolved),
+            &[&id, &status],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn list_incidents(&self, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let status_owned = status.map(String::from);
+        let rows = if let Some(ref s) = status_owned {
+            let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+            conn.query(&q, &[s]).await.map_err(query_err)?
+        } else {
+            let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+            conn.query(&q, &[]).await.map_err(query_err)?
+        };
+        let results: Vec<serde_json::Value> = rows.iter().map(|r| {
+            serde_json::json!({
+                "id": r.get::<_, i32>("id"),
+                "asset": r.get::<_, String>("asset"),
+                "title": r.get::<_, String>("title"),
+                "summary": r.get::<_, Option<String>>("summary"),
+                "verdict": r.get::<_, String>("verdict"),
+                "confidence": r.get::<_, Option<f32>>("confidence"),
+                "severity": r.get::<_, Option<String>>("severity"),
+                "alert_count": r.get::<_, Option<i32>>("alert_count"),
+                "status": r.get::<_, String>("status"),
+                "hitl_status": r.get::<_, Option<String>>("hitl_status"),
+                "hitl_response": r.get::<_, Option<String>>("hitl_response"),
+                "proposed_actions": r.try_get::<_, serde_json::Value>("proposed_actions").unwrap_or(serde_json::json!([])),
+                "mitre_techniques": r.get::<_, Option<Vec<String>>>("mitre_techniques"),
+                "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+                "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
+                "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),
+            })
+        }).collect();
+        Ok(results)
+    }
+
+    async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_opt(
+            "SELECT id, asset, title, summary, verdict, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            &[&id],
+        ).await.map_err(query_err)?;
+        Ok(row.map(|r| serde_json::json!({
+            "id": r.get::<_, i32>("id"),
+            "asset": r.get::<_, String>("asset"),
+            "title": r.get::<_, String>("title"),
+            "summary": r.get::<_, Option<String>>("summary"),
+            "verdict": r.get::<_, String>("verdict"),
+            "confidence": r.get::<_, Option<f32>>("confidence"),
+            "severity": r.get::<_, Option<String>>("severity"),
+            "alert_ids": r.get::<_, Option<Vec<i32>>>("alert_ids"),
+            "finding_ids": r.get::<_, Option<Vec<i32>>>("finding_ids"),
+            "alert_count": r.get::<_, Option<i32>>("alert_count"),
+            "investigation_log": r.try_get::<_, serde_json::Value>("investigation_log").unwrap_or(serde_json::json!([])),
+            "mitre_techniques": r.get::<_, Option<Vec<String>>>("mitre_techniques"),
+            "proposed_actions": r.try_get::<_, serde_json::Value>("proposed_actions").unwrap_or(serde_json::json!([])),
+            "executed_actions": r.try_get::<_, serde_json::Value>("executed_actions").unwrap_or(serde_json::json!([])),
+            "status": r.get::<_, String>("status"),
+            "hitl_status": r.get::<_, Option<String>>("hitl_status"),
+            "hitl_responded_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("hitl_responded_at").map(|t| t.to_rfc3339()),
+            "hitl_responded_by": r.get::<_, Option<String>>("hitl_responded_by"),
+            "hitl_response": r.get::<_, Option<String>>("hitl_response"),
+            "notified_channels": r.get::<_, Option<Vec<String>>>("notified_channels"),
+            "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+            "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
+            "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),
+        })))
+    }
+
+    async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_opt(
+            "SELECT id FROM incidents WHERE asset = $1 AND status IN ('open', 'investigating') ORDER BY created_at DESC LIMIT 1",
+            &[&asset],
+        ).await.map_err(query_err)?;
+        Ok(row.map(|r| r.get("id")))
+    }
 }
 
 // ── Helper: parse asset row ──

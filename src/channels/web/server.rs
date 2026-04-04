@@ -541,6 +541,11 @@ pub async fn start_server(
         // Test scenarios (demo + E2E testing)
         .route("/api/tc/test/scenarios", get(super::handlers::threatclaw_api::test_scenarios_list_handler))
         .route("/api/tc/test/run/{id}", post(super::handlers::threatclaw_api::test_scenario_run_handler))
+        // Incidents (See ADR-043)
+        .route("/api/tc/incidents", get(super::handlers::threatclaw_api::incidents_list_handler))
+        .route("/api/tc/incidents/{id}", get(super::handlers::threatclaw_api::incident_detail_handler))
+        .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler))
+        .route("/api/tc/incidents/{id}/status", post(super::handlers::threatclaw_api::incident_status_handler))
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API
