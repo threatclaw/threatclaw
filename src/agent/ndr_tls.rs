@@ -199,9 +199,5 @@ async fn create_tls_finding(store: &dyn Database, anomaly: &TlsAnomalies, hostna
 }
 
 fn is_internal(ip: &str) -> bool {
-    ip.starts_with("10.") || ip.starts_with("192.168.") ||
-    ip.starts_with("172.16.") || ip.starts_with("172.17.") ||
-    ip.starts_with("172.18.") || ip.starts_with("172.19.") ||
-    ip.starts_with("172.2") || ip.starts_with("172.30.") ||
-    ip.starts_with("172.31.") || ip.starts_with("127.")
+    crate::agent::ip_classifier::is_non_routable(ip)
 }

@@ -141,14 +141,7 @@ fn extract_domain_from_url(url: &str) -> Option<String> {
 
 /// Check if an IP is private/local (should not be enriched externally).
 fn is_private_ip(ip: &str) -> bool {
-    ip.starts_with("10.") ||
-    ip.starts_with("192.168.") ||
-    ip.starts_with("172.16.") || ip.starts_with("172.17.") || ip.starts_with("172.18.") ||
-    ip.starts_with("172.19.") || ip.starts_with("172.2") || ip.starts_with("172.3") ||
-    ip.starts_with("127.") ||
-    ip.starts_with("0.") ||
-    ip == "255.255.255.255" ||
-    ip.starts_with("169.254.")
+    crate::agent::ip_classifier::is_non_routable(ip) || ip.starts_with("0.") || ip == "255.255.255.255"
 }
 
 #[cfg(test)]

@@ -163,14 +163,14 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                 // Long connection (> 1h) to external IP
                 let duration = entry["duration"].as_f64().unwrap_or(0.0);
                 let dst = entry["id.resp_h"].as_str().unwrap_or("");
-                if duration > 3600.0 && !dst.starts_with("10.") && !dst.starts_with("192.168.") && !dst.starts_with("127.") {
+                if duration > 3600.0 && !crate::agent::ip_classifier::is_non_routable(dst) {
                     let title = format!("Zeek: Long connection to {} ({:.0}min)", dst, duration / 60.0);
                     let _ = store.insert_sigma_alert("zeek-long-conn", "medium", &title,
                         hostname, Some(dst), None).await;
                 }
-                // Large upload (> 10 MB)
+                // Large upload (> 50 MB) — aligned with zeek.rs native connector
                 let orig_bytes = entry["orig_bytes"].as_u64().unwrap_or(0);
-                if orig_bytes > 10_000_000 {
+                if orig_bytes > 50_000_000 {
                     let title = format!("Zeek: Large upload to {} ({:.1} MB)", dst, orig_bytes as f64 / 1_000_000.0);
                     let _ = store.insert_sigma_alert("zeek-large-upload", "high", &title,
                         hostname, Some(dst), None).await;
@@ -179,7 +179,7 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
             "zeek.ssh" => {
                 let auth_success = entry["auth_success"].as_bool().unwrap_or(true);
                 let src = entry["id.orig_h"].as_str().unwrap_or("");
-                if !auth_success && !src.starts_with("10.") && !src.starts_with("192.168.") {
+                if !auth_success && !crate::agent::ip_classifier::is_non_routable(src) {
                     let title = format!("Zeek: SSH auth failure from {}", src);
                     let _ = store.insert_sigma_alert("zeek-ssh-fail", "medium", &title,
                         entry["id.resp_h"].as_str().unwrap_or(""), Some(src), None).await;
@@ -259,7 +259,7 @@ async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
         // Detect large flows (> 50 MB exfiltration)
         if event_type == "flow" {
             let bytes_out = entry["flow"]["bytes_toserver"].as_u64().unwrap_or(0);
-            if bytes_out > 50_000_000 && !dest_ip.starts_with("10.") && !dest_ip.starts_with("192.168.") {
+            if bytes_out > 50_000_000 && !crate::agent::ip_classifier::is_non_routable(dest_ip) {
                 let title = format!("Suricata: Large outbound flow to {} ({:.1} MB)", dest_ip, bytes_out as f64 / 1_000_000.0);
                 let _ = store.insert_sigma_alert("suricata-exfil", "high", &title,
                     src_ip, Some(dest_ip), None).await;

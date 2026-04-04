@@ -337,7 +337,7 @@ pub async fn run_intelligence_cycle(
     for a in alerts.iter().take(5) {
         if let Some(ref ip) = a.source_ip {
             let clean_ip = ip.split('/').next().unwrap_or(ip).trim();
-            if !clean_ip.is_empty() && !clean_ip.starts_with("10.") && !clean_ip.starts_with("192.168.") {
+            if !clean_ip.is_empty() && !crate::agent::ip_classifier::is_non_routable(clean_ip) {
                 let hour = chrono::Utc::now().hour();
                 let host = a.hostname.as_deref();
                 let score = crate::graph::confidence::compute_ip_confidence(
@@ -539,7 +539,7 @@ pub async fn run_intelligence_cycle(
         if !rate_limiter.can_lookup() { break; }
         if let Some(ref raw_ip) = a.source_ip {
             let ip_str = raw_ip.split('/').next().unwrap_or("").trim();
-            if ip_str.is_empty() || ip_str.starts_with("10.") || ip_str.starts_with("192.168.") || ip_str.starts_with("127.") {
+            if ip_str.is_empty() || crate::agent::ip_classifier::is_non_routable(ip_str) {
                 continue;
             }
             // Skip if already looked up this cycle

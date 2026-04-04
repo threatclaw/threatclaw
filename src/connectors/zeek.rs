@@ -1,4 +1,3 @@
-#![allow(unused_imports)]
 //! Zeek Connector — ingest Zeek JSON logs for network metadata.
 //!
 //! Zeek produces structured JSON logs: conn.log, dns.log, http.log, ssl.log, ssh.log, etc.

@@ -96,6 +96,13 @@ pub fn is_special(ip: &str) -> bool {
     }
 }
 
+/// Check if an IP is non-routable (private RFC 1918 + loopback + link-local + multicast).
+/// Use this to decide "should we enrich/alert on this IP?".
+/// Does NOT require declared networks — uses standard RFC ranges.
+pub fn is_non_routable(ip: &str) -> bool {
+    is_private(ip) || is_special(ip)
+}
+
 /// Classify an IP address.
 pub fn classify(ip: &str, networks: &[NetworkRange], known_asset_ips: &[String]) -> IpClass {
     if is_special(ip) {
