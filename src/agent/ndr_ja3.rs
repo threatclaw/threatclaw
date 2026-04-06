@@ -31,6 +31,23 @@ const KNOWN_BAD_JA3: &[(&str, &str)] = &[
     ("e7071aba632a5b5bfb59bbfa1f5d21e2", "Empty TLS Client"),
 ];
 
+/// Known-bad HASSH fingerprints — SSH clients used by attack tools.
+/// Source: Salesforce HASSH project, threat intel research.
+const KNOWN_BAD_HASSH: &[(&str, &str)] = &[
+    // Paramiko (Python) — automated SSH attacks, lateral movement
+    ("b5752e36ba6c5979a575e43178908adf", "Paramiko"),
+    // PowerShell Renci.SshNet — Empire, PowerShell-based lateral movement
+    ("de30354b88bae4c2810426614e1b6976", "PowerShell SSH (Renci.SshNet)"),
+    // Ruby Net::SSH — Metasploit SSH modules
+    ("fafc45381bfde997b6305c4e1600f1bf", "Ruby Net::SSH (Metasploit)"),
+    // Dropbear — IoT botnets (Mirai variants), embedded attack tools
+    ("16f898dd8ed8279e1055350b4e20666c", "Dropbear SSH"),
+    // libssh — automated scanners, some C2 frameworks
+    ("ec7378c1a92f5a8dde7e8b7a1ddf33d1", "libssh"),
+    // Go x/crypto/ssh — custom Go-based attack tools (Sliver, custom C2)
+    ("2307c2e5e3a66a482f4ab3d4d154f6b8", "Go SSH client"),
+];
+
 /// Result of a JA3 scan cycle.
 #[derive(Debug)]
 pub struct Ja3ScanResult {
@@ -71,12 +88,46 @@ pub async fn load_ja3_into_bloom(store: &dyn Database, bloom: &mut super::ioc_bl
         }
     }
 
+    // 4. User-configured JA4 hashes from DB
+    if let Ok(Some(data)) = store.get_setting("_enrichment", "ja4_blacklist").await {
+        if let Some(entries) = data["entries"].as_array() {
+            for entry in entries {
+                if let Some(ja4) = entry["ja4"].as_str() { bloom.insert(ja4); count += 1; }
+            }
+        }
+    }
+
     if count > 0 {
         tracing::debug!("BLOOM: loaded {} JA3 fingerprints", count);
     }
 }
 
-/// Scan recent Zeek ssl.log entries for malicious JA3 fingerprints.
+/// Load known-bad HASSH fingerprints into the global Bloom filter.
+/// Called during `build_from_feeds()`.
+pub async fn load_hassh_into_bloom(store: &dyn Database, bloom: &mut super::ioc_bloom::BloomFilter) {
+    let mut count = 0usize;
+
+    // 1. Built-in known-bad HASSH hashes
+    for (hash, _label) in KNOWN_BAD_HASSH {
+        bloom.insert(hash);
+        count += 1;
+    }
+
+    // 2. User-configured HASSH hashes from DB
+    if let Ok(Some(data)) = store.get_setting("_enrichment", "hassh_blacklist").await {
+        if let Some(hashes) = data["hashes"].as_array() {
+            for h in hashes {
+                if let Some(s) = h.as_str() { bloom.insert(s); count += 1; }
+            }
+        }
+    }
+
+    if count > 0 {
+        tracing::debug!("BLOOM: loaded {} HASSH fingerprints", count);
+    }
+}
+
+/// Scan recent Zeek logs for malicious TLS (JA3/JA4) and SSH (HASSH) fingerprints.
 /// Runs every IE cycle (5 min). Checks the Bloom filter first (fast),
 /// then verifies matches against the known-bad list (eliminates FP).
 pub async fn scan_ja3(
@@ -85,77 +136,147 @@ pub async fn scan_ja3(
 ) -> Ja3ScanResult {
     let mut result = Ja3ScanResult { logs_checked: 0, matches_found: 0, findings_created: 0 };
 
-    // Query recent Zeek SSL logs
-    let logs = store.query_logs(minutes_back, None, Some("zeek.ssl"), 2000).await.unwrap_or_default();
-    result.logs_checked = logs.len();
-
-    if logs.is_empty() { return result; }
-
     let bloom = IOC_BLOOM.read().await;
 
-    for log in &logs {
-        // Zeek ssl.log stores JA3 in the "ja3" field
-        let ja3 = log.data["ja3"].as_str().unwrap_or("");
-        if ja3.is_empty() || ja3.len() != 32 { continue; } // JA3 is always 32 hex chars (MD5)
+    // ── 1. Scan JA3 + JA4 in Zeek SSL logs ──
+    let ssl_logs = store.query_logs(minutes_back, None, Some("zeek.ssl"), 2000).await.unwrap_or_default();
+    result.logs_checked += ssl_logs.len();
 
-        let ja3_lower = ja3.to_lowercase();
-
-        // Fast Bloom filter check (~200ns)
-        if !bloom.maybe_contains(&ja3_lower) { continue; }
-
-        // Bloom says maybe — verify against known-bad list (eliminates false positives)
-        let label = match identify_ja3(&ja3_lower, store.as_ref()).await {
-            Some(l) => l,
-            None => continue, // False positive from Bloom filter
-        };
-
-        result.matches_found += 1;
-
+    for log in &ssl_logs {
+        let hostname = log.hostname.as_deref().unwrap_or("unknown");
         let src_ip = log.data["id.orig_h"].as_str().unwrap_or("unknown");
         let dst_ip = log.data["id.resp_h"].as_str().unwrap_or("unknown");
         let dst_port = log.data["id.resp_p"].as_u64().unwrap_or(0);
         let server_name = log.data["server_name"].as_str().unwrap_or("unknown");
-        let hostname = log.hostname.as_deref().unwrap_or("unknown");
 
-        let title = format!("JA3 malveillant détecté: {} ({})", label, ja3_lower);
-        let description = format!(
-            "Fingerprint TLS client JA3 associé à {} détecté.\n\
-             Source: {} → {}:{} (SNI: {})\n\
-             JA3: {}\n\
-             Ce fingerprint est connu pour être utilisé par des outils d'attaque.",
-            label, src_ip, dst_ip, dst_port, server_name, ja3_lower
-        );
+        // Check JA3 (32 hex chars = MD5)
+        let ja3 = log.data["ja3"].as_str().unwrap_or("");
+        if ja3.len() == 32 {
+            let ja3_lower = ja3.to_lowercase();
+            if bloom.maybe_contains(&ja3_lower) {
+                if let Some(label) = identify_ja3(&ja3_lower, store.as_ref()).await {
+                    result.matches_found += 1;
+                    let title = format!("JA3 malveillant détecté: {} ({})", label, ja3_lower);
+                    let description = format!(
+                        "Fingerprint TLS client JA3 associé à {} détecté.\n\
+                         Source: {} → {}:{} (SNI: {})\nJA3: {}",
+                        label, src_ip, dst_ip, dst_port, server_name, ja3_lower
+                    );
+                    let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+                        skill_id: "ndr-ja3".into(),
+                        title,
+                        description: Some(description),
+                        severity: "CRITICAL".into(),
+                        category: Some("c2-detection".into()),
+                        asset: Some(hostname.to_string()),
+                        source: Some("JA3 Bloom filter".into()),
+                        metadata: Some(serde_json::json!({
+                            "ja3": ja3_lower, "malware_family": label,
+                            "src_ip": src_ip, "dst_ip": dst_ip, "dst_port": dst_port,
+                            "server_name": server_name,
+                            "detection": "ja3-bloom-filter",
+                            "mitre": ["T1071.001"]
+                        })),
+                    }).await;
+                    result.findings_created += 1;
+                    tracing::warn!(
+                        "NDR-JA3: {} detected! {} → {}:{}",
+                        label, src_ip, dst_ip, dst_port
+                    );
+                }
+            }
+        }
 
-        let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-            skill_id: "ndr-ja3".into(),
-            title,
-            description: Some(description),
-            severity: "CRITICAL".into(),
-            category: Some("c2-detection".into()),
-            asset: Some(hostname.to_string()),
-            source: Some("JA3 Bloom filter".into()),
-            metadata: Some(serde_json::json!({
-                "ja3": ja3_lower,
-                "malware_family": label,
-                "src_ip": src_ip,
-                "dst_ip": dst_ip,
-                "dst_port": dst_port,
-                "server_name": server_name,
-                "detection": "ja3-bloom-filter",
-                "mitre": ["T1071.001"]  // Application Layer Protocol: Web
-            })),
-        }).await;
-        result.findings_created += 1;
+        // Check JA4 (format: t13d1516h2_xxxxxxxxxxxx_xxxxxxxxxxxx)
+        let ja4 = log.data["ja4"].as_str().unwrap_or("");
+        if !ja4.is_empty() && ja4.contains('_') {
+            let ja4_lower = ja4.to_lowercase();
+            if bloom.maybe_contains(&ja4_lower) {
+                if let Some(label) = identify_ja4(&ja4_lower, store.as_ref()).await {
+                    result.matches_found += 1;
+                    let title = format!("JA4 malveillant détecté: {} ({})", label, &ja4_lower);
+                    let description = format!(
+                        "Fingerprint TLS client JA4 associé à {} détecté.\n\
+                         Source: {} → {}:{} (SNI: {})\nJA4: {}",
+                        label, src_ip, dst_ip, dst_port, server_name, ja4_lower
+                    );
+                    let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+                        skill_id: "ndr-ja4".into(),
+                        title,
+                        description: Some(description),
+                        severity: "CRITICAL".into(),
+                        category: Some("c2-detection".into()),
+                        asset: Some(hostname.to_string()),
+                        source: Some("JA4 Bloom filter".into()),
+                        metadata: Some(serde_json::json!({
+                            "ja4": ja4_lower, "malware_family": label,
+                            "src_ip": src_ip, "dst_ip": dst_ip, "dst_port": dst_port,
+                            "server_name": server_name,
+                            "detection": "ja4-bloom-filter",
+                            "mitre": ["T1071.001"]
+                        })),
+                    }).await;
+                    result.findings_created += 1;
+                    tracing::warn!(
+                        "NDR-JA4: {} detected! {} → {}:{}",
+                        label, src_ip, dst_ip, dst_port
+                    );
+                }
+            }
+        }
+    }
 
-        tracing::warn!(
-            "NDR-JA3: {} detected! {} → {}:{} (JA3: {})",
-            label, src_ip, dst_ip, dst_port, &ja3_lower[..12]
-        );
+    // ── 2. Scan HASSH in Zeek SSH logs ──
+    let ssh_logs = store.query_logs(minutes_back, None, Some("zeek.ssh"), 2000).await.unwrap_or_default();
+    result.logs_checked += ssh_logs.len();
+
+    for log in &ssh_logs {
+        let hassh = log.data["hassh"].as_str().unwrap_or("");
+        if hassh.len() != 32 { continue; } // HASSH is MD5 = 32 hex chars
+
+        let hassh_lower = hassh.to_lowercase();
+        if !bloom.maybe_contains(&hassh_lower) { continue; }
+
+        if let Some(label) = identify_hassh(&hassh_lower, store.as_ref()).await {
+            result.matches_found += 1;
+            let hostname = log.hostname.as_deref().unwrap_or("unknown");
+            let src_ip = log.data["id.orig_h"].as_str().unwrap_or("unknown");
+            let dst_ip = log.data["id.resp_h"].as_str().unwrap_or("unknown");
+            let dst_port = log.data["id.resp_p"].as_u64().unwrap_or(22);
+
+            let title = format!("HASSH malveillant détecté: {} ({})", label, &hassh_lower[..12]);
+            let description = format!(
+                "Client SSH utilisant {} détecté via fingerprint HASSH.\n\
+                 Source: {} → {}:{}\nHASSH: {}\n\
+                 Ce client SSH est associé à des outils d'attaque.",
+                label, src_ip, dst_ip, dst_port, hassh_lower
+            );
+            let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+                skill_id: "ndr-hassh".into(),
+                title,
+                description: Some(description),
+                severity: "HIGH".into(),
+                category: Some("c2-detection".into()),
+                asset: Some(hostname.to_string()),
+                source: Some("HASSH Bloom filter".into()),
+                metadata: Some(serde_json::json!({
+                    "hassh": hassh_lower, "tool": label,
+                    "src_ip": src_ip, "dst_ip": dst_ip, "dst_port": dst_port,
+                    "detection": "hassh-bloom-filter",
+                    "mitre": ["T1021.004"]
+                })),
+            }).await;
+            result.findings_created += 1;
+            tracing::warn!(
+                "NDR-HASSH: {} detected! {} → {}:{}",
+                label, src_ip, dst_ip, dst_port
+            );
+        }
     }
 
     if result.matches_found > 0 {
         tracing::info!(
-            "NDR-JA3: {} logs checked, {} JA3 matches, {} findings",
+            "NDR-FINGERPRINT: {} logs checked, {} matches, {} findings",
             result.logs_checked, result.matches_found, result.findings_created
         );
     }
@@ -187,6 +308,39 @@ async fn identify_ja3(ja3: &str, store: &dyn Database) -> Option<String> {
                     let label = entry["listing_reason"].as_str().unwrap_or("SSLBL match");
                     return Some(label.to_string());
                 }
+            }
+        }
+    }
+
+    None
+}
+
+/// Identify a JA4 hash — check user-configured blacklist.
+async fn identify_ja4(ja4: &str, store: &dyn Database) -> Option<String> {
+    if let Ok(Some(data)) = store.get_setting("_enrichment", "ja4_blacklist").await {
+        if let Some(entries) = data["entries"].as_array() {
+            for entry in entries {
+                if entry["ja4"].as_str() == Some(ja4) {
+                    return Some(entry["label"].as_str().unwrap_or("Custom JA4 blacklist").to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Identify a HASSH hash — check built-in list, then DB custom list.
+async fn identify_hassh(hassh: &str, store: &dyn Database) -> Option<String> {
+    // Check built-in list first
+    for (hash, label) in KNOWN_BAD_HASSH {
+        if *hash == hassh { return Some(label.to_string()); }
+    }
+
+    // Check user-configured blacklist
+    if let Ok(Some(data)) = store.get_setting("_enrichment", "hassh_blacklist").await {
+        if let Some(hashes) = data["hashes"].as_array() {
+            if hashes.iter().any(|h| h.as_str() == Some(hassh)) {
+                return Some("Custom HASSH blacklist".into());
             }
         }
     }

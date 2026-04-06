@@ -148,6 +148,8 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
 
     // JA3 fingerprints (malicious TLS client identification)
     super::ndr_ja3::load_ja3_into_bloom(store, &mut filter).await;
+    // HASSH fingerprints (malicious SSH client identification)
+    super::ndr_ja3::load_hassh_into_bloom(store, &mut filter).await;
 
     tracing::info!(
         "BLOOM: Filter ready — {} IoC, {} KB RAM, ~1% FP rate",

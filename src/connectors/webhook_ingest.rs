@@ -192,6 +192,122 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                         entry["id.resp_h"].as_str().unwrap_or(""), Some(src), None).await;
                 }
             }
+            "zeek.files" => {
+                // Check file hashes against Bloom filter (MalwareBazaar, ThreatFox)
+                let md5 = entry["md5"].as_str().unwrap_or("");
+                let sha256 = entry["sha256"].as_str().unwrap_or("");
+                let sha1 = entry["sha1"].as_str().unwrap_or("");
+                let mime = entry["mime_type"].as_str().unwrap_or("unknown");
+                let filename = entry["filename"].as_str().unwrap_or("unknown");
+                let total_bytes = entry["total_bytes"].as_u64().unwrap_or(0);
+                let source_proto = entry["source"].as_str().unwrap_or("unknown");
+                let src = entry["id.orig_h"].as_str().unwrap_or(hostname);
+                let dst = entry["id.resp_h"].as_str().unwrap_or("");
+
+                let bloom = crate::agent::ioc_bloom::IOC_BLOOM.read().await;
+                let mut matched_hash = None;
+                let mut matched_type = "";
+
+                if sha256.len() == 64 && bloom.maybe_contains(&sha256.to_lowercase()) {
+                    matched_hash = Some(sha256.to_lowercase());
+                    matched_type = "sha256";
+                } else if md5.len() == 32 && bloom.maybe_contains(&md5.to_lowercase()) {
+                    matched_hash = Some(md5.to_lowercase());
+                    matched_type = "md5";
+                } else if sha1.len() == 40 && bloom.maybe_contains(&sha1.to_lowercase()) {
+                    matched_hash = Some(sha1.to_lowercase());
+                    matched_type = "sha1";
+                }
+                drop(bloom);
+
+                if let Some(hash_val) = matched_hash {
+                    let title = format!(
+                        "Malware en transit: {} ({}, {:.1} KB via {})",
+                        filename, mime, total_bytes as f64 / 1024.0, source_proto
+                    );
+                    let description = format!(
+                        "Fichier malveillant détecté en transit sur le réseau.\n\
+                         Fichier: {} ({})\nTaille: {} octets\nProtocole: {}\n\
+                         Hash {}: {}\nSource: {} → {}",
+                        filename, mime, total_bytes, source_proto, matched_type, hash_val, src, dst
+                    );
+                    let _ = store.insert_finding(&NewFinding {
+                        skill_id: "ndr-file-hash".into(),
+                        title: title.clone(),
+                        description: Some(description),
+                        severity: "CRITICAL".into(),
+                        category: Some("malware-detection".into()),
+                        asset: Some(src.to_string()),
+                        source: Some("Zeek files.log + Bloom filter".into()),
+                        metadata: Some(serde_json::json!({
+                            "hash_type": matched_type,
+                            "hash": hash_val,
+                            "filename": filename,
+                            "mime_type": mime,
+                            "total_bytes": total_bytes,
+                            "protocol": source_proto,
+                            "src_ip": src,
+                            "dst_ip": dst,
+                            "md5": md5,
+                            "sha256": sha256,
+                            "detection": "file-hash-bloom-filter",
+                            "mitre": ["T1105"]
+                        })),
+                    }).await;
+                    tracing::warn!(
+                        "NDR-FILE: Malware hash match! {} ({}) {} → {} via {}",
+                        filename, &hash_val[..std::cmp::min(12, hash_val.len())], src, dst, source_proto
+                    );
+                    let alert_title = format!("Zeek: Malware file detected — {} ({})", filename, matched_type);
+                    let _ = store.insert_sigma_alert("zeek-malware-file", "critical", &alert_title,
+                        src, Some(dst), None).await;
+                }
+            }
+            "zeek.notice" | "zeek.notice_log" => {
+                let note_type = entry["note"].as_str().unwrap_or("");
+                let msg = entry["msg"].as_str().unwrap_or("");
+                let sub_msg = entry["sub"].as_str().unwrap_or("");
+                let src = entry["id.orig_h"].as_str()
+                    .or_else(|| entry["src"].as_str())
+                    .unwrap_or(hostname);
+                let dst = entry["id.resp_h"].as_str()
+                    .or_else(|| entry["dst"].as_str())
+                    .unwrap_or("");
+
+                let (rule_id, level, _mitre) = match note_type {
+                    n if n.starts_with("ATTACK::Lateral_Movement") =>
+                        ("bzar-lateral-movement", "high", "T1021.002"),
+                    n if n.starts_with("ATTACK::Execution") =>
+                        ("bzar-execution", "critical", "T1569.002"),
+                    n if n.starts_with("ATTACK::Credential_Access") =>
+                        ("bzar-credential-access", "critical", "T1003.006"),
+                    n if n.starts_with("ATTACK::Defense_Evasion") =>
+                        ("bzar-defense-evasion", "high", "T1070.001"),
+                    n if n.starts_with("ATTACK::Discovery") =>
+                        ("bzar-discovery", "medium", "T1018"),
+                    n if n.starts_with("ATTACK::Persistence") =>
+                        ("bzar-persistence", "high", "T1547.004"),
+                    n if n.starts_with("ATTACK::") =>
+                        ("bzar-generic", "high", "T1059"),
+                    "LongConnection::found" =>
+                        ("zeek-long-conn-notice", "medium", "T1071.001"),
+                    n if n.contains("DNS") && (n.contains("Tunnel") || n.contains("tunnel")) =>
+                        ("zeek-dns-tunnel", "high", "T1071.004"),
+                    n if n.contains("DNS") && n.contains("FastFlux") =>
+                        ("zeek-dns-fastflux", "high", "T1568.001"),
+                    n if n.contains("DNS") =>
+                        ("zeek-dns-anomaly", "medium", "T1071.004"),
+                    _ => ("zeek-notice", "medium", ""),
+                };
+
+                let title = if sub_msg.is_empty() {
+                    format!("[{}] {}", note_type, msg)
+                } else {
+                    format!("[{}] {} — {}", note_type, msg, sub_msg)
+                };
+
+                let _ = store.insert_sigma_alert(rule_id, level, &title, src, Some(dst), None).await;
+            }
             _ => {}
         }
     }
@@ -215,6 +331,7 @@ fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
     if entry.get("auth_success").is_some() || entry.get("client").is_some() && entry.get("server").is_some() && entry.get("cipher_alg").is_some() { return "zeek.ssh".into(); }
     if entry.get("fuid").is_some() && entry.get("mime_type").is_some() { return "zeek.files".into(); }
     if entry.get("conn_state").is_some() || entry.get("duration").is_some() && entry.get("orig_bytes").is_some() { return "zeek.conn".into(); }
+    if entry.get("note").is_some() && entry.get("msg").is_some() { return "zeek.notice".into(); }
     // Fallback
     "zeek.unknown".into()
 }
