@@ -317,6 +317,40 @@ pub async fn record_verdict_sent(
         .await;
 }
 
+/// Check if an incident notification should be sent (cooldown-based).
+/// Prevents spam when the IE cycle re-investigates the same incident during fast cycles.
+pub async fn should_notify_incident(
+    store: &dyn Database,
+    incident_id: i32,
+) -> bool {
+    let key = format!("last_incident_notif:{}", incident_id);
+    match store.get_setting("_system", &key).await {
+        Ok(Some(prev)) => {
+            if let Some(time_str) = prev.as_str() {
+                if let Ok(last_sent) = chrono::DateTime::parse_from_rfc3339(time_str) {
+                    let elapsed = (chrono::Utc::now() - last_sent.with_timezone(&chrono::Utc)).num_seconds();
+                    return elapsed > 300; // 5 minutes minimum between notifications
+                }
+            }
+            true
+        }
+        _ => true, // First notification or DB error
+    }
+}
+
+/// Record that an incident notification was sent.
+pub async fn record_incident_notified(
+    store: &dyn Database,
+    incident_id: i32,
+) {
+    let key = format!("last_incident_notif:{}", incident_id);
+    let _ = store.set_setting(
+        "_system",
+        &key,
+        &serde_json::json!(chrono::Utc::now().to_rfc3339()),
+    ).await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

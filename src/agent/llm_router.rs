@@ -121,6 +121,14 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
             detail: "Foundation-Sec Q8_0 · Recommandé".into(),
             recommended_ram: "32GB+".into(),
         },
+        ModelInfo {
+            model_id: "redsage:8b".into(),
+            display_name: "RedSage 8B (SOC Workflows)".into(),
+            ram_gb: 5.5,
+            tool_call_mode: ToolCallMode::None,
+            detail: "RISYS Lab · Workflows SOC réels · Q4_K_M".into(),
+            recommended_ram: "16GB+".into(),
+        },
     ]);
     catalog.insert("l25", vec![
         ModelInfo {

@@ -234,6 +234,21 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<(), DatabaseError>;
     async fn count_findings_by_severity(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
+    // ── Shift Report queries ──
+
+    /// Count findings created since a given timestamp.
+    async fn count_findings_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    /// Count sigma alerts since a given timestamp.
+    async fn count_alerts_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    /// Count incidents since a given timestamp.
+    async fn count_incidents_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    /// List finding titles by severity since a timestamp.
+    async fn list_finding_titles_since(&self, _since: chrono::DateTime<chrono::Utc>, _severity: &str, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+    /// List assets that had findings or alerts since a timestamp.
+    async fn list_active_assets_since(&self, _since: chrono::DateTime<chrono::Utc>, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+    /// List assets with ML anomaly scores above a threshold.
+    async fn list_ml_anomalies(&self, _threshold: f64, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+
     /// Auto-close findings from a skill that were NOT re-confirmed since `since`.
     /// Called after a re-scan: findings not found again are considered resolved.
     async fn auto_close_stale_findings(

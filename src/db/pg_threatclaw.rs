@@ -307,6 +307,65 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1))).collect())
     }
 
+    // ── Shift Report queries ──
+
+    async fn count_findings_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            "SELECT COUNT(*)::bigint FROM findings WHERE detected_at >= $1",
+            &[&since],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn count_alerts_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            "SELECT COUNT(*)::bigint FROM sigma_alerts WHERE matched_at >= $1",
+            &[&since],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn count_incidents_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            "SELECT COUNT(*)::bigint FROM incidents WHERE created_at >= $1",
+            &[&since],
+        ).await.map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn list_finding_titles_since(&self, since: chrono::DateTime<chrono::Utc>, severity: &str, limit: i64) -> Result<Vec<String>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT title FROM findings WHERE detected_at >= $1 AND UPPER(severity) = UPPER($2) ORDER BY detected_at DESC LIMIT $3",
+            &[&since, &severity, &limit],
+        ).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    async fn list_active_assets_since(&self, since: chrono::DateTime<chrono::Utc>, limit: i64) -> Result<Vec<String>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT DISTINCT COALESCE(asset, 'unknown') FROM findings WHERE detected_at >= $1 \
+             UNION \
+             SELECT DISTINCT COALESCE(hostname, 'unknown') FROM sigma_alerts WHERE matched_at >= $1 \
+             LIMIT $2",
+            &[&since, &limit],
+        ).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
+    async fn list_ml_anomalies(&self, threshold: f64, limit: i64) -> Result<Vec<String>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn.query(
+            "SELECT asset_id || ' (score: ' || ROUND(score::numeric, 2) || ')' FROM ml_scores WHERE score >= $1 ORDER BY score DESC LIMIT $2",
+            &[&threshold, &limit],
+        ).await.map_err(query_err)?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
     async fn list_alerts(
         &self, level: Option<&str>, status: Option<&str>, limit: i64, offset: i64,
     ) -> Result<Vec<AlertRecord>, DatabaseError> {
@@ -1136,7 +1195,7 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let conf_f32 = confidence as f32;
         conn.execute(
-            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, status = CASE WHEN $2 = 'false_positive' THEN 'closed' ELSE 'investigating' END, updated_at = NOW() WHERE id = $1",
+            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, status = CASE WHEN $2 = 'false_positive' THEN 'closed' WHEN $2 = 'error' THEN 'error' WHEN $2 = 'confirmed' THEN 'open' WHEN $2 = 'informational' THEN 'closed' ELSE 'open' END, updated_at = NOW() WHERE id = $1",
             &[&id, &verdict, &conf_f32, &summary, &mitre, proposed_actions, investigation_log],
         ).await.map_err(query_err)?;
         Ok(())

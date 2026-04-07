@@ -505,15 +505,16 @@ pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Re
         "messages": [
             {
                 "role": "user",
-                "content": format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON. Pas de markdown. /no_think")
+                "content": format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. /no_think")
             }
         ],
         "stream": false,
+        "format": "json",
         "options": { "temperature": 0.1, "num_predict": 2048 }
     });
 
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(1200))
         .danger_accept_invalid_certs(true)
         .no_proxy()
         .build()

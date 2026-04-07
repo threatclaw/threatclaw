@@ -103,10 +103,29 @@ pub async fn route_incident_notification(
     let configured = get_configured_channels(store).await;
     let channels = &routing.alert;
 
+    let summary_clean = if summary.is_empty() { "Investigation en cours...".to_string() }
+        else { summary.replace("Confirmed { ", "").replace(" }", "").replace('"', "") };
+
+    let severity_icon = match severity {
+        "CRITICAL" => "🔴",
+        "HIGH" => "🟠",
+        "MEDIUM" => "🟡",
+        _ => "🔵",
+    };
+
     let text = format!(
-        "🔴 *INCIDENT #{}* — {}\n\n📍 Asset: `{}`\n⚠️ Sévérité: {}\n📊 {} alertes corrélées\n\n{}",
-        incident_id, title, asset, severity, alert_count,
-        if summary.is_empty() { "Investigation en cours..." } else { summary }
+        "{icon} INCIDENT #{id} — {sev}\n\
+         ━━━━━━━━━━━━━━━━━━━━━━\n\
+         Asset : {asset}\n\
+         Alertes : {count}\n\
+         ━━━━━━━━━━━━━━━━━━━━━━\n\n\
+         {summary}",
+        icon = severity_icon,
+        id = incident_id,
+        sev = severity,
+        asset = asset,
+        count = alert_count,
+        summary = summary_clean,
     );
 
     // Get dashboard URL for channels without interactive buttons
@@ -138,6 +157,20 @@ pub async fn route_incident_notification(
     results
 }
 
+/// Truncate text to Telegram's 4096 char limit, preserving UTF-8 boundaries.
+fn truncate_for_telegram(text: &str) -> String {
+    const MAX_LEN: usize = 4000; // Leave margin for safety (limit is 4096)
+    if text.len() <= MAX_LEN {
+        return text.to_string();
+    }
+    // Find a clean UTF-8 boundary
+    let mut end = MAX_LEN;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n\n[... tronqué]", &text[..end])
+}
+
 /// Send Telegram message with inline HITL buttons for an incident.
 async fn send_telegram_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
     let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
@@ -159,14 +192,17 @@ async fn send_telegram_with_buttons(store: &dyn Database, text: &str, incident_i
         .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
         .json(&json!({
             "chat_id": chat_id.trim(),
-            "text": text,
-            "parse_mode": "Markdown",
+            "text": truncate_for_telegram(text),
             "reply_markup": keyboard,
         }))
         .send().await.map_err(|e| e.to_string())?;
 
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Telegram HTTP {}", resp.status())) }
+    let status = resp.status();
+    if status.is_success() { Ok(()) }
+    else {
+        let body = resp.text().await.unwrap_or_default();
+        Err(format!("Telegram HTTP {}: {}", status, body.chars().take(200).collect::<String>()))
+    }
 }
 
 /// Send Slack message with Block Kit HITL buttons for an incident.
@@ -340,7 +376,7 @@ async fn send_to_channel(
                 .build().map_err(|e| e.to_string())?;
 
             let resp = client.post(format!("https://api.telegram.org/bot{}/sendMessage", token))
-                .json(&json!({ "chat_id": chat_id.trim(), "text": message, "parse_mode": "Markdown" }))
+                .json(&json!({ "chat_id": chat_id.trim(), "text": truncate_for_telegram(message) }))
                 .send().await.map_err(|e| e.to_string())?;
 
             if resp.status().is_success() { Ok(()) }
@@ -533,16 +569,31 @@ async fn get_channel_field(store: &dyn Database, channel: &str, field: &str) -> 
 use crate::agent::incident_dossier::IncidentDossier;
 use crate::agent::verdict::InvestigationResult;
 
-/// Route a notification based on an investigation verdict (not an IE score).
+/// Route a notification based on an investigation verdict.
+/// For HIGH/CRITICAL incidents, sends with HITL buttons so the RSSI can act directly.
 pub async fn route_verdict_notification(
     store: &dyn Database,
     result: &InvestigationResult,
     dossier: &IncidentDossier,
+    incident_id: i32,
 ) -> Vec<(String, Result<(), String>)> {
     let message = match result.format_telegram(dossier) {
         Some(msg) => msg,
         None => return vec![],
     };
+
+    // Use HITL buttons for confirmed HIGH/CRITICAL incidents
+    if incident_id > 0 && matches!(result.verdict.severity(), "CRITICAL" | "HIGH") {
+        return route_incident_notification(
+            store,
+            incident_id,
+            &result.asset,
+            &format!("{} — {}", result.asset, result.verdict.verdict_type()),
+            &message,
+            result.verdict.severity(),
+            dossier.findings.len() as i32,
+        ).await;
+    }
 
     let level = match result.verdict.severity() {
         "CRITICAL" => NotificationLevel::Critical,

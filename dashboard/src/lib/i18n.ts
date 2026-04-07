@@ -654,6 +654,16 @@ const T: Record<string, Record<Locale, string>> = {
   // ── Notification explanation ──
   notifHowTitle: { fr: "Comment ça marche", en: "How it works" },
   notifHowBody: { fr: "L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :\n\n• Silence (score ≥ 80) — rien à signaler, pas de notification\n• Digest (score 50-80) — résumé quotidien des activités\n• Alerte (score < 50) — notification immédiate, corrélation suspecte\n• Critique (kill chain, exploit connu) — tous les canaux, HITL\n\nLe RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien.", en: "The Intelligence Engine analyzes findings and alerts every 5 min. It calculates a global security score and decides the notification level:\n\n• Silence (score ≥ 80) — nothing to report, no notification\n• Digest (score 50-80) — daily activity summary\n• Alert (score < 50) — immediate notification, suspicious correlation\n• Critical (kill chain, known exploit) — all channels, HITL\n\nThe CISO is never flooded with notifications. No message = all clear." },
+
+  // ── Shift Report (Quart de Veille) ──
+  shiftReportTitle: { fr: "Quart de Veille (IA L2)", en: "Shift Report (AI L2)" },
+  shiftReportDesc: { fr: "Analyse périodique par l'IA forensique de toute l'activité de sécurité", en: "Periodic forensic AI analysis of all security activity" },
+  shiftReportEnabled: { fr: "Activer le quart de veille", en: "Enable shift report" },
+  shiftReportInterval: { fr: "Intervalle (minutes)", en: "Interval (minutes)" },
+  shiftReportThreshold: { fr: "Seuil de notification (0-100)", en: "Notification threshold (0-100)" },
+  shiftReportThresholdHelp: { fr: "En dessous de ce score, le rapport est enregistré mais pas envoyé", en: "Below this score, report is logged but not sent" },
+  shiftReportDailyHour: { fr: "Heure du résumé quotidien", en: "Daily summary hour" },
+  shiftReportDailyHourHelp: { fr: "Résumé envoyé chaque jour à cette heure, même si calme (255 = désactivé)", en: "Summary sent daily at this hour, even if calm (255 = disabled)" },
 };
 
 /** Get a translated string. Falls back to French if key missing. */

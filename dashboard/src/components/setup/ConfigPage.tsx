@@ -69,6 +69,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
   const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
+  const [shiftReport, setShiftReport] = useState({ enabled: false, interval_minutes: 240, notify_threshold: 20, daily_summary_hour: 8 });
   const [channels, setChannels] = useState<Record<string, { enabled: boolean; [k: string]: string | boolean }>>({
     slack: { enabled: false, botToken: "", signingSecret: "" },
     telegram: { enabled: false, botToken: "", botUsername: "", chatId: "" },
@@ -113,6 +114,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         });
         if (cfg.permissions) setPermLevel(cfg.permissions);
         if (cfg.general) setGeneral(p => ({ ...p, ...cfg.general }));
+        if (cfg.shift_report) setShiftReport(p => ({ ...p, ...cfg.shift_report }));
       } catch {
         try {
           const raw = localStorage.getItem("threatclaw_config");
@@ -188,6 +190,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     if (cloud.enabled && cloud.apiKey) {
       config.cloud = { backend: cloud.backend, model: cloud.model, apiKey: cloud.apiKey, escalation: cloud.escalation };
     }
+    config.shift_report = shiftReport;
     try {
       const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
       const data = await res.json();
@@ -337,13 +340,44 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {/* ═══ LLM — 3 niveaux ═══ */}
         {activeTab === "company" && (<CompanyTab />)}
 
-        {activeTab === "llm" && (<LlmTab
-          llm={llm} setLlm={setLlm} conversational={conversational} setConversational={setConversational}
-          forensic={forensic} setForensic={setForensic}
-          instruct={instruct} setInstruct={setInstruct}
-          cloud={cloud} setCloud={setCloud} llmModels={llmModels} setLlmModels={setLlmModels}
-          testOllama={testOllama} inputStyle={inputStyle} labelStyle={labelStyle}
-        />)}
+        {activeTab === "llm" && (<>
+          <LlmTab
+            llm={llm} setLlm={setLlm} conversational={conversational} setConversational={setConversational}
+            forensic={forensic} setForensic={setForensic}
+            instruct={instruct} setInstruct={setInstruct}
+            cloud={cloud} setCloud={setCloud} llmModels={llmModels} setLlmModels={setLlmModels}
+            testOllama={testOllama} inputStyle={inputStyle} labelStyle={labelStyle}
+          />
+          <ChromeInsetCard style={{ marginTop: "16px" }}>
+            <h3 style={{ marginBottom: "4px" }}>{tr("shiftReportTitle", locale)}</h3>
+            <p style={{ fontSize: "13px", opacity: 0.7, marginBottom: "12px" }}>{tr("shiftReportDesc", locale)}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+              <label className="tc-toggle">
+                <input type="checkbox" checked={shiftReport.enabled} onChange={e => setShiftReport(p => ({ ...p, enabled: e.target.checked }))} />
+                <span className="tc-toggle-slider" />
+              </label>
+              <span style={{ fontSize: "14px" }}>{tr("shiftReportEnabled", locale)}</span>
+            </div>
+            {shiftReport.enabled && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={labelStyle}>{tr("shiftReportInterval", locale)}</label>
+                  <input type="number" min={60} max={1440} step={60} value={shiftReport.interval_minutes} onChange={e => setShiftReport(p => ({ ...p, interval_minutes: parseInt(e.target.value) || 240 }))} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>{tr("shiftReportThreshold", locale)}</label>
+                  <input type="number" min={0} max={100} value={shiftReport.notify_threshold} onChange={e => setShiftReport(p => ({ ...p, notify_threshold: parseInt(e.target.value) || 20 }))} style={inputStyle} />
+                  <span style={{ fontSize: "11px", opacity: 0.6 }}>{tr("shiftReportThresholdHelp", locale)}</span>
+                </div>
+                <div>
+                  <label style={labelStyle}>{tr("shiftReportDailyHour", locale)}</label>
+                  <input type="number" min={0} max={255} value={shiftReport.daily_summary_hour} onChange={e => setShiftReport(p => ({ ...p, daily_summary_hour: parseInt(e.target.value) || 8 }))} style={inputStyle} />
+                  <span style={{ fontSize: "11px", opacity: 0.6 }}>{tr("shiftReportDailyHourHelp", locale)}</span>
+                </div>
+              </div>
+            )}
+          </ChromeInsetCard>
+        </>)}
 
         {/* ═══ CHANNELS ═══ */}
         {activeTab === "channels" && (<>

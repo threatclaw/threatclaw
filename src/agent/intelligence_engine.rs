@@ -14,38 +14,202 @@ use crate::db::threatclaw_store::ThreatClawStore;
 static INVESTIGATION_BLOOM: std::sync::LazyLock<Arc<tokio::sync::RwLock<InvestigationDedup>>> =
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::RwLock::new(InvestigationDedup::new())));
 
+// Serialize LLM investigations — Ollama on CPU can handle only 1 concurrent inference effectively.
+pub(crate) static INVESTIGATION_SEMAPHORE: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
+    std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(1)));
+
 struct InvestigationDedup {
-    seen: HashSet<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
+    /// asset → (verdict_type, investigated_at)
+    seen: HashMap<String, (String, chrono::DateTime<chrono::Utc>)>,
 }
 
 impl InvestigationDedup {
     fn new() -> Self {
-        Self { seen: HashSet::new(), created_at: chrono::Utc::now() }
+        Self { seen: HashMap::new() }
     }
 
-    fn is_stale(&self) -> bool {
-        (chrono::Utc::now() - self.created_at).num_hours() >= 24
-    }
-
-    fn maybe_seen(&self, key: &str) -> bool {
-        self.seen.contains(key)
-    }
-
-    fn record(&mut self, key: String) {
-        if self.is_stale() {
-            self.seen.clear();
-            self.created_at = chrono::Utc::now();
+    /// Check if an asset is still in cooldown from a previous investigation.
+    /// Cooldown depends on verdict: confirmed/FP = 4h, inconclusive = 1h, other = 30min.
+    fn is_in_cooldown(&self, asset: &str) -> bool {
+        if let Some((verdict, when)) = self.seen.get(asset) {
+            let cooldown_hours = match verdict.as_str() {
+                "confirmed" | "false_positive" => 4.0,
+                "inconclusive" => 1.0,
+                _ => 0.5,
+            };
+            let elapsed = (chrono::Utc::now() - *when).num_seconds() as f64;
+            elapsed < cooldown_hours * 3600.0
+        } else {
+            false
         }
-        self.seen.insert(key);
+    }
+
+    fn record(&mut self, asset: String, verdict: String) {
+        // Clean entries older than 24h
+        let now = chrono::Utc::now();
+        self.seen.retain(|_, (_, when)| (now - *when).num_hours() < 24);
+        self.seen.insert(asset, (verdict, now));
     }
 }
 
-fn investigation_key(asset: &str, situation: &AssetSituation) -> String {
-    let flags = format!("c{}h{}a{}kc{}",
-        situation.findings_critical, situation.findings_high,
-        situation.active_alerts, situation.has_kill_chain as u8);
-    format!("{}:{}", asset, flags)
+fn investigation_key(asset: &str, _situation: &AssetSituation) -> String {
+    asset.to_string()
+}
+
+/// Clean L2 forensic LLM output: strip think blocks, extract text from JSON if needed, trim.
+fn clean_l2_output(raw: &str) -> String {
+    let mut text = raw.to_string();
+
+    // 1. Strip <think>...</think> blocks (qwen3 reasoning traces)
+    // Handle both paired <think>...</think> and orphan </think> (common when Ollama strips opening tag)
+    while let Some(start) = text.find("<think>") {
+        if let Some(end) = text.find("</think>") {
+            text = format!("{}{}", &text[..start], &text[end + 8..]);
+        } else {
+            text = text[..start].to_string();
+            break;
+        }
+    }
+    // Handle orphan </think> without <think> — everything before it is think output, take what's after
+    if let Some(end) = text.find("</think>") {
+        text = text[end + 8..].to_string();
+    }
+
+    // 2. Strip markdown code fences
+    let text = text
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+
+    // 3. If it looks like JSON, extract human-readable fields
+    if text.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+            return extract_text_from_l2_json(&v);
+        }
+    }
+
+    // 4. Return cleaned text as-is (already plain text)
+    text.to_string()
+}
+
+/// Extract human-readable text from structured L2 JSON output.
+/// Handles multiple L2 output formats (nested analyse_forensique or flat summary/mitre/ioc/actions).
+fn extract_text_from_l2_json(v: &serde_json::Value) -> String {
+    // Unwrap nested wrappers: the LLM may produce various nesting levels like
+    // {"analyse_forensique": {...}} or {"incident": {"analyse_forensique": {...}}}
+    let unwrapped = v.get("incident").unwrap_or(v);
+    let root = unwrapped.get("analyse_forensique")
+        .or(unwrapped.get("forensic_analysis"))
+        .or(unwrapped.get("analysis"))
+        .unwrap_or(unwrapped);
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // RÉSUMÉ — try multiple key names
+    for key in &["summary", "resume_attaque", "1_resume_attaque", "resume", "résumé"] {
+        if let Some(s) = root.get(key).and_then(|v| v.as_str()) {
+            if !s.is_empty() {
+                parts.push(format!("RÉSUMÉ : {}", s));
+                break;
+            }
+        }
+    }
+
+    // MITRE ATT&CK — try multiple key names
+    for key in &["mitre_attck", "mitre_attck_techniques", "2_mitre_attck_techniques", "techniques"] {
+        if let Some(techs) = root.get(key).and_then(|v| v.as_array()) {
+            let tech_strs: Vec<String> = techs.iter().filter_map(|t| {
+                if let Some(s) = t.as_str() { return Some(s.to_string()); }
+                let id = t.get("technique_id").and_then(|v| v.as_str()).unwrap_or("?");
+                let nom = t.get("technique_nom").or(t.get("name")).and_then(|v| v.as_str()).unwrap_or("");
+                Some(format!("{} ({})", id, nom))
+            }).collect();
+            if !tech_strs.is_empty() {
+                parts.push(format!("TECHNIQUES : {}", tech_strs.join(", ")));
+                break;
+            }
+        }
+    }
+
+    // IOC — try multiple key names and formats
+    for key in &["ioc", "3_ioc", "indicateurs_compromission"] {
+        if let Some(ioc) = root.get(key) {
+            if let Some(arr) = ioc.as_array() {
+                let strs: Vec<String> = arr.iter().filter_map(|i| {
+                    if let Some(s) = i.as_str() { return Some(s.to_string()); }
+                    let typ = i.get("ioc_type").or(i.get("type")).and_then(|v| v.as_str()).unwrap_or("?");
+                    let val = i.get("ioc_valeur").or(i.get("value")).and_then(|v| v.as_str()).unwrap_or("?");
+                    Some(format!("{}: {}", typ, val))
+                }).collect();
+                if !strs.is_empty() { parts.push(format!("IOC : {}", strs.join(", "))); break; }
+            } else if let Some(obj) = ioc.as_object() {
+                let mut ioc_parts = Vec::new();
+                for (k, val) in obj {
+                    if let Some(s) = val.as_str() {
+                        if !s.is_empty() && s != "null" { ioc_parts.push(format!("{}: {}", k, s)); }
+                    } else if let Some(arr) = val.as_array() {
+                        let vals: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                        if !vals.is_empty() { ioc_parts.push(format!("{}: {}", k, vals.join(", "))); }
+                    } else if let Some(b) = val.as_bool() {
+                        if b { ioc_parts.push(k.clone()); }
+                    }
+                }
+                if !ioc_parts.is_empty() { parts.push(format!("IOC : {}", ioc_parts.join(", "))); break; }
+            }
+        }
+    }
+
+    // ACTIONS — try multiple key names
+    for key in &["actions", "actions_prioritaires", "4_actions_recommandees_prioritaires", "actions_recommandees"] {
+        if let Some(actions) = root.get(key).and_then(|v| v.as_array()) {
+            let strs: Vec<String> = actions.iter().filter_map(|a| {
+                if let Some(s) = a.as_str() { return Some(format!("- {}", s)); }
+                a.get("action").and_then(|v| v.as_str()).map(|s| format!("- {}", s))
+            }).collect();
+            if !strs.is_empty() {
+                parts.push(format!("ACTIONS :\n{}", strs.join("\n")));
+                break;
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        // Fallback: extract string values from unknown JSON keys instead of dumping raw JSON.
+        // Handles models that use unexpected key names (e.g. "root_cause" instead of "summary").
+        let mut text_parts: Vec<String> = Vec::new();
+        if let Some(obj) = v.as_object() {
+            for (key, val) in obj {
+                if let Some(s) = val.as_str() {
+                    if !s.is_empty() && s.len() > 10 {
+                        let label = key.replace('_', " ").to_uppercase();
+                        text_parts.push(format!("{} : {}", label, s));
+                    }
+                } else if let Some(arr) = val.as_array() {
+                    let strs: Vec<&str> = arr.iter().filter_map(|item| item.as_str()).collect();
+                    if !strs.is_empty() {
+                        let label = key.replace('_', " ").to_uppercase();
+                        text_parts.push(format!("{} : {}", label, strs.join(", ")));
+                    }
+                }
+            }
+        }
+        if text_parts.is_empty() {
+            "Analyse disponible dans le dashboard.".to_string()
+        } else {
+            let combined = text_parts.join("\n\n");
+            if combined.len() > 1500 {
+                let mut end = 1500;
+                while end > 0 && !combined.is_char_boundary(end) { end -= 1; }
+                format!("{}...", &combined[..end])
+            } else {
+                combined
+            }
+        }
+    } else {
+        parts.join("\n\n")
+    }
 }
 
 /// Notification level decided by the engine.
@@ -521,16 +685,39 @@ pub async fn run_intelligence_cycle(
     // ── 5k. SIGMA ENGINE — native rule matching on recent logs ──
     crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
 
-    // ── 5l. NDR — JA3 fingerprinting, beacon detection, TLS scoring ──
-    // NDR analysis — See ADR-005, ADR-007
+    // ── 5l. NDR — JA3 fingerprinting, beacon detection, TLS scoring, DNS tunneling, SNI ──
+    // NDR analysis — See ADR-005, ADR-007, SESSION_2026-04-06.md
     let ja3_result = crate::agent::ndr_ja3::scan_ja3(store.clone(), 5).await;
     let beacon_result = crate::agent::ndr_beacon::scan_beacons(store.clone(), 60).await; // 1h window for timing analysis
     let tls_result = crate::agent::ndr_tls::scan_tls(store.clone(), 5).await;
-    if ja3_result.matches_found + beacon_result.beacons_detected + tls_result.anomalies_found > 0 {
+    let dns_tunnel_result = crate::agent::ndr_dns_tunnel::scan_dns_tunnels(store.clone(), 60).await; // 1h window for volume analysis
+    let sni_result = crate::agent::ndr_sni::scan_sni(store.clone(), 5).await;
+    let ransomware_result = crate::agent::ndr_ransomware::scan_ransomware(store.clone(), 15).await; // 15min window for file ops
+    let ndr_total = ja3_result.matches_found + beacon_result.beacons_detected
+        + tls_result.anomalies_found + dns_tunnel_result.tunnels_detected
+        + sni_result.suspects_found + ransomware_result.suspects_found;
+    if ndr_total > 0 {
         tracing::info!(
-            "NDR: JA3={} beacons={} TLS={}",
-            ja3_result.matches_found, beacon_result.beacons_detected, tls_result.anomalies_found
+            "NDR: JA3={} beacons={} TLS={} DNS-tunnel={} SNI={} ransomware={}",
+            ja3_result.matches_found, beacon_result.beacons_detected,
+            tls_result.anomalies_found, dns_tunnel_result.tunnels_detected,
+            sni_result.suspects_found, ransomware_result.suspects_found
         );
+    }
+
+    // ── 5m. RETROACT — nocturnal re-scan of suspect findings (03:00-03:05 window) ──
+    {
+        let hour = chrono::Utc::now().hour();
+        let minute = chrono::Utc::now().minute();
+        if hour == 3 && minute < 5 {
+            let retroact_result = crate::agent::retroact::run_retroact_cycle(store.clone()).await;
+            if retroact_result.candidates_checked > 0 {
+                tracing::info!(
+                    "RETROACT: {} checked, {} upgraded, {} cleared",
+                    retroact_result.candidates_checked, retroact_result.upgraded, retroact_result.cleared
+                );
+            }
+        }
     }
 
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
@@ -1040,6 +1227,12 @@ pub fn spawn_intelligence_ticker(
             crate::agent::sigma_engine::init(store_sync.as_ref()).await;
         });
 
+        // Spawn Shift Report loop (Quart de Veille) — periodic L2 situation analysis
+        let store_shift = store.clone();
+        tokio::spawn(async move {
+            crate::agent::shift_report::run_shift_loop(store_shift).await;
+        });
+
         // See ADR-041: dynamic cycle interval based on situation score
         let mut next_interval = interval;
         let mut last_misp_sync = chrono::Utc::now();
@@ -1105,10 +1298,10 @@ pub fn spawn_intelligence_ticker(
                     let registry = crate::agent::investigation::get_registry();
                     let inv_key = investigation_key(&worst_asset.asset, worst_asset);
 
-                    // Skip if same pattern already investigated in the last 24h
+                    // Skip if same asset still in cooldown from previous investigation
                     let already_investigated = {
                         let dedup = INVESTIGATION_BLOOM.read().await;
-                        !dedup.is_stale() && dedup.maybe_seen(&inv_key)
+                        dedup.is_in_cooldown(&inv_key)
                     };
 
                     if already_investigated {
@@ -1126,10 +1319,22 @@ pub fn spawn_intelligence_ticker(
                         // See ADR-043: create incident in DB before investigation
                         let alert_ids: Vec<i32> = vec![];
                         let finding_ids: Vec<i32> = dossier.findings.iter().map(|f| f.id as i32).collect();
+
+                        // Derive security severity from worst finding, or fallback to notification level
+                        let incident_severity = dossier.findings.iter()
+                            .map(|f| f.severity.to_uppercase())
+                            .max_by_key(|s| match s.as_str() {
+                                "CRITICAL" => 4, "HIGH" => 3, "MEDIUM" => 2, "LOW" => 1, _ => 0,
+                            })
+                            .unwrap_or_else(|| match situation.notification_level {
+                                NotificationLevel::Alert => "HIGH".to_string(),
+                                _ => format!("{:?}", situation.notification_level).to_uppercase(),
+                            });
+
                         let incident_id = store.create_incident(
                             &worst_asset.asset,
                             &dossier.summary(),
-                            &format!("{:?}", situation.notification_level),
+                            &incident_severity,
                             &alert_ids,
                             &finding_ids,
                             worst_asset.active_alerts as i32,
@@ -1147,6 +1352,8 @@ pub fn spawn_intelligence_ticker(
                             let inv_key_owned = inv_key.clone();
 
                             tokio::spawn(async move {
+                                // Serialize: only 1 LLM investigation at a time (CPU-bound Ollama).
+                                let _permit = INVESTIGATION_SEMAPHORE.acquire().await.ok();
                                 let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store_inv.as_ref()).await;
                                 let inv_config = crate::agent::investigation::InvestigationConfig::default();
 
@@ -1154,13 +1361,74 @@ pub fn spawn_intelligence_ticker(
                                     dossier.clone(), store_inv.clone(), &llm_config, &inv_config
                                 ).await;
 
-                                // Record pattern in dedup cache (skip re-investigation for 24h)
-                                INVESTIGATION_BLOOM.write().await.record(inv_key_owned);
+                                // Record in dedup cache with verdict-based cooldown.
+                                // Skip recording on error so we retry next cycle.
+                                if result.verdict.verdict_type() != "error" {
+                                    INVESTIGATION_BLOOM.write().await.record(
+                                        inv_key_owned,
+                                        result.verdict.verdict_type().to_string(),
+                                    );
+                                }
 
                                 tracing::info!(
                                     "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
                                     asset_name, result.verdict.verdict_type(), result.verdict.confidence() * 100.0, result.duration_secs
                                 );
+
+                                // L2 enrichment: on confirmed/inconclusive, ask Foundation-Sec-Reasoning for a deeper forensic analysis.
+                                let mut final_analysis = result.verdict.analysis_text();
+                                if result.verdict.should_notify() {
+                                    tracing::info!("INVESTIGATION: Enriching verdict with L2 (forensic) for {}", asset_name);
+                                    let l2_prompt = format!(
+                                        "Tu es un analyste SOC senior. Analyse cet incident et produis un rapport JSON structuré pour un RSSI.\n\n\
+                                         CONTEXTE :\n\
+                                         Asset : {asset}\n\
+                                         Dossier : {dossier}\n\
+                                         Analyse initiale : {l1}\n\n\
+                                         Réponds en JSON avec EXACTEMENT ces clés :\n\
+                                         {{\n\
+                                           \"summary\": \"1-2 phrases décrivant ce qui s'est passé\",\n\
+                                           \"mitre_attck\": [\"T1110 Brute Force\", \"T1078 Valid Accounts\"],\n\
+                                           \"ioc\": [\"IP: 1.2.3.4\", \"hash: abc123\"],\n\
+                                           \"actions\": [\"Bloquer l'IP source\", \"Réinitialiser les mots de passe\", \"Vérifier les logs\"]\n\
+                                         }}\n\
+                                         Maximum 4 clés. Sois factuel, concis, maximum 15 lignes au total.",
+                                        asset = asset_name, dossier = dossier.summary(), l1 = result.verdict.analysis_text()
+                                    );
+                                    // Use primary base_url (L1/L2 share same Ollama instance)
+                                    let l2_base_url = if llm_config.forensic.base_url.contains("127.0.0.1")
+                                        || llm_config.forensic.base_url.contains("localhost") {
+                                        llm_config.primary.base_url.clone()
+                                    } else {
+                                        llm_config.forensic.base_url.clone()
+                                    };
+                                    match tokio::time::timeout(
+                                        std::time::Duration::from_secs(900),
+                                        crate::agent::react_runner::call_ollama(
+                                            &l2_base_url,
+                                            &llm_config.forensic.model,
+                                            &l2_prompt,
+                                        ),
+                                    ).await {
+                                        Ok(Ok(l2_raw)) => {
+                                            let l2_clean = clean_l2_output(&l2_raw);
+                                            tracing::info!("INVESTIGATION: L2 enrichment OK for {} ({} chars → {} clean)", asset_name, l2_raw.len(), l2_clean.len());
+                                            // Quality gate: if L2 is garbage (too long, repeated blocks, or echo of prompt), skip it.
+                                            let is_garbage = l2_clean.len() > 3000
+                                                || l2_clean.matches("analyse_forensique").count() > 1
+                                                || l2_clean.contains("[L1]")
+                                                || l2_clean.contains("Analyse initiale");
+                                            if is_garbage {
+                                                tracing::warn!("INVESTIGATION: L2 output is low quality ({} chars, repeated blocks), using L1 only", l2_clean.len());
+                                                // Keep final_analysis as L1 (already set)
+                                            } else {
+                                                final_analysis = l2_clean;
+                                            }
+                                        }
+                                        Ok(Err(e)) => tracing::warn!("INVESTIGATION: L2 enrichment failed for {}: {}", asset_name, e),
+                                        Err(_) => tracing::warn!("INVESTIGATION: L2 enrichment timeout for {}", asset_name),
+                                    }
+                                }
 
                                 // See ADR-043: update incident with verdict
                                 if incident_id > 0 {
@@ -1171,24 +1439,31 @@ pub fn spawn_intelligence_ticker(
                                         incident_id,
                                         result.verdict.verdict_type(),
                                         result.verdict.confidence() as f64,
-                                        &format!("{:?}", result.verdict),
+                                        &final_analysis,
                                         &mitre,
                                         &proposed,
                                         &inv_log,
                                     ).await;
                                     tracing::info!("INCIDENT #{}: verdict={} confidence={:.0}%", incident_id, result.verdict.verdict_type(), result.verdict.confidence() * 100.0);
 
-                                    // Send incident notification with HITL buttons
-                                    if result.verdict.should_notify() {
-                                        let summary = format!("{:?}", result.verdict);
+                                    // Send incident notification with HITL buttons (cooldown prevents spam)
+                                    if result.verdict.should_notify()
+                                        && crate::agent::production_safeguards::should_notify_incident(
+                                            store_inv.as_ref(), incident_id
+                                        ).await
+                                    {
+                                        let summary = final_analysis.clone();
                                         crate::agent::notification_router::route_incident_notification(
                                             store_inv.as_ref(),
                                             incident_id,
                                             &asset_name,
-                                            &dossier.summary(),
+                                            &format!("{} — {}", asset_name, result.verdict.verdict_type()),
                                             &summary,
-                                            result.verdict.verdict_type(),
+                                            &incident_severity,
                                             dossier.findings.len() as i32,
+                                        ).await;
+                                        crate::agent::production_safeguards::record_incident_notified(
+                                            store_inv.as_ref(), incident_id
                                         ).await;
                                     }
                                 }
@@ -1199,7 +1474,7 @@ pub fn spawn_intelligence_ticker(
                                         store_inv.as_ref(), &asset_name, &result.verdict
                                     ).await {
                                         let notif_results = crate::agent::notification_router::route_verdict_notification(
-                                            store_inv.as_ref(), &result, &dossier
+                                            store_inv.as_ref(), &result, &dossier, incident_id
                                         ).await;
 
                                         if notif_results.iter().any(|(_, r)| r.is_ok()) {
