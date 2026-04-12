@@ -1,0 +1,14 @@
+{
+  "id": "skill-thehive",
+  "name": "TheHive",
+  "description": "Import alerts and observables from TheHive SOAR platform",
+  "type": "connector",
+  "category": "soar",
+  "icon": "bug",
+  "config_fields": {
+    "url": {"type": "string", "label": "TheHive URL", "placeholder": "https://thehive:9000", "required": true},
+    "api_key": {"type": "password", "label": "API Key", "required": true, "help": "Clé API TheHive (Admin > API Keys)"},
+    "org": {"type": "string", "label": "Organisation", "placeholder": "default", "help": "Nom de l'organisation TheHive (optionnel)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

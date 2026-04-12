@@ -160,7 +160,7 @@ async fn execute_create_ticket(store: &dyn Database, asset: &str, title: &str, i
 
 // ── Config loaders (read from DB settings) ──
 
-async fn load_firewall_config(store: &dyn Database) -> Option<(String, String, String, String, bool)> {
+pub(crate) async fn load_firewall_config(store: &dyn Database) -> Option<(String, String, String, String, bool)> {
     // Try pfSense first, then OPNsense
     for skill_id in &["skill-pfsense", "skill-opnsense"] {
         if let Ok(Some(val)) = store.get_setting(skill_id, "config").await {
@@ -185,7 +185,7 @@ async fn load_ad_config(store: &dyn Database) -> Option<(String, String, String,
     Some((url.into(), bind_dn.into(), bind_pass.into(), base_dn.into(), no_tls))
 }
 
-async fn load_glpi_config(store: &dyn Database) -> Option<(String, String, String)> {
+pub(crate) async fn load_glpi_config(store: &dyn Database) -> Option<(String, String, String)> {
     let val = store.get_setting("skill-glpi", "config").await.ok()??;
     let url = val["url"].as_str()?;
     let app_token = val["app_token"].as_str()?;
@@ -195,7 +195,7 @@ async fn load_glpi_config(store: &dyn Database) -> Option<(String, String, Strin
 
 // ── Helpers: extract context from incident ──
 
-async fn extract_attacker_ip(store: &dyn Database, asset: &str, _incident_id: i32) -> Option<String> {
+pub async fn extract_attacker_ip(store: &dyn Database, asset: &str, _incident_id: i32) -> Option<String> {
     // Look in recent sigma alerts for source_ip on this asset
     let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
     for alert in &alerts {

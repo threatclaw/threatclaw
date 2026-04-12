@@ -500,6 +500,19 @@ async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<Llm
 /// Appelle Ollama via l'API Chat (plus fiable que generate pour le JSON structuré).
 pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url);
+
+    // Keep-alive strategy: by default L0/L1 stay resident (avoid cold-start lag
+    // on the RSSI chatbot), L2/L2.5 unload 30s after use to free RAM for the
+    // permanent tier. Permanent models are detected by name prefix since the
+    // catalog naming convention is stable (threatclaw-l1 / threatclaw-l2 etc).
+    let is_permanent = model.starts_with("threatclaw-l1")
+        || model.starts_with("gemma4:e4b")
+        || model.starts_with("gemma4:26b")
+        || model.starts_with("qwen3:8b")
+        || model.starts_with("qwen3:14b")
+        || model.starts_with("mistral-small");
+    let keep_alive = if is_permanent { "24h" } else { "30s" };
+
     let body = json!({
         "model": model,
         "messages": [
@@ -510,7 +523,12 @@ pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Re
         ],
         "stream": false,
         "format": "json",
-        "options": { "temperature": 0.1, "num_predict": 2048 }
+        "keep_alive": keep_alive,
+        // num_ctx=8192: Ollama's default (2048) is too small for incident
+        // dossiers. 8K gives room for ~15 log lines + analysis + JSON schema.
+        // Each +4K roughly doubles the KV cache; with q8_0 cache type the
+        // overhead stays acceptable even on the 26B MoE.
+        "options": { "temperature": 0.1, "num_predict": 2048, "num_ctx": 8192 }
     });
 
     let client = reqwest::Client::builder()

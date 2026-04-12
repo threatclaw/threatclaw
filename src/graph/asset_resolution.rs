@@ -458,7 +458,7 @@ fn normalize_mac(mac: &str) -> String {
 /// Generate a stable asset ID from the best available identifier.
 fn generate_asset_id(discovered: &DiscoveredAsset) -> String {
     if let Some(ref hostname) = discovered.hostname {
-        return hostname.to_lowercase().trim().to_string();
+        return sanitize_id(&hostname.to_lowercase());
     }
     if let Some(ref mac) = discovered.mac {
         return format!("asset-{}", normalize_mac(mac).replace(':', ""));
@@ -467,6 +467,18 @@ fn generate_asset_id(discovered: &DiscoveredAsset) -> String {
         return format!("asset-{}", ip.replace('.', "-"));
     }
     format!("asset-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("unknown"))
+}
+
+/// Sanitize an asset ID: lowercase + replace spaces and disallowed characters
+/// with '-'. Keeps a-z, 0-9, '-', '_', '.'. Required because the graph layer
+/// (Apache AGE Cypher) rejects IDs containing whitespace or punctuation.
+fn sanitize_id(s: &str) -> String {
+    let cleaned: String = s.trim().chars()
+        .map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '-' })
+        .collect();
+    // Collapse repeated dashes and trim leading/trailing
+    let collapsed = cleaned.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
+    if collapsed.is_empty() { "unknown".into() } else { collapsed }
 }
 
 /// Calculate confidence based on the number and type of contributing sources.

@@ -233,9 +233,20 @@ async fn import_wazuh_alert(store: &dyn Database, alert: &serde_json::Value, res
         _ => "critical",
     };
 
+    // Filter noisy audit rules (80700-80799 = Linux audit events)
+    // These are inventory/system events, not security alerts. Excluded to avoid score pollution.
+    let rule_num: u32 = rule_id.parse().unwrap_or(0);
+    if (80700..80800).contains(&rule_num) { return; }
+
+    // Store raw alert in logs table for Sigma engine matching.
+    // This enables PowerShell obfuscation rules, Kerberoasting detection, and
+    // any future Sigma rule to match against Wazuh event data.
+    // Tag: "wazuh.alert" for all events, enables logsource filtering.
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = store.insert_log("wazuh.alert", agent_name, alert, &now).await;
+
     // Wazuh vulnerability rules (5500-5599) → findings (dedup OK)
     // Everything else (auth, intrusion, file integrity) → sigma_alerts (each event counts)
-    let rule_num: u32 = rule_id.parse().unwrap_or(0);
     let is_vuln_rule = (5500..5600).contains(&rule_num);
 
     if is_vuln_rule {
@@ -267,10 +278,33 @@ async fn import_wazuh_alert(store: &dyn Database, alert: &serde_json::Value, res
             username,
         ).await;
         result.alerts_imported += 1;
+
+        // HIGH/CRITICAL security events also create a finding (deduplicated by rule+asset)
+        // This ensures the Intelligence Engine sees them and can escalate to investigation.
+        if rule_level >= 10 {
+            let finding_title = format!("[Wazuh {}] {}", rule_id, rule_desc);
+            let _ = store.insert_finding(&NewFinding {
+                skill_id: "skill-wazuh".into(),
+                title: finding_title,
+                description: Some(format!("Agent: {} ({})\nSource IP: {}\nUser: {}\nTimestamp: {}",
+                    agent_name, agent_ip, src_ip.unwrap_or("N/A"), username.unwrap_or("N/A"), timestamp)),
+                severity: severity.to_uppercase(),
+                category: Some("wazuh-security".into()),
+                asset: Some(agent_name.into()),
+                source: Some("Wazuh SIEM".into()),
+                metadata: Some(serde_json::json!({
+                    "wazuh_rule_id": rule_id, "rule_level": rule_level,
+                    "source_ip": src_ip, "username": username,
+                })),
+            }).await;
+            result.findings_created += 1;
+        }
     }
 }
 
-/// Fetch Wazuh alerts from OpenSearch/Elasticsearch indexer
+/// Fetch Wazuh alerts from OpenSearch/Elasticsearch indexer.
+/// Makes two queries: first HIGH+ (level >= 10), then the rest (level 7-9),
+/// to ensure critical alerts are never lost due to pagination.
 async fn fetch_alerts_from_indexer(
     client: &Client,
     config: &WazuhConfig,
@@ -278,27 +312,59 @@ async fn fetch_alerts_from_indexer(
 ) -> Result<Vec<serde_json::Value>, String> {
     let base = indexer_url.trim_end_matches('/');
     let search_url = format!("{}/wazuh-alerts-*/_search", base);
-
-    let query = serde_json::json!({
-        "size": config.max_alerts,
-        "sort": [{ "timestamp": { "order": "desc" } }],
-        "query": {
-            "bool": {
-                "filter": [
-                    { "range": { "rule.level": { "gte": 5 } } },
-                    { "range": { "timestamp": { "gte": "now-24h" } } }
-                ]
-            }
-        }
-    });
-
     let indexer_user = config.indexer_username.as_deref().unwrap_or("admin");
     let indexer_pass = config.indexer_password.as_deref().unwrap_or("admin");
+
+    let mut all_alerts = Vec::new();
+
+    // Query 1: HIGH/CRITICAL alerts (level >= 10) — never miss these
+    let query_high = serde_json::json!({
+        "size": 100,
+        "sort": [{ "timestamp": { "order": "desc" } }],
+        "query": { "bool": { "filter": [
+            { "range": { "rule.level": { "gte": 10 } } },
+            { "range": { "timestamp": { "gte": "now-24h" } } }
+        ]}}
+    });
+
+    if let Ok(resp) = client.post(&search_url)
+        .basic_auth(indexer_user, Some(indexer_pass))
+        .header("Content-Type", "application/json")
+        .json(&query_high)
+        .timeout(Duration::from_secs(15))
+        .send().await
+    {
+        if resp.status().is_success() {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(hits) = body["hits"]["hits"].as_array() {
+                    for hit in hits {
+                        if let Some(src) = hit["_source"].as_object() {
+                            all_alerts.push(serde_json::Value::Object(src.clone()));
+                        }
+                    }
+                    if !all_alerts.is_empty() {
+                        tracing::info!("WAZUH INDEXER: {} HIGH+ alerts (level >= 10)", all_alerts.len());
+                    }
+                }
+            }
+        }
+    }
+
+    // Query 2: Medium alerts (level 7-9) — bulk of the alerts
+    let remaining = config.max_alerts.saturating_sub(all_alerts.len() as u32);
+    let query_medium = serde_json::json!({
+        "size": remaining,
+        "sort": [{ "timestamp": { "order": "desc" } }],
+        "query": { "bool": { "filter": [
+            { "range": { "rule.level": { "gte": 7, "lt": 10 } } },
+            { "range": { "timestamp": { "gte": "now-24h" } } }
+        ]}}
+    });
 
     let resp = client.post(&search_url)
         .basic_auth(indexer_user, Some(indexer_pass))
         .header("Content-Type", "application/json")
-        .json(&query)
+        .json(&query_medium)
         .timeout(Duration::from_secs(30))
         .send().await
         .map_err(|e| format!("Indexer request failed: {}", e))?;
@@ -310,13 +376,14 @@ async fn fetch_alerts_from_indexer(
     let body: serde_json::Value = resp.json().await
         .map_err(|e| format!("Indexer parse: {}", e))?;
 
-    let hits = body["hits"]["hits"].as_array()
-        .ok_or_else(|| "No hits in indexer response".to_string())?;
+    if let Some(hits) = body["hits"]["hits"].as_array() {
+        for hit in hits {
+            if let Some(src) = hit["_source"].as_object() {
+                all_alerts.push(serde_json::Value::Object(src.clone()));
+            }
+        }
+    }
 
-    let alerts: Vec<serde_json::Value> = hits.iter()
-        .filter_map(|hit| hit["_source"].as_object().map(|o| serde_json::Value::Object(o.clone())))
-        .collect();
-
-    tracing::info!("WAZUH INDEXER: {} alerts fetched (level >= 7, last 24h)", alerts.len());
-    Ok(alerts)
+    tracing::info!("WAZUH INDEXER: {} alerts fetched (level >= 7, last 24h)", all_alerts.len());
+    Ok(all_alerts)
 }

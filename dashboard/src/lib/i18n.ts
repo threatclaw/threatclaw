@@ -533,8 +533,11 @@ const T: Record<string, Record<Locale, string>> = {
   next: { fr: "Suivant", en: "Next" },
 
   // ── Model catalog descriptions ──
+  modelDescGemma4_26b: { fr: "MoE 3.8B actifs · 256K context · Rapide sur CPU — Recommandé", en: "MoE 3.8B active · 256K context · Fast on CPU — Recommended" },
+  modelDescGemma4_e4b: { fr: "Ultra-léger · 256K context · Idéal PME 16GB", en: "Ultra-light · 256K context · Ideal for 16GB SMB" },
+  modelDescGemma4_e4b_l1: { fr: "Ultra-léger · 3x plus rapide que qwen3:8b", en: "Ultra-light · 3x faster than qwen3:8b" },
   modelDescMistralSmall: { fr: "Excellent FR · Tool calling natif", en: "Excellent FR · Native tool calling" },
-  modelDescQwen14b: { fr: "Bon FR · Rapide sur CPU — Recommandé", en: "Good FR · Fast on CPU — Recommended" },
+  modelDescQwen14b: { fr: "Bon FR · Rapide sur CPU", en: "Good FR · Fast on CPU" },
   modelDescQwen8b: { fr: "Basique · Très léger", en: "Basic · Very light" },
   modelDescL1: { fr: "SOC prompt — Recommandé", en: "SOC prompt — Recommended" },
   modelDescL1Alt: { fr: "Meilleur parsing · Plus lourd", en: "Better parsing · Heavier" },
@@ -652,6 +655,26 @@ const T: Record<string, Record<Locale, string>> = {
   enrVsSkillsBody2: { fr: "Enrichissement = ce que ThreatClaw sait. Skills = ce que ThreatClaw fait.", en: "Enrichment = what ThreatClaw knows. Skills = what ThreatClaw does." },
 
   // ── Notification explanation ──
+  // ── Notification settings ──
+  notifSettingsTitle: { fr: "Paramètres avancés", en: "Advanced settings" },
+  notifSettingsDesc: { fr: "Contrôlez la fréquence et les conditions des notifications.", en: "Control notification frequency and conditions." },
+  notifCooldowns: { fr: "Cooldowns par sévérité", en: "Cooldowns per severity" },
+  notifCooldownDesc: { fr: "Délai minimum entre deux notifications pour le même asset et le même type d'incident.", en: "Minimum delay between two notifications for the same asset and incident type." },
+  notifMinSeverity: { fr: "Seuil minimum de notification", en: "Minimum notification severity" },
+  notifMinSeverityDesc: { fr: "Les incidents en dessous de ce seuil ne déclenchent pas de notification (visibles dans le dashboard uniquement).", en: "Incidents below this threshold only appear in the dashboard, no notification sent." },
+  notifRemindTitle: { fr: "Rappel si non résolu", en: "Reminder if unresolved" },
+  notifRemindDesc: { fr: "Re-notifier si un incident n'a pas été traité dans le délai imparti.", en: "Re-notify if an incident hasn't been handled within the set delay." },
+  notifEscalation: { fr: "Escalade bypass le cooldown", en: "Escalation bypasses cooldown" },
+  notifEscalationDesc: { fr: "Si la sévérité augmente (ex: HIGH → CRITICAL), notifier immédiatement même si le cooldown n'a pas expiré.", en: "If severity increases (e.g., HIGH → CRITICAL), notify immediately even if cooldown hasn't expired." },
+  notifQuietHours: { fr: "Heures calmes", en: "Quiet hours" },
+  notifQuietHoursDesc: { fr: "En dehors des heures de bureau, seules les sévérités élevées sont notifiées. Les horaires sont ceux de votre fiche entreprise.", en: "Outside business hours, only high severity notifications are sent. Business hours come from your company profile." },
+  notifQuietMinSeverity: { fr: "Sévérité minimum en heures calmes", en: "Minimum severity during quiet hours" },
+  notifDigestTitle: { fr: "Digest quotidien", en: "Daily digest" },
+  notifDigestDesc: { fr: "Résumé quotidien envoyé une fois par jour : score, incidents ouverts, top assets à risque.", en: "Daily summary sent once per day: score, open incidents, top risky assets." },
+  notifDigestTime: { fr: "Heure d'envoi (UTC)", en: "Send time (UTC)" },
+  notifHours: { fr: "heures", en: "hours" },
+  notifNever: { fr: "Jamais", en: "Never" },
+  notifOff: { fr: "Désactivé", en: "Off" },
   notifHowTitle: { fr: "Comment ça marche", en: "How it works" },
   notifHowBody: { fr: "L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :\n\n• Silence (score ≥ 80) — rien à signaler, pas de notification\n• Digest (score 50-80) — résumé quotidien des activités\n• Alerte (score < 50) — notification immédiate, corrélation suspecte\n• Critique (kill chain, exploit connu) — tous les canaux, HITL\n\nLe RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien.", en: "The Intelligence Engine analyzes findings and alerts every 5 min. It calculates a global security score and decides the notification level:\n\n• Silence (score ≥ 80) — nothing to report, no notification\n• Digest (score 50-80) — daily activity summary\n• Alert (score < 50) — immediate notification, suspicious correlation\n• Critical (kill chain, known exploit) — all channels, HITL\n\nThe CISO is never flooded with notifications. No message = all clear." },
 

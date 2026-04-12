@@ -453,4 +453,32 @@ pub trait ThreatClawStore: Send + Sync {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
 
     async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError>;
+
+    /// Touch an existing open incident: bump alert_count by delta, refresh updated_at.
+    /// Used when a recurring pattern on the same asset would otherwise create a duplicate.
+    async fn touch_incident(&self, id: i32, alert_count_delta: i32) -> Result<(), DatabaseError>;
+
+    /// Cleanup: delete acknowledged/resolved sigma alerts older than `days_old` days.
+    /// Returns the number of deleted rows.
+    async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError>;
+
+    /// Count rows in the mitre_techniques table (used for self-heal trigger).
+    async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError>;
+
+    /// Archive all incidents with a resolved-like status (resolved, closed, false_positive).
+    /// Returns the number of rows archived. Reversible — archived rows stay in DB.
+    async fn archive_resolved_incidents(&self) -> Result<i64, DatabaseError>;
+
+    /// Archive all sigma alerts with status 'acknowledged' or 'resolved'.
+    /// Returns the number of rows archived.
+    async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError>;
+
+    /// Permanently delete archived incidents older than `days_old` days.
+    /// Only targets rows with status='archived' — fresh open incidents are safe.
+    async fn purge_old_archived(&self, days_old: i32) -> Result<(i64, i64), DatabaseError>;
+
+    /// Append a note to an incident's audit trail. Notes are stored as a
+    /// JSONB array of {text, author, at}. Used by the dashboard "commentaire RSSI"
+    /// field and by bots when they execute actions (for context).
+    async fn add_incident_note(&self, id: i32, text: &str, author: &str) -> Result<(), DatabaseError>;
 }

@@ -1,0 +1,17 @@
+{
+  "id": "skill-proxmox-backup",
+  "name": "Proxmox Backup Server",
+  "description": "Monitor backup jobs and datastore usage from Proxmox Backup Server",
+  "type": "connector",
+  "category": "backup",
+  "icon": "hard-drive",
+  "config_fields": {
+    "url": {"type": "string", "label": "PBS URL", "placeholder": "https://pbs:8007", "required": true},
+    "username": {"type": "string", "label": "Username", "placeholder": "root@pam", "help": "Utilisateur PBS"},
+    "password": {"type": "password", "label": "Password"},
+    "token_name": {"type": "string", "label": "API Token Name (alt)", "placeholder": "user@pam!monitoring", "help": "Alternative au username/password"},
+    "token_value": {"type": "password", "label": "API Token Value (alt)"},
+    "datastore": {"type": "string", "label": "Datastore", "placeholder": "backup-store", "help": "Nom du datastore (vide = tous)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

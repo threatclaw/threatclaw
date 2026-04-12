@@ -83,6 +83,15 @@ pub async fn parse_command(
         return fast;
     }
 
+    // Short or clearly conversational messages: skip the L1 classifier.
+    // These go straight to the L0 conversational engine via ExecutionType::Unknown.
+    // Without this guard, "Salut" would wait ~30s on a CPU-bound server just to
+    // reach the same conclusion.
+    if is_conversational_message(message) {
+        tracing::info!("CMD_INTERPRETER: '{}' → conversational (skip L1 classifier)", message);
+        return fast; // Unknown → triggers L0 chatbot flow
+    }
+
     // Slow path: complex messages go to LLM for natural language understanding
     let prompt = format!(
         r#"Tu es un interpréteur de commandes pour ThreatClaw, un agent de cybersécurité.
@@ -205,6 +214,40 @@ fn parse_llm_json(content: &str) -> Option<ParsedCommand> {
 }
 
 /// Fallback keyword-based parsing when LLM is unavailable.
+/// Detect if a message is a greeting, chit-chat, or general question
+/// that should bypass the L1 command classifier entirely.
+///
+/// The goal is to avoid the ~30s LLM round-trip on slow CPUs for messages
+/// that the classifier would label "Unknown" anyway (since greetings don't
+/// map to any SOC action).
+fn is_conversational_message(message: &str) -> bool {
+    let lower = message.trim().to_lowercase();
+
+    // Very short messages (< 25 chars) with no IP and no command keyword
+    // are almost always conversational. Anything longer has a real chance
+    // of being a complex command worth sending to the LLM.
+    if lower.len() < 25 && extract_ip(&lower).is_none() {
+        return true;
+    }
+
+    // Explicit greetings / acknowledgements / chit-chat in FR + EN
+    const CONVERSATIONAL: &[&str] = &[
+        "salut", "bonjour", "bonsoir", "hello", "hi", "hey", "coucou",
+        "merci", "thanks", "thx", "ok", "d'accord", "daccord", "ouais",
+        "au revoir", "bye", "ciao", "à plus", "bonne nuit",
+        "comment vas-tu", "comment ça va", "ça va", "how are you",
+        "qui es-tu", "qui es tu", "who are you", "t'es qui", "tu es qui",
+        "tu peux", "peux-tu", "can you", "help", "aide", "aide-moi",
+    ];
+    for g in CONVERSATIONAL {
+        if lower == *g || lower.starts_with(&format!("{} ", g)) || lower.starts_with(&format!("{},", g)) {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn fallback_parse(message: &str) -> ParsedCommand {
     let lower = message.to_lowercase().trim().to_string();
 

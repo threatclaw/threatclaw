@@ -31,8 +31,8 @@ pub struct InvestigationConfig {
 impl Default for InvestigationConfig {
     fn default() -> Self {
         Self {
-            max_iterations: 5,
-            timeout: Duration::from_secs(600),
+            max_iterations: 2,
+            timeout: Duration::from_secs(1800),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
@@ -62,8 +62,9 @@ impl InvestigationRegistry {
     pub async fn try_register(&self, asset: &str, dossier_id: uuid::Uuid) -> bool {
         let mut active = self.active.lock().await;
 
-        // Clean up stale entries (> 15 min = crashed)
-        active.retain(|_, state| state.started_at.elapsed() < Duration::from_secs(900));
+        // Clean up stale entries (> 1 hour = crashed)
+        // Aligned with 900s per-iteration LLM timeout * 5 iterations max.
+        active.retain(|_, state| state.started_at.elapsed() < Duration::from_secs(3600));
 
         if active.contains_key(asset) {
             return false;
@@ -200,6 +201,9 @@ pub async fn run_investigation(
     let mut iteration = 0usize;
     let mut skill_calls = 0usize;
     let mut skill_results: Vec<(String, Value)> = Vec::new();
+    let mut failed_skills: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track the best response from the LLM across iterations (for fallback on max_iterations)
+    let mut best_parsed: Option<(String, f64, Vec<String>)> = None; // (analysis, confidence, correlations)
 
     info!(
         "INVESTIGATION: Starting {} for asset {} ({} findings, score={:.0})",
@@ -244,7 +248,7 @@ pub async fn run_investigation(
 
         // Call L1 LLM
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(300),
+            Duration::from_secs(900),
             crate::agent::react_runner::call_ollama(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -259,8 +263,8 @@ pub async fn run_investigation(
                 return make_error_result(dossier_id, asset, &format!("LLM failed: {e}"), start, iteration, skill_calls);
             }
             Err(_) => {
-                error!("INVESTIGATION: LLM call timed out (300s)");
-                return make_error_result(dossier_id, asset, "LLM timeout 300s", start, iteration, skill_calls);
+                error!("INVESTIGATION: LLM call timed out (900s)");
+                return make_error_result(dossier_id, asset, "LLM timeout 900s", start, iteration, skill_calls);
             }
         };
 
@@ -284,39 +288,57 @@ pub async fn run_investigation(
             parsed.skill_requests.len()
         );
 
-        // LLM wants more info → execute requested skills
-        if parsed.needs_more_info && !parsed.skill_requests.is_empty() {
-            for req in &parsed.skill_requests {
-                if skill_calls >= config.max_skill_calls {
-                    warn!("INVESTIGATION: Max skill calls ({}) reached", config.max_skill_calls);
-                    break;
-                }
+        // Track the best LLM response for fallback (keep highest confidence)
+        if best_parsed.as_ref().map_or(true, |(_, c, _)| parsed.confidence > *c) {
+            best_parsed = Some((parsed.analysis.clone(), parsed.confidence, parsed.correlations.clone()));
+        }
 
-                info!("INVESTIGATION: Calling skill {} ({:?})", req.skill_name, req.params);
-                match tokio::time::timeout(
-                    config.skill_timeout,
-                    execute_investigation_skill(req, &store),
-                )
-                .await
-                {
-                    Ok(result) => {
-                        info!(
-                            "INVESTIGATION: Skill {} → success={} ({}ms)",
-                            result.skill_name, result.success, result.duration_ms
-                        );
-                        skill_results.push((req.skill_name.clone(), result.data));
+        // LLM wants more info → execute requested skills (skip previously failed ones)
+        if parsed.needs_more_info && !parsed.skill_requests.is_empty() {
+            let actionable_requests: Vec<&SkillRequest> = parsed.skill_requests.iter()
+                .filter(|r| !failed_skills.contains(&r.skill_name))
+                .collect();
+
+            if actionable_requests.is_empty() {
+                debug!("INVESTIGATION: All requested skills already failed — skipping re-request, using current analysis");
+                // Don't continue looping — fall through to verdict logic
+            } else {
+                for req in &actionable_requests {
+                    if skill_calls >= config.max_skill_calls {
+                        warn!("INVESTIGATION: Max skill calls ({}) reached", config.max_skill_calls);
+                        break;
                     }
-                    Err(_) => {
-                        warn!("INVESTIGATION: Skill {} timed out", req.skill_name);
-                        skill_results.push((
-                            req.skill_name.clone(),
-                            serde_json::json!({"error": "timeout"}),
-                        ));
+
+                    info!("INVESTIGATION: Calling skill {} ({:?})", req.skill_name, req.params);
+                    match tokio::time::timeout(
+                        config.skill_timeout,
+                        execute_investigation_skill(req, &store),
+                    )
+                    .await
+                    {
+                        Ok(result) => {
+                            info!(
+                                "INVESTIGATION: Skill {} → success={} ({}ms)",
+                                result.skill_name, result.success, result.duration_ms
+                            );
+                            if !result.success {
+                                failed_skills.insert(req.skill_name.clone());
+                            }
+                            skill_results.push((req.skill_name.clone(), result.data));
+                        }
+                        Err(_) => {
+                            warn!("INVESTIGATION: Skill {} timed out", req.skill_name);
+                            failed_skills.insert(req.skill_name.clone());
+                            skill_results.push((
+                                req.skill_name.clone(),
+                                serde_json::json!({"error": "timeout"}),
+                            ));
+                        }
                     }
+                    skill_calls += 1;
                 }
-                skill_calls += 1;
+                continue; // Re-loop with new skill results
             }
-            continue; // Re-loop with new skill results
         }
 
         // Validate severity
@@ -406,14 +428,20 @@ pub async fn run_investigation(
         }
     }
 
-    // Timeout or max iterations without verdict
+    // Timeout or max iterations without verdict — use best LLM response if available
+    let (fallback_analysis, fallback_confidence, fallback_findings) = best_parsed
+        .unwrap_or_else(|| (
+            "Investigation non concluante — timeout ou max itérations atteint".into(),
+            0.4,
+            vec![],
+        ));
     InvestigationResult {
         dossier_id,
         asset,
         verdict: InvestigationVerdict::Inconclusive {
-            analysis: "Investigation non concluante — timeout ou max itérations atteint".into(),
-            confidence: 0.4,
-            partial_findings: vec![],
+            analysis: fallback_analysis,
+            confidence: fallback_confidence,
+            partial_findings: fallback_findings,
         },
         duration_secs: start.elapsed().as_secs(),
         iterations: iteration,

@@ -36,6 +36,15 @@ pub async fn query(store: &dyn Database, cypher: &str) -> Vec<serde_json::Value>
     }
 }
 
+/// Count total nodes in the graph (used to detect a stale empty graph).
+pub async fn count_graph_nodes(store: &dyn Database) -> usize {
+    let results = query(store, "MATCH (n) RETURN count(n) AS cnt").await;
+    results.first()
+        .and_then(|r| r["cnt"].as_u64())
+        .map(|n| n as usize)
+        .unwrap_or(0)
+}
+
 /// Execute a Cypher mutation (CREATE/MERGE) — no return value needed.
 pub async fn mutate(store: &dyn Database, cypher: &str) -> bool {
     match store.execute_cypher(cypher).await {
@@ -72,16 +81,34 @@ pub async fn upsert_ip(store: &dyn Database, addr: &str, country: Option<&str>, 
 }
 
 /// Upsert an Asset node.
+///
+/// Tolerant of legacy IDs that contain spaces or other minor punctuation:
+/// the ID is normalized to a graph-safe form (spaces and forbidden chars
+/// replaced by '-') instead of being rejected. The DB asset row keeps its
+/// original ID, only the graph identifier is normalized.
 pub async fn upsert_asset(store: &dyn Database, id: &str, hostname: &str, asset_type: &str, criticality: &str) {
-    if !validate_id(id) {
-        tracing::warn!("GRAPH: Invalid asset ID, skipping upsert: {}", &id[..id.len().min(40)]);
+    let id_norm = normalize_asset_id(id);
+    if !validate_id(&id_norm) {
+        tracing::warn!("GRAPH: Asset ID still invalid after normalization, skipping: {}", &id[..id.len().min(40)]);
         return;
     }
     let cypher = format!(
         "MERGE (a:Asset {{id: '{}'}}) SET a.hostname = '{}', a.type = '{}', a.criticality = '{}', a.last_seen = '{}' RETURN a",
-        sanitize_cypher_value(id), sanitize_cypher_value(hostname), sanitize_cypher_value(asset_type), sanitize_cypher_value(criticality), chrono::Utc::now().to_rfc3339()
+        sanitize_cypher_value(&id_norm), sanitize_cypher_value(hostname), sanitize_cypher_value(asset_type), sanitize_cypher_value(criticality), chrono::Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
+}
+
+/// Normalize an asset ID for graph use: lowercase + replace whitespace and
+/// disallowed characters by '-'. Keeps a-z, 0-9, '-', '_', '.'.
+fn normalize_asset_id(id: &str) -> String {
+    id.trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string()
 }
 
 /// Upsert a CVE node.
@@ -239,11 +266,20 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
     let known_ips: Vec<String> = asset_ip_map.keys().cloned().collect();
 
     // ── Process alerts — classify IPs and create graph relationships ──
-    // Full scan when assets table is empty (first run), otherwise incremental
-    let force_full = assets.is_empty();
-    let all_alerts = store.list_alerts(None, None, 500, 0).await.unwrap_or_default();
+    // Full scan when:
+    //   - assets table is empty (first run, auto-discovery), OR
+    //   - the graph is suspiciously small (<20 nodes) which usually means
+    //     last_graph_sync drifted ahead of the actual data and the
+    //     incremental filter never matched anything
+    let graph_almost_empty = count_graph_nodes(store).await < 20;
+    let force_full = assets.is_empty() || graph_almost_empty;
+    let all_alerts = store.list_alerts(None, None, 5000, 0).await.unwrap_or_default();
     let alerts: Vec<_> = if force_full {
-        tracing::info!("GRAPH: No assets in DB — running full alert scan for auto-discovery");
+        if graph_almost_empty {
+            tracing::warn!("GRAPH: Graph is nearly empty — forcing full alert rescan to backfill");
+        } else {
+            tracing::info!("GRAPH: No assets in DB — running full alert scan for auto-discovery");
+        }
         all_alerts
     } else {
         all_alerts.into_iter()

@@ -1,0 +1,13 @@
+{
+  "id": "skill-shuffle",
+  "name": "Shuffle SOAR",
+  "description": "Import workflow execution status from Shuffle SOAR",
+  "type": "connector",
+  "category": "soar",
+  "icon": "activity",
+  "config_fields": {
+    "url": {"type": "string", "label": "Shuffle URL", "placeholder": "https://shuffle:3443", "required": true},
+    "api_key": {"type": "password", "label": "API Key", "required": true, "help": "Clé API Shuffle (Settings > Authentication)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

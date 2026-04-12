@@ -105,6 +105,7 @@ services:
       - threatclaw-egress     # Internet (APIs, Telegram, cloud LLM)
       - threatclaw-ollama     # Dedicated Ollama access
       - docker-proxy-net      # Docker socket proxy access
+      - wazuh-net             # Wazuh indexer/manager (external, optional)
     logging: *default-logging
     labels:
       - "com.threatclaw.role=core"
@@ -205,7 +206,7 @@ services:
   # ── Ollama — Local LLM ──────────────────────────────────
   ollama:
     <<: *security-defaults
-    image: ollama/ollama:0.6.2
+    image: ollama/ollama:0.20.2
     cap_add:
       - NET_BIND_SERVICE
     expose:
@@ -214,6 +215,16 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_HOST: "0.0.0.0"
+      # Two slots so L0 (conversation) and L1 (triage) can stay resident
+      # simultaneously. L2/L2.5 evict the LRU slot when they run, then unload
+      # after their own keep_alive (30s, set per-request in call_ollama).
+      OLLAMA_MAX_LOADED_MODELS: "2"
+      OLLAMA_NUM_PARALLEL: "2"
+      # NOTE: OLLAMA_FLASH_ATTENTION + OLLAMA_KV_CACHE_TYPE are intentionally
+      # NOT set. Flash attention on CPU with Gemma 4 causes severe slowdowns
+      # (Ollama issue #15395), and q8_0 KV cache requires flash attention.
+      # Both are safe on modern GPUs but harmful on the older Xeons / Ryzens
+      # typical of SMB deployments.
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
       interval: 10s
@@ -223,8 +234,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 16G
-          cpus: "4.0"
+          memory: 24G
+          cpus: "6.0"
         # GPU acceleration (optional):
         # reservations:
         #   devices:
@@ -402,6 +413,12 @@ services:
 
 # ── Networks ────────────────────────────────────────────────
 # 5 isolated networks — principle of least privilege
+#
+# NDR sources (Zeek, Strelka, Suricata) are NOT bundled here.
+# ThreatClaw receives their data via webhooks — the client installs
+# and operates these tools independently. Configuration guides are
+# available in the Dashboard → Sources page.
+# Reference configs shipped in docker/zeek/ and docker/fluent-bit-zeek.conf.
 networks:
   threatclaw-internal:
     driver: bridge
@@ -416,6 +433,9 @@ networks:
   docker-proxy-net:
     driver: bridge
     internal: true    # No internet — only Core ↔ Docker socket proxy
+  wazuh-net:
+    external: true
+    name: wazuh_wazuh-net   # External Wazuh stack (optional; create empty if absent)
 
 # ── Volumes ─────────────────────────────────────────────────
 volumes:

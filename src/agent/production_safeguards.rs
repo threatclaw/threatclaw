@@ -317,19 +317,48 @@ pub async fn record_verdict_sent(
         .await;
 }
 
-/// Check if an incident notification should be sent (cooldown-based).
-/// Prevents spam when the IE cycle re-investigates the same incident during fast cycles.
+/// Check if an incident notification should be sent.
+///
+/// Uses NotificationSettings from DB for per-severity cooldowns, minimum
+/// severity threshold, quiet-hours gating, and escalation bypass.
+///
+/// Scoped by (asset, verdict_type) — prevents spam when the IE cycle
+/// re-investigates the same recurring pattern on the same asset.
 pub async fn should_notify_incident(
     store: &dyn Database,
-    incident_id: i32,
+    asset: &str,
+    verdict_type: &str,
+    severity: &str,
 ) -> bool {
-    let key = format!("last_incident_notif:{}", incident_id);
+    let settings = crate::agent::notification_router::load_notification_settings(store).await;
+
+    // Gate 1: minimum severity threshold
+    if !settings.severity_meets_threshold(severity) {
+        tracing::debug!("NOTIF_GATE: {} severity {} below threshold {}", asset, severity, settings.min_severity);
+        return false;
+    }
+
+    // Gate 2: quiet hours (if enabled, only let high-enough severity through)
+    if settings.quiet_hours_enabled && is_outside_business_hours(store).await {
+        if !settings.severity_meets_quiet_threshold(severity) {
+            tracing::debug!("NOTIF_GATE: {} suppressed during quiet hours ({})", asset, severity);
+            return false;
+        }
+    }
+
+    // Gate 3: per-severity cooldown
+    let cooldown = settings.cooldown_for_severity(severity);
+    if cooldown == 0 {
+        return false; // 0 = never notify this severity
+    }
+
+    let key = format!("last_incident_notif:{}:{}", asset, verdict_type);
     match store.get_setting("_system", &key).await {
         Ok(Some(prev)) => {
             if let Some(time_str) = prev.as_str() {
                 if let Ok(last_sent) = chrono::DateTime::parse_from_rfc3339(time_str) {
                     let elapsed = (chrono::Utc::now() - last_sent.with_timezone(&chrono::Utc)).num_seconds();
-                    return elapsed > 300; // 5 minutes minimum between notifications
+                    return elapsed > cooldown;
                 }
             }
             true
@@ -338,12 +367,41 @@ pub async fn should_notify_incident(
     }
 }
 
-/// Record that an incident notification was sent.
+/// Check if we're outside business hours (using company_profile).
+async fn is_outside_business_hours(store: &dyn Database) -> bool {
+    if let Ok(Some(profile)) = store.get_setting("_system", "company_profile").await {
+        // business_hours format: {"start": "08:00", "end": "18:00", "timezone": "Europe/Paris"}
+        let start = profile["business_hours"]["start"].as_str().unwrap_or("08:00");
+        let end = profile["business_hours"]["end"].as_str().unwrap_or("18:00");
+        let tz_str = profile["business_hours"]["timezone"].as_str().unwrap_or("Europe/Paris");
+
+        let now_utc = chrono::Utc::now();
+        // Simple offset: Paris = UTC+1 (winter) or UTC+2 (summer). Approximate with +2.
+        let offset_hours: i64 = if tz_str.contains("Paris") || tz_str.contains("Berlin") || tz_str.contains("CET") { 2 } else { 0 };
+        let local_hour = (now_utc.format("%H").to_string().parse::<i64>().unwrap_or(12) + offset_hours) % 24;
+        let local_min = now_utc.format("%M").to_string().parse::<i64>().unwrap_or(0);
+        let local_time = local_hour * 60 + local_min;
+
+        let parse_hm = |s: &str| -> i64 {
+            let parts: Vec<&str> = s.split(':').collect();
+            parts.first().and_then(|h| h.parse::<i64>().ok()).unwrap_or(0) * 60
+                + parts.get(1).and_then(|m| m.parse::<i64>().ok()).unwrap_or(0)
+        };
+
+        let start_min = parse_hm(start);
+        let end_min = parse_hm(end);
+        return local_time < start_min || local_time > end_min;
+    }
+    false // No profile = assume business hours (safe default)
+}
+
+/// Record that an incident notification was sent for (asset, verdict_type).
 pub async fn record_incident_notified(
     store: &dyn Database,
-    incident_id: i32,
+    asset: &str,
+    verdict_type: &str,
 ) {
-    let key = format!("last_incident_notif:{}", incident_id);
+    let key = format!("last_incident_notif:{}:{}", asset, verdict_type);
     let _ = store.set_setting(
         "_system",
         &key,

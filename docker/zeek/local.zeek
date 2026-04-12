@@ -46,33 +46,34 @@ redef LongConnection::default_durations += { 30mins, 1hrs, 4hrs, 12hrs };
 # Anomalous DNS — DNS tunneling, fast flux, C2 communication
 @load anomalous-dns
 
-# ── Optional: File extraction for Strelka scanning (Phase 2) ──
-# Uncomment to extract suspicious file types to disk for malware scanning.
-# Requires Strelka or ClamAV container watching the extract directory.
-#
-# @load base/files/extract-all-files
-# redef FileExtract::prefix = "/opt/zeek/extracted/";
-#
-# event file_sniff(f: fa_file, meta: fa_metadata) {
-#     local dominated_types = set(
-#         "application/x-dosexec",
-#         "application/x-executable",
-#         "application/x-mach-o-executable",
-#         "application/x-msdownload",
-#         "application/msword",
-#         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-#         "application/vnd.ms-excel",
-#         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#         "application/pdf",
-#         "application/zip",
-#         "application/x-rar-compressed",
-#         "application/x-7z-compressed",
-#         "application/javascript",
-#         "application/x-sh",
-#         "application/x-powershell",
-#         "application/hta"
-#     );
-#     if ( meta?$mime_type && meta$mime_type in dominated_types ) {
-#         Files::add_analyzer(f, Files::ANALYZER_EXTRACT);
-#     }
-# }
+# ── File extraction for Strelka scanning ──
+# Extracts suspicious file types to disk for deep malware analysis.
+# Active when using docker compose --profile ndr (Strelka watches the extract dir).
+# Only extracts executables, Office docs, PDFs, archives, scripts — not images/media.
+
+@load base/files/extract-all-files
+redef FileExtract::prefix = "/opt/zeek/extracted/";
+
+event file_sniff(f: fa_file, meta: fa_metadata) {
+    local dominated_types = set(
+        "application/x-dosexec",
+        "application/x-executable",
+        "application/x-mach-o-executable",
+        "application/x-msdownload",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/pdf",
+        "application/zip",
+        "application/x-rar-compressed",
+        "application/x-7z-compressed",
+        "application/javascript",
+        "application/x-sh",
+        "application/x-powershell",
+        "application/hta"
+    );
+    if ( meta?$mime_type && meta$mime_type in dominated_types ) {
+        Files::add_analyzer(f, Files::ANALYZER_EXTRACT);
+    }
+}

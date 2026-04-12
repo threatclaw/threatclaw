@@ -1,0 +1,15 @@
+{
+  "id": "skill-keycloak",
+  "name": "Keycloak IAM",
+  "description": "Import authentication events and admin actions from Keycloak",
+  "type": "connector",
+  "category": "iam",
+  "icon": "lock",
+  "config_fields": {
+    "url": {"type": "string", "label": "Keycloak URL", "placeholder": "https://keycloak:8443", "required": true},
+    "client_id": {"type": "string", "label": "Client ID", "required": true, "help": "Service account client ID (Admin CLI ou custom)"},
+    "client_secret": {"type": "password", "label": "Client Secret", "required": true},
+    "realm": {"type": "string", "label": "Realm", "placeholder": "master", "help": "Realm Keycloak a surveiller"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

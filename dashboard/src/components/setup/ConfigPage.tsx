@@ -65,7 +65,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const [saving, setSaving] = useState(false);
 
   const [llm, setLlm] = useState({ backend: "ollama", url: "http://127.0.0.1:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
-  const [conversational, setConversational] = useState({ source: "disabled" as "disabled" | "local" | "cloud", localModel: "qwen3:14b", cloudBackend: "anthropic", cloudModel: "", cloudApiKey: "", anonymize: true });
+  const [conversational, setConversational] = useState({ source: "disabled" as "disabled" | "local" | "cloud", localModel: "gemma4:26b", cloudBackend: "anthropic", cloudModel: "", cloudApiKey: "", anonymize: true });
   const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
   const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
@@ -790,13 +790,16 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   // AI level definitions — curated model catalog per level with RAM estimates
   const MODEL_CATALOG: Record<string, { value: string; label: string; detail: string; ram?: number }[]> = {
     l0: [
-      { value: "mistral-small:24b", label: "ThreatClaw AI 24B Ops", detail: tr("modelDescMistralSmall", locale), ram: 14 },
-      { value: "qwen3:14b", label: "ThreatClaw AI 14B Ops", detail: tr("modelDescQwen14b", locale), ram: 9.3 },
-      { value: "qwen3:8b", label: "ThreatClaw AI 8B Ops", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
+      { value: "gemma4:26b", label: "Gemma 4 26B MoE", detail: tr("modelDescGemma4_26b", locale), ram: 10 },
+      { value: "mistral-small:24b", label: "Mistral Small 24B", detail: tr("modelDescMistralSmall", locale), ram: 14 },
+      { value: "qwen3:14b", label: "Qwen3 14B", detail: tr("modelDescQwen14b", locale), ram: 9.3 },
+      { value: "gemma4:e4b", label: "Gemma 4 E4B", detail: tr("modelDescGemma4_e4b", locale), ram: 3 },
+      { value: "qwen3:8b", label: "Qwen3 8B", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
     l1: [
       { value: "threatclaw-l1", label: "ThreatClaw AI 8B Triage", detail: tr("modelDescL1", locale), ram: 5.8 },
-      { value: "qwen3:14b", label: "ThreatClaw AI 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
+      { value: "gemma4:e4b", label: "Gemma 4 E4B Triage", detail: tr("modelDescGemma4_e4b_l1", locale), ram: 3 },
+      { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
     ],
     l2: [
       { value: "threatclaw-l2", label: "ThreatClaw AI 8B Reasoning", detail: tr("modelDescL2", locale), ram: 8.5 },
@@ -1474,6 +1477,9 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
         )}
       </ChromeInsetCard>
 
+      {/* Advanced notification settings */}
+      <NotificationSettingsSection inputStyle={inputStyle} labelStyle={labelStyle} />
+
       {/* Explanation */}
       <ChromeInsetCard>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
@@ -1483,6 +1489,211 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
         </div>
       </ChromeInsetCard>
     </>
+  );
+}
+
+// ── Advanced notification settings component ──
+
+function NotificationSettingsSection({ inputStyle, labelStyle }: { inputStyle: React.CSSProperties; labelStyle: React.CSSProperties }) {
+  const locale = useLocale();
+  const [settings, setSettings] = useState({
+    cooldown_critical_secs: 7200,
+    cooldown_high_secs: 43200,
+    cooldown_medium_secs: 86400,
+    cooldown_low_secs: 0,
+    min_severity: "HIGH",
+    remind_unresolved_critical_secs: 14400,
+    remind_unresolved_high_secs: 0,
+    escalation_always_notify: true,
+    quiet_hours_enabled: false,
+    quiet_hours_min_severity: "CRITICAL",
+    daily_digest_enabled: true,
+    daily_digest_time: "08:00",
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/tc/notifications/settings").then(r => r.json()).then(d => {
+      if (d.cooldown_critical_secs !== undefined) setSettings(d);
+    }).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/tc/notifications/settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch { /* */ }
+    setSaving(false);
+  };
+
+  const secsToHours = (secs: number) => secs > 0 ? Math.round(secs / 3600) : 0;
+  const hoursToSecs = (hours: number) => hours * 3600;
+
+  const rowStyle: React.CSSProperties = { display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" };
+  const dotStyle = (color: string): React.CSSProperties => ({ width: "10px", height: "10px", borderRadius: "50%", background: color, boxShadow: `0 0 6px ${color}40`, flexShrink: 0 });
+  const smallInput: React.CSSProperties = { ...inputStyle, width: "70px", textAlign: "center" as const };
+  const toggleStyle = (active: boolean): React.CSSProperties => ({
+    width: "38px", height: "18px", borderRadius: "9px", border: "none", cursor: "pointer",
+    background: active ? "#30a050" : "var(--tc-input)", position: "relative" as const, transition: "all 0.2s",
+  });
+  const toggleDot = (active: boolean): React.CSSProperties => ({
+    position: "absolute" as const, top: "2px", left: active ? "22px" : "2px",
+    width: "14px", height: "14px", borderRadius: "50%", background: "#fff", transition: "left 0.2s",
+  });
+
+  return (
+    <ChromeInsetCard>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 700, marginBottom: "6px", display: "flex", alignItems: "center", gap: "10px" }}>
+        <Settings size={18} color="#d03020" /> {tr("notifSettingsTitle", locale)}
+      </ChromeEmbossedText>
+      <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginBottom: "20px" }}>{tr("notifSettingsDesc", locale)}</div>
+
+      {/* Cooldowns per severity */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ ...labelStyle, marginBottom: "10px" }}>{tr("notifCooldowns", locale)}</div>
+        <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>{tr("notifCooldownDesc", locale)}</div>
+        {([
+          { key: "cooldown_critical_secs" as const, color: "#d03020", label: "CRITICAL" },
+          { key: "cooldown_high_secs" as const, color: "#d09020", label: "HIGH" },
+          { key: "cooldown_medium_secs" as const, color: "#d0c020", label: "MEDIUM" },
+          { key: "cooldown_low_secs" as const, color: "#3080d0", label: "LOW" },
+        ]).map(({ key, color, label }) => (
+          <div key={key} style={rowStyle}>
+            <div style={dotStyle(color)} />
+            <span style={{ fontSize: "12px", fontWeight: 700, width: "70px", color: "var(--tc-text)" }}>{label}</span>
+            {key === "cooldown_low_secs" ? (
+              <GlassSelect value={settings[key] === 0 ? "never" : String(secsToHours(settings[key]))}
+                onChange={v => setSettings(s => ({ ...s, [key]: v === "never" ? 0 : hoursToSecs(parseInt(v)) }))}
+                options={[
+                  { value: "never", label: tr("notifNever", locale) },
+                  { value: "24", label: "24h" }, { value: "48", label: "48h" }, { value: "72", label: "72h" },
+                ]} />
+            ) : (
+              <>
+                <input type="number" min={key === "cooldown_critical_secs" ? 1 : 2} max={72} value={secsToHours(settings[key])}
+                  onChange={e => setSettings(s => ({ ...s, [key]: hoursToSecs(Math.max(1, parseInt(e.target.value) || 1)) }))}
+                  style={smallInput} />
+                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("notifHours", locale)}</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Minimum severity */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ ...labelStyle, marginBottom: "6px" }}>{tr("notifMinSeverity", locale)}</div>
+        <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "8px" }}>{tr("notifMinSeverityDesc", locale)}</div>
+        <GlassSelect value={settings.min_severity}
+          onChange={v => setSettings(s => ({ ...s, min_severity: v }))}
+          options={[
+            { value: "CRITICAL", label: "CRITICAL" },
+            { value: "HIGH", label: "HIGH+" },
+            { value: "MEDIUM", label: "MEDIUM+" },
+            { value: "LOW", label: locale === "fr" ? "Tout" : "All" },
+          ]} />
+      </div>
+
+      {/* Remind if unresolved */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ ...labelStyle, marginBottom: "6px" }}>{tr("notifRemindTitle", locale)}</div>
+        <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>{tr("notifRemindDesc", locale)}</div>
+        {([
+          { key: "remind_unresolved_critical_secs" as const, color: "#d03020", label: "CRITICAL" },
+          { key: "remind_unresolved_high_secs" as const, color: "#d09020", label: "HIGH" },
+        ]).map(({ key, color, label }) => (
+          <div key={key} style={rowStyle}>
+            <div style={dotStyle(color)} />
+            <span style={{ fontSize: "12px", fontWeight: 700, width: "70px", color: "var(--tc-text)" }}>{label}</span>
+            <button style={toggleStyle(settings[key] > 0)}
+              onClick={() => setSettings(s => ({ ...s, [key]: s[key] > 0 ? 0 : (key.includes("critical") ? 14400 : 28800) }))}>
+              <div style={toggleDot(settings[key] > 0)} />
+            </button>
+            {settings[key] > 0 && (
+              <>
+                <input type="number" min={1} max={48} value={secsToHours(settings[key])}
+                  onChange={e => setSettings(s => ({ ...s, [key]: hoursToSecs(Math.max(1, parseInt(e.target.value) || 1)) }))}
+                  style={smallInput} />
+                <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("notifHours", locale)}</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Escalation toggle */}
+      <div style={{ ...rowStyle, marginBottom: "20px" }}>
+        <button style={toggleStyle(settings.escalation_always_notify)}
+          onClick={() => setSettings(s => ({ ...s, escalation_always_notify: !s.escalation_always_notify }))}>
+          <div style={toggleDot(settings.escalation_always_notify)} />
+        </button>
+        <div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{tr("notifEscalation", locale)}</div>
+          <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("notifEscalationDesc", locale)}</div>
+        </div>
+      </div>
+
+      {/* Quiet hours toggle */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ ...rowStyle, marginBottom: "8px" }}>
+          <button style={toggleStyle(settings.quiet_hours_enabled)}
+            onClick={() => setSettings(s => ({ ...s, quiet_hours_enabled: !s.quiet_hours_enabled }))}>
+            <div style={toggleDot(settings.quiet_hours_enabled)} />
+          </button>
+          <div>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{tr("notifQuietHours", locale)}</div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("notifQuietHoursDesc", locale)}</div>
+          </div>
+        </div>
+        {settings.quiet_hours_enabled && (
+          <div style={{ ...rowStyle, paddingLeft: "50px" }}>
+            <span style={{ fontSize: "12px", color: "var(--tc-text)" }}>{tr("notifQuietMinSeverity", locale)}</span>
+            <GlassSelect value={settings.quiet_hours_min_severity}
+              onChange={v => setSettings(s => ({ ...s, quiet_hours_min_severity: v }))}
+              options={[
+                { value: "CRITICAL", label: "CRITICAL" },
+                { value: "HIGH", label: "HIGH+" },
+              ]} />
+          </div>
+        )}
+      </div>
+
+      {/* Daily digest */}
+      <div style={{ marginBottom: "20px" }}>
+        <div style={{ ...rowStyle, marginBottom: "8px" }}>
+          <button style={toggleStyle(settings.daily_digest_enabled)}
+            onClick={() => setSettings(s => ({ ...s, daily_digest_enabled: !s.daily_digest_enabled }))}>
+            <div style={toggleDot(settings.daily_digest_enabled)} />
+          </button>
+          <div>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{tr("notifDigestTitle", locale)}</div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>{tr("notifDigestDesc", locale)}</div>
+          </div>
+        </div>
+        {settings.daily_digest_enabled && (
+          <div style={{ ...rowStyle, paddingLeft: "50px" }}>
+            <span style={{ fontSize: "12px", color: "var(--tc-text)" }}>{tr("notifDigestTime", locale)}</span>
+            <input type="time" value={settings.daily_digest_time}
+              onChange={e => setSettings(s => ({ ...s, daily_digest_time: e.target.value }))}
+              style={{ ...smallInput, width: "100px" }} />
+          </div>
+        )}
+      </div>
+
+      {/* Save */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <ChromeButton onClick={save} disabled={saving} variant="primary" style={{ minWidth: "140px" }}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
+          {saved ? `${tr("save", locale)} ✓` : tr("save", locale)}
+        </ChromeButton>
+      </div>
+    </ChromeInsetCard>
   );
 }
 
@@ -2379,6 +2590,9 @@ function BackupTab() {
         )}
       </ChromeInsetCard>
 
+      {/* Auto backups section */}
+      <AutoBackupSection />
+
       <ChromeInsetCard style={{ marginTop: "16px" }}>
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Mises à jour</ChromeEmbossedText>
 
@@ -2414,5 +2628,195 @@ function BackupTab() {
         </div>
       </ChromeInsetCard>
     </>
+  );
+}
+
+// ── Auto backup section: schedule, retention, list, manual trigger ──
+
+interface BackupInfo { name: string; size_bytes: number; created_at: string; }
+interface BackupSettings {
+  auto_enabled: boolean;
+  auto_time: string;
+  retention_count: number;
+  external_path: string;
+}
+
+function AutoBackupSection() {
+  const [settings, setSettings] = useState<BackupSettings>({
+    auto_enabled: true,
+    auto_time: "02:00",
+    retention_count: 7,
+    external_path: "",
+  });
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const loadBackups = () => {
+    fetch("/api/tc/backups").then(r => r.json()).then(d => setBackups(d.backups || [])).catch(() => {});
+  };
+
+  useEffect(() => {
+    fetch("/api/tc/backups/settings").then(r => r.json()).then(d => {
+      if (d.auto_enabled !== undefined) setSettings(d);
+    }).catch(() => {});
+    loadBackups();
+  }, []);
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      await fetch("/api/tc/backups/settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: any) {
+      setMessage("Erreur enregistrement: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  const createNow = async () => {
+    setCreating(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/tc/backups/create", { method: "POST" });
+      if (res.ok) {
+        const info = await res.json();
+        setMessage(`Sauvegarde créée : ${info.name} (${(info.size_bytes / 1024).toFixed(0)} KB)`);
+        loadBackups();
+      } else {
+        const err = await res.text();
+        setMessage("Erreur création: " + err);
+      }
+    } catch (e: any) {
+      setMessage("Erreur création: " + e.message);
+    }
+    setCreating(false);
+  };
+
+  const downloadBackup = (name: string) => {
+    const a = document.createElement("a");
+    a.href = `/api/tc/backups/download/${encodeURIComponent(name)}`;
+    a.download = name;
+    a.click();
+  };
+
+  const deleteBackup = async (name: string) => {
+    if (!confirm(`Supprimer la sauvegarde ${name} ?`)) return;
+    try {
+      await fetch(`/api/tc/backups/${encodeURIComponent(name)}`, { method: "DELETE" });
+      loadBackups();
+    } catch (e: any) {
+      setMessage("Erreur suppression: " + e.message);
+    }
+  };
+
+  const fmtSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+  const fmtDate = (iso: string) => {
+    try { return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }); }
+    catch { return iso; }
+  };
+
+  return (
+    <ChromeInsetCard style={{ marginTop: "16px" }}>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Sauvegardes automatiques</ChromeEmbossedText>
+      <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
+        Sauvegarde quotidienne complète de la base : config, assets, incidents, alertes, ML scores. Stockée dans <code style={{ fontFamily: "monospace", fontSize: "10px" }}>/app/data/backups</code> par défaut. Pour un stockage externe, montez un volume Docker vers ce chemin.
+      </p>
+
+      {/* Settings form */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--tc-text)", cursor: "pointer" }}>
+          <input type="checkbox" checked={settings.auto_enabled}
+            onChange={e => setSettings(s => ({ ...s, auto_enabled: e.target.checked }))} />
+          Activer la sauvegarde quotidienne
+        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
+          <span style={{ color: "var(--tc-text-muted)" }}>Heure (UTC) :</span>
+          <input type="time" value={settings.auto_time}
+            onChange={e => setSettings(s => ({ ...s, auto_time: e.target.value }))}
+            style={{ padding: "4px 8px", fontSize: "12px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
+          <span style={{ color: "var(--tc-text-muted)" }}>Rétention :</span>
+          <input type="number" min={1} max={90} value={settings.retention_count}
+            onChange={e => setSettings(s => ({ ...s, retention_count: parseInt(e.target.value) || 7 }))}
+            style={{ padding: "4px 8px", fontSize: "12px", width: "60px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
+          <span style={{ color: "var(--tc-text-muted)" }}>sauvegardes</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", gridColumn: "1 / -1" }}>
+          <span style={{ color: "var(--tc-text-muted)", whiteSpace: "nowrap" }}>Chemin externe (optionnel) :</span>
+          <input type="text" value={settings.external_path} placeholder="/mnt/nas/threatclaw-backups"
+            onChange={e => setSettings(s => ({ ...s, external_path: e.target.value }))}
+            style={{ flex: 1, padding: "4px 8px", fontSize: "11px", fontFamily: "monospace", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+        <button onClick={saveSettings} disabled={saving} style={{
+          padding: "8px 14px", fontSize: "11px", fontWeight: 700, fontFamily: "inherit",
+          cursor: "pointer", background: saved ? "#30a050" : "var(--tc-red)", color: "#fff",
+          border: "none", borderRadius: "var(--tc-radius-sm)",
+        }}>
+          {saving ? "..." : saved ? "Enregistré ✓" : "Enregistrer les paramètres"}
+        </button>
+        <button onClick={createNow} disabled={creating} style={{
+          padding: "8px 14px", fontSize: "11px", fontWeight: 700, fontFamily: "inherit",
+          cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
+          border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+        }}>
+          {creating ? "Création..." : "Lancer une sauvegarde maintenant"}
+        </button>
+      </div>
+
+      {message && (
+        <div style={{ padding: "8px 12px", borderRadius: "var(--tc-radius-sm)", marginBottom: "12px",
+          background: message.startsWith("Erreur") ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
+          color: message.startsWith("Erreur") ? "#d03020" : "#30a050", fontSize: "11px" }}>
+          {message}
+        </div>
+      )}
+
+      {/* Backup list */}
+      <div style={{ marginTop: "12px" }}>
+        <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
+          Sauvegardes existantes ({backups.length})
+        </div>
+        {backups.length === 0 ? (
+          <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", padding: "12px", textAlign: "center", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
+            Aucune sauvegarde pour le moment. Lancez-en une manuellement ou attendez l'heure programmée.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "240px", overflowY: "auto" }}>
+            {backups.map(b => (
+              <div key={b.name} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px",
+                background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)", fontSize: "11px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "monospace", color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</div>
+                  <div style={{ color: "var(--tc-text-muted)", fontSize: "10px" }}>{fmtDate(b.created_at)}{fmtSize(b.size_bytes)}</div>
+                </div>
+                <button onClick={() => downloadBackup(b.name)} style={{
+                  padding: "4px 10px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
+                  background: "var(--tc-red)", color: "#fff", border: "none", borderRadius: "var(--tc-radius-sm)",
+                }}>Télécharger</button>
+                <button onClick={() => deleteBackup(b.name)} style={{
+                  padding: "4px 10px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
+                  background: "transparent", color: "var(--tc-text-muted)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                }}>Supprimer</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </ChromeInsetCard>
   );
 }

@@ -24,6 +24,113 @@ impl Default for NotificationRouting {
     }
 }
 
+/// Advanced notification settings — configurable by the RSSI in Config > Notifications.
+/// Controls cooldowns, severity threshold, reminders, escalation, quiet hours, and digest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationSettings {
+    /// Per-severity cooldown in seconds. Same asset + same verdict_type won't re-notify
+    /// within this window. CRITICAL is shorter so urgent issues get attention.
+    pub cooldown_critical_secs: i64,
+    pub cooldown_high_secs: i64,
+    pub cooldown_medium_secs: i64,
+    /// LOW incidents: 0 = never notify (dashboard only).
+    pub cooldown_low_secs: i64,
+
+    /// Minimum severity to send a notification. "HIGH" = HIGH+CRITICAL, "CRITICAL" = CRITICAL only.
+    pub min_severity: String,
+
+    /// Re-notify if a CRITICAL incident is still unresolved after this many seconds. 0 = off.
+    pub remind_unresolved_critical_secs: i64,
+    /// Re-notify if a HIGH incident is still unresolved after this many seconds. 0 = off.
+    pub remind_unresolved_high_secs: i64,
+
+    /// If true, a severity escalation (e.g. HIGH → CRITICAL) bypasses the cooldown.
+    pub escalation_always_notify: bool,
+
+    /// If true, only CRITICAL notifications are sent outside business hours.
+    /// Business hours are read from company_profile.business_hours.
+    pub quiet_hours_enabled: bool,
+    /// Minimum severity during quiet hours. Default: "CRITICAL".
+    pub quiet_hours_min_severity: String,
+
+    /// Daily digest: sends a summary at a fixed time.
+    pub daily_digest_enabled: bool,
+    /// Digest time in "HH:MM" format (UTC).
+    pub daily_digest_time: String,
+}
+
+impl Default for NotificationSettings {
+    fn default() -> Self {
+        Self {
+            cooldown_critical_secs: 2 * 3600,       // 2h
+            cooldown_high_secs: 12 * 3600,           // 12h
+            cooldown_medium_secs: 24 * 3600,         // 24h
+            cooldown_low_secs: 0,                    // never
+
+            min_severity: "HIGH".into(),             // HIGH + CRITICAL
+
+            remind_unresolved_critical_secs: 4 * 3600, // 4h
+            remind_unresolved_high_secs: 0,            // off
+
+            escalation_always_notify: true,
+
+            quiet_hours_enabled: false,
+            quiet_hours_min_severity: "CRITICAL".into(),
+
+            daily_digest_enabled: true,
+            daily_digest_time: "08:00".into(),
+        }
+    }
+}
+
+impl NotificationSettings {
+    /// Get the cooldown for a given severity string.
+    pub fn cooldown_for_severity(&self, severity: &str) -> i64 {
+        match severity.to_uppercase().as_str() {
+            "CRITICAL" => self.cooldown_critical_secs,
+            "HIGH" => self.cooldown_high_secs,
+            "MEDIUM" => self.cooldown_medium_secs,
+            "LOW" => self.cooldown_low_secs,
+            _ => self.cooldown_high_secs,
+        }
+    }
+
+    /// Check if a severity level meets the minimum notification threshold.
+    pub fn severity_meets_threshold(&self, severity: &str) -> bool {
+        let order = |s: &str| match s.to_uppercase().as_str() {
+            "CRITICAL" => 4, "HIGH" => 3, "MEDIUM" => 2, "LOW" => 1, _ => 0,
+        };
+        order(severity) >= order(&self.min_severity)
+    }
+
+    /// Check if a severity level meets the quiet-hours threshold.
+    pub fn severity_meets_quiet_threshold(&self, severity: &str) -> bool {
+        let order = |s: &str| match s.to_uppercase().as_str() {
+            "CRITICAL" => 4, "HIGH" => 3, "MEDIUM" => 2, "LOW" => 1, _ => 0,
+        };
+        order(severity) >= order(&self.quiet_hours_min_severity)
+    }
+}
+
+const NOTIFICATION_SETTINGS_KEY: &str = "tc_config_notification_settings";
+
+/// Load notification settings from DB, or use defaults.
+pub async fn load_notification_settings(store: &dyn Database) -> NotificationSettings {
+    if let Ok(Some(val)) = store.get_setting("_system", NOTIFICATION_SETTINGS_KEY).await {
+        if let Ok(settings) = serde_json::from_value(val) {
+            return settings;
+        }
+    }
+    NotificationSettings::default()
+}
+
+/// Save notification settings to DB.
+pub async fn save_notification_settings(store: &dyn Database, settings: &NotificationSettings) -> Result<(), String> {
+    let val = serde_json::to_value(settings).map_err(|e| e.to_string())?;
+    store.set_setting("_system", NOTIFICATION_SETTINGS_KEY, &val).await
+        .map_err(|e| e.to_string())
+}
+
 /// Load notification routing config from DB, or use defaults.
 pub async fn load_routing(store: &dyn Database) -> NotificationRouting {
     if let Ok(Some(val)) = store.get_setting("_system", "tc_config_notification_routing").await {
@@ -89,7 +196,13 @@ pub async fn route_notification(
     results
 }
 
-/// See ADR-043: Route an incident notification with HITL inline buttons.
+/// See ADR-043: Route an incident notification.
+///
+/// HITL model (Option A, 2026-04-10): no inline buttons. The message contains
+/// a concrete description (IP, rule, tool) and numbered actions. The RSSI
+/// replies with "1", "2", "3", "ignore", or a free-form command in the same
+/// chat, and the conversational bot (L0) routes the response to the right
+/// remediation action. This prevents destructive one-click mistakes.
 pub async fn route_incident_notification(
     store: &dyn Database,
     incident_id: i32,
@@ -99,10 +212,49 @@ pub async fn route_incident_notification(
     severity: &str,
     alert_count: i32,
 ) -> Vec<(String, Result<(), String>)> {
+    let _ = title; // title is now derived from asset + verdict inside the summary
     let routing = load_routing(store).await;
     let configured = get_configured_channels(store).await;
     let channels = &routing.alert;
 
+    // Build the rich message once, reused across channels
+    let text = build_incident_message(
+        store, incident_id, asset, summary, severity, alert_count,
+    ).await;
+
+    let dashboard_url = get_channel_field(store, "general", "dashboardUrl").await
+        .unwrap_or_else(|| "https://your-threatclaw/incidents".into());
+    let text_with_link = format!("{}\n\n🔗 Dashboard : {}", text, dashboard_url);
+
+    let mut results = vec![];
+    for channel in channels {
+        if !configured.contains(channel) { continue; }
+
+        // Plain text on every channel — no inline buttons.
+        // The RSSI replies in the same chat; conversational_bot parses the response.
+        let result = send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await;
+
+        if let Err(ref e) = result {
+            tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
+        } else {
+            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {} (plain, actions inline)", incident_id, channel);
+            // Remember which incident the user is now expected to reply about (per channel).
+            remember_pending_incident(store, channel, incident_id).await;
+        }
+        results.push((channel.clone(), result));
+    }
+    results
+}
+
+/// Build a rich incident message with concrete IOCs and numbered actions.
+async fn build_incident_message(
+    store: &dyn Database,
+    incident_id: i32,
+    asset: &str,
+    summary: &str,
+    severity: &str,
+    alert_count: i32,
+) -> String {
     let summary_clean = if summary.is_empty() { "Investigation en cours...".to_string() }
         else { summary.replace("Confirmed { ", "").replace(" }", "").replace('"', "") };
 
@@ -113,48 +265,75 @@ pub async fn route_incident_notification(
         _ => "🔵",
     };
 
-    let text = format!(
+    // Try to extract a concrete attacker IP so the RSSI sees exactly what will happen
+    let attacker_ip = crate::agent::remediation_engine::extract_attacker_ip(
+        store, asset, incident_id,
+    ).await;
+
+    // Detect which connectors are configured (to name them in the proposals)
+    let fw_info = crate::agent::remediation_engine::load_firewall_config(store).await
+        .map(|(ty, _url, _u, _s, _no_tls)| ty);
+    let glpi_configured = crate::agent::remediation_engine::load_glpi_config(store).await.is_some();
+
+    // Build numbered proposals
+    let mut actions: Vec<String> = Vec::new();
+    match (&attacker_ip, &fw_info) {
+        (Some(ip), Some(fw)) => {
+            actions.push(format!("Bloquer {} sur {} (règle ThreatClaw auto, réversible)", ip, fw));
+        }
+        (Some(ip), None) => {
+            actions.push(format!("Bloquer {} — ⚠️ aucun firewall (pfSense/OPNsense) configuré", ip));
+        }
+        (None, _) => {
+            actions.push("Bloquer l'IP source — ⚠️ IP attaquante introuvable dans les alertes".into());
+        }
+    }
+    if glpi_configured {
+        actions.push(format!("Créer un ticket GLPI pour l'incident #{}", incident_id));
+    } else {
+        actions.push("Créer un ticket GLPI — ⚠️ connecteur non configuré".into());
+    }
+    actions.push("Marquer comme faux positif (clôt l'incident)".into());
+
+    let actions_block = actions.iter().enumerate()
+        .map(|(i, a)| format!("  {}. {}", i + 1, a))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
         "{icon} INCIDENT #{id} — {sev}\n\
          ━━━━━━━━━━━━━━━━━━━━━━\n\
          Asset : {asset}\n\
          Alertes : {count}\n\
+         {ip_line}\
          ━━━━━━━━━━━━━━━━━━━━━━\n\n\
-         {summary}",
+         {summary}\n\n\
+         💡 Actions proposées :\n\
+         {actions}\n\n\
+         Réponds : \"1\", \"2\", \"3\", \"ignore\", ou une commande libre.",
         icon = severity_icon,
         id = incident_id,
         sev = severity,
         asset = asset,
         count = alert_count,
+        ip_line = attacker_ip.as_ref().map(|ip| format!("Source   : {}\n", ip)).unwrap_or_default(),
         summary = summary_clean,
-    );
+        actions = actions_block,
+    )
+}
 
-    // Get dashboard URL for channels without interactive buttons
-    let dashboard_url = get_channel_field(store, "general", "dashboardUrl").await
-        .unwrap_or_else(|| "https://your-threatclaw/incidents".into());
-    let text_with_link = format!("{}\n\n→ Repondre: {}", text, dashboard_url);
-
-    let mut results = vec![];
-    for channel in channels {
-        if !configured.contains(channel) { continue; }
-
-        // See ADR-044: send with HITL buttons where supported, text+link otherwise
-        let result = match channel.as_str() {
-            "telegram" => send_telegram_with_buttons(store, &text, incident_id).await,
-            "slack" => send_slack_with_buttons(store, &text, incident_id).await,
-            "mattermost" => send_mattermost_with_buttons(store, &text, incident_id).await,
-            "ntfy" => send_ntfy_with_buttons(store, &text, incident_id).await,
-            "discord" => send_discord_with_buttons(store, &text, incident_id).await,
-            _ => send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await,
-        };
-
-        if let Err(ref e) = result {
-            tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
-        } else {
-            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {} (with HITL buttons)", incident_id, channel);
-        }
-        results.push((channel.clone(), result));
-    }
-    results
+/// Remember the incident that the RSSI is now expected to reply about, per channel.
+/// Used by conversational_bot to route "1"/"2"/"3" responses to the right incident.
+async fn remember_pending_incident(store: &dyn Database, channel: &str, incident_id: i32) {
+    let key = format!("pending_incident:{}", channel);
+    let _ = store.set_setting(
+        "_system",
+        &key,
+        &serde_json::json!({
+            "incident_id": incident_id,
+            "at": chrono::Utc::now().to_rfc3339(),
+        }),
+    ).await;
 }
 
 /// Truncate text to Telegram's 4096 char limit, preserving UTF-8 boundaries.
@@ -169,167 +348,6 @@ fn truncate_for_telegram(text: &str) -> String {
         end -= 1;
     }
     format!("{}\n\n[... tronqué]", &text[..end])
-}
-
-/// Send Telegram message with inline HITL buttons for an incident.
-async fn send_telegram_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
-    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
-        .ok_or("Telegram token not configured")?;
-    let chat_id = get_channel_field(store, "telegram", "chatId").await
-        .ok_or("Telegram chat_id not configured")?;
-
-    let keyboard = json!({
-        "inline_keyboard": [[
-            { "text": "✅ Remédier", "callback_data": format!("incident_{}_approve", incident_id) },
-            { "text": "❌ Faux positif", "callback_data": format!("incident_{}_reject", incident_id) },
-            { "text": "🔍 Investiguer", "callback_data": format!("incident_{}_investigate", incident_id) },
-        ]]
-    });
-
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| e.to_string())?
-        .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
-        .json(&json!({
-            "chat_id": chat_id.trim(),
-            "text": truncate_for_telegram(text),
-            "reply_markup": keyboard,
-        }))
-        .send().await.map_err(|e| e.to_string())?;
-
-    let status = resp.status();
-    if status.is_success() { Ok(()) }
-    else {
-        let body = resp.text().await.unwrap_or_default();
-        Err(format!("Telegram HTTP {}: {}", status, body.chars().take(200).collect::<String>()))
-    }
-}
-
-/// Send Slack message with Block Kit HITL buttons for an incident.
-async fn send_slack_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
-    let token = get_channel_field(store, "slack", "botToken").await
-        .ok_or("Slack bot token not configured")?;
-    let channel = get_channel_field(store, "slack", "channel").await
-        .unwrap_or("#general".into());
-
-    // Get callback URL for button actions
-    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
-        .unwrap_or("http://localhost:3000".into());
-
-    let blocks = json!([
-        { "type": "section", "text": { "type": "mrkdwn", "text": text } },
-        { "type": "actions", "elements": [
-            { "type": "button", "text": { "type": "plain_text", "text": "Remedier" }, "style": "danger",
-              "url": format!("{}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=slack", callback_url, incident_id) },
-            { "type": "button", "text": { "type": "plain_text", "text": "Faux positif" },
-              "url": format!("{}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=slack", callback_url, incident_id) },
-            { "type": "button", "text": { "type": "plain_text", "text": "Investiguer" },
-              "url": format!("{}/api/tc/incidents/{}/hitl?response=investigate_more&responded_by=slack", callback_url, incident_id) },
-        ]}
-    ]);
-
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| e.to_string())?
-        .post("https://slack.com/api/chat.postMessage")
-        .header("Authorization", format!("Bearer {}", token))
-        .json(&json!({ "channel": channel, "text": text, "blocks": blocks }))
-        .send().await.map_err(|e| e.to_string())?;
-
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Slack HTTP {}", resp.status())) }
-}
-
-/// Send Mattermost message with interactive buttons for an incident.
-async fn send_mattermost_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
-    let webhook_url = get_channel_field(store, "mattermost", "webhookUrl").await
-        .ok_or("Mattermost webhook not configured")?;
-    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
-        .unwrap_or("http://localhost:3000".into());
-
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| e.to_string())?
-        .post(&webhook_url)
-        .json(&json!({
-            "text": text,
-            "attachments": [{
-                "actions": [
-                    { "name": "Remedier", "type": "button", "style": "danger",
-                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
-                                       "context": { "response": "approve_remediate", "responded_by": "mattermost" } } },
-                    { "name": "Faux positif", "type": "button",
-                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
-                                       "context": { "response": "false_positive", "responded_by": "mattermost" } } },
-                    { "name": "Investiguer", "type": "button",
-                      "integration": { "url": format!("{}/api/tc/incidents/{}/hitl", callback_url, incident_id),
-                                       "context": { "response": "investigate_more", "responded_by": "mattermost" } } },
-                ]
-            }]
-        }))
-        .send().await.map_err(|e| e.to_string())?;
-
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Mattermost HTTP {}", resp.status())) }
-}
-
-/// Send Discord message with button components for an incident.
-async fn send_discord_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
-    let webhook_url = get_channel_field(store, "discord", "botToken").await
-        .ok_or("Discord webhook not configured")?;
-    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
-        .unwrap_or("http://localhost:3000".into());
-
-    // Discord webhooks don't support interactive buttons — use link buttons
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| e.to_string())?
-        .post(&webhook_url)
-        .json(&json!({
-            "content": text,
-            "username": "ThreatClaw",
-            "components": [{
-                "type": 1,
-                "components": [
-                    { "type": 2, "style": 5, "label": "Remedier",
-                      "url": format!("{}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=discord", callback_url, incident_id) },
-                    { "type": 2, "style": 5, "label": "Faux positif",
-                      "url": format!("{}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=discord", callback_url, incident_id) },
-                    { "type": 2, "style": 5, "label": "Dashboard",
-                      "url": format!("{}/incidents", callback_url) },
-                ]
-            }]
-        }))
-        .send().await.map_err(|e| e.to_string())?;
-
-    if resp.status().is_success() || resp.status().as_u16() == 204 { Ok(()) }
-    else { Err(format!("Discord HTTP {}", resp.status())) }
-}
-
-/// Send Ntfy notification with HTTP action buttons for an incident.
-async fn send_ntfy_with_buttons(store: &dyn Database, text: &str, incident_id: i32) -> Result<(), String> {
-    let server = get_channel_field(store, "ntfy", "server").await.unwrap_or("https://ntfy.sh".into());
-    let topic = get_channel_field(store, "ntfy", "topic").await
-        .ok_or("Ntfy topic not configured")?;
-    let callback_url = get_channel_field(store, "general", "dashboardUrl").await
-        .unwrap_or("http://localhost:3000".into());
-
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| e.to_string())?
-        .post(format!("{}/{}", server, topic))
-        .header("Title", format!("Incident #{}", incident_id))
-        .header("Priority", "urgent")
-        .header("Tags", "rotating_light,shield")
-        .header("Actions", format!(
-            "http, Remedier, {}/api/tc/incidents/{}/hitl?response=approve_remediate&responded_by=ntfy, method=POST; http, Faux positif, {}/api/tc/incidents/{}/hitl?response=false_positive&responded_by=ntfy, method=POST; view, Dashboard, {}/incidents",
-            callback_url, incident_id, callback_url, incident_id, callback_url
-        ))
-        .body(text.to_string())
-        .send().await.map_err(|e| e.to_string())?;
-
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Ntfy HTTP {}", resp.status())) }
 }
 
 /// Get list of channels that have been configured (have tokens/URLs).
@@ -570,7 +588,10 @@ use crate::agent::incident_dossier::IncidentDossier;
 use crate::agent::verdict::InvestigationResult;
 
 /// Route a notification based on an investigation verdict.
-/// For HIGH/CRITICAL incidents, sends with HITL buttons so the RSSI can act directly.
+///
+/// For HIGH/CRITICAL incidents with a valid incident_id, the IE already sent
+/// the notification via route_incident_notification() with HITL actions.
+/// This function only handles the low-severity fallback (LOW/MEDIUM plain digest).
 pub async fn route_verdict_notification(
     store: &dyn Database,
     result: &InvestigationResult,
@@ -582,17 +603,10 @@ pub async fn route_verdict_notification(
         None => return vec![],
     };
 
-    // Use HITL buttons for confirmed HIGH/CRITICAL incidents
+    // HIGH/CRITICAL incidents are already handled by route_incident_notification
+    // in the IE pipeline. Skip here to avoid double-sending.
     if incident_id > 0 && matches!(result.verdict.severity(), "CRITICAL" | "HIGH") {
-        return route_incident_notification(
-            store,
-            incident_id,
-            &result.asset,
-            &format!("{} — {}", result.asset, result.verdict.verdict_type()),
-            &message,
-            result.verdict.severity(),
-            dossier.findings.len() as i32,
-        ).await;
+        return vec![];
     }
 
     let level = match result.verdict.severity() {

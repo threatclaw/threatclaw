@@ -58,10 +58,13 @@ __pycache__/
 *.pyo
 *.pyd
 .internal/
-# ML models (generated, not committed)
+# ML models and training artifacts (generated, not committed)
 ml-engine/models/
+ml-engine/datasets/
 /tmp/ml-models/
 *.pkl
+*.onnx
+*.onnx.data
 
 # Next.js build
 dashboard/.next/

@@ -1,0 +1,14 @@
+{
+  "id": "skill-veeam",
+  "name": "Veeam Backup",
+  "description": "Monitor backup jobs and malware detection from Veeam Backup & Replication",
+  "type": "connector",
+  "category": "backup",
+  "icon": "hard-drive",
+  "config_fields": {
+    "url": {"type": "string", "label": "Veeam URL", "placeholder": "https://veeam:9419", "required": true},
+    "username": {"type": "string", "label": "Username", "placeholder": "DOMAIN\\admin", "required": true},
+    "password": {"type": "password", "label": "Password", "required": true},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

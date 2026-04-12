@@ -248,6 +248,15 @@ pub fn spawn_telegram_bot(
 
                 if is_confirmation {
                     handle_confirmation(&token, &chat_id, text, &store, &state).await;
+                } else if let Some(incident_id) = pending_incident_for_channel(&store, "telegram").await {
+                    // An incident notification is awaiting a reply. Try to route this message
+                    // as an incident response ("1", "2", "3", "ignore", ...). If it doesn't
+                    // match a numbered action, fall back to the normal command handler so the
+                    // user can still chat / run other commands freely.
+                    if handle_incident_reply(&token, &chat_id, text, incident_id, &store).await {
+                        continue;
+                    }
+                    handle_new_command(&token, &chat_id, text, &store, &state).await;
                 } else {
                     handle_new_command(&token, &chat_id, text, &store, &state).await;
                 }
@@ -262,6 +271,94 @@ pub fn spawn_telegram_bot(
         }
         // end of loop
     })
+}
+
+/// Return the incident_id that's currently awaiting a reply on a given channel,
+/// if any was sent within the last 30 minutes. After 30 min the "pending" context
+/// expires and a new incident becomes the active one.
+async fn pending_incident_for_channel(store: &Arc<dyn Database>, channel: &str) -> Option<i32> {
+    let key = format!("pending_incident:{}", channel);
+    let val = store.get_setting("_system", &key).await.ok()??;
+    let id = val.get("incident_id").and_then(|v| v.as_i64())? as i32;
+    let at_str = val.get("at").and_then(|v| v.as_str())?;
+    let at = chrono::DateTime::parse_from_rfc3339(at_str).ok()?;
+    let age = (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_seconds();
+    if age > 30 * 60 { return None; }
+    Some(id)
+}
+
+/// Clear the pending incident marker for a channel (after the user has replied).
+async fn clear_pending_incident(store: &Arc<dyn Database>, channel: &str) {
+    let key = format!("pending_incident:{}", channel);
+    let _ = store.set_setting("_system", &key, &serde_json::Value::Null).await;
+}
+
+/// Try to route the user reply as a numbered incident action (1/2/3/ignore).
+/// Returns true if the reply was handled as an incident action, false otherwise
+/// (in which case the caller should fall back to normal command handling).
+async fn handle_incident_reply(
+    token: &str,
+    chat_id: &str,
+    text: &str,
+    incident_id: i32,
+    store: &Arc<dyn Database>,
+) -> bool {
+    let trimmed = text.trim().to_lowercase();
+
+    // Recognise the numbered shortcuts (and a few natural-language equivalents)
+    let action = match trimmed.as_str() {
+        "1" | "oui" | "ok" | "go" | "bloque" | "bloquer" | "block" => "approve_remediate",
+        "2" | "ticket" | "glpi" => "create_ticket",
+        "3" | "fp" | "faux" | "faux positif" | "false positive" | "false_positive" => "false_positive",
+        "ignore" | "non" | "no" | "skip" | "plus tard" => "ignore",
+        _ => return false, // Not a numbered reply — let the normal command handler take it
+    };
+
+    // Acknowledge immediately so the user sees the bot reacted
+    let ack = match action {
+        "approve_remediate" => format!("⏳ Incident #{} — exécution de la remédiation en cours…", incident_id),
+        "create_ticket" => format!("⏳ Incident #{} — création du ticket GLPI…", incident_id),
+        "false_positive" => format!("✅ Incident #{} marqué faux positif, clôturé.", incident_id),
+        "ignore" => format!("👌 Incident #{} ignoré. Il reste ouvert dans le dashboard.", incident_id),
+        _ => format!("⏳ Incident #{}…", incident_id),
+    };
+    send_telegram(token, chat_id, &ack).await;
+
+    // Clear the pending marker so subsequent messages go through the normal flow
+    clear_pending_incident(store, "telegram").await;
+
+    // Update incident HITL status (audit trail)
+    let _ = store.update_incident_hitl(incident_id, "responded", "telegram", action).await;
+
+    // Execute the action (best effort — never block the bot)
+    let result_msg: String = match action {
+        "approve_remediate" => {
+            let (ok, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+                store.clone(), incident_id, "approve_remediate"
+            ).await;
+            if ok { format!("✅ Remédiation OK : {}", msg) }
+            else { format!("❌ Remédiation échouée : {}", msg) }
+        }
+        "create_ticket" => {
+            let (ok, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+                store.clone(), incident_id, "create_ticket"
+            ).await;
+            if ok { format!("✅ Ticket créé : {}", msg) }
+            else { format!("❌ Échec création ticket : {}", msg) }
+        }
+        "false_positive" => {
+            let _ = store.update_incident_status(incident_id, "closed").await;
+            format!("Incident #{} clôturé (false positive).", incident_id)
+        }
+        "ignore" => format!("Incident #{} laissé ouvert.", incident_id),
+        _ => String::new(),
+    };
+
+    if !result_msg.is_empty() && !matches!(action, "ignore") {
+        send_telegram(token, chat_id, &result_msg).await;
+    }
+
+    true
 }
 
 /// ADR-044: Get list of authorized Telegram approver IDs (numeric, not spoofable).
@@ -452,7 +549,9 @@ async fn call_ollama_l0(
         ],
         "stream": false,
         "keep_alive": -1,  // Keep model in RAM permanently (no reload delay)
-        "options": { "temperature": 0.7, "num_predict": 500 }
+        // num_ctx=8192: fits conversation history (10 turns) + tool schemas + system prompt.
+        // Default 2048 causes truncation on the 6th or 7th back-and-forth.
+        "options": { "temperature": 0.7, "num_predict": 500, "num_ctx": 8192 }
     });
 
     // Add tools for native mode
@@ -588,7 +687,10 @@ async fn call_cloud_api(
             }
         }
         Ok(resp) => {
-            tracing::warn!("CONV_BOT L0: Cloud {} error: HTTP {}", backend, resp.status());
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            let snippet: String = body.chars().take(300).collect();
+            tracing::warn!("CONV_BOT L0: Cloud {} error: HTTP {} — {}", backend, status, snippet);
             None
         }
         Err(e) => {
@@ -637,7 +739,7 @@ async fn call_llm_fallback(
             ],
             "stream": false,
             "keep_alive": -1,
-            "options": { "temperature": 0.7, "num_predict": 500 }
+            "options": { "temperature": 0.7, "num_predict": 500, "num_ctx": 8192 }
         });
         match client.post(format!("{}/api/chat", base_url)).json(&body).send().await {
             Ok(resp) if resp.status().is_success() => {

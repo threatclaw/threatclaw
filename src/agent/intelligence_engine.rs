@@ -720,6 +720,20 @@ pub async fn run_intelligence_cycle(
         }
     }
 
+    // ── 5n. CTI FEED SYNC — unified threat intel (every 6 hours) ──
+    {
+        let hour = chrono::Utc::now().hour();
+        let minute = chrono::Utc::now().minute();
+        // Run at 00:00, 06:00, 12:00, 18:00 (±5 min)
+        if hour % 6 == 0 && minute < 5 {
+            let cti_result = crate::enrichment::cti_feed::sync_all_feeds(store.as_ref()).await;
+            tracing::info!(
+                "CTI-FEED: {} sources synced, {} new IoCs, {} errors",
+                cti_result.sources_synced, cti_result.iocs_new, cti_result.errors.len()
+            );
+        }
+    }
+
     // ── 6. ENRICHMENT — enrich critical findings + alert IPs ──
     // All enrichment is wrapped in timeout + rate limiting.
     // External API failures must NEVER crash the engine.
@@ -888,7 +902,213 @@ pub async fn run_intelligence_cycle(
         global_score, notification_level, findings.len(), alerts.len(), situation.assets.len()
     );
 
+    // ── Remind if unresolved — check stale open incidents that nobody responded to ──
+    check_unresolved_reminders(store.as_ref()).await;
+
+    // ── Daily digest — send once per day at configured time ──
+    check_daily_digest(store.as_ref(), &situation).await;
+
+    // ── Daily backup — fire once per day at the configured time ──
+    crate::agent::backup_manager::check_daily_backup(store.as_ref()).await;
+
+    // ── Daily cleanup — purge old sigma alerts past retention ──
+    check_daily_cleanup(store.as_ref()).await;
+
+    // ── Self-heal: re-trigger MITRE sync if table is empty ──
+    self_heal_mitre(store.as_ref()).await;
+
     situation
+}
+
+/// Self-heal MITRE: if the techniques table is empty and the last retry is old enough,
+/// trigger a background sync. Avoids hammering the GitHub raw URL on persistent failures.
+async fn self_heal_mitre(store: &dyn Database) {
+    // Only check once per cycle group (the cycle itself runs every ~45s)
+    let count = store.count_mitre_techniques().await.unwrap_or(0);
+    if count > 0 { return; }
+
+    // 6h cooldown between retries
+    if let Ok(Some(last)) = store.get_setting("_system", "last_mitre_retry").await {
+        if let Some(ts) = last.as_str() {
+            if let Ok(last_dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                let elapsed = (chrono::Utc::now() - last_dt.with_timezone(&chrono::Utc)).num_seconds();
+                if elapsed < 6 * 3600 { return; }
+            }
+        }
+    }
+
+    tracing::warn!("SELF_HEAL: mitre_techniques is empty — retrying sync");
+    let _ = store.set_setting("_system", "last_mitre_retry",
+        &serde_json::json!(chrono::Utc::now().to_rfc3339())).await;
+    match crate::enrichment::mitre_attack::sync_attack_techniques(store).await {
+        Ok(n) => tracing::info!("SELF_HEAL: MITRE sync OK ({} techniques)", n),
+        Err(e) => tracing::warn!("SELF_HEAL: MITRE sync failed: {}", e),
+    }
+}
+
+/// Run cleanup tasks once per day: purge old acknowledged/resolved sigma alerts,
+/// VACUUM logs to reclaim bloat. Default retention: 30 days.
+async fn check_daily_cleanup(store: &dyn Database) {
+    let now = chrono::Utc::now();
+    // Run only once per day, just after midnight
+    let cur_h = now.format("%H").to_string().parse::<u32>().unwrap_or(0);
+    if cur_h != 3 { return; } // Run between 03:00 and 03:10 UTC
+
+    let today = now.format("%Y-%m-%d").to_string();
+    if let Ok(Some(last)) = store.get_setting("_system", "last_daily_cleanup").await {
+        if last.as_str() == Some(today.as_str()) { return; }
+    }
+
+    tracing::info!("CLEANUP: Running daily cleanup (sigma alerts retention + archived purge)");
+    match store.cleanup_old_sigma_alerts(30).await {
+        Ok(deleted) => tracing::info!("CLEANUP: Purged {} old sigma alerts", deleted),
+        Err(e) => tracing::warn!("CLEANUP: Failed to purge sigma alerts: {}", e),
+    }
+    // Permanently delete archived incidents/alerts older than 60 days.
+    // Gives the RSSI a 2-month window to recover from an accidental archive
+    // before data is gone for good.
+    match store.purge_old_archived(60).await {
+        Ok((inc, al)) => tracing::info!("CLEANUP: Purged {} archived incidents, {} archived alerts", inc, al),
+        Err(e) => tracing::warn!("CLEANUP: Failed to purge archived: {}", e),
+    }
+    let _ = store.set_setting("_system", "last_daily_cleanup", &serde_json::json!(today)).await;
+}
+
+/// Re-notify for unresolved incidents past the reminder threshold.
+async fn check_unresolved_reminders(store: &dyn Database) {
+    let settings = crate::agent::notification_router::load_notification_settings(store).await;
+
+    // Only process CRITICAL and HIGH reminders (if configured)
+    let thresholds: Vec<(&str, i64)> = vec![
+        ("CRITICAL", settings.remind_unresolved_critical_secs),
+        ("HIGH", settings.remind_unresolved_high_secs),
+    ];
+
+    for (severity, remind_secs) in thresholds {
+        if remind_secs <= 0 { continue; }
+
+        // Find open incidents of this severity that have been stale for > remind_secs
+        let incidents = store.list_incidents(Some("open"), 50, 0).await.unwrap_or_default();
+        for inc in &incidents {
+            let inc_severity = inc["severity"].as_str().unwrap_or("");
+            if inc_severity != severity { continue; }
+
+            let inc_id = inc["id"].as_i64().unwrap_or(0) as i32;
+            let asset = inc["asset"].as_str().unwrap_or("");
+            let hitl_status = inc["hitl_status"].as_str().unwrap_or("");
+
+            // Skip if already responded
+            if hitl_status == "responded" || hitl_status == "approved" { continue; }
+
+            // Check if we already sent a reminder recently (use a separate cooldown key)
+            let remind_key = format!("last_remind:{}:{}", asset, inc_id);
+            let should_remind = match store.get_setting("_system", &remind_key).await {
+                Ok(Some(prev)) => {
+                    if let Some(ts) = prev.as_str() {
+                        if let Ok(last) = chrono::DateTime::parse_from_rfc3339(ts) {
+                            (chrono::Utc::now() - last.with_timezone(&chrono::Utc)).num_seconds() > remind_secs
+                        } else { true }
+                    } else { true }
+                }
+                _ => {
+                    // No remind key — check incident age
+                    if let Some(created_str) = inc["created_at"].as_str() {
+                        if let Ok(created) = chrono::DateTime::parse_from_rfc3339(created_str) {
+                            (chrono::Utc::now() - created.with_timezone(&chrono::Utc)).num_seconds() > remind_secs
+                        } else { false }
+                    } else { false }
+                }
+            };
+
+            if should_remind {
+                tracing::info!("REMIND: Incident #{} ({} {}) unresolved after {}h — re-notifying",
+                    inc_id, asset, severity, remind_secs / 3600);
+                let summary = inc["summary"].as_str().unwrap_or("Incident non résolu");
+                let remind_text = format!("⏰ RAPPEL — Incident #{} ({}) non traité depuis {}h",
+                    inc_id, asset, remind_secs / 3600);
+                crate::agent::notification_router::route_incident_notification(
+                    store, inc_id, asset, &remind_text, summary, severity, 0
+                ).await;
+                let _ = store.set_setting("_system", &remind_key,
+                    &serde_json::json!(chrono::Utc::now().to_rfc3339())).await;
+            }
+        }
+    }
+}
+
+/// Daily digest: sends a summary once per day at the configured time.
+async fn check_daily_digest(store: &dyn Database, situation: &SecuritySituation) {
+    let settings = crate::agent::notification_router::load_notification_settings(store).await;
+    if !settings.daily_digest_enabled { return; }
+
+    // Parse target time
+    let parts: Vec<&str> = settings.daily_digest_time.split(':').collect();
+    let target_h = parts.first().and_then(|h| h.parse::<u32>().ok()).unwrap_or(8);
+    let target_m = parts.get(1).and_then(|m| m.parse::<u32>().ok()).unwrap_or(0);
+
+    // Approximate local time (same logic as quiet hours)
+    let now = chrono::Utc::now();
+    let tz_offset = if let Ok(Some(profile)) = store.get_setting("_system", "company_profile").await {
+        let tz = profile["business_hours"]["timezone"].as_str().unwrap_or("Europe/Paris");
+        if tz.contains("Paris") || tz.contains("Berlin") || tz.contains("CET") { 2i64 } else { 0 }
+    } else { 2 }; // Default to Europe/Paris
+    let local_h = ((now.format("%H").to_string().parse::<i64>().unwrap_or(12) + tz_offset) % 24) as u32;
+    let local_m = now.format("%M").to_string().parse::<u32>().unwrap_or(0);
+
+    // Only fire within a 10-min window of the target time
+    let target_min = target_h * 60 + target_m;
+    let local_min = local_h * 60 + local_m;
+    if local_min < target_min || local_min > target_min + 10 { return; }
+
+    // Check if already sent today
+    let today = now.format("%Y-%m-%d").to_string();
+    let digest_key = "last_daily_digest";
+    if let Ok(Some(last)) = store.get_setting("_system", digest_key).await {
+        if last.as_str() == Some(today.as_str()) { return; }
+    }
+
+    // Build digest
+    let open_incidents = store.list_incidents(Some("open"), 10, 0).await.unwrap_or_default();
+    let open_count = open_incidents.len();
+    let critical_count = open_incidents.iter().filter(|i| i["severity"].as_str() == Some("CRITICAL")).count();
+
+    let digest = format!(
+        "📊 DIGEST QUOTIDIEN — {}\n\
+         ━━━━━━━━━━━━━━━━━━━━━━\n\
+         Score sécurité : {:.0}/100\n\
+         Incidents ouverts : {} (dont {} CRITICAL)\n\
+         Alertes actives : {}\n\
+         Vulnérabilités : {}\n\
+         ━━━━━━━━━━━━━━━━━━━━━━\n\n\
+         {}",
+        today,
+        situation.global_score,
+        open_count,
+        critical_count,
+        situation.total_active_alerts,
+        situation.total_open_findings,
+        if open_count == 0 { "Aucun incident en cours. Bonne journée ! 👍".into() }
+        else {
+            let top: Vec<String> = open_incidents.iter().take(3).map(|i| {
+                format!("  • #{} {} — {} ({})",
+                    i["id"].as_i64().unwrap_or(0),
+                    i["asset"].as_str().unwrap_or("?"),
+                    i["severity"].as_str().unwrap_or("?"),
+                    i["verdict"].as_str().unwrap_or("pending"))
+            }).collect();
+            format!("Top incidents :\n{}", top.join("\n"))
+        }
+    );
+
+    crate::agent::notification_router::route_notification(
+        store,
+        NotificationLevel::Digest,
+        &digest,
+        &digest,
+    ).await;
+
+    let _ = store.set_setting("_system", digest_key, &serde_json::json!(today)).await;
+    tracing::info!("DIGEST: Daily digest sent for {}", today);
 }
 
 /// Compute risk score for an asset (0-100, higher = more risk).
@@ -1331,17 +1551,33 @@ pub fn spawn_intelligence_ticker(
                                 _ => format!("{:?}", situation.notification_level).to_uppercase(),
                             });
 
-                        let incident_id = store.create_incident(
-                            &worst_asset.asset,
-                            &dossier.summary(),
-                            &incident_severity,
-                            &alert_ids,
-                            &finding_ids,
-                            worst_asset.active_alerts as i32,
-                        ).await.unwrap_or(-1);
-                        if incident_id > 0 {
-                            tracing::info!("INTELLIGENCE: Incident #{} created for {}", incident_id, worst_asset.asset);
-                        }
+                        // Deduplicate: if an open incident exists for this asset within the last 4h,
+                        // touch it (update alert_count + updated_at) instead of creating a duplicate.
+                        // Prevents Telegram spam when a recurring pattern keeps firing.
+                        let incident_id = match store.find_open_incident_for_asset(&worst_asset.asset).await {
+                            Ok(Some(existing_id)) => {
+                                tracing::info!(
+                                    "INTELLIGENCE: Reusing existing incident #{} for {} (within 4h dedup window)",
+                                    existing_id, worst_asset.asset
+                                );
+                                let _ = store.touch_incident(existing_id, worst_asset.active_alerts as i32).await;
+                                existing_id
+                            }
+                            _ => {
+                                let new_id = store.create_incident(
+                                    &worst_asset.asset,
+                                    &dossier.summary(),
+                                    &incident_severity,
+                                    &alert_ids,
+                                    &finding_ids,
+                                    worst_asset.active_alerts as i32,
+                                ).await.unwrap_or(-1);
+                                if new_id > 0 {
+                                    tracing::info!("INTELLIGENCE: Incident #{} created for {}", new_id, worst_asset.asset);
+                                }
+                                new_id
+                            }
+                        };
 
                         let dossier_id = dossier.id;
                         if registry.try_register(&worst_asset.asset, dossier_id).await {
@@ -1377,6 +1613,10 @@ pub fn spawn_intelligence_ticker(
 
                                 // L2 enrichment: on confirmed/inconclusive, ask Foundation-Sec-Reasoning for a deeper forensic analysis.
                                 let mut final_analysis = result.verdict.analysis_text();
+                                // Structured output from L2 — populated if the JSON parses.
+                                let mut parsed_mitre: Vec<String> = vec![];
+                                let mut parsed_iocs: Vec<String> = vec![];
+                                let mut parsed_actions: Vec<serde_json::Value> = vec![];
                                 if result.verdict.should_notify() {
                                     tracing::info!("INVESTIGATION: Enriching verdict with L2 (forensic) for {}", asset_name);
                                     let l2_prompt = format!(
@@ -1413,16 +1653,82 @@ pub fn spawn_intelligence_ticker(
                                         Ok(Ok(l2_raw)) => {
                                             let l2_clean = clean_l2_output(&l2_raw);
                                             tracing::info!("INVESTIGATION: L2 enrichment OK for {} ({} chars → {} clean)", asset_name, l2_raw.len(), l2_clean.len());
-                                            // Quality gate: if L2 is garbage (too long, repeated blocks, or echo of prompt), skip it.
-                                            let is_garbage = l2_clean.len() > 3000
-                                                || l2_clean.matches("analyse_forensique").count() > 1
-                                                || l2_clean.contains("[L1]")
-                                                || l2_clean.contains("Analyse initiale");
-                                            if is_garbage {
-                                                tracing::warn!("INVESTIGATION: L2 output is low quality ({} chars, repeated blocks), using L1 only", l2_clean.len());
-                                                // Keep final_analysis as L1 (already set)
+                                            // Try to parse the structured JSON output first. L2 is prompted to
+                                            // return {"summary","mitre_attck","ioc","actions"} — if the JSON is
+                                            // valid we extract the structured fields; otherwise we fall back to
+                                            // the plain text cleanup for the summary.
+                                            let parsed = serde_json::from_str::<serde_json::Value>(&l2_clean)
+                                                .ok()
+                                                .or_else(|| {
+                                                    // Try to extract JSON from between the first { and last }
+                                                    let start = l2_clean.find('{')?;
+                                                    let end = l2_clean.rfind('}')?;
+                                                    serde_json::from_str::<serde_json::Value>(&l2_clean[start..=end]).ok()
+                                                });
+
+                                            if let Some(obj) = parsed {
+                                                // Extract summary
+                                                if let Some(s) = obj.get("summary").and_then(|v| v.as_str()) {
+                                                    final_analysis = s.to_string();
+                                                }
+                                                // Extract MITRE techniques (array of strings)
+                                                if let Some(arr) = obj.get("mitre_attck").and_then(|v| v.as_array())
+                                                    .or_else(|| obj.get("mitre").and_then(|v| v.as_array()))
+                                                {
+                                                    parsed_mitre = arr.iter()
+                                                        .filter_map(|v| v.as_str().map(String::from))
+                                                        .filter(|s| !s.is_empty())
+                                                        .collect();
+                                                }
+                                                // Extract IOCs (array of strings)
+                                                if let Some(arr) = obj.get("ioc").and_then(|v| v.as_array())
+                                                    .or_else(|| obj.get("iocs").and_then(|v| v.as_array()))
+                                                {
+                                                    parsed_iocs = arr.iter()
+                                                        .filter_map(|v| v.as_str().map(String::from))
+                                                        .filter(|s| !s.is_empty())
+                                                        .collect();
+                                                }
+                                                // Extract proposed actions — convert each string to a
+                                                // structured object with a kind guess (block_ip, create_ticket,
+                                                // disable_account, …) so the dashboard can render Execute buttons.
+                                                if let Some(arr) = obj.get("actions").and_then(|v| v.as_array()) {
+                                                    parsed_actions = arr.iter()
+                                                        .filter_map(|v| v.as_str())
+                                                        .filter(|s| !s.is_empty())
+                                                        .map(|desc| {
+                                                            let lower = desc.to_lowercase();
+                                                            let kind = if lower.contains("bloqu") || lower.contains("block") || lower.contains("firewall") || lower.contains("pfsense") || lower.contains("opnsense") {
+                                                                "block_ip"
+                                                            } else if lower.contains("ticket") || lower.contains("glpi") {
+                                                                "create_ticket"
+                                                            } else if lower.contains("désactiv") || lower.contains("disable") || lower.contains("réinitialis") || lower.contains("reset") || lower.contains("compte") || lower.contains("account") {
+                                                                "disable_account"
+                                                            } else {
+                                                                "manual"
+                                                            };
+                                                            serde_json::json!({
+                                                                "kind": kind,
+                                                                "description": desc,
+                                                            })
+                                                        })
+                                                        .collect();
+                                                }
+                                                tracing::info!(
+                                                    "INVESTIGATION: L2 parsed — {} MITRE, {} IOCs, {} actions",
+                                                    parsed_mitre.len(), parsed_iocs.len(), parsed_actions.len()
+                                                );
                                             } else {
-                                                final_analysis = l2_clean;
+                                                // JSON parse failed — fall back to old quality-gate + plain text
+                                                let is_garbage = l2_clean.len() > 3000
+                                                    || l2_clean.matches("analyse_forensique").count() > 1
+                                                    || l2_clean.contains("[L1]")
+                                                    || l2_clean.contains("Analyse initiale");
+                                                if is_garbage {
+                                                    tracing::warn!("INVESTIGATION: L2 output is low quality ({} chars, repeated blocks), using L1 only", l2_clean.len());
+                                                } else {
+                                                    final_analysis = l2_clean;
+                                                }
                                             }
                                         }
                                         Ok(Err(e)) => tracing::warn!("INVESTIGATION: L2 enrichment failed for {}: {}", asset_name, e),
@@ -1432,24 +1738,33 @@ pub fn spawn_intelligence_ticker(
 
                                 // See ADR-043: update incident with verdict
                                 if incident_id > 0 {
-                                    let mitre: Vec<String> = vec![];
-                                    let proposed = serde_json::json!([]);
-                                    let inv_log = serde_json::json!({"duration_secs": result.duration_secs});
+                                    // Use the structured data parsed from L2 (fallback to empty if unavailable).
+                                    let proposed = serde_json::json!({
+                                        "actions": parsed_actions,
+                                        "iocs": parsed_iocs,
+                                    });
+                                    let inv_log = serde_json::json!({
+                                        "duration_secs": result.duration_secs,
+                                        "iterations": result.iterations,
+                                        "skill_calls": result.skill_calls,
+                                    });
                                     let _ = store_inv.update_incident_verdict(
                                         incident_id,
                                         result.verdict.verdict_type(),
                                         result.verdict.confidence() as f64,
                                         &final_analysis,
-                                        &mitre,
+                                        &parsed_mitre,
                                         &proposed,
                                         &inv_log,
                                     ).await;
                                     tracing::info!("INCIDENT #{}: verdict={} confidence={:.0}%", incident_id, result.verdict.verdict_type(), result.verdict.confidence() * 100.0);
 
-                                    // Send incident notification with HITL buttons (cooldown prevents spam)
+                                    // Send incident notification (gated by NotificationSettings: severity threshold,
+                                    // per-severity cooldown, quiet hours, escalation bypass).
+                                    let verdict_type_str = result.verdict.verdict_type().to_string();
                                     if result.verdict.should_notify()
                                         && crate::agent::production_safeguards::should_notify_incident(
-                                            store_inv.as_ref(), incident_id
+                                            store_inv.as_ref(), &asset_name, &verdict_type_str, &incident_severity
                                         ).await
                                     {
                                         let summary = final_analysis.clone();
@@ -1457,13 +1772,13 @@ pub fn spawn_intelligence_ticker(
                                             store_inv.as_ref(),
                                             incident_id,
                                             &asset_name,
-                                            &format!("{} — {}", asset_name, result.verdict.verdict_type()),
+                                            &format!("{} — {}", asset_name, verdict_type_str),
                                             &summary,
                                             &incident_severity,
                                             dossier.findings.len() as i32,
                                         ).await;
                                         crate::agent::production_safeguards::record_incident_notified(
-                                            store_inv.as_ref(), incident_id
+                                            store_inv.as_ref(), &asset_name, &verdict_type_str
                                         ).await;
                                     }
                                 }

@@ -29,7 +29,7 @@ pub enum InvestigationVerdict {
         confidence: f64,
         reason: String,
     },
-    /// Inconclusive — notify with real confidence level
+    /// Inconclusive — visible in dashboard but never notified (not actionable)
     Inconclusive {
         analysis: String,
         confidence: f64,
@@ -70,8 +70,11 @@ pub struct InvestigationResult {
 
 impl InvestigationVerdict {
     /// Should the RSSI be notified for this verdict?
+    /// Only confirmed threats warrant a notification. Inconclusive verdicts
+    /// are visible in the dashboard but never spam the RSSI — a "I don't know"
+    /// is not actionable and drowns real alerts.
     pub fn should_notify(&self) -> bool {
-        matches!(self, Self::Confirmed { .. } | Self::Inconclusive { .. })
+        matches!(self, Self::Confirmed { .. })
     }
 
     /// Severity string for notification routing
@@ -102,6 +105,20 @@ impl InvestigationVerdict {
             Self::Inconclusive { .. } => "inconclusive",
             Self::Informational { .. } => "informational",
             Self::Error { .. } => "error",
+        }
+    }
+
+    /// Human-readable analysis text (for notifications / incidents page)
+    pub fn analysis_text(&self) -> String {
+        match self {
+            Self::Confirmed { analysis, .. } => analysis.clone(),
+            Self::FalsePositive { analysis, reason, .. } => format!("{} (raison : {})", analysis, reason),
+            Self::Inconclusive { analysis, .. } => analysis.clone(),
+            Self::Informational { analysis, summary } => format!("{}\n\n{}", analysis, summary),
+            Self::Error { reason, partial_analysis } => {
+                if let Some(p) = partial_analysis { format!("Erreur : {} — {}", reason, p) }
+                else { format!("Erreur : {}", reason) }
+            }
         }
     }
 }

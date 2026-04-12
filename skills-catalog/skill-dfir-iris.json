@@ -1,0 +1,13 @@
+{
+  "id": "skill-dfir-iris",
+  "name": "DFIR-IRIS",
+  "description": "Import cases and IOCs from DFIR-IRIS incident response platform",
+  "type": "connector",
+  "category": "soar",
+  "icon": "eye",
+  "config_fields": {
+    "url": {"type": "string", "label": "IRIS URL", "placeholder": "https://iris:8443", "required": true},
+    "api_key": {"type": "password", "label": "API Key", "required": true, "help": "Clé API IRIS (My Settings > API Key)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

@@ -66,6 +66,9 @@ echo "${TC_DB_HOST:-threatclaw-db}:${TC_DB_PORT:-5432}:${POSTGRES_DB:-threatclaw
 chmod 600 /app/data/.pgpass
 export PGPASSFILE=/app/data/.pgpass
 
+# ── Ensure reports temp dir exists (for PDF export via Typst) ──
+mkdir -p /app/data/reports
+
 # ── Generate auth token if not provided ──
 if [ -z "${GATEWAY_AUTH_TOKEN:-}" ]; then
   EXISTING_TOKEN=$(psql -h "${TC_DB_HOST:-threatclaw-db}" -U "${POSTGRES_USER:-threatclaw}" -d "${POSTGRES_DB:-threatclaw}" -tAc \
@@ -166,6 +169,21 @@ if [ "${TC_AUTO_PULL_MODELS:-true}" = "true" ]; then
   pull_models_background &
   echo "[init] AI model download started in background"
 fi
+
+# Trigger AUTO-START (IE + Telegram bot + sync scheduler) by hitting /api/tc/health
+# See threatclaw_api.rs:153 — services auto-start on first authenticated health call.
+(
+  sleep 15
+  AUTH_TOKEN_VAL="${GATEWAY_AUTH_TOKEN:-}"
+  [ -z "$AUTH_TOKEN_VAL" ] && [ -f /run/secrets/tc_auth_token ] && AUTH_TOKEN_VAL=$(cat /run/secrets/tc_auth_token)
+  for i in 1 2 3 4 5 6 7 8; do
+    if curl -sf -H "Authorization: Bearer ${AUTH_TOKEN_VAL}" http://127.0.0.1:3000/api/tc/health > /dev/null 2>&1; then
+      echo "[init] AUTO-START triggered via /api/tc/health (attempt $i)"
+      break
+    fi
+    sleep 5
+  done
+) &
 
 # ── Start ThreatClaw core immediately ──
 echo "[init] Starting ThreatClaw core..."

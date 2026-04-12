@@ -785,6 +785,13 @@ pub async fn process_osquery_webhook(
 
     if let Some(proc_events) = body["process_events"].as_array() {
         result.alerts_created += check_process_events(store, hostname, proc_events).await;
+        // Store process events in logs table for Sigma engine matching
+        // This enables PowerShell obfuscation rules and other process-based detections
+        let now = chrono::Utc::now().to_rfc3339();
+        for event in proc_events {
+            let _ = store.insert_log("osquery.process", hostname, event, &now).await;
+            result.logs_processed += 1;
+        }
     }
 
     if let Some(file_events) = body["file_events"].as_array() {

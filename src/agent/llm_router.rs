@@ -70,6 +70,14 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
     let mut catalog = std::collections::HashMap::new();
     catalog.insert("l0", vec![
         ModelInfo {
+            model_id: "gemma4:26b".into(),
+            display_name: "Gemma 4 26B MoE".into(),
+            ram_gb: 10.0,
+            tool_call_mode: ToolCallMode::Native,
+            detail: "MoE 3.8B actifs · 256K context · Rapide sur CPU · Recommandé".into(),
+            recommended_ram: "24GB+".into(),
+        },
+        ModelInfo {
             model_id: "mistral-small:24b".into(),
             display_name: "Mistral Small 24B".into(),
             ram_gb: 14.0,
@@ -84,6 +92,14 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
             tool_call_mode: ToolCallMode::PromptBased,
             detail: "Bon FR · Rapide sur CPU".into(),
             recommended_ram: "32GB+".into(),
+        },
+        ModelInfo {
+            model_id: "gemma4:e4b".into(),
+            display_name: "Gemma 4 E4B".into(),
+            ram_gb: 3.0,
+            tool_call_mode: ToolCallMode::Native,
+            detail: "Ultra-léger · 256K context · Idéal PME 16GB".into(),
+            recommended_ram: "16GB+".into(),
         },
         ModelInfo {
             model_id: "qwen3:8b".into(),
@@ -101,6 +117,14 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
             ram_gb: 5.8,
             tool_call_mode: ToolCallMode::None,
             detail: "qwen3:8b + SOC prompt · Recommandé".into(),
+            recommended_ram: "16GB+".into(),
+        },
+        ModelInfo {
+            model_id: "gemma4:e4b".into(),
+            display_name: "Gemma 4 E4B Triage".into(),
+            ram_gb: 3.0,
+            tool_call_mode: ToolCallMode::None,
+            detail: "Ultra-léger · 3x plus rapide que qwen3:8b".into(),
             recommended_ram: "16GB+".into(),
         },
         ModelInfo {
@@ -194,7 +218,7 @@ impl ConversationalLlmConfig {
             return ToolCallMode::Native; // All cloud APIs support native tool calling
         }
         let model = self.local_model.to_lowercase();
-        if model.contains("mistral") || model.contains("llama3") || model.contains("command-r") {
+        if model.contains("mistral") || model.contains("llama3") || model.contains("command-r") || model.contains("gemma4") {
             ToolCallMode::Native
         } else {
             ToolCallMode::PromptBased
@@ -605,11 +629,11 @@ impl LlmRouterConfig {
     /// Détecte automatiquement le modèle recommandé selon la RAM disponible.
     pub fn recommend_model(available_ram_gb: u64) -> &'static str {
         match available_ram_gb {
-            0..=7 => "qwen3:4b",
-            8..=15 => "qwen3:8b",
-            16..=31 => "qwen3:14b",
-            32..=63 => "qwen3:32b",
-            _ => "qwen3:72b",
+            0..=7 => "gemma4:e4b",
+            8..=15 => "gemma4:e4b",
+            16..=31 => "gemma4:26b",
+            32..=63 => "gemma4:26b",
+            _ => "gemma4:26b",
         }
     }
 
@@ -777,12 +801,12 @@ mod tests {
 
     #[test]
     fn test_recommend_model() {
-        assert_eq!(LlmRouterConfig::recommend_model(4), "qwen3:4b");
-        assert_eq!(LlmRouterConfig::recommend_model(8), "qwen3:8b");
-        assert_eq!(LlmRouterConfig::recommend_model(16), "qwen3:14b");
-        assert_eq!(LlmRouterConfig::recommend_model(29), "qwen3:14b");
-        assert_eq!(LlmRouterConfig::recommend_model(48), "qwen3:32b");
-        assert_eq!(LlmRouterConfig::recommend_model(128), "qwen3:72b");
+        assert_eq!(LlmRouterConfig::recommend_model(4), "gemma4:e4b");
+        assert_eq!(LlmRouterConfig::recommend_model(8), "gemma4:e4b");
+        assert_eq!(LlmRouterConfig::recommend_model(16), "gemma4:26b");
+        assert_eq!(LlmRouterConfig::recommend_model(29), "gemma4:26b");
+        assert_eq!(LlmRouterConfig::recommend_model(48), "gemma4:26b");
+        assert_eq!(LlmRouterConfig::recommend_model(128), "gemma4:26b");
     }
 
     #[test]
@@ -898,6 +922,25 @@ mod tests {
         };
         assert_eq!(config.detect_tool_call_mode(), ToolCallMode::PromptBased);
         assert_eq!(config.estimated_ram_gb(), 9.3);
+    }
+
+    #[test]
+    fn test_gemma4_native_tool_calling() {
+        let config = ConversationalLlmConfig {
+            source: L0Source::Local,
+            local_model: "gemma4:26b".into(),
+            ..Default::default()
+        };
+        assert_eq!(config.detect_tool_call_mode(), ToolCallMode::Native);
+        assert_eq!(config.estimated_ram_gb(), 10.0);
+
+        let config_e4b = ConversationalLlmConfig {
+            source: L0Source::Local,
+            local_model: "gemma4:e4b".into(),
+            ..Default::default()
+        };
+        assert_eq!(config_e4b.detect_tool_call_mode(), ToolCallMode::Native);
+        assert_eq!(config_e4b.estimated_ram_gb(), 3.0);
     }
 
     #[test]

@@ -31,6 +31,7 @@ pub mod hitl_bridge;
 pub mod hitl_nonce;
 pub mod incident_dossier;
 pub mod intelligence_engine;
+pub mod backup_manager;
 pub mod ioc_bloom;
 pub mod ndr_beacon;
 pub mod ndr_dns_tunnel;

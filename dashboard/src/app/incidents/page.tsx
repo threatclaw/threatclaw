@@ -1,9 +1,32 @@
 "use client";
-// See ADR-043: Incidents page — synthesized view for RSSI
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+// Unified Incidents page — Incidents (confirmed) + Findings (vulns) + Alerts (sigma)
+import React, { useState, useEffect, useCallback } from "react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
+import { NeuCard } from "@/components/chrome/NeuCard";
+import { ChromeButton } from "@/components/chrome/ChromeButton";
+import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import {
+  AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
+  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send,
+} from "lucide-react";
+import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
+import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
 
-const API = "/api/tc/incidents";
+// ═══════════════════════════════════════════════
+// INCIDENTS TAB
+// ═══════════════════════════════════════════════
+
+interface IncidentAction {
+  kind: string;       // "block_ip" | "create_ticket" | "disable_account" | "manual"
+  description: string;
+}
+
+interface IncidentNote {
+  text: string;
+  author: string;
+  at: string;
+}
 
 interface Incident {
   id: number;
@@ -17,201 +40,747 @@ interface Incident {
   status: string;
   hitl_status: string | null;
   hitl_response: string | null;
-  proposed_actions: any[];
+  // proposed_actions is now {actions: IncidentAction[], iocs: string[]}
+  proposed_actions: { actions?: IncidentAction[]; iocs?: string[] } | null | any;
   mitre_techniques: string[] | null;
+  notes: IncidentNote[] | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
 }
 
 const severityColor: Record<string, string> = {
-  CRITICAL: "#ff2020",
-  HIGH: "#ff6030",
-  MEDIUM: "#e0a020",
-  LOW: "#30a050",
-  Alert: "#ff6030",
-  Digest: "#e0a020",
+  CRITICAL: "#ff2020", HIGH: "#ff6030", MEDIUM: "#e0a020", LOW: "#30a050",
 };
 
-const verdictBadge: Record<string, { color: string; label: string }> = {
-  pending: { color: "#888", label: "En cours..." },
-  confirmed: { color: "#ff4040", label: "Confirme" },
-  false_positive: { color: "#30a050", label: "Faux positif" },
-  inconclusive: { color: "#e0a020", label: "Inconclusif" },
-  investigating: { color: "#4090ff", label: "Investigation" },
+const verdictBadge: Record<string, { color: string; labelFr: string; labelEn: string }> = {
+  pending: { color: "#888", labelFr: "En cours...", labelEn: "Pending..." },
+  confirmed: { color: "#ff4040", labelFr: "Confirme", labelEn: "Confirmed" },
+  false_positive: { color: "#30a050", labelFr: "Faux positif", labelEn: "False positive" },
+  inconclusive: { color: "#e0a020", labelFr: "Inconclusif", labelEn: "Inconclusive" },
+  investigating: { color: "#4090ff", labelFr: "Investigation", labelEn: "Investigating" },
 };
 
-export default function IncidentsPage() {
+function IncidentsTab({ locale }: { locale: string }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [filter, setFilter] = useState<string>("all");
+  const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ incident: Incident; action: IncidentAction } | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [noteInput, setNoteInput] = useState<Record<number, string>>({});
 
-  const fetchIncidents = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const url = filter === "all" ? API : `${API}?status=${filter}`;
+      const url = filter === "all" ? "/api/tc/incidents" : `/api/tc/incidents?status=${filter}`;
       const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setIncidents(data.incidents || []);
-      }
-    } catch { /* silent */ }
+      if (res.ok) { const data = await res.json(); setIncidents(data.incidents || []); }
+    } catch {}
     setLoading(false);
   }, [filter]);
 
-  useEffect(() => { fetchIncidents(); const t = setInterval(fetchIncidents, 15000); return () => clearInterval(t); }, [fetchIncidents]);
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
 
   const handleHitl = async (id: number, response: string) => {
-    await fetch(`${API}/${id}/hitl`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    await fetch(`/api/tc/incidents/${id}/hitl`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ response, responded_by: "dashboard" }),
     });
-    fetchIncidents();
+    load();
   };
 
   const filters = [
-    { key: "all", label: "Tous" },
-    { key: "open", label: "Ouverts" },
-    { key: "investigating", label: "En cours" },
-    { key: "resolved", label: "Resolus" },
-    { key: "closed", label: "Fermes" },
+    { key: "all", label: locale === "fr" ? "Tous" : "All" },
+    { key: "open", label: locale === "fr" ? "Ouverts" : "Open" },
+    { key: "investigating", label: locale === "fr" ? "En cours" : "Investigating" },
+    { key: "resolved", label: locale === "fr" ? "Resolus" : "Resolved" },
+    { key: "closed", label: locale === "fr" ? "Fermes" : "Closed" },
+    { key: "archived", label: locale === "fr" ? "Archives" : "Archived" },
   ];
 
-  const cardStyle: React.CSSProperties = {
-    background: "var(--tc-surface, #12121a)",
-    border: "1px solid var(--tc-border, #2a2a3a)",
-    borderRadius: 12,
-    padding: "16px 20px",
-    marginBottom: 12,
-    cursor: "pointer",
-    transition: "border-color 0.2s",
+  const archiveResolved = async () => {
+    const msg = locale === "fr"
+      ? "Archiver tous les incidents resolus/fermes/faux positifs ? (reversible — purge definitive apres 60 jours)"
+      : "Archive all resolved/closed/false-positive incidents? (reversible — permanent purge after 60 days)";
+    if (!confirm(msg)) return;
+    try {
+      const res = await fetch("/api/tc/incidents/archive-resolved", { method: "POST" });
+      const data = await res.json();
+      alert(locale === "fr" ? `${data.archived} incidents archives` : `${data.archived} incidents archived`);
+      load();
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
+  const archiveOne = async (id: number) => {
+    try {
+      await fetch(`/api/tc/incidents/${id}/archive`, { method: "POST" });
+      load();
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
+  const executeAction = async () => {
+    if (!confirmAction) return;
+    setExecuting(true);
+    try {
+      const res = await fetch(`/api/tc/incidents/${confirmAction.incident.id}/execute-action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: confirmAction.action.kind }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert((locale === "fr" ? "✅ Action exécutée : " : "✅ Action executed: ") + (data.message || ""));
+        setConfirmAction(null);
+        load();
+      } else {
+        const err = await res.text();
+        alert((locale === "fr" ? "❌ Échec : " : "❌ Failed: ") + err);
+      }
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+    setExecuting(false);
+  };
+
+  const addNote = async (id: number) => {
+    const text = (noteInput[id] || "").trim();
+    if (!text) return;
+    try {
+      await fetch(`/api/tc/incidents/${id}/note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, author: "dashboard" }),
+      });
+      setNoteInput(prev => ({ ...prev, [id]: "" }));
+      load();
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
+  const markFalsePositive = async (id: number) => {
+    try {
+      await fetch(`/api/tc/incidents/${id}/hitl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: "false_positive", responded_by: "dashboard" }),
+      });
+      load();
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
+  const actionIcon = (kind: string) => {
+    switch (kind) {
+      case "block_ip": return <Ban size={12} />;
+      case "create_ticket": return <Ticket size={12} />;
+      case "disable_account": return <UserX size={12} />;
+      default: return <FileText size={12} />;
+    }
   };
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.5px" }}>Incidents</h1>
-        <div style={{ display: "flex", gap: 6 }}>
-          {filters.map(f => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              style={{
-                padding: "6px 14px", borderRadius: 8, fontSize: 11, fontWeight: 600,
-                border: filter === f.key ? "1px solid #d03020" : "1px solid var(--tc-border)",
-                background: filter === f.key ? "rgba(208,48,32,0.15)" : "var(--tc-surface)",
-                color: filter === f.key ? "#d03020" : "var(--tc-text-sec)",
-                cursor: "pointer",
-              }}
-            >{f.label}</button>
-          ))}
-        </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
+        {filters.map(f => (
+          <button key={f.key} onClick={() => setFilter(f.key)} style={{
+            padding: "6px 14px", borderRadius: "var(--tc-radius-sm)", fontSize: 11, fontWeight: 600,
+            border: filter === f.key ? "1px solid #d03020" : "1px solid var(--tc-border)",
+            background: filter === f.key ? "rgba(208,48,32,0.15)" : "var(--tc-surface-alt)",
+            color: filter === f.key ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
+          }}>{f.label}</button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button onClick={archiveResolved} style={{
+          padding: "6px 14px", borderRadius: "var(--tc-radius-sm)", fontSize: 11, fontWeight: 600,
+          border: "1px solid var(--tc-border)", background: "var(--tc-surface-alt)",
+          color: "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <FileText size={12} />
+          {locale === "fr" ? "Archiver le resolu" : "Archive resolved"}
+        </button>
       </div>
 
-      {loading && <div style={{ color: "var(--tc-text-muted)", textAlign: "center", padding: 40 }}>Chargement...</div>}
+      {loading && <div style={{ color: "var(--tc-text-muted)", textAlign: "center", padding: 40 }}>{locale === "fr" ? "Chargement..." : "Loading..."}</div>}
 
       {!loading && incidents.length === 0 && (
-        <div style={{ ...cardStyle, textAlign: "center", padding: 40, color: "var(--tc-text-muted)" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>&#x2714;</div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Aucun incident</div>
-          <div style={{ fontSize: 12, marginTop: 6 }}>Tout est sous controle</div>
-        </div>
+        <NeuCard style={{ textAlign: "center", padding: 40 }}>
+          <CheckCircle2 size={40} color="var(--tc-green)" style={{ marginBottom: 12 }} />
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--tc-text)" }}>{locale === "fr" ? "Aucun incident" : "No incidents"}</div>
+          <div style={{ fontSize: 12, marginTop: 6, color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Tout est sous controle" : "Everything is under control"}</div>
+        </NeuCard>
       )}
 
       {incidents.map(inc => {
         const isExpanded = expanded === inc.id;
         const badge = verdictBadge[inc.verdict] || verdictBadge.pending;
         const sevColor = severityColor[inc.severity || "MEDIUM"] || "#888";
-        const timeAgo = getTimeAgo(inc.created_at);
 
         return (
-          <div
-            key={inc.id}
-            style={{ ...cardStyle, borderLeftWidth: 3, borderLeftColor: sevColor }}
-            onClick={() => setExpanded(isExpanded ? null : inc.id)}
-          >
-            {/* Header */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>#{inc.id}</span>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{inc.title}</span>
+          <NeuCard key={inc.id} style={{ padding: 0, marginBottom: 8, borderRadius: "var(--tc-radius-card)", overflow: "hidden" }}>
+            <div onClick={() => setExpanded(isExpanded ? null : inc.id)} style={{
+              padding: "16px 18px", cursor: "pointer",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--tc-text)" }}>#{inc.id}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tc-text)" }}>{inc.title}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, flexWrap: "wrap" }}>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, background: `${sevColor}22`, color: sevColor, fontWeight: 600 }}>{inc.severity}</span>
+                    <span style={{ padding: "2px 8px", borderRadius: 4, background: `${badge.color}22`, color: badge.color, fontWeight: 600 }}>
+                      {locale === "fr" ? badge.labelFr : badge.labelEn}{inc.confidence ? ` ${Math.round(inc.confidence * 100)}%` : ""}
+                    </span>
+                    <span style={{ color: "var(--tc-text-muted)" }}>
+                      {inc.asset} &middot; {inc.alert_count || 0} {locale === "fr" ? "alertes" : "alerts"} &middot; {getTimeAgo(inc.created_at, locale)}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
-                  <span style={{ padding: "2px 8px", borderRadius: 4, background: `${sevColor}22`, color: sevColor, fontWeight: 600 }}>
-                    {inc.severity}
-                  </span>
-                  <span style={{ padding: "2px 8px", borderRadius: 4, background: `${badge.color}22`, color: badge.color, fontWeight: 600 }}>
-                    {badge.label}{inc.confidence ? ` ${Math.round(inc.confidence * 100)}%` : ""}
-                  </span>
-                  <span style={{ color: "var(--tc-text-muted)" }}>
-                    {inc.asset} &middot; {inc.alert_count || 0} alertes &middot; {timeAgo}
-                  </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: inc.status === "open" ? "rgba(255,64,64,0.15)" : "rgba(48,160,80,0.15)", color: inc.status === "open" ? "#ff4040" : "#30a050", fontWeight: 700, textTransform: "uppercase" }}>{inc.status}</span>
+                  <ChevronDown size={14} color="var(--tc-text-muted)" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
                 </div>
-              </div>
-              <div style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: inc.status === "open" ? "rgba(255,64,64,0.15)" : "rgba(48,160,80,0.15)", color: inc.status === "open" ? "#ff4040" : "#30a050", fontWeight: 700, textTransform: "uppercase" }}>
-                {inc.status}
               </div>
             </div>
 
-            {/* Expanded detail */}
-            {isExpanded && (
-              <div style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--tc-border)" }}>
+            {isExpanded && (() => {
+              const actions: IncidentAction[] = (inc.proposed_actions?.actions || []) as IncidentAction[];
+              const iocs: string[] = (inc.proposed_actions?.iocs || []) as string[];
+              const isOpen = inc.status !== "resolved" && inc.status !== "closed" && inc.status !== "archived";
+              return (
+              <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
+                {/* Summary */}
                 {inc.summary && (
-                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 12, whiteSpace: "pre-wrap" }}>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 16, whiteSpace: "pre-wrap" }}>
                     {inc.summary}
                   </div>
                 )}
 
-                {inc.mitre_techniques && inc.mitre_techniques.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase" }}>MITRE ATT&CK: </span>
-                    {inc.mitre_techniques.map(t => (
-                      <span key={t} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: "rgba(64,144,255,0.15)", color: "#4090ff", marginRight: 4 }}>{t}</span>
-                    ))}
+                {/* Context: IOCs + MITRE */}
+                {(iocs.length > 0 || (inc.mitre_techniques && inc.mitre_techniques.length > 0)) && (
+                  <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border-light)" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Search size={11} /> {locale === "fr" ? "Contexte" : "Context"}
+                    </div>
+                    {iocs.length > 0 && (
+                      <div style={{ marginBottom: 6, fontSize: 11 }}>
+                        <span style={{ color: "var(--tc-text-muted)", marginRight: 6 }}>IOCs :</span>
+                        {iocs.map((ioc, i) => (
+                          <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: "rgba(208,48,32,0.12)", color: "#d03020", marginRight: 4, fontFamily: "monospace" }}>{ioc}</span>
+                        ))}
+                      </div>
+                    )}
+                    {inc.mitre_techniques && inc.mitre_techniques.length > 0 && (
+                      <div style={{ fontSize: 11 }}>
+                        <span style={{ color: "var(--tc-text-muted)", marginRight: 6 }}>MITRE :</span>
+                        {inc.mitre_techniques.map(t => (
+                          <span key={t} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, background: "rgba(64,144,255,0.15)", color: "#4090ff", marginRight: 4 }}>{t}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* HITL Actions */}
-                {inc.status !== "resolved" && inc.status !== "closed" && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleHitl(inc.id, "approve_remediate"); }}
-                      style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(208,48,32,0.15)", border: "1px solid rgba(208,48,32,0.3)", color: "#d03020", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                    >Remedier</button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleHitl(inc.id, "false_positive"); }}
-                      style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(48,160,80,0.15)", border: "1px solid rgba(48,160,80,0.3)", color: "#30a050", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                    >Faux positif</button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleHitl(inc.id, "investigate_more"); }}
-                      style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(64,144,255,0.15)", border: "1px solid rgba(64,144,255,0.3)", color: "#4090ff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                    >Investiguer</button>
+                {/* Proposed actions */}
+                {isOpen && actions.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <Zap size={11} /> {locale === "fr" ? "Actions proposées" : "Proposed actions"}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {actions.map((act, i) => (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border-light)" }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--tc-text-muted)" }}>{i + 1}.</span>
+                          <span style={{ flex: 1, fontSize: 12, color: "var(--tc-text)" }}>{act.description}</span>
+                          {act.kind !== "manual" && (
+                            <button onClick={() => setConfirmAction({ incident: inc, action: act })} style={{
+                              padding: "4px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                              cursor: "pointer", background: "rgba(208,48,32,0.12)", color: "#d03020",
+                              border: "1px solid rgba(208,48,32,0.3)", borderRadius: "var(--tc-radius-sm)",
+                              display: "flex", alignItems: "center", gap: 4,
+                            }}>
+                              {actionIcon(act.kind)}
+                              {locale === "fr" ? "Exécuter" : "Execute"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
+                {/* RSSI decision buttons */}
+                {isOpen && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <CheckCircle2 size={11} /> {locale === "fr" ? "Décision RSSI" : "CISO decision"}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button onClick={() => markFalsePositive(inc.id)} style={{
+                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}>
+                        <XCircle size={12} />
+                        {locale === "fr" ? "Marquer faux positif" : "Mark false positive"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Archive button when resolved */}
+                {!isOpen && inc.status !== "archived" && (
+                  <div style={{ marginBottom: 16 }}>
+                    <button onClick={() => archiveOne(inc.id)} style={{
+                      padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                      background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                      border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                      display: "flex", alignItems: "center", gap: 6,
+                    }}>
+                      <FileText size={12} />
+                      {locale === "fr" ? "Archiver" : "Archive"}
+                    </button>
+                  </div>
+                )}
+
+                {/* RSSI note input + history */}
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <MessageSquare size={11} /> {locale === "fr" ? "Notes & historique" : "Notes & history"}
+                  </div>
+                  {/* Existing notes */}
+                  {inc.notes && inc.notes.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, maxHeight: 200, overflowY: "auto" }}>
+                      {inc.notes.map((n, i) => (
+                        <div key={i} style={{ padding: "6px 10px", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", fontSize: 11 }}>
+                          <div style={{ color: "var(--tc-text)", marginBottom: 2 }}>{n.text}</div>
+                          <div style={{ color: "var(--tc-text-muted)", fontSize: 9 }}>
+                            {n.author}{new Date(n.at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "short", timeStyle: "short" })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Add note */}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input type="text" value={noteInput[inc.id] || ""}
+                      onChange={e => setNoteInput(prev => ({ ...prev, [inc.id]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === "Enter") addNote(inc.id); }}
+                      placeholder={locale === "fr" ? "Ajouter une note..." : "Add a note..."}
+                      style={{
+                        flex: 1, padding: "6px 10px", fontSize: 11, fontFamily: "inherit",
+                        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                        borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)",
+                      }} />
+                    <button onClick={() => addNote(inc.id)} disabled={!(noteInput[inc.id] || "").trim()} style={{
+                      padding: "6px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                      cursor: (noteInput[inc.id] || "").trim() ? "pointer" : "not-allowed",
+                      background: "var(--tc-red)", color: "#fff", border: "none",
+                      borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", gap: 4,
+                      opacity: (noteInput[inc.id] || "").trim() ? 1 : 0.5,
+                    }}>
+                      <Send size={11} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Legacy HITL response badge (from Telegram) */}
                 {inc.hitl_response && (
-                  <div style={{ marginTop: 8, fontSize: 11, color: "var(--tc-text-muted)" }}>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "var(--tc-text-muted)", fontStyle: "italic" }}>
                     HITL: {inc.hitl_response} (via {inc.hitl_status})
                   </div>
                 )}
               </div>
-            )}
-          </div>
+              );
+            })()}
+          </NeuCard>
         );
       })}
+
+      {/* Confirmation modal for action execution */}
+      {confirmAction && (
+        <div onClick={() => !executing && setConfirmAction(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 1000, padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "var(--tc-bg)", borderRadius: "var(--tc-radius-card)",
+            border: "1px solid var(--tc-border)", padding: 24, maxWidth: 520, width: "100%",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              {actionIcon(confirmAction.action.kind)}
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--tc-text)", margin: 0 }}>
+                {locale === "fr" ? "Confirmer l'action" : "Confirm action"}
+              </h3>
+            </div>
+
+            <div style={{ fontSize: 13, color: "var(--tc-text)", marginBottom: 16, lineHeight: 1.6 }}>
+              {locale === "fr"
+                ? `Vous êtes sur le point d'exécuter cette action sur l'incident #${confirmAction.incident.id} :`
+                : `You are about to execute this action on incident #${confirmAction.incident.id}:`}
+            </div>
+
+            <div style={{ padding: "12px 14px", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border-light)", marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: "var(--tc-text)", fontWeight: 600, marginBottom: 4 }}>
+                {confirmAction.action.description}
+              </div>
+              <div style={{ fontSize: 10, color: "var(--tc-text-muted)", fontFamily: "monospace" }}>
+                kind: {confirmAction.action.kind}  ·  asset: {confirmAction.incident.asset}
+              </div>
+            </div>
+
+            <div style={{ padding: "10px 12px", background: "rgba(208,48,32,0.08)", borderRadius: "var(--tc-radius-sm)", border: "1px solid rgba(208,48,32,0.2)", marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: "#d03020", lineHeight: 1.5 }}>
+                ⚠️ {locale === "fr"
+                  ? "Cette action passe par remediation_engine et remediation_guard. Elle sera loggée dans l'audit trail et notifiée au canal HITL."
+                  : "This goes through remediation_engine and remediation_guard. It will be logged in the audit trail and notified to the HITL channel."}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmAction(null)} disabled={executing} style={{
+                padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+              }}>
+                {locale === "fr" ? "Annuler" : "Cancel"}
+              </button>
+              <button onClick={executeAction} disabled={executing} style={{
+                padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                cursor: executing ? "not-allowed" : "pointer",
+                background: "#d03020", color: "#fff", border: "none",
+                borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", gap: 6,
+                opacity: executing ? 0.6 : 1,
+              }}>
+                <Zap size={12} />
+                {executing ? (locale === "fr" ? "Exécution..." : "Executing...") : (locale === "fr" ? "Confirmer et exécuter" : "Confirm and execute")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function getTimeAgo(iso: string): string {
+// ═══════════════════════════════════════════════
+// FINDINGS TAB (embedded)
+// ═══════════════════════════════════════════════
+
+const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: string }> = {
+  critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
+  high: { color: "#d07020", bg: "rgba(208,112,32,0.08)", border: "rgba(208,112,32,0.2)" },
+  medium: { color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+  low: { color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+  info: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-input)" },
+};
+
+function FindingsTab({ locale }: { locale: string }) {
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [counts, setCounts] = useState<CountEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterSeverity, setFilterSeverity] = useState("");
+  const [filterStatus, setFilterStatus] = useState("open");
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [f, c] = await Promise.all([
+        fetchFindings({ severity: filterSeverity || undefined, status: filterStatus || undefined, limit: 200 }),
+        fetchFindingsCounts(),
+      ]);
+      setFindings(f.findings); setCounts(c); setError(null);
+    } catch { setError(locale === "fr" ? "Erreur chargement" : "Load error"); }
+    setLoading(false);
+  }, [filterSeverity, filterStatus, locale]);
+
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+
+  const changeStatus = async (id: number, status: string) => {
+    try { await updateFindingStatus(id, status, "rssi"); await load(); } catch {}
+  };
+
+  const filtered = search
+    ? findings.filter(f => f.title.toLowerCase().includes(search.toLowerCase()) || f.asset?.toLowerCase().includes(search.toLowerCase()))
+    : findings;
+
+  const total = counts.reduce((s, c) => s + c.count, 0);
+
+  return (
+    <div>
+      {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {/* Severity counts */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
+        {["critical", "high", "medium", "low"].map(sev => {
+          const c = counts.find(c => c.label.toLowerCase() === sev)?.count || 0;
+          const s = SEVERITY_COLORS[sev];
+          const active = filterSeverity === sev;
+          return (
+            <button key={sev} onClick={() => setFilterSeverity(active ? "" : sev)} style={{
+              padding: "8px 14px", borderRadius: "var(--tc-radius-md)", border: `1px solid ${active ? s.border : "var(--tc-border)"}`,
+              background: active ? s.bg : "var(--tc-surface-alt)", cursor: "pointer", fontFamily: "inherit",
+              display: "flex", alignItems: "center", gap: "6px", color: s.color, fontSize: "13px", fontWeight: 600,
+            }}>
+              <span style={{ fontSize: "16px", fontWeight: 800 }}>{c}</span>
+              {sev.charAt(0).toUpperCase() + sev.slice(1)}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Search + status filters */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "8px 12px" }}>
+          <Search size={14} color="var(--tc-text-muted)" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={locale === "fr" ? "Rechercher..." : "Search..."}
+            style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--tc-text)", fontSize: "13px", fontFamily: "inherit" }} />
+          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="var(--tc-text-muted)" /></button>}
+        </div>
+        {["open", "in_progress", "resolved"].map(st => {
+          const active = filterStatus === st;
+          return (
+            <button key={st} onClick={() => setFilterStatus(active ? "" : st)} style={{
+              padding: "8px 12px", borderRadius: "var(--tc-radius-md)", fontSize: "11px", fontWeight: 600,
+              border: `1px solid ${active ? "rgba(208,48,32,0.2)" : "var(--tc-border)"}`,
+              background: active ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
+              color: active ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
+            }}>
+              {st === "open" ? (locale === "fr" ? "Ouvert" : "Open") : st === "in_progress" ? (locale === "fr" ? "En cours" : "In progress") : (locale === "fr" ? "Resolu" : "Resolved")}
+            </button>
+          );
+        })}
+        <ChromeButton onClick={load} variant="glass"><RefreshCw size={14} /></ChromeButton>
+      </div>
+
+      {/* Findings list */}
+      {loading ? (
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Chargement..." : "Loading..."}</div></NeuCard>
+      ) : filtered.length === 0 ? (
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Aucun finding" : "No findings"}</div></NeuCard>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {filtered.map(f => {
+            const sev = SEVERITY_COLORS[f.severity.toLowerCase()] || SEVERITY_COLORS.info;
+            const isExpanded = expandedId === f.id;
+            return (
+              <NeuCard key={f.id} style={{ padding: "14px 16px", borderRadius: "var(--tc-radius-card)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : f.id)}>
+                  <span style={{ fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: sev.bg, color: sev.color, border: `1px solid ${sev.border}`, textTransform: "uppercase", flexShrink: 0 }}>{f.severity.toUpperCase()}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.title}</div>
+                    <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", display: "flex", gap: "12px", marginTop: "2px" }}>
+                      {f.asset && <span style={{ color: "var(--tc-blue)" }}>{f.asset}</span>}
+                      <span>{f.source || f.skill_id}</span>
+                      <span>{new Date(f.detected_at).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US")}</span>
+                    </div>
+                  </div>
+                  <ChevronDown size={14} color="var(--tc-text-muted)" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+                </div>
+                {isExpanded && (
+                  <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
+                    {f.description && <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "12px", whiteSpace: "pre-line" }}>{f.description}</div>}
+                    {f.metadata && (
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                        {f.metadata.src_ip && <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(232,64,64,0.08)", color: "var(--tc-red)", border: "1px solid rgba(232,64,64,0.15)", fontFamily: "monospace" }}>src: {String(f.metadata.src_ip)}</span>}
+                        {f.metadata.cve && <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.08)", color: "var(--tc-red)", border: "1px solid rgba(208,48,32,0.15)", fontFamily: "monospace" }}>{String(f.metadata.cve)}</span>}
+                        {f.metadata.mitre && Array.isArray(f.metadata.mitre) && <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(128,64,208,0.08)", color: "#8040d0", border: "1px solid rgba(128,64,208,0.15)", fontFamily: "monospace" }}>MITRE: {(f.metadata.mitre as string[]).join(", ")}</span>}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {f.status !== "resolved" && <ChromeButton onClick={() => changeStatus(f.id, "resolved")} variant="glass"><CheckCircle2 size={12} /> {locale === "fr" ? "Resolu" : "Resolved"}</ChromeButton>}
+                      {f.status !== "false_positive" && <ChromeButton onClick={() => changeStatus(f.id, "false_positive")} variant="glass"><XCircle size={12} /> {locale === "fr" ? "Faux positif" : "False positive"}</ChromeButton>}
+                      <ChromeButton onClick={async () => {
+                        try {
+                          const res = await fetch("/api/tc/connectors/glpi/ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finding_id: f.id }) });
+                          const data = await res.json();
+                          if (data.ticket_id) alert(`Ticket GLPI #${data.ticket_id}`);
+                          else if (data.error) alert(data.error);
+                        } catch { alert("GLPI non configure"); }
+                      }} variant="glass"><FileText size={12} /> Ticket GLPI</ChromeButton>
+                    </div>
+                  </div>
+                )}
+              </NeuCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// ALERTS TAB (embedded)
+// ═══════════════════════════════════════════════
+
+const LEVEL_COLORS: Record<string, string> = {
+  critical: "#e84040", high: "#d07020", medium: "var(--tc-amber)", low: "var(--tc-blue)", informational: "var(--tc-text-muted)",
+};
+
+function AlertsTab({ locale }: { locale: string }) {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterLevel, setFilterLevel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchAlerts({ level: filterLevel || undefined, limit: 200 });
+      setAlerts(data.alerts || []); setError(null);
+    } catch { setError(locale === "fr" ? "Erreur chargement" : "Load error"); }
+    setLoading(false);
+  }, [filterLevel, locale]);
+
+  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
+
+  const archiveResolvedAlerts = async () => {
+    const msg = locale === "fr"
+      ? "Archiver toutes les alertes traitees/resolues ? (reversible — purge definitive apres 60 jours)"
+      : "Archive all acknowledged/resolved alerts? (reversible — permanent purge after 60 days)";
+    if (!confirm(msg)) return;
+    try {
+      const res = await fetch("/api/tc/alerts/archive-resolved", { method: "POST" });
+      const data = await res.json();
+      alert(locale === "fr" ? `${data.archived} alertes archivees` : `${data.archived} alerts archived`);
+      load();
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
+  return (
+    <div>
+      {error && <ErrorBanner message={error} onRetry={load} />}
+
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
+        {["critical", "high", "medium", "low"].map(level => {
+          const active = filterLevel === level;
+          const color = LEVEL_COLORS[level] || "var(--tc-text-muted)";
+          return (
+            <button key={level} onClick={() => setFilterLevel(active ? "" : level)} style={{
+              padding: "6px 14px", borderRadius: "var(--tc-radius-sm)", fontSize: 11, fontWeight: 600,
+              border: `1px solid ${active ? color : "var(--tc-border)"}`,
+              background: active ? `${color}15` : "var(--tc-surface-alt)",
+              color: active ? color : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase",
+            }}>{level}</button>
+          );
+        })}
+        <div style={{ flex: 1 }} />
+        <button onClick={archiveResolvedAlerts} style={{
+          padding: "6px 14px", borderRadius: "var(--tc-radius-sm)", fontSize: 11, fontWeight: 600,
+          border: "1px solid var(--tc-border)", background: "var(--tc-surface-alt)",
+          color: "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          <FileText size={12} />
+          {locale === "fr" ? "Archiver le resolu" : "Archive resolved"}
+        </button>
+        <ChromeButton onClick={load} variant="glass"><RefreshCw size={14} /></ChromeButton>
+      </div>
+
+      {loading ? (
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Chargement..." : "Loading..."}</div></NeuCard>
+      ) : alerts.length === 0 ? (
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Aucune alerte" : "No alerts"}</div></NeuCard>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {alerts.map((a, i) => {
+            const color = LEVEL_COLORS[a.level?.toLowerCase()] || "var(--tc-text-muted)";
+            return (
+              <NeuCard key={a.id || i} style={{ padding: "12px 16px", borderRadius: "var(--tc-radius-card)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "10px", fontWeight: 700, padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: `${color}15`, color, border: `1px solid ${color}30`, textTransform: "uppercase", flexShrink: 0 }}>{a.level}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.title}</div>
+                    <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", display: "flex", gap: "12px", marginTop: "2px" }}>
+                      {a.hostname && <span>{a.hostname}</span>}
+                      {a.source_ip && <span style={{ fontFamily: "monospace", color: "var(--tc-red)" }}>{a.source_ip}</span>}
+                      {a.username && <span>{a.username}</span>}
+                      <span>{a.rule_id}</span>
+                      {a.matched_at && <span>{new Date(a.matched_at).toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US")}</span>}
+                    </div>
+                  </div>
+                </div>
+              </NeuCard>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════
+// MAIN PAGE — Tab switcher
+// ═══════════════════════════════════════════════
+
+export default function IncidentsPage() {
+  const locale = useLocale();
+  const [activeTab, setActiveTab] = useState<"incidents" | "findings" | "alerts">("incidents");
+
+  const tabs = [
+    { id: "incidents" as const, label: "Incidents", icon: <Bell size={14} />, desc: locale === "fr" ? "Confirmes par l'IA" : "AI-confirmed" },
+    { id: "findings" as const, label: "Findings", icon: <Shield size={14} />, desc: locale === "fr" ? "Vulnerabilites" : "Vulnerabilities" },
+    { id: "alerts" as const, label: locale === "fr" ? "Alertes" : "Alerts", icon: <AlertTriangle size={14} />, desc: locale === "fr" ? "Regles Sigma" : "Sigma rules" },
+  ];
+
+  return (
+    <div>
+      <div style={{ marginBottom: "20px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
+          {locale === "fr" ? "Incidents & Detections" : "Incidents & Detections"}
+        </h1>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
+          {locale === "fr"
+            ? "Incidents confirmes, vulnerabilites detectees et alertes de securite"
+            : "Confirmed incidents, detected vulnerabilities and security alerts"}
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "20px" }}>
+        {tabs.map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
+            padding: "10px 18px", borderRadius: "var(--tc-radius-sm)", fontSize: "12px", fontWeight: 700,
+            cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px",
+            background: activeTab === tab.id ? "var(--tc-red-soft, rgba(208,48,32,0.15))" : "var(--tc-input)",
+            color: activeTab === tab.id ? "var(--tc-red, #d03020)" : "var(--tc-text-muted)",
+            border: activeTab === tab.id ? "1px solid var(--tc-red-border, rgba(208,48,32,0.3))" : "1px solid var(--tc-border)",
+            transition: "all 0.2s",
+          }}>
+            {tab.icon} {tab.label}
+            <span style={{ fontSize: "9px", fontWeight: 500, opacity: 0.7 }}>({tab.desc})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Active tab content */}
+      {activeTab === "incidents" && <IncidentsTab locale={locale} />}
+      {activeTab === "findings" && <FindingsTab locale={locale} />}
+      {activeTab === "alerts" && <AlertsTab locale={locale} />}
+    </div>
+  );
+}
+
+function getTimeAgo(iso: string, locale: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "a l'instant";
-  if (mins < 60) return `il y a ${mins}min`;
+  if (mins < 1) return locale === "fr" ? "a l'instant" : "just now";
+  if (mins < 60) return locale === "fr" ? `il y a ${mins}min` : `${mins}m ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `il y a ${hours}h`;
+  if (hours < 24) return locale === "fr" ? `il y a ${hours}h` : `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `il y a ${days}j`;
+  return locale === "fr" ? `il y a ${days}j` : `${days}d ago`;
 }

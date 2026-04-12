@@ -1,0 +1,15 @@
+{
+  "id": "skill-graylog",
+  "name": "Graylog SIEM",
+  "description": "Import alert events from Graylog",
+  "type": "connector",
+  "category": "siem",
+  "icon": "shield",
+  "config_fields": {
+    "url": {"type": "string", "label": "Graylog URL", "placeholder": "https://graylog:9000", "required": true},
+    "token": {"type": "password", "label": "API Token", "help": "Token API Graylog (System > Users > Tokens)"},
+    "username": {"type": "string", "label": "Username (alt)", "placeholder": "admin", "help": "Alternative au token"},
+    "password": {"type": "password", "label": "Password (alt)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

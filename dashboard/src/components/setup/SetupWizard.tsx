@@ -160,7 +160,7 @@ export default function SetupWizard() {
   useEffect(() => {
     if (typeof navigator !== "undefined" && "deviceMemory" in navigator) {
       const ram = (navigator as Record<string, unknown>).deviceMemory as number;
-      const recommended = ram <= 8 ? "qwen3:8b" : ram <= 16 ? "qwen3:14b" : ram <= 32 ? "qwen3:14b" : "qwen3:32b";
+      const recommended = ram <= 8 ? "gemma4:e4b" : ram <= 16 ? "gemma4:e4b" : "gemma4:26b";
       setPrimary(p => ({ ...p, detectedRam: ram, recommendedModel: recommended }));
     }
   }, []);

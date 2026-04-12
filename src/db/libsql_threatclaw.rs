@@ -70,4 +70,11 @@ impl ThreatClawStore for LibSqlBackend {
     async fn list_incidents(&self, _: Option<&str>, _: i64, _: i64) -> Result<Vec<serde_json::Value>, DatabaseError> { Err(not_supported()) }
     async fn get_incident(&self, _: i32) -> Result<Option<serde_json::Value>, DatabaseError> { Err(not_supported()) }
     async fn find_open_incident_for_asset(&self, _: &str) -> Result<Option<i32>, DatabaseError> { Err(not_supported()) }
+    async fn touch_incident(&self, _: i32, _: i32) -> Result<(), DatabaseError> { Err(not_supported()) }
+    async fn cleanup_old_sigma_alerts(&self, _: i32) -> Result<i64, DatabaseError> { Err(not_supported()) }
+    async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn archive_resolved_incidents(&self) -> Result<i64, DatabaseError> { Err(not_supported()) }
+    async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError> { Err(not_supported()) }
+    async fn purge_old_archived(&self, _: i32) -> Result<(i64, i64), DatabaseError> { Err(not_supported()) }
+    async fn add_incident_note(&self, _: i32, _: &str, _: &str) -> Result<(), DatabaseError> { Err(not_supported()) }
 }

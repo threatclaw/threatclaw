@@ -103,6 +103,7 @@ pub async fn process_webhook(
         "wordfence" => parse_wordfence(store, &json).await,
         "graylog" => parse_graylog(store, &json).await,
         "changedetection" => parse_changedetection(store, &json).await,
+        "strelka" => parse_strelka(store, &json).await,
         _ => {
             // Unknown source — try generic parser
             parse_generic(store, source, &json).await
@@ -261,6 +262,55 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                     let alert_title = format!("Zeek: Malware file detected — {} ({})", filename, matched_type);
                     let _ = store.insert_sigma_alert("zeek-malware-file", "critical", &alert_title,
                         src, Some(dst), None).await;
+
+                    // P0: VirusTotal conditional lookup — fire-and-forget enrichment
+                    // Non-blocking: spawns async task, VT result logged for IE enrichment
+                    // Check skill_configs (dashboard UI) first, then settings (manual config)
+                    let vt_api_key: Option<String> = {
+                        let mut key = None;
+                        if let Ok(configs) = store.get_skill_config("skill-virustotal").await {
+                            for c in &configs {
+                                if c.key == "api_key" && !c.value.is_empty() {
+                                    key = Some(c.value.clone());
+                                    break;
+                                }
+                            }
+                        }
+                        if key.is_none() {
+                            if let Ok(Some(val)) = store.get_setting("virustotal", "api_key").await {
+                                key = val.as_str().filter(|k| !k.is_empty()).map(String::from);
+                            }
+                        }
+                        key
+                    };
+                    if let Some(vt_key) = vt_api_key {
+                        let vt_hash = hash_val.clone();
+                        let vt_filename = filename.to_string();
+                        tokio::spawn(async move {
+                            match tokio::time::timeout(
+                                std::time::Duration::from_secs(20),
+                                crate::enrichment::virustotal_lookup::lookup_hash(&vt_hash, &vt_key),
+                            ).await {
+                                Ok(Ok(vt)) if vt.malicious > 0 => {
+                                    tracing::warn!(
+                                        "NDR-FILE-VT: {} confirmed malicious by {}/{} engines ({})",
+                                        vt_filename, vt.malicious,
+                                        vt.malicious + vt.harmless + vt.undetected,
+                                        vt.popular_threat_name.as_deref().unwrap_or("unknown")
+                                    );
+                                }
+                                Ok(Ok(_)) => {
+                                    tracing::debug!("NDR-FILE-VT: {} clean on VirusTotal", vt_filename);
+                                }
+                                Ok(Err(e)) => {
+                                    tracing::debug!("NDR-FILE-VT: lookup failed for {}: {}", vt_hash, e);
+                                }
+                                Err(_) => {
+                                    tracing::debug!("NDR-FILE-VT: timeout for {}", vt_hash);
+                                }
+                            }
+                        });
+                    }
                 }
             }
             "zeek.notice" | "zeek.notice_log" => {
@@ -614,6 +664,137 @@ async fn parse_generic(store: &dyn Database, source: &str, json: &serde_json::Va
     } else {
         0
     }
+}
+
+/// Parse Strelka file scanning results.
+/// Strelka (Target Corp, Apache 2.0) scans files with 79 scanners:
+/// ClamAV, YARA, capa (Mandiant), entropy, PE/ELF analysis, archive extraction, etc.
+///
+/// Input: JSON array of scan results from POST /api/tc/webhook/ingest/strelka
+/// Each result contains: file metadata + scanner results + IOC matches
+async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
+    let mut findings = 0u32;
+
+    // Strelka can send single result or array of results
+    let results = if json.is_array() {
+        json.as_array().cloned().unwrap_or_default()
+    } else {
+        vec![json.clone()]
+    };
+
+    for result in &results {
+        let filename = result["file"]["name"].as_str()
+            .or_else(|| result["request"]["id"].as_str())
+            .unwrap_or("unknown");
+        let sha256 = result["file"]["hash"]["sha256"].as_str()
+            .or_else(|| result["hash"]["sha256"].as_str())
+            .unwrap_or("");
+        let size = result["file"]["size"].as_u64().unwrap_or(0);
+        let mime = result["file"]["flavors"]["mime"].as_array()
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let entropy = result["file"]["entropy"].as_f64().unwrap_or(0.0);
+
+        // Collect scanner hits
+        let mut threats: Vec<String> = Vec::new();
+        let mut severity = "MEDIUM";
+        let mut scanners_triggered: Vec<String> = Vec::new();
+
+        // ClamAV matches
+        if let Some(viruses) = result["scan"]["scan_clamav"]["viruses"].as_array() {
+            for v in viruses {
+                if let Some(name) = v.as_str() {
+                    threats.push(format!("ClamAV: {}", name));
+                    severity = "CRITICAL";
+                }
+            }
+            scanners_triggered.push("ClamAV".into());
+        }
+
+        // YARA matches
+        if let Some(matches) = result["scan"]["scan_yara"]["matches"].as_array() {
+            for m in matches {
+                let rule = m.as_str().unwrap_or("unknown");
+                threats.push(format!("YARA: {}", rule));
+                severity = "CRITICAL";
+            }
+            scanners_triggered.push("YARA".into());
+        }
+
+        // capa (Mandiant) — malware capabilities
+        if let Some(caps) = result["scan"]["scan_capa"]["matches"].as_object() {
+            for (cap, _) in caps {
+                threats.push(format!("capa: {}", cap));
+                if severity != "CRITICAL" { severity = "HIGH"; }
+            }
+            scanners_triggered.push("capa".into());
+        }
+
+        // PE/ELF suspicious indicators
+        if let Some(pe) = result["scan"].get("scan_pe") {
+            if pe["is_packed"].as_bool() == Some(true) {
+                threats.push("PE: packed/obfuscated binary".into());
+                if severity != "CRITICAL" { severity = "HIGH"; }
+            }
+            scanners_triggered.push("PE".into());
+        }
+
+        // High entropy (encrypted/packed content)
+        if entropy > 7.5 {
+            threats.push(format!("Entropie très élevée: {:.2} (packed/chiffré)", entropy));
+            if severity != "CRITICAL" { severity = "HIGH"; }
+        }
+
+        // Skip if nothing suspicious found
+        if threats.is_empty() { continue; }
+
+        let title = format!(
+            "Strelka: fichier malveillant détecté — {} ({} scanners)",
+            filename, threats.len()
+        );
+        let description = format!(
+            "Strelka file scanner a détecté des menaces dans un fichier.\n\n\
+             Fichier: {} ({}, {} octets)\nSHA256: {}\nEntropie: {:.2}\n\n\
+             Détections:\n- {}\n\n\
+             Scanners déclenchés: {}",
+            filename, mime, size, sha256, entropy,
+            threats.join("\n- "),
+            scanners_triggered.join(", "),
+        );
+
+        let _ = store.insert_finding(&NewFinding {
+            skill_id: "skill-strelka-scanner".into(),
+            title,
+            description: Some(description),
+            severity: severity.into(),
+            category: Some("malware-detection".into()),
+            asset: None, // File scanning — asset resolved later via network context
+            source: Some("Strelka file scanner".into()),
+            metadata: Some(serde_json::json!({
+                "filename": filename,
+                "sha256": sha256,
+                "mime_type": mime,
+                "size": size,
+                "entropy": entropy,
+                "threats": threats,
+                "scanners": scanners_triggered,
+                "detection": "strelka-file-scan",
+                "mitre": ["T1059", "T1204.002"]
+            })),
+        }).await;
+        findings += 1;
+
+        // Also store as log for IE correlation
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = store.insert_log("strelka.scan", "", result, &now).await;
+    }
+
+    if findings > 0 {
+        tracing::warn!("STRELKA: {} malicious files detected from {} results", findings, results.len());
+    }
+
+    findings
 }
 
 #[cfg(test)]

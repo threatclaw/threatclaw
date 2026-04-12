@@ -1,0 +1,16 @@
+{
+  "id": "skill-elastic-siem",
+  "name": "Elastic Security",
+  "description": "Import detection alerts from Elastic Security (Kibana)",
+  "type": "connector",
+  "category": "siem",
+  "icon": "shield",
+  "config_fields": {
+    "url": {"type": "string", "label": "Kibana URL", "placeholder": "https://kibana:5601", "required": true, "help": "URL du serveur Kibana (pas Elasticsearch directement)"},
+    "api_key_id": {"type": "string", "label": "API Key ID", "placeholder": "xxxxxxxx", "help": "ID de la clé API Kibana (Security > API keys)"},
+    "api_key_secret": {"type": "password", "label": "API Key Secret", "help": "Secret de la clé API"},
+    "username": {"type": "string", "label": "Username (alt)", "placeholder": "elastic", "help": "Alternative à l'API key : authentification basique"},
+    "password": {"type": "password", "label": "Password (alt)", "help": "Mot de passe si authentification basique"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

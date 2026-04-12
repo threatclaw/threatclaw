@@ -370,17 +370,29 @@ impl ThreatClawStore for PgBackend {
         &self, level: Option<&str>, status: Option<&str>, limit: i64, offset: i64,
     ) -> Result<Vec<AlertRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Exclude archived by default. Pass "include_archived" to bypass or
+        // "archived" to filter only archived rows. Same semantics as list_incidents.
+        let status_owned = status.map(String::from);
+        let include_archived = status_owned.as_deref() == Some("include_archived");
+        // Translate sentinel values — NULL or "all" both mean "default view"
+        let effective_status: Option<String> = match status_owned.as_deref() {
+            None | Some("all") | Some("include_archived") => None,
+            Some(s) => Some(s.to_string()),
+        };
+        let archived_clause = if include_archived { "" } else { " AND status != 'archived'" };
+        let q = format!(
+            "SELECT id, rule_id, level, title, status, hostname, \
+                    host(source_ip), username, matched_at::text, matched_fields \
+             FROM sigma_alerts \
+             WHERE ($1::text IS NULL OR UPPER(level) = UPPER($1)) \
+               AND ($2::text IS NULL OR status = $2){} \
+             ORDER BY matched_at DESC \
+             LIMIT $3 OFFSET $4",
+            archived_clause
+        );
         let rows = conn
-            .query(
-                r#"SELECT id, rule_id, level, title, status, hostname,
-                          host(source_ip), username, matched_at::text, matched_fields
-                   FROM sigma_alerts
-                   WHERE ($1::text IS NULL OR UPPER(level) = UPPER($1))
-                     AND ($2::text IS NULL OR status = $2)
-                   ORDER BY matched_at DESC
-                   LIMIT $3 OFFSET $4"#,
-                &[&level, &status, &limit, &offset],
-            ).await.map_err(query_err)?;
+            .query(q.as_str(), &[&level, &effective_status, &limit, &offset])
+            .await.map_err(query_err)?;
         Ok(rows.iter().map(|r| AlertRecord {
             id: r.get(0), rule_id: r.get(1), level: r.get(2), title: r.get(3),
             status: r.get(4), hostname: r.get(5), source_ip: r.get(6),
@@ -1222,13 +1234,25 @@ impl ThreatClawStore for PgBackend {
 
     async fn list_incidents(&self, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Status filter semantics:
+        //   None or "all"     → default view, excludes 'archived'
+        //   "archived"        → only archived rows (for the dashboard toggle)
+        //   "include_archived" → everything including archived
+        //   anything else     → exact match
         let status_owned = status.map(String::from);
-        let rows = if let Some(ref s) = status_owned {
-            let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
-            conn.query(&q, &[s]).await.map_err(query_err)?
-        } else {
-            let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
-            conn.query(&q, &[]).await.map_err(query_err)?
+        let rows = match status_owned.as_deref() {
+            None | Some("all") => {
+                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status != 'archived' ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                conn.query(&q, &[]).await.map_err(query_err)?
+            }
+            Some("include_archived") => {
+                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                conn.query(&q, &[]).await.map_err(query_err)?
+            }
+            Some(s) => {
+                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                conn.query(&q, &[&s.to_string()]).await.map_err(query_err)?
+            }
         };
         let results: Vec<serde_json::Value> = rows.iter().map(|r| {
             serde_json::json!({
@@ -1245,6 +1269,7 @@ impl ThreatClawStore for PgBackend {
                 "hitl_response": r.get::<_, Option<String>>("hitl_response"),
                 "proposed_actions": r.try_get::<_, serde_json::Value>("proposed_actions").unwrap_or(serde_json::json!([])),
                 "mitre_techniques": r.get::<_, Option<Vec<String>>>("mitre_techniques"),
+                "notes": r.try_get::<_, serde_json::Value>("notes").unwrap_or(serde_json::json!([])),
                 "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
                 "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
                 "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),
@@ -1256,7 +1281,7 @@ impl ThreatClawStore for PgBackend {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id, asset, title, summary, verdict, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            "SELECT id, asset, title, summary, verdict, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
             &[&id],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| serde_json::json!({
@@ -1280,6 +1305,7 @@ impl ThreatClawStore for PgBackend {
             "hitl_responded_by": r.get::<_, Option<String>>("hitl_responded_by"),
             "hitl_response": r.get::<_, Option<String>>("hitl_response"),
             "notified_channels": r.get::<_, Option<Vec<String>>>("notified_channels"),
+            "notes": r.try_get::<_, serde_json::Value>("notes").unwrap_or(serde_json::json!([])),
             "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
             "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
             "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),
@@ -1287,12 +1313,115 @@ impl ThreatClawStore for PgBackend {
     }
 
     async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError> {
+        // Only match incidents from the last 4 hours to allow "fresh" recurring
+        // incidents to merge, but don't resurrect old ones that were never closed.
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id FROM incidents WHERE asset = $1 AND status IN ('open', 'investigating') ORDER BY created_at DESC LIMIT 1",
+            "SELECT id FROM incidents \
+             WHERE asset = $1 \
+               AND status IN ('open', 'investigating') \
+               AND updated_at > NOW() - INTERVAL '4 hours' \
+             ORDER BY created_at DESC LIMIT 1",
             &[&asset],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| r.get("id")))
+    }
+
+    async fn touch_incident(&self, id: i32, alert_count_delta: i32) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET alert_count = alert_count + $2, updated_at = NOW() WHERE id = $1",
+            &[&id, &alert_count_delta],
+        ).await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Delete only acknowledged/resolved alerts to avoid losing actionable ones.
+        // 'new' alerts are kept regardless of age (they may still be relevant).
+        let q = format!(
+            "DELETE FROM sigma_alerts \
+             WHERE status IN ('acknowledged', 'resolved') \
+               AND matched_at < NOW() - INTERVAL '{} days'",
+            days_old.max(1)
+        );
+        let count = conn.execute(q.as_str(), &[]).await.map_err(query_err)?;
+        Ok(count as i64)
+    }
+
+    async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError> {
+        // MITRE techniques are stored as settings rows under user_id='_mitre',
+        // not in the legacy mitre_techniques table (which exists from migration
+        // V21 but is unused — see enrichment/mitre_attack.rs).
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn.query_one(
+            "SELECT COUNT(*) AS cnt FROM settings WHERE user_id = '_mitre'",
+            &[],
+        ).await.map_err(query_err)?;
+        Ok(row.get("cnt"))
+    }
+
+    async fn archive_resolved_incidents(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Also archive incidents that have been closed for at least 1 hour
+        // (gives the RSSI a short window to see the closure before it disappears).
+        let count = conn.execute(
+            "UPDATE incidents SET status = 'archived', updated_at = NOW() \
+             WHERE status IN ('resolved', 'closed', 'false_positive')",
+            &[],
+        ).await.map_err(query_err)?;
+        Ok(count as i64)
+    }
+
+    async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let count = conn.execute(
+            "UPDATE sigma_alerts SET status = 'archived' \
+             WHERE status IN ('resolved', 'acknowledged')",
+            &[],
+        ).await.map_err(query_err)?;
+        Ok(count as i64)
+    }
+
+    async fn purge_old_archived(&self, days_old: i32) -> Result<(i64, i64), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let days = days_old.max(1);
+        // Incidents
+        let inc_q = format!(
+            "DELETE FROM incidents \
+             WHERE status = 'archived' \
+               AND updated_at < NOW() - INTERVAL '{} days'",
+            days
+        );
+        let incidents = conn.execute(inc_q.as_str(), &[]).await.map_err(query_err)? as i64;
+        // Sigma alerts
+        let alert_q = format!(
+            "DELETE FROM sigma_alerts \
+             WHERE status = 'archived' \
+               AND matched_at < NOW() - INTERVAL '{} days'",
+            days
+        );
+        let alerts = conn.execute(alert_q.as_str(), &[]).await.map_err(query_err)? as i64;
+        Ok((incidents, alerts))
+    }
+
+    async fn add_incident_note(&self, id: i32, text: &str, author: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let note = serde_json::json!({
+            "text": text,
+            "author": author,
+            "at": chrono::Utc::now().to_rfc3339(),
+        });
+        // Append to the notes JSONB array
+        conn.execute(
+            "UPDATE incidents \
+             SET notes = COALESCE(notes, '[]'::jsonb) || $2::jsonb, \
+                 updated_at = NOW() \
+             WHERE id = $1",
+            &[&id, &note],
+        ).await.map_err(query_err)?;
+        Ok(())
     }
 }
 

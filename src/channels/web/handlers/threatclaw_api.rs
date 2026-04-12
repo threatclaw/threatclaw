@@ -2456,6 +2456,126 @@ pub async fn connector_wazuh_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/connectors/elastic-siem/sync
+pub async fn connector_elastic_siem_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::elastic_siem::ElasticSiemConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid elastic config: {e}")))?;
+    let result = crate::connectors::elastic_siem::sync_elastic_siem(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/graylog/sync
+pub async fn connector_graylog_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::graylog::GraylogConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid graylog config: {e}")))?;
+    let result = crate::connectors::graylog::sync_graylog(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/thehive/sync
+pub async fn connector_thehive_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::thehive::TheHiveConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid thehive config: {e}")))?;
+    let result = crate::connectors::thehive::sync_thehive(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/dfir-iris/sync
+pub async fn connector_dfir_iris_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::dfir_iris::DfirIrisConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid dfir-iris config: {e}")))?;
+    let result = crate::connectors::dfir_iris::sync_dfir_iris(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/shuffle/sync
+pub async fn connector_shuffle_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::shuffle::ShuffleConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid shuffle config: {e}")))?;
+    let result = crate::connectors::shuffle::sync_shuffle(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/keycloak/sync
+pub async fn connector_keycloak_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::keycloak::KeycloakConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid keycloak config: {e}")))?;
+    let result = crate::connectors::keycloak::sync_keycloak(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/authentik/sync
+pub async fn connector_authentik_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::authentik::AuthentikConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid authentik config: {e}")))?;
+    let result = crate::connectors::authentik::sync_authentik(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/proxmox-backup/sync
+pub async fn connector_proxmox_backup_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::proxmox_backup::ProxmoxBackupConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid proxmox-backup config: {e}")))?;
+    let result = crate::connectors::proxmox_backup::sync_proxmox_backup(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/veeam/sync
+pub async fn connector_veeam_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::veeam::VeeamConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid veeam config: {e}")))?;
+    let result = crate::connectors::veeam::sync_veeam(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/mikrotik/sync
+pub async fn connector_mikrotik_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config = serde_json::from_value::<crate::connectors::mikrotik::MikroTikConfig>(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid mikrotik config: {e}")))?;
+    let result = crate::connectors::mikrotik::sync_mikrotik(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/connectors/glpi/sync — import assets from GLPI CMDB.
 pub async fn connector_glpi_sync_handler(
     State(state): State<Arc<GatewayState>>,
@@ -2999,6 +3119,190 @@ pub async fn notification_routing_set_handler(
     let routing: crate::agent::notification_router::NotificationRouting = serde_json::from_value(body)
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid routing config: {e}")))?;
     crate::agent::notification_router::save_routing(store.as_ref(), &routing).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "status": "saved" })))
+}
+
+/// GET /api/tc/notifications/settings — get advanced notification settings.
+pub async fn notification_settings_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let settings = crate::agent::notification_router::load_notification_settings(store.as_ref()).await;
+    Ok(Json(serde_json::to_value(settings).unwrap_or_default()))
+}
+
+/// POST /api/tc/notifications/settings — save advanced notification settings.
+pub async fn notification_settings_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let settings: crate::agent::notification_router::NotificationSettings = serde_json::from_value(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid notification settings: {e}")))?;
+    crate::agent::notification_router::save_notification_settings(store.as_ref(), &settings).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "status": "saved" })))
+}
+
+// ════════════════════════════════════════════════════════════════
+// ARCHIVE — bulk archive resolved incidents / alerts
+// ════════════════════════════════════════════════════════════════
+
+/// POST /api/tc/incidents/archive-resolved — archive all resolved/closed/false_positive incidents.
+pub async fn incidents_archive_resolved_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let count = store.archive_resolved_incidents().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    tracing::info!("ARCHIVE: {} incidents archived", count);
+    Ok(Json(serde_json::json!({ "archived": count })))
+}
+
+/// POST /api/tc/incidents/{id}/archive — archive a single incident.
+pub async fn incident_archive_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store.update_incident_status(id, "archived").await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    Ok(Json(serde_json::json!({ "status": "archived", "id": id })))
+}
+
+/// POST /api/tc/alerts/archive-resolved — archive all acknowledged/resolved sigma alerts.
+pub async fn alerts_archive_resolved_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let count = store.archive_resolved_alerts().await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    tracing::info!("ARCHIVE: {} sigma alerts archived", count);
+    Ok(Json(serde_json::json!({ "archived": count })))
+}
+
+/// POST /api/tc/incidents/{id}/execute-action — execute a proposed action on an incident.
+/// Body: {"action": "block_ip"|"create_ticket"|"disable_account"|"manual"}
+/// Routes to the remediation engine, which validates via remediation_guard.
+pub async fn incident_execute_action_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let action = body["action"].as_str().unwrap_or("")
+        .to_string();
+    if action.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "missing 'action' field".into()));
+    }
+    // Append a note to the audit trail before executing
+    let _ = store.add_incident_note(id, &format!("Action lancée : {}", action), "dashboard").await;
+
+    // Delegate to remediation_engine (same path as Telegram/HITL)
+    let store_arc = store.clone();
+    let (ok, message) = crate::agent::remediation_engine::execute_incident_remediation(
+        store_arc, id, &action,
+    ).await;
+
+    // Record the outcome
+    let outcome = if ok { format!("✅ {}", message) } else { format!("❌ {}", message) };
+    let _ = store.add_incident_note(id, &outcome, "remediation_engine").await;
+
+    if ok {
+        Ok(Json(serde_json::json!({ "status": "ok", "message": message })))
+    } else {
+        Err((StatusCode::INTERNAL_SERVER_ERROR, message))
+    }
+}
+
+/// POST /api/tc/incidents/{id}/note — append an RSSI note to an incident's audit trail.
+/// Body: {"text": "...", "author": "..."}
+pub async fn incident_add_note_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let text = body["text"].as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty note text".into()));
+    }
+    let author = body["author"].as_str().unwrap_or("rssi");
+    store.add_incident_note(id, text, author).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed: {e}")))?;
+    Ok(Json(serde_json::json!({ "status": "added" })))
+}
+
+// ════════════════════════════════════════════════════════════════
+// BACKUPS — list, create, download, delete, settings
+// ════════════════════════════════════════════════════════════════
+
+/// GET /api/tc/backups — list available backup files.
+pub async fn backups_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let list = crate::agent::backup_manager::list_backups(store.as_ref()).await;
+    Ok(Json(serde_json::json!({ "backups": list })))
+}
+
+/// POST /api/tc/backups/create — create a backup on demand.
+pub async fn backups_create_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::agent::backup_manager::create_backup(store.as_ref()).await {
+        Ok(info) => Ok(Json(serde_json::to_value(info).unwrap_or_default())),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("backup failed: {e}"))),
+    }
+}
+
+/// GET /api/tc/backups/download/{name} — stream a backup file for download.
+pub async fn backups_download_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let bytes = crate::agent::backup_manager::read_backup(store.as_ref(), &name).await
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(axum::response::Response::builder()
+        .status(200)
+        .header("Content-Type", "application/gzip")
+        .header("Content-Disposition", format!("attachment; filename=\"{}\"", name))
+        .body(axum::body::Body::from(bytes))
+        .unwrap())
+}
+
+/// DELETE /api/tc/backups/{name} — delete a backup file.
+pub async fn backups_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    crate::agent::backup_manager::delete_backup(store.as_ref(), &name).await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "status": "deleted", "name": name })))
+}
+
+/// GET /api/tc/backups/settings — get backup auto-schedule settings.
+pub async fn backups_settings_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let settings = crate::agent::backup_manager::load_settings(store.as_ref()).await;
+    Ok(Json(serde_json::to_value(settings).unwrap_or_default()))
+}
+
+/// POST /api/tc/backups/settings — update backup settings.
+pub async fn backups_settings_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let settings: crate::agent::backup_manager::BackupSettings = serde_json::from_value(body)
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid backup settings: {e}")))?;
+    crate::agent::backup_manager::save_settings(store.as_ref(), &settings).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
@@ -4353,7 +4657,10 @@ pub async fn export_stix2_handler(
 /// Compile a Typst template to PDF. Writes data.json to a temp dir, copies template + common.typ, runs typst compile.
 fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Vec<u8>, String> {
     use std::io::Write;
-    let tmp = std::env::temp_dir().join(format!("tc-report-{}", std::process::id()));
+    // Use /app/data/reports as temp dir (owned by threatclaw user) with unique subdir per call
+    let base_tmp = std::path::PathBuf::from("/app/data/reports");
+    let tmp = base_tmp.join(format!("tc-report-{}-{}", std::process::id(), std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
     std::fs::create_dir_all(&tmp).map_err(|e| format!("mkdir: {e}"))?;
 
     // Write data.json
@@ -4361,8 +4668,12 @@ fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Ve
     let mut f = std::fs::File::create(&data_path).map_err(|e| format!("data.json: {e}"))?;
     f.write_all(serde_json::to_string_pretty(data).unwrap().as_bytes()).map_err(|e| format!("write: {e}"))?;
 
-    // Copy template + common.typ
-    let tpl_dir = std::path::Path::new("templates");
+    // Copy template + common.typ — try /app/templates first, then relative "templates"
+    let tpl_dir = if std::path::Path::new("/app/templates").exists() {
+        std::path::PathBuf::from("/app/templates")
+    } else {
+        std::path::PathBuf::from("templates")
+    };
     let common_src = tpl_dir.join("common.typ");
     let tpl_src = tpl_dir.join(format!("{template_name}.typ"));
 
@@ -4862,6 +5173,194 @@ pub async fn log_stats_handler(
         "sources_count": sources.len(),
         "syslog_port": 514,
     })))
+}
+
+// ══════════════════════════════════════════════════════════
+// SOURCES STATUS
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/sources/status — unified source status for the Sources dashboard page.
+/// Returns per-source connection status, log counts, last seen, and what each source activates.
+pub async fn sources_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // 1. Get per-tag log counts from last 24h
+    let all_logs = store.query_logs(1440, None, None, 5000).await.unwrap_or_default();
+    let mut tag_stats: std::collections::HashMap<String, TagStat> = std::collections::HashMap::new();
+
+    for log in &all_logs {
+        let tag = log.tag.as_deref().unwrap_or("unknown");
+        let base_tag = tag.split('.').next().unwrap_or(tag);
+        let entry = tag_stats.entry(base_tag.to_string()).or_insert_with(|| TagStat {
+            count: 0,
+            hosts: std::collections::HashSet::new(),
+            last_seen: None,
+            tags: std::collections::HashSet::new(),
+        });
+        entry.count += 1;
+        if let Some(h) = log.hostname.as_deref() {
+            entry.hosts.insert(h.to_string());
+        }
+        entry.tags.insert(tag.to_string());
+        if entry.last_seen.is_none() {
+            entry.last_seen = Some(log.time.clone());
+        }
+    }
+
+    // 2. Build source definitions with live status
+    let sources = vec![
+        build_source_status("syslog", "Syslog (UDP/TCP)", "syslog", &tag_stats, store.as_ref(),
+            &["syslog", "fluent"],
+            &["Sigma rule matching", "Auth failure detection", "ML behavioral analysis"],
+            "always_on").await,
+        build_source_status("wazuh", "Wazuh SIEM", "wazuh", &tag_stats, store.as_ref(),
+            &["wazuh"],
+            &["30 Sigma rules (PowerShell + AD attacks)", "Vulnerability detection", "File integrity monitoring", "Ransomware detection"],
+            "connector").await,
+        build_source_status("osquery", "ThreatClaw Agent (osquery)", "osquery", &tag_stats, store.as_ref(),
+            &["osquery"],
+            &["20 PowerShell obfuscation rules", "Kill chain detection", "Software inventory + auto-CVE", "DGA detection (RF + LSTM)", "Ransomware detection"],
+            "webhook").await,
+        build_source_status("zeek", "Zeek NDR", "zeek", &tag_stats, store.as_ref(),
+            &["zeek"],
+            &["JA3/JA4/HASSH fingerprinting", "C2 Beacon detection (RITA 4-scores)", "TLS certificate scoring", "DNS tunneling detection", "SNI typosquatting", "File hash Bloom filter", "Ransomware SMB detection"],
+            "webhook").await,
+        build_source_status("pihole", "Pi-hole DNS", "pihole", &tag_stats, store.as_ref(),
+            &["pihole"],
+            &["DNS tunneling detection", "DGA ML scoring"],
+            "connector").await,
+        build_source_status("suricata", "Suricata IDS", "suricata", &tag_stats, store.as_ref(),
+            &["suricata"],
+            &["IDS alert correlation", "Sigma rule matching"],
+            "webhook").await,
+        build_source_status("strelka", "Strelka File Scanner", "strelka", &tag_stats, store.as_ref(),
+            &["strelka"],
+            &["79 scanners (ClamAV + YARA + capa)", "Malware detection", "PE/ELF analysis"],
+            "webhook").await,
+    ];
+
+    // 3. Get osquery agents
+    let mut agents: Vec<serde_json::Value> = Vec::new();
+    // Scan _osquery_agents namespace
+    for i in 0..100 {
+        let key = format!("agent_{}", i);
+        if let Ok(Some(val)) = store.get_setting("_osquery_agents", &key).await {
+            agents.push(val);
+        }
+    }
+    // Also try hostname-based agent keys
+    let agent_hosts: Vec<String> = tag_stats.get("osquery")
+        .map(|s| s.hosts.iter().cloned().collect())
+        .unwrap_or_default();
+    for h in &agent_hosts {
+        let key = format!("agent_{}", h);
+        if let Ok(Some(val)) = store.get_setting("_osquery_agents", &key).await {
+            if !agents.iter().any(|a| a["hostname"].as_str() == val["hostname"].as_str()) {
+                agents.push(val);
+            }
+        }
+    }
+
+    // 4. Summary stats
+    let total_24h: usize = tag_stats.values().map(|s| s.count).sum();
+    let active_sources = sources.iter().filter(|s| s["status"] == "connected").count();
+
+    // 5. Syslog listen address
+    let syslog_addr = format!("{}:514", get_local_ip());
+
+    Ok(Json(serde_json::json!({
+        "summary": {
+            "total_logs_24h": total_24h,
+            "active_sources": active_sources,
+            "total_sources": sources.len(),
+            "syslog_address": syslog_addr,
+        },
+        "sources": sources,
+        "agents": agents,
+    })))
+}
+
+struct TagStat {
+    count: usize,
+    hosts: std::collections::HashSet<String>,
+    last_seen: Option<String>,
+    tags: std::collections::HashSet<String>,
+}
+
+async fn build_source_status(
+    id: &str,
+    name: &str,
+    _category: &str,
+    tag_stats: &std::collections::HashMap<String, TagStat>,
+    store: &dyn crate::db::Database,
+    match_tags: &[&str],
+    activates: &[&str],
+    source_type: &str,
+) -> serde_json::Value {
+    // Check if any matching tag has data
+    let mut total_count = 0usize;
+    let mut all_hosts = std::collections::HashSet::new();
+    let mut last_seen: Option<String> = None;
+    let mut sub_tags: Vec<String> = Vec::new();
+
+    for &tag in match_tags {
+        if let Some(stat) = tag_stats.get(tag) {
+            total_count += stat.count;
+            all_hosts.extend(stat.hosts.iter().cloned());
+            if last_seen.is_none() {
+                last_seen = stat.last_seen.clone();
+            }
+            sub_tags.extend(stat.tags.iter().cloned());
+        }
+    }
+
+    // Determine status
+    let status = if total_count > 0 {
+        "connected"
+    } else if source_type == "always_on" {
+        "listening"
+    } else {
+        // Check if configured (has a webhook token or skill config)
+        let has_token = store.get_setting("webhook_ingest", &format!("webhook_token_{}", id))
+            .await.unwrap_or(None).is_some();
+        let has_config = store.get_skill_config(&format!("skill-{}", id))
+            .await.map(|c| !c.is_empty()).unwrap_or(false);
+        if has_token || has_config { "configured" } else { "not_configured" }
+    };
+
+    // Get webhook token if exists
+    let webhook_token = store.get_setting("webhook_ingest", &format!("webhook_token_{}", id))
+        .await.unwrap_or(None)
+        .and_then(|v| v.as_str().map(String::from));
+
+    serde_json::json!({
+        "id": id,
+        "name": name,
+        "status": status,
+        "type": source_type,
+        "logs_24h": total_count,
+        "hosts": all_hosts.len(),
+        "last_seen": last_seen,
+        "sub_tags": sub_tags,
+        "activates": activates,
+        "webhook_endpoint": format!("/api/tc/webhook/ingest/{}", id),
+        "webhook_token": webhook_token,
+    })
+}
+
+fn get_local_ip() -> String {
+    // Try to get the local IP from network interfaces
+    use std::net::UdpSocket;
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:53").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                return addr.ip().to_string();
+            }
+        }
+    }
+    "0.0.0.0".to_string()
 }
 
 // ══════════════════════════════════════════════════════════

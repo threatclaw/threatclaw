@@ -80,6 +80,16 @@ const RUNNABLE: Record<string, string> = {
   "skill-zap": "/api/tc/skills/run/skill-zap",
   "skill-subfinder": "/api/tc/skills/run/skill-subfinder",
   "skill-httpx": "/api/tc/skills/run/skill-httpx",
+  "skill-elastic-siem": "/api/tc/connectors/elastic-siem/sync",
+  "skill-graylog": "/api/tc/connectors/graylog/sync",
+  "skill-thehive": "/api/tc/connectors/thehive/sync",
+  "skill-dfir-iris": "/api/tc/connectors/dfir-iris/sync",
+  "skill-shuffle": "/api/tc/connectors/shuffle/sync",
+  "skill-keycloak": "/api/tc/connectors/keycloak/sync",
+  "skill-authentik": "/api/tc/connectors/authentik/sync",
+  "skill-proxmox-backup": "/api/tc/connectors/proxmox-backup/sync",
+  "skill-veeam": "/api/tc/connectors/veeam/sync",
+  "skill-mikrotik": "/api/tc/connectors/mikrotik/sync",
 };
 
 const NOT_FUNCTIONAL: Set<string> = new Set([

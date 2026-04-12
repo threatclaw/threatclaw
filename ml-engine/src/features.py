@@ -177,58 +177,23 @@ def extract_dns_features():
 
 
 def _compute_domain_features(domain):
-    """Compute features for DGA detection on a domain name."""
-    import math
-    import string
+    """Compute features for DGA detection on a domain name.
 
-    # Only analyze the effective second-level domain
+    Analyzes the second-level domain (SLD). For domains with long subdomains
+    (potential DNS tunnel/DGA in subdomain), also analyzes the full subdomain.
+    Uses 12 features (v2) via the DGA detector module.
+    """
     parts = domain.split(".")
     if len(parts) < 2:
         return None
-    sld = parts[-2]  # second-level domain (e.g., "evil" from "xk3j9.evil.com")
+    sld = parts[-2]
 
     if len(sld) < 3:
         return None
 
-    # Features
-    length = len(sld)
-
-    # Character entropy
-    freq = defaultdict(int)
-    for c in sld:
-        freq[c] += 1
-    entropy = -sum((count / length) * math.log2(count / length) for count in freq.values())
-
-    # Consonant ratio
-    vowels = set("aeiou")
-    consonants = sum(1 for c in sld.lower() if c in string.ascii_lowercase and c not in vowels)
-    consonant_ratio = consonants / max(length, 1)
-
-    # Digit ratio
-    digits = sum(1 for c in sld if c.isdigit())
-    digit_ratio = digits / max(length, 1)
-
-    # Unique char ratio
-    unique_ratio = len(set(sld)) / max(length, 1)
-
-    # Has hyphens
-    hyphen_count = sld.count("-")
-
-    # Bigram frequency (how "word-like" is it)
-    common_bigrams = {"th", "he", "in", "er", "an", "re", "on", "at", "en", "nd",
-                      "ti", "es", "or", "te", "of", "ed", "is", "it", "al", "ar"}
-    bigrams = [sld[i:i+2].lower() for i in range(len(sld) - 1)]
-    common_bigram_ratio = sum(1 for b in bigrams if b in common_bigrams) / max(len(bigrams), 1)
-
-    return {
-        "length": length,
-        "entropy": round(entropy, 3),
-        "consonant_ratio": round(consonant_ratio, 3),
-        "digit_ratio": round(digit_ratio, 3),
-        "unique_ratio": round(unique_ratio, 3),
-        "hyphen_count": hyphen_count,
-        "common_bigram_ratio": round(common_bigram_ratio, 3),
-    }
+    # Use the v2 feature extractor from dga_detector
+    from .dga_detector import compute_features_v2
+    return compute_features_v2(sld)
 
 
 def _compute_entropy(values, num_bins):

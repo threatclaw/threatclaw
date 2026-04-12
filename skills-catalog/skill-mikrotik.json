@@ -1,0 +1,14 @@
+{
+  "id": "skill-mikrotik",
+  "name": "MikroTik RouterOS",
+  "description": "Import firewall logs, DHCP leases and system status from MikroTik routers",
+  "type": "connector",
+  "category": "network",
+  "icon": "wifi",
+  "config_fields": {
+    "url": {"type": "string", "label": "Router URL", "placeholder": "https://192.168.88.1", "required": true, "help": "URL du routeur MikroTik (REST API, RouterOS 7.1+)"},
+    "username": {"type": "string", "label": "Username", "placeholder": "admin", "required": true},
+    "password": {"type": "password", "label": "Password", "required": true},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}

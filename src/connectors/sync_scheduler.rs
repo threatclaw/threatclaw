@@ -20,6 +20,16 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-crowdsec-connector", "crowdsec"),
     ("skill-unifi", "unifi"),
     ("skill-active-directory", "ad"),
+    ("skill-elastic-siem", "elastic_siem"),
+    ("skill-graylog", "graylog"),
+    ("skill-thehive", "thehive"),
+    ("skill-dfir-iris", "dfir_iris"),
+    ("skill-shuffle", "shuffle"),
+    ("skill-keycloak", "keycloak"),
+    ("skill-authentik", "authentik"),
+    ("skill-proxmox-backup", "proxmox_backup"),
+    ("skill-veeam", "veeam"),
+    ("skill-mikrotik", "mikrotik"),
 ];
 
 /// Spawn the connector sync scheduler.
@@ -102,7 +112,7 @@ async fn run_connector_sync(
             let wc = crate::connectors::wazuh::WazuhConfig {
                 url, username, password,
                 no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
-                max_alerts: config.get("max_alerts").and_then(|v| v.parse().ok()).unwrap_or(100),
+                max_alerts: config.get("max_alerts").and_then(|v| v.parse().ok()).unwrap_or(500),
                 indexer_url, indexer_username, indexer_password,
             };
             let r = crate::connectors::wazuh::sync_wazuh(store, &wc).await;
@@ -138,8 +148,129 @@ async fn run_connector_sync(
             let r = crate::connectors::crowdsec::sync_crowdsec(store, &cc, false).await;
             Ok(format!("{} decisions, {} alerts", r.new_decisions, r.alerts_created))
         }
-        "pihole" | "unifi" | "ad" => {
-            // TODO: implement auto-sync for these
+        "elastic_siem" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            if url.is_empty() { return Err("url not configured".into()); }
+            let c = crate::connectors::elastic_siem::ElasticSiemConfig {
+                url, api_key_id: config.get("api_key_id").cloned(), api_key_secret: config.get("api_key_secret").cloned(),
+                username: config.get("username").cloned(), password: config.get("password").cloned(),
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_alerts: config.get("max_alerts").and_then(|v| v.parse().ok()).unwrap_or(100),
+            };
+            let r = crate::connectors::elastic_siem::sync_elastic_siem(store, &c).await;
+            Ok(format!("{} alerts, {} findings, {} errors", r.alerts_imported, r.findings_created, r.errors.len()))
+        }
+        "graylog" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            if url.is_empty() { return Err("url not configured".into()); }
+            let c = crate::connectors::graylog::GraylogConfig {
+                url, token: config.get("token").cloned(), username: config.get("username").cloned(),
+                password: config.get("password").cloned(),
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_events: config.get("max_events").and_then(|v| v.parse().ok()).unwrap_or(100),
+            };
+            let r = crate::connectors::graylog::sync_graylog(store, &c).await;
+            Ok(format!("{} events, {} findings, {} errors", r.events_imported, r.findings_created, r.errors.len()))
+        }
+        "thehive" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let api_key = config.get("api_key").cloned().unwrap_or_default();
+            if url.is_empty() || api_key.is_empty() { return Err("url or api_key not configured".into()); }
+            let c = crate::connectors::thehive::TheHiveConfig {
+                url, api_key, org: config.get("org").cloned(),
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_alerts: config.get("max_alerts").and_then(|v| v.parse().ok()).unwrap_or(100),
+            };
+            let r = crate::connectors::thehive::sync_thehive(store, &c).await;
+            Ok(format!("{} alerts, {} observables, {} findings", r.alerts_imported, r.observables_imported, r.findings_created))
+        }
+        "dfir_iris" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let api_key = config.get("api_key").cloned().unwrap_or_default();
+            if url.is_empty() || api_key.is_empty() { return Err("url or api_key not configured".into()); }
+            let c = crate::connectors::dfir_iris::DfirIrisConfig {
+                url, api_key,
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_cases: config.get("max_cases").and_then(|v| v.parse().ok()).unwrap_or(50),
+            };
+            let r = crate::connectors::dfir_iris::sync_dfir_iris(store, &c).await;
+            Ok(format!("{} cases, {} IOCs, {} findings", r.cases_imported, r.iocs_imported, r.findings_created))
+        }
+        "shuffle" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let api_key = config.get("api_key").cloned().unwrap_or_default();
+            if url.is_empty() || api_key.is_empty() { return Err("url or api_key not configured".into()); }
+            let c = crate::connectors::shuffle::ShuffleConfig {
+                url, api_key,
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+            };
+            let r = crate::connectors::shuffle::sync_shuffle(store, &c).await;
+            Ok(format!("{} workflows, {} failures, {} findings", r.workflows_checked, r.failures_found, r.findings_created))
+        }
+        "keycloak" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let client_id = config.get("client_id").cloned().unwrap_or_default();
+            let client_secret = config.get("client_secret").cloned().unwrap_or_default();
+            if url.is_empty() || client_id.is_empty() { return Err("url or client_id not configured".into()); }
+            let c = crate::connectors::keycloak::KeycloakConfig {
+                url, client_id, client_secret,
+                realm: config.get("realm").cloned().unwrap_or_else(|| "master".into()),
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_events: config.get("max_events").and_then(|v| v.parse().ok()).unwrap_or(200),
+            };
+            let r = crate::connectors::keycloak::sync_keycloak(store, &c).await;
+            Ok(format!("{} login, {} admin, {} findings", r.login_events, r.admin_events, r.findings_created))
+        }
+        "authentik" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let token = config.get("token").cloned().unwrap_or_default();
+            if url.is_empty() || token.is_empty() { return Err("url or token not configured".into()); }
+            let c = crate::connectors::authentik::AuthentikConfig {
+                url, token,
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_events: config.get("max_events").and_then(|v| v.parse().ok()).unwrap_or(200),
+            };
+            let r = crate::connectors::authentik::sync_authentik(store, &c).await;
+            Ok(format!("{} events, {} findings", r.events_imported, r.findings_created))
+        }
+        "proxmox_backup" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            if url.is_empty() { return Err("url not configured".into()); }
+            let c = crate::connectors::proxmox_backup::ProxmoxBackupConfig {
+                url, username: config.get("username").cloned(), password: config.get("password").cloned(),
+                token_name: config.get("token_name").cloned(), token_value: config.get("token_value").cloned(),
+                datastore: config.get("datastore").cloned(),
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+            };
+            let r = crate::connectors::proxmox_backup::sync_proxmox_backup(store, &c).await;
+            Ok(format!("{} tasks, {} findings", r.tasks_checked, r.findings_created))
+        }
+        "veeam" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let username = config.get("username").cloned().unwrap_or_default();
+            let password = config.get("password").cloned().unwrap_or_default();
+            if url.is_empty() || username.is_empty() { return Err("url or username not configured".into()); }
+            let c = crate::connectors::veeam::VeeamConfig {
+                url, username, password,
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+                max_sessions: config.get("max_sessions").and_then(|v| v.parse().ok()).unwrap_or(100),
+            };
+            let r = crate::connectors::veeam::sync_veeam(store, &c).await;
+            Ok(format!("{} sessions, {} findings", r.sessions_checked, r.findings_created))
+        }
+        "mikrotik" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let username = config.get("username").cloned().unwrap_or_default();
+            let password = config.get("password").cloned().unwrap_or_default();
+            if url.is_empty() || username.is_empty() { return Err("url or username not configured".into()); }
+            let c = crate::connectors::mikrotik::MikroTikConfig {
+                url, username, password,
+                no_tls_verify: config.get("no_tls_verify").map(|v| v == "true").unwrap_or(true),
+            };
+            let r = crate::connectors::mikrotik::sync_mikrotik(store, &c).await;
+            Ok(format!("{} logs, {} leases, {} findings", r.log_entries, r.dhcp_leases, r.findings_created))
+        }
+        "unifi" | "ad" => {
             Err(format!("{} auto-sync not yet implemented", connector_type))
         }
         _ => Err(format!("Unknown connector: {}", connector_type)),

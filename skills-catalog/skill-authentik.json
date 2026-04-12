@@ -1,0 +1,13 @@
+{
+  "id": "skill-authentik",
+  "name": "Authentik IAM",
+  "description": "Import authentication events from Authentik identity provider",
+  "type": "connector",
+  "category": "iam",
+  "icon": "lock",
+  "config_fields": {
+    "url": {"type": "string", "label": "Authentik URL", "placeholder": "https://authentik:9443", "required": true},
+    "token": {"type": "password", "label": "API Token", "required": true, "help": "Token API Authentik (Admin > System > API Tokens)"},
+    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
+  }
+}
