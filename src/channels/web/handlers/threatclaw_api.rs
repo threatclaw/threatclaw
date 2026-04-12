@@ -3216,6 +3216,30 @@ pub async fn incident_execute_action_handler(
     }
 }
 
+/// POST /api/tc/incidents/{id}/reinvestigate — re-run L2 enrichment on an existing incident.
+/// Runs in the background, returns immediately with a "started" status.
+pub async fn incident_reinvestigate_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    // Append a note saying the RSSI requested a re-investigation
+    let _ = store.add_incident_note(id, "Investigation relancée par le RSSI", "dashboard").await;
+
+    let store_clone = store.clone();
+    tokio::spawn(async move {
+        match crate::agent::intelligence_engine::reinvestigate_incident(store_clone, id).await {
+            Ok((mitre, actions)) => tracing::info!("REINVESTIGATE: #{} done — {} MITRE, {} actions", id, mitre, actions),
+            Err(e) => tracing::warn!("REINVESTIGATE: #{} failed — {}", id, e),
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "status": "started",
+        "message": "L2 enrichment en cours — le résultat apparaîtra dans 10-30 secondes"
+    })))
+}
+
 /// POST /api/tc/incidents/{id}/note — append an RSSI note to an incident's audit trail.
 /// Body: {"text": "...", "author": "..."}
 pub async fn incident_add_note_handler(
@@ -5635,7 +5659,14 @@ pub async fn incidents_list_handler(
     let status = params.get("status").map(|s| s.as_str());
     let limit = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50i64);
     let offset = params.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0i64);
-    let incidents = store.list_incidents(status, limit, offset).await.map_err(db_err)?;
+    let mut incidents = store.list_incidents(status, limit, offset).await.map_err(db_err)?;
+
+    // Enrich each incident with fallback actions if the L2 parse didn't
+    // populate proposed_actions.actions (legacy incidents, parse failure, etc.).
+    for inc in incidents.iter_mut() {
+        enrich_incident_actions(store.as_ref(), inc).await;
+    }
+
     Ok(Json(serde_json::json!({ "incidents": incidents, "total": incidents.len() })))
 }
 
@@ -5646,8 +5677,46 @@ pub async fn incident_detail_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.get_incident(id).await.map_err(db_err)? {
-        Some(incident) => Ok(Json(incident)),
+        Some(mut incident) => {
+            enrich_incident_actions(store.as_ref(), &mut incident).await;
+            Ok(Json(incident))
+        }
         None => Err((StatusCode::NOT_FOUND, "Incident not found".into())),
+    }
+}
+
+/// Inject fallback actions + IOCs into an incident JSON if proposed_actions.actions
+/// is empty. Called from both list and detail handlers.
+async fn enrich_incident_actions(store: &dyn crate::db::Database, inc: &mut serde_json::Value) {
+    // Check if we already have structured actions
+    let has_actions = inc.get("proposed_actions")
+        .and_then(|v| v.get("actions"))
+        .and_then(|a| a.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+
+    if has_actions { return; }
+
+    // Only enrich incidents that are still open and not archived
+    let status = inc.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    if status == "archived" || status == "closed" || status == "resolved" {
+        return;
+    }
+
+    let asset = inc.get("asset").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let id = inc.get("id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+    if asset.is_empty() || id == 0 { return; }
+
+    let (actions, iocs) = crate::agent::remediation_engine::build_fallback_actions(
+        store, &asset, id,
+    ).await;
+
+    if !actions.is_empty() || !iocs.is_empty() {
+        inc["proposed_actions"] = serde_json::json!({
+            "actions": actions,
+            "iocs": iocs,
+            "fallback": true,
+        });
     }
 }
 

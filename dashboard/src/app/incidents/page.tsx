@@ -8,7 +8,7 @@ import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
-  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send,
+  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send, Brain,
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
@@ -175,6 +175,22 @@ function IncidentsTab({ locale }: { locale: string }) {
     }
   };
 
+  const reinvestigate = async (id: number) => {
+    try {
+      const res = await fetch(`/api/tc/incidents/${id}/reinvestigate`, { method: "POST" });
+      if (res.ok) {
+        alert(locale === "fr"
+          ? "✅ Investigation relancée. Le résultat apparaîtra dans 10-30 secondes (rafraîchissement auto)."
+          : "✅ Investigation restarted. Results will appear in 10-30 seconds (auto-refresh).");
+      } else {
+        const err = await res.text();
+        alert("Erreur: " + err);
+      }
+    } catch (e: any) {
+      alert("Erreur: " + e.message);
+    }
+  };
+
   const actionIcon = (kind: string) => {
     switch (kind) {
       case "block_ip": return <Ban size={12} />;
@@ -331,6 +347,15 @@ function IncidentsTab({ locale }: { locale: string }) {
                       }}>
                         <XCircle size={12} />
                         {locale === "fr" ? "Marquer faux positif" : "Mark false positive"}
+                      </button>
+                      <button onClick={() => reinvestigate(inc.id)} style={{
+                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}>
+                        <Brain size={12} />
+                        {locale === "fr" ? "Relancer l'investigation" : "Re-investigate"}
                       </button>
                     </div>
                   </div>

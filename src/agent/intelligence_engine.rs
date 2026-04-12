@@ -920,6 +920,157 @@ pub async fn run_intelligence_cycle(
     situation
 }
 
+/// Re-run the L2 forensic enrichment on an existing incident.
+///
+/// Useful when:
+/// - the incident was created before L2 JSON parsing was wired (legacy),
+/// - the previous L2 run crashed or produced garbage,
+/// - the RSSI just clicked "Relancer l'investigation" on the dashboard.
+///
+/// Reads the current incident state (asset, summary), rebuilds the L2 prompt,
+/// calls the forensic model, parses the JSON and updates the DB with the
+/// structured fields (mitre_techniques, proposed_actions.{actions,iocs}).
+///
+/// Runs synchronously — expect 10-30s on a CPU-bound server. Call from a
+/// background task if you don't want to block the HTTP response.
+pub async fn reinvestigate_incident(
+    store: Arc<dyn Database>,
+    incident_id: i32,
+) -> Result<(usize, usize), String> {
+    let incident = store.get_incident(incident_id).await
+        .map_err(|e| format!("DB error: {e}"))?
+        .ok_or("incident not found")?;
+
+    let asset = incident["asset"].as_str().unwrap_or("").to_string();
+    let title = incident["title"].as_str().unwrap_or("").to_string();
+    let current_summary = incident["summary"].as_str().unwrap_or("").to_string();
+    let current_verdict = incident["verdict"].as_str().unwrap_or("inconclusive").to_string();
+    let current_confidence = incident["confidence"].as_f64().unwrap_or(0.5);
+
+    if asset.is_empty() {
+        return Err("incident has no asset".into());
+    }
+
+    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+
+    let l2_prompt = format!(
+        "Tu es un analyste SOC senior. Analyse cet incident et produis un rapport JSON structuré pour un RSSI.\n\n\
+         CONTEXTE :\n\
+         Asset : {asset}\n\
+         Dossier : {title}\n\
+         Analyse initiale : {l1}\n\n\
+         Réponds en JSON avec EXACTEMENT ces clés :\n\
+         {{\n\
+           \"summary\": \"1-2 phrases décrivant ce qui s'est passé\",\n\
+           \"mitre_attck\": [\"T1110 Brute Force\", \"T1078 Valid Accounts\"],\n\
+           \"ioc\": [\"IP: 1.2.3.4\", \"hash: abc123\"],\n\
+           \"actions\": [\"Bloquer l'IP source\", \"Réinitialiser les mots de passe\"]\n\
+         }}\n\
+         Maximum 4 clés. Sois factuel, concis, maximum 15 lignes au total.",
+        asset = asset, title = title, l1 = current_summary
+    );
+
+    let l2_base_url = if llm_config.forensic.base_url.contains("127.0.0.1")
+        || llm_config.forensic.base_url.contains("localhost") {
+        llm_config.primary.base_url.clone()
+    } else {
+        llm_config.forensic.base_url.clone()
+    };
+
+    tracing::info!("REINVESTIGATE: Incident #{} ({}) — calling L2", incident_id, asset);
+    let l2_raw = tokio::time::timeout(
+        std::time::Duration::from_secs(900),
+        crate::agent::react_runner::call_ollama(&l2_base_url, &llm_config.forensic.model, &l2_prompt),
+    ).await
+        .map_err(|_| "L2 timeout (900s)".to_string())?
+        .map_err(|e| format!("L2 call failed: {e}"))?;
+
+    let l2_clean = clean_l2_output(&l2_raw);
+
+    // Parse the JSON
+    let parsed = serde_json::from_str::<serde_json::Value>(&l2_clean)
+        .ok()
+        .or_else(|| {
+            let start = l2_clean.find('{')?;
+            let end = l2_clean.rfind('}')?;
+            serde_json::from_str::<serde_json::Value>(&l2_clean[start..=end]).ok()
+        })
+        .ok_or_else(|| format!("L2 returned non-JSON output: {}", &l2_clean[..l2_clean.len().min(200)]))?;
+
+    let mut new_summary = current_summary.clone();
+    let mut parsed_mitre: Vec<String> = vec![];
+    let mut parsed_iocs: Vec<String> = vec![];
+    let mut parsed_actions: Vec<serde_json::Value> = vec![];
+
+    if let Some(s) = parsed.get("summary").and_then(|v| v.as_str()) {
+        new_summary = s.to_string();
+    }
+    if let Some(arr) = parsed.get("mitre_attck").and_then(|v| v.as_array())
+        .or_else(|| parsed.get("mitre").and_then(|v| v.as_array())) {
+        parsed_mitre = arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    if let Some(arr) = parsed.get("ioc").and_then(|v| v.as_array())
+        .or_else(|| parsed.get("iocs").and_then(|v| v.as_array())) {
+        parsed_iocs = arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    if let Some(arr) = parsed.get("actions").and_then(|v| v.as_array()) {
+        parsed_actions = arr.iter()
+            .filter_map(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|desc| {
+                let lower = desc.to_lowercase();
+                let kind = if lower.contains("bloqu") || lower.contains("block") || lower.contains("firewall") || lower.contains("pfsense") || lower.contains("opnsense") {
+                    "block_ip"
+                } else if lower.contains("ticket") || lower.contains("glpi") {
+                    "create_ticket"
+                } else if lower.contains("désactiv") || lower.contains("disable") || lower.contains("réinitialis") || lower.contains("reset") || lower.contains("compte") || lower.contains("account") {
+                    "disable_account"
+                } else {
+                    "manual"
+                };
+                serde_json::json!({ "kind": kind, "description": desc })
+            })
+            .collect();
+    }
+
+    let proposed = serde_json::json!({
+        "actions": parsed_actions,
+        "iocs": parsed_iocs,
+    });
+    let inv_log = serde_json::json!({ "reinvestigated_at": chrono::Utc::now().to_rfc3339() });
+
+    store.update_incident_verdict(
+        incident_id,
+        &current_verdict,
+        current_confidence,
+        &new_summary,
+        &parsed_mitre,
+        &proposed,
+        &inv_log,
+    ).await.map_err(|e| format!("DB update failed: {e}"))?;
+
+    // Audit note
+    let _ = store.add_incident_note(
+        incident_id,
+        &format!("Investigation relancée — {} MITRE, {} actions, {} IOCs",
+            parsed_mitre.len(), parsed_actions.len(), parsed_iocs.len()),
+        "reinvestigate",
+    ).await;
+
+    tracing::info!(
+        "REINVESTIGATE: Incident #{} updated — {} MITRE, {} actions",
+        incident_id, parsed_mitre.len(), parsed_actions.len()
+    );
+
+    Ok((parsed_mitre.len(), parsed_actions.len()))
+}
+
 /// Self-heal MITRE: if the techniques table is empty and the last retry is old enough,
 /// trigger a background sync. Avoids hammering the GitHub raw URL on persistent failures.
 async fn self_heal_mitre(store: &dyn Database) {

@@ -195,6 +195,54 @@ pub(crate) async fn load_glpi_config(store: &dyn Database) -> Option<(String, St
 
 // ── Helpers: extract context from incident ──
 
+/// Build a list of fallback actions for an incident based on the configured
+/// remediation tools + the extractable attacker IP. Used when the L2 forensic
+/// analysis didn't produce structured `proposed_actions` (legacy incidents,
+/// L2 parse failure, etc.). Ensures every incident has at least some
+/// executable actions on the dashboard.
+pub async fn build_fallback_actions(
+    store: &dyn Database,
+    asset: &str,
+    incident_id: i32,
+) -> (Vec<serde_json::Value>, Vec<String>) {
+    let mut actions: Vec<serde_json::Value> = Vec::new();
+    let mut iocs: Vec<String> = Vec::new();
+
+    // Try to extract the attacker IP from recent alerts
+    let attacker_ip = extract_attacker_ip(store, asset, incident_id).await;
+    if let Some(ref ip) = attacker_ip {
+        iocs.push(format!("Source IP: {}", ip));
+    }
+
+    // Block IP — only if a firewall is configured AND we have an IP
+    let fw_info = load_firewall_config(store).await.map(|(ty, _u, _us, _s, _t)| ty);
+    match (&attacker_ip, &fw_info) {
+        (Some(ip), Some(fw)) => {
+            actions.push(serde_json::json!({
+                "kind": "block_ip",
+                "description": format!("Bloquer {} sur {} (règle ThreatClaw auto, réversible)", ip, fw),
+            }));
+        }
+        (Some(ip), None) => {
+            actions.push(serde_json::json!({
+                "kind": "manual",
+                "description": format!("Bloquer {} — ⚠️ aucun firewall (pfSense/OPNsense) configuré", ip),
+            }));
+        }
+        _ => {}
+    }
+
+    // Create GLPI ticket — only if GLPI is configured
+    if load_glpi_config(store).await.is_some() {
+        actions.push(serde_json::json!({
+            "kind": "create_ticket",
+            "description": format!("Créer un ticket GLPI pour l'incident #{}", incident_id),
+        }));
+    }
+
+    (actions, iocs)
+}
+
 pub async fn extract_attacker_ip(store: &dyn Database, asset: &str, _incident_id: i32) -> Option<String> {
     // Look in recent sigma alerts for source_ip on this asset
     let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
