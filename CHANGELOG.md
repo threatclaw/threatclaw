@@ -3,7 +3,45 @@
 All notable changes to ThreatClaw are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/)
 
-Versioning: `v0.MAJOR.MINOR.PATCH-beta` — PATCH = daily work, MINOR = milestone, MAJOR = architecture shift.
+Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
+Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
+
+## [1.0.0-beta] — 2026-04-14
+
+First public beta release of ThreatClaw — autonomous cybersecurity agent for SMBs.
+Self-hosted, AI-powered, WASM-sandboxed skills.
+
+### Highlights
+
+- **5-level LLM architecture** — L0 conversational (Gemma 4 / Mistral Small / Qwen3), L1 triage, L2 forensic (Foundation-Sec Reasoning), L2.5 instruct, L3 cloud escalation with anonymization
+- **Tool calling** — L0 bot with 6 DB tools (native Ollama tool calling, validated on Gemma 4 26B MoE)
+- **Intelligence Engine** — Dynamic cycle (30s attack / 5min calm), verdict-based notifications, incident deduplication, kill chain correlation
+- **Incident management V1** — Structured L2 forensic parsing (IOCs, MITRE, proposed actions), notes, reinvestigate, fallback actions, archive/soft-delete
+- **NDR v2** — DNS tunneling, JA4/HASSH fingerprinting, SNI typosquatting, RITA-style beaconing (4-score), ransomware heuristics, PowerShell obfuscation rules, CTI feed unified (OpenPhish, ThreatFox, URLhaus, MalwareBazaar)
+- **ML Engine** — Python Isolation Forest anomaly detection, DGA detection (dual backend RF + LSTM ONNX, 96% accuracy), DBSCAN clustering
+- **Graph Intelligence** — Apache AGE, asset resolution pipeline (MAC > hostname > IP), STIX 2.1 export, kill chain reconstruction
+- **Multi-channel HITL** — Telegram, Slack, Mattermost, Discord, Ntfy with text-rich Option A (no blind buttons), bidirectional conversational bot on all channels
+- **Remediation engine** — Real HITL-approved actions (block IP pfSense/OPNsense, disable AD account, GLPI ticket), boot-locked protected infrastructure, CSPRNG nonce, rate limits, LDAP injection escaping
+- **Backups** — Daily automatic backups with retention, manual trigger, download, external path for NAS
+- **Anti-spam notifications** — 12 configurable parameters (cooldowns per severity, quiet hours, daily digest, escalation bypass), reduced notification noise by 80%
+- **57 skills** — Connectors (pfSense, OPNsense, UniFi, MikroTik, Wazuh, Elastic SIEM, Graylog, Proxmox, Proxmox Backup, Veeam, Active Directory, Keycloak, Authentik, GLPI, TheHive, DFIR-IRIS, Shuffle, Freebox, Zeek, Suricata, Pi-hole, Osquery, Cloudflare, Fortinet, Olvid channel, ...), Enrichment (NVD, CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, VirusTotal, Shodan, AbuseIPDB, CrowdSec, HIBP, Phishtank, URLhaus, Safe Browsing, ...), Tools (Nmap, Semgrep, Checkov, Trufflehog, Syft, Grype, ZAP, Strelka)
+- **Dashboard** — Next.js 14, dark glass theme, i18n FR/EN, 10 pages (Status, Incidents, Findings, Alerts, Assets, Sources, Intelligence, Skills, Config, Exports)
+- **Compliance reports** — NIS2, ISO 27001, NIST (Typst-based PDF generation)
+- **Asset intelligence** — Auto-discovery, fingerprinting, software inventory via Osquery, auto-CVE correlation (CISA KEV × NVD)
+- **Offline mode** — Full / Degraded / Offline / AirGap with bundle for air-gapped environments
+- **Docker plug-and-play** — 13 services, one-liner installer, auto-pull models, auth token auto-generation, TLS certs auto-generated
+- **ThreatClaw Agent** — Osquery-based endpoint agent (Linux/macOS), auto-CVE correlation, FIM, process events, systemd timer
+- **Anonymizer** — 17 international categories, custom RSSI rules API, cloud LLM anonymization before escalation
+- **Security hardening** — HTTPS everywhere (TLS 1.2/1.3), HSTS preload, CSP, Docker `cap_drop: ALL` + `no-new-privileges` + `read_only`, WASM sandbox BLAKE3 signed, 0 CVE in binary
+
+### Note on version numbering
+
+Prior `v0.x` entries in this changelog reflect the internal development history before
+the first public release. They are retained for transparency but should be read as
+pre-v1.0.0 preview iterations. `v1.0.0-beta` is the first release intended for public
+consumption.
+
+---
 
 ## [0.2.0.1-beta] — 2026-03-30
 
