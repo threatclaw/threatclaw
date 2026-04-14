@@ -38,4 +38,3 @@ jobs:
           echo "No critical CVEs on security packages"
 
   # Upstream sync check — run locally, not in public CI
-  # See internal/ADR/ for details
