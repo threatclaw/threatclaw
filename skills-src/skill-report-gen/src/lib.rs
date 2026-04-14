@@ -83,7 +83,7 @@ impl Guest for SkillReportGen {
     </table>
 
     <div class="footer">
-        <p>Ce rapport a été généré automatiquement par ThreatClaw v0.2.0.</p>
+        <p>Ce rapport a été généré automatiquement par ThreatClaw.</p>
         <p>Conformité : NIS2 (Directive 2022/2555) · ISO 27001:2022</p>
     </div>
 </body>

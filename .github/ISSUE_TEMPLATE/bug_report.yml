@@ -47,7 +47,7 @@ body:
     id: version
     attributes:
       label: ThreatClaw version
-      placeholder: v2.2.0-beta
+      placeholder: v1.0.0-beta
     validations:
       required: true
   - type: dropdown

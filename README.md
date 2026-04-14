@@ -7,7 +7,7 @@
 <p align="center">Self-hosted · AI-powered · Behavioral Intelligence · HITL remediation · 100% on-premise</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.2.0--beta-red" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.0--beta-red" alt="Version">
   <img src="https://img.shields.io/badge/license-AGPL_v3-blue" alt="License">
   <img src="https://img.shields.io/badge/status-BETA-orange" alt="Status">
   <img src="https://img.shields.io/badge/pricing-Free_&_Unlimited-brightgreen" alt="Free">
