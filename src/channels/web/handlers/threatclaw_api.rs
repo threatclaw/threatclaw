@@ -5661,16 +5661,36 @@ pub async fn incidents_list_handler(
     let offset = params.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0i64);
     let mut incidents = store.list_incidents(status, limit, offset).await.map_err(db_err)?;
 
-    // Enrich each incident with fallback actions if the L2 parse didn't
-    // populate proposed_actions.actions (legacy incidents, parse failure, etc.).
+    // Enrich the list with lightweight fallback actions. Preload everything
+    // we need once for the whole batch to avoid N+1:
+    //  - firewall / GLPI config (2 DB reads)
+    //  - recent alerts (1 DB read, shared across all incidents via hostname match)
+    let has_firewall = crate::agent::remediation_engine::load_firewall_config(store.as_ref()).await.is_some();
+    let has_glpi = crate::agent::remediation_engine::load_glpi_config(store.as_ref()).await.is_some();
+    let recent_alerts = store.list_alerts(None, Some("new"), 200, 0).await.unwrap_or_default();
+
+    // Build a hostname → first-valid-source-ip map once
+    let mut host_to_ip: HashMap<String, String> = HashMap::new();
+    for a in &recent_alerts {
+        if let Some(ref host) = a.hostname {
+            if !host_to_ip.contains_key(host) {
+                if let Some(ref ip) = a.source_ip {
+                    if !ip.is_empty() && !crate::agent::ip_classifier::is_non_routable(ip) {
+                        host_to_ip.insert(host.to_lowercase(), ip.clone());
+                    }
+                }
+            }
+        }
+    }
+
     for inc in incidents.iter_mut() {
-        enrich_incident_actions(store.as_ref(), inc).await;
+        enrich_incident_actions_batched(inc, has_firewall, has_glpi, &host_to_ip);
     }
 
     Ok(Json(serde_json::json!({ "incidents": incidents, "total": incidents.len() })))
 }
 
-/// GET /api/tc/incidents/:id — get incident detail
+/// GET /api/tc/incidents/:id — get incident detail (with per-incident full enrichment)
 pub async fn incident_detail_handler(
     State(state): State<Arc<GatewayState>>,
     Path(id): Path<i32>,
@@ -5678,26 +5698,49 @@ pub async fn incident_detail_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.get_incident(id).await.map_err(db_err)? {
         Some(mut incident) => {
-            enrich_incident_actions(store.as_ref(), &mut incident).await;
+            // Single incident: use the full remediation_engine helper.
+            let has_actions = incident.get("proposed_actions")
+                .and_then(|v| v.get("actions"))
+                .and_then(|a| a.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            if !has_actions {
+                let status = incident.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                if status != "archived" && status != "closed" && status != "resolved" {
+                    let asset = incident.get("asset").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let (actions, iocs) = crate::agent::remediation_engine::build_fallback_actions(
+                        store.as_ref(), &asset, id,
+                    ).await;
+                    if !actions.is_empty() || !iocs.is_empty() {
+                        incident["proposed_actions"] = serde_json::json!({
+                            "actions": actions,
+                            "iocs": iocs,
+                            "fallback": true,
+                        });
+                    }
+                }
+            }
             Ok(Json(incident))
         }
         None => Err((StatusCode::NOT_FOUND, "Incident not found".into())),
     }
 }
 
-/// Inject fallback actions + IOCs into an incident JSON if proposed_actions.actions
-/// is empty. Called from both list and detail handlers.
-async fn enrich_incident_actions(store: &dyn crate::db::Database, inc: &mut serde_json::Value) {
-    // Check if we already have structured actions
+/// Inject fallback actions using a pre-built hostname→IP map. Zero DB calls
+/// per incident — everything the caller already loaded in a batch.
+fn enrich_incident_actions_batched(
+    inc: &mut serde_json::Value,
+    has_firewall: bool,
+    has_glpi: bool,
+    host_to_ip: &HashMap<String, String>,
+) {
     let has_actions = inc.get("proposed_actions")
         .and_then(|v| v.get("actions"))
         .and_then(|a| a.as_array())
         .map(|a| !a.is_empty())
         .unwrap_or(false);
-
     if has_actions { return; }
 
-    // Only enrich incidents that are still open and not archived
     let status = inc.get("status").and_then(|v| v.as_str()).unwrap_or("");
     if status == "archived" || status == "closed" || status == "resolved" {
         return;
@@ -5707,9 +5750,32 @@ async fn enrich_incident_actions(store: &dyn crate::db::Database, inc: &mut serd
     let id = inc.get("id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
     if asset.is_empty() || id == 0 { return; }
 
-    let (actions, iocs) = crate::agent::remediation_engine::build_fallback_actions(
-        store, &asset, id,
-    ).await;
+    // Look up attacker IP from the pre-built map (O(1))
+    let attacker_ip = host_to_ip.get(&asset.to_lowercase()).cloned();
+
+    let mut actions: Vec<serde_json::Value> = Vec::new();
+    let mut iocs: Vec<String> = Vec::new();
+
+    if let Some(ref ip) = attacker_ip {
+        iocs.push(format!("Source IP: {}", ip));
+        if has_firewall {
+            actions.push(serde_json::json!({
+                "kind": "block_ip",
+                "description": format!("Bloquer {} sur le firewall configuré (réversible)", ip),
+            }));
+        } else {
+            actions.push(serde_json::json!({
+                "kind": "manual",
+                "description": format!("Bloquer {} — ⚠️ aucun firewall configuré", ip),
+            }));
+        }
+    }
+    if has_glpi {
+        actions.push(serde_json::json!({
+            "kind": "create_ticket",
+            "description": format!("Créer un ticket GLPI pour l'incident #{}", id),
+        }));
+    }
 
     if !actions.is_empty() || !iocs.is_empty() {
         inc["proposed_actions"] = serde_json::json!({
