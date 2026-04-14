@@ -38,7 +38,15 @@ Layer 4 — AI reasoning       → "Here's what to do about it" (ClawMind + HITL
 ```bash
 curl -fsSL https://get.threatclaw.io | sudo bash
 ```
+
+No `curl`? Use `wget` instead:
+```bash
+wget -qO- https://get.threatclaw.io | sudo bash
+```
+
 This installs Docker (if needed), downloads all services, and starts ThreatClaw behind an HTTPS reverse proxy. Open `https://your-server` to create your admin account.
+
+> **Prerequisites** — Debian 12+ / Ubuntu 22.04+ / RHEL 9+, 16 GB RAM minimum (32 GB recommended), 40 GB free disk, `curl` or `wget`, `sudo`. Fresh minimal installs of Debian may not ship `curl` by default — use the `wget` variant above, or `apt-get install -y curl` first.
 
 **Docker Compose (manual):**
 ```bash
