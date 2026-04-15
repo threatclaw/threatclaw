@@ -31,6 +31,8 @@ COPY channels-src/ channels-src/
 COPY wit/ wit/
 COPY providers.json providers.json
 COPY docs/openapi.json docs/openapi.json
+# Agent soul — hashed at build time by build.rs, loaded at runtime
+COPY AGENT_SOUL.toml AGENT_SOUL.toml
 # [[bench]] entries in Cargo.toml require bench sources to exist for cargo to parse the manifest
 COPY benches/ benches/
 
@@ -45,6 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 COPY --from=builder /app/migrations /app/migrations
+COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 
 # Non-root user
 RUN useradd -m -u 1000 -s /bin/bash threatclaw

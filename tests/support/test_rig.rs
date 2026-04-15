@@ -72,6 +72,7 @@ impl TestRig {
     /// Return all message lists that were sent to the LLM provider.
     ///
     /// Only available when the rig was built with a `TraceLlm` (i.e., via `.with_trace()`).
+    #[cfg(feature = "libsql")]
     pub fn captured_llm_requests(&self) -> Vec<Vec<threatclaw::llm::ChatMessage>> {
         self.trace_llm
             .as_ref()
@@ -80,6 +81,7 @@ impl TestRig {
     }
 
     /// Return the extension manager for direct extension operations in tests.
+    #[cfg(feature = "libsql")]
     pub fn extension_manager(&self) -> Option<&Arc<threatclaw::extensions::ExtensionManager>> {
         self.extension_manager.as_ref()
     }

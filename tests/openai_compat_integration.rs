@@ -214,6 +214,9 @@ async fn start_test_server_with_provider(
         cost_guard: None,
         routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
         startup_time: std::time::Instant::now(),
+        hitl_nonce_manager: Arc::new(threatclaw::agent::hitl_nonce::NonceManager::new(
+            std::time::Duration::from_secs(3600),
+        )),
     });
 
     let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
@@ -705,6 +708,9 @@ async fn test_no_llm_provider_returns_503() {
         cost_guard: None,
         routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
         startup_time: std::time::Instant::now(),
+        hitl_nonce_manager: Arc::new(threatclaw::agent::hitl_nonce::NonceManager::new(
+            std::time::Duration::from_secs(3600),
+        )),
     });
 
     let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
