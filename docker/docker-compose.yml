@@ -70,8 +70,6 @@ services:
     volumes:
       - ./AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
       - ./threatclaw.toml:/app/threatclaw.toml:ro
-      - ./Modelfile.threatclaw-l1:/app/docker/Modelfile.threatclaw-l1:ro
-      - ./Modelfile.threatclaw-l2:/app/docker/Modelfile.threatclaw-l2:ro
       - ./entrypoint.sh:/app/docker/entrypoint.sh:ro
       - core-data:/app/data
       - shared-config:/shared

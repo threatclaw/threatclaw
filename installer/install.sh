@@ -29,7 +29,7 @@
 set -eo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-readonly TC_VERSION="0.2.0.1-beta"
+readonly TC_VERSION="1.0.0-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
 readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/main"
 readonly LOG_FILE="/var/log/threatclaw-install.log"
@@ -490,10 +490,8 @@ download_configs() {
     fi
   fi
 
-  # Entrypoint + model files
+  # Entrypoint (Modelfiles removed — models are created via Ollama API in entrypoint.sh)
   curl -fsSL "${REPO_RAW}/docker/entrypoint.sh" -o entrypoint.sh && chmod +x entrypoint.sh
-  curl -fsSL "${REPO_RAW}/docker/Modelfile.threatclaw-l1" -o Modelfile.threatclaw-l1
-  curl -fsSL "${REPO_RAW}/docker/Modelfile.threatclaw-l2" -o Modelfile.threatclaw-l2
 
   # Fluent Bit
   mkdir -p fluent-bit
