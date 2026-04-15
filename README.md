@@ -179,6 +179,7 @@ Future premium skills will be available on the marketplace (hub.threatclaw.io).
 - [Configuration](docs/configuration.md) — All settings and options
 - [API Reference](docs/api.md) — REST API endpoints
 - [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build custom skills
+- [ADR Index](docs/adr-index.md) — Architecture decision records (referenced from code comments)
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — How to contribute
 - [Changelog](CHANGELOG.md) — Version history
