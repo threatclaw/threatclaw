@@ -42,15 +42,17 @@ RUN cargo build --release --bin threatclaw
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 \
+    ca-certificates libssl3 postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 
-# Non-root user
-RUN useradd -m -u 1000 -s /bin/bash threatclaw
+# Non-root user with pre-created writable data dir (volume mount target)
+RUN useradd -m -u 1000 -s /bin/bash threatclaw && \
+    mkdir -p /app/data /app/certs && \
+    chown -R threatclaw:threatclaw /app/data /app/certs
 USER threatclaw
 
 EXPOSE 3000

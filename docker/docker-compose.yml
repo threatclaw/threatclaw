@@ -60,6 +60,7 @@ services:
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      HTTP_WEBHOOK_SECRET: ${HTTP_WEBHOOK_SECRET:-}
       DOCKER_HOST: tcp://docker-proxy:2375
     cap_add:
       - NET_BIND_SERVICE
@@ -88,7 +89,8 @@ services:
       docker-proxy:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      # bash /dev/tcp built-in — works even when curl/wget aren't installed
+      test: ["CMD-SHELL", "bash -c ': </dev/tcp/127.0.0.1/3000'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -224,7 +226,8 @@ services:
       # Both are safe on modern GPUs but harmful on the older Xeons / Ryzens
       # typical of SMB deployments.
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      # bash /dev/tcp — ollama image has bash but not curl/wget
+      test: ["CMD-SHELL", "bash -c ': </dev/tcp/127.0.0.1/11434'"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -308,6 +311,16 @@ services:
     depends_on:
       threatclaw-db:
         condition: service_healthy
+    healthcheck:
+      # bash /dev/tcp — ml-engine image has bash but DATABASE_URL from docker env
+      # does not include the Docker secret password (the entrypoint injects it
+      # only into the main python process, not into docker exec health checks).
+      # TCP reachability to the DB is a valid proxy for "ml-engine can work".
+      test: ["CMD-SHELL", "bash -c ': </dev/tcp/threatclaw-db/5432'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -346,7 +359,9 @@ services:
       threatclaw-dashboard:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:443/"]
+      # Use 127.0.0.1 explicitly — Alpine busybox wget resolves "localhost" to IPv6 ::1
+      # but nginx listens on IPv4 0.0.0.0 only (see docker/nginx.conf listen directives).
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://127.0.0.1:443/"]
       interval: 15s
       timeout: 5s
       retries: 3

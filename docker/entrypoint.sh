@@ -34,14 +34,27 @@ if [ "${POSTGRES_PASSWORD:-}" = "threatclaw" ] || [ -z "${POSTGRES_PASSWORD:-}" 
 fi
 
 # ── Wait for PostgreSQL ──
+# Use pg_isready if available (preferred: checks PG protocol readiness),
+# otherwise fall back to a bash /dev/tcp TCP connect (works in any image).
 echo "[init] Waiting for PostgreSQL..."
+DB_HOST="${TC_DB_HOST:-threatclaw-db}"
+DB_PORT="${TC_DB_PORT:-5432}"
+DB_USER="${POSTGRES_USER:-threatclaw}"
 for i in $(seq 1 60); do
-  if pg_isready -h "${TC_DB_HOST:-threatclaw-db}" -p "${TC_DB_PORT:-5432}" -U "${POSTGRES_USER:-threatclaw}" -q 2>/dev/null; then
-    echo "[init] PostgreSQL ready"
-    break
+  if command -v pg_isready >/dev/null 2>&1; then
+    if pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -q 2>/dev/null; then
+      echo "[init] PostgreSQL ready (pg_isready)"
+      break
+    fi
+  else
+    # Fallback: bash /dev/tcp — works when postgresql-client isn't installed
+    if timeout 1 bash -c ": </dev/tcp/$DB_HOST/$DB_PORT" 2>/dev/null; then
+      echo "[init] PostgreSQL ready (tcp connect)"
+      break
+    fi
   fi
   if [ "$i" -eq 60 ]; then
-    echo "[init] ERROR: PostgreSQL not reachable after 60s"
+    echo "[init] ERROR: PostgreSQL not reachable after 60s at $DB_HOST:$DB_PORT"
     exit 1
   fi
   sleep 1

@@ -467,13 +467,32 @@ download_configs() {
     echo -n "${db_pass}" > secrets/tc_db_password.txt
     echo -n "${auth_token}" > secrets/tc_auth_token.txt
     chmod 700 secrets
-    chmod 600 secrets/*.txt
+    # 644 on files (not 600) so docker compose bind-mounted secrets are
+    # readable by the container user (UID 1000). The 700 parent dir still
+    # blocks non-root host access — only the docker daemon (root) can enter.
+    chmod 644 secrets/*.txt
     log_info "Generated Docker secrets (secrets/)"
 
-    # Keep .env fallback for backward compatibility (non-sensitive vars only)
-    sed -i "s/^TC_DB_PASSWORD=.*/# TC_DB_PASSWORD managed via Docker secrets (secrets\/tc_db_password.txt)/" .env
+    # TC_DB_PASSWORD is set BOTH in .env AND as a Docker secret.
+    # Reason: fluent-bit 3.2 is distroless — it cannot cat /run/secrets/* and
+    # requires the password as an env var (${TC_DB_PASSWORD} in compose).
+    # The core service reads it from the secret file via entrypoint.sh.
+    # Trade-off: password in plain-text in .env (chmod 600), but .env is
+    # protected by the umask and never committed to git (gitignored).
+    sed -i "s/^TC_DB_PASSWORD=.*/TC_DB_PASSWORD=${db_pass}/" .env
     sed -i "s/^TC_AUTH_TOKEN=.*/# TC_AUTH_TOKEN managed via Docker secrets (secrets\/tc_auth_token.txt)/" .env
-    log_info "Generated .env (secrets in Docker secret files, not .env)"
+
+    # HTTP_WEBHOOK_SECRET — required by core for HTTP channel authentication
+    local http_webhook_secret
+    http_webhook_secret=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p)
+    if grep -q "^HTTP_WEBHOOK_SECRET=" .env; then
+      sed -i "s/^HTTP_WEBHOOK_SECRET=.*/HTTP_WEBHOOK_SECRET=${http_webhook_secret}/" .env
+    else
+      echo "HTTP_WEBHOOK_SECRET=${http_webhook_secret}" >> .env
+    fi
+
+    chmod 600 .env
+    log_info "Generated .env (core/auth via Docker secrets, TC_DB_PASSWORD also in .env for fluent-bit)"
   else
     log_warn ".env exists — keeping current config"
     # Migrate existing installs: create secrets from .env if not present
@@ -539,6 +558,12 @@ start_services() {
     # Patch compose to expose ports (they're hidden behind nginx by default)
     sed -i "s/^    expose:/    ports:\n      - \"${TC_CORE_PORT}:3000\"\n    #expose:/" docker-compose.yml || true
     log_info "Core exposed on port ${TC_CORE_PORT}, Dashboard on port ${TC_PORT}"
+  fi
+
+  # Create wazuh_wazuh-net if missing — compose references it as external (optional Wazuh integration)
+  if ! docker network inspect wazuh_wazuh-net >/dev/null 2>&1; then
+    docker network create wazuh_wazuh-net >/dev/null
+    log_info "Created empty wazuh_wazuh-net (Wazuh integration optional)"
   fi
 
   docker compose up -d
