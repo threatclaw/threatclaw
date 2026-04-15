@@ -572,7 +572,7 @@ start_services() {
 
   docker compose up -d
 
-  log_info "Waiting for services..."
+  log_info "Waiting for services (up to 3 min)..."
   local health_url="http://localhost:${TC_CORE_PORT}/api/health"
   # Use nginx health endpoint if available
   if [ "$TC_DEPLOY_MODE" != "external-proxy" ]; then
@@ -580,7 +580,8 @@ start_services() {
   fi
 
   local attempts=0
-  while [ $attempts -lt 60 ]; do
+  local max_attempts=90   # 90 × 2s = 180s, enough for cold Docker pull + nginx cert generation
+  while [ $attempts -lt $max_attempts ]; do
     if curl -skf "${health_url}" >/dev/null 2>&1; then
       log_info "Core is healthy"
       break
@@ -589,8 +590,10 @@ start_services() {
     sleep 2
   done
 
-  if [ $attempts -ge 60 ]; then
-    log_warn "Startup slower than expected — services may still be initializing"
+  if [ $attempts -ge $max_attempts ]; then
+    log_warn "Services not reachable via HTTPS after 3 min — they are likely still initializing in the background."
+    log_warn "Run: cd ${TC_DIR} && docker compose ps    to see status."
+    log_warn "This is usually fine on a first install — the dashboard will come up within a minute or two."
   fi
 
   log_info "AI models are downloading in the background (~18 GB on first boot)"
