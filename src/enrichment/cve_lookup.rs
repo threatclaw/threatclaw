@@ -51,7 +51,10 @@ impl NvdConfig {
         }
 
         // Try enrichment_keys first (new location), then general (legacy)
-        if let Ok(Some(keys)) = store.get_setting("_system", "tc_config_enrichment_keys").await {
+        if let Ok(Some(keys)) = store
+            .get_setting("_system", "tc_config_enrichment_keys")
+            .await
+        {
             if let Some(key) = keys["nvd"].as_str() {
                 if !key.is_empty() {
                     config.api_key = Some(key.to_string());
@@ -109,7 +112,10 @@ pub async fn lookup_cve_cached(
     if let Err(e) = store.set_setting("_cve_cache", cve_id, &cache_entry).await {
         tracing::warn!("Failed to cache CVE {cve_id}: {e}");
     } else {
-        tracing::debug!("CVE cached: {cve_id} (expires {})", expires.format("%Y-%m-%d"));
+        tracing::debug!(
+            "CVE cached: {cve_id} (expires {})",
+            expires.format("%Y-%m-%d")
+        );
     }
 
     Ok(info)
@@ -123,21 +129,26 @@ pub async fn lookup_cve(cve_id: &str, config: &NvdConfig) -> Result<CveInfo, Str
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let mut req = client.get("https://services.nvd.nist.gov/rest/json/cves/2.0")
+    let mut req = client
+        .get("https://services.nvd.nist.gov/rest/json/cves/2.0")
         .query(&[("cveId", cve_id)]);
 
     if let Some(ref key) = config.api_key {
         req = req.header("apiKey", key);
     }
 
-    let resp = req.send().await
+    let resp = req
+        .send()
+        .await
         .map_err(|e| format!("NVD API request failed: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("NVD API returned {}", resp.status()));
     }
 
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("NVD JSON parse error: {e}"))?;
 
     let vuln = data["vulnerabilities"]
@@ -151,7 +162,8 @@ pub async fn lookup_cve(cve_id: &str, config: &NvdConfig) -> Result<CveInfo, Str
     let description = cve["descriptions"]
         .as_array()
         .and_then(|descs| {
-            descs.iter()
+            descs
+                .iter()
                 .find(|d| d["lang"].as_str() == Some("en"))
                 .or(descs.first())
         })
@@ -174,11 +186,14 @@ pub async fn lookup_cve(cve_id: &str, config: &NvdConfig) -> Result<CveInfo, Str
         .map(|refs| {
             refs.iter()
                 .filter(|r| {
-                    r["tags"].as_array()
-                        .map(|t| t.iter().any(|tag| {
-                            let s = tag.as_str().unwrap_or("");
-                            s == "Patch" || s == "Vendor Advisory"
-                        }))
+                    r["tags"]
+                        .as_array()
+                        .map(|t| {
+                            t.iter().any(|tag| {
+                                let s = tag.as_str().unwrap_or("");
+                                s == "Patch" || s == "Vendor Advisory"
+                            })
+                        })
                         .unwrap_or(false)
                 })
                 .filter_map(|r| r["url"].as_str().map(|s| s.to_string()))
@@ -205,22 +220,32 @@ fn extract_cvss(cve: &serde_json::Value) -> (Option<f64>, Option<String>) {
     // Try CVSS v3.1
     if let Some(v31) = metrics["cvssMetricV31"].as_array().and_then(|a| a.first()) {
         let score = v31["cvssData"]["baseScore"].as_f64();
-        let severity = v31["cvssData"]["baseSeverity"].as_str().map(|s| s.to_string());
-        if score.is_some() { return (score, severity); }
+        let severity = v31["cvssData"]["baseSeverity"]
+            .as_str()
+            .map(|s| s.to_string());
+        if score.is_some() {
+            return (score, severity);
+        }
     }
 
     // Try CVSS v3.0
     if let Some(v30) = metrics["cvssMetricV30"].as_array().and_then(|a| a.first()) {
         let score = v30["cvssData"]["baseScore"].as_f64();
-        let severity = v30["cvssData"]["baseSeverity"].as_str().map(|s| s.to_string());
-        if score.is_some() { return (score, severity); }
+        let severity = v30["cvssData"]["baseSeverity"]
+            .as_str()
+            .map(|s| s.to_string());
+        if score.is_some() {
+            return (score, severity);
+        }
     }
 
     // Try CVSS v2
     if let Some(v2) = metrics["cvssMetricV2"].as_array().and_then(|a| a.first()) {
         let score = v2["cvssData"]["baseScore"].as_f64();
         let severity = v2["baseSeverity"].as_str().map(|s| s.to_string());
-        if score.is_some() { return (score, severity); }
+        if score.is_some() {
+            return (score, severity);
+        }
     }
 
     (None, None)
@@ -228,15 +253,34 @@ fn extract_cvss(cve: &serde_json::Value) -> (Option<f64>, Option<String>) {
 
 /// Format CVE info for LLM prompt injection (compact).
 pub fn format_for_prompt(cve: &CveInfo) -> String {
-    let score = cve.cvss_score.map(|s| format!("CVSS {s}")).unwrap_or_else(|| "CVSS ?".to_string());
-    let kev = if cve.exploited_in_wild { " [EXPLOITED IN WILD]" } else { "" };
-    format!("{} ({}{}): {}", cve.cve_id, score, kev, truncate(&cve.description, 150))
+    let score = cve
+        .cvss_score
+        .map(|s| format!("CVSS {s}"))
+        .unwrap_or_else(|| "CVSS ?".to_string());
+    let kev = if cve.exploited_in_wild {
+        " [EXPLOITED IN WILD]"
+    } else {
+        ""
+    };
+    format!(
+        "{} ({}{}): {}",
+        cve.cve_id,
+        score,
+        kev,
+        truncate(&cve.description, 150)
+    )
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() }
-    else {
-        let end = s.char_indices().take_while(|(i, _)| *i < max).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let end = s
+            .char_indices()
+            .take_while(|(i, _)| *i < max)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
         format!("{}...", &s[..end])
     }
 }

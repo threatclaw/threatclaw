@@ -49,7 +49,8 @@ pub async fn send_message(
         body: message.to_string(),
     };
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&payload)
         .send()
         .await
@@ -74,7 +75,8 @@ pub async fn test_connection(daemon_url: &str, client_key: &str) -> Result<Strin
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&serde_json::json!({ "client_key": client_key }))
         .send()
         .await
@@ -82,7 +84,9 @@ pub async fn test_connection(daemon_url: &str, client_key: &str) -> Result<Strin
 
     if resp.status().is_success() {
         let data: serde_json::Value = resp.json().await.unwrap_or_default();
-        let display_name = data["identity"]["display_name"].as_str().unwrap_or("Olvid Bot");
+        let display_name = data["identity"]["display_name"]
+            .as_str()
+            .unwrap_or("Olvid Bot");
         Ok(format!("Connecté: {}", display_name))
     } else {
         Err(format!("Olvid HTTP {}", resp.status()))
@@ -90,7 +94,10 @@ pub async fn test_connection(daemon_url: &str, client_key: &str) -> Result<Strin
 }
 
 /// List available discussions (for config UI — helps user find discussion_id).
-pub async fn list_discussions(daemon_url: &str, client_key: &str) -> Result<Vec<(String, String)>, String> {
+pub async fn list_discussions(
+    daemon_url: &str,
+    client_key: &str,
+) -> Result<Vec<(String, String)>, String> {
     let url = format!("{}/v1/discussion/list", daemon_url.trim_end_matches('/'));
 
     let client = reqwest::Client::builder()
@@ -98,7 +105,8 @@ pub async fn list_discussions(daemon_url: &str, client_key: &str) -> Result<Vec<
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&serde_json::json!({ "client_key": client_key }))
         .send()
         .await
@@ -106,12 +114,17 @@ pub async fn list_discussions(daemon_url: &str, client_key: &str) -> Result<Vec<
 
     if resp.status().is_success() {
         let data: serde_json::Value = resp.json().await.unwrap_or_default();
-        let discussions = data["discussions"].as_array()
-            .map(|arr| arr.iter().filter_map(|d| {
-                let id = d["id"].as_str()?.to_string();
-                let title = d["title"].as_str().unwrap_or("Sans titre").to_string();
-                Some((id, title))
-            }).collect())
+        let discussions = data["discussions"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|d| {
+                        let id = d["id"].as_str()?.to_string();
+                        let title = d["title"].as_str().unwrap_or("Sans titre").to_string();
+                        Some((id, title))
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         Ok(discussions)
     } else {

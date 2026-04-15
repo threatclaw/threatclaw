@@ -11,12 +11,14 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZeekConfig {
-    pub log_dir: String,            // e.g. "/opt/zeek/logs/current" or Docker volume
+    pub log_dir: String, // e.g. "/opt/zeek/logs/current" or Docker volume
     #[serde(default = "default_interval")]
     pub sync_interval_minutes: u32,
 }
 
-fn default_interval() -> u32 { 5 }
+fn default_interval() -> u32 {
+    5
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ZeekSyncResult {
@@ -46,20 +48,29 @@ fn validate_log_path(path: &str) -> Result<(), String> {
 
 pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncResult {
     let mut result = ZeekSyncResult {
-        conn_entries: 0, dns_entries: 0, http_entries: 0,
-        ssl_entries: 0, ssh_entries: 0,
-        alerts_created: 0, assets_discovered: 0, errors: vec![],
+        conn_entries: 0,
+        dns_entries: 0,
+        http_entries: 0,
+        ssl_entries: 0,
+        ssh_entries: 0,
+        alerts_created: 0,
+        assets_discovered: 0,
+        errors: vec![],
     };
 
     // Validate path before accessing filesystem
     if let Err(e) = validate_log_path(&config.log_dir) {
-        result.errors.push(format!("Zeek path validation failed: {}", e));
+        result
+            .errors
+            .push(format!("Zeek path validation failed: {}", e));
         return result;
     }
 
     let log_dir = Path::new(&config.log_dir);
     if !log_dir.exists() {
-        result.errors.push(format!("Zeek log directory not found: {}", config.log_dir));
+        result
+            .errors
+            .push(format!("Zeek log directory not found: {}", config.log_dir));
         return result;
     }
 
@@ -79,27 +90,63 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let orig_bytes = entry["orig_bytes"].as_i64().unwrap_or(0);
                     let _resp_bytes = entry["resp_bytes"].as_i64().unwrap_or(0);
 
-                    let _ = store.insert_log("zeek.conn", dst, entry,
-                        &entry["ts"].as_f64().map(|t| {
-                            chrono::DateTime::from_timestamp(t as i64, 0)
-                                .map(|dt| dt.to_rfc3339())
-                                .unwrap_or_default()
-                        }).unwrap_or_else(|| chrono::Utc::now().to_rfc3339())
-                    ).await;
+                    let _ = store
+                        .insert_log(
+                            "zeek.conn",
+                            dst,
+                            entry,
+                            &entry["ts"]
+                                .as_f64()
+                                .map(|t| {
+                                    chrono::DateTime::from_timestamp(t as i64, 0)
+                                        .map(|dt| dt.to_rfc3339())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                        )
+                        .await;
 
                     // Long connections (>1h) to external IPs = suspicious
                     if duration > 3600.0 && !crate::agent::ip_classifier::is_private(dst) {
-                        let title = format!("Zeek: long connection {} → {}:{} ({:.0}min, {} bytes out)",
-                            src, dst, port, duration / 60.0, orig_bytes);
-                        let _ = store.insert_sigma_alert("zeek-long-conn", "medium", &title, src, Some(dst), None).await;
+                        let title = format!(
+                            "Zeek: long connection {} → {}:{} ({:.0}min, {} bytes out)",
+                            src,
+                            dst,
+                            port,
+                            duration / 60.0,
+                            orig_bytes
+                        );
+                        let _ = store
+                            .insert_sigma_alert(
+                                "zeek-long-conn",
+                                "medium",
+                                &title,
+                                src,
+                                Some(dst),
+                                None,
+                            )
+                            .await;
                         result.alerts_created += 1;
                     }
 
                     // Large data transfer to external (>50MB)
                     if orig_bytes > 50_000_000 && !crate::agent::ip_classifier::is_private(dst) {
-                        let title = format!("Zeek: large upload {} → {} ({:.1} MB)",
-                            src, dst, orig_bytes as f64 / 1_000_000.0);
-                        let _ = store.insert_sigma_alert("zeek-large-upload", "high", &title, src, Some(dst), None).await;
+                        let title = format!(
+                            "Zeek: large upload {} → {} ({:.1} MB)",
+                            src,
+                            dst,
+                            orig_bytes as f64 / 1_000_000.0
+                        );
+                        let _ = store
+                            .insert_sigma_alert(
+                                "zeek-large-upload",
+                                "high",
+                                &title,
+                                src,
+                                Some(dst),
+                                None,
+                            )
+                            .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -118,8 +165,9 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let _query = entry["query"].as_str().unwrap_or("");
                     let src = entry["id.orig_h"].as_str().unwrap_or("");
 
-                    let _ = store.insert_log("zeek.dns", src, entry,
-                        &chrono::Utc::now().to_rfc3339()).await;
+                    let _ = store
+                        .insert_log("zeek.dns", src, entry, &chrono::Utc::now().to_rfc3339())
+                        .await;
                 }
             }
             Err(e) => result.errors.push(format!("dns.log: {}", e)),
@@ -133,17 +181,30 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssl_entries += 1;
-                    let _ = store.insert_log("zeek.ssl",
-                        entry["id.orig_h"].as_str().unwrap_or(""),
-                        entry, &chrono::Utc::now().to_rfc3339()).await;
+                    let _ = store
+                        .insert_log(
+                            "zeek.ssl",
+                            entry["id.orig_h"].as_str().unwrap_or(""),
+                            entry,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )
+                        .await;
 
                     // Expired or self-signed certs
                     let validation = entry["validation_status"].as_str().unwrap_or("");
                     if validation.contains("expired") || validation.contains("self signed") {
                         let server = entry["server_name"].as_str().unwrap_or("unknown");
                         let title = format!("Zeek: SSL issue on {} — {}", server, validation);
-                        let _ = store.insert_sigma_alert("zeek-ssl-issue", "medium", &title,
-                            entry["id.resp_h"].as_str().unwrap_or(""), None, None).await;
+                        let _ = store
+                            .insert_sigma_alert(
+                                "zeek-ssl-issue",
+                                "medium",
+                                &title,
+                                entry["id.resp_h"].as_str().unwrap_or(""),
+                                None,
+                                None,
+                            )
+                            .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -159,9 +220,14 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssh_entries += 1;
-                    let _ = store.insert_log("zeek.ssh",
-                        entry["id.resp_h"].as_str().unwrap_or(""),
-                        entry, &chrono::Utc::now().to_rfc3339()).await;
+                    let _ = store
+                        .insert_log(
+                            "zeek.ssh",
+                            entry["id.resp_h"].as_str().unwrap_or(""),
+                            entry,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )
+                        .await;
 
                     // Failed SSH auth from external
                     let auth_success = entry["auth_success"].as_bool().unwrap_or(true);
@@ -169,7 +235,16 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     if !auth_success && !crate::agent::ip_classifier::is_private(src) {
                         let dst = entry["id.resp_h"].as_str().unwrap_or("");
                         let title = format!("Zeek: SSH auth failure {} → {}", src, dst);
-                        let _ = store.insert_sigma_alert("zeek-ssh-fail", "medium", &title, dst, Some(src), None).await;
+                        let _ = store
+                            .insert_sigma_alert(
+                                "zeek-ssh-fail",
+                                "medium",
+                                &title,
+                                dst,
+                                Some(src),
+                                None,
+                            )
+                            .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -185,9 +260,14 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.http_entries += 1;
-                    let _ = store.insert_log("zeek.http",
-                        entry["id.orig_h"].as_str().unwrap_or(""),
-                        entry, &chrono::Utc::now().to_rfc3339()).await;
+                    let _ = store
+                        .insert_log(
+                            "zeek.http",
+                            entry["id.orig_h"].as_str().unwrap_or(""),
+                            entry,
+                            &chrono::Utc::now().to_rfc3339(),
+                        )
+                        .await;
                 }
             }
             Err(e) => result.errors.push(format!("http.log: {}", e)),
@@ -199,8 +279,12 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
 
     tracing::info!(
         "ZEEK: conn={} dns={} ssl={} ssh={} http={} alerts={} errors={}",
-        result.conn_entries, result.dns_entries, result.ssl_entries,
-        result.ssh_entries, result.http_entries, result.alerts_created,
+        result.conn_entries,
+        result.dns_entries,
+        result.ssl_entries,
+        result.ssh_entries,
+        result.http_entries,
+        result.alerts_created,
         result.errors.len()
     );
 
@@ -209,8 +293,8 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
 
 /// Parse a Zeek JSON log file (one JSON object per line).
 fn parse_zeek_json_log(path: &Path) -> Result<Vec<serde_json::Value>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("read {}: {}", path.display(), e))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
 
     let mut entries = Vec::new();
     for line in content.lines() {

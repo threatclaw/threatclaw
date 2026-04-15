@@ -4,7 +4,7 @@
 //! Generates supply chain risk reports for ANSSI audits.
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -59,23 +59,33 @@ pub struct VendorRisk {
 pub async fn upsert_vendor(store: &dyn Database, vendor_id: &str, name: &str) {
     let cypher = format!(
         "MERGE (v:Vendor {{id: '{}'}}) SET v.name = '{}' RETURN v",
-        esc(vendor_id), esc(name)
+        esc(vendor_id),
+        esc(name)
     );
     mutate(store, &cypher).await;
 }
 
 /// Upsert a Software node.
-pub async fn upsert_software(store: &dyn Database, software_id: &str, name: &str, version: &str, vendor_id: &str) {
+pub async fn upsert_software(
+    store: &dyn Database,
+    software_id: &str,
+    name: &str,
+    version: &str,
+    vendor_id: &str,
+) {
     let cypher = format!(
         "MERGE (s:Software {{id: '{}'}}) SET s.name = '{}', s.version = '{}' RETURN s",
-        esc(software_id), esc(name), esc(version)
+        esc(software_id),
+        esc(name),
+        esc(version)
     );
     mutate(store, &cypher).await;
 
     // Link to vendor
     let link = format!(
         "MATCH (v:Vendor {{id: '{}'}}), (s:Software {{id: '{}'}}) MERGE (v)-[:PROVIDES]->(s)",
-        esc(vendor_id), esc(software_id)
+        esc(vendor_id),
+        esc(software_id)
     );
     mutate(store, &link).await;
 }
@@ -84,7 +94,8 @@ pub async fn upsert_software(store: &dyn Database, software_id: &str, name: &str
 pub async fn link_software_to_asset(store: &dyn Database, software_id: &str, asset_id: &str) {
     let cypher = format!(
         "MATCH (s:Software {{id: '{}'}}), (a:Asset {{id: '{}'}}) MERGE (s)-[:INSTALLED_ON]->(a)",
-        esc(software_id), esc(asset_id)
+        esc(software_id),
+        esc(asset_id)
     );
     mutate(store, &cypher).await;
 }
@@ -93,7 +104,8 @@ pub async fn link_software_to_asset(store: &dyn Database, software_id: &str, ass
 pub async fn link_cve_to_software(store: &dyn Database, cve_id: &str, software_id: &str) {
     let cypher = format!(
         "MATCH (c:CVE {{id: '{}'}}), (s:Software {{id: '{}'}}) MERGE (c)-[:AFFECTS_SOFTWARE]->(s)",
-        esc(cve_id), esc(software_id)
+        esc(cve_id),
+        esc(software_id)
     );
     mutate(store, &cypher).await;
 }
@@ -101,7 +113,8 @@ pub async fn link_cve_to_software(store: &dyn Database, cve_id: &str, software_i
 /// Analyze supply chain risk across all vendors.
 pub async fn analyze_supply_chain(store: &dyn Database) -> SupplyChainAnalysis {
     // Query: Vendor → Software → Asset with CVE stats
-    let results = query(store,
+    let results = query(
+        store,
         "MATCH (v:Vendor)-[:PROVIDES]->(s:Software)-[:INSTALLED_ON]->(a:Asset) \
          OPTIONAL MATCH (c:CVE)-[:AFFECTS_SOFTWARE]->(s) \
          WITH v.name AS vendor, collect(DISTINCT s.name) AS software, \
@@ -110,8 +123,9 @@ pub async fn analyze_supply_chain(store: &dyn Database) -> SupplyChainAnalysis {
          MAX(c.cvss) AS max_cvss, \
          SUM(CASE WHEN c.in_kev = true THEN 1 ELSE 0 END) AS kev_count \
          RETURN vendor, software, assets, cves, max_cvss, kev_count \
-         ORDER BY kev_count DESC, max_cvss DESC"
-    ).await;
+         ORDER BY kev_count DESC, max_cvss DESC",
+    )
+    .await;
 
     let mut vendors = vec![];
     let mut total_cves = 0;
@@ -121,14 +135,29 @@ pub async fn analyze_supply_chain(store: &dyn Database) -> SupplyChainAnalysis {
     for r in &results {
         let result = r;
         let vendor_name = result["vendor"].as_str().unwrap_or("Unknown").to_string();
-        let software: Vec<String> = result["software"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let software: Vec<String> = result["software"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let assets: Vec<String> = result["assets"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let assets: Vec<String> = result["assets"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let cves: Vec<String> = result["cves"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let cves: Vec<String> = result["cves"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let max_cvss = result["max_cvss"].as_f64().unwrap_or(0.0);
         let kev_count = result["kev_count"].as_i64().unwrap_or(0) as usize;
@@ -160,7 +189,10 @@ pub async fn analyze_supply_chain(store: &dyn Database) -> SupplyChainAnalysis {
 
     let summary = format!(
         "Supply chain : {} fournisseurs, {} logiciels, {} CVEs, {} KEV",
-        vendors.len(), total_software, total_cves, total_kev
+        vendors.len(),
+        total_software,
+        total_cves,
+        total_kev
     );
 
     SupplyChainAnalysis {
@@ -204,8 +236,11 @@ mod tests {
     fn test_vendor_struct() {
         let v = VendorRisk {
             vendor_name: "Fortinet".into(),
-            software_count: 1, cve_count: 3, kev_count: 1,
-            max_cvss: 9.8, affected_assets: vec!["fw-01".into()],
+            software_count: 1,
+            cve_count: 3,
+            kev_count: 1,
+            max_cvss: 9.8,
+            affected_assets: vec!["fw-01".into()],
             risk_level: "critical".into(),
         };
         assert_eq!(v.risk_level, "critical");

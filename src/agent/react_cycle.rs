@@ -108,7 +108,8 @@ pub fn pre_cycle_checks(
 /// Robust parsing: handles common LLM JSON mistakes (wrong types, missing fields, etc.)
 pub fn parse_llm_response(response: &str) -> Result<LlmAnalysis, String> {
     // Extraire le JSON du texte (le LLM peut ajouter du texte autour)
-    let json_str = extract_json(response).ok_or_else(|| "No JSON found in LLM response".to_string())?;
+    let json_str =
+        extract_json(response).ok_or_else(|| "No JSON found in LLM response".to_string())?;
 
     // Try strict parsing first
     if let Ok(analysis) = serde_json::from_str::<LlmAnalysis>(&json_str) {
@@ -116,8 +117,8 @@ pub fn parse_llm_response(response: &str) -> Result<LlmAnalysis, String> {
     }
 
     // Strict failed — try flexible parsing from raw Value
-    let val: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse LLM JSON: {e}"))?;
+    let val: serde_json::Value =
+        serde_json::from_str(&json_str).map_err(|e| format!("Failed to parse LLM JSON: {e}"))?;
 
     // Extract fields with type coercion
     let analysis_text = match &val["analysis"] {
@@ -130,37 +131,57 @@ pub fn parse_llm_response(response: &str) -> Result<LlmAnalysis, String> {
     let severity = crate::agent::production_safeguards::validate_severity(&severity_raw)
         .unwrap_or_else(|| "MEDIUM".to_string());
 
-    let confidence_raw = val["confidence"].as_f64()
+    let confidence_raw = val["confidence"]
+        .as_f64()
         .or_else(|| val["confidence"].as_str().and_then(|s| s.parse().ok()))
         .unwrap_or(0.5);
     let confidence = crate::agent::production_safeguards::validate_confidence(confidence_raw);
 
     // Correlations: accept strings, arrays of strings, or arrays of objects
     let correlations = match &val["correlations"] {
-        serde_json::Value::Array(arr) => arr.iter().map(|v| match v {
-            serde_json::Value::String(s) => s.clone(),
-            other => other.to_string().trim_matches('"').to_string(),
-        }).collect(),
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string().trim_matches('"').to_string(),
+            })
+            .collect(),
         serde_json::Value::String(s) => s.split(',').map(|s| s.trim().to_string()).collect(),
         _ => vec![],
     };
 
     // Proposed actions: try parsing, ignore if malformed
-    let proposed_actions = val["proposed_actions"].as_array()
-        .map(|arr| arr.iter().filter_map(|a| {
-            Some(ProposedAction {
-                cmd_id: a["cmd_id"].as_str()?.to_string(),
-                params: a["params"].as_object().map(|obj|
-                    obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()
-                ).unwrap_or_default(),
-                rationale: a["rationale"].as_str().unwrap_or("").to_string(),
-            })
-        }).collect())
+    let proposed_actions = val["proposed_actions"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|a| {
+                    Some(ProposedAction {
+                        cmd_id: a["cmd_id"].as_str()?.to_string(),
+                        params: a["params"]
+                            .as_object()
+                            .map(|obj| {
+                                obj.iter()
+                                    .filter_map(|(k, v)| {
+                                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                        rationale: a["rationale"].as_str().unwrap_or("").to_string(),
+                    })
+                })
+                .collect()
+        })
         .unwrap_or_default();
 
     let injection_detected = val["injection_detected"].as_bool().unwrap_or(false);
 
-    tracing::debug!("LLM_PARSE: Flexible parsing succeeded — severity={}, confidence={:.0}%", severity, confidence * 100.0);
+    tracing::debug!(
+        "LLM_PARSE: Flexible parsing succeeded — severity={}, confidence={:.0}%",
+        severity,
+        confidence * 100.0
+    );
 
     Ok(LlmAnalysis {
         analysis: analysis_text,
@@ -175,11 +196,13 @@ pub fn parse_llm_response(response: &str) -> Result<LlmAnalysis, String> {
 /// Sanitize an already-parsed analysis (fix common issues).
 fn sanitize_analysis(mut analysis: LlmAnalysis) -> LlmAnalysis {
     // Fix severity
-    if let Some(valid) = crate::agent::production_safeguards::validate_severity(&analysis.severity) {
+    if let Some(valid) = crate::agent::production_safeguards::validate_severity(&analysis.severity)
+    {
         analysis.severity = valid;
     }
     // Fix confidence
-    analysis.confidence = crate::agent::production_safeguards::validate_confidence(analysis.confidence);
+    analysis.confidence =
+        crate::agent::production_safeguards::validate_confidence(analysis.confidence);
     analysis
 }
 
@@ -196,7 +219,9 @@ pub fn validate_proposed_actions(
             Ok(cmd) => {
                 tracing::info!(
                     "Validated action: {} — {} [{}]",
-                    cmd.id, cmd.rendered_cmd, cmd.risk
+                    cmd.id,
+                    cmd.rendered_cmd,
+                    cmd.risk
                 );
                 validated.push(cmd);
             }
@@ -214,10 +239,7 @@ pub fn validate_proposed_actions(
 }
 
 /// Décide si une action peut être auto-exécutée selon le mode.
-pub fn decide_execution(
-    mode: &ModeConfig,
-    cmd: &ValidatedCommand,
-) -> ExecutionDecision {
+pub fn decide_execution(mode: &ModeConfig, cmd: &ValidatedCommand) -> ExecutionDecision {
     match mode.mode {
         AgentMode::Analyst => ExecutionDecision::ProposalOnly,
         AgentMode::Investigator => ExecutionDecision::ProposalOnly,
@@ -244,10 +266,7 @@ pub enum ExecutionDecision {
 }
 
 /// Exécute une liste d'actions validées.
-pub fn execute_actions(
-    actions: &[ValidatedCommand],
-    mode: &ModeConfig,
-) -> Vec<ActionResult> {
+pub fn execute_actions(actions: &[ValidatedCommand], mode: &ModeConfig) -> Vec<ActionResult> {
     actions
         .iter()
         .map(|cmd| {
@@ -265,22 +284,20 @@ pub fn execute_actions(
                     execution: None,
                     error: None,
                 },
-                ExecutionDecision::AutoExecute => {
-                    match executor::execute_validated(cmd) {
-                        Ok(result) => ActionResult {
-                            cmd_id: cmd.id.clone(),
-                            decision,
-                            execution: Some(result),
-                            error: None,
-                        },
-                        Err(e) => ActionResult {
-                            cmd_id: cmd.id.clone(),
-                            decision,
-                            execution: None,
-                            error: Some(e.to_string()),
-                        },
-                    }
-                }
+                ExecutionDecision::AutoExecute => match executor::execute_validated(cmd) {
+                    Ok(result) => ActionResult {
+                        cmd_id: cmd.id.clone(),
+                        decision,
+                        execution: Some(result),
+                        error: None,
+                    },
+                    Err(e) => ActionResult {
+                        cmd_id: cmd.id.clone(),
+                        decision,
+                        execution: None,
+                        error: Some(e.to_string()),
+                    },
+                },
             }
         })
         .collect()
@@ -422,7 +439,10 @@ mod tests {
             requires_hitl: true,
             params: HashMap::new(),
         };
-        assert_eq!(decide_execution(&mode, &cmd), ExecutionDecision::ProposalOnly);
+        assert_eq!(
+            decide_execution(&mode, &cmd),
+            ExecutionDecision::ProposalOnly
+        );
     }
 
     #[test]
@@ -436,7 +456,10 @@ mod tests {
             requires_hitl: true,
             params: HashMap::new(),
         };
-        assert_eq!(decide_execution(&mode, &cmd), ExecutionDecision::ProposalOnly);
+        assert_eq!(
+            decide_execution(&mode, &cmd),
+            ExecutionDecision::ProposalOnly
+        );
     }
 
     #[test]
@@ -450,7 +473,10 @@ mod tests {
             requires_hitl: true,
             params: HashMap::new(),
         };
-        assert_eq!(decide_execution(&mode, &cmd), ExecutionDecision::RequiresHitl);
+        assert_eq!(
+            decide_execution(&mode, &cmd),
+            ExecutionDecision::RequiresHitl
+        );
     }
 
     #[test]
@@ -465,7 +491,10 @@ mod tests {
             requires_hitl: true,
             params: HashMap::new(),
         };
-        assert_eq!(decide_execution(&mode, &low_cmd), ExecutionDecision::AutoExecute);
+        assert_eq!(
+            decide_execution(&mode, &low_cmd),
+            ExecutionDecision::AutoExecute
+        );
 
         let high_cmd = ValidatedCommand {
             id: "net-001".to_string(),
@@ -475,7 +504,10 @@ mod tests {
             requires_hitl: true,
             params: HashMap::new(),
         };
-        assert_eq!(decide_execution(&mode, &high_cmd), ExecutionDecision::RequiresHitl);
+        assert_eq!(
+            decide_execution(&mode, &high_cmd),
+            ExecutionDecision::RequiresHitl
+        );
     }
 
     #[test]

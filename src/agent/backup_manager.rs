@@ -9,11 +9,11 @@
 //! (config, settings, assets, networks, incidents, findings, alerts,
 //! ml_scores, etc.). Filename pattern: `tc-backup-YYYY-MM-DD-HHMMSS.json.gz`.
 
-use std::path::{Path, PathBuf};
-use std::io::Write;
+use crate::db::Database;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use crate::db::Database;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 const BACKUP_DIR: &str = "/app/data/backups";
 
@@ -63,7 +63,10 @@ pub async fn load_settings(store: &dyn Database) -> BackupSettings {
 /// Save backup settings to DB.
 pub async fn save_settings(store: &dyn Database, settings: &BackupSettings) -> Result<(), String> {
     let val = serde_json::to_value(settings).map_err(|e| e.to_string())?;
-    store.set_setting("_system", BACKUP_SETTINGS_KEY, &val).await.map_err(|e| e.to_string())
+    store
+        .set_setting("_system", BACKUP_SETTINGS_KEY, &val)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Resolve the backup directory: external_path if set, otherwise default.
@@ -97,7 +100,12 @@ async fn build_backup_payload(store: &dyn Database) -> serde_json::Value {
     backup["asset_categories"] = json!(store.list_asset_categories().await.unwrap_or_default());
 
     // Assets
-    backup["assets"] = json!(store.list_assets(None, None, 10000, 0).await.unwrap_or_default());
+    backup["assets"] = json!(
+        store
+            .list_assets(None, None, 10000, 0)
+            .await
+            .unwrap_or_default()
+    );
 
     // All settings (system config, channels, anonymizer, notification, etc.)
     let mut all_settings: Vec<serde_json::Value> = vec![];
@@ -110,13 +118,28 @@ async fn build_backup_payload(store: &dyn Database) -> serde_json::Value {
     backup["settings"] = json!(all_settings);
 
     // Incidents (everything — not many rows)
-    backup["incidents"] = json!(store.list_incidents(None, 10000, 0).await.unwrap_or_default());
+    backup["incidents"] = json!(
+        store
+            .list_incidents(None, 10000, 0)
+            .await
+            .unwrap_or_default()
+    );
 
     // Findings (open + recent resolved)
-    backup["findings"] = json!(store.list_findings(None, None, None, 10000, 0).await.unwrap_or_default());
+    backup["findings"] = json!(
+        store
+            .list_findings(None, None, None, 10000, 0)
+            .await
+            .unwrap_or_default()
+    );
 
     // Recent alerts (cap to keep file size sane — full sigma_alerts can be 1M+ rows)
-    backup["alerts"] = json!(store.list_alerts(None, None, 5000, 0).await.unwrap_or_default());
+    backup["alerts"] = json!(
+        store
+            .list_alerts(None, None, 5000, 0)
+            .await
+            .unwrap_or_default()
+    );
 
     // ML scores
     backup["ml_scores"] = json!(store.get_all_ml_scores().await.unwrap_or_default());
@@ -140,7 +163,9 @@ pub async fn create_backup(store: &dyn Database) -> Result<BackupInfo, String> {
     // Gzip compress
     let file = std::fs::File::create(&path).map_err(|e| format!("create file: {e}"))?;
     let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-    encoder.write_all(&json_bytes).map_err(|e| format!("gzip write: {e}"))?;
+    encoder
+        .write_all(&json_bytes)
+        .map_err(|e| format!("gzip write: {e}"))?;
     encoder.finish().map_err(|e| format!("gzip finish: {e}"))?;
 
     let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -160,22 +185,34 @@ pub async fn create_backup(store: &dyn Database) -> Result<BackupInfo, String> {
 pub async fn list_backups(store: &dyn Database) -> Vec<BackupInfo> {
     let settings = load_settings(store).await;
     let dir = backup_dir(&settings);
-    if !dir.exists() { return vec![]; }
+    if !dir.exists() {
+        return vec![];
+    }
 
     let mut out = vec![];
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.starts_with("tc-backup-") || !name.ends_with(".json.gz") { continue; }
-            let metadata = match entry.metadata() { Ok(m) => m, Err(_) => continue };
-            let created_at = metadata.modified()
+            if !name.starts_with("tc-backup-") || !name.ends_with(".json.gz") {
+                continue;
+            }
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let created_at = metadata
+                .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
                 .flatten()
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
-            out.push(BackupInfo { name, size_bytes: metadata.len(), created_at });
+            out.push(BackupInfo {
+                name,
+                size_bytes: metadata.len(),
+                created_at,
+            });
         }
     }
     // Sort newest first
@@ -185,7 +222,9 @@ pub async fn list_backups(store: &dyn Database) -> Vec<BackupInfo> {
 
 /// Read a backup file's bytes for download. Validates the name to prevent path traversal.
 pub async fn read_backup(store: &dyn Database, name: &str) -> Result<Vec<u8>, String> {
-    if !is_safe_name(name) { return Err("invalid backup name".into()); }
+    if !is_safe_name(name) {
+        return Err("invalid backup name".into());
+    }
     let settings = load_settings(store).await;
     let path = backup_dir(&settings).join(name);
     std::fs::read(&path).map_err(|e| format!("read: {e}"))
@@ -193,7 +232,9 @@ pub async fn read_backup(store: &dyn Database, name: &str) -> Result<Vec<u8>, St
 
 /// Delete a backup file. Validates the name to prevent path traversal.
 pub async fn delete_backup(store: &dyn Database, name: &str) -> Result<(), String> {
-    if !is_safe_name(name) { return Err("invalid backup name".into()); }
+    if !is_safe_name(name) {
+        return Err("invalid backup name".into());
+    }
     let settings = load_settings(store).await;
     let path = backup_dir(&settings).join(name);
     std::fs::remove_file(&path).map_err(|e| format!("delete: {e}"))?;
@@ -214,13 +255,17 @@ fn is_safe_name(name: &str) -> bool {
 /// Apply retention policy: keep only the N most recent backups.
 async fn apply_retention(settings: &BackupSettings) -> Result<(), String> {
     let dir = backup_dir(settings);
-    if !dir.exists() { return Ok(()); }
+    if !dir.exists() {
+        return Ok(());
+    }
 
     let mut files: Vec<(String, std::time::SystemTime)> = vec![];
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.starts_with("tc-backup-") || !name.ends_with(".json.gz") { continue; }
+            if !name.starts_with("tc-backup-") || !name.ends_with(".json.gz") {
+                continue;
+            }
             if let Ok(metadata) = entry.metadata() {
                 if let Ok(modified) = metadata.modified() {
                     files.push((name, modified));
@@ -244,12 +289,20 @@ async fn apply_retention(settings: &BackupSettings) -> Result<(), String> {
 /// Called from the IE cycle.
 pub async fn check_daily_backup(store: &dyn Database) {
     let settings = load_settings(store).await;
-    if !settings.auto_enabled { return; }
+    if !settings.auto_enabled {
+        return;
+    }
 
     // Parse target time
     let parts: Vec<&str> = settings.auto_time.split(':').collect();
-    let target_h = parts.first().and_then(|h| h.parse::<u32>().ok()).unwrap_or(2);
-    let target_m = parts.get(1).and_then(|m| m.parse::<u32>().ok()).unwrap_or(0);
+    let target_h = parts
+        .first()
+        .and_then(|h| h.parse::<u32>().ok())
+        .unwrap_or(2);
+    let target_m = parts
+        .get(1)
+        .and_then(|m| m.parse::<u32>().ok())
+        .unwrap_or(0);
 
     let now = chrono::Utc::now();
     let cur_h = now.format("%H").to_string().parse::<u32>().unwrap_or(0);
@@ -258,18 +311,28 @@ pub async fn check_daily_backup(store: &dyn Database) {
     let cur_min = cur_h * 60 + cur_m;
 
     // Fire within a 10-min window
-    if cur_min < target_min || cur_min > target_min + 10 { return; }
+    if cur_min < target_min || cur_min > target_min + 10 {
+        return;
+    }
 
     // Already done today?
     let today = now.format("%Y-%m-%d").to_string();
     if let Ok(Some(last)) = store.get_setting("_system", "last_daily_backup").await {
-        if last.as_str() == Some(today.as_str()) { return; }
+        if last.as_str() == Some(today.as_str()) {
+            return;
+        }
     }
 
     match create_backup(store).await {
         Ok(info) => {
-            tracing::info!("DAILY_BACKUP: {} created ({} KB)", info.name, info.size_bytes / 1024);
-            let _ = store.set_setting("_system", "last_daily_backup", &json!(today)).await;
+            tracing::info!(
+                "DAILY_BACKUP: {} created ({} KB)",
+                info.name,
+                info.size_bytes / 1024
+            );
+            let _ = store
+                .set_setting("_system", "last_daily_backup", &json!(today))
+                .await;
         }
         Err(e) => {
             tracing::error!("DAILY_BACKUP: Failed — {}", e);

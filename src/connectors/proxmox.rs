@@ -25,7 +25,9 @@ pub struct ProxmoxConfig {
     pub no_tls_verify: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Proxmox sync result.
 #[derive(Debug, Clone, Serialize)]
@@ -61,7 +63,11 @@ struct PveResource {
 /// Sync Proxmox VMs/containers into ThreatClaw graph.
 pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> ProxmoxSyncResult {
     let mut result = ProxmoxSyncResult {
-        vms: 0, containers: 0, nodes: 0, assets_resolved: 0, errors: vec![],
+        vms: 0,
+        containers: 0,
+        nodes: 0,
+        assets_resolved: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -82,7 +88,8 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
 
     // Fetch all cluster resources
     let url = format!("{}/api2/json/cluster/resources", config.url);
-    let resp = match client.get(&url)
+    let resp = match client
+        .get(&url)
         .header("Authorization", &auth_header)
         .send()
         .await
@@ -96,7 +103,9 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
     };
 
     if !resp.status().is_success() {
-        result.errors.push(format!("Proxmox API: HTTP {}", resp.status()));
+        result
+            .errors
+            .push(format!("Proxmox API: HTTP {}", resp.status()));
         return result;
     }
 
@@ -108,7 +117,8 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
         }
     };
 
-    let resources: Vec<PveResource> = body.get("data")
+    let resources: Vec<PveResource> = body
+        .get("data")
         .and_then(|d| serde_json::from_value(d.clone()).ok())
         .unwrap_or_default();
 
@@ -127,7 +137,7 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                     vlan: None,
                     vm_id: Some(format!("pve-{}-{}", res.node, res.vmid)),
                     criticality: None,
-            services: serde_json::json!([]),
+                    services: serde_json::json!([]),
                     source: "proxmox".into(),
                 };
                 asset_resolution::resolve_asset(store, &discovered).await;
@@ -146,7 +156,7 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                     vlan: None,
                     vm_id: Some(format!("pve-lxc-{}-{}", res.node, res.vmid)),
                     criticality: None,
-            services: serde_json::json!([]),
+                    services: serde_json::json!([]),
                     source: "proxmox".into(),
                 };
                 asset_resolution::resolve_asset(store, &discovered).await;
@@ -161,7 +171,10 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
 
     tracing::info!(
         "PROXMOX SYNC: {} VMs, {} containers, {} nodes, {} assets",
-        result.vms, result.containers, result.nodes, result.assets_resolved
+        result.vms,
+        result.containers,
+        result.nodes,
+        result.assets_resolved
     );
 
     result

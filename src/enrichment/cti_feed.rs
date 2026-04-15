@@ -30,7 +30,11 @@ pub struct CtiSyncResult {
 /// Called every 6 hours by the cyber scheduler.
 pub async fn sync_all_feeds(store: &dyn Database) -> CtiSyncResult {
     let mut result = CtiSyncResult {
-        sources_synced: 0, iocs_new: 0, iocs_updated: 0, iocs_total: 0, errors: vec![],
+        sources_synced: 0,
+        iocs_new: 0,
+        iocs_updated: 0,
+        iocs_total: 0,
+        errors: vec![],
     };
 
     // Sync each source — failures don't stop the others
@@ -66,7 +70,9 @@ pub async fn sync_all_feeds(store: &dyn Database) -> CtiSyncResult {
 
     tracing::info!(
         "CTI-FEED: sync complete — {} sources, {} new IoCs, {} errors",
-        result.sources_synced, result.iocs_new, result.errors.len()
+        result.sources_synced,
+        result.iocs_new,
+        result.errors.len()
     );
 
     result
@@ -96,16 +102,25 @@ async fn upsert_ioc(
     match existing {
         Ok(Some(mut val)) => {
             // Update: add source if not already present
-            let mut sources: Vec<String> = val["sources"].as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            let mut sources: Vec<String> = val["sources"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             if !sources.contains(&source.to_string()) {
                 sources.push(source.to_string());
             }
             val["sources"] = serde_json::json!(sources);
             val["last_seen"] = serde_json::json!(now);
-            if let Some(tt) = threat_type { val["threat_type"] = serde_json::json!(tt); }
-            if let Some(mf) = malware_family { val["malware_family"] = serde_json::json!(mf); }
+            if let Some(tt) = threat_type {
+                val["threat_type"] = serde_json::json!(tt);
+            }
+            if let Some(mf) = malware_family {
+                val["malware_family"] = serde_json::json!(mf);
+            }
             // Confidence: 50 base + 15 per additional source
             let confidence = (50 + (sources.len() as u32 - 1) * 15).min(100);
             val["confidence"] = serde_json::json!(confidence);
@@ -142,19 +157,37 @@ async fn sync_openphish(store: &dyn Database) -> Result<usize, String> {
     let resp = reqwest::Client::new()
         .get("https://openphish.com/feed.txt")
         .timeout(std::time::Duration::from_secs(30))
-        .send().await.map_err(|e| format!("OpenPhish: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("OpenPhish: {}", e))?;
 
     if !resp.status().is_success() {
         return Err(format!("OpenPhish HTTP {}", resp.status()));
     }
 
-    let body = resp.text().await.map_err(|e| format!("OpenPhish body: {}", e))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("OpenPhish body: {}", e))?;
     let mut count = 0;
 
     for line in body.lines().take(5000) {
         let url = line.trim();
-        if url.is_empty() || url.starts_with('#') { continue; }
-        if upsert_ioc(store, "url", url, "openphish", Some("phishing"), None, &["phishing"]).await.unwrap_or(false) {
+        if url.is_empty() || url.starts_with('#') {
+            continue;
+        }
+        if upsert_ioc(
+            store,
+            "url",
+            url,
+            "openphish",
+            Some("phishing"),
+            None,
+            &["phishing"],
+        )
+        .await
+        .unwrap_or(false)
+        {
             count += 1;
         }
     }
@@ -168,9 +201,14 @@ async fn sync_threatfox(store: &dyn Database) -> Result<usize, String> {
         .post("https://threatfox-api.abuse.ch/api/v1/")
         .json(&serde_json::json!({"query": "get_iocs", "days": 1}))
         .timeout(std::time::Duration::from_secs(30))
-        .send().await.map_err(|e| format!("ThreatFox: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("ThreatFox: {}", e))?;
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("ThreatFox parse: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("ThreatFox parse: {}", e))?;
     let mut count = 0;
 
     if let Some(data) = body["data"].as_array() {
@@ -180,7 +218,9 @@ async fn sync_threatfox(store: &dyn Database) -> Result<usize, String> {
             let malware = ioc["malware"].as_str();
             let threat = ioc["threat_type"].as_str();
 
-            if ioc_val.is_empty() { continue; }
+            if ioc_val.is_empty() {
+                continue;
+            }
 
             let normalized_type = match ioc_type_raw {
                 "ip:port" => "ip",
@@ -198,7 +238,18 @@ async fn sync_threatfox(store: &dyn Database) -> Result<usize, String> {
                 ioc_val
             };
 
-            if upsert_ioc(store, normalized_type, clean_val, "threatfox", threat, malware, &["malware"]).await.unwrap_or(false) {
+            if upsert_ioc(
+                store,
+                normalized_type,
+                clean_val,
+                "threatfox",
+                threat,
+                malware,
+                &["malware"],
+            )
+            .await
+            .unwrap_or(false)
+            {
                 count += 1;
             }
         }
@@ -212,9 +263,14 @@ async fn sync_urlhaus(store: &dyn Database) -> Result<usize, String> {
     let resp = reqwest::Client::new()
         .get("https://urlhaus-api.abuse.ch/v1/urls/recent/")
         .timeout(std::time::Duration::from_secs(30))
-        .send().await.map_err(|e| format!("URLhaus: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("URLhaus: {}", e))?;
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("URLhaus parse: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("URLhaus parse: {}", e))?;
     let mut count = 0;
 
     if let Some(urls) = body["urls"].as_array() {
@@ -222,9 +278,22 @@ async fn sync_urlhaus(store: &dyn Database) -> Result<usize, String> {
             let url = entry["url"].as_str().unwrap_or("");
             let threat = entry["threat"].as_str();
 
-            if url.is_empty() { continue; }
+            if url.is_empty() {
+                continue;
+            }
 
-            if upsert_ioc(store, "url", url, "urlhaus", Some("malware"), threat, &["malware-distribution"]).await.unwrap_or(false) {
+            if upsert_ioc(
+                store,
+                "url",
+                url,
+                "urlhaus",
+                Some("malware"),
+                threat,
+                &["malware-distribution"],
+            )
+            .await
+            .unwrap_or(false)
+            {
                 count += 1;
             }
         }
@@ -239,9 +308,14 @@ async fn sync_malwarebazaar(store: &dyn Database) -> Result<usize, String> {
         .post("https://mb-api.abuse.ch/api/v1/")
         .form(&[("query", "get_recent"), ("selector", "time")])
         .timeout(std::time::Duration::from_secs(30))
-        .send().await.map_err(|e| format!("MalwareBazaar: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("MalwareBazaar: {}", e))?;
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("MalwareBazaar parse: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("MalwareBazaar parse: {}", e))?;
     let mut count = 0;
 
     if let Some(data) = body["data"].as_array() {
@@ -249,16 +323,38 @@ async fn sync_malwarebazaar(store: &dyn Database) -> Result<usize, String> {
             let sha256 = sample["sha256_hash"].as_str().unwrap_or("");
             let family = sample["signature"].as_str();
 
-            if sha256.is_empty() { continue; }
+            if sha256.is_empty() {
+                continue;
+            }
 
-            if upsert_ioc(store, "hash_sha256", sha256, "malwarebazaar", Some("malware"), family, &["malware-sample"]).await.unwrap_or(false) {
+            if upsert_ioc(
+                store,
+                "hash_sha256",
+                sha256,
+                "malwarebazaar",
+                Some("malware"),
+                family,
+                &["malware-sample"],
+            )
+            .await
+            .unwrap_or(false)
+            {
                 count += 1;
             }
 
             // Also index MD5 if available
             if let Some(md5) = sample["md5_hash"].as_str() {
                 if !md5.is_empty() {
-                    let _ = upsert_ioc(store, "hash_md5", md5, "malwarebazaar", Some("malware"), family, &["malware-sample"]).await;
+                    let _ = upsert_ioc(
+                        store,
+                        "hash_md5",
+                        md5,
+                        "malwarebazaar",
+                        Some("malware"),
+                        family,
+                        &["malware-sample"],
+                    )
+                    .await;
                 }
             }
         }

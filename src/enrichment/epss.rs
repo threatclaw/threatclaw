@@ -11,8 +11,8 @@ const API_URL: &str = "https://api.first.org/data/v1/epss";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpssScore {
     pub cve_id: String,
-    pub epss: f64,          // 0.0 - 1.0 probability of exploitation in 30 days
-    pub percentile: f64,    // 0.0 - 1.0 rank among all CVEs
+    pub epss: f64,       // 0.0 - 1.0 probability of exploitation in 30 days
+    pub percentile: f64, // 0.0 - 1.0 rank among all CVEs
     pub date: String,
 }
 
@@ -20,11 +20,15 @@ pub struct EpssScore {
 pub async fn lookup_epss(cve_id: &str) -> Result<Option<EpssScore>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.get(API_URL)
+    let resp = client
+        .get(API_URL)
         .query(&[("cve", cve_id)])
-        .send().await.map_err(|e| format!("EPSS: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("EPSS: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("EPSS HTTP {}", resp.status()));
@@ -36,8 +40,14 @@ pub async fn lookup_epss(cve_id: &str) -> Result<Option<EpssScore>, String> {
     match entry {
         Some(e) => Ok(Some(EpssScore {
             cve_id: e["cve"].as_str().unwrap_or(cve_id).into(),
-            epss: e["epss"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0),
-            percentile: e["percentile"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0),
+            epss: e["epss"]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0),
+            percentile: e["percentile"]
+                .as_str()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0),
             date: e["date"].as_str().unwrap_or("").into(),
         })),
         None => Ok(None),
@@ -64,8 +74,13 @@ pub async fn lookup_epss_cached(
 
     // Cache
     if let Some(ref score) = result {
-        let _ = store.set_setting("_epss", cve_id,
-            &serde_json::to_value(score).unwrap_or_default()).await;
+        let _ = store
+            .set_setting(
+                "_epss",
+                cve_id,
+                &serde_json::to_value(score).unwrap_or_default(),
+            )
+            .await;
     }
 
     Ok(result)

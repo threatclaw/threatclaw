@@ -1075,14 +1075,19 @@ impl SetupWizard {
         let should_anonymize = confirm(
             "Vos données quittent-elles votre infrastructure avec ce provider ?",
             selected_id != "ollama", // default yes for non-ollama
-        ).map_err(SetupError::Io)?;
+        )
+        .map_err(SetupError::Io)?;
 
         if should_anonymize {
             // SAFETY: setup wizard runs single-threaded before the agent starts.
-            unsafe { std::env::set_var("TC_ANONYMIZE_PRIMARY", "true"); }
+            unsafe {
+                std::env::set_var("TC_ANONYMIZE_PRIMARY", "true");
+            }
             print_success("Anonymisation activée pour l'IA principale.");
         } else {
-            unsafe { std::env::set_var("TC_ANONYMIZE_PRIMARY", "false"); }
+            unsafe {
+                std::env::set_var("TC_ANONYMIZE_PRIMARY", "false");
+            }
             print_info("Anonymisation désactivée (données restent dans votre infra).");
         }
 
@@ -2506,11 +2511,14 @@ impl SetupWizard {
         };
 
         // API Key
-        let api_key = secret_input(&format!("{} API key", match backend {
-            "anthropic" => "Anthropic",
-            "mistral" => "Mistral",
-            _ => "API",
-        }))
+        let api_key = secret_input(&format!(
+            "{} API key",
+            match backend {
+                "anthropic" => "Anthropic",
+                "mistral" => "Mistral",
+                _ => "API",
+            }
+        ))
         .map_err(SetupError::Io)?;
 
         let key_str = api_key.expose_secret().to_string();
@@ -2520,12 +2528,9 @@ impl SetupWizard {
         }
 
         // Model
-        let model = optional_input(
-            "Model",
-            Some(&format!("default: {}", default_model)),
-        )
-        .map_err(SetupError::Io)?
-        .unwrap_or_else(|| default_model.to_string());
+        let model = optional_input("Model", Some(&format!("default: {}", default_model)))
+            .map_err(SetupError::Io)?
+            .unwrap_or_else(|| default_model.to_string());
 
         // Base URL for openai_compatible
         let base_url = if backend == "openai_compatible" {
@@ -2558,9 +2563,15 @@ impl SetupWizard {
         )
         .map_err(SetupError::Io)?;
 
-        let policy = if anon_choice == 0 { "anonymized" } else { "direct" };
+        let policy = if anon_choice == 0 {
+            "anonymized"
+        } else {
+            "direct"
+        };
         // SAFETY: setup wizard runs single-threaded before the agent starts.
-        unsafe { std::env::set_var("TC_CLOUD_ESCALATION", policy); }
+        unsafe {
+            std::env::set_var("TC_CLOUD_ESCALATION", policy);
+        }
 
         println!();
         print_success(&format!(
@@ -2794,8 +2805,14 @@ impl SetupWizard {
         }
 
         // ThreatClaw env vars (anonymization + cloud fallback)
-        for var in &["TC_ANONYMIZE_PRIMARY", "TC_CLOUD_BACKEND", "TC_CLOUD_MODEL",
-                      "TC_CLOUD_API_KEY", "TC_CLOUD_BASE_URL", "TC_CLOUD_ESCALATION"] {
+        for var in &[
+            "TC_ANONYMIZE_PRIMARY",
+            "TC_CLOUD_BACKEND",
+            "TC_CLOUD_MODEL",
+            "TC_CLOUD_API_KEY",
+            "TC_CLOUD_BASE_URL",
+            "TC_CLOUD_ESCALATION",
+        ] {
             if let Ok(val) = std::env::var(var) {
                 if !val.is_empty() {
                     env_vars.push((var.to_string(), val));
@@ -3032,8 +3049,12 @@ impl SetupWizard {
         // Cloud fallback summary
         if let Ok(cloud_backend) = std::env::var("TC_CLOUD_BACKEND") {
             let cloud_model = std::env::var("TC_CLOUD_MODEL").unwrap_or_default();
-            let cloud_policy = std::env::var("TC_CLOUD_ESCALATION").unwrap_or_else(|_| "anonymized".to_string());
-            println!("  Cloud fallback: {} / {} ({})", cloud_backend, cloud_model, cloud_policy);
+            let cloud_policy =
+                std::env::var("TC_CLOUD_ESCALATION").unwrap_or_else(|_| "anonymized".to_string());
+            println!(
+                "  Cloud fallback: {} / {} ({})",
+                cloud_backend, cloud_model, cloud_policy
+            );
         } else {
             println!("  Cloud fallback: none (100% local)");
         }

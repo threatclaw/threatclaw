@@ -1,9 +1,9 @@
 // See ADR-044: Remediation security guard — validates all remediation actions
 // before execution. 5 layers of protection.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::OnceLock;
 use std::collections::HashSet;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 // ── Layer 1: Boot-locked protected infrastructure ──
 // Read once at boot, immutable for the lifetime of the process.
@@ -17,7 +17,9 @@ static SELF_HOSTNAME: OnceLock<String> = OnceLock::new();
 pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
     // Self-detection
     let self_ip = detect_self_ip();
-    let self_hostname = std::process::Command::new("hostname").output().ok()
+    let self_hostname = std::process::Command::new("hostname")
+        .output()
+        .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "threatclaw".into());
@@ -58,16 +60,26 @@ pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
         let appr = val["max_approvals_per_hour"].as_u64().unwrap_or(10) as u32;
         MAX_ISOLATIONS.set(iso.max(1).min(10)).ok(); // clamp 1-10
         MAX_APPROVALS.set(appr.max(1).min(50)).ok(); // clamp 1-50
-        tracing::info!("REMEDIATION_GUARD: Limits boot-locked — isolations={}/h, approvals={}/h", iso, appr);
+        tracing::info!(
+            "REMEDIATION_GUARD: Limits boot-locked — isolations={}/h, approvals={}/h",
+            iso,
+            appr
+        );
     }
 
-    tracing::info!("REMEDIATION_GUARD: {} protected IPs/hosts locked at boot (self={})", count, self_ip);
+    tracing::info!(
+        "REMEDIATION_GUARD: {} protected IPs/hosts locked at boot (self={})",
+        count,
+        self_ip
+    );
 }
 
 /// Check if a target is protected (cannot be isolated/blocked).
 pub fn is_protected_target(target: &str) -> bool {
     if let Some(protected) = PROTECTED_IPS.get() {
-        if protected.contains(target) { return true; }
+        if protected.contains(target) {
+            return true;
+        }
         // Also check case-insensitive hostname match
         let target_lower = target.to_lowercase();
         protected.iter().any(|p| p.to_lowercase() == target_lower)
@@ -87,13 +99,18 @@ static HITL_LAST_RESET: AtomicU64 = AtomicU64::new(0);
 static MAX_ISOLATIONS: OnceLock<u32> = OnceLock::new();
 static MAX_APPROVALS: OnceLock<u32> = OnceLock::new();
 
-fn max_isolations_per_hour() -> u32 { *MAX_ISOLATIONS.get().unwrap_or(&3) }
-fn max_approvals_per_hour() -> u32 { *MAX_APPROVALS.get().unwrap_or(&10) }
+fn max_isolations_per_hour() -> u32 {
+    *MAX_ISOLATIONS.get().unwrap_or(&3)
+}
+fn max_approvals_per_hour() -> u32 {
+    *MAX_APPROVALS.get().unwrap_or(&10)
+}
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default().as_secs()
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn check_rate_limit(counter: &AtomicU32, reset_ts: &AtomicU64, max: u32, name: &str) -> bool {
@@ -105,7 +122,12 @@ fn check_rate_limit(counter: &AtomicU32, reset_ts: &AtomicU64, max: u32, name: &
     }
     let current = counter.fetch_add(1, Ordering::Relaxed);
     if current >= max {
-        tracing::error!("SECURITY: Rate limit exceeded — {} ({}/{})", name, current, max);
+        tracing::error!(
+            "SECURITY: Rate limit exceeded — {} ({}/{})",
+            name,
+            current,
+            max
+        );
         counter.fetch_sub(1, Ordering::Relaxed);
         false
     } else {
@@ -115,12 +137,22 @@ fn check_rate_limit(counter: &AtomicU32, reset_ts: &AtomicU64, max: u32, name: &
 
 /// Check if an isolation action is allowed (rate limit).
 pub fn can_isolate() -> bool {
-    check_rate_limit(&ISOLATION_COUNT_1H, &ISOLATION_LAST_RESET, max_isolations_per_hour(), "isolation")
+    check_rate_limit(
+        &ISOLATION_COUNT_1H,
+        &ISOLATION_LAST_RESET,
+        max_isolations_per_hour(),
+        "isolation",
+    )
 }
 
 /// Check if a HITL approval is allowed (rate limit against alert fatigue).
 pub fn can_approve_hitl() -> bool {
-    check_rate_limit(&HITL_APPROVALS_1H, &HITL_LAST_RESET, max_approvals_per_hour(), "HITL approval")
+    check_rate_limit(
+        &HITL_APPROVALS_1H,
+        &HITL_LAST_RESET,
+        max_approvals_per_hour(),
+        "HITL approval",
+    )
 }
 
 // ── Layer 3: LDAP escaping (RFC 4515) ──
@@ -131,11 +163,11 @@ pub fn ldap_escape(input: &str) -> String {
     for c in input.chars() {
         match c {
             '\\' => escaped.push_str("\\5c"),
-            '*'  => escaped.push_str("\\2a"),
-            '('  => escaped.push_str("\\28"),
-            ')'  => escaped.push_str("\\29"),
+            '*' => escaped.push_str("\\2a"),
+            '(' => escaped.push_str("\\28"),
+            ')' => escaped.push_str("\\29"),
             '\0' => escaped.push_str("\\00"),
-            _    => escaped.push(c),
+            _ => escaped.push(c),
         }
     }
     escaped
@@ -145,7 +177,10 @@ pub fn ldap_escape(input: &str) -> String {
 pub fn validate_remediation(action: &str, target: &str) -> Result<(), String> {
     // Check protected targets
     if is_protected_target(target) {
-        return Err(format!("SECURITY: Target '{}' is in the protected infrastructure list", target));
+        return Err(format!(
+            "SECURITY: Target '{}' is in the protected infrastructure list",
+            target
+        ));
     }
 
     // Check rate limits for isolation actions
@@ -173,7 +208,10 @@ fn detect_self_ip() -> String {
 }
 
 fn detect_gateway() -> Option<String> {
-    if let Ok(output) = std::process::Command::new("ip").args(["route", "show", "default"]).output() {
+    if let Ok(output) = std::process::Command::new("ip")
+        .args(["route", "show", "default"])
+        .output()
+    {
         if let Ok(route) = String::from_utf8(output.stdout) {
             // "default via 192.168.1.1 dev eth0"
             let parts: Vec<&str> = route.split_whitespace().collect();

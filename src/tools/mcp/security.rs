@@ -27,13 +27,19 @@ pub fn validate_tool_name(name: &str) -> Result<(), String> {
         return Err("Tool name too long (max 128 chars)".to_string());
     }
     if name.contains("..") || name.contains('/') || name.contains('\\') {
-        return Err(format!("Tool name '{}' contains path traversal characters", name));
+        return Err(format!(
+            "Tool name '{}' contains path traversal characters",
+            name
+        ));
     }
     if name.contains('\0') || name.contains('\n') || name.contains('\r') {
         return Err(format!("Tool name '{}' contains control characters", name));
     }
     // Only allow alphanumeric, dash, underscore, dot
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
         return Err(format!("Tool name '{}' contains invalid characters", name));
     }
     Ok(())

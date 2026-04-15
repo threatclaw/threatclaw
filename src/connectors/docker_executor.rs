@@ -36,10 +36,18 @@ pub struct DockerSkillConfig {
     pub asset_label: Option<String>,
 }
 
-fn default_mount_target() -> String { "/workspace".into() }
-fn default_network() -> String { "none".into() }
-fn default_memory() -> String { "256m".into() }
-fn default_timeout() -> u64 { 300 }
+fn default_mount_target() -> String {
+    "/workspace".into()
+}
+fn default_network() -> String {
+    "none".into()
+}
+fn default_memory() -> String {
+    "256m".into()
+}
+fn default_timeout() -> u64 {
+    300
+}
 
 /// Result of a Docker skill execution.
 #[derive(Debug, Clone, Serialize)]
@@ -63,23 +71,35 @@ pub async fn execute_skill(
     let start = std::time::Instant::now();
     let mut result = DockerSkillResult {
         skill_id: config.skill_id.clone(),
-        success: false, exit_code: -1, stdout_lines: 0,
-        findings_created: 0, duration_secs: 0, error: None,
+        success: false,
+        exit_code: -1,
+        stdout_lines: 0,
+        findings_created: 0,
+        duration_secs: 0,
+        error: None,
     };
 
-    tracing::info!("DOCKER SKILL: Running {} ({})", config.skill_name, config.image);
+    tracing::info!(
+        "DOCKER SKILL: Running {} ({})",
+        config.skill_name,
+        config.image
+    );
 
     // Pull image if not available locally
     let check = Command::new("docker")
         .args(["image", "inspect", &config.image])
-        .stdout(Stdio::null()).stderr(Stdio::null())
-        .status().await;
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await;
     if check.map(|s| !s.success()).unwrap_or(true) {
         tracing::info!("DOCKER SKILL: Pulling image {}...", config.image);
         let pull = Command::new("docker")
             .args(["pull", &config.image])
-            .stdout(Stdio::piped()).stderr(Stdio::piped())
-            .status().await;
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .status()
+            .await;
         if pull.map(|s| !s.success()).unwrap_or(true) {
             result.error = Some(format!("Failed to pull image: {}", config.image));
             result.duration_secs = start.elapsed().as_secs();
@@ -99,12 +119,21 @@ pub async fn execute_skill(
         // Ensure mount path exists on host (for volumes created by docker run)
         if !mount_path.contains("docker.sock") {
             let _ = Command::new("docker")
-                .args(["exec", "sh", "-c", &format!("mkdir -p {} && chmod 777 {}", mount_path, mount_path)])
-                .output().await;
+                .args([
+                    "exec",
+                    "sh",
+                    "-c",
+                    &format!("mkdir -p {} && chmod 777 {}", mount_path, mount_path),
+                ])
+                .output()
+                .await;
             // Also try directly (if running on host)
             let _ = std::fs::create_dir_all(mount_path);
             #[cfg(unix)]
-            let _ = std::fs::set_permissions(mount_path, std::os::unix::fs::PermissionsExt::from_mode(0o777));
+            let _ = std::fs::set_permissions(
+                mount_path,
+                std::os::unix::fs::PermissionsExt::from_mode(0o777),
+            );
         }
         cmd.args(["-v", &format!("{}:{}", mount_path, config.mount_target)]);
         // Only set working directory if it's a real directory, not a socket/file
@@ -122,11 +151,16 @@ pub async fn execute_skill(
     // Execute with timeout
     let output = match tokio::time::timeout(
         std::time::Duration::from_secs(config.timeout_seconds),
-        cmd.output()
-    ).await {
+        cmd.output(),
+    )
+    .await
+    {
         Ok(Ok(output)) => output,
         Ok(Err(e)) => {
-            result.error = Some(format!("Docker execution failed: {}. Is Docker running?", e));
+            result.error = Some(format!(
+                "Docker execution failed: {}. Is Docker running?",
+                e
+            ));
             tracing::error!("DOCKER SKILL: {} failed: {}", config.skill_name, e);
             result.duration_secs = start.elapsed().as_secs();
             return result;
@@ -147,13 +181,25 @@ pub async fn execute_skill(
     // e.g., semgrep returns 1 if findings, trivy returns 1 if vulns
     if result.exit_code > 1 {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        result.error = Some(format!("Exit code {}: {}", result.exit_code, stderr.chars().take(500).collect::<String>()));
-        tracing::warn!("DOCKER SKILL: {} exit code {}", config.skill_name, result.exit_code);
+        result.error = Some(format!(
+            "Exit code {}: {}",
+            result.exit_code,
+            stderr.chars().take(500).collect::<String>()
+        ));
+        tracing::warn!(
+            "DOCKER SKILL: {} exit code {}",
+            config.skill_name,
+            result.exit_code
+        );
     }
 
     // Parse findings from stdout
     let parsed = finding_parser(&stdout);
-    tracing::info!("DOCKER SKILL: {} produced {} findings", config.skill_name, parsed.len());
+    tracing::info!(
+        "DOCKER SKILL: {} produced {} findings",
+        config.skill_name,
+        parsed.len()
+    );
 
     // The target (e.g. image name, URL) from the command args
     let scan_target = config.command.last().map(|s| s.as_str()).unwrap_or("");
@@ -178,16 +224,18 @@ pub async fn execute_skill(
             finding.title.clone()
         };
 
-        let _ = store.insert_finding(&NewFinding {
-            skill_id: config.skill_id.clone(),
-            title,
-            description: Some(finding.description.clone()),
-            severity: finding.severity.clone(),
-            category: Some(finding.category.clone()),
-            asset: finding.asset.clone(),
-            source: Some(config.skill_name.clone()),
-            metadata: Some(meta),
-        }).await;
+        let _ = store
+            .insert_finding(&NewFinding {
+                skill_id: config.skill_id.clone(),
+                title,
+                description: Some(finding.description.clone()),
+                severity: finding.severity.clone(),
+                category: Some(finding.category.clone()),
+                asset: finding.asset.clone(),
+                source: Some(config.skill_name.clone()),
+                metadata: Some(meta),
+            })
+            .await;
         result.findings_created += 1;
     }
 
@@ -197,16 +245,27 @@ pub async fn execute_skill(
     // Auto-close: findings from this skill that were NOT re-confirmed by this scan
     // (detected_at was not updated during this run → they're stale)
     if result.findings_created > 0 {
-        match store.auto_close_stale_findings(&config.skill_id, &scan_start).await {
+        match store
+            .auto_close_stale_findings(&config.skill_id, &scan_start)
+            .await
+        {
             Ok(closed) if closed > 0 => {
-                tracing::info!("DOCKER SKILL: {} auto-closed {} stale findings", config.skill_name, closed);
+                tracing::info!(
+                    "DOCKER SKILL: {} auto-closed {} stale findings",
+                    config.skill_name,
+                    closed
+                );
             }
             _ => {}
         }
     }
 
-    tracing::info!("DOCKER SKILL: {} complete — {} findings, {}s",
-        config.skill_name, result.findings_created, result.duration_secs);
+    tracing::info!(
+        "DOCKER SKILL: {} complete — {} findings, {}s",
+        config.skill_name,
+        result.findings_created,
+        result.duration_secs
+    );
 
     result
 }
@@ -245,7 +304,12 @@ pub fn parse_semgrep(stdout: &str) -> Vec<ParsedFinding> {
             // Use human message as title, rule_id in description
             let human_title = if message.len() > 10 {
                 let short = message.split('.').next().unwrap_or(message);
-                format!("{} — {}:{}", short.chars().take(80).collect::<String>(), file, line)
+                format!(
+                    "{} — {}:{}",
+                    short.chars().take(80).collect::<String>(),
+                    file,
+                    line
+                )
             } else {
                 format!("{} — {}:{}", rule_id, file, line)
             };
@@ -273,11 +337,15 @@ pub fn parse_checkov(stdout: &str) -> Vec<ParsedFinding> {
         Err(_) => return findings,
     };
 
-    let failed = json.get("results").and_then(|r| r.get("failed_checks")).and_then(|f| f.as_array());
+    let failed = json
+        .get("results")
+        .and_then(|r| r.get("failed_checks"))
+        .and_then(|f| f.as_array());
     if let Some(checks) = failed {
         for check in checks {
             let id = check["check_id"].as_str().unwrap_or("unknown");
-            let name = check["check_result"]["name"].as_str()
+            let name = check["check_result"]["name"]
+                .as_str()
                 .or(check["name"].as_str())
                 .unwrap_or(id);
             let file = check["file_path"].as_str().unwrap_or("");
@@ -287,8 +355,16 @@ pub fn parse_checkov(stdout: &str) -> Vec<ParsedFinding> {
             let guideline = check["guideline"].as_str().unwrap_or("");
             findings.push(ParsedFinding {
                 title: format!("{} — {}", name, file),
-                description: format!("Règle: {} — Ressource: {}{}", id, resource,
-                    if guideline.is_empty() { String::new() } else { format!("\nGuide: {}", guideline) }),
+                description: format!(
+                    "Règle: {} — Ressource: {}{}",
+                    id,
+                    resource,
+                    if guideline.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\nGuide: {}", guideline)
+                    }
+                ),
                 severity: normalize_severity(severity),
                 category: "iac".into(),
                 asset: Some(file.to_string()),
@@ -312,16 +388,29 @@ pub fn parse_trufflehog(stdout: &str) -> Vec<ParsedFinding> {
         };
 
         let detector = json["DetectorName"].as_str().unwrap_or("unknown");
-        let file = json["SourceMetadata"]["Data"]["Filesystem"]["file"].as_str()
+        let file = json["SourceMetadata"]["Data"]["Filesystem"]["file"]
+            .as_str()
             .or(json["SourceMetadata"]["Data"]["Git"]["file"].as_str())
             .unwrap_or("");
-        let raw = json["Raw"].as_str().unwrap_or("").chars().take(20).collect::<String>();
+        let raw = json["Raw"]
+            .as_str()
+            .unwrap_or("")
+            .chars()
+            .take(20)
+            .collect::<String>();
         let verified = json["Verified"].as_bool().unwrap_or(false);
 
         findings.push(ParsedFinding {
             title: format!("Secret {} dans {}", detector, file),
-            description: format!("Type: {} — Verifie: {} — Apercu: {}...", detector, verified, raw),
-            severity: if verified { "CRITICAL".into() } else { "HIGH".into() },
+            description: format!(
+                "Type: {} — Verifie: {} — Apercu: {}...",
+                detector, verified, raw
+            ),
+            severity: if verified {
+                "CRITICAL".into()
+            } else {
+                "HIGH".into()
+            },
             category: "secrets".into(),
             asset: Some(file.to_string()),
             metadata: serde_json::json!({
@@ -345,7 +434,10 @@ pub fn parse_syft(stdout: &str) -> Vec<ParsedFinding> {
         // SBOM is informational — create one summary finding
         findings.push(ParsedFinding {
             title: format!("SBOM — {} composants detectes", packages.len()),
-            description: format!("{} packages/libraries identifies dans l'image", packages.len()),
+            description: format!(
+                "{} packages/libraries identifies dans l'image",
+                packages.len()
+            ),
             severity: "LOW".into(),
             category: "sbom".into(),
             asset: None,
@@ -372,14 +464,28 @@ pub fn parse_grype(stdout: &str) -> Vec<ParsedFinding> {
             let severity = m["vulnerability"]["severity"].as_str().unwrap_or("MEDIUM");
             let pkg_name = m["artifact"]["name"].as_str().unwrap_or("");
             let pkg_version = m["artifact"]["version"].as_str().unwrap_or("");
-            let fixed_in = m["vulnerability"]["fix"]["versions"].as_array()
-                .map(|v| v.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", "))
+            let fixed_in = m["vulnerability"]["fix"]["versions"]
+                .as_array()
+                .map(|v| {
+                    v.iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
                 .unwrap_or_default();
 
             findings.push(ParsedFinding {
                 title: format!("{} — {} {}", vuln_id, pkg_name, pkg_version),
-                description: format!("Package {} {} vulnerable. Fix: {}", pkg_name, pkg_version,
-                    if fixed_in.is_empty() { "pas de fix disponible" } else { &fixed_in }),
+                description: format!(
+                    "Package {} {} vulnerable. Fix: {}",
+                    pkg_name,
+                    pkg_version,
+                    if fixed_in.is_empty() {
+                        "pas de fix disponible"
+                    } else {
+                        &fixed_in
+                    }
+                ),
                 severity: normalize_severity(severity),
                 category: "container-vuln".into(),
                 asset: Some(format!("{}:{}", pkg_name, pkg_version)),
@@ -402,10 +508,18 @@ pub fn parse_zap(stdout: &str) -> Vec<ParsedFinding> {
     };
 
     // ZAP JSON report format: { "site": [{ "alerts": [...] }] }
-    let sites = json.get("site").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+    let sites = json
+        .get("site")
+        .and_then(|s| s.as_array())
+        .cloned()
+        .unwrap_or_default();
     for site in &sites {
         let site_name = site["@name"].as_str().unwrap_or("");
-        let alerts = site.get("alerts").and_then(|a| a.as_array()).cloned().unwrap_or_default();
+        let alerts = site
+            .get("alerts")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
         for alert in &alerts {
             let name = alert["name"].as_str().unwrap_or("unknown");
             let risk = alert["riskdesc"].as_str().unwrap_or("Medium");
@@ -443,14 +557,26 @@ pub fn parse_nuclei(stdout: &str) -> Vec<ParsedFinding> {
         let severity = v["info"]["severity"].as_str().unwrap_or("info");
         let matched_at = v["matched-at"].as_str().unwrap_or("");
         let description = v["info"]["description"].as_str().unwrap_or("");
-        let tags: Vec<String> = v["info"]["tags"].as_array()
-            .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+        let tags: Vec<String> = v["info"]["tags"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
-        let cve = tags.iter().find(|t| t.starts_with("cve-") || t.starts_with("CVE-")).cloned();
+        let cve = tags
+            .iter()
+            .find(|t| t.starts_with("cve-") || t.starts_with("CVE-"))
+            .cloned();
 
         findings.push(ParsedFinding {
             title: format!("{} — {}", name, matched_at),
-            description: if description.is_empty() { format!("Template: {} — Tags: {}", template_id, tags.join(", ")) } else { description.to_string() },
+            description: if description.is_empty() {
+                format!("Template: {} — Tags: {}", template_id, tags.join(", "))
+            } else {
+                description.to_string()
+            },
             severity: normalize_severity(severity),
             category: "vuln-scan".into(),
             asset: Some(matched_at.to_string()),
@@ -472,10 +598,18 @@ pub fn parse_trivy(stdout: &str) -> Vec<ParsedFinding> {
     };
 
     // Trivy JSON: { "Results": [{ "Vulnerabilities": [...] }] }
-    let results = json.get("Results").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let results = json
+        .get("Results")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default();
     for result in &results {
         let target = result["Target"].as_str().unwrap_or("");
-        let vulns = result.get("Vulnerabilities").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let vulns = result
+            .get("Vulnerabilities")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         for vuln in &vulns {
             let vuln_id = vuln["VulnerabilityID"].as_str().unwrap_or("unknown");
             let severity = vuln["Severity"].as_str().unwrap_or("MEDIUM");
@@ -486,7 +620,16 @@ pub fn parse_trivy(stdout: &str) -> Vec<ParsedFinding> {
 
             findings.push(ParsedFinding {
                 title: format!("{} — {} {}", vuln_id, pkg, installed),
-                description: format!("{}\nTarget: {}\nFix: {}", title, target, if fixed.is_empty() { "pas de fix" } else { fixed }),
+                description: format!(
+                    "{}\nTarget: {}\nFix: {}",
+                    title,
+                    target,
+                    if fixed.is_empty() {
+                        "pas de fix"
+                    } else {
+                        fixed
+                    }
+                ),
                 severity: normalize_severity(severity),
                 category: "container-vuln".into(),
                 asset: Some(format!("{}:{}", pkg, installed)),
@@ -512,25 +655,39 @@ fn normalize_severity(s: &str) -> String {
 
 fn normalize_zap_risk(risk: &str) -> String {
     let lower = risk.to_lowercase();
-    if lower.contains("high") { "HIGH".into() }
-    else if lower.contains("medium") { "MEDIUM".into() }
-    else if lower.contains("low") { "LOW".into() }
-    else if lower.contains("info") { "LOW".into() }
-    else { "MEDIUM".into() }
+    if lower.contains("high") {
+        "HIGH".into()
+    } else if lower.contains("medium") {
+        "MEDIUM".into()
+    } else if lower.contains("low") {
+        "LOW".into()
+    } else if lower.contains("info") {
+        "LOW".into()
+    } else {
+        "MEDIUM".into()
+    }
 }
 
 /// Pre-built configurations for common tools.
 pub fn semgrep_config(target_path: &str) -> DockerSkillConfig {
     DockerSkillConfig {
         image: "semgrep/semgrep:latest".into(),
-        command: vec!["semgrep".into(), "scan".into(), "--config".into(), "auto".into(), "--json".into(), ".".into()],
+        command: vec![
+            "semgrep".into(),
+            "scan".into(),
+            "--config".into(),
+            "auto".into(),
+            "--json".into(),
+            ".".into(),
+        ],
         mount_path: Some(target_path.into()),
         mount_target: "/workspace".into(),
         network: "host".into(), // Needs internet to download rules
         memory_limit: "1g".into(),
         timeout_seconds: 600,
         skill_id: "skill-semgrep".into(),
-        skill_name: "Semgrep SAST".into(), asset_label: None,
+        skill_name: "Semgrep SAST".into(),
+        asset_label: None,
     }
 }
 
@@ -544,7 +701,8 @@ pub fn checkov_config(target_path: &str) -> DockerSkillConfig {
         memory_limit: "512m".into(),
         timeout_seconds: 300,
         skill_id: "skill-checkov".into(),
-        skill_name: "Checkov IaC".into(), asset_label: None,
+        skill_name: "Checkov IaC".into(),
+        asset_label: None,
     }
 }
 
@@ -558,7 +716,8 @@ pub fn trufflehog_config(target_path: &str) -> DockerSkillConfig {
         memory_limit: "512m".into(),
         timeout_seconds: 300,
         skill_id: "skill-trufflehog".into(),
-        skill_name: "TruffleHog Secrets".into(), asset_label: None,
+        skill_name: "TruffleHog Secrets".into(),
+        asset_label: None,
     }
 }
 
@@ -572,7 +731,8 @@ pub fn grype_config(image: &str) -> DockerSkillConfig {
         memory_limit: "512m".into(),
         timeout_seconds: 300,
         skill_id: "skill-grype".into(),
-        skill_name: "Grype Container CVE".into(), asset_label: None,
+        skill_name: "Grype Container CVE".into(),
+        asset_label: None,
     }
 }
 
@@ -586,7 +746,8 @@ pub fn syft_config(image: &str) -> DockerSkillConfig {
         memory_limit: "512m".into(),
         timeout_seconds: 300,
         skill_id: "skill-syft".into(),
-        skill_name: "Syft SBOM".into(), asset_label: None,
+        skill_name: "Syft SBOM".into(),
+        asset_label: None,
     }
 }
 
@@ -605,10 +766,16 @@ pub fn parse_lynis(stdout: &str) -> Vec<ParsedFinding> {
 
         // Warnings: "! ..." or "[WARNING]"
         if trimmed.starts_with("! ") || trimmed.contains("[WARNING]") {
-            let msg = trimmed.trim_start_matches("! ").trim_start_matches("[WARNING]").trim();
+            let msg = trimmed
+                .trim_start_matches("! ")
+                .trim_start_matches("[WARNING]")
+                .trim();
             if msg.len() > 5 {
                 findings.push(ParsedFinding {
-                    title: format!("Lynis Warning: {}", msg.chars().take(80).collect::<String>()),
+                    title: format!(
+                        "Lynis Warning: {}",
+                        msg.chars().take(80).collect::<String>()
+                    ),
                     description: msg.to_string(),
                     severity: "HIGH".into(),
                     category: "hardening".into(),
@@ -619,8 +786,13 @@ pub fn parse_lynis(stdout: &str) -> Vec<ParsedFinding> {
         }
 
         // Suggestions: "* ..." or "[SUGGESTION]"
-        if (trimmed.starts_with("* ") && !trimmed.starts_with("* [")) || trimmed.contains("[SUGGESTION]") {
-            let msg = trimmed.trim_start_matches("* ").trim_start_matches("[SUGGESTION]").trim();
+        if (trimmed.starts_with("* ") && !trimmed.starts_with("* ["))
+            || trimmed.contains("[SUGGESTION]")
+        {
+            let msg = trimmed
+                .trim_start_matches("* ")
+                .trim_start_matches("[SUGGESTION]")
+                .trim();
             if msg.len() > 5 {
                 findings.push(ParsedFinding {
                     title: format!("Lynis: {}", msg.chars().take(80).collect::<String>()),
@@ -660,9 +832,18 @@ pub fn parse_docker_bench(stdout: &str) -> Vec<ParsedFinding> {
             let msg = trimmed.split("[WARN]").nth(1).unwrap_or("").trim();
             if msg.len() > 3 {
                 // Extract CIS check ID if present (e.g., "1.1.1 - ...")
-                let (check_id, desc) = if msg.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                let (check_id, desc) = if msg
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false)
+                {
                     let parts: Vec<&str> = msg.splitn(2, " - ").collect();
-                    if parts.len() == 2 { (parts[0], parts[1]) } else { ("", msg) }
+                    if parts.len() == 2 {
+                        (parts[0], parts[1])
+                    } else {
+                        ("", msg)
+                    }
                 } else {
                     ("", msg)
                 };
@@ -671,7 +852,11 @@ pub fn parse_docker_bench(stdout: &str) -> Vec<ParsedFinding> {
                     title: if check_id.is_empty() {
                         format!("Docker CIS: {}", desc.chars().take(70).collect::<String>())
                     } else {
-                        format!("Docker CIS {}: {}", check_id, desc.chars().take(60).collect::<String>())
+                        format!(
+                            "Docker CIS {}: {}",
+                            check_id,
+                            desc.chars().take(60).collect::<String>()
+                        )
                     },
                     description: desc.to_string(),
                     severity: "MEDIUM".into(),
@@ -691,42 +876,67 @@ pub fn parse_docker_bench(stdout: &str) -> Vec<ParsedFinding> {
 pub fn lynis_config(target: &str) -> DockerSkillConfig {
     DockerSkillConfig {
         image: "zendai/lynis:latest".into(),
-        command: vec!["lynis".into(), "audit".into(), "system".into(), "--no-colors".into()],
-        mount_path: if target == "local" { Some("/".into()) } else { None },
+        command: vec![
+            "lynis".into(),
+            "audit".into(),
+            "system".into(),
+            "--no-colors".into(),
+        ],
+        mount_path: if target == "local" {
+            Some("/".into())
+        } else {
+            None
+        },
         mount_target: "/hostroot".into(),
         network: "none".into(),
         memory_limit: "256m".into(),
         timeout_seconds: 300,
         skill_id: "skill-lynis".into(),
-        skill_name: "Lynis Hardening".into(), asset_label: None,
+        skill_name: "Lynis Hardening".into(),
+        asset_label: None,
     }
 }
 
 pub fn nuclei_config(target: &str) -> DockerSkillConfig {
     DockerSkillConfig {
         image: "projectdiscovery/nuclei:latest".into(),
-        command: vec!["-target".into(), target.into(), "-j".into(), "-silent".into(), "-severity".into(), "low,medium,high,critical".into()],
+        command: vec![
+            "-target".into(),
+            target.into(),
+            "-j".into(),
+            "-silent".into(),
+            "-severity".into(),
+            "low,medium,high,critical".into(),
+        ],
         mount_path: None,
         mount_target: "/workspace".into(),
         network: "host".into(),
         memory_limit: "2g".into(),
         timeout_seconds: 900,
         skill_id: "skill-nuclei".into(),
-        skill_name: "Nuclei CVE Scanner".into(), asset_label: None,
+        skill_name: "Nuclei CVE Scanner".into(),
+        asset_label: None,
     }
 }
 
 pub fn trivy_image_config(target: &str) -> DockerSkillConfig {
     DockerSkillConfig {
         image: "aquasec/trivy:0.58.2".into(),
-        command: vec!["image".into(), "--format".into(), "json".into(), "--quiet".into(), target.into()],
+        command: vec![
+            "image".into(),
+            "--format".into(),
+            "json".into(),
+            "--quiet".into(),
+            target.into(),
+        ],
         mount_path: None,
         mount_target: "/workspace".into(),
         network: "host".into(), // Needs network to pull image + vuln DB
         memory_limit: "1g".into(),
         timeout_seconds: 600,
         skill_id: "skill-trivy".into(),
-        skill_name: "Trivy Container Scanner".into(), asset_label: None,
+        skill_name: "Trivy Container Scanner".into(),
+        asset_label: None,
     }
 }
 
@@ -740,7 +950,8 @@ pub fn docker_bench_config() -> DockerSkillConfig {
         memory_limit: "256m".into(),
         timeout_seconds: 300,
         skill_id: "skill-docker-bench".into(),
-        skill_name: "Docker Bench Security".into(), asset_label: None,
+        skill_name: "Docker Bench Security".into(),
+        asset_label: None,
     }
 }
 

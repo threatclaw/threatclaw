@@ -42,7 +42,11 @@ pub async fn lookup_core(version: &str, api_token: &str) -> Result<WpPluginResul
     lookup_component("wordpresses", &version_nodots, api_token).await
 }
 
-async fn lookup_component(component_type: &str, slug: &str, api_token: &str) -> Result<WpPluginResult, String> {
+async fn lookup_component(
+    component_type: &str,
+    slug: &str,
+    api_token: &str,
+) -> Result<WpPluginResult, String> {
     if api_token.is_empty() {
         return Err("WPScan API token required".into());
     }
@@ -77,28 +81,39 @@ async fn lookup_component(component_type: &str, slug: &str, api_token: &str) -> 
         return Err(format!("WPScan HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("WPScan parse: {}", e))?;
 
     // Response is keyed by the slug
-    let data = body.get(slug)
+    let data = body
+        .get(slug)
         .or_else(|| body.as_object().and_then(|o| o.values().next()))
         .ok_or("WPScan: unexpected response format")?;
 
-    let vulns: Vec<WpVulnerability> = data["vulnerabilities"].as_array()
+    let vulns: Vec<WpVulnerability> = data["vulnerabilities"]
+        .as_array()
         .map(|arr| {
-            arr.iter().map(|v| {
-                let cve_ids: Vec<String> = v["references"]["cve"].as_array()
-                    .map(|a| a.iter().filter_map(|c| c.as_str().map(|s| format!("CVE-{}", s))).collect())
-                    .unwrap_or_default();
-                WpVulnerability {
-                    id: v["id"].as_str().unwrap_or("").to_string(),
-                    title: v["title"].as_str().unwrap_or("").to_string(),
-                    fixed_in: v["fixed_in"].as_str().map(String::from),
-                    cve_ids,
-                    vuln_type: v["vuln_type"].as_str().map(String::from),
-                }
-            }).collect()
+            arr.iter()
+                .map(|v| {
+                    let cve_ids: Vec<String> = v["references"]["cve"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|c| c.as_str().map(|s| format!("CVE-{}", s)))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    WpVulnerability {
+                        id: v["id"].as_str().unwrap_or("").to_string(),
+                        title: v["title"].as_str().unwrap_or("").to_string(),
+                        fixed_in: v["fixed_in"].as_str().map(String::from),
+                        cve_ids,
+                        vuln_type: v["vuln_type"].as_str().map(String::from),
+                    }
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -112,8 +127,13 @@ async fn lookup_component(component_type: &str, slug: &str, api_token: &str) -> 
 
 /// Check if a specific plugin version is vulnerable.
 /// Returns only vulns that affect the given version (fixed_in > version).
-pub fn filter_for_version<'a>(result: &'a WpPluginResult, installed_version: &str) -> Vec<&'a WpVulnerability> {
-    result.vulnerabilities.iter()
+pub fn filter_for_version<'a>(
+    result: &'a WpPluginResult,
+    installed_version: &str,
+) -> Vec<&'a WpVulnerability> {
+    result
+        .vulnerabilities
+        .iter()
         .filter(|v| {
             match &v.fixed_in {
                 Some(fixed) => version_lt(installed_version, fixed),
@@ -125,9 +145,7 @@ pub fn filter_for_version<'a>(result: &'a WpPluginResult, installed_version: &st
 
 /// Simple version comparison: "5.2.1" < "5.3.2"
 fn version_lt(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u32> {
-        s.split('.').filter_map(|p| p.parse().ok()).collect()
-    };
+    let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
     let va = parse(a);
     let vb = parse(b);
     va < vb
@@ -153,16 +171,25 @@ mod tests {
             latest_version: Some("5.9.0".into()),
             vulnerabilities: vec![
                 WpVulnerability {
-                    id: "1".into(), title: "Old vuln".into(),
-                    fixed_in: Some("4.0.0".into()), cve_ids: vec![], vuln_type: None,
+                    id: "1".into(),
+                    title: "Old vuln".into(),
+                    fixed_in: Some("4.0.0".into()),
+                    cve_ids: vec![],
+                    vuln_type: None,
                 },
                 WpVulnerability {
-                    id: "2".into(), title: "Current vuln".into(),
-                    fixed_in: Some("6.0.0".into()), cve_ids: vec![], vuln_type: None,
+                    id: "2".into(),
+                    title: "Current vuln".into(),
+                    fixed_in: Some("6.0.0".into()),
+                    cve_ids: vec![],
+                    vuln_type: None,
                 },
                 WpVulnerability {
-                    id: "3".into(), title: "Unfixed".into(),
-                    fixed_in: None, cve_ids: vec![], vuln_type: None,
+                    id: "3".into(),
+                    title: "Unfixed".into(),
+                    fixed_in: None,
+                    cve_ids: vec![],
+                    vuln_type: None,
                 },
             ],
         };

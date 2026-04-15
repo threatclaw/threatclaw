@@ -631,8 +631,11 @@ impl WasmToolWrapper {
             .map_err(|e| WasmError::ConfigError(format!("Failed to add WASI functions: {}", e)))?;
 
         // Add our custom host interface using the generated add_to_linker
-        SandboxedTool::add_to_linker::<_, wasmtime::component::HasSelf<StoreData>>(linker, |state| state)
-            .map_err(|e| WasmError::ConfigError(format!("Failed to add host functions: {}", e)))?;
+        SandboxedTool::add_to_linker::<_, wasmtime::component::HasSelf<StoreData>>(
+            linker,
+            |state| state,
+        )
+        .map_err(|e| WasmError::ConfigError(format!("Failed to add host functions: {}", e)))?;
 
         Ok(())
     }

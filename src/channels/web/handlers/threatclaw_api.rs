@@ -38,15 +38,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
-    http::{StatusCode, HeaderMap},
-    response::{IntoResponse, Response},
     Json,
+    extract::{Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::channels::web::server::GatewayState;
 use crate::agent::mode_manager::{AgentMode, ModeConfig, parse_mode};
+use crate::channels::web::server::GatewayState;
 use crate::db::threatclaw_store::{
     AlertRecord, DashboardMetrics, FindingRecord, NewFinding, SkillConfigRecord,
 };
@@ -145,7 +145,10 @@ fn db_err(e: impl std::fmt::Display) -> (StatusCode, String) {
 }
 
 fn no_db() -> (StatusCode, String) {
-    (StatusCode::SERVICE_UNAVAILABLE, "Database not available".to_string())
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Database not available".to_string(),
+    )
 }
 
 // ── Health + Auto-start services ──
@@ -168,7 +171,10 @@ pub async fn tc_health_handler(
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
                 // ADR-044: Init remediation guard (boot-lock protected infrastructure)
-                crate::agent::remediation_guard::init_protected_infrastructure(store_clone.as_ref()).await;
+                crate::agent::remediation_guard::init_protected_infrastructure(
+                    store_clone.as_ref(),
+                )
+                .await;
 
                 // Start Intelligence Engine (cycle every 5 min)
                 if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -181,7 +187,8 @@ pub async fn tc_health_handler(
                 }
 
                 // Start Connector Sync Scheduler
-                static SCHEDULER_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                static SCHEDULER_RUNNING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
                 if !SCHEDULER_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     crate::connectors::sync_scheduler::spawn_sync_scheduler(store_clone.clone());
                     tracing::info!("AUTO-START: Connector Sync Scheduler started");
@@ -190,9 +197,15 @@ pub async fn tc_health_handler(
                 // Start Telegram Bot (if configured)
                 if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     // Check if Telegram is configured
-                    if let Ok(Some(channels)) = store_clone.get_setting("_system", "tc_config_channels").await {
+                    if let Ok(Some(channels)) = store_clone
+                        .get_setting("_system", "tc_config_channels")
+                        .await
+                    {
                         if channels["telegram"]["enabled"].as_bool() == Some(true)
-                            && channels["telegram"]["botToken"].as_str().map(|t| !t.is_empty()) == Some(true)
+                            && channels["telegram"]["botToken"]
+                                .as_str()
+                                .map(|t| !t.is_empty())
+                                == Some(true)
                         {
                             crate::agent::conversational_bot::spawn_telegram_bot(
                                 store_clone.clone(),
@@ -212,9 +225,17 @@ pub async fn tc_health_handler(
     // Get ML engine status from heartbeat
     let ml = if db_ok {
         if let Some(store) = state.store.as_ref() {
-            store.get_setting("_system", "ml_heartbeat").await.ok().flatten()
-        } else { None }
-    } else { None };
+            store
+                .get_setting("_system", "ml_heartbeat")
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     // Get real disk space (spawn_blocking to avoid blocking async runtime)
     let disk_free = tokio::task::spawn_blocking(|| {
@@ -226,15 +247,30 @@ pub async fn tc_health_handler(
                 let s = String::from_utf8_lossy(&o.stdout);
                 s.lines().nth(1).map(|l| format!("{} libre", l.trim()))
             })
-    }).await.ok().flatten();
+    })
+    .await
+    .ok()
+    .flatten();
 
     Ok(Json(HealthResponse {
         status: if db_ok { "ok" } else { "degraded" },
         version: env!("CARGO_PKG_VERSION"),
         database: db_ok,
-        llm: if std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty()).is_some() { "cloud (anthropic)" }
-             else if std::env::var("MISTRAL_API_KEY").ok().filter(|k| !k.is_empty()).is_some() { "cloud (mistral)" }
-             else { "ollama (local)" },
+        llm: if std::env::var("ANTHROPIC_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+            .is_some()
+        {
+            "cloud (anthropic)"
+        } else if std::env::var("MISTRAL_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
+            .is_some()
+        {
+            "cloud (mistral)"
+        } else {
+            "ollama (local)"
+        },
         disk_free,
         ml,
     }))
@@ -251,7 +287,11 @@ pub async fn findings_list_handler(
     let page = q.page.unwrap_or(1).max(1);
     let offset = (page - 1) * limit;
     let total = store
-        .count_findings_filtered(q.severity.as_deref(), q.status.as_deref(), q.skill_id.as_deref())
+        .count_findings_filtered(
+            q.severity.as_deref(),
+            q.status.as_deref(),
+            q.skill_id.as_deref(),
+        )
         .await
         .map_err(db_err)?;
     let findings = store
@@ -445,7 +485,11 @@ pub async fn agent_mode_get_handler(
 ) -> ApiResult<AgentModeResponse> {
     // Read current mode from settings (system user)
     let mode_str = if let Some(store) = state.store.as_ref() {
-        store.get_setting("_system", "agent_mode").await.ok().flatten()
+        store
+            .get_setting("_system", "agent_mode")
+            .await
+            .ok()
+            .flatten()
             .and_then(|v| v.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| "investigator".to_string())
     } else {
@@ -455,19 +499,24 @@ pub async fn agent_mode_get_handler(
     let mode = parse_mode(&mode_str).unwrap_or(AgentMode::Investigator);
     let cfg = ModeConfig::for_mode(mode);
 
-    let available: Vec<ModeInfo> = [AgentMode::Analyst, AgentMode::Investigator, AgentMode::Responder, AgentMode::AutonomousLow]
-        .iter()
-        .map(|m| {
-            let c = ModeConfig::for_mode(*m);
-            ModeInfo {
-                id: m.to_string(),
-                name: c.name.to_string(),
-                description: c.description.to_string(),
-                react_enabled: c.react_enabled,
-                auto_execute: c.auto_execute,
-            }
-        })
-        .collect();
+    let available: Vec<ModeInfo> = [
+        AgentMode::Analyst,
+        AgentMode::Investigator,
+        AgentMode::Responder,
+        AgentMode::AutonomousLow,
+    ]
+    .iter()
+    .map(|m| {
+        let c = ModeConfig::for_mode(*m);
+        ModeInfo {
+            id: m.to_string(),
+            name: c.name.to_string(),
+            description: c.description.to_string(),
+            react_enabled: c.react_enabled,
+            auto_execute: c.auto_execute,
+        }
+    })
+    .collect();
 
     Ok(Json(AgentModeResponse {
         current_mode: mode.to_string(),
@@ -486,16 +535,24 @@ pub async fn agent_mode_set_handler(
 ) -> ApiResult<serde_json::Value> {
     let mode = parse_mode(&req.mode).ok_or((
         StatusCode::BAD_REQUEST,
-        format!("Unknown mode: '{}'. Valid: analyst, investigator, responder, autonomous_low", req.mode),
+        format!(
+            "Unknown mode: '{}'. Valid: analyst, investigator, responder, autonomous_low",
+            req.mode
+        ),
     ))?;
 
     if let Some(store) = state.store.as_ref() {
         let val = serde_json::Value::String(mode.to_string());
-        store.set_setting("_system", "agent_mode", &val).await.map_err(db_err)?;
+        store
+            .set_setting("_system", "agent_mode", &val)
+            .await
+            .map_err(db_err)?;
     }
 
     tracing::info!("Agent mode changed to: {}", mode);
-    Ok(Json(serde_json::json!({ "status": "mode_changed", "mode": mode.to_string() })))
+    Ok(Json(
+        serde_json::json!({ "status": "mode_changed", "mode": mode.to_string() }),
+    ))
 }
 
 // ── Kill Switch ──
@@ -510,8 +567,11 @@ pub async fn kill_switch_status_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let paused = store.get_setting("_system", "tc_paused").await
-        .ok().flatten()
+    let paused = store
+        .get_setting("_system", "tc_paused")
+        .await
+        .ok()
+        .flatten()
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     Ok(Json(serde_json::json!({
@@ -526,13 +586,19 @@ pub async fn pause_toggle_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    let currently_paused = store.get_setting("_system", "tc_paused").await
-        .ok().flatten()
+    let currently_paused = store
+        .get_setting("_system", "tc_paused")
+        .await
+        .ok()
+        .flatten()
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
     let new_state = !currently_paused;
-    store.set_setting("_system", "tc_paused", &serde_json::json!(new_state)).await.map_err(db_err)?;
+    store
+        .set_setting("_system", "tc_paused", &serde_json::json!(new_state))
+        .await
+        .map_err(db_err)?;
 
     if new_state {
         tracing::warn!("PAUSE: All services paused by dashboard user");
@@ -544,7 +610,10 @@ pub async fn pause_toggle_handler(
         if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
             if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
                 if channels["telegram"]["enabled"].as_bool() == Some(true)
-                    && channels["telegram"]["botToken"].as_str().map(|t| !t.is_empty()) == Some(true)
+                    && channels["telegram"]["botToken"]
+                        .as_str()
+                        .map(|t| !t.is_empty())
+                        == Some(true)
                 {
                     crate::agent::conversational_bot::spawn_telegram_bot(
                         store.clone(),
@@ -575,7 +644,10 @@ pub async fn kill_switch_trigger_handler(
 ) -> ApiResult<serde_json::Value> {
     tracing::error!("KILL SWITCH triggered via API by: {}", req.triggered_by);
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    store.set_setting("_system", "tc_paused", &serde_json::json!(true)).await.map_err(db_err)?;
+    store
+        .set_setting("_system", "tc_paused", &serde_json::json!(true))
+        .await
+        .map_err(db_err)?;
     BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
     Ok(Json(serde_json::json!({
         "status": "kill_switch_engaged",
@@ -634,12 +706,12 @@ pub async fn react_cycle_trigger_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let config = crate::agent::react_runner::ReactRunnerConfig::default();
-    let result = crate::agent::react_runner::run_react_cycle(
-        Arc::clone(store),
-        &config,
-    ).await;
+    let result = crate::agent::react_runner::run_react_cycle(Arc::clone(store), &config).await;
 
-    let analysis_json = result.analysis.as_ref().map(|a| serde_json::to_value(a).unwrap_or_default());
+    let analysis_json = result
+        .analysis
+        .as_ref()
+        .map(|a| serde_json::to_value(a).unwrap_or_default());
 
     Ok(Json(ReactCycleResponse {
         status: result.cycle_result,
@@ -735,10 +807,13 @@ pub async fn targets_list_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let settings = store.list_settings("_targets").await.map_err(db_err)?;
-    let targets: Vec<serde_json::Value> = settings.iter()
+    let targets: Vec<serde_json::Value> = settings
+        .iter()
         .filter_map(|s| serde_json::from_value(s.value.clone()).ok())
         .collect();
-    Ok(Json(serde_json::json!({ "targets": targets, "total": targets.len() })))
+    Ok(Json(
+        serde_json::json!({ "targets": targets, "total": targets.len() }),
+    ))
 }
 
 pub async fn targets_create_handler(
@@ -760,9 +835,15 @@ pub async fn targets_create_handler(
         "tags": req.tags.unwrap_or_default(),
     });
     let key = format!("target_{}", req.id);
-    store.set_setting("_targets", &key, &target).await.map_err(db_err)?;
+    store
+        .set_setting("_targets", &key, &target)
+        .await
+        .map_err(db_err)?;
     tracing::info!("Target created: {} ({})", req.id, req.host);
-    Ok((StatusCode::CREATED, Json(serde_json::json!({ "status": "created", "id": req.id }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "status": "created", "id": req.id })),
+    ))
 }
 
 pub async fn targets_delete_handler(
@@ -771,7 +852,10 @@ pub async fn targets_delete_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let key = format!("target_{}", id);
-    store.delete_setting("_targets", &key).await.map_err(db_err)?;
+    store
+        .delete_setting("_targets", &key)
+        .await
+        .map_err(db_err)?;
     tracing::info!("Target deleted: {}", id);
     Ok(Json(serde_json::json!({ "status": "deleted", "id": id })))
 }
@@ -795,8 +879,16 @@ pub async fn skills_catalog_handler(
                         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
                         let skill_id = val["id"].as_str().unwrap_or("");
                         // Check both tools/ (compiled) and channels/ (legacy) directories
-                        let installed = std::path::Path::new(&format!("{}/.threatclaw/tools/{}.wasm", home, skill_id)).exists()
-                            || std::path::Path::new(&format!("{}/.threatclaw/channels/{}.wasm", home, skill_id)).exists();
+                        let installed = std::path::Path::new(&format!(
+                            "{}/.threatclaw/tools/{}.wasm",
+                            home, skill_id
+                        ))
+                        .exists()
+                            || std::path::Path::new(&format!(
+                                "{}/.threatclaw/channels/{}.wasm",
+                                home, skill_id
+                            ))
+                            .exists();
                         val["installed"] = serde_json::json!(installed);
                         val["runtime"] = serde_json::json!("wasm");
                         skills.push(val);
@@ -825,16 +917,16 @@ pub async fn skills_catalog_handler(
         }
     }
 
-    Ok(Json(serde_json::json!({ "skills": skills, "total": skills.len() })))
+    Ok(Json(
+        serde_json::json!({ "skills": skills, "total": skills.len() }),
+    ))
 }
 
 // ── Skill Install ──
 
 /// POST /api/tc/skills/{id}/install — install a WASM skill.
 /// Looks for the compiled .wasm in the build output and copies it to ~/.threatclaw/tools/.
-pub async fn skill_install_handler(
-    Path(skill_id): Path<String>,
-) -> ApiResult<serde_json::Value> {
+pub async fn skill_install_handler(Path(skill_id): Path<String>) -> ApiResult<serde_json::Value> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
     let tools_dir = format!("{}/.threatclaw/tools", home);
 
@@ -845,15 +937,28 @@ pub async fn skill_install_handler(
 
     // Already installed?
     if std::path::Path::new(&target_path).exists() {
-        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_installed" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": true, "status": "already_installed" }),
+        ));
     }
 
     // Look for pre-compiled WASM in build output
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let search_paths = [
-        format!("{}/target/wasm32-wasip2/release/{}.wasm", manifest_dir, skill_id),
-        format!("{}/target/wasm32-wasip2/debug/{}.wasm", manifest_dir, skill_id),
-        format!("{}/skills-src/{}/target/wasm32-wasip2/release/{}.wasm", manifest_dir, skill_id, skill_id.replace('-', "_")),
+        format!(
+            "{}/target/wasm32-wasip2/release/{}.wasm",
+            manifest_dir, skill_id
+        ),
+        format!(
+            "{}/target/wasm32-wasip2/debug/{}.wasm",
+            manifest_dir, skill_id
+        ),
+        format!(
+            "{}/skills-src/{}/target/wasm32-wasip2/release/{}.wasm",
+            manifest_dir,
+            skill_id,
+            skill_id.replace('-', "_")
+        ),
     ];
 
     for path in &search_paths {
@@ -861,10 +966,14 @@ pub async fn skill_install_handler(
             match std::fs::copy(path, &target_path) {
                 Ok(_) => {
                     tracing::info!("Skill installed: {} → {}", skill_id, target_path);
-                    return Ok(Json(serde_json::json!({ "ok": true, "status": "installed", "source": "pre_compiled" })));
+                    return Ok(Json(
+                        serde_json::json!({ "ok": true, "status": "installed", "source": "pre_compiled" }),
+                    ));
                 }
                 Err(e) => {
-                    return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") })));
+                    return Ok(Json(
+                        serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") }),
+                    ));
                 }
             }
         }
@@ -873,7 +982,10 @@ pub async fn skill_install_handler(
     // Try to compile from source if skill-src exists
     let skill_src = format!("{}/skills-src/{}", manifest_dir, skill_id);
     if std::path::Path::new(&skill_src).exists() {
-        tracing::info!("Skill source found, attempting WASM compilation: {}", skill_id);
+        tracing::info!(
+            "Skill source found, attempting WASM compilation: {}",
+            skill_id
+        );
 
         // Run cargo build for the skill
         let output = std::process::Command::new("cargo")
@@ -885,23 +997,38 @@ pub async fn skill_install_handler(
             Ok(out) if out.status.success() => {
                 // Find the compiled .wasm
                 let crate_name = skill_id.replace('-', "_");
-                let compiled = format!("{}/target/wasm32-wasip2/release/{}.wasm", skill_src, crate_name);
+                let compiled = format!(
+                    "{}/target/wasm32-wasip2/release/{}.wasm",
+                    skill_src, crate_name
+                );
                 if std::path::Path::new(&compiled).exists() {
                     match std::fs::copy(&compiled, &target_path) {
                         Ok(_) => {
                             tracing::info!("Skill compiled and installed: {}", skill_id);
-                            return Ok(Json(serde_json::json!({ "ok": true, "status": "compiled_and_installed" })));
+                            return Ok(Json(
+                                serde_json::json!({ "ok": true, "status": "compiled_and_installed" }),
+                            ));
                         }
-                        Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") }))),
+                        Err(e) => {
+                            return Ok(Json(
+                                serde_json::json!({ "ok": false, "error": format!("Copy failed: {e}") }),
+                            ));
+                        }
                     }
                 }
-                Ok(Json(serde_json::json!({ "ok": false, "error": "Compiled but WASM not found in output" })))
+                Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Compiled but WASM not found in output" }),
+                ))
             }
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                Ok(Json(serde_json::json!({ "ok": false, "error": format!("Compilation failed: {}", stderr.chars().take(300).collect::<String>()) })))
+                Ok(Json(
+                    serde_json::json!({ "ok": false, "error": format!("Compilation failed: {}", stderr.chars().take(300).collect::<String>()) }),
+                ))
             }
-            Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": format!("Cannot run cargo: {e}") }))),
+            Err(e) => Ok(Json(
+                serde_json::json!({ "ok": false, "error": format!("Cannot run cargo: {e}") }),
+            )),
         }
     } else {
         Ok(Json(serde_json::json!({
@@ -922,7 +1049,8 @@ pub async fn skill_test_handler(
 
     // Load skill config from DB
     let config = store.get_skill_config(&skill_id).await.map_err(db_err)?;
-    let cfg: std::collections::HashMap<String, String> = config.iter()
+    let cfg: std::collections::HashMap<String, String> = config
+        .iter()
         .map(|c| (c.key.clone(), c.value.clone()))
         .collect();
 
@@ -935,12 +1063,18 @@ pub async fn skill_test_handler(
         "skill-abuseipdb" => {
             let api_key = cfg.get("api_key").cloned().unwrap_or_default();
             if api_key.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Clé API non configurée" }),
+                ));
             }
-            match client.get("https://api.abuseipdb.com/api/v2/check")
-                .header("Key", &api_key).header("Accept", "application/json")
+            match client
+                .get("https://api.abuseipdb.com/api/v2/check")
+                .header("Key", &api_key)
+                .header("Accept", "application/json")
                 .query(&[("ipAddress", "8.8.8.8"), ("maxAgeInDays", "1")])
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         let data: serde_json::Value = r.json().await.unwrap_or_default();
@@ -955,11 +1089,16 @@ pub async fn skill_test_handler(
         "skill-shodan" => {
             let api_key = cfg.get("api_key").cloned().unwrap_or_default();
             if api_key.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Clé API non configurée" }),
+                ));
             }
-            match client.get("https://api.shodan.io/api-info")
+            match client
+                .get("https://api.shodan.io/api-info")
                 .query(&[("key", api_key.as_str())])
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         let data: serde_json::Value = r.json().await.unwrap_or_default();
@@ -974,11 +1113,16 @@ pub async fn skill_test_handler(
         "skill-virustotal" => {
             let api_key = cfg.get("api_key").cloned().unwrap_or_default();
             if api_key.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Clé API non configurée" }),
+                ));
             }
-            match client.get("https://www.virustotal.com/api/v3/users/me")
+            match client
+                .get("https://www.virustotal.com/api/v3/users/me")
                 .header("x-apikey", &api_key)
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         serde_json::json!({ "ok": true, "detail": "API OK — clé valide" })
@@ -992,11 +1136,16 @@ pub async fn skill_test_handler(
         "skill-cti-crowdsec" => {
             let api_key = cfg.get("api_key").cloned().unwrap_or_default();
             if api_key.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API non configurée" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Clé API non configurée" }),
+                ));
             }
-            match client.get("https://cti.api.crowdsec.net/v2/smoke/8.8.8.8")
+            match client
+                .get("https://cti.api.crowdsec.net/v2/smoke/8.8.8.8")
                 .header("x-api-key", &api_key)
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         serde_json::json!({ "ok": true, "detail": "API OK — connexion CrowdSec CTI réussie" })
@@ -1010,12 +1159,17 @@ pub async fn skill_test_handler(
         "skill-darkweb-monitor" => {
             let api_key = cfg.get("api_key").cloned().unwrap_or_default();
             if api_key.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Clé API HIBP non configurée" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Clé API HIBP non configurée" }),
+                ));
             }
-            match client.get("https://haveibeenpwned.com/api/v3/subscription/status")
+            match client
+                .get("https://haveibeenpwned.com/api/v3/subscription/status")
                 .header("hibp-api-key", &api_key)
                 .header("user-agent", "ThreatClaw")
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         serde_json::json!({ "ok": true, "detail": "API OK — abonnement HIBP actif" })
@@ -1033,16 +1187,21 @@ pub async fn skill_test_handler(
             let username = cfg.get("username").cloned().unwrap_or_default();
             let password = cfg.get("password").cloned().unwrap_or_default();
             if url.is_empty() || username.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "URL et utilisateur requis" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "URL et utilisateur requis" }),
+                ));
             }
             let wazuh_client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .danger_accept_invalid_certs(true)
                 .build()
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-            match wazuh_client.post(format!("{}/security/user/authenticate", url))
+            match wazuh_client
+                .post(format!("{}/security/user/authenticate", url))
                 .basic_auth(&username, Some(&password))
-                .send().await {
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         serde_json::json!({ "ok": true, "detail": "API OK — authentification Wazuh réussie" })
@@ -1050,23 +1209,40 @@ pub async fn skill_test_handler(
                         serde_json::json!({ "ok": false, "error": format!("HTTP {} — vérifiez vos identifiants", r.status()) })
                     }
                 }
-                Err(e) => serde_json::json!({ "ok": false, "error": format!("Connexion échouée: {} — vérifiez l'URL", e) }),
+                Err(e) => {
+                    serde_json::json!({ "ok": false, "error": format!("Connexion échouée: {} — vérifiez l'URL", e) })
+                }
             }
         }
         "skill-email-audit" => {
             let domains = cfg.get("domains").cloned().unwrap_or_default();
             if domains.is_empty() {
-                return Ok(Json(serde_json::json!({ "ok": false, "error": "Aucun domaine configuré" })));
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Aucun domaine configuré" }),
+                ));
             }
             let first_domain = domains.split(',').next().unwrap_or("").trim();
             // Test DNS lookup via public resolver
-            match client.get(format!("https://dns.google/resolve?name={first_domain}&type=TXT"))
-                .send().await {
+            match client
+                .get(format!(
+                    "https://dns.google/resolve?name={first_domain}&type=TXT"
+                ))
+                .send()
+                .await
+            {
                 Ok(r) => {
                     if r.status().is_success() {
                         let data: serde_json::Value = r.json().await.unwrap_or_default();
-                        let has_spf = data["Answer"].as_array()
-                            .map(|a| a.iter().any(|r| r["data"].as_str().map(|s| s.contains("v=spf1")).unwrap_or(false)))
+                        let has_spf = data["Answer"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter().any(|r| {
+                                    r["data"]
+                                        .as_str()
+                                        .map(|s| s.contains("v=spf1"))
+                                        .unwrap_or(false)
+                                })
+                            })
                             .unwrap_or(false);
                         serde_json::json!({
                             "ok": true,
@@ -1125,7 +1301,20 @@ pub async fn config_get_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     let mut config = serde_json::json!({});
-    for key in &["llm", "forensic", "instruct", "cloud", "conversational", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys", "shift_report"] {
+    for key in &[
+        "llm",
+        "forensic",
+        "instruct",
+        "cloud",
+        "conversational",
+        "channels",
+        "permissions",
+        "anonymize_primary",
+        "general",
+        "enrichment_enabled",
+        "enrichment_keys",
+        "shift_report",
+    ] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
             config[*key] = val;
@@ -1151,17 +1340,41 @@ pub async fn config_set_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // ADR-044: Save remediation / HITL config
-    for rkey in &["tc_protected_assets", "tc_hitl_approvers", "tc_hitl_approvers_config", "tc_hitl_limits"] {
+    for rkey in &[
+        "tc_protected_assets",
+        "tc_hitl_approvers",
+        "tc_hitl_approvers_config",
+        "tc_hitl_limits",
+    ] {
         if let Some(val) = body.get(*rkey) {
-            store.set_setting("_system", rkey, val).await.map_err(db_err)?;
+            store
+                .set_setting("_system", rkey, val)
+                .await
+                .map_err(db_err)?;
         }
     }
 
     // Save each config section
-    for key in &["llm", "forensic", "instruct", "cloud", "conversational", "channels", "permissions", "anonymize_primary", "general", "enrichment_enabled", "enrichment_keys", "shift_report"] {
+    for key in &[
+        "llm",
+        "forensic",
+        "instruct",
+        "cloud",
+        "conversational",
+        "channels",
+        "permissions",
+        "anonymize_primary",
+        "general",
+        "enrichment_enabled",
+        "enrichment_keys",
+        "shift_report",
+    ] {
         if let Some(val) = body.get(*key) {
             let setting_key = format!("tc_config_{}", key);
-            store.set_setting("_system", &setting_key, val).await.map_err(db_err)?;
+            store
+                .set_setting("_system", &setting_key, val)
+                .await
+                .map_err(db_err)?;
         }
     }
 
@@ -1174,7 +1387,10 @@ pub async fn config_set_handler(
             "FULL_AUTO" => "autonomous_low",
             _ => "investigator",
         };
-        store.set_setting("_system", "agent_mode", &serde_json::json!(mode)).await.map_err(db_err)?;
+        store
+            .set_setting("_system", "agent_mode", &serde_json::json!(mode))
+            .await
+            .map_err(db_err)?;
     }
 
     // ── Bridge channel tokens to env vars for credential injection ──
@@ -1183,7 +1399,10 @@ pub async fn config_set_handler(
     }
 
     // Set onboard completed
-    store.set_setting("_system", "tc_onboarded", &serde_json::json!(true)).await.map_err(db_err)?;
+    store
+        .set_setting("_system", "tc_onboarded", &serde_json::json!(true))
+        .await
+        .map_err(db_err)?;
 
     tracing::info!("ThreatClaw configuration saved via dashboard");
     Ok(Json(serde_json::json!({ "status": "saved" })))
@@ -1197,7 +1416,9 @@ pub async fn config_test_channel_handler(
     let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("");
 
     if token.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Token is empty" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Token is empty" }),
+        ));
     }
 
     let client = reqwest::Client::builder()
@@ -1207,9 +1428,11 @@ pub async fn config_test_channel_handler(
 
     let result = match channel {
         "slack" => {
-            let resp = client.get("https://slack.com/api/auth.test")
+            let resp = client
+                .get("https://slack.com/api/auth.test")
                 .header("Authorization", format!("Bearer {}", token))
-                .send().await;
+                .send()
+                .await;
             match resp {
                 Ok(r) => {
                     let data: serde_json::Value = r.json().await.unwrap_or_default();
@@ -1223,8 +1446,10 @@ pub async fn config_test_channel_handler(
             }
         }
         "telegram" => {
-            let resp = client.get(format!("https://api.telegram.org/bot{}/getMe", token))
-                .send().await;
+            let resp = client
+                .get(format!("https://api.telegram.org/bot{}/getMe", token))
+                .send()
+                .await;
             match resp {
                 Ok(r) => {
                     let data: serde_json::Value = r.json().await.unwrap_or_default();
@@ -1238,9 +1463,11 @@ pub async fn config_test_channel_handler(
             }
         }
         "discord" => {
-            let resp = client.get("https://discord.com/api/v10/users/@me")
+            let resp = client
+                .get("https://discord.com/api/v10/users/@me")
                 .header("Authorization", format!("Bot {}", token))
-                .send().await;
+                .send()
+                .await;
             match resp {
                 Ok(r) => {
                     if r.status().is_success() {
@@ -1255,14 +1482,20 @@ pub async fn config_test_channel_handler(
         }
         "mattermost" => {
             // Test Mattermost webhook by sending a test message
-            let webhook = body.get("webhookUrl").and_then(|v| v.as_str()).unwrap_or(token);
+            let webhook = body
+                .get("webhookUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or(token);
             match crate::integrations::mattermost_hitl::test_connection(webhook).await {
                 Ok(msg) => serde_json::json!({ "ok": true, "detail": msg }),
                 Err(e) => serde_json::json!({ "ok": false, "error": e }),
             }
         }
         "ntfy" => {
-            let server = body.get("server").and_then(|v| v.as_str()).unwrap_or("https://ntfy.sh");
+            let server = body
+                .get("server")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://ntfy.sh");
             let topic = body.get("topic").and_then(|v| v.as_str()).unwrap_or(token);
             let auth = body.get("authToken").and_then(|v| v.as_str());
             match crate::integrations::ntfy_hitl::test_connection(server, topic, auth).await {
@@ -1278,14 +1511,22 @@ pub async fn config_test_channel_handler(
             }
         }
         "olvid" => {
-            let daemon_url = body.get("daemonUrl").and_then(|v| v.as_str()).unwrap_or("http://localhost:50051");
-            let client_key = body.get("clientKey").and_then(|v| v.as_str()).unwrap_or(token);
+            let daemon_url = body
+                .get("daemonUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("http://localhost:50051");
+            let client_key = body
+                .get("clientKey")
+                .and_then(|v| v.as_str())
+                .unwrap_or(token);
             match crate::connectors::olvid::test_connection(daemon_url, client_key).await {
                 Ok(detail) => serde_json::json!({ "ok": true, "detail": detail }),
                 Err(e) => serde_json::json!({ "ok": false, "error": e }),
             }
         }
-        _ => serde_json::json!({ "ok": false, "error": format!("Test not available for channel: {}", channel) }),
+        _ => {
+            serde_json::json!({ "ok": false, "error": format!("Test not available for channel: {}", channel) })
+        }
     };
 
     Ok(Json(result))
@@ -1300,7 +1541,10 @@ pub async fn cve_lookup_handler(
     State(state): State<Arc<GatewayState>>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let cve_id = q.get("id").ok_or((StatusCode::BAD_REQUEST, "Missing 'id' parameter".to_string()))?;
+    let cve_id = q.get("id").ok_or((
+        StatusCode::BAD_REQUEST,
+        "Missing 'id' parameter".to_string(),
+    ))?;
 
     let config = if let Some(store) = state.store.as_ref() {
         crate::enrichment::cve_lookup::NvdConfig::from_db(store.as_ref()).await
@@ -1351,7 +1595,9 @@ pub async fn mitre_lookup_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::enrichment::mitre_attack::lookup_technique(store.as_ref(), &id).await {
         Some(t) => Ok(Json(serde_json::to_value(t).unwrap_or_default())),
-        None => Ok(Json(serde_json::json!({ "error": format!("Technique {} not found", id) }))),
+        None => Ok(Json(
+            serde_json::json!({ "error": format!("Technique {} not found", id) }),
+        )),
     }
 }
 
@@ -1372,7 +1618,9 @@ pub async fn certfr_recent_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let alerts = crate::enrichment::certfr::get_recent_alerts(store.as_ref(), 20).await;
-    Ok(Json(serde_json::json!({ "alerts": alerts, "total": alerts.len() })))
+    Ok(Json(
+        serde_json::json!({ "alerts": alerts, "total": alerts.len() }),
+    ))
 }
 
 /// GET /api/tc/enrichment/status — overall enrichment status.
@@ -1389,9 +1637,17 @@ pub async fn enrichment_status_handler(
     let cve_count = cve_settings.len();
 
     // KEV
-    let kev_meta = store.get_setting("_system", "kev_sync_meta").await.ok().flatten();
+    let kev_meta = store
+        .get_setting("_system", "kev_sync_meta")
+        .await
+        .ok()
+        .flatten();
     // OpenPhish
-    let openphish_meta = store.get_setting("_enrichment", "openphish_urls").await.ok().flatten();
+    let openphish_meta = store
+        .get_setting("_enrichment", "openphish_urls")
+        .await
+        .ok()
+        .flatten();
 
     Ok(Json(serde_json::json!({
         "nvd": { "cache_count": cve_count, "status": "active" },
@@ -1422,11 +1678,14 @@ pub async fn instruct_generate_handler(
     let context = body["context"].as_str().unwrap_or("");
 
     if context.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing context" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Missing context" }),
+        ));
     }
 
     // Load instruct model config from DB
-    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let llm_config =
+        crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
     let instruct = &llm_config.instruct;
 
     // Build prompt based on type
@@ -1443,7 +1702,11 @@ pub async fn instruct_generate_handler(
         "threat_model" => format!(
             "Réalise une analyse de menaces (threat modeling) pour l'architecture suivante. Identifie les vecteurs d'attaque, les risques principaux (MITRE ATT&CK), et les recommandations de hardening.\n\nArchitecture :\n{context}"
         ),
-        _ => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Unknown type: {gen_type}") }))),
+        _ => {
+            return Ok(Json(
+                serde_json::json!({ "ok": false, "error": format!("Unknown type: {gen_type}") }),
+            ));
+        }
     };
 
     // Call Ollama with instruct model
@@ -1462,22 +1725,33 @@ pub async fn instruct_generate_handler(
         "options": { "temperature": 0.3, "num_predict": 4096 }
     });
 
-    tracing::info!("Instruct: Generating {} with model {}", gen_type, instruct.model);
+    tracing::info!(
+        "Instruct: Generating {} with model {}",
+        gen_type,
+        instruct.model
+    );
 
     let resp = client.post(&url).json(&ollama_body).send().await;
     match resp {
         Ok(r) if r.status().is_success() => {
             let data: serde_json::Value = r.json().await.unwrap_or_default();
-            let content = data["message"]["content"].as_str()
+            let content = data["message"]["content"]
+                .as_str()
                 .or_else(|| data["response"].as_str())
                 .unwrap_or("Erreur: pas de réponse du modèle");
 
             // Write audit entry
             let audit_key = format!("instruct_{}_{}", gen_type, chrono::Utc::now().timestamp());
-            let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
-                "type": gen_type, "model": instruct.model,
-                "timestamp": chrono::Utc::now().to_rfc3339(),
-            })).await;
+            let _ = store
+                .set_setting(
+                    "_audit",
+                    &audit_key,
+                    &serde_json::json!({
+                        "type": gen_type, "model": instruct.model,
+                        "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                )
+                .await;
 
             Ok(Json(serde_json::json!({
                 "ok": true,
@@ -1496,13 +1770,11 @@ pub async fn instruct_generate_handler(
                 "hint": format!("Vérifiez que le modèle {} est installé (ollama pull {})", instruct.model, instruct.model),
             })))
         }
-        Err(e) => {
-            Ok(Json(serde_json::json!({
-                "ok": false,
-                "error": format!("Ollama unreachable: {e}"),
-                "hint": "Vérifiez que Ollama est démarré et accessible",
-            })))
-        }
+        Err(e) => Ok(Json(serde_json::json!({
+            "ok": false,
+            "error": format!("Ollama unreachable: {e}"),
+            "hint": "Vérifiez que Ollama est démarré et accessible",
+        }))),
     }
 }
 
@@ -1516,10 +1788,22 @@ pub async fn instruct_generate_handler(
 fn bridge_channel_tokens(channels: &serde_json::Value) {
     let mappings: &[(&str, &[(&str, &str)])] = &[
         ("telegram", &[("botToken", "TELEGRAM_BOT_TOKEN")]),
-        ("slack", &[("botToken", "SLACK_BOT_TOKEN"), ("signingSecret", "SLACK_SIGNING_SECRET")]),
+        (
+            "slack",
+            &[
+                ("botToken", "SLACK_BOT_TOKEN"),
+                ("signingSecret", "SLACK_SIGNING_SECRET"),
+            ],
+        ),
         ("discord", &[("botToken", "DISCORD_BOT_TOKEN")]),
         ("whatsapp", &[("accessToken", "WHATSAPP_ACCESS_TOKEN")]),
-        ("olvid", &[("clientKey", "OLVID_CLIENT_KEY"), ("daemonUrl", "OLVID_DAEMON_URL")]),
+        (
+            "olvid",
+            &[
+                ("clientKey", "OLVID_CLIENT_KEY"),
+                ("daemonUrl", "OLVID_DAEMON_URL"),
+            ],
+        ),
     ];
 
     for (channel, fields) in mappings {
@@ -1529,10 +1813,18 @@ fn bridge_channel_tokens(channels: &serde_json::Value) {
                 if let Some(token) = ch[*json_key].as_str() {
                     if !token.is_empty() && enabled {
                         // SAFETY: acceptable for config — single writer (dashboard save)
-                        unsafe { std::env::set_var(env_key, token); }
-                        tracing::info!("Bridge: {} → env {} ({})", channel, env_key,
-                            if token.len() > 8 { format!("{}...{}", &token[..4], &token[token.len()-4..]) }
-                            else { "****".to_string() }
+                        unsafe {
+                            std::env::set_var(env_key, token);
+                        }
+                        tracing::info!(
+                            "Bridge: {} → env {} ({})",
+                            channel,
+                            env_key,
+                            if token.len() > 8 {
+                                format!("{}...{}", &token[..4], &token[token.len() - 4..])
+                            } else {
+                                "****".to_string()
+                            }
                         );
                     }
                 }
@@ -1553,7 +1845,8 @@ pub async fn telegram_send_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    let chat_id = body["chat_id"].as_str()
+    let chat_id = body["chat_id"]
+        .as_str()
         .or_else(|| body["chat_id"].as_i64().map(|_| ""))
         .ok_or((StatusCode::BAD_REQUEST, "Missing chat_id".to_string()))?;
     let chat_id_str = if chat_id.is_empty() {
@@ -1562,12 +1855,14 @@ pub async fn telegram_send_handler(
         chat_id.to_string()
     };
 
-    let text = body["text"].as_str()
+    let text = body["text"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing text".to_string()))?;
     let parse_mode = body["parse_mode"].as_str().unwrap_or("Markdown");
 
     // Get bot token: env var > DB config
-    let token = std::env::var("TELEGRAM_BOT_TOKEN").ok()
+    let token = std::env::var("TELEGRAM_BOT_TOKEN")
+        .ok()
         .filter(|t| !t.is_empty())
         .or_else(|| {
             // Synchronous context — we need a blocking approach
@@ -1579,13 +1874,19 @@ pub async fn telegram_send_handler(
         t
     } else {
         match store.get_setting("_system", "tc_config_channels").await {
-            Ok(Some(channels)) => {
-                channels["telegram"]["botToken"].as_str()
-                    .filter(|t| !t.is_empty())
-                    .map(|t| t.to_string())
-                    .ok_or((StatusCode::BAD_REQUEST, "Telegram bot token not configured".to_string()))?
+            Ok(Some(channels)) => channels["telegram"]["botToken"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(|t| t.to_string())
+                .ok_or((
+                    StatusCode::BAD_REQUEST,
+                    "Telegram bot token not configured".to_string(),
+                ))?,
+            _ => {
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "Telegram bot token not configured" }),
+                ));
             }
-            _ => return Ok(Json(serde_json::json!({ "ok": false, "error": "Telegram bot token not configured" }))),
         }
     };
 
@@ -1594,25 +1895,33 @@ pub async fn telegram_send_handler(
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let resp = client.post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+    let resp = client
+        .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
         .json(&serde_json::json!({
             "chat_id": chat_id_str,
             "text": text,
             "parse_mode": parse_mode,
         }))
-        .send().await;
+        .send()
+        .await;
 
     match resp {
         Ok(r) => {
             let data: serde_json::Value = r.json().await.unwrap_or_default();
             if data["ok"].as_bool() == Some(true) {
                 tracing::info!("Telegram message sent to chat_id={}", chat_id_str);
-                Ok(Json(serde_json::json!({ "ok": true, "message_id": data["result"]["message_id"] })))
+                Ok(Json(
+                    serde_json::json!({ "ok": true, "message_id": data["result"]["message_id"] }),
+                ))
             } else {
-                Ok(Json(serde_json::json!({ "ok": false, "error": data["description"] })))
+                Ok(Json(
+                    serde_json::json!({ "ok": false, "error": data["description"] }),
+                ))
             }
         }
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -1627,28 +1936,34 @@ pub async fn telegram_poll_handler(
     let offset = body["offset"].as_i64().unwrap_or(0);
 
     // Get bot token from env or DB
-    let token = get_telegram_token(store.as_ref()).await
-        .ok_or((StatusCode::BAD_REQUEST, "Telegram bot token not configured".to_string()))?;
+    let token = get_telegram_token(store.as_ref()).await.ok_or((
+        StatusCode::BAD_REQUEST,
+        "Telegram bot token not configured".to_string(),
+    ))?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let resp = client.get(format!("https://api.telegram.org/bot{}/getUpdates", token))
+    let resp = client
+        .get(format!("https://api.telegram.org/bot{}/getUpdates", token))
         .query(&[
             ("offset", offset.to_string()),
             ("timeout", "10".to_string()),
             ("allowed_updates", "[\"message\"]".to_string()),
         ])
-        .send().await;
+        .send()
+        .await;
 
     match resp {
         Ok(r) => {
             let data: serde_json::Value = r.json().await.unwrap_or_default();
             Ok(Json(data))
         }
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -1660,11 +1975,13 @@ pub async fn telegram_status_handler(
 
     let token = match get_telegram_token(store.as_ref()).await {
         Some(t) => t,
-        None => return Ok(Json(serde_json::json!({
-            "configured": false,
-            "ok": false,
-            "error": "No Telegram bot token configured"
-        }))),
+        None => {
+            return Ok(Json(serde_json::json!({
+                "configured": false,
+                "ok": false,
+                "error": "No Telegram bot token configured"
+            })));
+        }
     };
 
     let client = reqwest::Client::builder()
@@ -1672,8 +1989,10 @@ pub async fn telegram_status_handler(
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let resp = client.get(format!("https://api.telegram.org/bot{}/getMe", token))
-        .send().await;
+    let resp = client
+        .get(format!("https://api.telegram.org/bot{}/getMe", token))
+        .send()
+        .await;
 
     match resp {
         Ok(r) => {
@@ -1734,22 +2053,34 @@ pub async fn olvid_send_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let text = body["text"].as_str().unwrap_or("").to_string();
     if text.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing text" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Missing text" }),
+        ));
     }
 
-    let channels = store.get_setting("_system", "tc_config_channels").await
-        .ok().flatten().unwrap_or_default();
-    let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("http://localhost:50051");
+    let channels = store
+        .get_setting("_system", "tc_config_channels")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let daemon_url = channels["olvid"]["daemonUrl"]
+        .as_str()
+        .unwrap_or("http://localhost:50051");
     let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
-    let discussion_id = body["discussion_id"].as_str()
+    let discussion_id = body["discussion_id"]
+        .as_str()
         .or_else(|| channels["olvid"]["discussionId"].as_str())
         .unwrap_or("");
 
     if client_key.is_empty() || discussion_id.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Olvid not configured (clientKey or discussionId missing)" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Olvid not configured (clientKey or discussionId missing)" }),
+        ));
     }
 
-    match crate::connectors::olvid::send_message(daemon_url, client_key, discussion_id, &text).await {
+    match crate::connectors::olvid::send_message(daemon_url, client_key, discussion_id, &text).await
+    {
         Ok(()) => Ok(Json(serde_json::json!({ "ok": true }))),
         Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e }))),
     }
@@ -1760,18 +2091,28 @@ pub async fn olvid_status_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    let channels = store.get_setting("_system", "tc_config_channels").await
-        .ok().flatten().unwrap_or_default();
+    let channels = store
+        .get_setting("_system", "tc_config_channels")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("");
     let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
 
     if daemon_url.is_empty() || client_key.is_empty() {
-        return Ok(Json(serde_json::json!({ "configured": false, "ok": false, "error": "Olvid not configured" })));
+        return Ok(Json(
+            serde_json::json!({ "configured": false, "ok": false, "error": "Olvid not configured" }),
+        ));
     }
 
     match crate::connectors::olvid::test_connection(daemon_url, client_key).await {
-        Ok(detail) => Ok(Json(serde_json::json!({ "configured": true, "ok": true, "detail": detail }))),
-        Err(e) => Ok(Json(serde_json::json!({ "configured": true, "ok": false, "error": e }))),
+        Ok(detail) => Ok(Json(
+            serde_json::json!({ "configured": true, "ok": true, "detail": detail }),
+        )),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "configured": true, "ok": false, "error": e }),
+        )),
     }
 }
 
@@ -1780,18 +2121,25 @@ pub async fn olvid_discussions_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    let channels = store.get_setting("_system", "tc_config_channels").await
-        .ok().flatten().unwrap_or_default();
+    let channels = store
+        .get_setting("_system", "tc_config_channels")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let daemon_url = channels["olvid"]["daemonUrl"].as_str().unwrap_or("");
     let client_key = channels["olvid"]["clientKey"].as_str().unwrap_or("");
 
     if daemon_url.is_empty() || client_key.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Olvid not configured" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Olvid not configured" }),
+        ));
     }
 
     match crate::connectors::olvid::list_discussions(daemon_url, client_key).await {
         Ok(discussions) => {
-            let list: Vec<serde_json::Value> = discussions.iter()
+            let list: Vec<serde_json::Value> = discussions
+                .iter()
                 .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
                 .collect();
             Ok(Json(serde_json::json!({ "ok": true, "discussions": list })))
@@ -1810,31 +2158,50 @@ pub async fn ssh_execute_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let target_ref = body["target"].as_str()
+    let target_ref = body["target"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing target".to_string()))?;
-    let cmd_id = body["cmd_id"].as_str()
+    let cmd_id = body["cmd_id"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing cmd_id".to_string()))?;
 
     let params: std::collections::HashMap<String, String> = body["params"]
         .as_object()
-        .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
         .unwrap_or_default();
 
     // Validate command via whitelist
-    let validated = match crate::agent::remediation_whitelist::validate_remediation(cmd_id, &params) {
+    let validated = match crate::agent::remediation_whitelist::validate_remediation(cmd_id, &params)
+    {
         Ok(v) => v,
-        Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": format!("Validation failed: {e}") }))),
+        Err(e) => {
+            return Ok(Json(
+                serde_json::json!({ "ok": false, "error": format!("Validation failed: {e}") }),
+            ));
+        }
     };
 
     // Resolve target and execute
-    match crate::agent::executor_ssh::execute_on_target(store.as_ref(), target_ref, &validated).await {
+    match crate::agent::executor_ssh::execute_on_target(store.as_ref(), target_ref, &validated)
+        .await
+    {
         Ok(result) => {
             // Audit log
             let audit_key = format!("ssh_exec_{}_{}", cmd_id, chrono::Utc::now().timestamp());
-            let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
-                "target": target_ref, "cmd_id": cmd_id, "success": result.success,
-                "exit_code": result.exit_code, "timestamp": chrono::Utc::now().to_rfc3339(),
-            })).await;
+            let _ = store
+                .set_setting(
+                    "_audit",
+                    &audit_key,
+                    &serde_json::json!({
+                        "target": target_ref, "cmd_id": cmd_id, "success": result.success,
+                        "exit_code": result.exit_code, "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                )
+                .await;
 
             Ok(Json(serde_json::json!({
                 "ok": true,
@@ -1845,7 +2212,9 @@ pub async fn ssh_execute_handler(
                 "rendered_cmd": result.rendered_cmd,
             })))
         }
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -1864,7 +2233,9 @@ pub async fn target_resolve_handler(
             "port": target.port,
             "username": target.username,
         }))),
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -1887,11 +2258,14 @@ pub async fn graph_query_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let cypher = body["cypher"].as_str()
+    let cypher = body["cypher"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing cypher query".to_string()))?;
 
     let results = crate::graph::threat_graph::query(store.as_ref(), cypher).await;
-    Ok(Json(serde_json::json!({ "results": results, "count": results.len() })))
+    Ok(Json(
+        serde_json::json!({ "results": results, "count": results.len() }),
+    ))
 }
 
 /// GET /api/tc/graph/context/{asset_id} — get full investigation context for an asset.
@@ -1900,7 +2274,8 @@ pub async fn graph_context_handler(
     Path(asset_id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let context = crate::graph::threat_graph::build_investigation_context(store.as_ref(), &asset_id).await;
+    let context =
+        crate::graph::threat_graph::build_investigation_context(store.as_ref(), &asset_id).await;
     Ok(Json(context))
 }
 
@@ -1917,7 +2292,9 @@ pub async fn graph_attackers_handler(
 /// GET /api/tc/graph/investigations — list all investigation graph templates.
 pub async fn graph_investigations_handler() -> ApiResult<serde_json::Value> {
     let graphs = crate::graph::investigation::get_investigation_graphs();
-    Ok(Json(serde_json::json!({ "investigations": graphs, "count": graphs.len() })))
+    Ok(Json(
+        serde_json::json!({ "investigations": graphs, "count": graphs.len() }),
+    ))
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1933,7 +2310,8 @@ pub async fn graph_confidence_ip_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let asset = params.get("asset").map(|s| s.as_str());
     let hour = params.get("hour").and_then(|h| h.parse::<u32>().ok());
-    let score = crate::graph::confidence::compute_ip_confidence(store.as_ref(), &ip, asset, hour).await;
+    let score =
+        crate::graph::confidence::compute_ip_confidence(store.as_ref(), &ip, asset, hour).await;
     Ok(Json(serde_json::json!(score)))
 }
 
@@ -1945,7 +2323,8 @@ pub async fn graph_confidence_cve_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let asset = params.get("asset").map(|s| s.as_str());
-    let score = crate::graph::confidence::compute_cve_confidence(store.as_ref(), &cve_id, asset).await;
+    let score =
+        crate::graph::confidence::compute_cve_confidence(store.as_ref(), &cve_id, asset).await;
     Ok(Json(serde_json::json!(score)))
 }
 
@@ -1964,15 +2343,24 @@ pub async fn graph_notes_create_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let content = body["content"].as_str()
+    let content = body["content"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing content".to_string()))?;
-    let object_refs: Vec<&str> = body["object_refs"].as_array()
-        .ok_or((StatusCode::BAD_REQUEST, "Missing object_refs array".to_string()))?
-        .iter().filter_map(|v| v.as_str()).collect();
+    let object_refs: Vec<&str> = body["object_refs"]
+        .as_array()
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "Missing object_refs array".to_string(),
+        ))?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
     let author = body["author"].as_str();
     let confidence = body["confidence"].as_u64().map(|c| c.min(100) as u8);
 
-    let note = crate::graph::notes::create_note(store.as_ref(), content, &object_refs, author, confidence).await;
+    let note =
+        crate::graph::notes::create_note(store.as_ref(), content, &object_refs, author, confidence)
+            .await;
     Ok(Json(serde_json::json!(note)))
 }
 
@@ -1982,9 +2370,14 @@ pub async fn graph_notes_list_handler(
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let limit = params.get("limit").and_then(|l| l.parse::<u64>().ok()).unwrap_or(50);
+    let limit = params
+        .get("limit")
+        .and_then(|l| l.parse::<u64>().ok())
+        .unwrap_or(50);
     let notes = crate::graph::notes::list_notes(store.as_ref(), limit).await;
-    Ok(Json(serde_json::json!({ "notes": notes, "count": notes.len() })))
+    Ok(Json(
+        serde_json::json!({ "notes": notes, "count": notes.len() }),
+    ))
 }
 
 /// GET /api/tc/graph/notes/ip/{ip} — notes for a specific IP.
@@ -2014,7 +2407,9 @@ pub async fn graph_notes_delete_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let deleted = crate::graph::notes::delete_note(store.as_ref(), &note_id).await;
-    Ok(Json(serde_json::json!({ "deleted": deleted, "note_id": note_id })))
+    Ok(Json(
+        serde_json::json!({ "deleted": deleted, "note_id": note_id }),
+    ))
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2125,7 +2520,9 @@ pub async fn enrichment_shodan_handler(
     headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("api_key").map(|s| s.as_str()))
         .unwrap_or("");
     match crate::enrichment::shodan_lookup::lookup_ip(&ip, api_key).await {
@@ -2141,7 +2538,9 @@ pub async fn enrichment_vt_ip_handler(
     headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("api_key").map(|s| s.as_str()))
         .unwrap_or("");
     match crate::enrichment::virustotal_lookup::lookup_ip(&ip, api_key).await {
@@ -2157,7 +2556,9 @@ pub async fn enrichment_vt_hash_handler(
     headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("api_key").map(|s| s.as_str()))
         .unwrap_or("");
     match crate::enrichment::virustotal_lookup::lookup_hash(&hash, api_key).await {
@@ -2173,7 +2574,9 @@ pub async fn enrichment_hibp_handler(
     headers: axum::http::HeaderMap,
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
-    let api_key = headers.get("x-api-key").and_then(|v| v.to_str().ok())
+    let api_key = headers
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("api_key").map(|s| s.as_str()))
         .unwrap_or("");
     match crate::enrichment::hibp_lookup::check_email(&email, api_key).await {
@@ -2192,7 +2595,8 @@ pub async fn command_intent_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let message = body["message"].as_str()
+    let message = body["message"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing message".to_string()))?;
 
     // Get conversation mode from request or DB
@@ -2204,7 +2608,8 @@ pub async fn command_intent_handler(
     };
 
     let intent = crate::agent::cloud_intent::parse_intent(message, &mode.to_string()).await;
-    let result = crate::agent::conversation_mode::process_message(store.as_ref(), message, mode).await;
+    let result =
+        crate::agent::conversation_mode::process_message(store.as_ref(), message, mode).await;
 
     Ok(Json(serde_json::json!({
         "intent": intent,
@@ -2261,7 +2666,11 @@ pub async fn tc_skills_catalog_handler(
     let filter_type = params.get("type").map(|s| s.as_str());
 
     let filtered: Vec<_> = if let Some(t) = filter_type {
-        catalog.skills.iter().filter(|s| s.skill_type == t).collect()
+        catalog
+            .skills
+            .iter()
+            .filter(|s| s.skill_type == t)
+            .collect()
     } else {
         catalog.skills.iter().collect()
     };
@@ -2304,7 +2713,9 @@ pub async fn skill_run_handler(
     let asset_label = body["asset_name"].as_str().or(body["project"].as_str());
 
     use crate::connectors::docker_executor::*;
-    let (mut config, parser): (DockerSkillConfig, fn(&str) -> Vec<ParsedFinding>) = match skill_id.as_str() {
+    let (mut config, parser): (DockerSkillConfig, fn(&str) -> Vec<ParsedFinding>) = match skill_id
+        .as_str()
+    {
         "skill-semgrep" => (semgrep_config(target), parse_semgrep),
         "skill-checkov" => (checkov_config(target), parse_checkov),
         "skill-trufflehog" => (trufflehog_config(target), parse_trufflehog),
@@ -2317,10 +2728,20 @@ pub async fn skill_run_handler(
         "skill-zap" => {
             let config = DockerSkillConfig {
                 image: "zaproxy/zap-stable:latest".into(),
-                command: vec!["zap-baseline.py".into(), "-t".into(), target.into(), "-I".into()],
-                mount_path: Some("/tmp/zap-work".into()), mount_target: "/zap/wrk".into(),
-                network: "host".into(), memory_limit: "1g".into(),
-                timeout_seconds: 600, skill_id: "skill-zap".into(), skill_name: "OWASP ZAP".into(), asset_label: None,
+                command: vec![
+                    "zap-baseline.py".into(),
+                    "-t".into(),
+                    target.into(),
+                    "-I".into(),
+                ],
+                mount_path: Some("/tmp/zap-work".into()),
+                mount_target: "/zap/wrk".into(),
+                network: "host".into(),
+                memory_limit: "1g".into(),
+                timeout_seconds: 600,
+                skill_id: "skill-zap".into(),
+                skill_name: "OWASP ZAP".into(),
+                asset_label: None,
             };
             // ZAP baseline outputs text with WARN/FAIL lines — parse those
             fn parse_zap_text(stdout: &str) -> Vec<ParsedFinding> {
@@ -2329,7 +2750,13 @@ pub async fn skill_run_handler(
                     let trimmed = line.trim();
                     if trimmed.starts_with("WARN-NEW:") || trimmed.starts_with("FAIL-NEW:") {
                         let is_fail = trimmed.starts_with("FAIL");
-                        let msg = trimmed.split(':').skip(1).collect::<Vec<_>>().join(":").trim().to_string();
+                        let msg = trimmed
+                            .split(':')
+                            .skip(1)
+                            .collect::<Vec<_>>()
+                            .join(":")
+                            .trim()
+                            .to_string();
                         if msg.len() > 5 {
                             findings.push(ParsedFinding {
                                 title: msg.chars().take(100).collect(),
@@ -2350,22 +2777,31 @@ pub async fn skill_run_handler(
             let config = DockerSkillConfig {
                 image: "projectdiscovery/subfinder:latest".into(),
                 command: vec!["-d".into(), target.into(), "-silent".into(), "-json".into()],
-                mount_path: None, mount_target: "/workspace".into(),
-                network: "host".into(), memory_limit: "256m".into(),
-                timeout_seconds: 300, skill_id: "skill-subfinder".into(), skill_name: "Subfinder".into(), asset_label: None,
+                mount_path: None,
+                mount_target: "/workspace".into(),
+                network: "host".into(),
+                memory_limit: "256m".into(),
+                timeout_seconds: 300,
+                skill_id: "skill-subfinder".into(),
+                skill_name: "Subfinder".into(),
+                asset_label: None,
             };
             fn parse_subfinder(stdout: &str) -> Vec<ParsedFinding> {
-                stdout.lines().filter_map(|line| {
-                    let v: serde_json::Value = serde_json::from_str(line).ok()?;
-                    let host = v["host"].as_str()?;
-                    Some(ParsedFinding {
-                        title: format!("Subdomain: {}", host),
-                        description: format!("Source: {}", v["source"].as_str().unwrap_or("?")),
-                        severity: "LOW".into(), category: "recon".into(),
-                        asset: Some(host.to_string()),
-                        metadata: serde_json::json!({"host": host, "tool": "subfinder"}),
+                stdout
+                    .lines()
+                    .filter_map(|line| {
+                        let v: serde_json::Value = serde_json::from_str(line).ok()?;
+                        let host = v["host"].as_str()?;
+                        Some(ParsedFinding {
+                            title: format!("Subdomain: {}", host),
+                            description: format!("Source: {}", v["source"].as_str().unwrap_or("?")),
+                            severity: "LOW".into(),
+                            category: "recon".into(),
+                            asset: Some(host.to_string()),
+                            metadata: serde_json::json!({"host": host, "tool": "subfinder"}),
+                        })
                     })
-                }).collect()
+                    .collect()
             }
             (config, parse_subfinder as fn(&str) -> Vec<ParsedFinding>)
         }
@@ -2373,9 +2809,14 @@ pub async fn skill_run_handler(
             let config = DockerSkillConfig {
                 image: "projectdiscovery/httpx:latest".into(),
                 command: vec!["-u".into(), target.into(), "-json".into(), "-silent".into()],
-                mount_path: None, mount_target: "/workspace".into(),
-                network: "host".into(), memory_limit: "256m".into(),
-                timeout_seconds: 300, skill_id: "skill-httpx".into(), skill_name: "httpx Probe".into(), asset_label: None,
+                mount_path: None,
+                mount_target: "/workspace".into(),
+                network: "host".into(),
+                memory_limit: "256m".into(),
+                timeout_seconds: 300,
+                skill_id: "skill-httpx".into(),
+                skill_name: "httpx Probe".into(),
+                asset_label: None,
             };
             fn parse_httpx(stdout: &str) -> Vec<ParsedFinding> {
                 stdout.lines().filter_map(|line| {
@@ -2397,7 +2838,12 @@ pub async fn skill_run_handler(
             }
             (config, parse_httpx as fn(&str) -> Vec<ParsedFinding>)
         }
-        _ => return Err((StatusCode::BAD_REQUEST, format!("Unknown skill: {}", skill_id))),
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("Unknown skill: {}", skill_id),
+            ));
+        }
     };
 
     // Inject asset label if provided by the RSSI
@@ -2421,7 +2867,8 @@ pub async fn connector_nmap_scan_handler(
     // Run in background (scans can take 5+ minutes for /24)
     let store_clone = store.clone();
     tokio::spawn(async move {
-        let result = crate::connectors::nmap_discovery::run_discovery(store_clone.as_ref(), &config).await;
+        let result =
+            crate::connectors::nmap_discovery::run_discovery(store_clone.as_ref(), &config).await;
         tracing::info!("NMAP COMPLETE: {:?}", result);
     });
 
@@ -2439,7 +2886,12 @@ pub async fn connector_proxmox_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::proxmox::ProxmoxConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid proxmox config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid proxmox config: {e}"),
+            )
+        })?;
     let result = crate::connectors::proxmox::sync_proxmox(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2450,8 +2902,13 @@ pub async fn connector_wazuh_sync_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let config = serde_json::from_value::<crate::connectors::wazuh::WazuhConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid wazuh config: {e}")))?;
+    let config =
+        serde_json::from_value::<crate::connectors::wazuh::WazuhConfig>(body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid wazuh config: {e}"),
+            )
+        })?;
     let result = crate::connectors::wazuh::sync_wazuh(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2463,7 +2920,12 @@ pub async fn connector_elastic_siem_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::elastic_siem::ElasticSiemConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid elastic config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid elastic config: {e}"),
+            )
+        })?;
     let result = crate::connectors::elastic_siem::sync_elastic_siem(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2475,7 +2937,12 @@ pub async fn connector_graylog_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::graylog::GraylogConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid graylog config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid graylog config: {e}"),
+            )
+        })?;
     let result = crate::connectors::graylog::sync_graylog(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2487,7 +2954,12 @@ pub async fn connector_thehive_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::thehive::TheHiveConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid thehive config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid thehive config: {e}"),
+            )
+        })?;
     let result = crate::connectors::thehive::sync_thehive(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2499,7 +2971,12 @@ pub async fn connector_dfir_iris_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::dfir_iris::DfirIrisConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid dfir-iris config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid dfir-iris config: {e}"),
+            )
+        })?;
     let result = crate::connectors::dfir_iris::sync_dfir_iris(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2511,7 +2988,12 @@ pub async fn connector_shuffle_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::shuffle::ShuffleConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid shuffle config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid shuffle config: {e}"),
+            )
+        })?;
     let result = crate::connectors::shuffle::sync_shuffle(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2523,7 +3005,12 @@ pub async fn connector_keycloak_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::keycloak::KeycloakConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid keycloak config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid keycloak config: {e}"),
+            )
+        })?;
     let result = crate::connectors::keycloak::sync_keycloak(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2535,7 +3022,12 @@ pub async fn connector_authentik_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::authentik::AuthentikConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid authentik config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid authentik config: {e}"),
+            )
+        })?;
     let result = crate::connectors::authentik::sync_authentik(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2546,9 +3038,16 @@ pub async fn connector_proxmox_backup_sync_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let config = serde_json::from_value::<crate::connectors::proxmox_backup::ProxmoxBackupConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid proxmox-backup config: {e}")))?;
-    let result = crate::connectors::proxmox_backup::sync_proxmox_backup(store.as_ref(), &config).await;
+    let config =
+        serde_json::from_value::<crate::connectors::proxmox_backup::ProxmoxBackupConfig>(body)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid proxmox-backup config: {e}"),
+                )
+            })?;
+    let result =
+        crate::connectors::proxmox_backup::sync_proxmox_backup(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
 
@@ -2558,8 +3057,13 @@ pub async fn connector_veeam_sync_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let config = serde_json::from_value::<crate::connectors::veeam::VeeamConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid veeam config: {e}")))?;
+    let config =
+        serde_json::from_value::<crate::connectors::veeam::VeeamConfig>(body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid veeam config: {e}"),
+            )
+        })?;
     let result = crate::connectors::veeam::sync_veeam(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2571,7 +3075,12 @@ pub async fn connector_mikrotik_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::mikrotik::MikroTikConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid mikrotik config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid mikrotik config: {e}"),
+            )
+        })?;
     let result = crate::connectors::mikrotik::sync_mikrotik(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2602,11 +3111,16 @@ pub async fn connector_glpi_ticket_handler(
     let user_token = get_skill_config_field(store.as_ref(), "skill-glpi", "glpi_user_token").await;
 
     if url.is_empty() || app_token.is_empty() {
-        return Ok(Json(serde_json::json!({"error": "GLPI not configured. Set glpi_url and glpi_app_token in skill config."})));
+        return Ok(Json(
+            serde_json::json!({"error": "GLPI not configured. Set glpi_url and glpi_app_token in skill config."}),
+        ));
     }
 
     let config = crate::connectors::glpi::GlpiConfig {
-        url, app_token, user_token, no_tls_verify: true,
+        url,
+        app_token,
+        user_token,
+        no_tls_verify: true,
     };
 
     // If finding_id provided, build ticket from the finding
@@ -2622,17 +3136,29 @@ pub async fn connector_glpi_ticket_handler(
                 };
                 (
                     format!("[ThreatClaw] {}", f.title),
-                    format!("{}\n\nAsset: {}\nSource: {}\nDétecté: {}\nSévérité: {}",
-                        f.description.unwrap_or_default(), f.asset.unwrap_or("—".into()),
-                        f.source.unwrap_or("—".into()), f.detected_at, f.severity),
+                    format!(
+                        "{}\n\nAsset: {}\nSource: {}\nDétecté: {}\nSévérité: {}",
+                        f.description.unwrap_or_default(),
+                        f.asset.unwrap_or("—".into()),
+                        f.source.unwrap_or("—".into()),
+                        f.detected_at,
+                        f.severity
+                    ),
                     urg,
                 )
             }
-            _ => return Ok(Json(serde_json::json!({"error": format!("Finding #{} not found", finding_id)}))),
+            _ => {
+                return Ok(Json(
+                    serde_json::json!({"error": format!("Finding #{} not found", finding_id)}),
+                ));
+            }
         }
     } else {
         (
-            body["title"].as_str().unwrap_or("ThreatClaw Alert").to_string(),
+            body["title"]
+                .as_str()
+                .unwrap_or("ThreatClaw Alert")
+                .to_string(),
             body["description"].as_str().unwrap_or("").to_string(),
             body["urgency"].as_u64().unwrap_or(3) as u8,
         )
@@ -2651,7 +3177,12 @@ pub async fn connector_fortinet_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::fortinet::FortinetConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid fortinet config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid fortinet config: {e}"),
+            )
+        })?;
     let result = crate::connectors::fortinet::sync_fortinet(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2663,7 +3194,12 @@ pub async fn connector_defectdojo_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::defectdojo::DefectDojoConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid defectdojo config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid defectdojo config: {e}"),
+            )
+        })?;
     let result = crate::connectors::defectdojo::export_findings(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2675,7 +3211,12 @@ pub async fn connector_firewall_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let config = serde_json::from_value::<crate::connectors::pfsense::FirewallConfig>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid firewall config: {e}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid firewall config: {e}"),
+            )
+        })?;
     let result = crate::connectors::pfsense::sync_firewall(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2689,9 +3230,11 @@ pub async fn remediation_block_ip_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
-    let ip = body["ip"].as_str()
+    let ip = body["ip"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing ip".to_string()))?;
-    let fw_url = body["fw_url"].as_str()
+    let fw_url = body["fw_url"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing fw_url".to_string()))?;
     let fw_type = body["fw_type"].as_str().unwrap_or("pfsense");
     let auth_user = body["auth_user"].as_str().unwrap_or("");
@@ -2699,9 +3242,17 @@ pub async fn remediation_block_ip_handler(
     let no_tls = body["no_tls_verify"].as_bool().unwrap_or(true);
 
     let result = if fw_type == "opnsense" {
-        crate::connectors::remediation::opnsense_block_ip(fw_url, auth_user, auth_secret, ip, no_tls).await
+        crate::connectors::remediation::opnsense_block_ip(
+            fw_url,
+            auth_user,
+            auth_secret,
+            ip,
+            no_tls,
+        )
+        .await
     } else {
-        crate::connectors::remediation::pfsense_block_ip(fw_url, auth_user, auth_secret, ip, no_tls).await
+        crate::connectors::remediation::pfsense_block_ip(fw_url, auth_user, auth_secret, ip, no_tls)
+            .await
     };
 
     Ok(Json(serde_json::json!(result)))
@@ -2712,9 +3263,11 @@ pub async fn remediation_disable_account_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
-    let username = body["username"].as_str()
+    let username = body["username"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing username".to_string()))?;
-    let host = body["host"].as_str()
+    let host = body["host"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing host".to_string()))?;
     let port = body["port"].as_u64().unwrap_or(636) as u16;
     let bind_dn = body["bind_dn"].as_str().unwrap_or("");
@@ -2723,8 +3276,9 @@ pub async fn remediation_disable_account_handler(
     let no_tls = body["no_tls_verify"].as_bool().unwrap_or(false);
 
     let result = crate::connectors::remediation::ad_disable_account(
-        host, port, bind_dn, bind_pw, base_dn, username, no_tls
-    ).await;
+        host, port, bind_dn, bind_pw, base_dn, username, no_tls,
+    )
+    .await;
 
     Ok(Json(serde_json::json!(result)))
 }
@@ -2739,8 +3293,9 @@ pub async fn graph_asset_resolve_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let discovered = serde_json::from_value::<crate::graph::asset_resolution::DiscoveredAsset>(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid asset data: {e}")))?;
+    let discovered =
+        serde_json::from_value::<crate::graph::asset_resolution::DiscoveredAsset>(body)
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid asset data: {e}")))?;
     let result = crate::graph::asset_resolution::resolve_asset(store.as_ref(), &discovered).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -2751,9 +3306,14 @@ pub async fn graph_assets_list_handler(
     Query(params): Query<HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let limit = params.get("limit").and_then(|l| l.parse::<u64>().ok()).unwrap_or(100);
+    let limit = params
+        .get("limit")
+        .and_then(|l| l.parse::<u64>().ok())
+        .unwrap_or(100);
     let assets = crate::graph::asset_resolution::list_assets(store.as_ref(), limit).await;
-    Ok(Json(serde_json::json!({ "assets": assets, "count": assets.len() })))
+    Ok(Json(
+        serde_json::json!({ "assets": assets, "count": assets.len() }),
+    ))
 }
 
 /// GET /api/tc/graph/assets/stats — asset discovery statistics.
@@ -2771,7 +3331,9 @@ pub async fn graph_assets_incomplete_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let incomplete = crate::graph::asset_resolution::find_incomplete_assets(store.as_ref()).await;
-    Ok(Json(serde_json::json!({ "incomplete_assets": incomplete, "count": incomplete.len() })))
+    Ok(Json(
+        serde_json::json!({ "incomplete_assets": incomplete, "count": incomplete.len() }),
+    ))
 }
 
 /// GET /api/tc/graph/behavior/{username} — get behavioral profile for a user.
@@ -2790,12 +3352,20 @@ pub async fn graph_behavior_score_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let username = body["username"].as_str()
+    let username = body["username"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing username".to_string()))?;
     let source_ip = body["source_ip"].as_str().unwrap_or("unknown");
     let target_asset = body["target_asset"].as_str().unwrap_or("unknown");
     let success = body["success"].as_bool().unwrap_or(true);
-    let score = crate::graph::behavior::score_login(store.as_ref(), username, source_ip, target_asset, success).await;
+    let score = crate::graph::behavior::score_login(
+        store.as_ref(),
+        username,
+        source_ip,
+        target_asset,
+        success,
+    )
+    .await;
     Ok(Json(serde_json::json!(score)))
 }
 
@@ -2827,12 +3397,15 @@ pub async fn scheduler_save_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let schedules: Vec<crate::agent::skill_scheduler::SkillSchedule> = serde_json::from_value(
-        body["schedules"].clone()
-    ).map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid schedules: {e}")))?;
-    crate::agent::skill_scheduler::save_schedules(store.as_ref(), &schedules).await
+    let schedules: Vec<crate::agent::skill_scheduler::SkillSchedule> =
+        serde_json::from_value(body["schedules"].clone())
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid schedules: {e}")))?;
+    crate::agent::skill_scheduler::save_schedules(store.as_ref(), &schedules)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "status": "saved", "count": schedules.len() })))
+    Ok(Json(
+        serde_json::json!({ "status": "saved", "count": schedules.len() }),
+    ))
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2855,19 +3428,27 @@ pub async fn test_scenario_run_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let trigger = params.get("notify").map(|v| v == "true").unwrap_or(true);
 
-    tracing::info!("TEST: Running scenario '{}' (notify={})", scenario_id, trigger);
+    tracing::info!(
+        "TEST: Running scenario '{}' (notify={})",
+        scenario_id,
+        trigger
+    );
 
     // Run in background (scenarios can take time with enrichment)
     let store_clone = store.clone();
     let scenario_id_clone = scenario_id.clone();
     tokio::spawn(async move {
-        let result = crate::agent::test_scenarios::run_scenario(
-            store_clone, &scenario_id_clone, trigger,
-        ).await;
+        let result =
+            crate::agent::test_scenarios::run_scenario(store_clone, &scenario_id_clone, trigger)
+                .await;
         tracing::info!(
             "TEST: Scenario '{}' complete — {} logs, {} findings, {} alerts, score={:?}, level={:?}",
-            result.scenario_id, result.logs_injected, result.findings_created,
-            result.alerts_created, result.intelligence_score, result.notification_level
+            result.scenario_id,
+            result.logs_injected,
+            result.findings_created,
+            result.alerts_created,
+            result.intelligence_score,
+            result.notification_level
         );
     });
 
@@ -2884,7 +3465,9 @@ pub async fn test_scenario_run_handler(
 // ══════════════════════════════════════════════════════════
 
 /// POST /api/tc/enrichment/kev/sync — sync CISA KEV catalog.
-pub async fn kev_sync_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+pub async fn kev_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
         Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
@@ -2893,10 +3476,15 @@ pub async fn kev_sync_handler(State(state): State<Arc<GatewayState>>) -> ApiResu
 }
 
 /// GET /api/tc/enrichment/kev/{cve_id} — check if CVE is in KEV.
-pub async fn kev_check_handler(State(state): State<Arc<GatewayState>>, Path(cve_id): Path<String>) -> ApiResult<serde_json::Value> {
+pub async fn kev_check_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(cve_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::enrichment::cisa_kev::is_exploited(store.as_ref(), &cve_id).await {
-        Some(entry) => Ok(Json(serde_json::json!({ "exploited": true, "entry": serde_json::to_value(entry).unwrap_or_default() }))),
+        Some(entry) => Ok(Json(
+            serde_json::json!({ "exploited": true, "entry": serde_json::to_value(entry).unwrap_or_default() }),
+        )),
         None => Ok(Json(serde_json::json!({ "exploited": false }))),
     }
 }
@@ -2912,7 +3500,9 @@ pub async fn greynoise_handler(Path(ip): Path<String>) -> ApiResult<serde_json::
 /// GET /api/tc/enrichment/threatfox/{ioc} — ThreatFox IoC lookup.
 pub async fn threatfox_handler(Path(ioc): Path<String>) -> ApiResult<serde_json::Value> {
     match crate::enrichment::threatfox::lookup_ioc(&ioc, None).await {
-        Ok(results) => Ok(Json(serde_json::json!({ "results": results, "count": results.len() }))),
+        Ok(results) => Ok(Json(
+            serde_json::json!({ "results": results, "count": results.len() }),
+        )),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -2920,14 +3510,18 @@ pub async fn threatfox_handler(Path(ioc): Path<String>) -> ApiResult<serde_json:
 /// GET /api/tc/enrichment/malware/{hash} — MalwareBazaar hash lookup.
 pub async fn malware_handler(Path(hash): Path<String>) -> ApiResult<serde_json::Value> {
     match crate::enrichment::malware_bazaar::lookup_hash(&hash, None).await {
-        Ok(Some(info)) => Ok(Json(serde_json::json!({ "found": true, "info": serde_json::to_value(info).unwrap_or_default() }))),
+        Ok(Some(info)) => Ok(Json(
+            serde_json::json!({ "found": true, "info": serde_json::to_value(info).unwrap_or_default() }),
+        )),
         Ok(None) => Ok(Json(serde_json::json!({ "found": false }))),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
 
 /// POST /api/tc/enrichment/openphish/sync — sync OpenPhish feed.
-pub async fn openphish_sync_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+pub async fn openphish_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::enrichment::openphish::sync_feed(store.as_ref()).await {
         Ok(count) => Ok(Json(serde_json::json!({ "ok": true, "synced": count }))),
@@ -2936,7 +3530,9 @@ pub async fn openphish_sync_handler(State(state): State<Arc<GatewayState>>) -> A
 }
 
 /// POST /api/tc/enrichment/sync-all — sync all enrichment sources.
-pub async fn enrichment_sync_all_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<serde_json::Value> {
+pub async fn enrichment_sync_all_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let mut results = serde_json::json!({});
 
@@ -2946,10 +3542,11 @@ pub async fn enrichment_sync_all_handler(State(state): State<Arc<GatewayState>>)
         Err(e) => serde_json::json!({ "ok": false, "error": e }),
     };
     // MITRE
-    results["mitre"] = match crate::enrichment::mitre_attack::sync_attack_techniques(store.as_ref()).await {
-        Ok(n) => serde_json::json!({ "ok": true, "count": n }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e }),
-    };
+    results["mitre"] =
+        match crate::enrichment::mitre_attack::sync_attack_techniques(store.as_ref()).await {
+            Ok(n) => serde_json::json!({ "ok": true, "count": n }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        };
     // CERT-FR
     results["certfr"] = match crate::enrichment::certfr::sync_certfr_alerts(store.as_ref()).await {
         Ok(n) => serde_json::json!({ "ok": true, "count": n }),
@@ -2968,7 +3565,9 @@ pub async fn enrichment_sync_all_handler(State(state): State<Arc<GatewayState>>)
 pub async fn epss_handler(Path(cve_id): Path<String>) -> ApiResult<serde_json::Value> {
     match crate::enrichment::epss::lookup_epss(&cve_id).await {
         Ok(Some(score)) => Ok(Json(serde_json::to_value(score).unwrap_or_default())),
-        Ok(None) => Ok(Json(serde_json::json!({ "error": "CVE not found in EPSS" }))),
+        Ok(None) => Ok(Json(
+            serde_json::json!({ "error": "CVE not found in EPSS" }),
+        )),
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -2993,12 +3592,23 @@ pub async fn priority_score_handler(
 
     // Enrich from all sources
     let in_kev = if !cve_id.is_empty() {
-        crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve_id).await.is_some()
-    } else { false };
+        crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve_id)
+            .await
+            .is_some()
+    } else {
+        false
+    };
 
     let epss = if !cve_id.is_empty() {
-        crate::enrichment::epss::lookup_epss(cve_id).await.ok().flatten().map(|s| s.epss).unwrap_or(0.0)
-    } else { 0.0 };
+        crate::enrichment::epss::lookup_epss(cve_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|s| s.epss)
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
 
     let ip = body["ip"].as_str().unwrap_or("");
     let (gn_noise, gn_malicious) = if !ip.is_empty() {
@@ -3006,15 +3616,25 @@ pub async fn priority_score_handler(
             Ok(r) => (r.noise, r.classification == "malicious"),
             Err(_) => (false, false),
         }
-    } else { (false, false) };
+    } else {
+        (false, false)
+    };
 
     let tf_hits = if !ip.is_empty() {
-        crate::enrichment::threatfox::lookup_ioc(ip, None).await.map(|r| r.len()).unwrap_or(0)
-    } else { 0 };
+        crate::enrichment::threatfox::lookup_ioc(ip, None)
+            .await
+            .map(|r| r.len())
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     let input = crate::enrichment::priority_score::PriorityInput {
-        cvss_score: cvss, in_kev, epss_score: epss,
-        greynoise_noise: gn_noise, greynoise_malicious: gn_malicious,
+        cvss_score: cvss,
+        in_kev,
+        epss_score: epss,
+        greynoise_noise: gn_noise,
+        greynoise_malicious: gn_malicious,
         threatfox_hits: tf_hits,
     };
     let result = crate::enrichment::priority_score::compute_priority(&input);
@@ -3033,7 +3653,8 @@ pub async fn priority_score_handler(
 // ══════════════════════════════════════════════════════════
 
 /// Shared intelligence engine running flag.
-static INTELLIGENCE_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static INTELLIGENCE_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// GET /api/tc/intelligence/situation — get current security situation.
 pub async fn intelligence_situation_handler(
@@ -3042,7 +3663,9 @@ pub async fn intelligence_situation_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.get_setting("_system", "security_situation").await {
         Ok(Some(val)) => Ok(Json(val)),
-        _ => Ok(Json(serde_json::json!({ "global_score": 100.0, "notification_level": "silence", "status": "not_computed" }))),
+        _ => Ok(Json(
+            serde_json::json!({ "global_score": 100.0, "notification_level": "silence", "status": "not_computed" }),
+        )),
     }
 }
 
@@ -3056,17 +3679,28 @@ pub async fn intelligence_cycle_handler(
     // Spawn in background — enrichment calls external APIs (EPSS, GreyNoise, IPinfo)
     let store_clone = store.clone();
     tokio::spawn(async move {
-        let situation = crate::agent::intelligence_engine::run_intelligence_cycle(store_clone.clone()).await;
+        let situation =
+            crate::agent::intelligence_engine::run_intelligence_cycle(store_clone.clone()).await;
 
         // Route notification if level >= Alert
-        if situation.notification_level >= crate::agent::intelligence_engine::NotificationLevel::Alert {
+        if situation.notification_level
+            >= crate::agent::intelligence_engine::NotificationLevel::Alert
+        {
             if let Some(ref alert_msg) = situation.alert_message {
                 let results = crate::agent::notification_router::route_notification(
-                    store_clone.as_ref(), situation.notification_level, alert_msg, &situation.digest_message,
-                ).await;
+                    store_clone.as_ref(),
+                    situation.notification_level,
+                    alert_msg,
+                    &situation.digest_message,
+                )
+                .await;
                 for (ch, r) in &results {
                     if r.is_ok() {
-                        tracing::info!("INTELLIGENCE: Notification sent to {} (level={:?})", ch, situation.notification_level);
+                        tracing::info!(
+                            "INTELLIGENCE: Notification sent to {} (level={:?})",
+                            ch,
+                            situation.notification_level
+                        );
                     }
                 }
             }
@@ -3087,7 +3721,9 @@ pub async fn intelligence_start_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     if INTELLIGENCE_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
-        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_running" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": true, "status": "already_running" }),
+        ));
     }
 
     INTELLIGENCE_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -3098,7 +3734,9 @@ pub async fn intelligence_start_handler(
     );
 
     tracing::info!("INTELLIGENCE: Engine started via API (cycle every 5min)");
-    Ok(Json(serde_json::json!({ "ok": true, "status": "started", "interval": "5min" })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "status": "started", "interval": "5min" }),
+    ))
 }
 
 /// GET /api/tc/notifications/routing — get notification routing config.
@@ -3116,9 +3754,15 @@ pub async fn notification_routing_set_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let routing: crate::agent::notification_router::NotificationRouting = serde_json::from_value(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid routing config: {e}")))?;
-    crate::agent::notification_router::save_routing(store.as_ref(), &routing).await
+    let routing: crate::agent::notification_router::NotificationRouting =
+        serde_json::from_value(body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid routing config: {e}"),
+            )
+        })?;
+    crate::agent::notification_router::save_routing(store.as_ref(), &routing)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
@@ -3128,7 +3772,8 @@ pub async fn notification_settings_get_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let settings = crate::agent::notification_router::load_notification_settings(store.as_ref()).await;
+    let settings =
+        crate::agent::notification_router::load_notification_settings(store.as_ref()).await;
     Ok(Json(serde_json::to_value(settings).unwrap_or_default()))
 }
 
@@ -3138,9 +3783,15 @@ pub async fn notification_settings_set_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let settings: crate::agent::notification_router::NotificationSettings = serde_json::from_value(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid notification settings: {e}")))?;
-    crate::agent::notification_router::save_notification_settings(store.as_ref(), &settings).await
+    let settings: crate::agent::notification_router::NotificationSettings =
+        serde_json::from_value(body).map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid notification settings: {e}"),
+            )
+        })?;
+    crate::agent::notification_router::save_notification_settings(store.as_ref(), &settings)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
@@ -3154,8 +3805,12 @@ pub async fn incidents_archive_resolved_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let count = store.archive_resolved_incidents().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    let count = store.archive_resolved_incidents().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("archive failed: {e}"),
+        )
+    })?;
     tracing::info!("ARCHIVE: {} incidents archived", count);
     Ok(Json(serde_json::json!({ "archived": count })))
 }
@@ -3166,8 +3821,15 @@ pub async fn incident_archive_handler(
     axum::extract::Path(id): axum::extract::Path<i32>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    store.update_incident_status(id, "archived").await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    store
+        .update_incident_status(id, "archived")
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("archive failed: {e}"),
+            )
+        })?;
     Ok(Json(serde_json::json!({ "status": "archived", "id": id })))
 }
 
@@ -3176,8 +3838,12 @@ pub async fn alerts_archive_resolved_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let count = store.archive_resolved_alerts().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("archive failed: {e}")))?;
+    let count = store.archive_resolved_alerts().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("archive failed: {e}"),
+        )
+    })?;
     tracing::info!("ARCHIVE: {} sigma alerts archived", count);
     Ok(Json(serde_json::json!({ "archived": count })))
 }
@@ -3191,26 +3857,35 @@ pub async fn incident_execute_action_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let action = body["action"].as_str().unwrap_or("")
-        .to_string();
+    let action = body["action"].as_str().unwrap_or("").to_string();
     if action.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "missing 'action' field".into()));
     }
     // Append a note to the audit trail before executing
-    let _ = store.add_incident_note(id, &format!("Action lancée : {}", action), "dashboard").await;
+    let _ = store
+        .add_incident_note(id, &format!("Action lancée : {}", action), "dashboard")
+        .await;
 
     // Delegate to remediation_engine (same path as Telegram/HITL)
     let store_arc = store.clone();
-    let (ok, message) = crate::agent::remediation_engine::execute_incident_remediation(
-        store_arc, id, &action,
-    ).await;
+    let (ok, message) =
+        crate::agent::remediation_engine::execute_incident_remediation(store_arc, id, &action)
+            .await;
 
     // Record the outcome
-    let outcome = if ok { format!("✅ {}", message) } else { format!("❌ {}", message) };
-    let _ = store.add_incident_note(id, &outcome, "remediation_engine").await;
+    let outcome = if ok {
+        format!("✅ {}", message)
+    } else {
+        format!("❌ {}", message)
+    };
+    let _ = store
+        .add_incident_note(id, &outcome, "remediation_engine")
+        .await;
 
     if ok {
-        Ok(Json(serde_json::json!({ "status": "ok", "message": message })))
+        Ok(Json(
+            serde_json::json!({ "status": "ok", "message": message }),
+        ))
     } else {
         Err((StatusCode::INTERNAL_SERVER_ERROR, message))
     }
@@ -3224,12 +3899,19 @@ pub async fn incident_reinvestigate_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     // Append a note saying the RSSI requested a re-investigation
-    let _ = store.add_incident_note(id, "Investigation relancée par le RSSI", "dashboard").await;
+    let _ = store
+        .add_incident_note(id, "Investigation relancée par le RSSI", "dashboard")
+        .await;
 
     let store_clone = store.clone();
     tokio::spawn(async move {
         match crate::agent::intelligence_engine::reinvestigate_incident(store_clone, id).await {
-            Ok((mitre, actions)) => tracing::info!("REINVESTIGATE: #{} done — {} MITRE, {} actions", id, mitre, actions),
+            Ok((mitre, actions)) => tracing::info!(
+                "REINVESTIGATE: #{} done — {} MITRE, {} actions",
+                id,
+                mitre,
+                actions
+            ),
             Err(e) => tracing::warn!("REINVESTIGATE: #{} failed — {}", id, e),
         }
     });
@@ -3253,7 +3935,9 @@ pub async fn incident_add_note_handler(
         return Err((StatusCode::BAD_REQUEST, "empty note text".into()));
     }
     let author = body["author"].as_str().unwrap_or("rssi");
-    store.add_incident_note(id, text, author).await
+    store
+        .add_incident_note(id, text, author)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("failed: {e}")))?;
     Ok(Json(serde_json::json!({ "status": "added" })))
 }
@@ -3278,7 +3962,10 @@ pub async fn backups_create_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match crate::agent::backup_manager::create_backup(store.as_ref()).await {
         Ok(info) => Ok(Json(serde_json::to_value(info).unwrap_or_default())),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("backup failed: {e}"))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("backup failed: {e}"),
+        )),
     }
 }
 
@@ -3288,12 +3975,16 @@ pub async fn backups_download_handler(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let bytes = crate::agent::backup_manager::read_backup(store.as_ref(), &name).await
+    let bytes = crate::agent::backup_manager::read_backup(store.as_ref(), &name)
+        .await
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(axum::response::Response::builder()
         .status(200)
         .header("Content-Type", "application/gzip")
-        .header("Content-Disposition", format!("attachment; filename=\"{}\"", name))
+        .header(
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", name),
+        )
         .body(axum::body::Body::from(bytes))
         .unwrap())
 }
@@ -3304,9 +3995,12 @@ pub async fn backups_delete_handler(
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    crate::agent::backup_manager::delete_backup(store.as_ref(), &name).await
+    crate::agent::backup_manager::delete_backup(store.as_ref(), &name)
+        .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "status": "deleted", "name": name })))
+    Ok(Json(
+        serde_json::json!({ "status": "deleted", "name": name }),
+    ))
 }
 
 /// GET /api/tc/backups/settings — get backup auto-schedule settings.
@@ -3325,8 +4019,14 @@ pub async fn backups_settings_set_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let settings: crate::agent::backup_manager::BackupSettings = serde_json::from_value(body)
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Invalid backup settings: {e}")))?;
-    crate::agent::backup_manager::save_settings(store.as_ref(), &settings).await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid backup settings: {e}"),
+            )
+        })?;
+    crate::agent::backup_manager::save_settings(store.as_ref(), &settings)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
@@ -3342,10 +4042,16 @@ pub async fn notification_test_handler(
         "critical" => crate::agent::intelligence_engine::NotificationLevel::Critical,
         _ => crate::agent::intelligence_engine::NotificationLevel::Alert,
     };
-    let message = body["message"].as_str().unwrap_or("ThreatClaw — Test de notification");
+    let message = body["message"]
+        .as_str()
+        .unwrap_or("ThreatClaw — Test de notification");
     let results = crate::agent::notification_router::route_notification(
-        store.as_ref(), level, message, message,
-    ).await;
+        store.as_ref(),
+        level,
+        message,
+        message,
+    )
+    .await;
     let summary: Vec<serde_json::Value> = results.iter().map(|(ch, r)| {
         serde_json::json!({ "channel": ch, "ok": r.is_ok(), "error": r.as_ref().err().map(String::as_str) })
     }).collect();
@@ -3369,20 +4075,36 @@ pub async fn hitl_button_callback_handler(
     let nonce = params.get("nonce").map(String::as_str).unwrap_or("");
 
     if nonce.is_empty() {
-        return Ok(Json(serde_json::json!({ "ok": false, "error": "Missing nonce" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": false, "error": "Missing nonce" }),
+        ));
     }
 
     let approved = action == "approve";
 
     // Log the callback
-    let audit_key = format!("hitl_callback_{}_{}", if approved { "approve" } else { "reject" }, chrono::Utc::now().timestamp());
-    let _ = store.set_setting("_audit", &audit_key, &serde_json::json!({
-        "action": action, "nonce": nonce,
-        "source": "button_callback",
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let audit_key = format!(
+        "hitl_callback_{}_{}",
+        if approved { "approve" } else { "reject" },
+        chrono::Utc::now().timestamp()
+    );
+    let _ = store
+        .set_setting(
+            "_audit",
+            &audit_key,
+            &serde_json::json!({
+                "action": action, "nonce": nonce,
+                "source": "button_callback",
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
-    tracing::info!("HITL: Callback received — action={}, nonce={}", action, &nonce[..8.min(nonce.len())]);
+    tracing::info!(
+        "HITL: Callback received — action={}, nonce={}",
+        action,
+        &nonce[..8.min(nonce.len())]
+    );
 
     // Use the shared NonceManager and process_slack_callback (works for all channels)
     let nonce_mgr = &state.hitl_nonce_manager;
@@ -3393,12 +4115,18 @@ pub async fn hitl_button_callback_handler(
         "button_callback",
         nonce_mgr,
         &params,
-    ).await;
+    )
+    .await;
 
     match result {
         Ok(r) => {
-            tracing::info!("HITL: {} — cmd_id={}, executed={}, success={:?}",
-                if r.approved { "APPROVED" } else { "REJECTED" }, r.cmd_id, r.executed, r.execution_success);
+            tracing::info!(
+                "HITL: {} — cmd_id={}, executed={}, success={:?}",
+                if r.approved { "APPROVED" } else { "REJECTED" },
+                r.cmd_id,
+                r.executed,
+                r.execution_success
+            );
             Ok(Json(serde_json::json!({
                 "ok": true,
                 "action": if r.approved { "approved" } else { "rejected" },
@@ -3433,7 +4161,9 @@ pub async fn bot_start_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     if BOT_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
-        return Ok(Json(serde_json::json!({ "ok": true, "status": "already_running" })));
+        return Ok(Json(
+            serde_json::json!({ "ok": true, "status": "already_running" }),
+        ));
     }
 
     BOT_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -3460,16 +4190,19 @@ pub async fn command_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let message = body["message"].as_str()
+    let message = body["message"]
+        .as_str()
         .ok_or((StatusCode::BAD_REQUEST, "Missing message".to_string()))?;
 
-    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let llm_config =
+        crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
 
     // Parse
     let cmd = crate::agent::command_interpreter::parse_command(message, &llm_config).await;
 
     // Execute (for API, no confirmation needed — RSSI is already authenticated)
-    let result = crate::agent::command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
+    let result =
+        crate::agent::command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
 
     Ok(Json(serde_json::json!({
         "parsed": {
@@ -3507,7 +4240,9 @@ pub async fn anonymizer_rules_list_handler(
         Ok(rules) => Ok(Json(serde_json::json!({ "rules": rules }))),
         Err(e) => {
             tracing::error!("Failed to list anonymizer rules: {e}");
-            Ok(Json(serde_json::json!({ "rules": [], "error": e.to_string() })))
+            Ok(Json(
+                serde_json::json!({ "rules": [], "error": e.to_string() }),
+            ))
         }
     }
 }
@@ -3518,17 +4253,22 @@ pub async fn anonymizer_rules_create_handler(
     Json(body): Json<NewAnonymizerRule>,
 ) -> ApiResult<serde_json::Value> {
     if regex::Regex::new(&body.pattern).is_err() {
-        return Ok(Json(serde_json::json!({ "error": "Invalid regex pattern" })));
+        return Ok(Json(
+            serde_json::json!({ "error": "Invalid regex pattern" }),
+        ));
     }
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    match store.create_anonymizer_rule(
-        &body.label,
-        &body.pattern,
-        body.token_prefix.as_deref().unwrap_or("CUSTOM"),
-        body.capture_group.unwrap_or(0),
-    ).await {
+    match store
+        .create_anonymizer_rule(
+            &body.label,
+            &body.pattern,
+            body.token_prefix.as_deref().unwrap_or("CUSTOM"),
+            body.capture_group.unwrap_or(0),
+        )
+        .await
+    {
         Ok(id) => Ok(Json(serde_json::json!({ "id": id, "status": "created" }))),
-        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() })))
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }
 
@@ -3540,7 +4280,7 @@ pub async fn anonymizer_rules_delete_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.delete_anonymizer_rule(&id).await {
         Ok(_) => Ok(Json(serde_json::json!({ "status": "deleted" }))),
-        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() })))
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }
 
@@ -3560,10 +4300,13 @@ pub async fn webhook_ingest_handler(
         None => return StatusCode::OK, // Silent drop
     };
     // See ADR-040: prefer header over query param (query params are logged by proxies)
-    let token = headers.get("x-webhook-token").and_then(|v| v.to_str().ok())
+    let token = headers
+        .get("x-webhook-token")
+        .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("token").map(|s| s.as_str()))
         .unwrap_or("");
-    let count = crate::connectors::webhook_ingest::process_webhook(store, &source, token, &body).await;
+    let count =
+        crate::connectors::webhook_ingest::process_webhook(store, &source, token, &body).await;
     if count > 0 {
         tracing::info!("WEBHOOK: {} events from source {}", count, source);
     }
@@ -3601,11 +4344,18 @@ pub async fn enrichment_safebrowsing_handler(
     if let Ok(Some(cached)) = store.get_enrichment_cache("safebrowsing", url).await {
         return Ok(Json(cached));
     }
-    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-safebrowsing", "GOOGLE_SAFEBROWSING_KEY").await;
+    let api_key = get_skill_config_field(
+        store.as_ref(),
+        "skill-enrichment-safebrowsing",
+        "GOOGLE_SAFEBROWSING_KEY",
+    )
+    .await;
     match crate::enrichment::google_safebrowsing::check_url(url, &api_key).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("safebrowsing", url, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("safebrowsing", url, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3624,7 +4374,9 @@ pub async fn enrichment_ssllabs_handler(
     match crate::enrichment::ssl_labs::analyze(&host).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("ssllabs", &host, &result, 168).await;
+            let _ = store
+                .set_enrichment_cache("ssllabs", &host, &result, 168)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3643,7 +4395,9 @@ pub async fn enrichment_observatory_handler(
     match crate::enrichment::mozilla_observatory::scan(&host).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("observatory", &host, &result, 168).await;
+            let _ = store
+                .set_enrichment_cache("observatory", &host, &result, 168)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3662,7 +4416,9 @@ pub async fn enrichment_crtsh_handler(
     match crate::enrichment::crt_sh::lookup_domain(&domain).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("crtsh", &domain, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("crtsh", &domain, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3678,11 +4434,18 @@ pub async fn enrichment_wpscan_handler(
     if let Ok(Some(cached)) = store.get_enrichment_cache("wpscan", &slug).await {
         return Ok(Json(cached));
     }
-    let api_token = get_skill_config_field(store.as_ref(), "skill-enrichment-wpscan", "WPSCAN_API_TOKEN").await;
+    let api_token = get_skill_config_field(
+        store.as_ref(),
+        "skill-enrichment-wpscan",
+        "WPSCAN_API_TOKEN",
+    )
+    .await;
     match crate::enrichment::wpscan::lookup_plugin(&slug, &api_token).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("wpscan", &slug, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("wpscan", &slug, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3699,12 +4462,23 @@ pub async fn enrichment_phishtank_handler(
     if let Ok(Some(cached)) = store.get_enrichment_cache("phishtank", url).await {
         return Ok(Json(cached));
     }
-    let app_key = get_skill_config_field(store.as_ref(), "skill-enrichment-phishtank", "PHISHTANK_APP_KEY").await;
-    let key_opt = if app_key.is_empty() { None } else { Some(app_key.as_str()) };
+    let app_key = get_skill_config_field(
+        store.as_ref(),
+        "skill-enrichment-phishtank",
+        "PHISHTANK_APP_KEY",
+    )
+    .await;
+    let key_opt = if app_key.is_empty() {
+        None
+    } else {
+        Some(app_key.as_str())
+    };
     match crate::enrichment::phishtank::check_url(url, key_opt).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("phishtank", url, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("phishtank", url, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3723,7 +4497,9 @@ pub async fn enrichment_spamhaus_handler(
     match crate::enrichment::spamhaus::check_ip(&ip).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("spamhaus", &ip, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("spamhaus", &ip, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3743,7 +4519,9 @@ pub async fn enrichment_vulnlookup_handler(
     match crate::enrichment::vuln_lookup::lookup_cve(&cve_id).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("vulnlookup", &cve_id, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("vulnlookup", &cve_id, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3778,11 +4556,18 @@ pub async fn enrichment_securitytrails_handler(
     if let Ok(Some(cached)) = store.get_enrichment_cache("securitytrails", &domain).await {
         return Ok(Json(cached));
     }
-    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-securitytrails", "SECURITYTRAILS_API_KEY").await;
+    let api_key = get_skill_config_field(
+        store.as_ref(),
+        "skill-enrichment-securitytrails",
+        "SECURITYTRAILS_API_KEY",
+    )
+    .await;
     match crate::enrichment::securitytrails::lookup_domain(&domain, &api_key).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("securitytrails", &domain, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("securitytrails", &domain, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3801,11 +4586,18 @@ pub async fn enrichment_urlscan_handler(
     if let Ok(Some(cached)) = store.get_enrichment_cache("urlscan", url).await {
         return Ok(Json(cached));
     }
-    let api_key = get_skill_config_field(store.as_ref(), "skill-enrichment-urlscan", "URLSCAN_API_KEY").await;
+    let api_key = get_skill_config_field(
+        store.as_ref(),
+        "skill-enrichment-urlscan",
+        "URLSCAN_API_KEY",
+    )
+    .await;
     match crate::enrichment::urlscan::scan_url(url, &api_key).await {
         Ok(r) => {
             let result = serde_json::json!(r);
-            let _ = store.set_enrichment_cache("urlscan", url, &result, 24).await;
+            let _ = store
+                .set_enrichment_cache("urlscan", url, &result, 24)
+                .await;
             Ok(Json(result))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
@@ -3836,7 +4628,9 @@ pub async fn enrichment_wordfence_lookup_handler(
     Path(slug): Path<String>,
 ) -> ApiResult<serde_json::Value> {
     let vulns = crate::enrichment::wordfence_intel::lookup_slug(&slug);
-    Ok(Json(serde_json::json!({ "slug": slug, "vulnerabilities": vulns, "count": vulns.len() })))
+    Ok(Json(
+        serde_json::json!({ "slug": slug, "vulnerabilities": vulns, "count": vulns.len() }),
+    ))
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3850,7 +4644,9 @@ pub async fn connector_cloudflare_sync_handler(
     let token = get_skill_config_field(store.as_ref(), "skill-cloudflare", "CF_API_TOKEN").await;
     let zone_id = get_skill_config_field(store.as_ref(), "skill-cloudflare", "CF_ZONE_ID").await;
     let config = crate::connectors::cloudflare::CloudflareConfig {
-        api_token: token, zone_id, max_events: 100,
+        api_token: token,
+        zone_id,
+        max_events: 100,
     };
     let result = crate::connectors::cloudflare::sync_cloudflare(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
@@ -3860,10 +4656,17 @@ pub async fn connector_crowdsec_sync_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let url = get_skill_config_field(store.as_ref(), "skill-crowdsec-connector", "CROWDSEC_URL").await;
-    let key = get_skill_config_field(store.as_ref(), "skill-crowdsec-connector", "CROWDSEC_BOUNCER_KEY").await;
+    let url =
+        get_skill_config_field(store.as_ref(), "skill-crowdsec-connector", "CROWDSEC_URL").await;
+    let key = get_skill_config_field(
+        store.as_ref(),
+        "skill-crowdsec-connector",
+        "CROWDSEC_BOUNCER_KEY",
+    )
+    .await;
     let config = crate::connectors::crowdsec::CrowdSecConfig {
-        url, bouncer_key: key,
+        url,
+        bouncer_key: key,
     };
     let result = crate::connectors::crowdsec::sync_crowdsec(store.as_ref(), &config, false).await;
     Ok(Json(serde_json::json!(result)))
@@ -3873,18 +4676,26 @@ pub async fn connector_uptimerobot_sync_handler(
     State(state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let api_key = get_skill_config_field(store.as_ref(), "skill-uptimerobot", "UPTIMEROBOT_API_KEY").await;
+    let api_key =
+        get_skill_config_field(store.as_ref(), "skill-uptimerobot", "UPTIMEROBOT_API_KEY").await;
     let config = crate::connectors::uptimerobot::UptimeRobotConfig {
-        api_key, latency_threshold_ms: 2000, cert_warn_days: 14,
+        api_key,
+        latency_threshold_ms: 2000,
+        cert_warn_days: 14,
     };
     let result = crate::connectors::uptimerobot::sync_uptimerobot(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
 
 /// Helper: get a config field for a skill.
-async fn get_skill_config_field(store: &dyn crate::db::Database, skill_id: &str, field: &str) -> String {
+async fn get_skill_config_field(
+    store: &dyn crate::db::Database,
+    skill_id: &str,
+    field: &str,
+) -> String {
     match store.get_skill_config(skill_id).await {
-        Ok(configs) => configs.iter()
+        Ok(configs) => configs
+            .iter()
             .find(|c| c.key == field)
             .map(|c| c.value.clone())
             .unwrap_or_default(),
@@ -3903,10 +4714,20 @@ pub async fn assets_list_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let category = params.get("category").map(|s| s.as_str());
     let status = params.get("status").map(|s| s.as_str());
-    let limit: i64 = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50);
-    let page: i64 = params.get("page").and_then(|s| s.parse().ok()).unwrap_or(1).max(1);
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50);
+    let page: i64 = params
+        .get("page")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1)
+        .max(1);
     let offset = (page - 1) * limit;
-    let total = store.count_assets_filtered(category, status).await.unwrap_or(0);
+    let total = store
+        .count_assets_filtered(category, status)
+        .await
+        .unwrap_or(0);
     match store.list_assets(category, status, limit, offset).await {
         Ok(assets) => {
             let pages = (total + limit - 1) / limit;
@@ -3952,13 +4773,48 @@ pub async fn asset_security_handler(
         logs.into_iter().next().map(|r| r.data)
     };
 
-    let users = latest(store.query_logs(1440, Some(hn), Some("osquery.users"), 1).await.unwrap_or_default());
-    let ssh_keys = latest(store.query_logs(1440, Some(hn), Some("osquery.ssh_keys"), 1).await.unwrap_or_default());
-    let ports = latest(store.query_logs(1440, Some(hn), Some("osquery.ports"), 1).await.unwrap_or_default());
-    let logins = latest(store.query_logs(1440, Some(hn), Some("osquery.logins"), 1).await.unwrap_or_default());
-    let docker = latest(store.query_logs(1440, Some(hn), Some("osquery.docker"), 1).await.unwrap_or_default());
-    let shares = latest(store.query_logs(1440, Some(hn), Some("osquery.shares"), 1).await.unwrap_or_default());
-    let patches = latest(store.query_logs(1440, Some(hn), Some("osquery.patches"), 1).await.unwrap_or_default());
+    let users = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.users"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let ssh_keys = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.ssh_keys"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let ports = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.ports"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let logins = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.logins"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let docker = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.docker"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let shares = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.shares"), 1)
+            .await
+            .unwrap_or_default(),
+    );
+    let patches = latest(
+        store
+            .query_logs(1440, Some(hn), Some("osquery.patches"), 1)
+            .await
+            .unwrap_or_default(),
+    );
 
     let has_agent = users.is_some() || ports.is_some();
 
@@ -3983,7 +4839,8 @@ pub async fn assets_upsert_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     use crate::db::threatclaw_store::NewAsset;
 
-    let id = body["id"].as_str()
+    let id = body["id"]
+        .as_str()
         .unwrap_or(&uuid::Uuid::new_v4().to_string())
         .to_string();
 
@@ -3994,8 +4851,13 @@ pub async fn assets_upsert_handler(
         subcategory: body["subcategory"].as_str().map(String::from),
         role: body["role"].as_str().map(String::from),
         criticality: body["criticality"].as_str().unwrap_or("medium").to_string(),
-        ip_addresses: body["ip_addresses"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        ip_addresses: body["ip_addresses"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .or_else(|| body["ip"].as_str().map(|ip| vec![ip.to_string()]))
             .unwrap_or_default(),
         mac_address: body["mac_address"].as_str().map(String::from),
@@ -4004,12 +4866,17 @@ pub async fn assets_upsert_handler(
         url: body["url"].as_str().map(String::from),
         os: body["os"].as_str().map(String::from),
         mac_vendor: body["mac_vendor"].as_str().map(String::from),
-            services: serde_json::json!([]),
+        services: serde_json::json!([]),
         source: body["source"].as_str().unwrap_or("manual").to_string(),
         owner: body["owner"].as_str().map(String::from),
         location: body["location"].as_str().map(String::from),
-        tags: body["tags"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        tags: body["tags"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
     };
 
@@ -4017,13 +4884,27 @@ pub async fn assets_upsert_handler(
         Ok(ref aid) => {
             // Track which fields the user manually changed (protects from auto-discovery overwrite)
             let mut modified_fields: Vec<&str> = vec![];
-            if body.get("name").is_some() { modified_fields.push("name"); }
-            if body.get("hostname").is_some() { modified_fields.push("hostname"); }
-            if body.get("category").is_some() { modified_fields.push("category"); }
-            if body.get("criticality").is_some() { modified_fields.push("criticality"); }
-            if body.get("owner").is_some() { modified_fields.push("owner"); }
-            if body.get("location").is_some() { modified_fields.push("location"); }
-            if body.get("tags").is_some() { modified_fields.push("tags"); }
+            if body.get("name").is_some() {
+                modified_fields.push("name");
+            }
+            if body.get("hostname").is_some() {
+                modified_fields.push("hostname");
+            }
+            if body.get("category").is_some() {
+                modified_fields.push("category");
+            }
+            if body.get("criticality").is_some() {
+                modified_fields.push("criticality");
+            }
+            if body.get("owner").is_some() {
+                modified_fields.push("owner");
+            }
+            if body.get("location").is_some() {
+                modified_fields.push("location");
+            }
+            if body.get("tags").is_some() {
+                modified_fields.push("tags");
+            }
             if !modified_fields.is_empty() {
                 let _ = store.mark_asset_user_modified(aid, &modified_fields).await;
             }
@@ -4051,7 +4932,9 @@ pub async fn assets_counts_handler(
     match store.count_assets_by_category().await {
         Ok(counts) => {
             let total: i64 = counts.iter().map(|(_, c)| c).sum();
-            Ok(Json(serde_json::json!({ "counts": counts.iter().map(|(k, v)| serde_json::json!({"category": k, "count": v})).collect::<Vec<_>>(), "total": total })))
+            Ok(Json(
+                serde_json::json!({ "counts": counts.iter().map(|(k, v)| serde_json::json!({"category": k, "count": v})).collect::<Vec<_>>(), "total": total }),
+            ))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
@@ -4078,9 +4961,17 @@ pub async fn assets_category_upsert_handler(
         label: body["label"].as_str().unwrap_or("Custom").to_string(),
         label_en: body["label_en"].as_str().map(String::from),
         icon: body["icon"].as_str().unwrap_or("box").to_string(),
-        color: body["color"].as_str().unwrap_or("var(--tc-blue)").to_string(),
-        subcategories: body["subcategories"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        color: body["color"]
+            .as_str()
+            .unwrap_or("var(--tc-blue)")
+            .to_string(),
+        subcategories: body["subcategories"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
         is_builtin: false,
     };
@@ -4154,10 +5045,19 @@ pub async fn db_health_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     // Use execute_cypher for raw SQL (it handles connection pooling)
     // But we need a simpler approach — use get_dashboard_metrics + counts
-    let metrics = store.get_dashboard_metrics().await.unwrap_or(crate::db::threatclaw_store::DashboardMetrics {
-        security_score: 0.0, findings_critical: 0, findings_high: 0, findings_medium: 0, findings_low: 0,
-        alerts_total: 0, alerts_new: 0, cloud_score: 0.0, darkweb_leaks: 0,
-    });
+    let metrics = store.get_dashboard_metrics().await.unwrap_or(
+        crate::db::threatclaw_store::DashboardMetrics {
+            security_score: 0.0,
+            findings_critical: 0,
+            findings_high: 0,
+            findings_medium: 0,
+            findings_low: 0,
+            alerts_total: 0,
+            alerts_new: 0,
+            cloud_score: 0.0,
+            darkweb_leaks: 0,
+        },
+    );
     let assets = store.count_assets_by_category().await.unwrap_or_default();
     let total_assets: i64 = assets.iter().map(|(_, c)| c).sum();
     let log_count = store.count_logs(60 * 24).await.unwrap_or(0); // last 24h
@@ -4198,25 +5098,38 @@ pub async fn backup_export_handler(
     let categories = store.list_asset_categories().await.unwrap_or_default();
     backup["asset_categories"] = serde_json::json!(categories);
 
-    let assets = store.list_assets(None, None, 10000, 0).await.unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 10000, 0)
+        .await
+        .unwrap_or_default();
     backup["assets"] = serde_json::json!(assets);
 
     // Settings (config keys) — serialize manually since SettingRow may not impl Serialize
     let all_settings = store.list_settings("_system").await.unwrap_or_default();
-    let settings_json: Vec<serde_json::Value> = all_settings.iter()
+    let settings_json: Vec<serde_json::Value> = all_settings
+        .iter()
         .map(|s| serde_json::json!({"key": s.key, "value": s.value}))
         .collect();
     backup["settings"] = serde_json::json!(settings_json);
 
     // Full mode: include alerts + findings + logs
     if full {
-        let alerts = store.list_alerts(None, None, 5000, 0).await.unwrap_or_default();
+        let alerts = store
+            .list_alerts(None, None, 5000, 0)
+            .await
+            .unwrap_or_default();
         backup["alerts"] = serde_json::json!(alerts);
 
-        let findings = store.list_findings(None, None, None, 5000, 0).await.unwrap_or_default();
+        let findings = store
+            .list_findings(None, None, None, 5000, 0)
+            .await
+            .unwrap_or_default();
         backup["findings"] = serde_json::json!(findings);
 
-        let logs = store.query_logs(60 * 24 * 30, None, None, 100000).await.unwrap_or_default(); // last 30 days
+        let logs = store
+            .query_logs(60 * 24 * 30, None, None, 100000)
+            .await
+            .unwrap_or_default(); // last 30 days
         backup["logs_count"] = serde_json::json!(logs.len());
         // Don't include raw logs in JSON (too big) — just the count
     }
@@ -4233,7 +5146,9 @@ pub async fn backup_import_handler(
 
     // Import company profile
     if let Some(cp) = backup.get("company_profile") {
-        if let Ok(profile) = serde_json::from_value::<crate::db::threatclaw_store::CompanyProfile>(cp.clone()) {
+        if let Ok(profile) =
+            serde_json::from_value::<crate::db::threatclaw_store::CompanyProfile>(cp.clone())
+        {
             let _ = store.update_company_profile(&profile).await;
             imported.push("company_profile");
         }
@@ -4255,7 +5170,9 @@ pub async fn backup_import_handler(
     // Import assets
     if let Some(assets) = backup["assets"].as_array() {
         for a in assets {
-            if let Ok(asset) = serde_json::from_value::<crate::db::threatclaw_store::NewAsset>(a.clone()) {
+            if let Ok(asset) =
+                serde_json::from_value::<crate::db::threatclaw_store::NewAsset>(a.clone())
+            {
                 let _ = store.upsert_asset(&asset).await;
             }
         }
@@ -4265,7 +5182,9 @@ pub async fn backup_import_handler(
     // Import custom categories
     if let Some(cats) = backup["asset_categories"].as_array() {
         for c in cats {
-            if let Ok(cat) = serde_json::from_value::<crate::db::threatclaw_store::AssetCategory>(c.clone()) {
+            if let Ok(cat) =
+                serde_json::from_value::<crate::db::threatclaw_store::AssetCategory>(c.clone())
+            {
                 if !cat.is_builtin {
                     let _ = store.upsert_asset_category(&cat).await;
                 }
@@ -4295,7 +5214,8 @@ pub async fn version_check_handler(
         .get("https://api.github.com/repos/threatclaw/threatclaw/releases/latest")
         .header("User-Agent", "ThreatClaw")
         .timeout(std::time::Duration::from_secs(5))
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
@@ -4326,26 +5246,71 @@ pub async fn company_update_handler(
         company_size: body["company_size"].as_str().unwrap_or("small").to_string(),
         employee_count: body["employee_count"].as_i64().map(|n| n as i32),
         country: body["country"].as_str().unwrap_or("FR").to_string(),
-        business_hours: body["business_hours"].as_str().unwrap_or("office").to_string(),
-        business_hours_start: body["business_hours_start"].as_str().unwrap_or("08:00").to_string(),
-        business_hours_end: body["business_hours_end"].as_str().unwrap_or("18:00").to_string(),
-        work_days: body["work_days"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_else(|| vec!["mon".into(),"tue".into(),"wed".into(),"thu".into(),"fri".into()]),
+        business_hours: body["business_hours"]
+            .as_str()
+            .unwrap_or("office")
+            .to_string(),
+        business_hours_start: body["business_hours_start"]
+            .as_str()
+            .unwrap_or("08:00")
+            .to_string(),
+        business_hours_end: body["business_hours_end"]
+            .as_str()
+            .unwrap_or("18:00")
+            .to_string(),
+        work_days: body["work_days"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                vec![
+                    "mon".into(),
+                    "tue".into(),
+                    "wed".into(),
+                    "thu".into(),
+                    "fri".into(),
+                ]
+            }),
         geo_scope: body["geo_scope"].as_str().unwrap_or("france").to_string(),
-        allowed_countries: body["allowed_countries"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        allowed_countries: body["allowed_countries"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_else(|| vec!["FR".into()]),
-        blocked_countries: body["blocked_countries"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        blocked_countries: body["blocked_countries"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
-        critical_systems: body["critical_systems"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        critical_systems: body["critical_systems"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
-        compliance_frameworks: body["compliance_frameworks"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        compliance_frameworks: body["compliance_frameworks"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
-        anomaly_sensitivity: body["anomaly_sensitivity"].as_str().unwrap_or("medium").to_string(),
+        anomaly_sensitivity: body["anomaly_sensitivity"]
+            .as_str()
+            .unwrap_or("medium")
+            .to_string(),
     };
     match store.update_company_profile(&profile).await {
         Ok(_) => Ok(Json(serde_json::json!({ "status": "saved" }))),
@@ -4377,8 +5342,14 @@ pub async fn connector_unifi_sync_handler(
     let password = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_password").await;
     let site = get_skill_config_field(store.as_ref(), "skill-unifi", "unifi_site").await;
     let config = crate::connectors::unifi::UnifiConfig {
-        url, username, password,
-        site: if site.is_empty() { "default".into() } else { site },
+        url,
+        username,
+        password,
+        site: if site.is_empty() {
+            "default".into()
+        } else {
+            site
+        },
         no_tls_verify: true,
     };
     let result = crate::connectors::unifi::sync_unifi(store.as_ref(), &config).await;
@@ -4402,16 +5373,23 @@ pub async fn connector_freebox_sync_handler(
     let url = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_url").await;
     // Token may be stored as JSON string "token" or raw — handle both
     let app_token = {
-        let raw = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
+        let raw =
+            get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
         let trimmed = raw.trim().trim_matches('"').to_string();
         trimmed
     };
     tracing::debug!("FREEBOX SYNC: url={}, token_len={}", url, app_token.len());
     if app_token.is_empty() {
-        return Ok(Json(serde_json::json!({"error": "Freebox app_token not configured. Run pairing first."})));
+        return Ok(Json(
+            serde_json::json!({"error": "Freebox app_token not configured. Run pairing first."}),
+        ));
     }
     let config = crate::connectors::freebox::FreeboxConfig {
-        url: if url.is_empty() { "http://mafreebox.freebox.fr".into() } else { url },
+        url: if url.is_empty() {
+            "http://mafreebox.freebox.fr".into()
+        } else {
+            url
+        },
         app_token,
     };
     let result = crate::connectors::freebox::sync_freebox(store.as_ref(), &config).await;
@@ -4423,15 +5401,23 @@ pub async fn connector_freebox_pair_handler(
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let url = body["url"].as_str().unwrap_or("http://mafreebox.freebox.fr");
+    let url = body["url"]
+        .as_str()
+        .unwrap_or("http://mafreebox.freebox.fr");
 
     match crate::connectors::freebox::request_pairing(url).await {
         Ok((token, track_id)) => {
-            let _ = store.set_setting("_system", "freebox_pending_token", &serde_json::json!({
-                "app_token": token,
-                "track_id": track_id,
-                "url": url,
-            })).await;
+            let _ = store
+                .set_setting(
+                    "_system",
+                    "freebox_pending_token",
+                    &serde_json::json!({
+                        "app_token": token,
+                        "track_id": track_id,
+                        "url": url,
+                    }),
+                )
+                .await;
             Ok(Json(serde_json::json!({
                 "status": "pending",
                 "track_id": track_id,
@@ -4448,18 +5434,27 @@ pub async fn connector_freebox_pair_status_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // Check if already paired (token exists and is non-empty)
-    let existing_token = get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
+    let existing_token =
+        get_skill_config_field(store.as_ref(), "skill-freebox", "freebox_app_token").await;
     let existing_trimmed = existing_token.trim().trim_matches('"');
     if !existing_trimmed.is_empty() {
-        return Ok(Json(serde_json::json!({"status": "granted", "message": "Freebox appairée"})));
+        return Ok(Json(
+            serde_json::json!({"status": "granted", "message": "Freebox appairée"}),
+        ));
     }
 
-    let pending = store.get_setting("_system", "freebox_pending_token").await.ok().flatten();
+    let pending = store
+        .get_setting("_system", "freebox_pending_token")
+        .await
+        .ok()
+        .flatten();
     if pending.is_none() || pending.as_ref().map(|v| v.is_null()).unwrap_or(true) {
         return Ok(Json(serde_json::json!({"status": "no_pending"})));
     }
     let pending = pending.unwrap();
-    let url = pending["url"].as_str().unwrap_or("http://mafreebox.freebox.fr");
+    let url = pending["url"]
+        .as_str()
+        .unwrap_or("http://mafreebox.freebox.fr");
     let track_id = pending["track_id"].as_i64().unwrap_or(0);
     let app_token = pending["app_token"].as_str().unwrap_or("");
 
@@ -4467,10 +5462,26 @@ pub async fn connector_freebox_pair_status_handler(
         Ok(status) => {
             if status == "granted" {
                 tracing::info!("FREEBOX PAIR: Granted! Token length: {}", app_token.len());
-                let _ = store.set_setting("skill-freebox", "freebox_app_token", &serde_json::Value::String(app_token.to_string())).await;
-                let _ = store.set_setting("skill-freebox", "freebox_url", &serde_json::Value::String(url.to_string())).await;
-                let _ = store.set_setting("_system", "freebox_pending_token", &serde_json::json!(null)).await;
-                Ok(Json(serde_json::json!({"status": "granted", "message": "Freebox appairée !"})))
+                let _ = store
+                    .set_setting(
+                        "skill-freebox",
+                        "freebox_app_token",
+                        &serde_json::Value::String(app_token.to_string()),
+                    )
+                    .await;
+                let _ = store
+                    .set_setting(
+                        "skill-freebox",
+                        "freebox_url",
+                        &serde_json::Value::String(url.to_string()),
+                    )
+                    .await;
+                let _ = store
+                    .set_setting("_system", "freebox_pending_token", &serde_json::json!(null))
+                    .await;
+                Ok(Json(
+                    serde_json::json!({"status": "granted", "message": "Freebox appairée !"}),
+                ))
             } else {
                 Ok(Json(serde_json::json!({"status": status})))
             }
@@ -4496,8 +5507,15 @@ pub async fn connector_zeek_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let log_dir = get_skill_config_field(store.as_ref(), "skill-zeek", "zeek_log_dir").await;
-    let dir = if log_dir.is_empty() { "/opt/zeek/logs/current".to_string() } else { log_dir };
-    let config = crate::connectors::zeek::ZeekConfig { log_dir: dir, sync_interval_minutes: 5 };
+    let dir = if log_dir.is_empty() {
+        "/opt/zeek/logs/current".to_string()
+    } else {
+        log_dir
+    };
+    let config = crate::connectors::zeek::ZeekConfig {
+        log_dir: dir,
+        sync_interval_minutes: 5,
+    };
     let result = crate::connectors::zeek::sync_zeek(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -4507,8 +5525,14 @@ pub async fn connector_suricata_sync_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let eve_path = get_skill_config_field(store.as_ref(), "skill-suricata", "eve_json_path").await;
-    let path = if eve_path.is_empty() { "/var/log/suricata/eve.json".to_string() } else { eve_path };
-    let config = crate::connectors::suricata::SuricataConfig { eve_json_path: path };
+    let path = if eve_path.is_empty() {
+        "/var/log/suricata/eve.json".to_string()
+    } else {
+        eve_path
+    };
+    let config = crate::connectors::suricata::SuricataConfig {
+        eve_json_path: path,
+    };
     let result = crate::connectors::suricata::sync_suricata(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -4547,7 +5571,10 @@ pub async fn export_data_handler(
     let company = store.get_company_profile().await.unwrap_or_default();
 
     if path.contains("assets") {
-        let assets = store.list_assets(None, None, 10000, 0).await.unwrap_or_default();
+        let assets = store
+            .list_assets(None, None, 10000, 0)
+            .await
+            .unwrap_or_default();
         return Ok(Json(serde_json::json!({
             "type": "assets", "company_name": company.company_name,
             "exported_at": chrono::Utc::now().to_rfc3339(), "count": assets.len(),
@@ -4556,7 +5583,10 @@ pub async fn export_data_handler(
     }
 
     if path.contains("alerts") {
-        let alerts = store.list_alerts(None, None, 5000, 0).await.unwrap_or_default();
+        let alerts = store
+            .list_alerts(None, None, 5000, 0)
+            .await
+            .unwrap_or_default();
         return Ok(Json(serde_json::json!({
             "type": "alerts", "company_name": company.company_name,
             "exported_at": chrono::Utc::now().to_rfc3339(), "count": alerts.len(),
@@ -4565,7 +5595,10 @@ pub async fn export_data_handler(
     }
 
     if path.contains("findings") {
-        let findings = store.list_findings(None, None, None, 5000, 0).await.unwrap_or_default();
+        let findings = store
+            .list_findings(None, None, None, 5000, 0)
+            .await
+            .unwrap_or_default();
         return Ok(Json(serde_json::json!({
             "type": "findings", "company_name": company.company_name,
             "exported_at": chrono::Utc::now().to_rfc3339(), "count": findings.len(),
@@ -4575,7 +5608,10 @@ pub async fn export_data_handler(
 
     if path.contains("iocs") {
         // Extract IOCs from alerts (source IPs) + findings (CVEs)
-        let alerts = store.list_alerts(None, None, 10000, 0).await.unwrap_or_default();
+        let alerts = store
+            .list_alerts(None, None, 10000, 0)
+            .await
+            .unwrap_or_default();
         let mut ips: std::collections::HashSet<String> = std::collections::HashSet::new();
         for a in &alerts {
             if let Some(ref ip) = a.source_ip {
@@ -4615,9 +5651,18 @@ pub async fn export_stix2_handler(
     let is_misp = uri.path().contains("misp");
 
     // Fetch graph data
-    let alerts = store.list_alerts(None, None, 1000, 0).await.unwrap_or_default();
-    let findings = store.list_findings(None, None, None, 1000, 0).await.unwrap_or_default();
-    let assets = store.list_assets(None, None, 1000, 0).await.unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
+    let findings = store
+        .list_findings(None, None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
 
     if is_misp {
         // MISP Event format
@@ -4641,15 +5686,13 @@ pub async fn export_stix2_handler(
     }
 
     // STIX 2.1 Bundle
-    let mut objects = vec![
-        serde_json::json!({
-            "type": "identity", "spec_version": "2.1",
-            "id": format!("identity--{}", uuid::Uuid::new_v4()),
-            "name": company.company_name.as_deref().unwrap_or("ThreatClaw Instance"),
-            "identity_class": "organization",
-            "created": chrono::Utc::now().to_rfc3339(),
-        }),
-    ];
+    let mut objects = vec![serde_json::json!({
+        "type": "identity", "spec_version": "2.1",
+        "id": format!("identity--{}", uuid::Uuid::new_v4()),
+        "name": company.company_name.as_deref().unwrap_or("ThreatClaw Instance"),
+        "identity_class": "organization",
+        "created": chrono::Utc::now().to_rfc3339(),
+    })];
 
     // Add indicators from alerts
     for a in alerts.iter().take(50) {
@@ -4683,14 +5726,21 @@ fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Ve
     use std::io::Write;
     // Use /app/data/reports as temp dir (owned by threatclaw user) with unique subdir per call
     let base_tmp = std::path::PathBuf::from("/app/data/reports");
-    let tmp = base_tmp.join(format!("tc-report-{}-{}", std::process::id(), std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
+    let tmp = base_tmp.join(format!(
+        "tc-report-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
     std::fs::create_dir_all(&tmp).map_err(|e| format!("mkdir: {e}"))?;
 
     // Write data.json
     let data_path = tmp.join("data.json");
     let mut f = std::fs::File::create(&data_path).map_err(|e| format!("data.json: {e}"))?;
-    f.write_all(serde_json::to_string_pretty(data).unwrap().as_bytes()).map_err(|e| format!("write: {e}"))?;
+    f.write_all(serde_json::to_string_pretty(data).unwrap().as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
 
     // Copy template + common.typ — try /app/templates first, then relative "templates"
     let tpl_dir = if std::path::Path::new("/app/templates").exists() {
@@ -4706,7 +5756,8 @@ fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Ve
     }
 
     std::fs::copy(&common_src, tmp.join("common.typ")).map_err(|e| format!("copy common: {e}"))?;
-    std::fs::copy(&tpl_src, tmp.join(format!("{template_name}.typ"))).map_err(|e| format!("copy tpl: {e}"))?;
+    std::fs::copy(&tpl_src, tmp.join(format!("{template_name}.typ")))
+        .map_err(|e| format!("copy tpl: {e}"))?;
 
     // Copy label files for multilingual templates
     let labels_dir = tpl_dir.join("labels");
@@ -4715,7 +5766,12 @@ fn compile_typst_pdf(template_name: &str, data: &serde_json::Value) -> Result<Ve
         std::fs::create_dir_all(&tmp_labels).map_err(|e| format!("mkdir labels: {e}"))?;
         if let Ok(entries) = std::fs::read_dir(&labels_dir) {
             for entry in entries.flatten() {
-                if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
+                if entry
+                    .path()
+                    .extension()
+                    .map(|e| e == "json")
+                    .unwrap_or(false)
+                {
                     let _ = std::fs::copy(entry.path(), tmp_labels.join(entry.file_name()));
                 }
             }
@@ -4752,7 +5808,10 @@ pub async fn export_report_handler(
     axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
     Json(body): Json<serde_json::Value>,
 ) -> Response {
-    let format = body.get("format").and_then(|f| f.as_str()).unwrap_or("json");
+    let format = body
+        .get("format")
+        .and_then(|f| f.as_str())
+        .unwrap_or("json");
     let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
     let store = match state.store.as_ref() {
         Some(s) => s,
@@ -4762,12 +5821,28 @@ pub async fn export_report_handler(
     let path = uri.path();
     let now = chrono::Utc::now();
 
-    let alerts = store.list_alerts(None, None, 1000, 0).await.unwrap_or_default();
-    let findings = store.list_findings(None, None, None, 1000, 0).await.unwrap_or_default();
-    let assets = store.list_assets(None, None, 1000, 0).await.unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
+    let findings = store
+        .list_findings(None, None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 1000, 0)
+        .await
+        .unwrap_or_default();
 
-    let situation = store.get_setting("_system", "security_situation").await.ok().flatten();
-    let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
+    let situation = store
+        .get_setting("_system", "security_situation")
+        .await
+        .ok()
+        .flatten();
+    let score = situation
+        .as_ref()
+        .and_then(|s| s["global_score"].as_f64())
+        .unwrap_or(100.0);
 
     let company_name = company.company_name.as_deref().unwrap_or("Organisation");
     let sector = company.sector.as_str();
@@ -4776,15 +5851,18 @@ pub async fn export_report_handler(
     let mitre_ttps: Vec<String> = {
         let cypher = "MATCH (t:Technique) RETURN t.mitre_id, t.name, t.tactic LIMIT 20";
         let results = crate::graph::threat_graph::query(store.as_ref(), cypher).await;
-        results.iter().filter_map(|r| {
-            let id = r.get("t.mitre_id").and_then(|v| v.as_str());
-            let name = r.get("t.name").and_then(|v| v.as_str());
-            match (id, name) {
-                (Some(i), Some(n)) => Some(format!("{i} — {n}")),
-                (Some(i), None) => Some(i.to_string()),
-                _ => None,
-            }
-        }).collect()
+        results
+            .iter()
+            .filter_map(|r| {
+                let id = r.get("t.mitre_id").and_then(|v| v.as_str());
+                let name = r.get("t.name").and_then(|v| v.as_str());
+                match (id, name) {
+                    (Some(i), Some(n)) => Some(format!("{i} — {n}")),
+                    (Some(i), None) => Some(i.to_string()),
+                    _ => None,
+                }
+            })
+            .collect()
     };
 
     // ── ML scores: get anomaly scores for affected assets ──
@@ -4792,7 +5870,8 @@ pub async fn export_report_handler(
         let mut anomalies = Vec::new();
         for asset in assets.iter().take(50) {
             if let Ok(Some((ml_score, reason))) = store.get_ml_score(&asset.id).await {
-                if ml_score > 0.5 { // anomaly threshold (0=normal, 1=anomalous)
+                if ml_score > 0.5 {
+                    // anomaly threshold (0=normal, 1=anomalous)
                     anomalies.push(serde_json::json!({
                         "asset": asset.name,
                         "asset_id": asset.id,
@@ -4807,10 +5886,12 @@ pub async fn export_report_handler(
     };
 
     // Common asset mapping for NIS2 reports
-    let asset_json = |a: &crate::db::threatclaw_store::AssetRecord| serde_json::json!({
-        "name": a.name, "category": a.category, "criticality": a.criticality,
-        "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
-    });
+    let asset_json = |a: &crate::db::threatclaw_store::AssetRecord| {
+        serde_json::json!({
+            "name": a.name, "category": a.category, "criticality": a.criticality,
+            "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
+        })
+    };
 
     let notification_id = format!("TC-{}-{:03}", now.format("%Y-%m%d"), 1);
     let incident_id = format!("TC-INC-{}-001", now.format("%Y%m%d"));
@@ -4818,17 +5899,35 @@ pub async fn export_report_handler(
     let critical_alerts: Vec<_> = alerts.iter().filter(|a| a.level == "critical").collect();
 
     // Determine incident type from most frequent alert pattern
-    let incident_type = if alerts.iter().any(|a| a.title.to_lowercase().contains("ransomware") || a.title.to_lowercase().contains("chiffr")) {
+    let incident_type = if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("ransomware") || a.title.to_lowercase().contains("chiffr")
+    }) {
         "ransomware"
-    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("brute") || a.title.to_lowercase().contains("ssh") || a.title.to_lowercase().contains("intrusion")) {
+    } else if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("brute")
+            || a.title.to_lowercase().contains("ssh")
+            || a.title.to_lowercase().contains("intrusion")
+    }) {
         "intrusion"
-    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("ddos") || a.title.to_lowercase().contains("flood")) {
+    } else if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("ddos") || a.title.to_lowercase().contains("flood")
+    }) {
         "ddos"
-    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("fuite") || a.title.to_lowercase().contains("leak") || a.title.to_lowercase().contains("exfiltration")) {
+    } else if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("fuite")
+            || a.title.to_lowercase().contains("leak")
+            || a.title.to_lowercase().contains("exfiltration")
+    }) {
         "data_leak"
-    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("malware") || a.title.to_lowercase().contains("trojan") || a.title.to_lowercase().contains("virus")) {
+    } else if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("malware")
+            || a.title.to_lowercase().contains("trojan")
+            || a.title.to_lowercase().contains("virus")
+    }) {
         "malware"
-    } else if alerts.iter().any(|a| a.title.to_lowercase().contains("phishing") || a.title.to_lowercase().contains("hameçon")) {
+    } else if alerts.iter().any(|a| {
+        a.title.to_lowercase().contains("phishing") || a.title.to_lowercase().contains("hameçon")
+    }) {
         "phishing"
     } else {
         "other"
@@ -4844,14 +5943,28 @@ pub async fn export_report_handler(
         _ => "Autre",
     };
 
-    let incident_status = if score < 50.0 { "ongoing" } else if score < 80.0 { "contained" } else { "resolved" };
+    let incident_status = if score < 50.0 {
+        "ongoing"
+    } else if score < 80.0 {
+        "contained"
+    } else {
+        "resolved"
+    };
     let incident_status_label = match incident_status {
         "ongoing" => "En cours",
         "contained" => "Contenu",
         _ => "Résolu",
     };
 
-    let severity = if score < 30.0 { "critical" } else if score < 50.0 { "high" } else if score < 70.0 { "medium" } else { "low" };
+    let severity = if score < 30.0 {
+        "critical"
+    } else if score < 50.0 {
+        "high"
+    } else if score < 70.0 {
+        "medium"
+    } else {
+        "low"
+    };
 
     // ── RGPD Art.33 auto-detection ──
     // Determine if personal data is likely involved → triggers CNIL notification
@@ -4861,23 +5974,36 @@ pub async fn export_report_handler(
         // Criterion 2: database assets are affected
         let db_assets_affected = assets.iter().any(|a| {
             let cat = a.category.to_lowercase();
-            cat.contains("base de donn") || cat.contains("database") || cat.contains("bdd")
-                || cat.contains("sql") || cat.contains("storage")
+            cat.contains("base de donn")
+                || cat.contains("database")
+                || cat.contains("bdd")
+                || cat.contains("sql")
+                || cat.contains("storage")
         });
         // Criterion 3: findings mention PII / personal data
         let pii_findings = findings.iter().any(|f| {
             let t = f.title.to_lowercase();
             let d = f.description.as_deref().unwrap_or("").to_lowercase();
-            t.contains("pii") || t.contains("données personnelles") || t.contains("personal data")
-                || t.contains("rgpd") || t.contains("gdpr") || t.contains("fuite")
-                || t.contains("leak") || t.contains("exfiltration")
-                || d.contains("pii") || d.contains("données personnelles") || d.contains("personal data")
+            t.contains("pii")
+                || t.contains("données personnelles")
+                || t.contains("personal data")
+                || t.contains("rgpd")
+                || t.contains("gdpr")
+                || t.contains("fuite")
+                || t.contains("leak")
+                || t.contains("exfiltration")
+                || d.contains("pii")
+                || d.contains("données personnelles")
+                || d.contains("personal data")
         });
         // Criterion 4: alerts mention data exfiltration
         let exfil_alerts = alerts.iter().any(|a| {
             let t = a.title.to_lowercase();
-            t.contains("exfiltration") || t.contains("data leak") || t.contains("fuite")
-                || t.contains("données personnelles") || t.contains("pii")
+            t.contains("exfiltration")
+                || t.contains("data leak")
+                || t.contains("fuite")
+                || t.contains("données personnelles")
+                || t.contains("pii")
         });
 
         if is_data_leak || pii_findings || exfil_alerts {
@@ -4891,88 +6017,101 @@ pub async fn export_report_handler(
 
     // Build the report data JSON + determine template name
     let (template_name, report_data_raw) = if path.contains("nis2-early") {
-        let deadline_72h = (now + chrono::Duration::hours(72)).format("%d/%m/%Y %H:%M").to_string();
-        ("nis2-early-warning", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "sub_sector": company.nace_code.as_deref().unwrap_or("—"),
-            "nis2_status": "Entité Essentielle / Importante",
-            "security_contact": "RSSI",
-            "contact_email": "—",
-            "contact_phone": "—",
-            "notification_id": notification_id,
-            "generated_at_display": generated_display,
-            "incident_id": incident_id,
-            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
-            "notified_at": generated_display,
-            "delay_hours": "0",
-            "incident_type": incident_type,
-            "incident_type_detail": if !critical_alerts.is_empty() { &critical_alerts[0].title } else { "Anomalie détectée" },
-            "incident_description": format!("{} alertes détectées par ThreatClaw Engine, dont {} critiques. Score sécurité : {:.0}/100.", alerts.len(), critical_alerts.len(), score),
-            "suspected_malicious": if critical_alerts.is_empty() { "unknown" } else { "yes" },
-            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
-            "cross_border_impact": "unknown",
-            "incident_status": incident_status,
-            "deadline_72h": deadline_72h,
-        }))
+        let deadline_72h = (now + chrono::Duration::hours(72))
+            .format("%d/%m/%Y %H:%M")
+            .to_string();
+        (
+            "nis2-early-warning",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "sub_sector": company.nace_code.as_deref().unwrap_or("—"),
+                "nis2_status": "Entité Essentielle / Importante",
+                "security_contact": "RSSI",
+                "contact_email": "—",
+                "contact_phone": "—",
+                "notification_id": notification_id,
+                "generated_at_display": generated_display,
+                "incident_id": incident_id,
+                "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+                "notified_at": generated_display,
+                "delay_hours": "0",
+                "incident_type": incident_type,
+                "incident_type_detail": if !critical_alerts.is_empty() { &critical_alerts[0].title } else { "Anomalie détectée" },
+                "incident_description": format!("{} alertes détectées par ThreatClaw Engine, dont {} critiques. Score sécurité : {:.0}/100.", alerts.len(), critical_alerts.len(), score),
+                "suspected_malicious": if critical_alerts.is_empty() { "unknown" } else { "yes" },
+                "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+                "cross_border_impact": "unknown",
+                "incident_status": incident_status,
+                "deadline_72h": deadline_72h,
+            }),
+        )
     } else if path.contains("nis2-intermediate") {
-        let deadline_final = (now + chrono::Duration::days(30)).format("%d/%m/%Y").to_string();
-        ("nis2-intermediate", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "notification_id": notification_id,
-            "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
-            "generated_at_display": generated_display,
-            "incident_id": incident_id,
-            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
-            "incident_type_label": incident_type_label,
-            "incident_status_label": incident_status_label,
-            "alerts_count": alerts.len().to_string(),
-            "findings_count": findings.len().to_string(),
-            "assets_count": assets.len().to_string(),
-            "score": format!("{:.0}", score),
-            "severity": severity,
-            "impact_scope": format!("{} assets dans le périmètre impacté, {} alertes de sécurité détectées.", assets.len(), alerts.len()),
-            "affected_services": "En cours d'identification par ThreatClaw Engine.",
-            "probable_cause": "Analyse en cours par ThreatClaw Engine. Corrélation multi-source et détection comportementale activées.",
-            "attack_vector": "En cours d'identification",
-            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
-                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
-            })).collect::<Vec<_>>(),
-            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
-            "cross_border_impact": "unknown",
-            "deadline_final": deadline_final,
-        }))
+        let deadline_final = (now + chrono::Duration::days(30))
+            .format("%d/%m/%Y")
+            .to_string();
+        (
+            "nis2-intermediate",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "notification_id": notification_id,
+                "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
+                "generated_at_display": generated_display,
+                "incident_id": incident_id,
+                "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+                "incident_type_label": incident_type_label,
+                "incident_status_label": incident_status_label,
+                "alerts_count": alerts.len().to_string(),
+                "findings_count": findings.len().to_string(),
+                "assets_count": assets.len().to_string(),
+                "score": format!("{:.0}", score),
+                "severity": severity,
+                "impact_scope": format!("{} assets dans le périmètre impacté, {} alertes de sécurité détectées.", assets.len(), alerts.len()),
+                "affected_services": "En cours d'identification par ThreatClaw Engine.",
+                "probable_cause": "Analyse en cours par ThreatClaw Engine. Corrélation multi-source et détection comportementale activées.",
+                "attack_vector": "En cours d'identification",
+                "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                    "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+                })).collect::<Vec<_>>(),
+                "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+                "cross_border_impact": "unknown",
+                "deadline_final": deadline_final,
+            }),
+        )
     } else if path.contains("nis2-final") {
-        ("nis2-final", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "notification_id": notification_id,
-            "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
-            "generated_at_display": generated_display,
-            "incident_id": incident_id,
-            "incident_type_label": incident_type_label,
-            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
-            "closure_date": now.format("%d/%m/%Y").to_string(),
-            "incident_duration": "En cours d'évaluation",
-            "final_severity": severity,
-            "score": format!("{:.0}", score),
-            "alerts_count": alerts.len().to_string(),
-            "findings_count": findings.len().to_string(),
-            "assets_count": assets.len().to_string(),
-            "full_description": format!("L'incident a été détecté par ThreatClaw Engine. {} alertes ont été générées, dont {} critiques. {} vulnérabilités ont été identifiées sur {} assets.", alerts.len(), critical_alerts.len(), findings.len(), assets.len()),
-            "root_cause": "Analyse des causes racines consolidée par ThreatClaw Engine à partir des corrélations multi-sources et du graph d'attaque.",
-            "attack_vector": "En cours d'identification",
-            "operational_impact": if score < 50.0 { "Impact significatif détecté" } else { "Impact limité grâce à la détection précoce" },
-            "financial_impact": "En cours d'évaluation",
-            "data_exposed": "Aucune donnée personnelle identifiée comme exposée",
-            "affected_users": "—",
-            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
-            "notified_authority": "ANSSI / CSIRT-FR",
-            "gdpr_notification_required": gdpr_required,
-            "timeline": [],
-            "mitre_ttps": mitre_ttps,
-        }))
+        (
+            "nis2-final",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "notification_id": notification_id,
+                "early_warning_ref": format!("TC-{}-001", now.format("%Y-%m%d")),
+                "generated_at_display": generated_display,
+                "incident_id": incident_id,
+                "incident_type_label": incident_type_label,
+                "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+                "closure_date": now.format("%d/%m/%Y").to_string(),
+                "incident_duration": "En cours d'évaluation",
+                "final_severity": severity,
+                "score": format!("{:.0}", score),
+                "alerts_count": alerts.len().to_string(),
+                "findings_count": findings.len().to_string(),
+                "assets_count": assets.len().to_string(),
+                "full_description": format!("L'incident a été détecté par ThreatClaw Engine. {} alertes ont été générées, dont {} critiques. {} vulnérabilités ont été identifiées sur {} assets.", alerts.len(), critical_alerts.len(), findings.len(), assets.len()),
+                "root_cause": "Analyse des causes racines consolidée par ThreatClaw Engine à partir des corrélations multi-sources et du graph d'attaque.",
+                "attack_vector": "En cours d'identification",
+                "operational_impact": if score < 50.0 { "Impact significatif détecté" } else { "Impact limité grâce à la détection précoce" },
+                "financial_impact": "En cours d'évaluation",
+                "data_exposed": "Aucune donnée personnelle identifiée comme exposée",
+                "affected_users": "—",
+                "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+                "notified_authority": "ANSSI / CSIRT-FR",
+                "gdpr_notification_required": gdpr_required,
+                "timeline": [],
+                "mitre_ttps": mitre_ttps,
+            }),
+        )
     } else if path.contains("article21") {
         let measures = vec![
             serde_json::json!({"title": "Politiques de sécurité des SI", "status": "partial", "score": "60", "covered_by": "ThreatClaw Engine + Config"}),
@@ -4986,139 +6125,168 @@ pub async fn export_report_handler(
             serde_json::json!({"title": "Ressources humaines", "status": "not_covered", "score": "0", "covered_by": "Hors périmètre ThreatClaw"}),
             serde_json::json!({"title": "Contrôle d'accès + authentification", "status": "covered", "score": "70", "covered_by": "AD Audit + HIBP + Identity Graph"}),
         ];
-        ("nis2-article21", serde_json::json!({
-            "company_name": company_name,
-            "global_score": "62",
-            "measures": measures,
-        }))
+        (
+            "nis2-article21",
+            serde_json::json!({
+                "company_name": company_name,
+                "global_score": "62",
+                "measures": measures,
+            }),
+        )
     } else if path.contains("executive") {
-        ("executive-report", serde_json::json!({
-            "company_name": company_name,
-            "period": format!("{}", now.format("%B %Y")),
-            "score": format!("{:.0}", score),
-            "alerts_count": alerts.len().to_string(),
-            "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
-            "assets_count": assets.len().to_string(),
-            "alerts": alerts.iter().filter(|a| a.level == "critical").take(10).map(|a| serde_json::json!({
-                "date": a.matched_at.chars().take(10).collect::<String>(),
-                "title": a.title,
-                "source": a.source_ip.as_deref().unwrap_or("—"),
-            })).collect::<Vec<_>>(),
-        }))
+        (
+            "executive-report",
+            serde_json::json!({
+                "company_name": company_name,
+                "period": format!("{}", now.format("%B %Y")),
+                "score": format!("{:.0}", score),
+                "alerts_count": alerts.len().to_string(),
+                "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
+                "assets_count": assets.len().to_string(),
+                "alerts": alerts.iter().filter(|a| a.level == "critical").take(10).map(|a| serde_json::json!({
+                    "date": a.matched_at.chars().take(10).collect::<String>(),
+                    "title": a.title,
+                    "source": a.source_ip.as_deref().unwrap_or("—"),
+                })).collect::<Vec<_>>(),
+            }),
+        )
     } else if path.contains("technical") {
-        ("technical-report", serde_json::json!({
-            "company_name": company_name,
-            "period": format!("{}", now.format("%B %Y")),
-            "score": format!("{:.0}", score),
-            "alerts_count": alerts.len().to_string(),
-            "findings_count": findings.len().to_string(),
-            "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
-            "assets_count": assets.len().to_string(),
-            "alerts": alerts.iter().take(50).map(|a| serde_json::json!({
-                "level": a.level, "title": a.title, "date": a.matched_at.chars().take(10).collect::<String>(),
-                "source_ip": a.source_ip.as_deref().unwrap_or("—"),
-            })).collect::<Vec<_>>(),
-            "findings": findings.iter().take(50).map(|f| serde_json::json!({
-                "title": f.title, "severity": f.severity,
-                "asset": f.asset.as_deref().unwrap_or("—"),
-                "source": f.source.as_deref().unwrap_or("—"),
-            })).collect::<Vec<_>>(),
-            "assets": assets.iter().take(50).map(|a| serde_json::json!({
-                "name": a.name, "category": a.category, "criticality": a.criticality,
-                "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
-            })).collect::<Vec<_>>(),
-            "ml_anomalies": ml_anomalies,
-            "mitre_ttps": mitre_ttps,
-        }))
+        (
+            "technical-report",
+            serde_json::json!({
+                "company_name": company_name,
+                "period": format!("{}", now.format("%B %Y")),
+                "score": format!("{:.0}", score),
+                "alerts_count": alerts.len().to_string(),
+                "findings_count": findings.len().to_string(),
+                "critical_count": alerts.iter().filter(|a| a.level == "critical").count().to_string(),
+                "assets_count": assets.len().to_string(),
+                "alerts": alerts.iter().take(50).map(|a| serde_json::json!({
+                    "level": a.level, "title": a.title, "date": a.matched_at.chars().take(10).collect::<String>(),
+                    "source_ip": a.source_ip.as_deref().unwrap_or("—"),
+                })).collect::<Vec<_>>(),
+                "findings": findings.iter().take(50).map(|f| serde_json::json!({
+                    "title": f.title, "severity": f.severity,
+                    "asset": f.asset.as_deref().unwrap_or("—"),
+                    "source": f.source.as_deref().unwrap_or("—"),
+                })).collect::<Vec<_>>(),
+                "assets": assets.iter().take(50).map(|a| serde_json::json!({
+                    "name": a.name, "category": a.category, "criticality": a.criticality,
+                    "ip": a.ip_addresses.first().unwrap_or(&"—".to_string()),
+                })).collect::<Vec<_>>(),
+                "ml_anomalies": ml_anomalies,
+                "mitre_ttps": mitre_ttps,
+            }),
+        )
     } else if path.contains("audit-trail") {
-        ("audit-trail", serde_json::json!({
-            "company_name": company_name,
-            "period": format!("{}", now.format("%B %Y")),
-            "period_start": now.format("%d/%m/%Y").to_string(),
-            "period_end": now.format("%d/%m/%Y").to_string(),
-            "entries": [],
-            "journal_hash": "sha256:pending",
-        }))
+        (
+            "audit-trail",
+            serde_json::json!({
+                "company_name": company_name,
+                "period": format!("{}", now.format("%B %Y")),
+                "period_start": now.format("%d/%m/%Y").to_string(),
+                "period_end": now.format("%d/%m/%Y").to_string(),
+                "entries": [],
+                "journal_hash": "sha256:pending",
+            }),
+        )
     } else if path.contains("gdpr") {
-        let risk_level = if incident_type == "data_leak" { "high" } else if gdpr_required == "yes" { "high" } else if gdpr_required == "likely" { "medium" } else { "low" };
-        ("gdpr-article33", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "notification_id": format!("TC-RGPD-{}-001", now.format("%Y%m%d")),
-            "generated_at_display": generated_display,
-            "security_contact": "RSSI",
-            "contact_email": "—",
-            "contact_phone": "—",
-            "dpo_contact": "DPO",
-            "dpo_email": "—",
-            "incident_type_label": incident_type_label,
-            "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
-            "data_subject_categories": "En cours d'évaluation",
-            "affected_persons_count": "En cours d'évaluation",
-            "data_categories": "En cours d'évaluation",
-            "affected_records_count": "En cours d'évaluation",
-            "probable_consequences": "Évaluation en cours par ThreatClaw Engine.",
-            "risk_level": risk_level,
-            "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
-            "nis2_notification_sent": "yes",
-        }))
+        let risk_level = if incident_type == "data_leak" {
+            "high"
+        } else if gdpr_required == "yes" {
+            "high"
+        } else if gdpr_required == "likely" {
+            "medium"
+        } else {
+            "low"
+        };
+        (
+            "gdpr-article33",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "notification_id": format!("TC-RGPD-{}-001", now.format("%Y%m%d")),
+                "generated_at_display": generated_display,
+                "security_contact": "RSSI",
+                "contact_email": "—",
+                "contact_phone": "—",
+                "dpo_contact": "DPO",
+                "dpo_email": "—",
+                "incident_type_label": incident_type_label,
+                "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
+                "data_subject_categories": "En cours d'évaluation",
+                "affected_persons_count": "En cours d'évaluation",
+                "data_categories": "En cours d'évaluation",
+                "affected_records_count": "En cours d'évaluation",
+                "probable_consequences": "Évaluation en cours par ThreatClaw Engine.",
+                "risk_level": risk_level,
+                "affected_assets": assets.iter().take(20).map(&asset_json).collect::<Vec<_>>(),
+                "nis2_notification_sent": "yes",
+            }),
+        )
     } else if path.contains("nist") {
-        ("nist-incident", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "generated_at_display": generated_display,
-            "incident_id": incident_id,
-            "security_contact": "RSSI",
-            "contact_email": "—",
-            "contact_phone": "—",
-            "alerts_count": alerts.len().to_string(),
-            "findings_count": findings.len().to_string(),
-            "assets_count": assets.len().to_string(),
-            "score": format!("{:.0}", score),
-            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
-            "notified_at": generated_display,
-            "incident_status_label": incident_status_label,
-            "incident_type_label": incident_type_label,
-            "severity": severity,
-            "attack_vector": "Under investigation",
-            "incident_description": format!("{} alerts detected, {} critical. Security score: {:.0}/100.", alerts.len(), critical_alerts.len(), score),
-            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
-            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
-                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
-            })).collect::<Vec<_>>(),
-            "root_cause": "Under investigation by ThreatClaw Engine.",
-            "operational_impact": if score < 50.0 { "Significant impact detected" } else { "Limited impact" },
-            "data_exposed": "No data exposure identified",
-            "financial_impact": "Under evaluation",
-            "recoverability": if score >= 70.0 { "Recoverable" } else { "Supplemented" },
-            "mitre_ttps": mitre_ttps,
-        }))
+        (
+            "nist-incident",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "generated_at_display": generated_display,
+                "incident_id": incident_id,
+                "security_contact": "RSSI",
+                "contact_email": "—",
+                "contact_phone": "—",
+                "alerts_count": alerts.len().to_string(),
+                "findings_count": findings.len().to_string(),
+                "assets_count": assets.len().to_string(),
+                "score": format!("{:.0}", score),
+                "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+                "notified_at": generated_display,
+                "incident_status_label": incident_status_label,
+                "incident_type_label": incident_type_label,
+                "severity": severity,
+                "attack_vector": "Under investigation",
+                "incident_description": format!("{} alerts detected, {} critical. Security score: {:.0}/100.", alerts.len(), critical_alerts.len(), score),
+                "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+                "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                    "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+                })).collect::<Vec<_>>(),
+                "root_cause": "Under investigation by ThreatClaw Engine.",
+                "operational_impact": if score < 50.0 { "Significant impact detected" } else { "Limited impact" },
+                "data_exposed": "No data exposure identified",
+                "financial_impact": "Under evaluation",
+                "recoverability": if score >= 70.0 { "Recoverable" } else { "Supplemented" },
+                "mitre_ttps": mitre_ttps,
+            }),
+        )
     } else if path.contains("iso27001") {
-        ("iso27001-incident", serde_json::json!({
-            "org_name": company_name,
-            "sector": sector,
-            "generated_at_display": generated_display,
-            "incident_id": incident_id,
-            "incident_type_label": incident_type_label,
-            "severity": severity,
-            "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
-            "incident_status_label": incident_status_label,
-            "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
-            "alerts_count": alerts.len().to_string(),
-            "findings_count": findings.len().to_string(),
-            "assets_count": assets.len().to_string(),
-            "score": format!("{:.0}", score),
-            "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
-            "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
-                "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
-            })).collect::<Vec<_>>(),
-            "root_cause": "Analyse en cours par ThreatClaw Engine.",
-            "attack_vector": "En cours d'identification",
-            "notified_authority": "À évaluer",
-            "nis2_notification_sent": "no",
-            "gdpr_notification_required": gdpr_required,
-            "mitre_ttps": mitre_ttps,
-        }))
+        (
+            "iso27001-incident",
+            serde_json::json!({
+                "org_name": company_name,
+                "sector": sector,
+                "generated_at_display": generated_display,
+                "incident_id": incident_id,
+                "incident_type_label": incident_type_label,
+                "severity": severity,
+                "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
+                "incident_status_label": incident_status_label,
+                "incident_description": format!("{} alertes détectées, score sécurité {:.0}/100.", alerts.len(), score),
+                "alerts_count": alerts.len().to_string(),
+                "findings_count": findings.len().to_string(),
+                "assets_count": assets.len().to_string(),
+                "score": format!("{:.0}", score),
+                "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
+                "iocs": alerts.iter().filter_map(|a| a.source_ip.as_ref()).take(10).map(|ip| serde_json::json!({
+                    "type": "IPv4", "value": ip, "source": "ThreatClaw Engine", "confidence": "Medium",
+                })).collect::<Vec<_>>(),
+                "root_cause": "Analyse en cours par ThreatClaw Engine.",
+                "attack_vector": "En cours d'identification",
+                "notified_authority": "À évaluer",
+                "nis2_notification_sent": "no",
+                "gdpr_notification_required": gdpr_required,
+                "mitre_ttps": mitre_ttps,
+            }),
+        )
     } else {
         return (StatusCode::BAD_REQUEST, "Unknown report type").into_response();
     };
@@ -5137,7 +6305,8 @@ pub async fn export_report_handler(
     // PDF format → compile via Typst
     match compile_typst_pdf(template_name, &report_data) {
         Ok(pdf_bytes) => {
-            let filename = format!("threatclaw_{}_{}_{}.pdf",
+            let filename = format!(
+                "threatclaw_{}_{}_{}.pdf",
                 template_name,
                 company_name.replace(' ', "_"),
                 now.format("%Y%m%d"),
@@ -5145,14 +6314,23 @@ pub async fn export_report_handler(
             Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/pdf")
-                .header("Content-Disposition", format!("attachment; filename=\"{filename}\""))
+                .header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{filename}\""),
+                )
                 .header("Content-Length", pdf_bytes.len().to_string())
                 .body(axum::body::Body::from(pdf_bytes))
-                .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response())
+                .unwrap_or_else(|_| {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Response build error").into_response()
+                })
         }
         Err(e) => {
             tracing::error!("Typst PDF compilation failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("PDF generation failed: {e}")).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("PDF generation failed: {e}"),
+            )
+                .into_response()
         }
     }
 }
@@ -5170,23 +6348,36 @@ pub async fn log_stats_handler(
     // Count logs (using existing count_logs method with minutes_back)
     let today_count = match store.count_logs(1440).await {
         Ok(c) => c,
-        Err(e) => { tracing::error!("LOG_STATS: count_logs failed: {e}"); 0 }
+        Err(e) => {
+            tracing::error!("LOG_STATS: count_logs failed: {e}");
+            0
+        }
     };
     let total_count = match store.count_logs(43200).await {
         Ok(c) => c,
-        Err(e) => { tracing::error!("LOG_STATS: count_logs 30d failed: {e}"); 0 }
+        Err(e) => {
+            tracing::error!("LOG_STATS: count_logs 30d failed: {e}");
+            0
+        }
     };
 
     // Get last log to find time + count distinct sources
     let recent_logs = match store.query_logs(60, None, None, 1).await {
         Ok(l) => l,
-        Err(e) => { tracing::error!("LOG_STATS: query_logs failed: {e}"); vec![] }
+        Err(e) => {
+            tracing::error!("LOG_STATS: query_logs failed: {e}");
+            vec![]
+        }
     };
     let last_received = recent_logs.first().map(|l| l.time.clone());
 
     // Count distinct hostnames from recent logs
-    let all_recent = store.query_logs(1440, None, None, 1000).await.unwrap_or_default();
-    let sources: std::collections::HashSet<&str> = all_recent.iter()
+    let all_recent = store
+        .query_logs(1440, None, None, 1000)
+        .await
+        .unwrap_or_default();
+    let sources: std::collections::HashSet<&str> = all_recent
+        .iter()
         .filter_map(|l| l.hostname.as_deref())
         .collect();
 
@@ -5211,18 +6402,24 @@ pub async fn sources_status_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // 1. Get per-tag log counts from last 24h
-    let all_logs = store.query_logs(1440, None, None, 5000).await.unwrap_or_default();
-    let mut tag_stats: std::collections::HashMap<String, TagStat> = std::collections::HashMap::new();
+    let all_logs = store
+        .query_logs(1440, None, None, 5000)
+        .await
+        .unwrap_or_default();
+    let mut tag_stats: std::collections::HashMap<String, TagStat> =
+        std::collections::HashMap::new();
 
     for log in &all_logs {
         let tag = log.tag.as_deref().unwrap_or("unknown");
         let base_tag = tag.split('.').next().unwrap_or(tag);
-        let entry = tag_stats.entry(base_tag.to_string()).or_insert_with(|| TagStat {
-            count: 0,
-            hosts: std::collections::HashSet::new(),
-            last_seen: None,
-            tags: std::collections::HashSet::new(),
-        });
+        let entry = tag_stats
+            .entry(base_tag.to_string())
+            .or_insert_with(|| TagStat {
+                count: 0,
+                hosts: std::collections::HashSet::new(),
+                last_seen: None,
+                tags: std::collections::HashSet::new(),
+            });
         entry.count += 1;
         if let Some(h) = log.hostname.as_deref() {
             entry.hosts.insert(h.to_string());
@@ -5235,34 +6432,110 @@ pub async fn sources_status_handler(
 
     // 2. Build source definitions with live status
     let sources = vec![
-        build_source_status("syslog", "Syslog (UDP/TCP)", "syslog", &tag_stats, store.as_ref(),
+        build_source_status(
+            "syslog",
+            "Syslog (UDP/TCP)",
+            "syslog",
+            &tag_stats,
+            store.as_ref(),
             &["syslog", "fluent"],
-            &["Sigma rule matching", "Auth failure detection", "ML behavioral analysis"],
-            "always_on").await,
-        build_source_status("wazuh", "Wazuh SIEM", "wazuh", &tag_stats, store.as_ref(),
+            &[
+                "Sigma rule matching",
+                "Auth failure detection",
+                "ML behavioral analysis",
+            ],
+            "always_on",
+        )
+        .await,
+        build_source_status(
+            "wazuh",
+            "Wazuh SIEM",
+            "wazuh",
+            &tag_stats,
+            store.as_ref(),
             &["wazuh"],
-            &["30 Sigma rules (PowerShell + AD attacks)", "Vulnerability detection", "File integrity monitoring", "Ransomware detection"],
-            "connector").await,
-        build_source_status("osquery", "ThreatClaw Agent (osquery)", "osquery", &tag_stats, store.as_ref(),
+            &[
+                "30 Sigma rules (PowerShell + AD attacks)",
+                "Vulnerability detection",
+                "File integrity monitoring",
+                "Ransomware detection",
+            ],
+            "connector",
+        )
+        .await,
+        build_source_status(
+            "osquery",
+            "ThreatClaw Agent (osquery)",
+            "osquery",
+            &tag_stats,
+            store.as_ref(),
             &["osquery"],
-            &["20 PowerShell obfuscation rules", "Kill chain detection", "Software inventory + auto-CVE", "DGA detection (RF + LSTM)", "Ransomware detection"],
-            "webhook").await,
-        build_source_status("zeek", "Zeek NDR", "zeek", &tag_stats, store.as_ref(),
+            &[
+                "20 PowerShell obfuscation rules",
+                "Kill chain detection",
+                "Software inventory + auto-CVE",
+                "DGA detection (RF + LSTM)",
+                "Ransomware detection",
+            ],
+            "webhook",
+        )
+        .await,
+        build_source_status(
+            "zeek",
+            "Zeek NDR",
+            "zeek",
+            &tag_stats,
+            store.as_ref(),
             &["zeek"],
-            &["JA3/JA4/HASSH fingerprinting", "C2 Beacon detection (RITA 4-scores)", "TLS certificate scoring", "DNS tunneling detection", "SNI typosquatting", "File hash Bloom filter", "Ransomware SMB detection"],
-            "webhook").await,
-        build_source_status("pihole", "Pi-hole DNS", "pihole", &tag_stats, store.as_ref(),
+            &[
+                "JA3/JA4/HASSH fingerprinting",
+                "C2 Beacon detection (RITA 4-scores)",
+                "TLS certificate scoring",
+                "DNS tunneling detection",
+                "SNI typosquatting",
+                "File hash Bloom filter",
+                "Ransomware SMB detection",
+            ],
+            "webhook",
+        )
+        .await,
+        build_source_status(
+            "pihole",
+            "Pi-hole DNS",
+            "pihole",
+            &tag_stats,
+            store.as_ref(),
             &["pihole"],
             &["DNS tunneling detection", "DGA ML scoring"],
-            "connector").await,
-        build_source_status("suricata", "Suricata IDS", "suricata", &tag_stats, store.as_ref(),
+            "connector",
+        )
+        .await,
+        build_source_status(
+            "suricata",
+            "Suricata IDS",
+            "suricata",
+            &tag_stats,
+            store.as_ref(),
             &["suricata"],
             &["IDS alert correlation", "Sigma rule matching"],
-            "webhook").await,
-        build_source_status("strelka", "Strelka File Scanner", "strelka", &tag_stats, store.as_ref(),
+            "webhook",
+        )
+        .await,
+        build_source_status(
+            "strelka",
+            "Strelka File Scanner",
+            "strelka",
+            &tag_stats,
+            store.as_ref(),
             &["strelka"],
-            &["79 scanners (ClamAV + YARA + capa)", "Malware detection", "PE/ELF analysis"],
-            "webhook").await,
+            &[
+                "79 scanners (ClamAV + YARA + capa)",
+                "Malware detection",
+                "PE/ELF analysis",
+            ],
+            "webhook",
+        )
+        .await,
     ];
 
     // 3. Get osquery agents
@@ -5275,13 +6548,17 @@ pub async fn sources_status_handler(
         }
     }
     // Also try hostname-based agent keys
-    let agent_hosts: Vec<String> = tag_stats.get("osquery")
+    let agent_hosts: Vec<String> = tag_stats
+        .get("osquery")
         .map(|s| s.hosts.iter().cloned().collect())
         .unwrap_or_default();
     for h in &agent_hosts {
         let key = format!("agent_{}", h);
         if let Ok(Some(val)) = store.get_setting("_osquery_agents", &key).await {
-            if !agents.iter().any(|a| a["hostname"].as_str() == val["hostname"].as_str()) {
+            if !agents
+                .iter()
+                .any(|a| a["hostname"].as_str() == val["hostname"].as_str())
+            {
                 agents.push(val);
             }
         }
@@ -5289,7 +6566,10 @@ pub async fn sources_status_handler(
 
     // 4. Summary stats
     let total_24h: usize = tag_stats.values().map(|s| s.count).sum();
-    let active_sources = sources.iter().filter(|s| s["status"] == "connected").count();
+    let active_sources = sources
+        .iter()
+        .filter(|s| s["status"] == "connected")
+        .count();
 
     // 5. Syslog listen address
     let syslog_addr = format!("{}:514", get_local_ip());
@@ -5347,16 +6627,28 @@ async fn build_source_status(
         "listening"
     } else {
         // Check if configured (has a webhook token or skill config)
-        let has_token = store.get_setting("webhook_ingest", &format!("webhook_token_{}", id))
-            .await.unwrap_or(None).is_some();
-        let has_config = store.get_skill_config(&format!("skill-{}", id))
-            .await.map(|c| !c.is_empty()).unwrap_or(false);
-        if has_token || has_config { "configured" } else { "not_configured" }
+        let has_token = store
+            .get_setting("webhook_ingest", &format!("webhook_token_{}", id))
+            .await
+            .unwrap_or(None)
+            .is_some();
+        let has_config = store
+            .get_skill_config(&format!("skill-{}", id))
+            .await
+            .map(|c| !c.is_empty())
+            .unwrap_or(false);
+        if has_token || has_config {
+            "configured"
+        } else {
+            "not_configured"
+        }
     };
 
     // Get webhook token if exists
-    let webhook_token = store.get_setting("webhook_ingest", &format!("webhook_token_{}", id))
-        .await.unwrap_or(None)
+    let webhook_token = store
+        .get_setting("webhook_ingest", &format!("webhook_token_{}", id))
+        .await
+        .unwrap_or(None)
         .and_then(|v| v.as_str().map(String::from));
 
     serde_json::json!({
@@ -5397,7 +6689,10 @@ pub async fn system_logs_handler(
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(50);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50);
 
     let mut events: Vec<serde_json::Value> = Vec::new();
 
@@ -5452,8 +6747,13 @@ pub async fn system_logs_handler(
     events.truncate(limit);
 
     // Get system info
-    let paused = store.get_setting("_system", "tc_paused").await
-        .ok().flatten().and_then(|v| v.as_bool()).unwrap_or(false);
+    let paused = store
+        .get_setting("_system", "tc_paused")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     Ok(Json(serde_json::json!({
         "events": events,
@@ -5467,19 +6767,21 @@ pub async fn system_logs_handler(
 // ══════════════════════════════════════════════════════════
 
 /// GET /api/auth/status — check if auth is configured (any user exists).
-pub async fn auth_status_handler(
-    State(state): State<Arc<GatewayState>>,
-) -> impl IntoResponse {
+pub async fn auth_status_handler(State(state): State<Arc<GatewayState>>) -> impl IntoResponse {
     let store = match state.store.as_ref() {
         Some(s) => s,
-        None => return Json(serde_json::json!({ "configured": false, "error": "no_db" })).into_response(),
+        None => {
+            return Json(serde_json::json!({ "configured": false, "error": "no_db" }))
+                .into_response();
+        }
     };
 
     let has_user = crate::channels::web::dashboard_auth::has_any_user(store).await;
     Json(serde_json::json!({
         "configured": has_user,
         "requires_setup": !has_user,
-    })).into_response()
+    }))
+    .into_response()
 }
 
 /// POST /api/auth/setup — create first admin user (first-run only).
@@ -5489,24 +6791,35 @@ pub async fn auth_setup_handler(
 ) -> impl IntoResponse {
     let store = match state.store.as_ref() {
         Some(s) => s,
-        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "DB unavailable" })),
+            )
+                .into_response();
+        }
     };
 
     let email = body["email"].as_str().unwrap_or("");
     let password = body["password"].as_str().unwrap_or("");
     let display_name = body["displayName"].as_str().unwrap_or(email);
 
-    match crate::channels::web::dashboard_auth::create_admin(store, email, password, display_name).await {
+    match crate::channels::web::dashboard_auth::create_admin(store, email, password, display_name)
+        .await
+    {
         Ok(user) => {
             tracing::info!("AUTH SETUP: Admin created — {}", user.email);
             Json(serde_json::json!({
                 "ok": true,
                 "user": user,
-            })).into_response()
+            }))
+            .into_response()
         }
-        Err(e) => {
-            (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "ok": false, "error": e }))).into_response()
-        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -5518,37 +6831,52 @@ pub async fn auth_login_handler(
 ) -> Response {
     let store = match state.store.as_ref() {
         Some(s) => s,
-        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "DB unavailable" })),
+            )
+                .into_response();
+        }
     };
 
     let email = body["email"].as_str().unwrap_or("");
     let password = body["password"].as_str().unwrap_or("");
-    let ip = headers.get("x-forwarded-for")
+    let ip = headers
+        .get("x-forwarded-for")
         .or_else(|| headers.get("x-real-ip"))
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
-    let user_agent = headers.get("user-agent")
+    let user_agent = headers
+        .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown");
 
-    match crate::channels::web::dashboard_auth::authenticate(store, email, password, ip, user_agent).await {
+    match crate::channels::web::dashboard_auth::authenticate(store, email, password, ip, user_agent)
+        .await
+    {
         Ok((user, token)) => {
             let cookie = crate::channels::web::dashboard_auth::build_session_cookie(
-                &token, crate::channels::web::dashboard_auth::SESSION_DURATION_SECS
+                &token,
+                crate::channels::web::dashboard_auth::SESSION_DURATION_SECS,
             );
             let mut response = Json(serde_json::json!({
                 "ok": true,
                 "user": user,
-            })).into_response();
+            }))
+            .into_response();
             response.headers_mut().insert(
                 axum::http::header::SET_COOKIE,
-                axum::http::HeaderValue::from_str(&cookie).unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
+                axum::http::HeaderValue::from_str(&cookie)
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
             );
             response
         }
-        Err(e) => {
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "ok": false, "error": e }))).into_response()
-        }
+        Err(e) => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -5559,7 +6887,9 @@ pub async fn auth_logout_handler(
 ) -> Response {
     if let Some(store) = state.store.as_ref() {
         if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
-            if let Some(token) = crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
+            if let Some(token) =
+                crate::channels::web::dashboard_auth::extract_session_cookie(cookie)
+            {
                 crate::channels::web::dashboard_auth::delete_session(store, &token).await;
             }
         }
@@ -5567,7 +6897,10 @@ pub async fn auth_logout_handler(
     let mut response = Json(serde_json::json!({ "ok": true })).into_response();
     response.headers_mut().insert(
         axum::http::header::SET_COOKIE,
-        axum::http::HeaderValue::from_str(&crate::channels::web::dashboard_auth::clear_session_cookie()).unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
+        axum::http::HeaderValue::from_str(
+            &crate::channels::web::dashboard_auth::clear_session_cookie(),
+        )
+        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
     );
     response
 }
@@ -5580,18 +6913,39 @@ pub async fn auth_change_password_handler(
 ) -> Response {
     let store = match state.store.as_ref() {
         Some(s) => s,
-        None => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "DB unavailable" }))).into_response(),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "DB unavailable" })),
+            )
+                .into_response();
+        }
     };
 
     // Validate session
-    let cookie = headers.get("cookie").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let cookie = headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
     let token = match crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
         Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Non authentifié" }))).into_response(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Non authentifié" })),
+            )
+                .into_response();
+        }
     };
     let user = match crate::channels::web::dashboard_auth::validate_session(store, &token).await {
         Some(u) => u,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Session invalide" }))).into_response(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "Session invalide" })),
+            )
+                .into_response();
+        }
     };
 
     let current_password = body["currentPassword"].as_str().unwrap_or("");
@@ -5602,20 +6956,46 @@ pub async fn auth_change_password_handler(
     }
 
     // Verify current password by re-authenticating
-    let ip = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()).unwrap_or("unknown");
-    let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("unknown");
-    match crate::channels::web::dashboard_auth::authenticate(store, &user.email, current_password, ip, ua).await {
+    let ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    let ua = headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    match crate::channels::web::dashboard_auth::authenticate(
+        store,
+        &user.email,
+        current_password,
+        ip,
+        ua,
+    )
+    .await
+    {
         Ok(_) => {}
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "ok": false, "error": "Mot de passe actuel incorrect" }))).into_response(),
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "ok": false, "error": "Mot de passe actuel incorrect" })),
+            )
+                .into_response();
+        }
     }
 
     // Update password
-    match crate::channels::web::dashboard_auth::change_password(store, &user.email, new_password).await {
+    match crate::channels::web::dashboard_auth::change_password(store, &user.email, new_password)
+        .await
+    {
         Ok(_) => {
             tracing::info!("AUTH: Password changed for {}", user.email);
             Json(serde_json::json!({ "ok": true })).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "ok": false, "error": e }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "ok": false, "error": e })),
+        )
+            .into_response(),
     }
 }
 
@@ -5626,24 +7006,37 @@ pub async fn auth_me_handler(
 ) -> Response {
     let store = match state.store.as_ref() {
         Some(s) => s,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "not_authenticated" }))).into_response(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "not_authenticated" })),
+            )
+                .into_response();
+        }
     };
 
     // Try session cookie
     if let Some(cookie) = headers.get("cookie").and_then(|v| v.to_str().ok()) {
         if let Some(token) = crate::channels::web::dashboard_auth::extract_session_cookie(cookie) {
-            if let Some(user) = crate::channels::web::dashboard_auth::validate_session(store, &token).await {
+            if let Some(user) =
+                crate::channels::web::dashboard_auth::validate_session(store, &token).await
+            {
                 return Json(serde_json::json!({
                     "authenticated": true,
                     "user": user,
-                })).into_response();
+                }))
+                .into_response();
             }
         }
     }
 
-    (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
-        "authenticated": false,
-    }))).into_response()
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({
+            "authenticated": false,
+        })),
+    )
+        .into_response()
 }
 
 // ══════════════════════════════════════════════════════════
@@ -5657,17 +7050,33 @@ pub async fn incidents_list_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let status = params.get("status").map(|s| s.as_str());
-    let limit = params.get("limit").and_then(|s| s.parse().ok()).unwrap_or(50i64);
-    let offset = params.get("offset").and_then(|s| s.parse().ok()).unwrap_or(0i64);
-    let mut incidents = store.list_incidents(status, limit, offset).await.map_err(db_err)?;
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50i64);
+    let offset = params
+        .get("offset")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0i64);
+    let mut incidents = store
+        .list_incidents(status, limit, offset)
+        .await
+        .map_err(db_err)?;
 
     // Enrich the list with lightweight fallback actions. Preload everything
     // we need once for the whole batch to avoid N+1:
     //  - firewall / GLPI config (2 DB reads)
     //  - recent alerts (1 DB read, shared across all incidents via hostname match)
-    let has_firewall = crate::agent::remediation_engine::load_firewall_config(store.as_ref()).await.is_some();
-    let has_glpi = crate::agent::remediation_engine::load_glpi_config(store.as_ref()).await.is_some();
-    let recent_alerts = store.list_alerts(None, Some("new"), 200, 0).await.unwrap_or_default();
+    let has_firewall = crate::agent::remediation_engine::load_firewall_config(store.as_ref())
+        .await
+        .is_some();
+    let has_glpi = crate::agent::remediation_engine::load_glpi_config(store.as_ref())
+        .await
+        .is_some();
+    let recent_alerts = store
+        .list_alerts(None, Some("new"), 200, 0)
+        .await
+        .unwrap_or_default();
 
     // Build a hostname → first-valid-source-ip map once
     let mut host_to_ip: HashMap<String, String> = HashMap::new();
@@ -5687,7 +7096,9 @@ pub async fn incidents_list_handler(
         enrich_incident_actions_batched(inc, has_firewall, has_glpi, &host_to_ip);
     }
 
-    Ok(Json(serde_json::json!({ "incidents": incidents, "total": incidents.len() })))
+    Ok(Json(
+        serde_json::json!({ "incidents": incidents, "total": incidents.len() }),
+    ))
 }
 
 /// GET /api/tc/incidents/:id — get incident detail (with per-incident full enrichment)
@@ -5699,18 +7110,29 @@ pub async fn incident_detail_handler(
     match store.get_incident(id).await.map_err(db_err)? {
         Some(mut incident) => {
             // Single incident: use the full remediation_engine helper.
-            let has_actions = incident.get("proposed_actions")
+            let has_actions = incident
+                .get("proposed_actions")
                 .and_then(|v| v.get("actions"))
                 .and_then(|a| a.as_array())
                 .map(|a| !a.is_empty())
                 .unwrap_or(false);
             if !has_actions {
-                let status = incident.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                let status = incident
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if status != "archived" && status != "closed" && status != "resolved" {
-                    let asset = incident.get("asset").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let asset = incident
+                        .get("asset")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let (actions, iocs) = crate::agent::remediation_engine::build_fallback_actions(
-                        store.as_ref(), &asset, id,
-                    ).await;
+                        store.as_ref(),
+                        &asset,
+                        id,
+                    )
+                    .await;
                     if !actions.is_empty() || !iocs.is_empty() {
                         incident["proposed_actions"] = serde_json::json!({
                             "actions": actions,
@@ -5734,21 +7156,30 @@ fn enrich_incident_actions_batched(
     has_glpi: bool,
     host_to_ip: &HashMap<String, String>,
 ) {
-    let has_actions = inc.get("proposed_actions")
+    let has_actions = inc
+        .get("proposed_actions")
         .and_then(|v| v.get("actions"))
         .and_then(|a| a.as_array())
         .map(|a| !a.is_empty())
         .unwrap_or(false);
-    if has_actions { return; }
+    if has_actions {
+        return;
+    }
 
     let status = inc.get("status").and_then(|v| v.as_str()).unwrap_or("");
     if status == "archived" || status == "closed" || status == "resolved" {
         return;
     }
 
-    let asset = inc.get("asset").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let asset = inc
+        .get("asset")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let id = inc.get("id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-    if asset.is_empty() || id == 0 { return; }
+    if asset.is_empty() || id == 0 {
+        return;
+    }
 
     // Look up attacker IP from the pre-built map (O(1))
     let attacker_ip = host_to_ip.get(&asset.to_lowercase()).cloned();
@@ -5796,23 +7227,46 @@ pub async fn incident_hitl_handler(
     let response = body["response"].as_str().unwrap_or("reject");
     let responded_by = body["responded_by"].as_str().unwrap_or("dashboard");
 
-    store.update_incident_hitl(id, "responded", responded_by, response).await.map_err(db_err)?;
+    store
+        .update_incident_hitl(id, "responded", responded_by, response)
+        .await
+        .map_err(db_err)?;
 
     if response.starts_with("approve") || response == "execute" {
         // ADR-044: Execute real remediation through the guard
         let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
-            store.clone(), id, response
-        ).await;
-        tracing::info!("INCIDENT #{}: HITL {} via {} — success={} msg={}", id, response, responded_by, success, msg);
+            store.clone(),
+            id,
+            response,
+        )
+        .await;
+        tracing::info!(
+            "INCIDENT #{}: HITL {} via {} — success={} msg={}",
+            id,
+            response,
+            responded_by,
+            success,
+            msg
+        );
         if success {
-            store.update_incident_status(id, "resolved").await.map_err(db_err)?;
+            store
+                .update_incident_status(id, "resolved")
+                .await
+                .map_err(db_err)?;
         }
-        return Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "response": response, "remediation": { "success": success, "message": msg } })));
+        return Ok(Json(
+            serde_json::json!({ "status": "ok", "incident_id": id, "response": response, "remediation": { "success": success, "message": msg } }),
+        ));
     } else if response == "false_positive" {
-        store.update_incident_status(id, "closed").await.map_err(db_err)?;
+        store
+            .update_incident_status(id, "closed")
+            .await
+            .map_err(db_err)?;
     }
 
-    Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "response": response })))
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "incident_id": id, "response": response }),
+    ))
 }
 
 /// GET /api/tc/incidents/:id/hitl?response=X&responded_by=Y — HITL via URL link (Slack/Discord/Ntfy buttons)
@@ -5825,23 +7279,45 @@ pub async fn incident_hitl_get_handler(
         Some(s) => s,
         None => return (StatusCode::INTERNAL_SERVER_ERROR, "No database").into_response(),
     };
-    let response = params.get("response").map(|s| s.as_str()).unwrap_or("reject");
-    let responded_by = params.get("responded_by").map(|s| s.as_str()).unwrap_or("link");
+    let response = params
+        .get("response")
+        .map(|s| s.as_str())
+        .unwrap_or("reject");
+    let responded_by = params
+        .get("responded_by")
+        .map(|s| s.as_str())
+        .unwrap_or("link");
 
-    let _ = store.update_incident_hitl(id, "responded", responded_by, response).await;
+    let _ = store
+        .update_incident_hitl(id, "responded", responded_by, response)
+        .await;
 
     if response.starts_with("approve") || response == "execute" {
         let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
-            store.clone(), id, response
-        ).await;
-        if success { let _ = store.update_incident_status(id, "resolved").await; }
-        tracing::info!("INCIDENT #{}: HITL {} via {} (GET link) — {}", id, response, responded_by, msg);
+            store.clone(),
+            id,
+            response,
+        )
+        .await;
+        if success {
+            let _ = store.update_incident_status(id, "resolved").await;
+        }
+        tracing::info!(
+            "INCIDENT #{}: HITL {} via {} (GET link) — {}",
+            id,
+            response,
+            responded_by,
+            msg
+        );
     } else if response == "false_positive" {
         let _ = store.update_incident_status(id, "closed").await;
     }
 
     // Redirect to dashboard incidents page
-    let dashboard = params.get("redirect").map(|s| s.as_str()).unwrap_or("/incidents");
+    let dashboard = params
+        .get("redirect")
+        .map(|s| s.as_str())
+        .unwrap_or("/incidents");
     axum::response::Redirect::to(dashboard).into_response()
 }
 
@@ -5853,8 +7329,13 @@ pub async fn incident_status_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let status = body["status"].as_str().unwrap_or("open");
-    store.update_incident_status(id, status).await.map_err(db_err)?;
-    Ok(Json(serde_json::json!({ "status": "ok", "incident_id": id, "new_status": status })))
+    store
+        .update_incident_status(id, status)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "incident_id": id, "new_status": status }),
+    ))
 }
 
 /// GET /api/tc/settings/{user_id}/{key} — read a setting value
@@ -5864,8 +7345,12 @@ pub async fn settings_read_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.get_setting(&user_id, &key).await {
-        Ok(Some(val)) => Ok(Json(serde_json::json!({ "user_id": user_id, "key": key, "value": val }))),
-        Ok(None) => Ok(Json(serde_json::json!({ "user_id": user_id, "key": key, "value": null }))),
+        Ok(Some(val)) => Ok(Json(
+            serde_json::json!({ "user_id": user_id, "key": key, "value": val }),
+        )),
+        Ok(None) => Ok(Json(
+            serde_json::json!({ "user_id": user_id, "key": key, "value": null }),
+        )),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e))),
     }
 }

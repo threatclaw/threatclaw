@@ -79,7 +79,11 @@ pub async fn parse_command(
     // This is instant and reliable — no LLM needed for "status", "findings", etc.
     let fast = fallback_parse(message);
     if !matches!(fast.execution_type, ExecutionType::Unknown) {
-        tracing::info!("CMD_INTERPRETER: fast-parsed '{}' → action={}", message, fast.action);
+        tracing::info!(
+            "CMD_INTERPRETER: fast-parsed '{}' → action={}",
+            message,
+            fast.action
+        );
         return fast;
     }
 
@@ -88,7 +92,10 @@ pub async fn parse_command(
     // Without this guard, "Salut" would wait ~30s on a CPU-bound server just to
     // reach the same conclusion.
     if is_conversational_message(message) {
-        tracing::info!("CMD_INTERPRETER: '{}' → conversational (skip L1 classifier)", message);
+        tracing::info!(
+            "CMD_INTERPRETER: '{}' → conversational (skip L1 classifier)",
+            message
+        );
         return fast; // Unknown → triggers L0 chatbot flow
     }
 
@@ -155,13 +162,18 @@ Réponds UNIQUEMENT en JSON valide :
     match client.post(&url).json(&body).send().await {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
-                let content = data["message"]["content"].as_str()
+                let content = data["message"]["content"]
+                    .as_str()
                     .or_else(|| data["response"].as_str())
                     .unwrap_or("");
 
                 if let Some(parsed) = parse_llm_json(content) {
-                    tracing::info!("CMD_INTERPRETER: parsed '{}' → action={} confidence={:.0}%",
-                        message, parsed.action, parsed.confidence * 100.0);
+                    tracing::info!(
+                        "CMD_INTERPRETER: parsed '{}' → action={} confidence={:.0}%",
+                        message,
+                        parsed.action,
+                        parsed.confidence * 100.0
+                    );
                     return parsed;
                 }
             }
@@ -187,30 +199,65 @@ fn parse_llm_json(content: &str) -> Option<ParsedCommand> {
     let val: serde_json::Value = serde_json::from_str(json_str).ok()?;
 
     let action = val["action"].as_str()?.to_string();
-    let target = val["target"].as_str().filter(|s| !s.is_empty() && *s != "null").map(String::from);
+    let target = val["target"]
+        .as_str()
+        .filter(|s| !s.is_empty() && *s != "null")
+        .map(String::from);
     let confidence = val["confidence"].as_f64().unwrap_or(0.5);
     let summary = val["summary"].as_str().unwrap_or("").to_string();
 
-    let params: HashMap<String, String> = val["params"].as_object()
-        .map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+    let params: HashMap<String, String> = val["params"]
+        .as_object()
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
         .unwrap_or_default();
 
     let execution_type = match action.as_str() {
-        "scan_port" | "scan_vuln" => ExecutionType::Skill { skill_id: "skill-vuln-scan".into() },
-        "lookup_ip" => ExecutionType::Skill { skill_id: "skill-abuseipdb".into() },
-        "lookup_domain" => ExecutionType::Skill { skill_id: "skill-virustotal".into() },
-        "check_breach" => ExecutionType::Skill { skill_id: "skill-darkweb-monitor".into() },
-        "block_ip" => ExecutionType::Remediation { cmd_id: "net-001".into() },
-        "lock_user" => ExecutionType::Remediation { cmd_id: "usr-001".into() },
+        "scan_port" | "scan_vuln" => ExecutionType::Skill {
+            skill_id: "skill-vuln-scan".into(),
+        },
+        "lookup_ip" => ExecutionType::Skill {
+            skill_id: "skill-abuseipdb".into(),
+        },
+        "lookup_domain" => ExecutionType::Skill {
+            skill_id: "skill-virustotal".into(),
+        },
+        "check_breach" => ExecutionType::Skill {
+            skill_id: "skill-darkweb-monitor".into(),
+        },
+        "block_ip" => ExecutionType::Remediation {
+            cmd_id: "net-001".into(),
+        },
+        "lock_user" => ExecutionType::Remediation {
+            cmd_id: "usr-001".into(),
+        },
         "react" => ExecutionType::ReactCycle,
-        "playbook" => ExecutionType::Instruct { gen_type: "playbook".into() },
-        "report" => ExecutionType::Instruct { gen_type: "report".into() },
-        "sigma_rule" => ExecutionType::Instruct { gen_type: "sigma".into() },
-        "status" | "findings" | "alerts" => ExecutionType::Query { query_type: action.clone() },
+        "playbook" => ExecutionType::Instruct {
+            gen_type: "playbook".into(),
+        },
+        "report" => ExecutionType::Instruct {
+            gen_type: "report".into(),
+        },
+        "sigma_rule" => ExecutionType::Instruct {
+            gen_type: "sigma".into(),
+        },
+        "status" | "findings" | "alerts" => ExecutionType::Query {
+            query_type: action.clone(),
+        },
         _ => ExecutionType::Unknown,
     };
 
-    Some(ParsedCommand { action, target, params, confidence, summary, execution_type })
+    Some(ParsedCommand {
+        action,
+        target,
+        params,
+        confidence,
+        summary,
+        execution_type,
+    })
 }
 
 /// Fallback keyword-based parsing when LLM is unavailable.
@@ -232,15 +279,46 @@ fn is_conversational_message(message: &str) -> bool {
 
     // Explicit greetings / acknowledgements / chit-chat in FR + EN
     const CONVERSATIONAL: &[&str] = &[
-        "salut", "bonjour", "bonsoir", "hello", "hi", "hey", "coucou",
-        "merci", "thanks", "thx", "ok", "d'accord", "daccord", "ouais",
-        "au revoir", "bye", "ciao", "à plus", "bonne nuit",
-        "comment vas-tu", "comment ça va", "ça va", "how are you",
-        "qui es-tu", "qui es tu", "who are you", "t'es qui", "tu es qui",
-        "tu peux", "peux-tu", "can you", "help", "aide", "aide-moi",
+        "salut",
+        "bonjour",
+        "bonsoir",
+        "hello",
+        "hi",
+        "hey",
+        "coucou",
+        "merci",
+        "thanks",
+        "thx",
+        "ok",
+        "d'accord",
+        "daccord",
+        "ouais",
+        "au revoir",
+        "bye",
+        "ciao",
+        "à plus",
+        "bonne nuit",
+        "comment vas-tu",
+        "comment ça va",
+        "ça va",
+        "how are you",
+        "qui es-tu",
+        "qui es tu",
+        "who are you",
+        "t'es qui",
+        "tu es qui",
+        "tu peux",
+        "peux-tu",
+        "can you",
+        "help",
+        "aide",
+        "aide-moi",
     ];
     for g in CONVERSATIONAL {
-        if lower == *g || lower.starts_with(&format!("{} ", g)) || lower.starts_with(&format!("{},", g)) {
+        if lower == *g
+            || lower.starts_with(&format!("{} ", g))
+            || lower.starts_with(&format!("{},", g))
+        {
             return true;
         }
     }
@@ -256,58 +334,187 @@ fn fallback_parse(message: &str) -> ParsedCommand {
 
     // Word boundary check — match whole words not substrings
     let words: Vec<&str> = lower.split_whitespace().collect();
-    let has_word = |w: &str| words.iter().any(|word| word.trim_matches(|c: char| !c.is_alphanumeric()) == w);
+    let has_word = |w: &str| {
+        words
+            .iter()
+            .any(|word| word.trim_matches(|c: char| !c.is_alphanumeric()) == w)
+    };
     let has_prefix = |p: &str| lower.contains(p);
 
-    let (action, execution_type, summary) = if has_word("scan") && (has_word("port") || has_word("nmap")) {
-        ("scan_port".into(), ExecutionType::Skill { skill_id: "skill-vuln-scan".into() },
-         format!("Scanner les ports{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
-    } else if has_word("scan") && (has_prefix("vuln") || has_word("réseau") || has_word("network")) {
-        ("scan_vuln".into(), ExecutionType::Skill { skill_id: "skill-vuln-scan".into() },
-         format!("Scanner les vulnérabilités{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
+    let (action, execution_type, summary) = if has_word("scan")
+        && (has_word("port") || has_word("nmap"))
+    {
+        (
+            "scan_port".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-vuln-scan".into(),
+            },
+            format!(
+                "Scanner les ports{}",
+                ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()
+            ),
+        )
+    } else if has_word("scan") && (has_prefix("vuln") || has_word("réseau") || has_word("network"))
+    {
+        (
+            "scan_vuln".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-vuln-scan".into(),
+            },
+            format!(
+                "Scanner les vulnérabilités{}",
+                ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()
+            ),
+        )
     } else if has_word("scan") || (has_word("scanne") && ip.is_some()) {
-        ("scan_port".into(), ExecutionType::Skill { skill_id: "skill-nmap-discovery".into() },
-         format!("Scanner{}", ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()))
+        (
+            "scan_port".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-nmap-discovery".into(),
+            },
+            format!(
+                "Scanner{}",
+                ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()
+            ),
+        )
     } else if has_prefix("bloqu") || has_word("block") || has_word("ban") {
-        ("block_ip".into(), ExecutionType::Remediation { cmd_id: "net-001".into() },
-         format!("Bloquer l'IP{}", ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()))
-    } else if has_word("reputation") || has_word("abuseipdb") || has_word("vérifie") || has_word("verifie") || has_word("lookup") {
-        ("lookup_ip".into(), ExecutionType::Skill { skill_id: "skill-abuseipdb".into() },
-         format!("Vérifier la réputation{}", ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()))
+        (
+            "block_ip".into(),
+            ExecutionType::Remediation {
+                cmd_id: "net-001".into(),
+            },
+            format!(
+                "Bloquer l'IP{}",
+                ip.as_ref().map(|i| format!(" {i}")).unwrap_or_default()
+            ),
+        )
+    } else if has_word("reputation")
+        || has_word("abuseipdb")
+        || has_word("vérifie")
+        || has_word("verifie")
+        || has_word("lookup")
+    {
+        (
+            "lookup_ip".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-abuseipdb".into(),
+            },
+            format!(
+                "Vérifier la réputation{}",
+                ip.as_ref().map(|i| format!(" de {i}")).unwrap_or_default()
+            ),
+        )
     } else if has_word("playbook") {
-        ("playbook".into(), ExecutionType::Instruct { gen_type: "playbook".into() }, "Générer un playbook".into())
+        (
+            "playbook".into(),
+            ExecutionType::Instruct {
+                gen_type: "playbook".into(),
+            },
+            "Générer un playbook".into(),
+        )
     } else if has_word("rapport") || has_word("report") {
-        ("report".into(), ExecutionType::Instruct { gen_type: "report".into() }, "Générer un rapport".into())
+        (
+            "report".into(),
+            ExecutionType::Instruct {
+                gen_type: "report".into(),
+            },
+            "Générer un rapport".into(),
+        )
     } else if has_word("sigma") {
-        ("sigma".into(), ExecutionType::Instruct { gen_type: "sigma".into() }, "Générer une règle Sigma".into())
+        (
+            "sigma".into(),
+            ExecutionType::Instruct {
+                gen_type: "sigma".into(),
+            },
+            "Générer une règle Sigma".into(),
+        )
     } else if has_word("status") || has_word("statut") || has_word("état") || has_word("etat") {
-        ("status".into(), ExecutionType::Query { query_type: "status".into() }, "Afficher le statut".into())
-    } else if has_word("ticket") || has_word("glpi") || (has_word("incident") && !has_word("détection")) {
+        (
+            "status".into(),
+            ExecutionType::Query {
+                query_type: "status".into(),
+            },
+            "Afficher le statut".into(),
+        )
+    } else if has_word("ticket")
+        || has_word("glpi")
+        || (has_word("incident") && !has_word("détection"))
+    {
         // Extract finding ID if present (e.g., "crée un ticket pour le finding 501")
-        let finding_id: Option<i64> = lower.split_whitespace()
-            .filter_map(|w| w.trim_matches(|c: char| !c.is_numeric()).parse::<i64>().ok())
+        let finding_id: Option<i64> = lower
+            .split_whitespace()
+            .filter_map(|w| {
+                w.trim_matches(|c: char| !c.is_numeric())
+                    .parse::<i64>()
+                    .ok()
+            })
             .find(|&n| n > 0);
         let mut params: HashMap<String, String> = HashMap::new();
-        if let Some(fid) = finding_id { params.insert("finding_id".into(), fid.to_string()); }
-        ("ticket".into(), ExecutionType::Skill { skill_id: "skill-glpi-ticket".into() },
-         format!("Créer un ticket GLPI{}", finding_id.map(|id| format!(" pour le finding #{id}")).unwrap_or_default()))
+        if let Some(fid) = finding_id {
+            params.insert("finding_id".into(), fid.to_string());
+        }
+        (
+            "ticket".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-glpi-ticket".into(),
+            },
+            format!(
+                "Créer un ticket GLPI{}",
+                finding_id
+                    .map(|id| format!(" pour le finding #{id}"))
+                    .unwrap_or_default()
+            ),
+        )
     } else if has_prefix("finding") || has_prefix("vulnérab") || has_prefix("vulnerab") {
-        ("findings".into(), ExecutionType::Query { query_type: "findings".into() }, "Afficher les vulnérabilités".into())
-    } else if has_prefix("alert") || has_prefix("alerte") || has_word("détection") || has_word("detection") {
-        ("alerts".into(), ExecutionType::Query { query_type: "alerts".into() }, "Afficher les alertes".into())
+        (
+            "findings".into(),
+            ExecutionType::Query {
+                query_type: "findings".into(),
+            },
+            "Afficher les vulnérabilités".into(),
+        )
+    } else if has_prefix("alert")
+        || has_prefix("alerte")
+        || has_word("détection")
+        || has_word("detection")
+    {
+        (
+            "alerts".into(),
+            ExecutionType::Query {
+                query_type: "alerts".into(),
+            },
+            "Afficher les alertes".into(),
+        )
     } else if has_word("react") || has_word("analyse") || has_word("analyze") {
-        ("react".into(), ExecutionType::ReactCycle, "Lancer un cycle d'analyse".into())
+        (
+            "react".into(),
+            ExecutionType::ReactCycle,
+            "Lancer un cycle d'analyse".into(),
+        )
     } else if ip.is_some() {
         // Just an IP with no command → lookup
-        ("lookup_ip".into(), ExecutionType::Skill { skill_id: "skill-abuseipdb".into() },
-         format!("Vérifier {}", ip.as_ref().unwrap()))
+        (
+            "lookup_ip".into(),
+            ExecutionType::Skill {
+                skill_id: "skill-abuseipdb".into(),
+            },
+            format!("Vérifier {}", ip.as_ref().unwrap()),
+        )
     } else {
-        ("unknown".into(), ExecutionType::Unknown, "Commande non reconnue".into())
+        (
+            "unknown".into(),
+            ExecutionType::Unknown,
+            "Commande non reconnue".into(),
+        )
     };
 
     ParsedCommand {
-        action, target: ip, params: HashMap::new(),
-        confidence: 0.4, summary, execution_type,
+        action,
+        target: ip,
+        params: HashMap::new(),
+        confidence: 0.4,
+        summary,
+        execution_type,
     }
 }
 
@@ -358,13 +565,32 @@ async fn execute_query(query_type: &str, store: &dyn Database) -> CommandResult 
 
     match query_type {
         "status" => {
-            let situation = store.get_setting("_system", "security_situation").await.ok().flatten();
-            let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
-            let alerts_count = store.count_alerts_filtered(None, Some("new")).await.unwrap_or(0);
-            let findings_count = store.count_findings_filtered(None, Some("open"), None).await.unwrap_or(0);
+            let situation = store
+                .get_setting("_system", "security_situation")
+                .await
+                .ok()
+                .flatten();
+            let score = situation
+                .as_ref()
+                .and_then(|s| s["global_score"].as_f64())
+                .unwrap_or(100.0);
+            let alerts_count = store
+                .count_alerts_filtered(None, Some("new"))
+                .await
+                .unwrap_or(0);
+            let findings_count = store
+                .count_findings_filtered(None, Some("open"), None)
+                .await
+                .unwrap_or(0);
             let assets_count = store.count_assets_filtered(None, None).await.unwrap_or(0);
 
-            let score_label = if score >= 80.0 { "Situation saine" } else if score >= 50.0 { "Points d'attention" } else { "Situation dégradée" };
+            let score_label = if score >= 80.0 {
+                "Situation saine"
+            } else if score >= 50.0 {
+                "Points d'attention"
+            } else {
+                "Situation dégradée"
+            };
 
             CommandResult {
                 success: true,
@@ -372,42 +598,70 @@ async fn execute_query(query_type: &str, store: &dyn Database) -> CommandResult 
                     "*ThreatClaw — Status*\n\nScore sécurité : *{:.0}/100* — {}\nAlertes actives : {}\nVulnérabilités ouvertes : {}\nAssets surveillés : {}",
                     score, score_label, alerts_count, findings_count, assets_count
                 ),
-                data: Some(json!({ "score": score, "alerts": alerts_count, "findings": findings_count, "assets": assets_count })),
+                data: Some(
+                    json!({ "score": score, "alerts": alerts_count, "findings": findings_count, "assets": assets_count }),
+                ),
             }
         }
-        "findings" => {
-            match store.list_findings(None, Some("open"), None, 10, 0).await {
-                Ok(findings) => {
-                    let count = findings.len();
-                    let summary: Vec<String> = findings.iter().take(5).map(|f| {
-                        format!("[{}] {} — {}", f.severity, f.title, f.asset.as_deref().unwrap_or("?"))
-                    }).collect();
-                    CommandResult {
-                        success: true,
-                        message: format!("{count} findings ouverts :\n{}", summary.join("\n")),
-                        data: Some(json!({ "count": count })),
-                    }
+        "findings" => match store.list_findings(None, Some("open"), None, 10, 0).await {
+            Ok(findings) => {
+                let count = findings.len();
+                let summary: Vec<String> = findings
+                    .iter()
+                    .take(5)
+                    .map(|f| {
+                        format!(
+                            "[{}] {} — {}",
+                            f.severity,
+                            f.title,
+                            f.asset.as_deref().unwrap_or("?")
+                        )
+                    })
+                    .collect();
+                CommandResult {
+                    success: true,
+                    message: format!("{count} findings ouverts :\n{}", summary.join("\n")),
+                    data: Some(json!({ "count": count })),
                 }
-                Err(e) => CommandResult { success: false, message: format!("Erreur: {e}"), data: None },
             }
-        }
-        "alerts" => {
-            match store.list_alerts(None, Some("new"), 10, 0).await {
-                Ok(alerts) => {
-                    let count = alerts.len();
-                    let summary: Vec<String> = alerts.iter().take(5).map(|a| {
-                        format!("[{}] {} — {}", a.level, a.title, a.hostname.as_deref().unwrap_or("?"))
-                    }).collect();
-                    CommandResult {
-                        success: true,
-                        message: format!("{count} alertes :\n{}", summary.join("\n")),
-                        data: Some(json!({ "count": count })),
-                    }
+            Err(e) => CommandResult {
+                success: false,
+                message: format!("Erreur: {e}"),
+                data: None,
+            },
+        },
+        "alerts" => match store.list_alerts(None, Some("new"), 10, 0).await {
+            Ok(alerts) => {
+                let count = alerts.len();
+                let summary: Vec<String> = alerts
+                    .iter()
+                    .take(5)
+                    .map(|a| {
+                        format!(
+                            "[{}] {} — {}",
+                            a.level,
+                            a.title,
+                            a.hostname.as_deref().unwrap_or("?")
+                        )
+                    })
+                    .collect();
+                CommandResult {
+                    success: true,
+                    message: format!("{count} alertes :\n{}", summary.join("\n")),
+                    data: Some(json!({ "count": count })),
                 }
-                Err(e) => CommandResult { success: false, message: format!("Erreur: {e}"), data: None },
             }
-        }
-        _ => CommandResult { success: false, message: "Query inconnue".into(), data: None },
+            Err(e) => CommandResult {
+                success: false,
+                message: format!("Erreur: {e}"),
+                data: None,
+            },
+        },
+        _ => CommandResult {
+            success: false,
+            message: "Query inconnue".into(),
+            data: None,
+        },
     }
 }
 
@@ -421,17 +675,28 @@ async fn execute_skill_lookup(
     // Load skill config from DB
     use crate::db::threatclaw_store::ThreatClawStore;
     let config = store.get_skill_config(skill_id).await.unwrap_or_default();
-    let mut merged_params: HashMap<String, String> = config.iter()
-        .map(|c| (c.key.clone(), c.value.clone())).collect();
+    let mut merged_params: HashMap<String, String> = config
+        .iter()
+        .map(|c| (c.key.clone(), c.value.clone()))
+        .collect();
     merged_params.extend(params.clone());
     if let Some(t) = target {
         merged_params.insert("target".into(), t.clone());
         merged_params.insert("IP".into(), t.clone());
     }
 
-    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build() {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
         Ok(c) => c,
-        Err(e) => return CommandResult { success: false, message: format!("HTTP: {e}"), data: None },
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                message: format!("HTTP: {e}"),
+                data: None,
+            };
+        }
     };
     let auth_token = std::env::var("GATEWAY_AUTH_TOKEN").unwrap_or_default();
 
@@ -443,28 +708,47 @@ async fn execute_skill_lookup(
             json!({ "title": merged_params.get("title").cloned().unwrap_or("ThreatClaw Alert".into()),
                      "description": merged_params.get("description").cloned().unwrap_or_default() })
         };
-        let resp = client.post("http://127.0.0.1:3000/api/tc/connectors/glpi/ticket")
+        let resp = client
+            .post("http://127.0.0.1:3000/api/tc/connectors/glpi/ticket")
             .header("Authorization", format!("Bearer {}", auth_token))
             .json(&body)
-            .send().await;
+            .send()
+            .await;
         return match resp {
             Ok(r) => {
                 let data: serde_json::Value = r.json().await.unwrap_or_default();
                 if data["success"].as_bool() == Some(true) {
-                    CommandResult { success: true, message: format!("Ticket GLPI #{} créé", data["ticket_id"]), data: Some(data) }
+                    CommandResult {
+                        success: true,
+                        message: format!("Ticket GLPI #{} créé", data["ticket_id"]),
+                        data: Some(data),
+                    }
                 } else {
-                    CommandResult { success: false, message: format!("Erreur GLPI : {}", data["error"].as_str().unwrap_or("?")), data: Some(data) }
+                    CommandResult {
+                        success: false,
+                        message: format!("Erreur GLPI : {}", data["error"].as_str().unwrap_or("?")),
+                        data: Some(data),
+                    }
                 }
             }
-            Err(e) => CommandResult { success: false, message: format!("GLPI non accessible : {e}"), data: None },
+            Err(e) => CommandResult {
+                success: false,
+                message: format!("GLPI non accessible : {e}"),
+                data: None,
+            },
         };
     }
 
     // Default: call the skill test endpoint
-    let resp = client.post(format!("http://127.0.0.1:3000/api/tc/skills/{}/test", skill_id))
+    let resp = client
+        .post(format!(
+            "http://127.0.0.1:3000/api/tc/skills/{}/test",
+            skill_id
+        ))
         .header("Authorization", format!("Bearer {}", auth_token))
         .json(&merged_params)
-        .send().await;
+        .send()
+        .await;
 
     match resp {
         Ok(r) if r.status().is_success() => {
@@ -476,8 +760,16 @@ async fn execute_skill_lookup(
                 data: Some(data),
             }
         }
-        Ok(r) => CommandResult { success: false, message: format!("Skill {} : HTTP {}", skill_id, r.status()), data: None },
-        Err(e) => CommandResult { success: false, message: format!("Skill {} : {}", skill_id, e), data: None },
+        Ok(r) => CommandResult {
+            success: false,
+            message: format!("Skill {} : HTTP {}", skill_id, r.status()),
+            data: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            message: format!("Skill {} : {}", skill_id, e),
+            data: None,
+        },
     }
 }
 
@@ -485,14 +777,25 @@ async fn execute_skill_lookup(
 async fn execute_react(_store: &dyn Database) -> CommandResult {
     // Trigger react cycle via internal API (same as dashboard button)
     let auth_token = std::env::var("GATEWAY_AUTH_TOKEN").unwrap_or_default();
-    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(120)).build() {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+    {
         Ok(c) => c,
-        Err(e) => return CommandResult { success: false, message: format!("HTTP: {e}"), data: None },
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                message: format!("HTTP: {e}"),
+                data: None,
+            };
+        }
     };
 
-    match client.post("http://127.0.0.1:3000/api/tc/agent/react-cycle")
+    match client
+        .post("http://127.0.0.1:3000/api/tc/agent/react-cycle")
         .header("Authorization", format!("Bearer {}", auth_token))
-        .send().await
+        .send()
+        .await
     {
         Ok(r) if r.status().is_success() => {
             let data: serde_json::Value = r.json().await.unwrap_or_default();
@@ -505,8 +808,16 @@ async fn execute_react(_store: &dyn Database) -> CommandResult {
                 data: Some(data),
             }
         }
-        Ok(r) => CommandResult { success: false, message: format!("ReAct HTTP {}", r.status()), data: None },
-        Err(e) => CommandResult { success: false, message: format!("ReAct: {e}"), data: None },
+        Ok(r) => CommandResult {
+            success: false,
+            message: format!("ReAct HTTP {}", r.status()),
+            data: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            message: format!("ReAct: {e}"),
+            data: None,
+        },
     }
 }
 
@@ -525,10 +836,20 @@ async fn execute_instruct(
     };
 
     let url = format!("{}/api/chat", instruct.base_url);
-    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(60))
-        .danger_accept_invalid_certs(true).no_proxy().build() {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .danger_accept_invalid_certs(true)
+        .no_proxy()
+        .build()
+    {
         Ok(c) => c,
-        Err(e) => return CommandResult { success: false, message: format!("HTTP: {e}"), data: None },
+        Err(e) => {
+            return CommandResult {
+                success: false,
+                message: format!("HTTP: {e}"),
+                data: None,
+            };
+        }
     };
 
     let body = json!({
@@ -541,20 +862,41 @@ async fn execute_instruct(
     match client.post(&url).json(&body).send().await {
         Ok(r) if r.status().is_success() => {
             if let Ok(data) = r.json::<serde_json::Value>().await {
-                let content = data["message"]["content"].as_str().unwrap_or("Pas de réponse");
+                let content = data["message"]["content"]
+                    .as_str()
+                    .unwrap_or("Pas de réponse");
                 // Truncate for Telegram (4096 char limit)
                 let truncated = if content.len() > 3500 {
-                    format!("{}...\n\n[tronqué — voir dashboard pour le rapport complet]", &content[..3500])
+                    format!(
+                        "{}...\n\n[tronqué — voir dashboard pour le rapport complet]",
+                        &content[..3500]
+                    )
                 } else {
                     content.to_string()
                 };
-                CommandResult { success: true, message: truncated, data: None }
+                CommandResult {
+                    success: true,
+                    message: truncated,
+                    data: None,
+                }
             } else {
-                CommandResult { success: false, message: "Erreur parsing réponse Instruct".into(), data: None }
+                CommandResult {
+                    success: false,
+                    message: "Erreur parsing réponse Instruct".into(),
+                    data: None,
+                }
             }
         }
-        Ok(r) => CommandResult { success: false, message: format!("Instruct HTTP {}", r.status()), data: None },
-        Err(e) => CommandResult { success: false, message: format!("Instruct: {e}"), data: None },
+        Ok(r) => CommandResult {
+            success: false,
+            message: format!("Instruct HTTP {}", r.status()),
+            data: None,
+        },
+        Err(e) => CommandResult {
+            success: false,
+            message: format!("Instruct: {e}"),
+            data: None,
+        },
     }
 }
 

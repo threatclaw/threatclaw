@@ -14,119 +14,149 @@ pub struct FingerprintResult {
 
 /// Classify a device from its open ports.
 pub fn classify_from_ports(ports: &[u16]) -> Option<FingerprintResult> {
-    if ports.is_empty() { return None; }
+    if ports.is_empty() {
+        return None;
+    }
 
     let has = |p: u16| ports.contains(&p);
 
     // Active Directory / Domain Controller
     if has(389) && has(636) && has(88) && has(445) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("ad".into()),
-            confidence: 0.90, reason: "LDAP(389) + LDAPS(636) + Kerberos(88) + SMB(445)".into(),
+            category: "server".into(),
+            subcategory: Some("ad".into()),
+            confidence: 0.90,
+            reason: "LDAP(389) + LDAPS(636) + Kerberos(88) + SMB(445)".into(),
         });
     }
 
     // DNS server
     if has(53) && (has(953) || has(8053)) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("dns".into()),
-            confidence: 0.85, reason: "DNS(53) + RNDC(953) or management port".into(),
+            category: "server".into(),
+            subcategory: Some("dns".into()),
+            confidence: 0.85,
+            reason: "DNS(53) + RNDC(953) or management port".into(),
         });
     }
 
     // Mail server
     if has(25) || (has(587) && has(993)) || (has(110) && has(143)) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("mail".into()),
-            confidence: 0.85, reason: "SMTP/IMAP/POP3 ports".into(),
+            category: "server".into(),
+            subcategory: Some("mail".into()),
+            confidence: 0.85,
+            reason: "SMTP/IMAP/POP3 ports".into(),
         });
     }
 
     // Web server + database = web stack
     if (has(80) || has(443)) && (has(3306) || has(5432) || has(27017)) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("web".into()),
-            confidence: 0.80, reason: "HTTP(S) + database port".into(),
+            category: "server".into(),
+            subcategory: Some("web".into()),
+            confidence: 0.80,
+            reason: "HTTP(S) + database port".into(),
         });
     }
 
     // IP camera / RTSP (before generic web check — cameras often have port 80 too)
     if has(554) || has(8554) {
         return Some(FingerprintResult {
-            category: "iot".into(), subcategory: Some("camera".into()),
-            confidence: 0.85, reason: "RTSP(554) streaming port".into(),
+            category: "iot".into(),
+            subcategory: Some("camera".into()),
+            confidence: 0.85,
+            reason: "RTSP(554) streaming port".into(),
         });
     }
 
     // Printer (before generic web check — printers often have port 80 too)
     if has(9100) || has(515) || (has(631) && !has(443)) {
         return Some(FingerprintResult {
-            category: "printer".into(), subcategory: Some("imprimante".into()),
-            confidence: 0.85, reason: "Printer port (JetDirect/LPD/IPP)".into(),
+            category: "printer".into(),
+            subcategory: Some("imprimante".into()),
+            confidence: 0.85,
+            reason: "Printer port (JetDirect/LPD/IPP)".into(),
         });
     }
 
     // Industrial / OT (before generic web check)
     if has(502) || has(102) || has(44818) || has(20000) {
         return Some(FingerprintResult {
-            category: "ot".into(), subcategory: Some("plc".into()),
-            confidence: 0.80, reason: "Industrial protocol (Modbus/S7/EtherNet-IP)".into(),
+            category: "ot".into(),
+            subcategory: Some("plc".into()),
+            confidence: 0.80,
+            reason: "Industrial protocol (Modbus/S7/EtherNet-IP)".into(),
         });
     }
 
     // Pure web server
     if has(80) || has(443) || has(8080) || has(8443) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("web".into()),
-            confidence: 0.60, reason: "HTTP/HTTPS port".into(),
+            category: "server".into(),
+            subcategory: Some("web".into()),
+            confidence: 0.60,
+            reason: "HTTP/HTTPS port".into(),
         });
     }
 
     // Database server
     if has(3306) || has(5432) || has(1433) || has(1521) || has(27017) || has(6379) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("db".into()),
-            confidence: 0.80, reason: "Database port (MySQL/PG/MSSQL/Oracle/Mongo/Redis)".into(),
+            category: "server".into(),
+            subcategory: Some("db".into()),
+            confidence: 0.80,
+            reason: "Database port (MySQL/PG/MSSQL/Oracle/Mongo/Redis)".into(),
         });
     }
 
     // File server (SMB/NFS)
     if has(445) && has(139) && !has(88) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("file".into()),
-            confidence: 0.70, reason: "SMB(445) + NetBIOS(139) without Kerberos".into(),
+            category: "server".into(),
+            subcategory: Some("file".into()),
+            confidence: 0.70,
+            reason: "SMB(445) + NetBIOS(139) without Kerberos".into(),
         });
     }
 
     // Windows desktop (RDP + SMB but not server-like ports)
     if has(3389) && has(445) && !has(80) && !has(443) {
         return Some(FingerprintResult {
-            category: "workstation".into(), subcategory: Some("desktop".into()),
-            confidence: 0.65, reason: "RDP(3389) + SMB(445) without web ports".into(),
+            category: "workstation".into(),
+            subcategory: Some("desktop".into()),
+            confidence: 0.65,
+            reason: "RDP(3389) + SMB(445) without web ports".into(),
         });
     }
 
     // SSH only = likely Linux server or workstation
     if has(22) && ports.len() <= 3 {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: None,
-            confidence: 0.50, reason: "SSH(22) only".into(),
+            category: "server".into(),
+            subcategory: None,
+            confidence: 0.50,
+            reason: "SSH(22) only".into(),
         });
     }
 
     // VoIP
     if has(5060) || has(5061) {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: Some("voip".into()),
-            confidence: 0.80, reason: "SIP(5060/5061)".into(),
+            category: "server".into(),
+            subcategory: Some("voip".into()),
+            confidence: 0.80,
+            reason: "SIP(5060/5061)".into(),
         });
     }
 
     // Network device (SNMP + web management)
     if has(161) && (has(80) || has(443)) {
         return Some(FingerprintResult {
-            category: "network".into(), subcategory: None,
-            confidence: 0.60, reason: "SNMP(161) + web management".into(),
+            category: "network".into(),
+            subcategory: None,
+            confidence: 0.60,
+            reason: "SNMP(161) + web management".into(),
         });
     }
 
@@ -140,40 +170,63 @@ pub fn classify_from_hostname(hostname: &str) -> Option<FingerprintResult> {
     // iPhone / iPad
     if h.contains("iphone") || h.contains("ipad") {
         return Some(FingerprintResult {
-            category: "mobile".into(), subcategory: Some("smartphone".into()),
-            confidence: 0.95, reason: format!("Hostname contains Apple device name: {}", hostname),
+            category: "mobile".into(),
+            subcategory: Some("smartphone".into()),
+            confidence: 0.95,
+            reason: format!("Hostname contains Apple device name: {}", hostname),
         });
     }
 
     // Android
     if h.contains("android") || h.contains("galaxy") || h.contains("pixel") {
         return Some(FingerprintResult {
-            category: "mobile".into(), subcategory: Some("smartphone".into()),
-            confidence: 0.90, reason: format!("Hostname suggests Android device: {}", hostname),
+            category: "mobile".into(),
+            subcategory: Some("smartphone".into()),
+            confidence: 0.90,
+            reason: format!("Hostname suggests Android device: {}", hostname),
         });
     }
 
     // Windows workstation patterns
-    if h.starts_with("desktop-") || h.starts_with("laptop-") || h.starts_with("pc-") || h.starts_with("win-") {
+    if h.starts_with("desktop-")
+        || h.starts_with("laptop-")
+        || h.starts_with("pc-")
+        || h.starts_with("win-")
+    {
         return Some(FingerprintResult {
-            category: "workstation".into(), subcategory: Some("desktop".into()),
-            confidence: 0.70, reason: format!("Windows workstation hostname pattern: {}", hostname),
+            category: "workstation".into(),
+            subcategory: Some("desktop".into()),
+            confidence: 0.70,
+            reason: format!("Windows workstation hostname pattern: {}", hostname),
         });
     }
 
     // Server patterns
-    if h.starts_with("srv-") || h.starts_with("server-") || h.starts_with("dc-") || h.starts_with("ns-") {
+    if h.starts_with("srv-")
+        || h.starts_with("server-")
+        || h.starts_with("dc-")
+        || h.starts_with("ns-")
+    {
         return Some(FingerprintResult {
-            category: "server".into(), subcategory: None,
-            confidence: 0.65, reason: format!("Server hostname pattern: {}", hostname),
+            category: "server".into(),
+            subcategory: None,
+            confidence: 0.65,
+            reason: format!("Server hostname pattern: {}", hostname),
         });
     }
 
     // Printer
-    if h.contains("printer") || h.contains("mfp") || h.contains("hp-") || h.contains("epson") || h.contains("canon") {
+    if h.contains("printer")
+        || h.contains("mfp")
+        || h.contains("hp-")
+        || h.contains("epson")
+        || h.contains("canon")
+    {
         return Some(FingerprintResult {
-            category: "printer".into(), subcategory: Some("imprimante".into()),
-            confidence: 0.80, reason: format!("Printer hostname pattern: {}", hostname),
+            category: "printer".into(),
+            subcategory: Some("imprimante".into()),
+            confidence: 0.80,
+            reason: format!("Printer hostname pattern: {}", hostname),
         });
     }
 
@@ -186,37 +239,57 @@ pub fn classify_from_mac_vendor(vendor: &str) -> Option<FingerprintResult> {
 
     if v.contains("apple") {
         return Some(FingerprintResult {
-            category: "workstation".into(), subcategory: Some("laptop".into()),
-            confidence: 0.50, reason: "Apple device (Mac/iPhone/iPad)".into(),
+            category: "workstation".into(),
+            subcategory: Some("laptop".into()),
+            confidence: 0.50,
+            reason: "Apple device (Mac/iPhone/iPad)".into(),
         });
     }
 
     if v.contains("hikvision") || v.contains("dahua") || v.contains("axis") {
         return Some(FingerprintResult {
-            category: "iot".into(), subcategory: Some("camera".into()),
-            confidence: 0.90, reason: format!("IP camera manufacturer: {}", vendor),
+            category: "iot".into(),
+            subcategory: Some("camera".into()),
+            confidence: 0.90,
+            reason: format!("IP camera manufacturer: {}", vendor),
         });
     }
 
-    if v.contains("cisco") || v.contains("juniper") || v.contains("aruba") || v.contains("ubiquiti") {
+    if v.contains("cisco") || v.contains("juniper") || v.contains("aruba") || v.contains("ubiquiti")
+    {
         return Some(FingerprintResult {
-            category: "network".into(), subcategory: None,
-            confidence: 0.70, reason: format!("Network equipment manufacturer: {}", vendor),
+            category: "network".into(),
+            subcategory: None,
+            confidence: 0.70,
+            reason: format!("Network equipment manufacturer: {}", vendor),
         });
     }
 
-    if v.contains("siemens") || v.contains("schneider") || v.contains("allen-bradley") || v.contains("rockwell") {
+    if v.contains("siemens")
+        || v.contains("schneider")
+        || v.contains("allen-bradley")
+        || v.contains("rockwell")
+    {
         return Some(FingerprintResult {
-            category: "ot".into(), subcategory: Some("plc".into()),
-            confidence: 0.85, reason: format!("Industrial manufacturer: {}", vendor),
+            category: "ot".into(),
+            subcategory: Some("plc".into()),
+            confidence: 0.85,
+            reason: format!("Industrial manufacturer: {}", vendor),
         });
     }
 
-    if v.contains("hp ") || v.contains("hewlett") || v.contains("brother") || v.contains("xerox") || v.contains("ricoh") {
+    if v.contains("hp ")
+        || v.contains("hewlett")
+        || v.contains("brother")
+        || v.contains("xerox")
+        || v.contains("ricoh")
+    {
         // Could be printer or workstation — low confidence
         return Some(FingerprintResult {
-            category: "printer".into(), subcategory: None,
-            confidence: 0.40, reason: format!("Possible printer manufacturer: {}", vendor),
+            category: "printer".into(),
+            subcategory: None,
+            confidence: 0.40,
+            reason: format!("Possible printer manufacturer: {}", vendor),
         });
     }
 
@@ -231,12 +304,26 @@ pub fn classify_best(
 ) -> Option<FingerprintResult> {
     let mut candidates: Vec<FingerprintResult> = vec![];
 
-    if let Some(r) = classify_from_ports(ports) { candidates.push(r); }
-    if let Some(h) = hostname { if let Some(r) = classify_from_hostname(h) { candidates.push(r); } }
-    if let Some(v) = mac_vendor { if let Some(r) = classify_from_mac_vendor(v) { candidates.push(r); } }
+    if let Some(r) = classify_from_ports(ports) {
+        candidates.push(r);
+    }
+    if let Some(h) = hostname {
+        if let Some(r) = classify_from_hostname(h) {
+            candidates.push(r);
+        }
+    }
+    if let Some(v) = mac_vendor {
+        if let Some(r) = classify_from_mac_vendor(v) {
+            candidates.push(r);
+        }
+    }
 
     // Return the one with highest confidence
-    candidates.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     candidates.into_iter().next()
 }
 
@@ -309,7 +396,9 @@ mod tests {
 }
 
 /// Guess asset category from a DiscoveredAsset (used by asset_resolution).
-pub fn guess_category(discovered: &crate::graph::asset_resolution::DiscoveredAsset) -> &'static str {
+pub fn guess_category(
+    discovered: &crate::graph::asset_resolution::DiscoveredAsset,
+) -> &'static str {
     // Try ports first
     if let Some(ref ports) = discovered.ports {
         if let Some(r) = classify_from_ports(ports) {
@@ -344,23 +433,41 @@ pub fn guess_category(discovered: &crate::graph::asset_resolution::DiscoveredAss
 }
 
 /// Guess asset criticality from ports and services.
-pub fn guess_criticality(discovered: &crate::graph::asset_resolution::DiscoveredAsset) -> &'static str {
+pub fn guess_criticality(
+    discovered: &crate::graph::asset_resolution::DiscoveredAsset,
+) -> &'static str {
     let ports = discovered.ports.as_deref().unwrap_or(&[]);
     let has = |p: u16| ports.contains(&p);
 
     // Critical: databases, AD, SCADA
-    if has(3306) || has(5432) || has(1433) || has(1521) || has(27017) { return "critical"; }  // DB
-    if has(389) && has(636) && has(88) { return "critical"; }  // AD/DC
-    if has(502) || has(102) || has(44818) { return "critical"; }  // SCADA/OT
+    if has(3306) || has(5432) || has(1433) || has(1521) || has(27017) {
+        return "critical";
+    } // DB
+    if has(389) && has(636) && has(88) {
+        return "critical";
+    } // AD/DC
+    if has(502) || has(102) || has(44818) {
+        return "critical";
+    } // SCADA/OT
 
     // High: servers with multiple services, infrastructure
-    if has(22) && (has(80) || has(443)) { return "high"; }  // SSH + web = server
-    if has(53) && (has(80) || has(443)) { return "high"; }  // DNS + web = infrastructure
-    if has(21) && has(53) && has(80) { return "high"; }  // FTP + DNS + web = router/NAS
-    if ports.len() >= 5 { return "high"; }  // Many services = important asset
+    if has(22) && (has(80) || has(443)) {
+        return "high";
+    } // SSH + web = server
+    if has(53) && (has(80) || has(443)) {
+        return "high";
+    } // DNS + web = infrastructure
+    if has(21) && has(53) && has(80) {
+        return "high";
+    } // FTP + DNS + web = router/NAS
+    if ports.len() >= 5 {
+        return "high";
+    } // Many services = important asset
 
     // Low: single service, tcpwrapped, unknown
-    if ports.len() <= 1 { return "low"; }
+    if ports.len() <= 1 {
+        return "low";
+    }
 
     // Medium: everything else (2-4 services)
     "medium"

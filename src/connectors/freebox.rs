@@ -5,18 +5,18 @@
 //! Single call to /lan/browser/pub/ gives MAC, IP, hostname, vendor, device type, active status.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{ThreatClawStore, NewAsset};
+use crate::db::threatclaw_store::{NewAsset, ThreatClawStore};
 use crate::graph::asset_resolution::{DiscoveredAsset, resolve_asset};
 use hmac::{Hmac, Mac};
-use sha1::Sha1;
 use serde::{Deserialize, Serialize};
+use sha1::Sha1;
 
 type HmacSha1 = Hmac<Sha1>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FreeboxConfig {
-    pub url: String,          // "http://mafreebox.freebox.fr" or "http://192.168.1.254"
-    pub app_token: String,    // Permanent token from pairing
+    pub url: String,       // "http://mafreebox.freebox.fr" or "http://192.168.1.254"
+    pub app_token: String, // Permanent token from pairing
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +72,7 @@ struct FreeboxLanHost {
 
 #[derive(Debug, Deserialize)]
 struct FreeboxL2Ident {
-    id: Option<String>,  // MAC address
+    id: Option<String>, // MAC address
     #[serde(rename = "type")]
     ident_type: Option<String>,
 }
@@ -80,7 +80,7 @@ struct FreeboxL2Ident {
 #[derive(Debug, Deserialize)]
 struct FreeboxL3Conn {
     addr: Option<String>,
-    af: Option<String>,     // "ipv4" or "ipv6"
+    af: Option<String>, // "ipv4" or "ipv6"
     active: Option<bool>,
     reachable: Option<bool>,
 }
@@ -88,17 +88,22 @@ struct FreeboxL3Conn {
 #[derive(Debug, Deserialize)]
 struct FreeboxName {
     name: Option<String>,
-    source: Option<String>,  // "dhcp", "netbios", "mdns", "upnp"
+    source: Option<String>, // "dhcp", "netbios", "mdns", "upnp"
 }
 
 // ── Auth flow ──
 
 async fn get_api_base(client: &reqwest::Client, base_url: &str) -> Result<String, String> {
     let url = format!("{}/api_version", base_url.trim_end_matches('/'));
-    let resp: FreeboxApiVersion = client.get(&url)
+    let resp: FreeboxApiVersion = client
+        .get(&url)
         .timeout(std::time::Duration::from_secs(5))
-        .send().await.map_err(|e| format!("Freebox unreachable: {e}"))?
-        .json().await.map_err(|e| format!("Invalid API version response: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("Freebox unreachable: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid API version response: {e}"))?;
 
     let major = resp.api_version.split('.').next().unwrap_or("4");
     Ok(format!("{}/api/v{}", base_url.trim_end_matches('/'), major))
@@ -110,12 +115,18 @@ async fn get_session_token(
     app_token: &str,
 ) -> Result<String, String> {
     // Step 1: Get challenge
-    let login_resp: FreeboxApiResponse<FreeboxLogin> = client.get(&format!("{}/login/", api_base))
+    let login_resp: FreeboxApiResponse<FreeboxLogin> = client
+        .get(&format!("{}/login/", api_base))
         .timeout(std::time::Duration::from_secs(5))
-        .send().await.map_err(|e| format!("Login failed: {e}"))?
-        .json().await.map_err(|e| format!("Invalid login response: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("Login failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid login response: {e}"))?;
 
-    let challenge = login_resp.result
+    let challenge = login_resp
+        .result
         .and_then(|r| r.challenge)
         .ok_or("No challenge in login response")?;
 
@@ -126,22 +137,30 @@ async fn get_session_token(
     let password = hex::encode(mac.finalize().into_bytes());
 
     // Step 3: Open session
-    let session_resp: FreeboxApiResponse<FreeboxSession> = client.post(&format!("{}/login/session/", api_base))
+    let session_resp: FreeboxApiResponse<FreeboxSession> = client
+        .post(&format!("{}/login/session/", api_base))
         .json(&serde_json::json!({
             "app_id": "fr.cyberconsulting.threatclaw",
             "password": password,
         }))
         .timeout(std::time::Duration::from_secs(5))
-        .send().await.map_err(|e| format!("Session failed: {e}"))?
-        .json().await.map_err(|e| format!("Invalid session response: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("Session failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid session response: {e}"))?;
 
     if !session_resp.success {
-        return Err(format!("Session denied: {} — {}",
+        return Err(format!(
+            "Session denied: {} — {}",
             session_resp.error_code.unwrap_or_default(),
-            session_resp.msg.unwrap_or_default()));
+            session_resp.msg.unwrap_or_default()
+        ));
     }
 
-    session_resp.result
+    session_resp
+        .result
         .and_then(|r| r.session_token)
         .ok_or("No session token in response".into())
 }
@@ -159,11 +178,13 @@ struct FreeboxAuthorize {
 pub async fn request_pairing(base_url: &str) -> Result<(String, i64), String> {
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
-        .build().map_err(|e| e.to_string())?;
+        .build()
+        .map_err(|e| e.to_string())?;
 
     let api_base = get_api_base(&client, base_url).await?;
 
-    let resp: FreeboxApiResponse<FreeboxAuthorize> = client.post(&format!("{}/login/authorize/", api_base))
+    let resp: FreeboxApiResponse<FreeboxAuthorize> = client
+        .post(&format!("{}/login/authorize/", api_base))
         .json(&serde_json::json!({
             "app_id": "fr.cyberconsulting.threatclaw",
             "app_name": "ThreatClaw",
@@ -171,8 +192,12 @@ pub async fn request_pairing(base_url: &str) -> Result<(String, i64), String> {
             "device_name": "ThreatClaw Server",
         }))
         .timeout(std::time::Duration::from_secs(10))
-        .send().await.map_err(|e| format!("Pairing request failed: {e}"))?
-        .json().await.map_err(|e| format!("Invalid pairing response: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("Pairing request failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid pairing response: {e}"))?;
 
     if !resp.success {
         return Err(format!("Pairing denied: {}", resp.msg.unwrap_or_default()));
@@ -189,16 +214,23 @@ pub async fn request_pairing(base_url: &str) -> Result<(String, i64), String> {
 pub async fn check_pairing_status(base_url: &str, track_id: i64) -> Result<String, String> {
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
-        .build().map_err(|e| e.to_string())?;
+        .build()
+        .map_err(|e| e.to_string())?;
 
     let api_base = get_api_base(&client, base_url).await?;
 
-    let resp: FreeboxApiResponse<serde_json::Value> = client.get(&format!("{}/login/authorize/{}", api_base, track_id))
+    let resp: FreeboxApiResponse<serde_json::Value> = client
+        .get(&format!("{}/login/authorize/{}", api_base, track_id))
         .timeout(std::time::Duration::from_secs(5))
-        .send().await.map_err(|e| format!("Status check failed: {e}"))?
-        .json().await.map_err(|e| format!("Invalid status response: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("Status check failed: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid status response: {e}"))?;
 
-    Ok(resp.result
+    Ok(resp
+        .result
         .and_then(|r| r["status"].as_str().map(String::from))
         .unwrap_or("unknown".into()))
 }
@@ -214,7 +246,9 @@ fn freebox_type_to_category(host_type: &str) -> &'static str {
         "nas" => "server",
         "ip_camera" => "camera",
         "ip_phone" => "iot",
-        "television" | "vg_console" | "multimedia_device" | "freebox_player" | "freebox_hd" => "iot",
+        "television" | "vg_console" | "multimedia_device" | "freebox_player" | "freebox_hd" => {
+            "iot"
+        }
         "networking_device" => "network",
         _ => "unknown",
     }
@@ -223,45 +257,65 @@ fn freebox_type_to_category(host_type: &str) -> &'static str {
 /// Sync all LAN devices from Freebox into ThreatClaw assets.
 pub async fn sync_freebox(store: &dyn Database, config: &FreeboxConfig) -> FreeboxSyncResult {
     let mut result = FreeboxSyncResult {
-        devices_found: 0, devices_active: 0,
-        assets_created: 0, assets_updated: 0,
-        new_devices: vec![], errors: vec![],
+        devices_found: 0,
+        devices_active: 0,
+        assets_created: 0,
+        assets_updated: 0,
+        new_devices: vec![],
+        errors: vec![],
     };
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .timeout(std::time::Duration::from_secs(15))
-        .build().unwrap();
+        .build()
+        .unwrap();
 
     let base_url = config.url.trim_end_matches('/');
 
     // Get API base URL
     let api_base = match get_api_base(&client, base_url).await {
         Ok(b) => b,
-        Err(e) => { result.errors.push(e); return result; }
+        Err(e) => {
+            result.errors.push(e);
+            return result;
+        }
     };
 
     // Get session token
     let session_token = match get_session_token(&client, &api_base, &config.app_token).await {
         Ok(t) => t,
-        Err(e) => { result.errors.push(e); return result; }
+        Err(e) => {
+            result.errors.push(e);
+            return result;
+        }
     };
 
     // Fetch all LAN hosts
     let hosts_resp: FreeboxApiResponse<Vec<FreeboxLanHost>> = match client
         .get(&format!("{}/lan/browser/pub/", api_base))
         .header("X-Fbx-App-Auth", &session_token)
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => match r.json().await {
             Ok(j) => j,
-            Err(e) => { result.errors.push(format!("JSON parse error: {e}")); return result; }
+            Err(e) => {
+                result.errors.push(format!("JSON parse error: {e}"));
+                return result;
+            }
         },
-        Err(e) => { result.errors.push(format!("LAN browser failed: {e}")); return result; }
+        Err(e) => {
+            result.errors.push(format!("LAN browser failed: {e}"));
+            return result;
+        }
     };
 
     if !hosts_resp.success {
-        result.errors.push(format!("LAN browser error: {}", hosts_resp.msg.unwrap_or_default()));
+        result.errors.push(format!(
+            "LAN browser error: {}",
+            hosts_resp.msg.unwrap_or_default()
+        ));
         return result;
     }
 
@@ -273,22 +327,34 @@ pub async fn sync_freebox(store: &dyn Database, config: &FreeboxConfig) -> Freeb
     for host in &hosts {
         let mac = host.l2ident.as_ref().and_then(|l| l.id.clone());
         let is_active = host.active.unwrap_or(false);
-        if is_active { result.devices_active += 1; }
+        if is_active {
+            result.devices_active += 1;
+        }
 
         // Get best IPv4 address
-        let ipv4 = host.l3connectivities.as_ref()
-            .and_then(|conns| conns.iter()
+        let ipv4 = host.l3connectivities.as_ref().and_then(|conns| {
+            conns
+                .iter()
                 .find(|c| c.af.as_deref() == Some("ipv4") && c.active.unwrap_or(false))
                 .or_else(|| conns.iter().find(|c| c.af.as_deref() == Some("ipv4")))
-                .and_then(|c| c.addr.clone()));
+                .and_then(|c| c.addr.clone())
+        });
 
         // Get best hostname from names list
-        let hostname = host.names.as_ref()
+        let hostname = host
+            .names
+            .as_ref()
             .and_then(|names| {
                 // Prefer DHCP > mDNS > NetBIOS > UPnP > primary_name
-                names.iter().find(|n| n.source.as_deref() == Some("dhcp"))
+                names
+                    .iter()
+                    .find(|n| n.source.as_deref() == Some("dhcp"))
                     .or_else(|| names.iter().find(|n| n.source.as_deref() == Some("mdns")))
-                    .or_else(|| names.iter().find(|n| n.source.as_deref() == Some("netbios")))
+                    .or_else(|| {
+                        names
+                            .iter()
+                            .find(|n| n.source.as_deref() == Some("netbios"))
+                    })
                     .or_else(|| names.iter().find(|n| n.source.as_deref() == Some("upnp")))
                     .or_else(|| names.first())
                     .and_then(|n| n.name.clone())
@@ -301,19 +367,32 @@ pub async fn sync_freebox(store: &dyn Database, config: &FreeboxConfig) -> Freeb
         let category = freebox_type_to_category(host_type);
 
         // Skip if no MAC (shouldn't happen but safety)
-        if mac.is_none() && ipv4.is_none() { continue; }
+        if mac.is_none() && ipv4.is_none() {
+            continue;
+        }
 
         // Build name: hostname > vendor+suffix > type+suffix > ip
-        let name = hostname.clone()
+        let name = hostname
+            .clone()
             .or_else(|| {
-                let suffix = ipv4.as_ref().and_then(|ip| ip.rsplit('.').next().map(String::from)).unwrap_or_default();
+                let suffix = ipv4
+                    .as_ref()
+                    .and_then(|ip| ip.rsplit('.').next().map(String::from))
+                    .unwrap_or_default();
                 vendor.as_ref().map(|v| {
-                    let short = v.split_whitespace().next().unwrap_or(v).trim_end_matches(',');
+                    let short = v
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or(v)
+                        .trim_end_matches(',');
                     format!("{}-{}", short, suffix)
                 })
             })
             .or_else(|| {
-                let suffix = ipv4.as_ref().and_then(|ip| ip.rsplit('.').next().map(String::from)).unwrap_or_default();
+                let suffix = ipv4
+                    .as_ref()
+                    .and_then(|ip| ip.rsplit('.').next().map(String::from))
+                    .unwrap_or_default();
                 Some(format!("{}-{}", host_type, suffix))
             })
             .unwrap_or_else(|| "unknown".into());
@@ -351,12 +430,22 @@ pub async fn sync_freebox(store: &dyn Database, config: &FreeboxConfig) -> Freeb
         match resolution.action {
             crate::graph::asset_resolution::ResolutionAction::Created => {
                 result.assets_created += 1;
-                result.new_devices.push(format!("{} ({}) — {}", name, ipv4.as_deref().unwrap_or("?"), vendor.as_deref().unwrap_or("?")));
-                tracing::info!("FREEBOX: New device: {} [{}] {} ({})",
-                    name, mac.as_deref().unwrap_or("?"), ipv4.as_deref().unwrap_or("?"), host_type);
+                result.new_devices.push(format!(
+                    "{} ({}) — {}",
+                    name,
+                    ipv4.as_deref().unwrap_or("?"),
+                    vendor.as_deref().unwrap_or("?")
+                ));
+                tracing::info!(
+                    "FREEBOX: New device: {} [{}] {} ({})",
+                    name,
+                    mac.as_deref().unwrap_or("?"),
+                    ipv4.as_deref().unwrap_or("?"),
+                    host_type
+                );
             }
-            crate::graph::asset_resolution::ResolutionAction::Merged |
-            crate::graph::asset_resolution::ResolutionAction::Updated => {
+            crate::graph::asset_resolution::ResolutionAction::Merged
+            | crate::graph::asset_resolution::ResolutionAction::Updated => {
                 result.assets_updated += 1;
             }
             _ => {}
@@ -366,13 +455,24 @@ pub async fn sync_freebox(store: &dyn Database, config: &FreeboxConfig) -> Freeb
         if let Some(ref v) = vendor {
             if let Some(ref ip) = ipv4 {
                 // Direct SQL update for mac_vendor (not in NewAsset flow)
-                let _ = store.set_setting("_asset_vendor", &format!("{}:{}", resolution.asset_id, v), &serde_json::json!(v)).await;
+                let _ = store
+                    .set_setting(
+                        "_asset_vendor",
+                        &format!("{}:{}", resolution.asset_id, v),
+                        &serde_json::json!(v),
+                    )
+                    .await;
             }
         }
     }
 
-    tracing::info!("FREEBOX SYNC COMPLETE: {} devices, {} active, {} new, {} updated",
-        result.devices_found, result.devices_active, result.assets_created, result.assets_updated);
+    tracing::info!(
+        "FREEBOX SYNC COMPLETE: {} devices, {} active, {} new, {} updated",
+        result.devices_found,
+        result.devices_active,
+        result.assets_created,
+        result.assets_updated
+    );
 
     result
 }

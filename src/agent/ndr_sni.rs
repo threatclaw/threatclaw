@@ -9,9 +9,9 @@
 //! Source: Zeek ssl.log (server_name field).
 //! MITRE: T1583.001 (Acquire Infrastructure: Domains)
 
-use std::collections::HashSet;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
+use std::collections::HashSet;
 
 /// Levenshtein distance threshold for typosquatting.
 /// Distance 1-2 from a top domain = likely typosquatting.
@@ -26,27 +26,36 @@ pub struct SniScanResult {
 }
 
 /// Scan recent Zeek ssl.log for suspicious SNI values.
-pub async fn scan_sni(
-    store: std::sync::Arc<dyn Database>,
-    minutes_back: i64,
-) -> SniScanResult {
-    let mut result = SniScanResult { logs_checked: 0, suspects_found: 0, findings_created: 0 };
+pub async fn scan_sni(store: std::sync::Arc<dyn Database>, minutes_back: i64) -> SniScanResult {
+    let mut result = SniScanResult {
+        logs_checked: 0,
+        suspects_found: 0,
+        findings_created: 0,
+    };
 
-    let logs = store.query_logs(minutes_back, None, Some("zeek.ssl"), 2000)
-        .await.unwrap_or_default();
+    let logs = store
+        .query_logs(minutes_back, None, Some("zeek.ssl"), 2000)
+        .await
+        .unwrap_or_default();
     result.logs_checked = logs.len();
 
-    if logs.is_empty() { return result; }
+    if logs.is_empty() {
+        return result;
+    }
 
     // Dedup: one finding per SNI per cycle
     let mut seen_snis: HashSet<String> = HashSet::new();
 
     for log in &logs {
         let sni = log.data["server_name"].as_str().unwrap_or("");
-        if sni.is_empty() || sni == "-" { continue; }
+        if sni.is_empty() || sni == "-" {
+            continue;
+        }
         let sni_lower = sni.to_lowercase();
 
-        if seen_snis.contains(&sni_lower) { continue; }
+        if seen_snis.contains(&sni_lower) {
+            continue;
+        }
 
         let src = log.data["id.orig_h"].as_str().unwrap_or("unknown");
         let dst = log.data["id.resp_h"].as_str().unwrap_or("unknown");
@@ -54,7 +63,9 @@ pub async fn scan_sni(
         let hostname = log.hostname.as_deref().unwrap_or(src);
 
         // Skip internal-to-internal
-        if is_internal(src) && is_internal(dst) { continue; }
+        if is_internal(src) && is_internal(dst) {
+            continue;
+        }
 
         let mut evidence: Vec<String> = Vec::new();
         let mut score: u32 = 0;
@@ -81,7 +92,8 @@ pub async fn scan_sni(
         }
 
         // ── 4. SNI mismatch with certificate CN/SAN ──
-        let cert_subject = log.data["subject"].as_str()
+        let cert_subject = log.data["subject"]
+            .as_str()
             .or_else(|| log.data["certificate.subject"].as_str())
             .unwrap_or("");
         if !cert_subject.is_empty() && !sni_lower.is_empty() {
@@ -98,7 +110,9 @@ pub async fn scan_sni(
         }
 
         // Threshold: need evidence and reasonable score
-        if evidence.is_empty() || score < 30 { continue; }
+        if evidence.is_empty() || score < 30 {
+            continue;
+        }
 
         seen_snis.insert(sni_lower.clone());
         result.suspects_found += 1;
@@ -123,32 +137,35 @@ pub async fn scan_sni(
             sni_lower, src, dst, port, evidence_text,
         );
 
-        let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-            skill_id: "ndr-sni".into(),
-            title,
-            description: Some(description),
-            severity: severity.into(),
-            category: Some("phishing-detection".into()),
-            asset: Some(hostname.to_string()),
-            source: Some("SNI typosquatting analysis".into()),
-            metadata: Some(serde_json::json!({
-                "sni": sni_lower,
-                "src_ip": src,
-                "dst_ip": dst,
-                "dst_port": port,
-                "anomaly_score": score,
-                "evidence": evidence,
-                "detection": "sni-typosquatting",
-                "mitre": ["T1583.001", "T1566.002"]
-            })),
-        }).await;
+        let _ = store
+            .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                skill_id: "ndr-sni".into(),
+                title,
+                description: Some(description),
+                severity: severity.into(),
+                category: Some("phishing-detection".into()),
+                asset: Some(hostname.to_string()),
+                source: Some("SNI typosquatting analysis".into()),
+                metadata: Some(serde_json::json!({
+                    "sni": sni_lower,
+                    "src_ip": src,
+                    "dst_ip": dst,
+                    "dst_port": port,
+                    "anomaly_score": score,
+                    "evidence": evidence,
+                    "detection": "sni-typosquatting",
+                    "mitre": ["T1583.001", "T1566.002"]
+                })),
+            })
+            .await;
         result.findings_created += 1;
     }
 
     if result.suspects_found > 0 {
         tracing::warn!(
             "NDR-SNI: {} logs checked, {} suspicious SNIs detected",
-            result.logs_checked, result.suspects_found
+            result.logs_checked,
+            result.suspects_found
         );
     }
 
@@ -161,22 +178,50 @@ pub async fn scan_sni(
 /// These are the most impersonated brands in phishing campaigns.
 const TOP_DOMAINS: &[&str] = &[
     // Tech
-    "microsoft.com", "google.com", "apple.com", "amazon.com",
-    "facebook.com", "instagram.com", "twitter.com", "linkedin.com",
-    "netflix.com", "paypal.com", "dropbox.com", "github.com",
-    "zoom.us", "slack.com", "teams.microsoft.com",
+    "microsoft.com",
+    "google.com",
+    "apple.com",
+    "amazon.com",
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "linkedin.com",
+    "netflix.com",
+    "paypal.com",
+    "dropbox.com",
+    "github.com",
+    "zoom.us",
+    "slack.com",
+    "teams.microsoft.com",
     // Enterprise
-    "office365.com", "office.com", "outlook.com", "live.com",
-    "onedrive.com", "sharepoint.com", "microsoftonline.com",
+    "office365.com",
+    "office.com",
+    "outlook.com",
+    "live.com",
+    "onedrive.com",
+    "sharepoint.com",
+    "microsoftonline.com",
     // French specifics
-    "orange.fr", "free.fr", "sfr.fr", "bouyguestelecom.fr",
-    "laposte.net", "impots.gouv.fr", "ameli.fr", "caf.fr",
-    "banquepopulaire.fr", "creditmutuel.fr", "societegenerale.fr",
-    "bnpparibas.com", "labanquepostale.fr",
+    "orange.fr",
+    "free.fr",
+    "sfr.fr",
+    "bouyguestelecom.fr",
+    "laposte.net",
+    "impots.gouv.fr",
+    "ameli.fr",
+    "caf.fr",
+    "banquepopulaire.fr",
+    "creditmutuel.fr",
+    "societegenerale.fr",
+    "bnpparibas.com",
+    "labanquepostale.fr",
     // Cloud
-    "aws.amazon.com", "cloud.google.com", "azure.microsoft.com",
+    "aws.amazon.com",
+    "cloud.google.com",
+    "azure.microsoft.com",
     // Security
-    "virustotal.com", "shodan.io",
+    "virustotal.com",
+    "shodan.io",
 ];
 
 /// Check if a domain is a typosquat of a known top domain.
@@ -184,15 +229,21 @@ const TOP_DOMAINS: &[&str] = &[
 fn check_typosquatting(sni: &str) -> Option<(String, usize)> {
     // Extract the domain part (remove subdomains for comparison)
     let sni_base = extract_registrable_domain(sni);
-    if sni_base.is_empty() { return None; }
+    if sni_base.is_empty() {
+        return None;
+    }
 
     for &legit in TOP_DOMAINS {
         let legit_base = extract_registrable_domain(legit);
         // Skip exact matches (legitimate traffic)
-        if sni_base == legit_base { return None; }
+        if sni_base == legit_base {
+            return None;
+        }
         // Only compare domains of similar length (avoid noise)
         let len_diff = (sni_base.len() as i32 - legit_base.len() as i32).unsigned_abs() as usize;
-        if len_diff > TYPO_MAX_DISTANCE { continue; }
+        if len_diff > TYPO_MAX_DISTANCE {
+            continue;
+        }
 
         let dist = levenshtein(&sni_base, &legit_base);
         if dist > 0 && dist <= TYPO_MAX_DISTANCE {
@@ -204,12 +255,12 @@ fn check_typosquatting(sni: &str) -> Option<(String, usize)> {
 
 /// Exotic/free TLDs commonly abused for phishing and C2.
 const EXOTIC_TLDS: &[&str] = &[
-    "tk", "ml", "ga", "cf", "gq",           // Freenom (free, massively abused)
-    "xyz", "top", "buzz", "club", "icu",     // Cheap, high abuse ratio
-    "work", "surf", "cam", "rest", "bar",    // Low-cost, often malicious
-    "cn", "ru", "su",                        // High phishing volume
-    "pw", "cc", "ws",                        // Pacific islands (cheap, unregulated)
-    "bid", "stream", "click", "link",        // Spam TLDs
+    "tk", "ml", "ga", "cf", "gq", // Freenom (free, massively abused)
+    "xyz", "top", "buzz", "club", "icu", // Cheap, high abuse ratio
+    "work", "surf", "cam", "rest", "bar", // Low-cost, often malicious
+    "cn", "ru", "su", // High phishing volume
+    "pw", "cc", "ws", // Pacific islands (cheap, unregulated)
+    "bid", "stream", "click", "link", // Spam TLDs
 ];
 
 /// Check if domain uses an exotic/suspicious TLD.
@@ -231,8 +282,12 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let m = a_bytes.len();
     let n = b_bytes.len();
 
-    if m == 0 { return n; }
-    if n == 0 { return m; }
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
 
     // Use the shorter string for the column (saves memory)
     let (short, long, short_len, long_len) = if m <= n {
@@ -248,9 +303,9 @@ fn levenshtein(a: &str, b: &str) -> usize {
         curr[0] = i;
         for j in 1..=short_len {
             let cost = if long[i - 1] == short[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1)                    // deletion
-                .min(curr[j - 1] + 1)                   // insertion
-                .min(prev[j - 1] + cost);               // substitution
+            curr[j] = (prev[j] + 1) // deletion
+                .min(curr[j - 1] + 1) // insertion
+                .min(prev[j - 1] + cost); // substitution
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -267,8 +322,12 @@ fn extract_registrable_domain(domain: &str) -> String {
     // Handle 2-part TLDs
     let last = *parts.last().unwrap_or(&"");
     let second = parts.get(parts.len() - 2).unwrap_or(&"");
-    if matches!(*second, "co" | "com" | "org" | "net" | "edu" | "gov" | "ac" | "go") &&
-       last.len() <= 3 && parts.len() > 3 {
+    if matches!(
+        *second,
+        "co" | "com" | "org" | "net" | "edu" | "gov" | "ac" | "go"
+    ) && last.len() <= 3
+        && parts.len() > 3
+    {
         parts[parts.len() - 3..].join(".")
     } else {
         parts[parts.len() - 2..].join(".")
@@ -288,7 +347,9 @@ fn extract_cn(subject: &str) -> Option<String> {
 
 /// Check if SNI matches certificate CN (including wildcard certs).
 fn sni_matches_cn(sni: &str, cn: &str) -> bool {
-    if sni == cn { return true; }
+    if sni == cn {
+        return true;
+    }
     // Wildcard cert: *.example.com matches sub.example.com
     if let Some(wildcard_base) = cn.strip_prefix("*.") {
         if sni.ends_with(wildcard_base) && sni.len() > wildcard_base.len() {
@@ -346,7 +407,10 @@ mod tests {
 
     #[test]
     fn test_extract_cn() {
-        assert_eq!(extract_cn("CN=example.com,O=Org"), Some("example.com".into()));
+        assert_eq!(
+            extract_cn("CN=example.com,O=Org"),
+            Some("example.com".into())
+        );
         assert_eq!(extract_cn("O=Org, CN=test.com"), Some("test.com".into()));
         assert_eq!(extract_cn("O=NoCommonName"), None);
     }
@@ -362,7 +426,10 @@ mod tests {
     #[test]
     fn test_registrable_domain() {
         assert_eq!(extract_registrable_domain("mail.google.com"), "google.com");
-        assert_eq!(extract_registrable_domain("sub.example.co.uk"), "example.co.uk");
+        assert_eq!(
+            extract_registrable_domain("sub.example.co.uk"),
+            "example.co.uk"
+        );
         assert_eq!(extract_registrable_domain("example.com"), "example.com");
     }
 }

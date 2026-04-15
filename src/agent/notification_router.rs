@@ -9,9 +9,9 @@ use crate::db::Database;
 /// Notification routing configuration per level.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationRouting {
-    pub digest: Vec<String>,    // channels for digest (e.g., ["email", "telegram"])
-    pub alert: Vec<String>,     // channels for alert
-    pub critical: Vec<String>,  // channels for critical
+    pub digest: Vec<String>, // channels for digest (e.g., ["email", "telegram"])
+    pub alert: Vec<String>,  // channels for alert
+    pub critical: Vec<String>, // channels for critical
 }
 
 impl Default for NotificationRouting {
@@ -62,12 +62,12 @@ pub struct NotificationSettings {
 impl Default for NotificationSettings {
     fn default() -> Self {
         Self {
-            cooldown_critical_secs: 2 * 3600,       // 2h
-            cooldown_high_secs: 12 * 3600,           // 12h
-            cooldown_medium_secs: 24 * 3600,         // 24h
-            cooldown_low_secs: 0,                    // never
+            cooldown_critical_secs: 2 * 3600, // 2h
+            cooldown_high_secs: 12 * 3600,    // 12h
+            cooldown_medium_secs: 24 * 3600,  // 24h
+            cooldown_low_secs: 0,             // never
 
-            min_severity: "HIGH".into(),             // HIGH + CRITICAL
+            min_severity: "HIGH".into(), // HIGH + CRITICAL
 
             remind_unresolved_critical_secs: 4 * 3600, // 4h
             remind_unresolved_high_secs: 0,            // off
@@ -98,7 +98,11 @@ impl NotificationSettings {
     /// Check if a severity level meets the minimum notification threshold.
     pub fn severity_meets_threshold(&self, severity: &str) -> bool {
         let order = |s: &str| match s.to_uppercase().as_str() {
-            "CRITICAL" => 4, "HIGH" => 3, "MEDIUM" => 2, "LOW" => 1, _ => 0,
+            "CRITICAL" => 4,
+            "HIGH" => 3,
+            "MEDIUM" => 2,
+            "LOW" => 1,
+            _ => 0,
         };
         order(severity) >= order(&self.min_severity)
     }
@@ -106,7 +110,11 @@ impl NotificationSettings {
     /// Check if a severity level meets the quiet-hours threshold.
     pub fn severity_meets_quiet_threshold(&self, severity: &str) -> bool {
         let order = |s: &str| match s.to_uppercase().as_str() {
-            "CRITICAL" => 4, "HIGH" => 3, "MEDIUM" => 2, "LOW" => 1, _ => 0,
+            "CRITICAL" => 4,
+            "HIGH" => 3,
+            "MEDIUM" => 2,
+            "LOW" => 1,
+            _ => 0,
         };
         order(severity) >= order(&self.quiet_hours_min_severity)
     }
@@ -116,7 +124,10 @@ const NOTIFICATION_SETTINGS_KEY: &str = "tc_config_notification_settings";
 
 /// Load notification settings from DB, or use defaults.
 pub async fn load_notification_settings(store: &dyn Database) -> NotificationSettings {
-    if let Ok(Some(val)) = store.get_setting("_system", NOTIFICATION_SETTINGS_KEY).await {
+    if let Ok(Some(val)) = store
+        .get_setting("_system", NOTIFICATION_SETTINGS_KEY)
+        .await
+    {
         if let Ok(settings) = serde_json::from_value(val) {
             return settings;
         }
@@ -125,15 +136,23 @@ pub async fn load_notification_settings(store: &dyn Database) -> NotificationSet
 }
 
 /// Save notification settings to DB.
-pub async fn save_notification_settings(store: &dyn Database, settings: &NotificationSettings) -> Result<(), String> {
+pub async fn save_notification_settings(
+    store: &dyn Database,
+    settings: &NotificationSettings,
+) -> Result<(), String> {
     let val = serde_json::to_value(settings).map_err(|e| e.to_string())?;
-    store.set_setting("_system", NOTIFICATION_SETTINGS_KEY, &val).await
+    store
+        .set_setting("_system", NOTIFICATION_SETTINGS_KEY, &val)
+        .await
         .map_err(|e| e.to_string())
 }
 
 /// Load notification routing config from DB, or use defaults.
 pub async fn load_routing(store: &dyn Database) -> NotificationRouting {
-    if let Ok(Some(val)) = store.get_setting("_system", "tc_config_notification_routing").await {
+    if let Ok(Some(val)) = store
+        .get_setting("_system", "tc_config_notification_routing")
+        .await
+    {
         if let Ok(routing) = serde_json::from_value(val) {
             return routing;
         }
@@ -142,9 +161,14 @@ pub async fn load_routing(store: &dyn Database) -> NotificationRouting {
 }
 
 /// Save notification routing config to DB.
-pub async fn save_routing(store: &dyn Database, routing: &NotificationRouting) -> Result<(), String> {
+pub async fn save_routing(
+    store: &dyn Database,
+    routing: &NotificationRouting,
+) -> Result<(), String> {
     let val = serde_json::to_value(routing).map_err(|e| e.to_string())?;
-    store.set_setting("_system", "tc_config_notification_routing", &val).await
+    store
+        .set_setting("_system", "tc_config_notification_routing", &val)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -164,7 +188,11 @@ pub async fn route_notification(
         NotificationLevel::Critical => &routing.critical,
     };
 
-    let message = if level == NotificationLevel::Digest { digest_message } else { alert_message };
+    let message = if level == NotificationLevel::Digest {
+        digest_message
+    } else {
+        alert_message
+    };
 
     // Check which channels are actually configured
     let configured_channels = get_configured_channels(store).await;
@@ -186,12 +214,22 @@ pub async fn route_notification(
     }
 
     // Audit
-    let _ = store.set_setting("_audit", &format!("notif_{}_{}", format!("{:?}", level).to_lowercase(), chrono::Utc::now().timestamp()), &json!({
-        "level": format!("{:?}", level),
-        "channels_attempted": channels,
-        "channels_configured": configured_channels,
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let _ = store
+        .set_setting(
+            "_audit",
+            &format!(
+                "notif_{}_{}",
+                format!("{:?}", level).to_lowercase(),
+                chrono::Utc::now().timestamp()
+            ),
+            &json!({
+                "level": format!("{:?}", level),
+                "channels_attempted": channels,
+                "channels_configured": configured_channels,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 
     results
 }
@@ -218,26 +256,33 @@ pub async fn route_incident_notification(
     let channels = &routing.alert;
 
     // Build the rich message once, reused across channels
-    let text = build_incident_message(
-        store, incident_id, asset, summary, severity, alert_count,
-    ).await;
+    let text =
+        build_incident_message(store, incident_id, asset, summary, severity, alert_count).await;
 
-    let dashboard_url = get_channel_field(store, "general", "dashboardUrl").await
+    let dashboard_url = get_channel_field(store, "general", "dashboardUrl")
+        .await
         .unwrap_or_else(|| "https://your-threatclaw/incidents".into());
     let text_with_link = format!("{}\n\n🔗 Dashboard : {}", text, dashboard_url);
 
     let mut results = vec![];
     for channel in channels {
-        if !configured.contains(channel) { continue; }
+        if !configured.contains(channel) {
+            continue;
+        }
 
         // Plain text on every channel — no inline buttons.
         // The RSSI replies in the same chat; conversational_bot parses the response.
-        let result = send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await;
+        let result =
+            send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await;
 
         if let Err(ref e) = result {
             tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
         } else {
-            tracing::info!("INCIDENT_NOTIF: Incident #{} sent to {} (plain, actions inline)", incident_id, channel);
+            tracing::info!(
+                "INCIDENT_NOTIF: Incident #{} sent to {} (plain, actions inline)",
+                incident_id,
+                channel
+            );
             // Remember which incident the user is now expected to reply about (per channel).
             remember_pending_incident(store, channel, incident_id).await;
         }
@@ -255,8 +300,14 @@ async fn build_incident_message(
     severity: &str,
     alert_count: i32,
 ) -> String {
-    let summary_clean = if summary.is_empty() { "Investigation en cours...".to_string() }
-        else { summary.replace("Confirmed { ", "").replace(" }", "").replace('"', "") };
+    let summary_clean = if summary.is_empty() {
+        "Investigation en cours...".to_string()
+    } else {
+        summary
+            .replace("Confirmed { ", "")
+            .replace(" }", "")
+            .replace('"', "")
+    };
 
     let severity_icon = match severity {
         "CRITICAL" => "🔴",
@@ -266,36 +317,50 @@ async fn build_incident_message(
     };
 
     // Try to extract a concrete attacker IP so the RSSI sees exactly what will happen
-    let attacker_ip = crate::agent::remediation_engine::extract_attacker_ip(
-        store, asset, incident_id,
-    ).await;
+    let attacker_ip =
+        crate::agent::remediation_engine::extract_attacker_ip(store, asset, incident_id).await;
 
     // Detect which connectors are configured (to name them in the proposals)
-    let fw_info = crate::agent::remediation_engine::load_firewall_config(store).await
+    let fw_info = crate::agent::remediation_engine::load_firewall_config(store)
+        .await
         .map(|(ty, _url, _u, _s, _no_tls)| ty);
-    let glpi_configured = crate::agent::remediation_engine::load_glpi_config(store).await.is_some();
+    let glpi_configured = crate::agent::remediation_engine::load_glpi_config(store)
+        .await
+        .is_some();
 
     // Build numbered proposals
     let mut actions: Vec<String> = Vec::new();
     match (&attacker_ip, &fw_info) {
         (Some(ip), Some(fw)) => {
-            actions.push(format!("Bloquer {} sur {} (règle ThreatClaw auto, réversible)", ip, fw));
+            actions.push(format!(
+                "Bloquer {} sur {} (règle ThreatClaw auto, réversible)",
+                ip, fw
+            ));
         }
         (Some(ip), None) => {
-            actions.push(format!("Bloquer {} — ⚠️ aucun firewall (pfSense/OPNsense) configuré", ip));
+            actions.push(format!(
+                "Bloquer {} — ⚠️ aucun firewall (pfSense/OPNsense) configuré",
+                ip
+            ));
         }
         (None, _) => {
-            actions.push("Bloquer l'IP source — ⚠️ IP attaquante introuvable dans les alertes".into());
+            actions
+                .push("Bloquer l'IP source — ⚠️ IP attaquante introuvable dans les alertes".into());
         }
     }
     if glpi_configured {
-        actions.push(format!("Créer un ticket GLPI pour l'incident #{}", incident_id));
+        actions.push(format!(
+            "Créer un ticket GLPI pour l'incident #{}",
+            incident_id
+        ));
     } else {
         actions.push("Créer un ticket GLPI — ⚠️ connecteur non configuré".into());
     }
     actions.push("Marquer comme faux positif (clôt l'incident)".into());
 
-    let actions_block = actions.iter().enumerate()
+    let actions_block = actions
+        .iter()
+        .enumerate()
         .map(|(i, a)| format!("  {}. {}", i + 1, a))
         .collect::<Vec<_>>()
         .join("\n");
@@ -316,7 +381,10 @@ async fn build_incident_message(
         sev = severity,
         asset = asset,
         count = alert_count,
-        ip_line = attacker_ip.as_ref().map(|ip| format!("Source   : {}\n", ip)).unwrap_or_default(),
+        ip_line = attacker_ip
+            .as_ref()
+            .map(|ip| format!("Source   : {}\n", ip))
+            .unwrap_or_default(),
         summary = summary_clean,
         actions = actions_block,
     )
@@ -326,14 +394,16 @@ async fn build_incident_message(
 /// Used by conversational_bot to route "1"/"2"/"3" responses to the right incident.
 async fn remember_pending_incident(store: &dyn Database, channel: &str, incident_id: i32) {
     let key = format!("pending_incident:{}", channel);
-    let _ = store.set_setting(
-        "_system",
-        &key,
-        &serde_json::json!({
-            "incident_id": incident_id,
-            "at": chrono::Utc::now().to_rfc3339(),
-        }),
-    ).await;
+    let _ = store
+        .set_setting(
+            "_system",
+            &key,
+            &serde_json::json!({
+                "incident_id": incident_id,
+                "at": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 }
 
 /// Truncate text to Telegram's 4096 char limit, preserving UTF-8 boundaries.
@@ -356,20 +426,40 @@ async fn get_configured_channels(store: &dyn Database) -> Vec<String> {
 
     if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
         let check = |name: &str, key: &str| -> bool {
-            channels[name]["enabled"].as_bool() == Some(true) &&
-            channels[name][key].as_str().map(|s| !s.trim().is_empty()) == Some(true)
+            channels[name]["enabled"].as_bool() == Some(true)
+                && channels[name][key].as_str().map(|s| !s.trim().is_empty()) == Some(true)
         };
 
-        if check("telegram", "botToken") { configured.push("telegram".into()); }
-        if check("slack", "botToken") { configured.push("slack".into()); }
-        if check("discord", "botToken") { configured.push("discord".into()); }
-        if check("mattermost", "webhookUrl") { configured.push("mattermost".into()); }
-        if check("ntfy", "topic") { configured.push("ntfy".into()); }
-        if check("gotify", "appToken") { configured.push("gotify".into()); }
-        if check("email", "host") { configured.push("email".into()); }
-        if check("signal", "account") { configured.push("signal".into()); }
-        if check("whatsapp", "accessToken") { configured.push("whatsapp".into()); }
-        if check("olvid", "clientKey") { configured.push("olvid".into()); }
+        if check("telegram", "botToken") {
+            configured.push("telegram".into());
+        }
+        if check("slack", "botToken") {
+            configured.push("slack".into());
+        }
+        if check("discord", "botToken") {
+            configured.push("discord".into());
+        }
+        if check("mattermost", "webhookUrl") {
+            configured.push("mattermost".into());
+        }
+        if check("ntfy", "topic") {
+            configured.push("ntfy".into());
+        }
+        if check("gotify", "appToken") {
+            configured.push("gotify".into());
+        }
+        if check("email", "host") {
+            configured.push("email".into());
+        }
+        if check("signal", "account") {
+            configured.push("signal".into());
+        }
+        if check("whatsapp", "accessToken") {
+            configured.push("whatsapp".into());
+        }
+        if check("olvid", "clientKey") {
+            configured.push("olvid".into());
+        }
     }
 
     configured
@@ -384,105 +474,163 @@ async fn send_to_channel(
 ) -> Result<(), String> {
     match channel {
         "telegram" => {
-            let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
+            let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store)
+                .await
                 .ok_or("Telegram token not configured")?;
-            let chat_id = get_channel_field(store, "telegram", "chatId").await
+            let chat_id = get_channel_field(store, "telegram", "chatId")
+                .await
                 .ok_or("Telegram chat_id not configured")?;
 
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
-            let resp = client.post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+            let resp = client
+                .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
                 .json(&json!({ "chat_id": chat_id.trim(), "text": truncate_for_telegram(message) }))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
-            if resp.status().is_success() { Ok(()) }
-            else { Err(format!("Telegram HTTP {}", resp.status())) }
+            if resp.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("Telegram HTTP {}", resp.status()))
+            }
         }
         "mattermost" => {
-            let webhook_url = get_channel_field(store, "mattermost", "webhookUrl").await
+            let webhook_url = get_channel_field(store, "mattermost", "webhookUrl")
+                .await
                 .ok_or("Mattermost webhook not configured")?;
             crate::integrations::mattermost_hitl::send_notification(
                 &crate::integrations::mattermost_hitl::MattermostHitlConfig {
-                    enabled: true, webhook_url, channel: String::new(), callback_url: String::new(),
+                    enabled: true,
+                    webhook_url,
+                    channel: String::new(),
+                    callback_url: String::new(),
                 },
                 message,
-            ).await
+            )
+            .await
         }
         "ntfy" => {
-            let server = get_channel_field(store, "ntfy", "server").await.unwrap_or("https://ntfy.sh".into());
-            let topic = get_channel_field(store, "ntfy", "topic").await
+            let server = get_channel_field(store, "ntfy", "server")
+                .await
+                .unwrap_or("https://ntfy.sh".into());
+            let topic = get_channel_field(store, "ntfy", "topic")
+                .await
                 .ok_or("Ntfy topic not configured")?;
             crate::integrations::ntfy_hitl::send_notification(
                 &crate::integrations::ntfy_hitl::NtfyHitlConfig {
-                    enabled: true, server_url: server, topic,
-                    callback_url: String::new(), auth_token: None,
+                    enabled: true,
+                    server_url: server,
+                    topic,
+                    callback_url: String::new(),
+                    auth_token: None,
                 },
-                "ThreatClaw Alerte", message, "high",
-            ).await
+                "ThreatClaw Alerte",
+                message,
+                "high",
+            )
+            .await
         }
         "gotify" => {
-            let url = get_channel_field(store, "gotify", "url").await
+            let url = get_channel_field(store, "gotify", "url")
+                .await
                 .ok_or("Gotify URL not configured")?;
-            let token = get_channel_field(store, "gotify", "appToken").await
+            let token = get_channel_field(store, "gotify", "appToken")
+                .await
                 .ok_or("Gotify token not configured")?;
             crate::integrations::gotify_notify::send_notification(
-                &crate::integrations::gotify_notify::GotifyConfig { enabled: true, server_url: url, app_token: token },
-                "ThreatClaw", message, "high",
-            ).await
+                &crate::integrations::gotify_notify::GotifyConfig {
+                    enabled: true,
+                    server_url: url,
+                    app_token: token,
+                },
+                "ThreatClaw",
+                message,
+                "high",
+            )
+            .await
         }
         "slack" => {
-            let token = get_channel_field(store, "slack", "botToken").await
+            let token = get_channel_field(store, "slack", "botToken")
+                .await
                 .ok_or("Slack bot token not configured")?;
             // Use Slack chat.postMessage API — need a default channel
             // Slack requires a channel ID or name. Use #general as fallback.
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
-            let resp = client.post("https://slack.com/api/chat.postMessage")
+            let resp = client
+                .post("https://slack.com/api/chat.postMessage")
                 .header("Authorization", format!("Bearer {}", token))
                 .json(&json!({
                     "channel": "#general",
                     "text": message,
                     "unfurl_links": false,
                 }))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
             if resp.status().is_success() {
                 let body: serde_json::Value = resp.json().await.unwrap_or_default();
-                if body["ok"].as_bool() == Some(true) { Ok(()) }
-                else { Err(format!("Slack API error: {}", body["error"].as_str().unwrap_or("unknown"))) }
-            } else { Err(format!("Slack HTTP {}", resp.status())) }
+                if body["ok"].as_bool() == Some(true) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Slack API error: {}",
+                        body["error"].as_str().unwrap_or("unknown")
+                    ))
+                }
+            } else {
+                Err(format!("Slack HTTP {}", resp.status()))
+            }
         }
         "discord" => {
             // Discord webhook — botToken field stores the webhook URL for notifications
-            let webhook_url = get_channel_field(store, "discord", "botToken").await
+            let webhook_url = get_channel_field(store, "discord", "botToken")
+                .await
                 .ok_or("Discord webhook not configured")?;
 
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
-            let resp = client.post(&webhook_url)
+            let resp = client
+                .post(&webhook_url)
                 .json(&json!({
                     "content": message,
                     "username": "ThreatClaw",
                 }))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
-            if resp.status().is_success() || resp.status().as_u16() == 204 { Ok(()) }
-            else { Err(format!("Discord HTTP {}", resp.status())) }
+            if resp.status().is_success() || resp.status().as_u16() == 204 {
+                Ok(())
+            } else {
+                Err(format!("Discord HTTP {}", resp.status()))
+            }
         }
         "email" => {
-            let host = get_channel_field(store, "email", "host").await
+            let host = get_channel_field(store, "email", "host")
+                .await
                 .ok_or("Email SMTP host not configured")?;
-            let port: u16 = get_channel_field(store, "email", "port").await
-                .and_then(|p| p.parse().ok()).unwrap_or(587);
-            let from = get_channel_field(store, "email", "from").await
+            let port: u16 = get_channel_field(store, "email", "port")
+                .await
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(587);
+            let from = get_channel_field(store, "email", "from")
+                .await
                 .ok_or("Email from address not configured")?;
-            let to = get_channel_field(store, "email", "to").await
+            let to = get_channel_field(store, "email", "to")
+                .await
                 .ok_or("Email to address not configured")?;
 
             // Use lettre crate for SMTP if available, otherwise raw TCP
@@ -490,12 +638,18 @@ async fn send_to_channel(
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .danger_accept_invalid_certs(true)
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
             // Try SMTP via direct socket (minimal implementation)
             use std::io::{Read, Write};
             let addr = format!("{}:{}", host, port);
-            match std::net::TcpStream::connect_timeout(&addr.parse().map_err(|e: std::net::AddrParseError| e.to_string())?, std::time::Duration::from_secs(10)) {
+            match std::net::TcpStream::connect_timeout(
+                &addr
+                    .parse()
+                    .map_err(|e: std::net::AddrParseError| e.to_string())?,
+                std::time::Duration::from_secs(10),
+            ) {
                 Ok(mut stream) => {
                     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
                     let mut buf = [0u8; 512];
@@ -505,7 +659,10 @@ async fn send_to_channel(
                         format!("MAIL FROM:<{}>\r\n", from),
                         format!("RCPT TO:<{}>\r\n", to),
                         "DATA\r\n".to_string(),
-                        format!("From: ThreatClaw <{}>\r\nTo: {}\r\nSubject: ThreatClaw Security Alert\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n.\r\n", from, to, message),
+                        format!(
+                            "From: ThreatClaw <{}>\r\nTo: {}\r\nSubject: ThreatClaw Security Alert\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n.\r\n",
+                            from, to, message
+                        ),
                         "QUIT\r\n".to_string(),
                     ];
                     for cmd in &commands {
@@ -518,37 +675,53 @@ async fn send_to_channel(
             }
         }
         "signal" => {
-            let http_url = get_channel_field(store, "signal", "httpUrl").await
+            let http_url = get_channel_field(store, "signal", "httpUrl")
+                .await
                 .unwrap_or("http://localhost:8080".into());
-            let account = get_channel_field(store, "signal", "account").await
+            let account = get_channel_field(store, "signal", "account")
+                .await
                 .ok_or("Signal account not configured")?;
             // Signal-cli REST API
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
-            let resp = client.post(format!("{}/v2/send", http_url))
+            let resp = client
+                .post(format!("{}/v2/send", http_url))
                 .json(&json!({
                     "message": message,
                     "number": account,
                     "recipients": [account],
                 }))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
-            if resp.status().is_success() { Ok(()) }
-            else { Err(format!("Signal HTTP {}", resp.status())) }
+            if resp.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("Signal HTTP {}", resp.status()))
+            }
         }
         "whatsapp" => {
-            let access_token = get_channel_field(store, "whatsapp", "accessToken").await
+            let access_token = get_channel_field(store, "whatsapp", "accessToken")
+                .await
                 .ok_or("WhatsApp access token not configured")?;
-            let phone_id = get_channel_field(store, "whatsapp", "phoneNumberId").await
+            let phone_id = get_channel_field(store, "whatsapp", "phoneNumberId")
+                .await
                 .ok_or("WhatsApp phone number ID not configured")?;
 
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
-                .build().map_err(|e| e.to_string())?;
+                .build()
+                .map_err(|e| e.to_string())?;
 
-            let resp = client.post(format!("https://graph.facebook.com/v18.0/{}/messages", phone_id))
+            let resp = client
+                .post(format!(
+                    "https://graph.facebook.com/v18.0/{}/messages",
+                    phone_id
+                ))
                 .header("Authorization", format!("Bearer {}", access_token))
                 .json(&json!({
                     "messaging_product": "whatsapp",
@@ -556,21 +729,35 @@ async fn send_to_channel(
                     "type": "text",
                     "text": { "body": message },
                 }))
-                .send().await.map_err(|e| e.to_string())?;
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
 
-            if resp.status().is_success() { Ok(()) }
-            else { Err(format!("WhatsApp HTTP {}", resp.status())) }
+            if resp.status().is_success() {
+                Ok(())
+            } else {
+                Err(format!("WhatsApp HTTP {}", resp.status()))
+            }
         }
         "olvid" => {
             // See ADR-044: Olvid certified ANSSI messenger integration
-            let daemon_url = get_channel_field(store, "olvid", "daemonUrl").await
+            let daemon_url = get_channel_field(store, "olvid", "daemonUrl")
+                .await
                 .unwrap_or("http://localhost:50051".into());
-            let client_key = get_channel_field(store, "olvid", "clientKey").await
+            let client_key = get_channel_field(store, "olvid", "clientKey")
+                .await
                 .ok_or("Olvid client key not configured")?;
-            let discussion_id = get_channel_field(store, "olvid", "discussionId").await
+            let discussion_id = get_channel_field(store, "olvid", "discussionId")
+                .await
                 .ok_or("Olvid discussion ID not configured")?;
 
-            crate::connectors::olvid::send_message(&daemon_url, &client_key, &discussion_id, message).await
+            crate::connectors::olvid::send_message(
+                &daemon_url,
+                &client_key,
+                &discussion_id,
+                message,
+            )
+            .await
         }
         _ => Err(format!("Channel {} not implemented for routing", channel)),
     }
@@ -578,8 +765,14 @@ async fn send_to_channel(
 
 /// Get a field from channel config in DB.
 async fn get_channel_field(store: &dyn Database, channel: &str, field: &str) -> Option<String> {
-    let channels = store.get_setting("_system", "tc_config_channels").await.ok()??;
-    channels[channel][field].as_str().filter(|s| !s.trim().is_empty()).map(String::from)
+    let channels = store
+        .get_setting("_system", "tc_config_channels")
+        .await
+        .ok()??;
+    channels[channel][field]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(String::from)
 }
 
 // ── V3: Route investigation verdict notifications ──

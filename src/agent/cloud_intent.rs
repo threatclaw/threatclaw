@@ -74,7 +74,10 @@ pub async fn parse_intent(message: &str, mode: &str) -> Intent {
     let asset = extract_asset(message);
     let username = extract_username(message);
 
-    let (action, confidence) = if lower.contains("status") || lower.contains("comment va") || lower.contains("etat") {
+    let (action, confidence) = if lower.contains("status")
+        || lower.contains("comment va")
+        || lower.contains("etat")
+    {
         (IntentAction::Status, 0.9)
     } else if lower.contains("bloque") || lower.contains("block") || lower.contains("ban") {
         if let Some(ref ip) = ip {
@@ -85,24 +88,44 @@ pub async fn parse_intent(message: &str, mode: &str) -> Intent {
     } else if lower.contains("scan") || lower.contains("scanne") {
         let target = extract_target(message).unwrap_or_else(|| "192.168.1.0/24".into());
         (IntentAction::ScanNetwork { target }, 0.8)
-    } else if lower.contains("chemin") || lower.contains("attack path") || lower.contains("comment un attaquant") {
+    } else if lower.contains("chemin")
+        || lower.contains("attack path")
+        || lower.contains("comment un attaquant")
+    {
         (IntentAction::AttackPaths, 0.9)
-    } else if lower.contains("blast") || lower.contains("impact") || lower.contains("compromis") || lower.contains("si.*tombe") {
+    } else if lower.contains("blast")
+        || lower.contains("impact")
+        || lower.contains("compromis")
+        || lower.contains("si.*tombe")
+    {
         let a = asset.clone().unwrap_or_default();
         (IntentAction::BlastRadius { asset: a }, 0.8)
-    } else if lower.contains("qui nous attaque") || lower.contains("acteur") || lower.contains("attaquant") || lower.contains("apt") {
+    } else if lower.contains("qui nous attaque")
+        || lower.contains("acteur")
+        || lower.contains("attaquant")
+        || lower.contains("apt")
+    {
         (IntentAction::ThreatActors, 0.9)
     } else if lower.contains("lateral") || lower.contains("mouvement") || lower.contains("pivot") {
         (IntentAction::LateralMovement, 0.9)
-    } else if lower.contains("rapport") || lower.contains("nis2") || lower.contains("report") || lower.contains("comex") {
+    } else if lower.contains("rapport")
+        || lower.contains("nis2")
+        || lower.contains("report")
+        || lower.contains("comex")
+    {
         (IntentAction::ReportNis2, 0.9)
-    } else if lower.contains("desactiv") || lower.contains("disable") || lower.contains("verrouill") {
+    } else if lower.contains("desactiv") || lower.contains("disable") || lower.contains("verrouill")
+    {
         let u = username.clone().unwrap_or_default();
         (IntentAction::DisableAccount { username: u }, 0.8)
     } else if lower.contains("finding") || lower.contains("vuln") || lower.contains("faille") {
-        let sev = if lower.contains("critical") || lower.contains("critique") { Some("CRITICAL".into()) }
-                  else if lower.contains("high") || lower.contains("haute") { Some("HIGH".into()) }
-                  else { None };
+        let sev = if lower.contains("critical") || lower.contains("critique") {
+            Some("CRITICAL".into())
+        } else if lower.contains("high") || lower.contains("haute") {
+            Some("HIGH".into())
+        } else {
+            None
+        };
         (IntentAction::ShowFindings { severity: sev }, 0.8)
     } else if lower.contains("alerte") || lower.contains("alert") || lower.contains("sigma") {
         (IntentAction::ShowAlerts, 0.8)
@@ -117,43 +140,62 @@ pub async fn parse_intent(message: &str, mode: &str) -> Intent {
 
     Intent {
         action,
-        params: IntentParams { ip, asset, username, severity: None, target: None },
+        params: IntentParams {
+            ip,
+            asset,
+            username,
+            severity: None,
+            target: None,
+        },
         confidence,
         original_message: message.to_string(),
     }
 }
 
 /// Execute an intent locally and return the result as text.
-pub async fn execute_intent(
-    store: &dyn crate::db::Database,
-    intent: &Intent,
-) -> String {
+pub async fn execute_intent(store: &dyn crate::db::Database, intent: &Intent) -> String {
     use crate::db::threatclaw_store::ThreatClawStore;
 
     match &intent.action {
         IntentAction::Status => {
-            let findings = store.list_findings(None, Some("open"), None, 10, 0).await.unwrap_or_default();
-            let alerts = store.list_alerts(None, Some("new"), 10, 0).await.unwrap_or_default();
+            let findings = store
+                .list_findings(None, Some("open"), None, 10, 0)
+                .await
+                .unwrap_or_default();
+            let alerts = store
+                .list_alerts(None, Some("new"), 10, 0)
+                .await
+                .unwrap_or_default();
             let stats = crate::graph::asset_resolution::asset_stats(store).await;
             let assets = stats["total_assets"].as_i64().unwrap_or(0);
             format!(
                 "Situation actuelle :\n{} assets surveilles\n{} findings ouverts\n{} alertes actives",
-                assets, findings.len(), alerts.len()
+                assets,
+                findings.len(),
+                alerts.len()
             )
         }
 
         IntentAction::LookupIp { ip } => {
-            if ip.is_empty() { return "Quelle IP voulez-vous verifier ?".into(); }
+            if ip.is_empty() {
+                return "Quelle IP voulez-vous verifier ?".into();
+            }
             let attackers = crate::graph::threat_graph::find_ip_targets(store, ip).await;
-            let score = crate::graph::confidence::compute_ip_confidence(store, ip, None, None).await;
+            let score =
+                crate::graph::confidence::compute_ip_confidence(store, ip, None, None).await;
             format!(
                 "IP {} :\nConfiance menace : {}/100 ({})\nCibles attaquees : {}",
-                ip, score.score, score.level, attackers.len()
+                ip,
+                score.score,
+                score.level,
+                attackers.len()
             )
         }
 
         IntentAction::BlockIp { ip } => {
-            if ip.is_empty() { return "Quelle IP bloquer ? (ex: bloque 185.220.101.42)".into(); }
+            if ip.is_empty() {
+                return "Quelle IP bloquer ? (ex: bloque 185.220.101.42)".into();
+            }
             format!(
                 "Action demandee : bloquer {} sur le firewall.\nConfirmez-vous ? (oui/non)\n\nNote : necessite un connecteur pfSense/OPNsense configure.",
                 ip
@@ -161,7 +203,10 @@ pub async fn execute_intent(
         }
 
         IntentAction::ScanNetwork { target } => {
-            format!("Lancement scan nmap sur {} ...\nLes resultats seront dans Assets une fois le scan termine.", target)
+            format!(
+                "Lancement scan nmap sur {} ...\nLes resultats seront dans Assets une fois le scan termine.",
+                target
+            )
         }
 
         IntentAction::AttackPaths => {
@@ -171,8 +216,14 @@ pub async fn execute_intent(
             } else {
                 let mut msg = format!("{} chemins d'attaque detectes :\n", paths.total_paths);
                 for (i, p) in paths.paths.iter().take(3).enumerate() {
-                    msg.push_str(&format!("{}. {} → {} (risque: {}, exploitabilite: {}%)\n",
-                        i + 1, p.entry_point, p.target, p.risk, p.exploitability as u32));
+                    msg.push_str(&format!(
+                        "{}. {} → {} (risque: {}, exploitabilite: {}%)\n",
+                        i + 1,
+                        p.entry_point,
+                        p.target,
+                        p.risk,
+                        p.exploitability as u32
+                    ));
                 }
                 for r in &paths.top_recommendations {
                     msg.push_str(&format!("\nRecommandation : {}", r));
@@ -182,9 +233,14 @@ pub async fn execute_intent(
         }
 
         IntentAction::BlastRadius { asset } => {
-            if asset.is_empty() { return "Quel asset ? (ex: blast radius de srv-prod-01)".into(); }
+            if asset.is_empty() {
+                return "Quel asset ? (ex: blast radius de srv-prod-01)".into();
+            }
             let br = crate::graph::blast_radius::compute_blast_radius(store, asset).await;
-            format!("{}\nScore impact : {:.0}/100\n{}", br.summary, br.impact_score, br.recommendation)
+            format!(
+                "{}\nScore impact : {:.0}/100\n{}",
+                br.summary, br.impact_score, br.recommendation
+            )
         }
 
         IntentAction::ThreatActors => {
@@ -194,11 +250,18 @@ pub async fn execute_intent(
             } else {
                 let mut msg = format!("{} acteurs profiles :\n", actors.total_actors);
                 for a in actors.actors.iter().take(3) {
-                    msg.push_str(&format!("- {} ({})\n  Techniques: {}\n",
-                        a.name, a.origin_country, a.techniques.join(", ")));
+                    msg.push_str(&format!(
+                        "- {} ({})\n  Techniques: {}\n",
+                        a.name,
+                        a.origin_country,
+                        a.techniques.join(", ")
+                    ));
                     if let Some(ref apt) = a.apt_similarity {
                         if apt.similarity_score > 30 {
-                            msg.push_str(&format!("  Ressemble a {} ({}%)\n", apt.apt_name, apt.similarity_score));
+                            msg.push_str(&format!(
+                                "  Ressemble a {} ({}%)\n",
+                                apt.apt_name, apt.similarity_score
+                            ));
                         }
                     }
                 }
@@ -211,18 +274,25 @@ pub async fn execute_intent(
             if lateral.total_detections == 0 {
                 "Aucun mouvement lateral detecte.".into()
             } else {
-                format!("{} detection(s) :\n{}", lateral.total_detections, lateral.summary)
+                format!(
+                    "{} detection(s) :\n{}",
+                    lateral.total_detections, lateral.summary
+                )
             }
         }
 
         IntentAction::ReportNis2 => {
             let report = crate::graph::supply_chain::generate_nis2_report(store).await;
-            format!("Rapport NIS2 Article 21 genere.\n{}\nTelechargez-le depuis le dashboard > Intelligence > Rapport NIS2.",
-                report["summary"].as_str().unwrap_or(""))
+            format!(
+                "Rapport NIS2 Article 21 genere.\n{}\nTelechargez-le depuis le dashboard > Intelligence > Rapport NIS2.",
+                report["summary"].as_str().unwrap_or("")
+            )
         }
 
         IntentAction::DisableAccount { username } => {
-            if username.is_empty() { return "Quel compte desactiver ?".into(); }
+            if username.is_empty() {
+                return "Quel compte desactiver ?".into();
+            }
             format!(
                 "Action demandee : desactiver le compte '{}' dans Active Directory.\nConfirmez-vous ? (oui/non)\n\nNote : necessite un connecteur AD configure avec droits d'ecriture.",
                 username
@@ -230,7 +300,10 @@ pub async fn execute_intent(
         }
 
         IntentAction::ShowFindings { severity } => {
-            let findings = store.list_findings(severity.as_deref(), Some("open"), None, 5, 0).await.unwrap_or_default();
+            let findings = store
+                .list_findings(severity.as_deref(), Some("open"), None, 5, 0)
+                .await
+                .unwrap_or_default();
             if findings.is_empty() {
                 "Aucun finding ouvert.".into()
             } else {
@@ -243,7 +316,10 @@ pub async fn execute_intent(
         }
 
         IntentAction::ShowAlerts => {
-            let alerts = store.list_alerts(None, Some("new"), 5, 0).await.unwrap_or_default();
+            let alerts = store
+                .list_alerts(None, Some("new"), 5, 0)
+                .await
+                .unwrap_or_default();
             if alerts.is_empty() {
                 "Aucune alerte active.".into()
             } else {
@@ -255,8 +331,7 @@ pub async fn execute_intent(
             }
         }
 
-        IntentAction::Help => {
-            "Commandes disponibles :\n\
+        IntentAction::Help => "Commandes disponibles :\n\
              - status / etat\n\
              - bloque [IP]\n\
              - scan [cible]\n\
@@ -267,8 +342,8 @@ pub async fn execute_intent(
              - rapport NIS2\n\
              - desactive [compte]\n\
              - findings / vulns\n\
-             - alertes".into()
-        }
+             - alertes"
+            .into(),
 
         IntentAction::Unknown => {
             "Je n'ai pas compris. Tapez 'aide' pour voir les commandes disponibles.".into()
@@ -353,14 +428,23 @@ mod tests {
 
     #[test]
     fn test_extract_ip() {
-        assert_eq!(extract_ip("bloque 192.168.1.50"), Some("192.168.1.50".into()));
+        assert_eq!(
+            extract_ip("bloque 192.168.1.50"),
+            Some("192.168.1.50".into())
+        );
         assert_eq!(extract_ip("scan 10.0.0.0/24"), Some("10.0.0.0/24".into()));
         assert_eq!(extract_ip("pas d'ip ici"), None);
     }
 
     #[test]
     fn test_extract_asset() {
-        assert_eq!(extract_asset("blast radius de srv-prod-01"), Some("srv-prod-01".into()));
-        assert_eq!(extract_asset("check PC-COMPTA-03"), Some("pc-compta-03".into()));
+        assert_eq!(
+            extract_asset("blast radius de srv-prod-01"),
+            Some("srv-prod-01".into())
+        );
+        assert_eq!(
+            extract_asset("check PC-COMPTA-03"),
+            Some("pc-compta-03".into())
+        );
     }
 }

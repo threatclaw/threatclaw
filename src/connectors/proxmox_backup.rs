@@ -28,7 +28,9 @@ pub struct ProxmoxBackupConfig {
     pub no_tls_verify: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProxmoxBackupSyncResult {
@@ -42,9 +44,14 @@ enum PbsAuth {
     Token(String),
 }
 
-pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupConfig) -> ProxmoxBackupSyncResult {
+pub async fn sync_proxmox_backup(
+    store: &dyn Database,
+    config: &ProxmoxBackupConfig,
+) -> ProxmoxBackupSyncResult {
     let mut result = ProxmoxBackupSyncResult {
-        tasks_checked: 0, findings_created: 0, errors: vec![],
+        tasks_checked: 0,
+        findings_created: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -53,7 +60,10 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
         .build()
     {
         Ok(c) => c,
-        Err(e) => { result.errors.push(format!("HTTP client: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("HTTP client: {}", e));
+            return result;
+        }
     };
 
     let url = config.url.trim_end_matches('/');
@@ -63,12 +73,17 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
     let auth = if let (Some(name), Some(value)) = (&config.token_name, &config.token_value) {
         PbsAuth::Token(format!("PBSAPIToken={}:{}", name, value))
     } else if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-        let resp = match client.post(format!("{}/api2/json/access/ticket", url))
+        let resp = match client
+            .post(format!("{}/api2/json/access/ticket", url))
             .form(&[("username", user.as_str()), ("password", pass.as_str())])
-            .send().await
+            .send()
+            .await
         {
             Ok(r) => r,
-            Err(e) => { result.errors.push(format!("Auth: {}", e)); return result; }
+            Err(e) => {
+                result.errors.push(format!("Auth: {}", e));
+                return result;
+            }
         };
 
         if !resp.status().is_success() {
@@ -78,11 +93,17 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
 
         let data: serde_json::Value = match resp.json().await {
             Ok(d) => d,
-            Err(e) => { result.errors.push(format!("Auth parse: {}", e)); return result; }
+            Err(e) => {
+                result.errors.push(format!("Auth parse: {}", e));
+                return result;
+            }
         };
 
         let ticket = data["data"]["ticket"].as_str().unwrap_or("").to_string();
-        let csrf = data["data"]["CSRFPreventionToken"].as_str().unwrap_or("").to_string();
+        let csrf = data["data"]["CSRFPreventionToken"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
 
         if ticket.is_empty() {
             result.errors.push("No ticket in auth response".into());
@@ -91,7 +112,9 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
 
         PbsAuth::Ticket { ticket, csrf }
     } else {
-        result.errors.push("No auth: set username+password or token_name+token_value".into());
+        result
+            .errors
+            .push("No auth: set username+password or token_name+token_value".into());
         return result;
     };
 
@@ -108,7 +131,10 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
     };
 
     // Fetch failed tasks
-    let tasks_url = format!("{}/api2/json/nodes/localhost/tasks?limit=100&statusfilter=error", url);
+    let tasks_url = format!(
+        "{}/api2/json/nodes/localhost/tasks?limit=100&statusfilter=error",
+        url
+    );
     match add_auth(client.get(&tasks_url)).send().await {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -124,27 +150,30 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
                         result.tasks_checked += 1;
 
                         // Backup or verification failure
-                        let severity = if task_type.contains("backup") || task_type.contains("verify") {
-                            "HIGH"
-                        } else {
-                            "MEDIUM"
-                        };
+                        let severity =
+                            if task_type.contains("backup") || task_type.contains("verify") {
+                                "HIGH"
+                            } else {
+                                "MEDIUM"
+                            };
 
-                        let _ = store.insert_finding(&NewFinding {
-                            skill_id: "skill-proxmox-backup".into(),
-                            title: format!("[PBS] {} failed: {}", task_type, worker_id),
-                            description: Some(format!("Status: {}. UPID: {}", status, upid)),
-                            severity: severity.into(),
-                            category: Some("backup".into()),
-                            asset: None,
-                            source: Some("Proxmox Backup Server".into()),
-                            metadata: Some(serde_json::json!({
-                                "task_type": task_type,
-                                "worker_id": worker_id,
-                                "status": status,
-                                "upid": upid,
-                            })),
-                        }).await;
+                        let _ = store
+                            .insert_finding(&NewFinding {
+                                skill_id: "skill-proxmox-backup".into(),
+                                title: format!("[PBS] {} failed: {}", task_type, worker_id),
+                                description: Some(format!("Status: {}. UPID: {}", status, upid)),
+                                severity: severity.into(),
+                                category: Some("backup".into()),
+                                asset: None,
+                                source: Some("Proxmox Backup Server".into()),
+                                metadata: Some(serde_json::json!({
+                                    "task_type": task_type,
+                                    "worker_id": worker_id,
+                                    "status": status,
+                                    "upid": upid,
+                                })),
+                            })
+                            .await;
                         result.findings_created += 1;
                     }
                 }
@@ -172,21 +201,27 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
                         if total > 0.0 {
                             let pct = (used / total * 100.0) as u32;
                             if pct >= 90 {
-                                let _ = store.insert_finding(&NewFinding {
-                                    skill_id: "skill-proxmox-backup".into(),
-                                    title: format!("[PBS] Datastore '{}' {}% full", name, pct),
-                                    description: Some(format!("Used: {:.1} GB / {:.1} GB", used / 1e9, total / 1e9)),
-                                    severity: if pct >= 95 { "HIGH" } else { "MEDIUM" }.into(),
-                                    category: Some("backup".into()),
-                                    asset: None,
-                                    source: Some("Proxmox Backup Server".into()),
-                                    metadata: Some(serde_json::json!({
-                                        "datastore": name,
-                                        "used_pct": pct,
-                                        "total_bytes": total,
-                                        "used_bytes": used,
-                                    })),
-                                }).await;
+                                let _ = store
+                                    .insert_finding(&NewFinding {
+                                        skill_id: "skill-proxmox-backup".into(),
+                                        title: format!("[PBS] Datastore '{}' {}% full", name, pct),
+                                        description: Some(format!(
+                                            "Used: {:.1} GB / {:.1} GB",
+                                            used / 1e9,
+                                            total / 1e9
+                                        )),
+                                        severity: if pct >= 95 { "HIGH" } else { "MEDIUM" }.into(),
+                                        category: Some("backup".into()),
+                                        asset: None,
+                                        source: Some("Proxmox Backup Server".into()),
+                                        metadata: Some(serde_json::json!({
+                                            "datastore": name,
+                                            "used_pct": pct,
+                                            "total_bytes": total,
+                                            "used_bytes": used,
+                                        })),
+                                    })
+                                    .await;
                                 result.findings_created += 1;
                             }
                         }
@@ -197,6 +232,10 @@ pub async fn sync_proxmox_backup(store: &dyn Database, config: &ProxmoxBackupCon
         _ => {}
     }
 
-    tracing::info!("PBS: Sync done — {} tasks, {} findings", result.tasks_checked, result.findings_created);
+    tracing::info!(
+        "PBS: Sync done — {} tasks, {} findings",
+        result.tasks_checked,
+        result.findings_created
+    );
     result
 }

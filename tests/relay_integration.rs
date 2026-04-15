@@ -13,9 +13,9 @@ use axum::{
     routing::{get, post},
 };
 use futures::stream;
-use threatclaw::channels::relay::client::{RelayClient, RelayError};
 use secrecy::SecretString;
 use serde::Deserialize;
+use threatclaw::channels::relay::client::{RelayClient, RelayError};
 use tokio::net::TcpListener;
 
 /// Start an axum server on a random port, returning the base URL.

@@ -1,8 +1,8 @@
 //! Tool Calling Layer. See ADR-032.
 
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::sync::Arc;
 
 use crate::db::Database;
 
@@ -134,16 +134,19 @@ pub fn available_tools() -> Vec<ToolDefinition> {
 
 /// Build Ollama-compatible tools array for native tool calling.
 pub fn tools_for_ollama() -> Value {
-    let tools: Vec<Value> = available_tools().iter().map(|t| {
-        json!({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.parameters
-            }
+    let tools: Vec<Value> = available_tools()
+        .iter()
+        .map(|t| {
+            json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters
+                }
+            })
         })
-    }).collect();
+        .collect();
     Value::Array(tools)
 }
 
@@ -151,9 +154,12 @@ pub fn tools_for_ollama() -> Value {
 /// Injected into the system prompt for models that don't support native tools.
 pub fn tools_for_prompt() -> String {
     let tools = available_tools();
-    let mut desc = String::from("Tu disposes des outils suivants pour accéder aux données du système. ");
+    let mut desc =
+        String::from("Tu disposes des outils suivants pour accéder aux données du système. ");
     desc.push_str("Pour utiliser un outil, réponds avec un bloc JSON comme ceci :\n");
-    desc.push_str("```tool_call\n{\"name\": \"nom_outil\", \"arguments\": {\"param\": \"valeur\"}}\n```\n\n");
+    desc.push_str(
+        "```tool_call\n{\"name\": \"nom_outil\", \"arguments\": {\"param\": \"valeur\"}}\n```\n\n",
+    );
     desc.push_str("Outils disponibles :\n");
 
     for tool in &tools {
@@ -161,10 +167,13 @@ pub fn tools_for_prompt() -> String {
         if let Some(props) = tool.parameters["properties"].as_object() {
             if !props.is_empty() {
                 desc.push_str("  Paramètres : ");
-                let params: Vec<String> = props.iter().map(|(k, v)| {
-                    let desc = v["description"].as_str().unwrap_or("");
-                    format!("`{}` ({})", k, desc)
-                }).collect();
+                let params: Vec<String> = props
+                    .iter()
+                    .map(|(k, v)| {
+                        let desc = v["description"].as_str().unwrap_or("");
+                        format!("`{}` ({})", k, desc)
+                    })
+                    .collect();
                 desc.push_str(&params.join(", "));
                 desc.push('\n');
             }
@@ -172,7 +181,9 @@ pub fn tools_for_prompt() -> String {
     }
 
     desc.push_str("\nSi tu n'as pas besoin d'outil, réponds directement en texte naturel.\n");
-    desc.push_str("Tu peux appeler UN outil par message. Après avoir reçu le résultat, formule ta réponse.\n");
+    desc.push_str(
+        "Tu peux appeler UN outil par message. Après avoir reçu le résultat, formule ta réponse.\n",
+    );
     desc
 }
 
@@ -182,7 +193,9 @@ pub fn parse_tool_call_from_text(text: &str) -> Option<ToolCall> {
     // Try to find ```tool_call block
     if let Some(start) = text.find("```tool_call") {
         let json_start = text[start..].find('{').map(|i| start + i)?;
-        let json_end = text[json_start..].find("```").map(|i| json_start + i)
+        let json_end = text[json_start..]
+            .find("```")
+            .map(|i| json_start + i)
             .or_else(|| text[json_start..].rfind('}').map(|i| json_start + i + 1))?;
         let json_str = &text[json_start..json_end];
         if let Ok(val) = serde_json::from_str::<Value>(json_str) {
@@ -210,7 +223,8 @@ pub fn parse_tool_call_from_text(text: &str) -> Option<ToolCall> {
 }
 
 fn extract_tool_call(val: &Value) -> Option<ToolCall> {
-    let name = val["name"].as_str()
+    let name = val["name"]
+        .as_str()
         .or_else(|| val["tool"].as_str())
         .or_else(|| val["function"].as_str())?;
 
@@ -220,7 +234,8 @@ fn extract_tool_call(val: &Value) -> Option<ToolCall> {
         return None;
     }
 
-    let arguments = val.get("arguments")
+    let arguments = val
+        .get("arguments")
         .or_else(|| val.get("params"))
         .or_else(|| val.get("parameters"))
         .cloned()
@@ -250,15 +265,32 @@ pub async fn execute_tool(tool_call: &ToolCall, store: &Arc<dyn Database>) -> To
 }
 
 async fn execute_security_status(store: &Arc<dyn Database>) -> ToolResult {
-    let situation = store.get_setting("_system", "security_situation").await.ok().flatten();
-    let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
-    let alerts_count = store.count_alerts_filtered(None, Some("new")).await.unwrap_or(0);
-    let findings_count = store.count_findings_filtered(None, Some("open"), None).await.unwrap_or(0);
+    let situation = store
+        .get_setting("_system", "security_situation")
+        .await
+        .ok()
+        .flatten();
+    let score = situation
+        .as_ref()
+        .and_then(|s| s["global_score"].as_f64())
+        .unwrap_or(100.0);
+    let alerts_count = store
+        .count_alerts_filtered(None, Some("new"))
+        .await
+        .unwrap_or(0);
+    let findings_count = store
+        .count_findings_filtered(None, Some("open"), None)
+        .await
+        .unwrap_or(0);
     let assets_count = store.count_assets_filtered(None, None).await.unwrap_or(0);
 
-    let label = if score >= 80.0 { "Situation saine" }
-        else if score >= 50.0 { "Points d'attention" }
-        else { "Situation dégradée" };
+    let label = if score >= 80.0 {
+        "Situation saine"
+    } else if score >= 50.0 {
+        "Points d'attention"
+    } else {
+        "Situation dégradée"
+    };
 
     ToolResult {
         name: "get_security_status".into(),
@@ -278,20 +310,27 @@ async fn execute_recent_alerts(args: &Value, store: &Arc<dyn Database>) -> ToolR
     let limit = args["limit"].as_u64().unwrap_or(5) as i64;
     let _last_hours = args["last_hours"].as_u64().unwrap_or(24);
 
-    let level = if severity_filter == "all" { None } else { Some(severity_filter) };
+    let level = if severity_filter == "all" {
+        None
+    } else {
+        Some(severity_filter)
+    };
 
     match store.list_alerts(level, Some("new"), limit, 0).await {
         Ok(alerts) => {
-            let items: Vec<Value> = alerts.iter().map(|a| {
-                json!({
-                    "title": a.title,
-                    "level": a.level,
-                    "hostname": a.hostname,
-                    "source_ip": a.source_ip,
-                    "timestamp": a.matched_at,
-                    "username": a.username,
+            let items: Vec<Value> = alerts
+                .iter()
+                .map(|a| {
+                    json!({
+                        "title": a.title,
+                        "level": a.level,
+                        "hostname": a.hostname,
+                        "source_ip": a.source_ip,
+                        "timestamp": a.matched_at,
+                        "username": a.username,
+                    })
                 })
-            }).collect();
+                .collect();
             ToolResult {
                 name: "get_recent_alerts".into(),
                 success: true,
@@ -311,8 +350,16 @@ async fn execute_recent_findings(args: &Value, store: &Arc<dyn Database>) -> Too
     let status_filter = args["status"].as_str().unwrap_or("open");
     let limit = args["limit"].as_u64().unwrap_or(5) as i64;
 
-    let severity = if severity_filter == "all" { None } else { Some(severity_filter) };
-    let status = if status_filter == "all" { None } else { Some(status_filter) };
+    let severity = if severity_filter == "all" {
+        None
+    } else {
+        Some(severity_filter)
+    };
+    let status = if status_filter == "all" {
+        None
+    } else {
+        Some(status_filter)
+    };
 
     match store.list_findings(severity, status, None, limit, 0).await {
         Ok(findings) => {
@@ -363,29 +410,40 @@ async fn execute_asset_info(args: &Value, store: &Arc<dyn Database>) -> ToolResu
         if let Ok(assets) = store.list_assets(None, None, 100, 0).await {
             let query_lower = query.to_lowercase();
             for a in assets {
-                if a.hostname.as_deref().map(|h| h.to_lowercase().contains(&query_lower)).unwrap_or(false)
+                if a.hostname
+                    .as_deref()
+                    .map(|h| h.to_lowercase().contains(&query_lower))
+                    .unwrap_or(false)
                     || a.name.to_lowercase().contains(&query_lower)
-                    || a.fqdn.as_deref().map(|f| f.to_lowercase().contains(&query_lower)).unwrap_or(false)
+                    || a.fqdn
+                        .as_deref()
+                        .map(|f| f.to_lowercase().contains(&query_lower))
+                        .unwrap_or(false)
                 {
                     results.push(a);
-                    if results.len() >= 5 { break; }
+                    if results.len() >= 5 {
+                        break;
+                    }
                 }
             }
         }
     }
 
-    let items: Vec<Value> = results.iter().map(|a| {
-        json!({
-            "name": a.name,
-            "hostname": a.hostname,
-            "ips": a.ip_addresses,
-            "os": a.os,
-            "category": a.category,
-            "criticality": a.criticality,
-            "role": a.role,
-            "last_seen": a.last_seen,
+    let items: Vec<Value> = results
+        .iter()
+        .map(|a| {
+            json!({
+                "name": a.name,
+                "hostname": a.hostname,
+                "ips": a.ip_addresses,
+                "os": a.os,
+                "category": a.category,
+                "criticality": a.criticality,
+                "role": a.role,
+                "last_seen": a.last_seen,
+            })
         })
-    }).collect();
+        .collect();
 
     ToolResult {
         name: "get_asset_info".into(),
@@ -399,7 +457,10 @@ async fn execute_ml_anomalies(args: &Value, store: &Arc<dyn Database>) -> ToolRe
     let _min_score = args["min_score"].as_f64().unwrap_or(0.7);
 
     // ML anomalies are stored as findings with skill_id="ml-engine"
-    match store.list_findings(None, Some("open"), Some("ml-engine"), 10, 0).await {
+    match store
+        .list_findings(None, Some("open"), Some("ml-engine"), 10, 0)
+        .await
+    {
         Ok(findings) => {
             let items: Vec<Value> = findings.iter().map(|f| {
                 json!({
@@ -426,13 +487,30 @@ async fn execute_ml_anomalies(args: &Value, store: &Arc<dyn Database>) -> ToolRe
 
 async fn execute_threat_profile(store: &Arc<dyn Database>) -> ToolResult {
     // Load company NACE profile
-    let profile = store.get_setting("_system", "tc_config_company").await.ok().flatten();
-    let nace = profile.as_ref().and_then(|p| p["naceCode"].as_str()).unwrap_or("unknown");
-    let sector = profile.as_ref().and_then(|p| p["sector"].as_str()).unwrap_or("Non défini");
-    let company = profile.as_ref().and_then(|p| p["name"].as_str()).unwrap_or("Non défini");
+    let profile = store
+        .get_setting("_system", "tc_config_company")
+        .await
+        .ok()
+        .flatten();
+    let nace = profile
+        .as_ref()
+        .and_then(|p| p["naceCode"].as_str())
+        .unwrap_or("unknown");
+    let sector = profile
+        .as_ref()
+        .and_then(|p| p["sector"].as_str())
+        .unwrap_or("Non défini");
+    let company = profile
+        .as_ref()
+        .and_then(|p| p["name"].as_str())
+        .unwrap_or("Non défini");
 
     // Load NACE threat profile if available
-    let threat_profile = store.get_setting("_system", &format!("nace_profile_{}", nace)).await.ok().flatten();
+    let threat_profile = store
+        .get_setting("_system", &format!("nace_profile_{}", nace))
+        .await
+        .ok()
+        .flatten();
 
     ToolResult {
         name: "get_threat_profile".into(),
@@ -473,7 +551,11 @@ mod tests {
     fn test_tools_for_prompt_contains_all() {
         let prompt = tools_for_prompt();
         for tool in available_tools() {
-            assert!(prompt.contains(&tool.name), "Prompt missing tool: {}", tool.name);
+            assert!(
+                prompt.contains(&tool.name),
+                "Prompt missing tool: {}",
+                tool.name
+            );
         }
         assert!(prompt.contains("tool_call"));
     }

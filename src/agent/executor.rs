@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 use std::process::Command;
 
-use crate::agent::remediation_whitelist::{validate_remediation, ValidatedCommand, RemediationError, RiskLevel};
+use crate::agent::remediation_whitelist::{
+    RemediationError, RiskLevel, ValidatedCommand, validate_remediation,
+};
 
 /// Résultat d'une exécution de commande.
 #[derive(Debug, Clone)]
@@ -68,10 +70,7 @@ pub fn execute_validated(cmd: &ValidatedCommand) -> Result<ExecutionResult, Exec
     let program = &parts[0];
     let args = &parts[1..];
 
-    tracing::info!(
-        "EXECUTOR: Running {} — {} {:?}",
-        cmd.id, program, args
-    );
+    tracing::info!("EXECUTOR: Running {} — {} {:?}", cmd.id, program, args);
 
     let output = Command::new(program)
         .args(args)
@@ -110,7 +109,11 @@ fn execute_skill_command(cmd: &ValidatedCommand) -> Result<ExecutionResult, Exec
     // Extract skill ID from cmd_id: "skill-abuseipdb-check" → "skill-abuseipdb"
     let skill_id = extract_skill_id(&cmd.id);
 
-    tracing::info!("EXECUTOR: Skill lookup {} — params: {:?}", skill_id, cmd.params);
+    tracing::info!(
+        "EXECUTOR: Skill lookup {} — params: {:?}",
+        skill_id,
+        cmd.params
+    );
 
     // Build the API call synchronously (we're in a blocking context)
     let client = reqwest::blocking::Client::builder()
@@ -119,7 +122,10 @@ fn execute_skill_command(cmd: &ValidatedCommand) -> Result<ExecutionResult, Exec
         .map_err(|e| ExecutorError::ExecutionFailed(format!("HTTP client: {e}")))?;
 
     let resp = client
-        .post(format!("http://127.0.0.1:3000/api/tc/skills/{}/test", skill_id))
+        .post(format!(
+            "http://127.0.0.1:3000/api/tc/skills/{}/test",
+            skill_id
+        ))
         .json(&cmd.params)
         .send()
         .map_err(|e| ExecutorError::ExecutionFailed(format!("Skill API call failed: {e}")))?;
@@ -152,9 +158,14 @@ fn execute_skill_command(cmd: &ValidatedCommand) -> Result<ExecutionResult, Exec
 fn extract_skill_id(cmd_id: &str) -> String {
     // Known skill IDs
     let known = [
-        "skill-abuseipdb", "skill-cti-crowdsec", "skill-shodan",
-        "skill-virustotal", "skill-darkweb-monitor", "skill-email-audit",
-        "skill-wazuh", "skill-report-gen",
+        "skill-abuseipdb",
+        "skill-cti-crowdsec",
+        "skill-shodan",
+        "skill-virustotal",
+        "skill-darkweb-monitor",
+        "skill-email-audit",
+        "skill-wazuh",
+        "skill-report-gen",
     ];
     for kid in &known {
         if cmd_id.starts_with(kid) {
@@ -175,8 +186,7 @@ pub fn validate_and_execute(
     cmd_id: &str,
     params: &HashMap<String, String>,
 ) -> Result<ExecutionResult, ExecutorError> {
-    let validated = validate_remediation(cmd_id, params)
-        .map_err(ExecutorError::Validation)?;
+    let validated = validate_remediation(cmd_id, params).map_err(ExecutorError::Validation)?;
     execute_validated(&validated)
 }
 
@@ -244,7 +254,10 @@ mod tests {
     #[test]
     fn test_split_with_flags() {
         let parts = split_command("iptables -A INPUT -s 10.0.0.1 -j DROP");
-        assert_eq!(parts, vec!["iptables", "-A", "INPUT", "-s", "10.0.0.1", "-j", "DROP"]);
+        assert_eq!(
+            parts,
+            vec!["iptables", "-A", "INPUT", "-s", "10.0.0.1", "-j", "DROP"]
+        );
     }
 
     #[test]
@@ -266,7 +279,10 @@ mod tests {
         let params: HashMap<String, String> = [("IP".to_string(), "10.0.0.99".to_string())].into();
         let validated = validate_remediation("net-001", &params).unwrap();
 
-        assert_eq!(validated.rendered_cmd, "iptables -A INPUT -s 10.0.0.99 -j DROP");
+        assert_eq!(
+            validated.rendered_cmd,
+            "iptables -A INPUT -s 10.0.0.99 -j DROP"
+        );
         assert_eq!(validated.risk, RiskLevel::Medium);
         assert!(validated.requires_hitl);
 
@@ -275,7 +291,8 @@ mod tests {
 
     #[test]
     fn test_validate_rejects_injection() {
-        let params: HashMap<String, String> = [("IP".to_string(), "1.2.3.4; cat /etc/shadow".to_string())].into();
+        let params: HashMap<String, String> =
+            [("IP".to_string(), "1.2.3.4; cat /etc/shadow".to_string())].into();
         let result = validate_and_execute("net-001", &params);
         assert!(result.is_err());
     }

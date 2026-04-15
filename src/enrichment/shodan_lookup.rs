@@ -39,19 +39,36 @@ pub async fn lookup_ip(ip: &str, api_key: &str) -> Result<ShodanResult, String> 
         return Err(format!("Shodan HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Shodan parse: {}", e))?;
 
-    let ports: Vec<u16> = body["ports"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect())
+    let ports: Vec<u16> = body["ports"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u16))
+                .collect()
+        })
         .unwrap_or_default();
 
-    let vulns: Vec<String> = body["vulns"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    let vulns: Vec<String> = body["vulns"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
-    let hostnames: Vec<String> = body["hostnames"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+    let hostnames: Vec<String> = body["hostnames"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     Ok(ShodanResult {

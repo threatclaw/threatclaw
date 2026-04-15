@@ -11,16 +11,18 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnifiConfig {
-    pub url: String,        // e.g. "https://192.168.1.1:8443"
+    pub url: String, // e.g. "https://192.168.1.1:8443"
     pub username: String,
     pub password: String,
     #[serde(default = "default_site")]
-    pub site: String,       // default "default"
+    pub site: String, // default "default"
     #[serde(default)]
     pub no_tls_verify: bool,
 }
 
-fn default_site() -> String { "default".into() }
+fn default_site() -> String {
+    "default".into()
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UnifiSyncResult {
@@ -32,7 +34,10 @@ pub struct UnifiSyncResult {
 
 pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSyncResult {
     let mut result = UnifiSyncResult {
-        clients_discovered: 0, assets_created: 0, assets_updated: 0, errors: vec![],
+        clients_discovered: 0,
+        assets_created: 0,
+        assets_updated: 0,
+        errors: vec![],
     };
 
     let client = reqwest::Client::builder()
@@ -45,38 +50,55 @@ pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSync
     let base = config.url.trim_end_matches('/');
 
     // Login
-    let login_resp = match client.post(&format!("{}/api/login", base))
+    let login_resp = match client
+        .post(&format!("{}/api/login", base))
         .json(&serde_json::json!({
             "username": config.username,
             "password": config.password,
         }))
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("UniFi login: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("UniFi login: {}", e));
+            return result;
+        }
     };
 
     if !login_resp.status().is_success() {
-        result.errors.push(format!("UniFi login HTTP {}", login_resp.status()));
+        result
+            .errors
+            .push(format!("UniFi login HTTP {}", login_resp.status()));
         return result;
     }
 
     // Get active clients
-    let sta_resp = match client.get(&format!("{}/api/s/{}/stat/sta", base, config.site))
-        .send().await
+    let sta_resp = match client
+        .get(&format!("{}/api/s/{}/stat/sta", base, config.site))
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("UniFi clients: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("UniFi clients: {}", e));
+            return result;
+        }
     };
 
     if !sta_resp.status().is_success() {
-        result.errors.push(format!("UniFi clients HTTP {}", sta_resp.status()));
+        result
+            .errors
+            .push(format!("UniFi clients HTTP {}", sta_resp.status()));
         return result;
     }
 
     let body: serde_json::Value = match sta_resp.json().await {
         Ok(b) => b,
-        Err(e) => { result.errors.push(format!("UniFi parse: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("UniFi parse: {}", e));
+            return result;
+        }
     };
 
     let clients_arr = body["data"].as_array();
@@ -86,14 +108,24 @@ pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSync
 
             let mac = c["mac"].as_str().unwrap_or("").to_string();
             let ip = c["ip"].as_str().unwrap_or("").to_string();
-            let hostname = c["hostname"].as_str().or_else(|| c["name"].as_str()).unwrap_or("").to_string();
+            let hostname = c["hostname"]
+                .as_str()
+                .or_else(|| c["name"].as_str())
+                .unwrap_or("")
+                .to_string();
             let oui = c["oui"].as_str().unwrap_or("").to_string();
 
-            if mac.is_empty() { continue; }
+            if mac.is_empty() {
+                continue;
+            }
 
             let discovered = crate::graph::asset_resolution::DiscoveredAsset {
                 mac: Some(mac),
-                hostname: if hostname.is_empty() { None } else { Some(hostname) },
+                hostname: if hostname.is_empty() {
+                    None
+                } else {
+                    Some(hostname)
+                },
                 fqdn: None,
                 ip: if ip.is_empty() { None } else { Some(ip) },
                 os: None,
@@ -116,7 +148,8 @@ pub async fn sync_unifi(store: &dyn Database, config: &UnifiConfig) -> UnifiSync
 
     tracing::info!(
         "UNIFI: {} clients discovered, {} assets created/updated",
-        result.clients_discovered, result.assets_created
+        result.clients_discovered,
+        result.assets_created
     );
 
     result

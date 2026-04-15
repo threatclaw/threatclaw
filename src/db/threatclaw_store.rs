@@ -1,8 +1,8 @@
 //! ThreatClaw-specific database operations for findings, alerts, skill configs, and metrics.
 
-use std::collections::HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use super::DatabaseError;
@@ -139,7 +139,7 @@ pub struct NewAsset {
     pub url: Option<String>,
     pub os: Option<String>,
     pub mac_vendor: Option<String>,
-    pub services: serde_json::Value,  // JSON array of {port, proto, service, product, version}
+    pub services: serde_json::Value, // JSON array of {port, proto, service, product, version}
     pub source: String,
     pub owner: Option<String>,
     pub location: Option<String>,
@@ -177,12 +177,22 @@ pub struct CompanyProfile {
 impl Default for CompanyProfile {
     fn default() -> Self {
         Self {
-            company_name: None, nace_code: None,
-            sector: "other".into(), company_size: "small".into(),
-            employee_count: None, country: "FR".into(),
+            company_name: None,
+            nace_code: None,
+            sector: "other".into(),
+            company_size: "small".into(),
+            employee_count: None,
+            country: "FR".into(),
             business_hours: "office".into(),
-            business_hours_start: "08:00".into(), business_hours_end: "18:00".into(),
-            work_days: vec!["mon".into(), "tue".into(), "wed".into(), "thu".into(), "fri".into()],
+            business_hours_start: "08:00".into(),
+            business_hours_end: "18:00".into(),
+            work_days: vec![
+                "mon".into(),
+                "tue".into(),
+                "wed".into(),
+                "thu".into(),
+                "fri".into(),
+            ],
             geo_scope: "france".into(),
             allowed_countries: vec!["FR".into()],
             blocked_countries: vec![],
@@ -237,24 +247,58 @@ pub trait ThreatClawStore: Send + Sync {
     // ── Shift Report queries ──
 
     /// Count findings created since a given timestamp.
-    async fn count_findings_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn count_findings_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
     /// Count sigma alerts since a given timestamp.
-    async fn count_alerts_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn count_alerts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
     /// Count incidents since a given timestamp.
-    async fn count_incidents_since(&self, _since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn count_incidents_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
     /// List finding titles by severity since a timestamp.
-    async fn list_finding_titles_since(&self, _since: chrono::DateTime<chrono::Utc>, _severity: &str, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+    async fn list_finding_titles_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _severity: &str,
+        _limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
+        Ok(vec![])
+    }
     /// List assets that had findings or alerts since a timestamp.
-    async fn list_active_assets_since(&self, _since: chrono::DateTime<chrono::Utc>, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+    async fn list_active_assets_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
+        Ok(vec![])
+    }
     /// List assets with ML anomaly scores above a threshold.
-    async fn list_ml_anomalies(&self, _threshold: f64, _limit: i64) -> Result<Vec<String>, DatabaseError> { Ok(vec![]) }
+    async fn list_ml_anomalies(
+        &self,
+        _threshold: f64,
+        _limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
+        Ok(vec![])
+    }
 
     /// Auto-close findings from a skill that were NOT re-confirmed since `since`.
     /// Called after a re-scan: findings not found again are considered resolved.
     async fn auto_close_stale_findings(
         &self,
         skill_id: &str,
-        since: &str,  // ISO timestamp — findings with detected_at < since are stale
+        since: &str, // ISO timestamp — findings with detected_at < since are stale
     ) -> Result<i64, DatabaseError>;
 
     // Alerts (sigma_alerts)
@@ -281,7 +325,10 @@ pub trait ThreatClawStore: Send + Sync {
     async fn count_alerts_by_level(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
     // Skill configs
-    async fn get_skill_config(&self, skill_id: &str) -> Result<Vec<SkillConfigRecord>, DatabaseError>;
+    async fn get_skill_config(
+        &self,
+        skill_id: &str,
+    ) -> Result<Vec<SkillConfigRecord>, DatabaseError>;
     async fn set_skill_config(
         &self,
         skill_id: &str,
@@ -395,21 +442,37 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Find an asset by hostname or name (case-insensitive).
     /// Used by the Intelligence Engine to resolve alert hostnames to known assets.
-    async fn find_asset_by_hostname(&self, hostname: &str) -> Result<Option<AssetRecord>, DatabaseError>;
+    async fn find_asset_by_hostname(
+        &self,
+        hostname: &str,
+    ) -> Result<Option<AssetRecord>, DatabaseError>;
 
     /// Mark specific fields as user-modified (protected from auto-discovery overwrite).
-    async fn mark_asset_user_modified(&self, id: &str, fields: &[&str]) -> Result<(), DatabaseError>;
+    async fn mark_asset_user_modified(
+        &self,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<(), DatabaseError>;
 
     // ── Internal Networks ──
 
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError>;
 
-    async fn add_internal_network(&self, cidr: &str, label: Option<&str>, zone: Option<&str>) -> Result<i64, DatabaseError>;
+    async fn add_internal_network(
+        &self,
+        cidr: &str,
+        label: Option<&str>,
+        zone: Option<&str>,
+    ) -> Result<i64, DatabaseError>;
 
     async fn delete_internal_network(&self, id: i64) -> Result<(), DatabaseError>;
 
     /// Merge software inventory into an asset (union, not replace). See ADR-044.
-    async fn update_asset_software(&self, id: &str, software: &serde_json::Value) -> Result<(), DatabaseError>;
+    async fn update_asset_software(
+        &self,
+        id: &str,
+        software: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
 
     // ── Company Profile ──
 
@@ -425,9 +488,19 @@ pub trait ThreatClawStore: Send + Sync {
 
     // ── Enrichment Cache ──
 
-    async fn get_enrichment_cache(&self, source: &str, key: &str) -> Result<Option<serde_json::Value>, DatabaseError>;
+    async fn get_enrichment_cache(
+        &self,
+        source: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, DatabaseError>;
 
-    async fn set_enrichment_cache(&self, source: &str, key: &str, value: &serde_json::Value, ttl_hours: i64) -> Result<(), DatabaseError>;
+    async fn set_enrichment_cache(
+        &self,
+        source: &str,
+        key: &str,
+        value: &serde_json::Value,
+        ttl_hours: i64,
+    ) -> Result<(), DatabaseError>;
 
     // ── ML Scores (dedicated table) ──
 
@@ -436,23 +509,58 @@ pub trait ThreatClawStore: Send + Sync {
     /// Batch fetch all ML scores in one query. See ADR-030.
     async fn get_all_ml_scores(&self) -> Result<HashMap<String, (f64, String)>, DatabaseError>;
 
-    async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError>;
+    async fn set_ml_score(
+        &self,
+        asset_id: &str,
+        score: f64,
+        reason: &str,
+        features: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
 
     // ── Incidents (See ADR-043) ──
 
-    async fn create_incident(&self, asset: &str, title: &str, severity: &str, alert_ids: &[i32], finding_ids: &[i32], alert_count: i32) -> Result<i32, DatabaseError>;
+    async fn create_incident(
+        &self,
+        asset: &str,
+        title: &str,
+        severity: &str,
+        alert_ids: &[i32],
+        finding_ids: &[i32],
+        alert_count: i32,
+    ) -> Result<i32, DatabaseError>;
 
-    async fn update_incident_verdict(&self, id: i32, verdict: &str, confidence: f64, summary: &str, mitre: &[String], proposed_actions: &serde_json::Value, investigation_log: &serde_json::Value) -> Result<(), DatabaseError>;
+    async fn update_incident_verdict(
+        &self,
+        id: i32,
+        verdict: &str,
+        confidence: f64,
+        summary: &str,
+        mitre: &[String],
+        proposed_actions: &serde_json::Value,
+        investigation_log: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
 
-    async fn update_incident_hitl(&self, id: i32, status: &str, responded_by: &str, response: &str) -> Result<(), DatabaseError>;
+    async fn update_incident_hitl(
+        &self,
+        id: i32,
+        status: &str,
+        responded_by: &str,
+        response: &str,
+    ) -> Result<(), DatabaseError>;
 
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
 
-    async fn list_incidents(&self, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn list_incidents(
+        &self,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
 
-    async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError>;
+    async fn find_open_incident_for_asset(&self, asset: &str)
+    -> Result<Option<i32>, DatabaseError>;
 
     /// Touch an existing open incident: bump alert_count by delta, refresh updated_at.
     /// Used when a recurring pattern on the same asset would otherwise create a duplicate.
@@ -480,5 +588,10 @@ pub trait ThreatClawStore: Send + Sync {
     /// Append a note to an incident's audit trail. Notes are stored as a
     /// JSONB array of {text, author, at}. Used by the dashboard "commentaire RSSI"
     /// field and by bots when they execute actions (for context).
-    async fn add_incident_note(&self, id: i32, text: &str, author: &str) -> Result<(), DatabaseError>;
+    async fn add_incident_note(
+        &self,
+        id: i32,
+        text: &str,
+        author: &str,
+    ) -> Result<(), DatabaseError>;
 }

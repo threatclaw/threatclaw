@@ -41,26 +41,41 @@ pub struct CustomAnonymizationRule {
 
 impl AnonymizationMap {
     pub fn new() -> Self {
-        Self { mappings: Vec::new(), custom_rules: Vec::new() }
+        Self {
+            mappings: Vec::new(),
+            custom_rules: Vec::new(),
+        }
     }
 
     /// Create with custom RSSI-defined rules.
     pub fn with_custom_rules(rules: Vec<CustomAnonymizationRule>) -> Self {
-        Self { mappings: Vec::new(), custom_rules: rules }
+        Self {
+            mappings: Vec::new(),
+            custom_rules: rules,
+        }
     }
 
     /// Helper: register a match if not already mapped.
     fn register(&mut self, original: &str, prefix: &str, counters: &mut HashMap<String, usize>) {
         let orig = original.to_string();
         if !self.mappings.iter().any(|(o, _)| o == &orig) {
-            let count = counters.entry(prefix.to_string()).and_modify(|c| *c += 1).or_insert(1);
+            let count = counters
+                .entry(prefix.to_string())
+                .and_modify(|c| *c += 1)
+                .or_insert(1);
             let token = format!("[{}-{:03}]", prefix, count);
             self.mappings.push((orig, token));
         }
     }
 
     /// Helper: scan with a regex (full match) and register all hits.
-    fn scan_full(&mut self, text: &str, pattern: &str, prefix: &str, counters: &mut HashMap<String, usize>) {
+    fn scan_full(
+        &mut self,
+        text: &str,
+        pattern: &str,
+        prefix: &str,
+        counters: &mut HashMap<String, usize>,
+    ) {
         if let Ok(re) = Regex::new(pattern) {
             for cap in re.find_iter(text) {
                 self.register(cap.as_str(), prefix, counters);
@@ -69,7 +84,14 @@ impl AnonymizationMap {
     }
 
     /// Helper: scan with a regex (capture group 1) and register all hits.
-    fn scan_group(&mut self, text: &str, pattern: &str, prefix: &str, group: usize, counters: &mut HashMap<String, usize>) {
+    fn scan_group(
+        &mut self,
+        text: &str,
+        pattern: &str,
+        prefix: &str,
+        group: usize,
+        counters: &mut HashMap<String, usize>,
+    ) {
         if let Ok(re) = Regex::new(pattern) {
             for cap in re.captures_iter(text) {
                 if let Some(m) = cap.get(group) {
@@ -91,57 +113,107 @@ impl AnonymizationMap {
         // ══════════════════════════════════════════════════════════
 
         // SSH private keys (multi-line markers)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
-            "SSHKEY", &mut counters);
+            "SSHKEY",
+            &mut counters,
+        );
 
         // Database connection strings (postgres://, mysql://, mongodb://, redis://)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"(?:postgres|postgresql|mysql|mongodb|mongodb\+srv|redis|amqp)://\S+",
-            "DBCONN", &mut counters);
+            "DBCONN",
+            &mut counters,
+        );
 
         // API keys — AWS
         self.scan_full(text, r"\bAKIA[0-9A-Z]{16}\b", "APIKEY", &mut counters);
         // API keys — Slack
-        self.scan_full(text, r"\bxox[bporas]-[0-9a-zA-Z-]+", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\bxox[bporas]-[0-9a-zA-Z-]+",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — GitHub
-        self.scan_full(text, r"\bgh[ps]_[A-Za-z0-9_]{36,}\b", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\bgh[ps]_[A-Za-z0-9_]{36,}\b",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — GitLab
-        self.scan_full(text, r"\bglpat-[A-Za-z0-9_-]{20,}\b", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\bglpat-[A-Za-z0-9_-]{20,}\b",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — Anthropic
-        self.scan_full(text, r"\bsk-ant-[A-Za-z0-9_-]{20,}\b", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\bsk-ant-[A-Za-z0-9_-]{20,}\b",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — OpenAI
         self.scan_full(text, r"\bsk-[A-Za-z0-9]{20,}\b", "APIKEY", &mut counters);
         // API keys — Stripe
-        self.scan_full(text, r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}\b", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{10,}\b",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — SendGrid
-        self.scan_full(text, r"\bSG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{10,}\b", "APIKEY", &mut counters);
+        self.scan_full(
+            text,
+            r"\bSG\.[A-Za-z0-9_-]{22,}\.[A-Za-z0-9_-]{10,}\b",
+            "APIKEY",
+            &mut counters,
+        );
         // API keys — Twilio
         self.scan_full(text, r"\bSK[0-9a-fA-F]{32}\b", "APIKEY", &mut counters);
 
         // Bearer tokens
-        self.scan_group(text,
+        self.scan_group(
+            text,
             r"(?i)(?:Bearer|Authorization[:\s]+Bearer)\s+([A-Za-z0-9_.\-/+=]{20,})",
-            "BEARER", 1, &mut counters);
+            "BEARER",
+            1,
+            &mut counters,
+        );
 
         // Passwords in key=value context
-        self.scan_group(text,
+        self.scan_group(
+            text,
             r"(?i)(?:password|passwd|pwd|secret|token)[=:\s]+(\S{4,})",
-            "SECRET", 1, &mut counters);
+            "SECRET",
+            1,
+            &mut counters,
+        );
 
         // ══════════════════════════════════════════════════════════
         // NETWORK & INFRASTRUCTURE
         // ══════════════════════════════════════════════════════════
 
         // CIDR subnets (before IPs to match the longer pattern first)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b",
-            "CIDR", &mut counters);
+            "CIDR",
+            &mut counters,
+        );
 
         // IPv4
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b",
-            "IP", &mut counters);
+            "IP",
+            &mut counters,
+        );
 
         // MAC addresses — scan BEFORE IPv6 (aa:bb:cc:dd:ee:ff can look like short IPv6)
         self.scan_full(text,
@@ -154,85 +226,126 @@ impl AnonymizationMap {
             "IPV6", &mut counters);
 
         // Hostnames (server naming patterns)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b(?:[a-z]+-[a-z]+-\d+|[a-z]+-\d+|srv-[a-z]+)\b",
-            "HOST", &mut counters);
+            "HOST",
+            &mut counters,
+        );
 
         // Windows file paths
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"[A-Z]:\\(?:Users|Windows|Program Files|ProgramData)\\\S+",
-            "PATH", &mut counters);
+            "PATH",
+            &mut counters,
+        );
 
         // Unix sensitive paths
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"(?:/home/|/root/|/etc/|/var/log/|/opt/)\S+",
-            "PATH", &mut counters);
+            "PATH",
+            &mut counters,
+        );
 
         // Active Directory distinguished names
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"(?i)(?:CN|OU|DC)=[^,]+(?:,\s*(?:CN|OU|DC)=[^,]+){1,}",
-            "ADPATH", &mut counters);
+            "ADPATH",
+            &mut counters,
+        );
 
         // Windows SIDs
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\bS-1-5-21-\d+-\d+-\d+(?:-\d+)?\b",
-            "SID", &mut counters);
+            "SID",
+            &mut counters,
+        );
 
         // Internal URLs (common intranet patterns)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"https?://[a-zA-Z0-9.-]+\.(?:local|internal|corp|intranet|lan)[^\s]*",
-            "INTURL", &mut counters);
+            "INTURL",
+            &mut counters,
+        );
 
         // ══════════════════════════════════════════════════════════
         // IDENTITY & PERSONAL DATA (GDPR)
         // ══════════════════════════════════════════════════════════
 
         // Email addresses
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",
-            "EMAIL", &mut counters);
+            "EMAIL",
+            &mut counters,
+        );
 
         // International phone numbers (E.164 and common formats)
         // +XX followed by 7-14 digits with optional separators
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{0,4}",
-            "PHONE", &mut counters);
+            "PHONE",
+            &mut counters,
+        );
         // French local format (06, 07, 01-05, 09)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b0[1-79][\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}[\s.-]?\d{2}\b",
-            "PHONE", &mut counters);
+            "PHONE",
+            &mut counters,
+        );
 
         // IBAN (international: 2 letters + 2 check digits + up to 30 alphanumeric)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b[A-Z]{2}\d{2}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{0,4}[\s]?\d{0,3}\b",
-            "IBAN", &mut counters);
+            "IBAN",
+            &mut counters,
+        );
 
         // Credit card numbers (13-19 digits, optional spaces/dashes)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b(?:\d{4}[\s-]?){3,4}\d{1,4}\b",
-            "CARD", &mut counters);
+            "CARD",
+            &mut counters,
+        );
 
         // French NIR (social security: 1 or 2 + 13 digits)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b[12]\s?\d{2}\s?\d{2}\s?\d{2}\s?\d{3}\s?\d{3}\s?\d{2}\b",
-            "NIR", &mut counters);
+            "NIR",
+            &mut counters,
+        );
 
         // Usernames (after "user:" or "username:")
-        self.scan_group(text,
+        self.scan_group(
+            text,
             r"(?i)(?:user(?:name)?[:\s=]+)([a-zA-Z0-9._-]+)",
-            "USER", 1, &mut counters);
+            "USER",
+            1,
+            &mut counters,
+        );
 
         // ══════════════════════════════════════════════════════════
         // BUSINESS IDENTIFIERS
         // ══════════════════════════════════════════════════════════
 
         // French SIRET (14 digits) / SIREN (9 digits)
-        self.scan_full(text,
+        self.scan_full(
+            text,
             r"\b\d{3}\s?\d{3}\s?\d{3}\s?\d{5}\b",
-            "SIRET", &mut counters);
-        self.scan_full(text,
-            r"\b\d{3}\s?\d{3}\s?\d{3}\b",
-            "SIREN", &mut counters);
+            "SIRET",
+            &mut counters,
+        );
+        self.scan_full(text, r"\b\d{3}\s?\d{3}\s?\d{3}\b", "SIREN", &mut counters);
 
         // EU VAT numbers (FR, DE, IT, ES, GB, BE, NL, AT, PL, PT, etc.)
         self.scan_full(text,
@@ -245,7 +358,13 @@ impl AnonymizationMap {
         let custom_rules = self.custom_rules.clone();
         for rule in &custom_rules {
             if rule.capture_group > 0 {
-                self.scan_group(text, &rule.pattern, &rule.token_prefix, rule.capture_group, &mut counters);
+                self.scan_group(
+                    text,
+                    &rule.pattern,
+                    &rule.token_prefix,
+                    rule.capture_group,
+                    &mut counters,
+                );
             } else {
                 self.scan_full(text, &rule.pattern, &rule.token_prefix, &mut counters);
             }
@@ -278,9 +397,15 @@ impl AnonymizationMap {
 
     /// Retourne les catégories de données anonymisées.
     pub fn categories(&self) -> Vec<String> {
-        let mut cats: Vec<String> = self.mappings.iter()
+        let mut cats: Vec<String> = self
+            .mappings
+            .iter()
             .filter_map(|(_, token)| {
-                token.strip_prefix('[')?.split('-').next().map(|s| s.to_string())
+                token
+                    .strip_prefix('[')?
+                    .split('-')
+                    .next()
+                    .map(|s| s.to_string())
             })
             .collect();
         cats.sort();
@@ -307,9 +432,14 @@ pub async fn call_cloud_llm(
 
     match config.backend.as_str() {
         "anthropic" => call_anthropic(&client, config, prompt).await,
-        "mistral" => call_openai_compatible(&client, config, prompt, "https://api.mistral.ai/v1").await,
+        "mistral" => {
+            call_openai_compatible(&client, config, prompt, "https://api.mistral.ai/v1").await
+        }
         "openai_compatible" => {
-            let base = config.base_url.as_deref().unwrap_or("https://api.openai.com/v1");
+            let base = config
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1");
             call_openai_compatible(&client, config, prompt, base).await
         }
         other => Err(format!("Unknown cloud backend: {other}")),
@@ -321,7 +451,9 @@ async fn call_anthropic(
     config: &CloudLlmConfig,
     prompt: &str,
 ) -> Result<CloudCallResult, String> {
-    let full_prompt = format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON.");
+    let full_prompt = format!(
+        "{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON."
+    );
     let body = json!({
         "model": config.model,
         "max_tokens": 2048,
@@ -366,7 +498,9 @@ async fn call_openai_compatible(
     base_url: &str,
 ) -> Result<CloudCallResult, String> {
     // Ensure the prompt asks for JSON output
-    let full_prompt = format!("{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON.");
+    let full_prompt = format!(
+        "{prompt}\n\nRéponds UNIQUEMENT en JSON valide. Pas de texte avant ou après le JSON."
+    );
     let body = json!({
         "model": config.model,
         "messages": [{ "role": "user", "content": full_prompt }],
@@ -574,7 +708,8 @@ mod tests {
     #[test]
     fn test_anonymize_bearer_token() {
         let mut map = AnonymizationMap::new();
-        let result = map.anonymize("Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig");
+        let result =
+            map.anonymize("Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.payload.sig");
         assert!(result.contains("[BEARER-001]"));
         assert!(!result.contains("eyJhbGci"));
     }

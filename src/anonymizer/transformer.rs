@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use regex::Regex;
 
 use crate::anonymizer::patterns::{
-    Category, RE_AWS_KEY, RE_AZURE_CONN, RE_CREDENTIAL_KV, RE_EMAIL, RE_FRENCH_PHONE,
-    RE_GCP_KEY, RE_INTERNAL_HOSTNAME, RE_INTERNAL_IPV4, RE_INTERNAL_IPV6, RE_MAC_ADDR,
-    RE_SIRET, RE_SIREN, RE_SSH_KEY,
+    Category, RE_AWS_KEY, RE_AZURE_CONN, RE_CREDENTIAL_KV, RE_EMAIL, RE_FRENCH_PHONE, RE_GCP_KEY,
+    RE_INTERNAL_HOSTNAME, RE_INTERNAL_IPV4, RE_INTERNAL_IPV6, RE_MAC_ADDR, RE_SIREN, RE_SIRET,
+    RE_SSH_KEY,
 };
 
 // =========================================================================
@@ -89,9 +89,7 @@ impl Anonymizer {
         let custom_regexes = config
             .custom_patterns
             .iter()
-            .filter_map(|(pat, prefix)| {
-                Regex::new(pat).ok().map(|re| (re, prefix.clone()))
-            })
+            .filter_map(|(pat, prefix)| Regex::new(pat).ok().map(|re| (re, prefix.clone())))
             .collect();
         Self {
             config,
@@ -104,10 +102,7 @@ impl Anonymizer {
     /// Missing keys fall back to [`AnonymizeConfig::default`].
     pub fn from_toml_config(value: &toml::Value) -> Self {
         let get_bool = |key: &str, default: bool| -> bool {
-            value
-                .get(key)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(default)
+            value.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
         };
 
         let config = AnonymizeConfig {
@@ -279,13 +274,7 @@ impl ReplaceContext {
         // Collect (full_match, key_part, value_part) triples.
         let captures: Vec<(String, String, String)> = RE_CREDENTIAL_KV
             .captures_iter(&self.text)
-            .map(|cap| {
-                (
-                    cap[0].to_string(),
-                    cap[1].to_string(),
-                    cap[2].to_string(),
-                )
-            })
+            .map(|cap| (cap[0].to_string(), cap[1].to_string(), cap[2].to_string()))
             .collect();
 
         for (full_match, key_part, value_part) in captures {
@@ -316,9 +305,7 @@ impl ReplaceContext {
                 stats.hostnames_redacted += 1;
             } else if placeholder.starts_with("[EMAIL_") {
                 stats.emails_redacted += 1;
-            } else if placeholder.starts_with("[CRED_")
-                || placeholder.starts_with("[SSHKEY_")
-            {
+            } else if placeholder.starts_with("[CRED_") || placeholder.starts_with("[SSHKEY_") {
                 stats.credentials_redacted += 1;
             } else if placeholder.starts_with("[AWSKEY_")
                 || placeholder.starts_with("[AZURECONN_")
@@ -435,7 +422,10 @@ mod tests {
         };
         let anon = Anonymizer::new(config);
         let result = anon.anonymize("Host 192.168.0.1 is up");
-        assert!(result.text.contains("192.168.0.1"), "IP should remain when strip_internal_ips=false");
+        assert!(
+            result.text.contains("192.168.0.1"),
+            "IP should remain when strip_internal_ips=false"
+        );
         assert_eq!(result.stats.ips_redacted, 0);
     }
 

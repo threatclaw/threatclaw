@@ -10,7 +10,7 @@ pub struct IpGeoInfo {
     pub country: Option<String>,
     pub region: Option<String>,
     pub city: Option<String>,
-    pub org: Option<String>,       // ASN + Organization name
+    pub org: Option<String>, // ASN + Organization name
     pub timezone: Option<String>,
 }
 
@@ -20,10 +20,14 @@ pub async fn lookup_ip(ip: &str) -> Result<IpGeoInfo, String> {
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.get(&url)
-        .send().await.map_err(|e| format!("IPinfo: {e}"))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("IPinfo: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("IPinfo HTTP {}", resp.status()));

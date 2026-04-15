@@ -11,13 +11,13 @@ use crate::agent::llm_router::{EscalationDecision, LlmRouterConfig};
 use crate::agent::memory::{AgentMemory, MemoryEntry};
 use crate::agent::mode_manager::{AgentMode, ModeConfig};
 use crate::agent::observation_collector::{
-    findings_to_observations, alerts_to_observations, ObservationSet,
+    ObservationSet, alerts_to_observations, findings_to_observations,
 };
 use crate::agent::prompt_builder;
 use crate::agent::react_cycle::{self, CycleResult, LlmAnalysis};
 use crate::agent::soul::AgentSoul;
-use crate::db::threatclaw_store::ThreatClawStore;
 use crate::db::Database;
+use crate::db::threatclaw_store::ThreatClawStore;
 
 /// Configuration du runner ReAct.
 pub struct ReactRunnerConfig {
@@ -62,15 +62,21 @@ pub async fn run_react_cycle(
         Err(e) => {
             tracing::error!("REACT: Soul verification failed: {e}");
             return ReactRunResult {
-                analysis: None, observations_count: 0,
+                analysis: None,
+                observations_count: 0,
                 cycle_result: "soul_compromised".to_string(),
-                escalation_level: 0, error: Some(e.to_string()),
+                escalation_level: 0,
+                error: Some(e.to_string()),
             };
         }
     };
 
     // ── Étape 1 : Charger le mode ──
-    let mode_str = store.get_setting("_system", "agent_mode").await.ok().flatten()
+    let mode_str = store
+        .get_setting("_system", "agent_mode")
+        .await
+        .ok()
+        .flatten()
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_else(|| "investigator".to_string());
     let mode = crate::agent::mode_manager::parse_mode(&mode_str).unwrap_or(AgentMode::Investigator);
@@ -78,9 +84,11 @@ pub async fn run_react_cycle(
 
     if !mode_cfg.react_enabled {
         return ReactRunResult {
-            analysis: None, observations_count: 0,
+            analysis: None,
+            observations_count: 0,
             cycle_result: "react_disabled".to_string(),
-            escalation_level: 0, error: None,
+            escalation_level: 0,
+            error: None,
         };
     }
 
@@ -97,50 +105,83 @@ pub async fn run_react_cycle(
     // ── Étape 2 : Pre-cycle checks ──
     let memory = match AgentMemory::new(&config.hmac_key) {
         Ok(m) => m,
-        Err(e) => return ReactRunResult {
-            analysis: None, observations_count: 0,
-            cycle_result: "memory_error".to_string(),
-            escalation_level: 0, error: Some(e.to_string()),
-        },
+        Err(e) => {
+            return ReactRunResult {
+                analysis: None,
+                observations_count: 0,
+                cycle_result: "memory_error".to_string(),
+                escalation_level: 0,
+                error: Some(e.to_string()),
+            };
+        }
     };
     let kill_switch = KillSwitch::new(KillSwitchConfig::default());
     let empty_entries: Vec<MemoryEntry> = vec![];
 
-    if let Err(_result) = react_cycle::pre_cycle_checks(&soul, soul_path, &memory, &empty_entries, &kill_switch) {
+    if let Err(_result) =
+        react_cycle::pre_cycle_checks(&soul, soul_path, &memory, &empty_entries, &kill_switch)
+    {
         return ReactRunResult {
-            analysis: None, observations_count: 0,
+            analysis: None,
+            observations_count: 0,
             cycle_result: "pre_check_failed".to_string(),
-            escalation_level: 0, error: Some("Pre-cycle security check failed".to_string()),
+            escalation_level: 0,
+            error: Some("Pre-cycle security check failed".to_string()),
         };
     }
 
     // ── Étape 3 : Collecter les observations ──
     let mut obs = ObservationSet::new();
 
-    if let Ok(findings) = store.list_findings(None, Some("open"), None, config.max_findings, 0).await {
-        let values: Vec<serde_json::Value> = findings.iter().map(|f| json!({
-            "title": f.title, "severity": f.severity, "asset": f.asset,
-            "source": f.source, "skill_id": f.skill_id,
-        })).collect();
-        for o in findings_to_observations(&values) { obs.add(o); }
+    if let Ok(findings) = store
+        .list_findings(None, Some("open"), None, config.max_findings, 0)
+        .await
+    {
+        let values: Vec<serde_json::Value> = findings
+            .iter()
+            .map(|f| {
+                json!({
+                    "title": f.title, "severity": f.severity, "asset": f.asset,
+                    "source": f.source, "skill_id": f.skill_id,
+                })
+            })
+            .collect();
+        for o in findings_to_observations(&values) {
+            obs.add(o);
+        }
     }
 
-    if let Ok(alerts) = store.list_alerts(None, Some("new"), config.max_alerts, 0).await {
+    if let Ok(alerts) = store
+        .list_alerts(None, Some("new"), config.max_alerts, 0)
+        .await
+    {
         let values: Vec<serde_json::Value> = alerts.iter().map(|a| json!({
             "title": a.title, "level": a.level, "hostname": a.hostname, "rule_id": a.rule_id,
         })).collect();
-        for o in alerts_to_observations(&values) { obs.add(o); }
+        for o in alerts_to_observations(&values) {
+            obs.add(o);
+        }
     }
 
     obs.build_summary();
     let obs_count = obs.len();
 
     if obs.is_empty() {
-        write_audit_entry(&store, &mode, "CYCLE_COMPLETE", None, true, Some("No observations")).await;
+        write_audit_entry(
+            &store,
+            &mode,
+            "CYCLE_COMPLETE",
+            None,
+            true,
+            Some("No observations"),
+        )
+        .await;
         return ReactRunResult {
-            analysis: None, observations_count: 0,
+            analysis: None,
+            observations_count: 0,
             cycle_result: "no_observations".to_string(),
-            escalation_level: 0, error: None,
+            escalation_level: 0,
+            error: None,
         };
     }
 
@@ -161,7 +202,10 @@ pub async fn run_react_cycle(
     let mut primary_anon_map = AnonymizationMap::new();
     let prompt_l1 = if anonymize_primary {
         let anonymized = primary_anon_map.anonymize(&prompt_l1_raw);
-        tracing::info!("REACT L1: Anonymized {} data points (data leaves infrastructure)", primary_anon_map.mapping_count());
+        tracing::info!(
+            "REACT L1: Anonymized {} data points (data leaves infrastructure)",
+            primary_anon_map.mapping_count()
+        );
         anonymized
     } else {
         prompt_l1_raw.clone()
@@ -171,11 +215,21 @@ pub async fn run_react_cycle(
         Ok(a) => a,
         Err(e) => {
             tracing::error!("REACT L1: LLM call failed: {e}");
-            write_audit_entry(&store, &mode, "LLM_ERROR", None, false, Some(&format!("L1: {e}"))).await;
+            write_audit_entry(
+                &store,
+                &mode,
+                "LLM_ERROR",
+                None,
+                false,
+                Some(&format!("L1: {e}")),
+            )
+            .await;
             return ReactRunResult {
-                analysis: None, observations_count: obs_count,
+                analysis: None,
+                observations_count: obs_count,
                 cycle_result: "llm_error".to_string(),
-                escalation_level: 1, error: Some(e),
+                escalation_level: 1,
+                error: Some(e),
             };
         }
     };
@@ -190,32 +244,39 @@ pub async fn run_react_cycle(
     // ── Log L1 call for future fine-tuning dataset ──
     {
         use crate::db::threatclaw_store::ThreatClawStore;
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let prompt_hash = format!("{:x}", Sha256::digest(prompt_l1.as_bytes()));
-        let _ = store.log_llm_call(
-            &config.llm.primary.model,
-            &prompt_hash[..16],
-            prompt_l1.len() as i32 / 4, // rough token estimate
-            Some(&serde_json::to_value(&analysis_l1).unwrap_or_default()),
-            None,
-            true, // parsed OK (we got here)
-            "strict_or_flexible",
-            Some(&analysis_l1.severity),
-            Some(analysis_l1.confidence),
-            analysis_l1.proposed_actions.len() as i32,
-            "pending",
-            0, // duration not tracked yet
-            obs_count as i32,
-        ).await;
+        let _ = store
+            .log_llm_call(
+                &config.llm.primary.model,
+                &prompt_hash[..16],
+                prompt_l1.len() as i32 / 4, // rough token estimate
+                Some(&serde_json::to_value(&analysis_l1).unwrap_or_default()),
+                None,
+                true, // parsed OK (we got here)
+                "strict_or_flexible",
+                Some(&analysis_l1.severity),
+                Some(analysis_l1.confidence),
+                analysis_l1.proposed_actions.len() as i32,
+                "pending",
+                0, // duration not tracked yet
+                obs_count as i32,
+            )
+            .await;
     }
 
     tracing::info!(
         "REACT L1: {} | confiance {:.0}% | {} corrélations",
-        analysis_l1.severity, analysis_l1.confidence * 100.0, analysis_l1.correlations.len()
+        analysis_l1.severity,
+        analysis_l1.confidence * 100.0,
+        analysis_l1.correlations.len()
     );
 
     let decision_l1 = config.llm.decide_escalation(
-        analysis_l1.confidence, &analysis_l1.severity, analysis_l1.injection_detected, false,
+        analysis_l1.confidence,
+        &analysis_l1.severity,
+        analysis_l1.injection_detected,
+        false,
     );
 
     if decision_l1 == EscalationDecision::Accept {
@@ -228,7 +289,10 @@ pub async fn run_react_cycle(
     if decision_l1 == EscalationDecision::RetryLocal {
         let is_critical = analysis_l1.severity == "CRITICAL";
         if is_critical {
-            tracing::info!("REACT L2: CRITICAL detected — forensic analysis with L2 model ({})", config.llm.forensic.model);
+            tracing::info!(
+                "REACT L2: CRITICAL detected — forensic analysis with L2 model ({})",
+                config.llm.forensic.model
+            );
         } else {
             tracing::info!("REACT L2: Retrying with enriched context");
         }
@@ -237,18 +301,38 @@ pub async fn run_react_cycle(
         // Build graph context for L2 (attackers, CVEs, notes from graph)
         let graph_context = {
             use crate::db::threatclaw_store::ThreatClawStore;
-            let recent_alerts = store.list_alerts(None, Some("new"), 3, 0).await.unwrap_or_default();
+            let recent_alerts = store
+                .list_alerts(None, Some("new"), 3, 0)
+                .await
+                .unwrap_or_default();
             let mut ctx_parts = vec![];
             let mut seen_hosts = std::collections::HashSet::new();
             for alert in &recent_alerts {
                 if let Some(ref h) = alert.hostname {
                     if seen_hosts.insert(h.clone()) {
-                        let ctx = crate::graph::threat_graph::build_investigation_context(store.as_ref(), h).await;
-                        if ctx["attackers"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
-                            || ctx["cves"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
-                            || ctx["analyst_notes"].as_array().map(|a| !a.is_empty()).unwrap_or(false)
+                        let ctx = crate::graph::threat_graph::build_investigation_context(
+                            store.as_ref(),
+                            h,
+                        )
+                        .await;
+                        if ctx["attackers"]
+                            .as_array()
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false)
+                            || ctx["cves"]
+                                .as_array()
+                                .map(|a| !a.is_empty())
+                                .unwrap_or(false)
+                            || ctx["analyst_notes"]
+                                .as_array()
+                                .map(|a| !a.is_empty())
+                                .unwrap_or(false)
                         {
-                            ctx_parts.push(format!("Asset {} : {}", h, serde_json::to_string(&ctx).unwrap_or_default()));
+                            ctx_parts.push(format!(
+                                "Asset {} : {}",
+                                h,
+                                serde_json::to_string(&ctx).unwrap_or_default()
+                            ));
                         }
                     }
                 }
@@ -256,7 +340,10 @@ pub async fn run_react_cycle(
             if ctx_parts.is_empty() {
                 String::new()
             } else {
-                format!("\n\n# CONTEXTE GRAPH INTELLIGENCE\n{}", ctx_parts.join("\n"))
+                format!(
+                    "\n\n# CONTEXTE GRAPH INTELLIGENCE\n{}",
+                    ctx_parts.join("\n")
+                )
             }
         };
 
@@ -272,8 +359,12 @@ pub async fn run_react_cycle(
                 5. Mouvement latéral — l'attaquant a-t-il pivoté vers d'autres assets ?\n\
                 6. Actions immédiates — que doit faire le RSSI maintenant ?\n\
                 Utilise le contexte graph pour enrichir ton analyse.",
-                prompt_l1_raw, analysis_l1.severity, analysis_l1.confidence * 100.0,
-                analysis_l1.analysis, analysis_l1.correlations, graph_context
+                prompt_l1_raw,
+                analysis_l1.severity,
+                analysis_l1.confidence * 100.0,
+                analysis_l1.analysis,
+                analysis_l1.correlations,
+                graph_context
             )
         } else {
             format!(
@@ -286,7 +377,10 @@ pub async fn run_react_cycle(
         let enriched_prompt = if anonymize_primary {
             let mut l2_anon = AnonymizationMap::new();
             let anon = l2_anon.anonymize(&enriched_prompt_raw);
-            tracing::info!("REACT L2: Anonymized {} data points", l2_anon.mapping_count());
+            tracing::info!(
+                "REACT L2: Anonymized {} data points",
+                l2_anon.mapping_count()
+            );
             anon
         } else {
             enriched_prompt_raw
@@ -294,11 +388,19 @@ pub async fn run_react_cycle(
 
         // Use L2 forensic model for CRITICAL, L1 for retries
         let analysis_l2_raw = if is_critical {
-            match call_ollama(&config.llm.forensic.base_url, &config.llm.forensic.model, &enriched_prompt).await {
+            match call_ollama(
+                &config.llm.forensic.base_url,
+                &config.llm.forensic.model,
+                &enriched_prompt,
+            )
+            .await
+            {
                 Ok(response) => match react_cycle::parse_llm_response(&response) {
                     Ok(a) => a,
                     Err(e) => {
-                        tracing::warn!("REACT L2: Forensic JSON parse failed: {e} — falling back to L1");
+                        tracing::warn!(
+                            "REACT L2: Forensic JSON parse failed: {e} — falling back to L1"
+                        );
                         return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
                     }
                 },
@@ -324,14 +426,21 @@ pub async fn run_react_cycle(
 
         tracing::info!(
             "REACT L2: {} | confiance {:.0}% | {} corrélations",
-            analysis_l2.severity, analysis_l2.confidence * 100.0, analysis_l2.correlations.len()
+            analysis_l2.severity,
+            analysis_l2.confidence * 100.0,
+            analysis_l2.correlations.len()
         );
 
         let decision_l2 = config.llm.decide_escalation(
-            analysis_l2.confidence, &analysis_l2.severity, analysis_l2.injection_detected, true,
+            analysis_l2.confidence,
+            &analysis_l2.severity,
+            analysis_l2.injection_detected,
+            true,
         );
 
-        if decision_l2 == EscalationDecision::Accept || decision_l2 == EscalationDecision::AcceptDegraded {
+        if decision_l2 == EscalationDecision::Accept
+            || decision_l2 == EscalationDecision::AcceptDegraded
+        {
             return finalize_cycle(store, &mode, analysis_l2, obs_count, 2).await;
         }
 
@@ -352,13 +461,20 @@ pub async fn run_react_cycle(
         }
     };
 
-    tracing::info!("REACT L3: Escalating to cloud ({}/{})", cloud_config.backend, cloud_config.model);
+    tracing::info!(
+        "REACT L3: Escalating to cloud ({}/{})",
+        cloud_config.backend,
+        cloud_config.model
+    );
 
     // Anonymiser le prompt (utiliser prompt_l1_raw pour éviter la double-anonymisation)
     let mut anon_map = AnonymizationMap::new();
     let cloud_prompt = if config.llm.requires_anonymization() {
         let anonymized = anon_map.anonymize(&prompt_l1_raw);
-        tracing::info!("REACT L3: Anonymized {} data points", anon_map.mapping_count());
+        tracing::info!(
+            "REACT L3: Anonymized {} data points",
+            anon_map.mapping_count()
+        );
         anonymized
     } else {
         prompt_l1_raw.clone()
@@ -368,7 +484,15 @@ pub async fn run_react_cycle(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("REACT L3: Cloud call failed: {e}");
-            write_audit_entry(&store, &mode, "CLOUD_ERROR", None, false, Some(&format!("L3: {e}"))).await;
+            write_audit_entry(
+                &store,
+                &mode,
+                "CLOUD_ERROR",
+                None,
+                false,
+                Some(&format!("L3: {e}")),
+            )
+            .await;
             // Fallback to L1 analysis
             return finalize_cycle(store, &mode, analysis_l1, obs_count, 1).await;
         }
@@ -393,16 +517,31 @@ pub async fn run_react_cycle(
 
     tracing::info!(
         "REACT L3: {} | confiance {:.0}% | {} corrélations (cloud: {}/{})",
-        analysis_l3.severity, analysis_l3.confidence * 100.0,
-        analysis_l3.correlations.len(), cloud_config.backend, cloud_config.model,
+        analysis_l3.severity,
+        analysis_l3.confidence * 100.0,
+        analysis_l3.correlations.len(),
+        cloud_config.backend,
+        cloud_config.model,
     );
 
     if let Some(tokens) = cloud_result.tokens_used {
         tracing::info!("REACT L3: {} tokens cloud utilisés", tokens);
     }
 
-    write_audit_entry(&store, &mode, "CLOUD_ESCALATION", None, true,
-        Some(&format!("L3 cloud ({}/{}) — confiance {:.0}%", cloud_config.backend, cloud_config.model, analysis_l3.confidence * 100.0))).await;
+    write_audit_entry(
+        &store,
+        &mode,
+        "CLOUD_ESCALATION",
+        None,
+        true,
+        Some(&format!(
+            "L3 cloud ({}/{}) — confiance {:.0}%",
+            cloud_config.backend,
+            cloud_config.model,
+            analysis_l3.confidence * 100.0
+        )),
+    )
+    .await;
 
     finalize_cycle(store, &mode, analysis_l3, obs_count, 3).await
 }
@@ -417,35 +556,54 @@ async fn finalize_cycle(
 ) -> ReactRunResult {
     if analysis.injection_detected {
         tracing::error!("REACT: Injection detected in observations!");
-        write_audit_entry(&store, mode, "INJECTION_DETECTED", None, true, Some(&analysis.analysis)).await;
+        write_audit_entry(
+            &store,
+            mode,
+            "INJECTION_DETECTED",
+            None,
+            true,
+            Some(&analysis.analysis),
+        )
+        .await;
         return ReactRunResult {
-            analysis: Some(analysis), observations_count: obs_count,
+            analysis: Some(analysis),
+            observations_count: obs_count,
             cycle_result: "injection_detected".to_string(),
-            escalation_level: level, error: None,
+            escalation_level: level,
+            error: None,
         };
     }
 
     let ks = Arc::new(KillSwitch::new(KillSwitchConfig::default()));
-    let (validated, errors) = react_cycle::validate_proposed_actions(&analysis.proposed_actions, &ks);
+    let (validated, errors) =
+        react_cycle::validate_proposed_actions(&analysis.proposed_actions, &ks);
     if !errors.is_empty() {
         tracing::warn!("REACT: {} action(s) rejected: {:?}", errors.len(), errors);
     }
 
     let summary = format!(
         "L{} | {} | Confiance: {:.0}% | Corrélations: {} | Actions: {} ({} validées)",
-        level, analysis.severity, analysis.confidence * 100.0,
-        analysis.correlations.len(), analysis.proposed_actions.len(), validated.len(),
+        level,
+        analysis.severity,
+        analysis.confidence * 100.0,
+        analysis.correlations.len(),
+        analysis.proposed_actions.len(),
+        validated.len(),
     );
 
     write_audit_entry(&store, mode, "CYCLE_COMPLETE", None, true, Some(&summary)).await;
-    let _ = store.record_metric("security_score", analysis.confidence * 100.0, &json!({})).await;
+    let _ = store
+        .record_metric("security_score", analysis.confidence * 100.0, &json!({}))
+        .await;
 
     tracing::info!("REACT: {}", summary);
 
     ReactRunResult {
-        analysis: Some(analysis), observations_count: obs_count,
+        analysis: Some(analysis),
+        observations_count: obs_count,
         cycle_result: "success".to_string(),
-        escalation_level: level, error: None,
+        escalation_level: level,
+        error: None,
     }
 }
 
@@ -465,23 +623,28 @@ async fn call_primary(llm: &LlmRouterConfig, prompt: &str) -> Result<LlmAnalysis
     } else {
         // Local Ollama
         let response = call_ollama(&llm.primary.base_url, &llm.primary.model, prompt).await?;
-        react_cycle::parse_llm_response(&response)
-            .map_err(|e| format!("JSON parse failed: {e}"))
+        react_cycle::parse_llm_response(&response).map_err(|e| format!("JSON parse failed: {e}"))
     }
 }
 
 /// Dé-anonymise les champs texte d'une analyse LLM.
 fn deanonymize_analysis(mut analysis: LlmAnalysis, anon_map: &AnonymizationMap) -> LlmAnalysis {
     analysis.analysis = anon_map.deanonymize(&analysis.analysis);
-    analysis.correlations = analysis.correlations.iter()
+    analysis.correlations = analysis
+        .correlations
+        .iter()
         .map(|c| anon_map.deanonymize(c))
         .collect();
-    analysis.proposed_actions = analysis.proposed_actions.iter()
+    analysis.proposed_actions = analysis
+        .proposed_actions
+        .iter()
         .map(|a| {
             let mut action = a.clone();
             action.rationale = anon_map.deanonymize(&action.rationale);
             action.cmd_id = anon_map.deanonymize(&action.cmd_id);
-            action.params = action.params.iter()
+            action.params = action
+                .params
+                .iter()
                 .map(|(k, v)| (k.clone(), anon_map.deanonymize(v)))
                 .collect();
             action
@@ -493,12 +656,15 @@ fn deanonymize_analysis(mut analysis: LlmAnalysis, anon_map: &AnonymizationMap) 
 /// Appelle Ollama et parse la réponse JSON.
 async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<LlmAnalysis, String> {
     let response = call_ollama(base_url, model, prompt).await?;
-    react_cycle::parse_llm_response(&response)
-        .map_err(|e| format!("JSON parse failed: {e}"))
+    react_cycle::parse_llm_response(&response).map_err(|e| format!("JSON parse failed: {e}"))
 }
 
 /// Appelle Ollama via l'API Chat (plus fiable que generate pour le JSON structuré).
-pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
+pub(crate) async fn call_ollama(
+    base_url: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url);
 
     // Keep-alive strategy: by default L0/L1 stay resident (avoid cold-start lag
@@ -538,7 +704,11 @@ pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Re
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let resp = client.post(&url).json(&body).send().await
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
         .map_err(|e| format!("Ollama request failed: {e}"))?;
 
     if !resp.status().is_success() {
@@ -547,7 +717,10 @@ pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Re
         return Err(format!("Ollama returned {status}: {text}"));
     }
 
-    let data: serde_json::Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("JSON parse error: {e}"))?;
 
     // Chat API: response is in message.content
     if let Some(content) = data["message"]["content"].as_str() {
@@ -566,12 +739,17 @@ pub(crate) async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Re
     // Fallback: some models put content in thinking field
     if let Some(thinking) = data["message"]["thinking"].as_str() {
         if !thinking.is_empty() {
-            tracing::warn!("LLM responded in thinking field instead of content — using thinking as response");
+            tracing::warn!(
+                "LLM responded in thinking field instead of content — using thinking as response"
+            );
             return Ok(thinking.to_string());
         }
     }
 
-    Err(format!("No usable response from Ollama. Raw: {}", serde_json::to_string(&data).unwrap_or_default()))
+    Err(format!(
+        "No usable response from Ollama. Raw: {}",
+        serde_json::to_string(&data).unwrap_or_default()
+    ))
 }
 
 /// Écrit une entrée dans l'audit log.
@@ -601,7 +779,10 @@ pub fn spawn_react_ticker(
     interval: std::time::Duration,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        tracing::info!("REACT: Ticker started — cycle every {}s", interval.as_secs());
+        tracing::info!(
+            "REACT: Ticker started — cycle every {}s",
+            interval.as_secs()
+        );
         let mut ticker = tokio::time::interval(interval);
         ticker.tick().await; // skip first
 
@@ -612,8 +793,13 @@ pub fn spawn_react_ticker(
             match result.cycle_result.as_str() {
                 "success" => {
                     if let Some(ref a) = result.analysis {
-                        tracing::info!("REACT: L{} — {} | {:.0}% | {} actions",
-                            result.escalation_level, a.severity, a.confidence * 100.0, a.proposed_actions.len());
+                        tracing::info!(
+                            "REACT: L{} — {} | {:.0}% | {} actions",
+                            result.escalation_level,
+                            a.severity,
+                            a.confidence * 100.0,
+                            a.proposed_actions.len()
+                        );
                     }
                 }
                 "no_observations" => tracing::debug!("REACT: No observations"),
@@ -631,7 +817,8 @@ mod tests {
     fn test_default_config() {
         let config = ReactRunnerConfig::default();
         assert!(config.soul_path.contains("AGENT_SOUL.toml"));
-        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        let expected_model =
+            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
         assert_eq!(config.llm.primary.model, expected_model);
         assert!(config.llm.cloud.is_none());
     }
@@ -645,9 +832,11 @@ mod tests {
     #[test]
     fn test_react_run_result_structure() {
         let result = ReactRunResult {
-            analysis: None, observations_count: 5,
+            analysis: None,
+            observations_count: 5,
             cycle_result: "success".to_string(),
-            escalation_level: 2, error: None,
+            escalation_level: 2,
+            error: None,
         };
         assert_eq!(result.escalation_level, 2);
         assert_eq!(result.observations_count, 5);

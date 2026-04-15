@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-const PRODUCTION_FEED: &str = "https://www.wordfence.com/api/intelligence/v2/vulnerabilities/production";
+const PRODUCTION_FEED: &str =
+    "https://www.wordfence.com/api/intelligence/v2/vulnerabilities/production";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WfVulnerability {
@@ -25,7 +26,8 @@ pub struct WfVulnerability {
 }
 
 /// Local cache for the Wordfence feed.
-static CACHE: std::sync::LazyLock<Mutex<Option<WfCache>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+static CACHE: std::sync::LazyLock<Mutex<Option<WfCache>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
 
 struct WfCache {
     fetched_at: chrono::DateTime<chrono::Utc>,
@@ -46,10 +48,13 @@ pub async fn sync_feed() -> Result<usize, String> {
         return Err(format!("Wordfence feed HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Wordfence feed parse: {}", e))?;
 
-    let obj = body.as_object()
+    let obj = body
+        .as_object()
         .ok_or("Wordfence feed: expected JSON object")?;
 
     let mut by_slug: HashMap<String, Vec<WfVulnerability>> = HashMap::new();
@@ -64,18 +69,25 @@ pub async fn sync_feed() -> Result<usize, String> {
             for sw in sw_list {
                 let sw_type = sw["type"].as_str().unwrap_or("plugin").to_string();
                 let slug = sw["slug"].as_str().unwrap_or("").to_string();
-                if slug.is_empty() { continue; }
+                if slug.is_empty() {
+                    continue;
+                }
 
                 // Get the highest affected_to version
-                let affected_to = sw["affected_versions"].as_object()
-                    .and_then(|versions| {
-                        versions.values()
-                            .filter_map(|v| v["to_version"].as_str().map(String::from))
-                            .max()
-                    });
+                let affected_to = sw["affected_versions"].as_object().and_then(|versions| {
+                    versions
+                        .values()
+                        .filter_map(|v| v["to_version"].as_str().map(String::from))
+                        .max()
+                });
 
-                let cve_ids: Vec<String> = vuln_data["references"]["cve"].as_array()
-                    .map(|a| a.iter().filter_map(|c| c.as_str().map(|s| format!("CVE-{}", s))).collect())
+                let cve_ids: Vec<String> = vuln_data["references"]["cve"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| c.as_str().map(|s| format!("CVE-{}", s)))
+                            .collect()
+                    })
                     .unwrap_or_default();
 
                 let entry = WfVulnerability {
@@ -103,7 +115,10 @@ pub async fn sync_feed() -> Result<usize, String> {
 
     *CACHE.lock().unwrap() = Some(cache);
 
-    tracing::info!("Wordfence Intelligence: loaded {} vulnerability entries", count);
+    tracing::info!(
+        "Wordfence Intelligence: loaded {} vulnerability entries",
+        count
+    );
     Ok(count)
 }
 
@@ -130,12 +145,11 @@ pub fn lookup_slug(slug: &str) -> Vec<WfVulnerability> {
 
 /// Lookup vulnerabilities for a slug that affect a specific version.
 pub fn lookup_slug_version(slug: &str, installed_version: &str) -> Vec<WfVulnerability> {
-    lookup_slug(slug).into_iter()
-        .filter(|v| {
-            match &v.affected_to {
-                Some(to) => version_lte(installed_version, to),
-                None => true,
-            }
+    lookup_slug(slug)
+        .into_iter()
+        .filter(|v| match &v.affected_to {
+            Some(to) => version_lte(installed_version, to),
+            None => true,
         })
         .collect()
 }
@@ -150,9 +164,7 @@ pub fn known_slugs_count() -> usize {
 }
 
 fn version_lte(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u32> {
-        s.split('.').filter_map(|p| p.parse().ok()).collect()
-    };
+    let parse = |s: &str| -> Vec<u32> { s.split('.').filter_map(|p| p.parse().ok()).collect() };
     parse(a) <= parse(b)
 }
 

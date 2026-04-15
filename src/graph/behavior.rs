@@ -7,7 +7,7 @@
 //! The baselines generated here serve as future training data for ML (Layer 3).
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use chrono::{Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -106,12 +106,15 @@ pub fn score_event(baseline: &UserBaseline, event: &BehaviorEvent) -> AnomalySco
         } else if event.hour < 8 || event.hour >= 20 {
             15 // Early morning / late evening
         } else {
-            8  // Just outside usual hours
+            8 // Just outside usual hours
         };
         anomalies.push(AnomalyDetail {
             category: "time".into(),
             score,
-            detail: format!("Connexion a {}h (habituel: {:?})", event.hour, baseline.usual_hours),
+            detail: format!(
+                "Connexion a {}h (habituel: {:?})",
+                event.hour, baseline.usual_hours
+            ),
         });
         total += score as u16;
     }
@@ -122,7 +125,10 @@ pub fn score_event(baseline: &UserBaseline, event: &BehaviorEvent) -> AnomalySco
         anomalies.push(AnomalyDetail {
             category: "day".into(),
             score,
-            detail: format!("Connexion jour {} (habituel: {:?})", event.weekday, baseline.usual_days),
+            detail: format!(
+                "Connexion jour {} (habituel: {:?})",
+                event.weekday, baseline.usual_days
+            ),
         });
         total += score as u16;
     }
@@ -137,8 +143,11 @@ pub fn score_event(baseline: &UserBaseline, event: &BehaviorEvent) -> AnomalySco
         anomalies.push(AnomalyDetail {
             category: "source_ip".into(),
             score,
-            detail: format!("IP {} inconnue (habituel: {:?})", event.source_ip,
-                &baseline.usual_ips[..baseline.usual_ips.len().min(3)]),
+            detail: format!(
+                "IP {} inconnue (habituel: {:?})",
+                event.source_ip,
+                &baseline.usual_ips[..baseline.usual_ips.len().min(3)]
+            ),
         });
         total += score as u16;
     }
@@ -161,7 +170,10 @@ pub fn score_event(baseline: &UserBaseline, event: &BehaviorEvent) -> AnomalySco
             anomalies.push(AnomalyDetail {
                 category: "vlan".into(),
                 score,
-                detail: format!("VLAN {} inhabituel (habituel: {:?})", vlan, baseline.usual_vlans),
+                detail: format!(
+                    "VLAN {} inhabituel (habituel: {:?})",
+                    vlan, baseline.usual_vlans
+                ),
             });
             total += score as u16;
         }
@@ -192,12 +204,16 @@ pub fn score_event(baseline: &UserBaseline, event: &BehaviorEvent) -> AnomalySco
 /// Compute or update a user's baseline from graph history.
 pub async fn compute_baseline(store: &dyn Database, username: &str) -> UserBaseline {
     // Get login history for this user from the graph
-    let logins = query(store, &format!(
-        "MATCH (u:User {{username: '{}'}})-[l:LOGGED_IN]->(a:Asset) \
+    let logins = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{}'}})-[l:LOGGED_IN]->(a:Asset) \
          RETURN l.source_ip, l.timestamp, a.id, a.hostname \
          ORDER BY l.timestamp DESC LIMIT 500",
-        esc(username)
-    )).await;
+            esc(username)
+        ),
+    )
+    .await;
 
     let mut hours: Vec<u32> = vec![];
     let mut days: Vec<u32> = vec![];
@@ -211,8 +227,12 @@ pub async fn compute_baseline(store: &dyn Database, username: &str) -> UserBasel
             if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
                 let h = ts.hour();
                 let d = ts.weekday().number_from_monday();
-                if !hours.contains(&h) { hours.push(h); }
-                if !days.contains(&d) { days.push(d); }
+                if !hours.contains(&h) {
+                    hours.push(h);
+                }
+                if !days.contains(&d) {
+                    days.push(d);
+                }
                 unique_dates.insert(ts.format("%Y-%m-%d").to_string());
             }
         }
@@ -225,7 +245,8 @@ pub async fn compute_baseline(store: &dyn Database, username: &str) -> UserBasel
         }
 
         // Target asset
-        let asset = r["a.hostname"].as_str()
+        let asset = r["a.hostname"]
+            .as_str()
             .or(r["a.id"].as_str())
             .unwrap_or("");
         if !asset.is_empty() && !assets.contains(&asset.to_string()) && assets.len() < 30 {
@@ -276,9 +297,12 @@ async fn save_baseline(store: &dyn Database, baseline: &UserBaseline) {
          u.baseline_updated = '{}' \
          RETURN u",
         esc(&baseline.username),
-        esc(&hours_json), esc(&days_json),
-        esc(&ips_json), esc(&assets_json),
-        baseline.avg_daily_logins, baseline.days_observed,
+        esc(&hours_json),
+        esc(&days_json),
+        esc(&ips_json),
+        esc(&assets_json),
+        baseline.avg_daily_logins,
+        baseline.days_observed,
         Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
@@ -286,25 +310,33 @@ async fn save_baseline(store: &dyn Database, baseline: &UserBaseline) {
 
 /// Load a previously computed baseline from the graph.
 pub async fn load_baseline(store: &dyn Database, username: &str) -> Option<UserBaseline> {
-    let results = query(store, &format!(
-        "MATCH (u:User {{username: '{}'}}) \
+    let results = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{}'}}) \
          RETURN u.baseline_hours, u.baseline_days, u.baseline_ips, \
          u.baseline_assets, u.baseline_avg_logins, u.baseline_days_observed",
-        esc(username)
-    )).await;
+            esc(username)
+        ),
+    )
+    .await;
 
     let r = results.first()?;
 
-    let hours: Vec<u32> = r["u.baseline_hours"].as_str()
+    let hours: Vec<u32> = r["u.baseline_hours"]
+        .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
-    let days: Vec<u32> = r["u.baseline_days"].as_str()
+    let days: Vec<u32> = r["u.baseline_days"]
+        .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
-    let ips: Vec<String> = r["u.baseline_ips"].as_str()
+    let ips: Vec<String> = r["u.baseline_ips"]
+        .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
-    let assets: Vec<String> = r["u.baseline_assets"].as_str()
+    let assets: Vec<String> = r["u.baseline_assets"]
+        .as_str()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
     let avg_logins = r["u.baseline_avg_logins"].as_f64().unwrap_or(0.0);
@@ -354,7 +386,10 @@ pub async fn score_login(
     if score.total_score >= 50 {
         tracing::warn!(
             "BEHAVIOR: {} anomaly score {}/100 ({}) — {} anomalies detected",
-            username, score.total_score, score.level, score.anomalies.len()
+            username,
+            score.total_score,
+            score.level,
+            score.anomalies.len()
         );
     }
 
@@ -413,8 +448,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "192.168.30.15".into(),
             target_asset: "srv-erp".into(),
-            hour: 10, weekday: 3, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 10,
+            weekday: 3,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 0);
@@ -428,8 +466,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "192.168.30.15".into(),
             target_asset: "srv-erp".into(),
-            hour: 3, weekday: 3, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 3,
+            weekday: 3,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 30);
@@ -445,8 +486,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "10.0.0.99".into(),
             target_asset: "srv-erp".into(),
-            hour: 10, weekday: 3, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 10,
+            weekday: 3,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 25); // Internal IP but unknown
@@ -459,8 +503,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "185.220.101.42".into(),
             target_asset: "srv-erp".into(),
-            hour: 10, weekday: 3, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 10,
+            weekday: 3,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 40); // External IP = very suspicious
@@ -473,8 +520,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "192.168.30.15".into(),
             target_asset: "srv-backup".into(),
-            hour: 10, weekday: 3, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 10,
+            weekday: 3,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 30);
@@ -488,8 +538,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "192.168.30.15".into(),
             target_asset: "srv-erp".into(),
-            hour: 10, weekday: 6, vlan: Some(30),
-            success: true, event_type: "login".into(),
+            hour: 10,
+            weekday: 6,
+            vlan: Some(30),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 20); // Saturday
@@ -503,8 +556,11 @@ mod tests {
             username: "michel".into(),
             source_ip: "185.220.101.42".into(),
             target_asset: "srv-ad".into(),
-            hour: 3, weekday: 7, vlan: Some(20),
-            success: true, event_type: "login".into(),
+            hour: 3,
+            weekday: 7,
+            vlan: Some(20),
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert!(score.total_score >= 80); // Should be critical
@@ -524,8 +580,11 @@ mod tests {
             username: "new_user".into(),
             source_ip: "1.2.3.4".into(),
             target_asset: "srv-secret".into(),
-            hour: 3, weekday: 7, vlan: None,
-            success: true, event_type: "login".into(),
+            hour: 3,
+            weekday: 7,
+            vlan: None,
+            success: true,
+            event_type: "login".into(),
         };
         let score = score_event(&b, &event);
         assert_eq!(score.total_score, 0); // Learning period — no alerts

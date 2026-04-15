@@ -37,12 +37,13 @@ pub struct SpamhausListing {
 
 /// Check an IP against Spamhaus ZEN (SBL + XBL + PBL combined).
 pub async fn check_ip(ip: &str) -> Result<SpamhausResult, String> {
-    let addr = Ipv4Addr::from_str(ip)
-        .map_err(|_| format!("Invalid IPv4 address: {}", ip))?;
+    let addr = Ipv4Addr::from_str(ip).map_err(|_| format!("Invalid IPv4 address: {}", ip))?;
 
     let octets = addr.octets();
-    let reversed = format!("{}.{}.{}.{}.zen.spamhaus.org",
-        octets[3], octets[2], octets[1], octets[0]);
+    let reversed = format!(
+        "{}.{}.{}.{}.zen.spamhaus.org",
+        octets[3], octets[2], octets[1], octets[0]
+    );
 
     // Use tokio DNS resolution (system resolver)
     let lookup = tokio::net::lookup_host(format!("{}:0", reversed)).await;
@@ -107,12 +108,13 @@ fn classify_code(last_octet: u8) -> Option<(&'static str, &'static str, &'static
 
 /// Check if an IP is on a specific Spamhaus list (sbl, xbl, pbl).
 pub async fn check_ip_list(ip: &str, list: &str) -> Result<bool, String> {
-    let addr = Ipv4Addr::from_str(ip)
-        .map_err(|_| format!("Invalid IPv4 address: {}", ip))?;
+    let addr = Ipv4Addr::from_str(ip).map_err(|_| format!("Invalid IPv4 address: {}", ip))?;
 
     let octets = addr.octets();
-    let query = format!("{}.{}.{}.{}.{}.spamhaus.org",
-        octets[3], octets[2], octets[1], octets[0], list);
+    let query = format!(
+        "{}.{}.{}.{}.{}.spamhaus.org",
+        octets[3], octets[2], octets[1], octets[0], list
+    );
 
     match tokio::net::lookup_host(format!("{}:0", query)).await {
         Err(_) => Ok(false), // Not listed

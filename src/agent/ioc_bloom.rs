@@ -15,16 +15,21 @@ pub static IOC_BLOOM: LazyLock<Arc<RwLock<BloomFilter>>> =
 // ── Bloom filter implementation ──
 
 pub struct BloomFilter {
-    bits: Vec<u64>,        // packed bits for memory efficiency
-    bit_count: usize,      // total number of bits
-    hash_count: usize,     // number of hash functions
-    ioc_count: usize,      // how many IoC were inserted
+    bits: Vec<u64>,    // packed bits for memory efficiency
+    bit_count: usize,  // total number of bits
+    hash_count: usize, // number of hash functions
+    ioc_count: usize,  // how many IoC were inserted
 }
 
 impl BloomFilter {
     /// Create an empty filter (placeholder before init)
     pub fn empty() -> Self {
-        Self { bits: vec![0; 1], bit_count: 64, hash_count: 1, ioc_count: 0 }
+        Self {
+            bits: vec![0; 1],
+            bit_count: 64,
+            hash_count: 1,
+            ioc_count: 0,
+        }
     }
 
     /// Create a filter sized for `expected` items at `fp_rate` false positive rate.
@@ -76,7 +81,9 @@ impl BloomFilter {
     /// Insert an IoC into the filter
     pub fn insert(&mut self, ioc: &str) {
         let normalized = ioc.trim().to_lowercase();
-        if normalized.is_empty() { return; }
+        if normalized.is_empty() {
+            return;
+        }
         for pos in self.positions(&normalized) {
             self.set_bit(pos);
         }
@@ -88,12 +95,20 @@ impl BloomFilter {
     /// true = PROBABLY in the filter (~1% false positive, verify in DB)
     pub fn maybe_contains(&self, ioc: &str) -> bool {
         let normalized = ioc.trim().to_lowercase();
-        if normalized.is_empty() { return false; }
-        self.positions(&normalized).iter().all(|&pos| self.get_bit(pos))
+        if normalized.is_empty() {
+            return false;
+        }
+        self.positions(&normalized)
+            .iter()
+            .all(|&pos| self.get_bit(pos))
     }
 
-    pub fn ioc_count(&self) -> usize { self.ioc_count }
-    pub fn memory_kb(&self) -> usize { self.bits.len() * 8 / 1024 }
+    pub fn ioc_count(&self) -> usize {
+        self.ioc_count
+    }
+    pub fn memory_kb(&self) -> usize {
+        self.bits.len() * 8 / 1024
+    }
 }
 
 // ── Feed loading ──
@@ -106,7 +121,11 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
     // OpenPhish URLs
     if let Ok(Some(data)) = store.get_setting("_enrichment", "openphish_urls").await {
         if let Some(urls) = data["urls"].as_array() {
-            for u in urls { if let Some(s) = u.as_str() { filter.insert(s); } }
+            for u in urls {
+                if let Some(s) = u.as_str() {
+                    filter.insert(s);
+                }
+            }
             tracing::debug!("BLOOM: loaded {} OpenPhish URLs", urls.len());
         }
     }
@@ -114,23 +133,38 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
     // ThreatFox IoC (via enrichment cache)
     if let Ok(entries) = store.list_settings("_enrichment_threatfox").await {
         for row in &entries {
-            if let Some(ioc) = row.value["ioc_value"].as_str() { filter.insert(ioc); }
+            if let Some(ioc) = row.value["ioc_value"].as_str() {
+                filter.insert(ioc);
+            }
         }
-        if !entries.is_empty() { tracing::debug!("BLOOM: loaded {} ThreatFox IoC", entries.len()); }
+        if !entries.is_empty() {
+            tracing::debug!("BLOOM: loaded {} ThreatFox IoC", entries.len());
+        }
     }
 
     // URLhaus
     if let Ok(Some(data)) = store.get_setting("_enrichment", "urlhaus_urls").await {
         if let Some(urls) = data["urls"].as_array() {
-            for u in urls { if let Some(s) = u.as_str() { filter.insert(s); } }
+            for u in urls {
+                if let Some(s) = u.as_str() {
+                    filter.insert(s);
+                }
+            }
             tracing::debug!("BLOOM: loaded {} URLhaus URLs", urls.len());
         }
     }
 
     // MalwareBazaar hashes
-    if let Ok(Some(data)) = store.get_setting("_enrichment", "malwarebazaar_hashes").await {
+    if let Ok(Some(data)) = store
+        .get_setting("_enrichment", "malwarebazaar_hashes")
+        .await
+    {
         if let Some(hashes) = data["hashes"].as_array() {
-            for h in hashes { if let Some(s) = h.as_str() { filter.insert(s); } }
+            for h in hashes {
+                if let Some(s) = h.as_str() {
+                    filter.insert(s);
+                }
+            }
             tracing::debug!("BLOOM: loaded {} MalwareBazaar hashes", hashes.len());
         }
     }
@@ -141,9 +175,13 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
     // CISA KEV CVE IDs (for cross-reference)
     if let Ok(entries) = store.list_settings("_kev").await {
         for row in &entries {
-            if row.key.starts_with("CVE-") { filter.insert(&row.key); }
+            if row.key.starts_with("CVE-") {
+                filter.insert(&row.key);
+            }
         }
-        if !entries.is_empty() { tracing::debug!("BLOOM: loaded {} KEV CVEs", entries.len()); }
+        if !entries.is_empty() {
+            tracing::debug!("BLOOM: loaded {} KEV CVEs", entries.len());
+        }
     }
 
     // JA3 fingerprints (malicious TLS client identification)
@@ -153,7 +191,8 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
 
     tracing::info!(
         "BLOOM: Filter ready — {} IoC, {} KB RAM, ~1% FP rate",
-        filter.ioc_count(), filter.memory_kb()
+        filter.ioc_count(),
+        filter.memory_kb()
     );
 
     filter
@@ -268,7 +307,9 @@ async fn verify_in_cache(store: &dyn crate::db::Database, ioc: &str, ioc_type: &
             // Check OpenPhish
             if let Ok(Some(data)) = store.get_setting("_enrichment", "openphish_urls").await {
                 if let Some(urls) = data["urls"].as_array() {
-                    if urls.iter().any(|u| u.as_str() == Some(&ioc_lower)) { return true; }
+                    if urls.iter().any(|u| u.as_str() == Some(&ioc_lower)) {
+                        return true;
+                    }
                 }
             }
             // Check URLhaus cache
@@ -278,9 +319,14 @@ async fn verify_in_cache(store: &dyn crate::db::Database, ioc: &str, ioc_type: &
         }
         "hash" => {
             // Check MalwareBazaar
-            if let Ok(Some(data)) = store.get_setting("_enrichment", "malwarebazaar_hashes").await {
+            if let Ok(Some(data)) = store
+                .get_setting("_enrichment", "malwarebazaar_hashes")
+                .await
+            {
                 if let Some(hashes) = data["hashes"].as_array() {
-                    if hashes.iter().any(|h| h.as_str() == Some(&ioc_lower)) { return true; }
+                    if hashes.iter().any(|h| h.as_str() == Some(&ioc_lower)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -288,7 +334,12 @@ async fn verify_in_cache(store: &dyn crate::db::Database, ioc: &str, ioc_type: &
             // Check OpenPhish (domains extracted from URLs)
             if let Ok(Some(data)) = store.get_setting("_enrichment", "openphish_urls").await {
                 if let Some(urls) = data["urls"].as_array() {
-                    if urls.iter().any(|u| u.as_str().map(|s| s.contains(&ioc_lower)).unwrap_or(false)) { return true; }
+                    if urls
+                        .iter()
+                        .any(|u| u.as_str().map(|s| s.contains(&ioc_lower)).unwrap_or(false))
+                    {
+                        return true;
+                    }
                 }
             }
         }

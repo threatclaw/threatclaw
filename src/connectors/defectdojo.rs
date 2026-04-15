@@ -29,9 +29,13 @@ pub struct DefectDojoSyncResult {
 }
 
 /// Export open findings from ThreatClaw to DefectDojo.
-pub async fn export_findings(store: &dyn Database, config: &DefectDojoConfig) -> DefectDojoSyncResult {
+pub async fn export_findings(
+    store: &dyn Database,
+    config: &DefectDojoConfig,
+) -> DefectDojoSyncResult {
     let mut result = DefectDojoSyncResult {
-        findings_exported: 0, errors: vec![],
+        findings_exported: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -40,18 +44,28 @@ pub async fn export_findings(store: &dyn Database, config: &DefectDojoConfig) ->
         .build()
     {
         Ok(c) => c,
-        Err(e) => { result.errors.push(format!("HTTP: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("HTTP: {}", e));
+            return result;
+        }
     };
 
     // Fetch open findings from ThreatClaw
-    let findings = store.list_findings(None, Some("open"), None, 200, 0).await.unwrap_or_default();
+    let findings = store
+        .list_findings(None, Some("open"), None, 200, 0)
+        .await
+        .unwrap_or_default();
 
     if findings.is_empty() {
         tracing::info!("DEFECTDOJO: No open findings to export");
         return result;
     }
 
-    tracing::info!("DEFECTDOJO: Exporting {} findings to {}", findings.len(), config.url);
+    tracing::info!(
+        "DEFECTDOJO: Exporting {} findings to {}",
+        findings.len(),
+        config.url
+    );
 
     for f in &findings {
         let severity_map = match f.severity.to_uppercase().as_str() {
@@ -83,17 +97,23 @@ pub async fn export_findings(store: &dyn Database, config: &DefectDojoConfig) ->
         });
 
         let url = format!("{}/api/v2/findings/", config.url);
-        match client.post(&url)
+        match client
+            .post(&url)
             .header("Authorization", format!("Token {}", config.api_key))
             .json(&dd_finding)
-            .send().await
+            .send()
+            .await
         {
             Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 201 => {
                 result.findings_exported += 1;
             }
             Ok(resp) => {
                 let body = resp.text().await.unwrap_or_default();
-                result.errors.push(format!("Finding '{}': {}", f.title, body.chars().take(200).collect::<String>()));
+                result.errors.push(format!(
+                    "Finding '{}': {}",
+                    f.title,
+                    body.chars().take(200).collect::<String>()
+                ));
             }
             Err(e) => {
                 result.errors.push(format!("Finding '{}': {}", f.title, e));
@@ -101,8 +121,11 @@ pub async fn export_findings(store: &dyn Database, config: &DefectDojoConfig) ->
         }
     }
 
-    tracing::info!("DEFECTDOJO: {} findings exported, {} errors",
-        result.findings_exported, result.errors.len());
+    tracing::info!(
+        "DEFECTDOJO: {} findings exported, {} errors",
+        result.findings_exported,
+        result.errors.len()
+    );
 
     result
 }

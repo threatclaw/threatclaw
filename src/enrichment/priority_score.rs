@@ -38,8 +38,8 @@ pub struct PriorityInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct PriorityResult {
     pub priority: ThreatPriority,
-    pub score: f64,          // 0-100 composite score
-    pub reason: String,      // Human-readable explanation
+    pub score: f64,               // 0-100 composite score
+    pub reason: String,           // Human-readable explanation
     pub adjustments: Vec<String>, // List of adjustments applied
 }
 
@@ -58,13 +58,22 @@ pub fn compute_priority(input: &PriorityInput) -> PriorityResult {
     // ── EPSS — probability of exploitation ──
     if input.epss_score > 0.9 {
         score = score.max(90.0);
-        adjustments.push(format!("EPSS {:.0}%: très forte probabilité d'exploitation 30j → CRITICAL", input.epss_score * 100.0));
+        adjustments.push(format!(
+            "EPSS {:.0}%: très forte probabilité d'exploitation 30j → CRITICAL",
+            input.epss_score * 100.0
+        ));
     } else if input.epss_score > 0.7 {
         score += 15.0;
-        adjustments.push(format!("EPSS {:.0}%: forte probabilité → +15 points", input.epss_score * 100.0));
+        adjustments.push(format!(
+            "EPSS {:.0}%: forte probabilité → +15 points",
+            input.epss_score * 100.0
+        ));
     } else if input.epss_score < 0.05 && input.cvss_score >= 9.0 {
         score -= 20.0;
-        adjustments.push(format!("EPSS {:.1}%: CVSS élevé mais faible probabilité réelle → -20 points", input.epss_score * 100.0));
+        adjustments.push(format!(
+            "EPSS {:.1}%: CVSS élevé mais faible probabilité réelle → -20 points",
+            input.epss_score * 100.0
+        ));
     }
 
     // ── GreyNoise — noise reduction ──
@@ -80,7 +89,10 @@ pub fn compute_priority(input: &PriorityInput) -> PriorityResult {
     // ── ThreatFox — known IoC ──
     if input.threatfox_hits > 0 {
         score += 10.0;
-        adjustments.push(format!("ThreatFox: {} IoC(s) associé(s) → +10 points", input.threatfox_hits));
+        adjustments.push(format!(
+            "ThreatFox: {} IoC(s) associé(s) → +10 points",
+            input.threatfox_hits
+        ));
     }
 
     let score = score.clamp(0.0, 100.0);
@@ -101,10 +113,21 @@ pub fn compute_priority(input: &PriorityInput) -> PriorityResult {
     let reason = if adjustments.is_empty() {
         format!("CVSS {:.1} → {}", input.cvss_score, priority)
     } else {
-        format!("CVSS {:.1} + {} ajustement(s) → {} (score: {:.0})", input.cvss_score, adjustments.len(), priority, score)
+        format!(
+            "CVSS {:.1} + {} ajustement(s) → {} (score: {:.0})",
+            input.cvss_score,
+            adjustments.len(),
+            priority,
+            score
+        )
     };
 
-    PriorityResult { priority, score, reason, adjustments }
+    PriorityResult {
+        priority,
+        score,
+        reason,
+        adjustments,
+    }
 }
 
 #[cfg(test)]
@@ -114,8 +137,12 @@ mod tests {
     #[test]
     fn test_kev_always_critical() {
         let result = compute_priority(&PriorityInput {
-            cvss_score: 5.0, in_kev: true, epss_score: 0.1,
-            greynoise_noise: false, greynoise_malicious: false, threatfox_hits: 0,
+            cvss_score: 5.0,
+            in_kev: true,
+            epss_score: 0.1,
+            greynoise_noise: false,
+            greynoise_malicious: false,
+            threatfox_hits: 0,
         });
         assert_eq!(result.priority, ThreatPriority::Critical);
     }
@@ -123,8 +150,12 @@ mod tests {
     #[test]
     fn test_high_epss_escalates() {
         let result = compute_priority(&PriorityInput {
-            cvss_score: 5.5, in_kev: false, epss_score: 0.95,
-            greynoise_noise: false, greynoise_malicious: false, threatfox_hits: 0,
+            cvss_score: 5.5,
+            in_kev: false,
+            epss_score: 0.95,
+            greynoise_noise: false,
+            greynoise_malicious: false,
+            threatfox_hits: 0,
         });
         assert_eq!(result.priority, ThreatPriority::Critical);
     }
@@ -132,8 +163,12 @@ mod tests {
     #[test]
     fn test_high_cvss_low_epss_downgraded() {
         let result = compute_priority(&PriorityInput {
-            cvss_score: 9.8, in_kev: false, epss_score: 0.02,
-            greynoise_noise: false, greynoise_malicious: false, threatfox_hits: 0,
+            cvss_score: 9.8,
+            in_kev: false,
+            epss_score: 0.02,
+            greynoise_noise: false,
+            greynoise_malicious: false,
+            threatfox_hits: 0,
         });
         assert_eq!(result.priority, ThreatPriority::High); // Not Critical despite CVSS 9.8
     }
@@ -141,12 +176,20 @@ mod tests {
     #[test]
     fn test_greynoise_reduces_noise() {
         let noisy = compute_priority(&PriorityInput {
-            cvss_score: 6.0, in_kev: false, epss_score: 0.3,
-            greynoise_noise: true, greynoise_malicious: false, threatfox_hits: 0,
+            cvss_score: 6.0,
+            in_kev: false,
+            epss_score: 0.3,
+            greynoise_noise: true,
+            greynoise_malicious: false,
+            threatfox_hits: 0,
         });
         let targeted = compute_priority(&PriorityInput {
-            cvss_score: 6.0, in_kev: false, epss_score: 0.3,
-            greynoise_noise: false, greynoise_malicious: true, threatfox_hits: 0,
+            cvss_score: 6.0,
+            in_kev: false,
+            epss_score: 0.3,
+            greynoise_noise: false,
+            greynoise_malicious: true,
+            threatfox_hits: 0,
         });
         assert!(noisy.score < targeted.score);
     }
@@ -154,8 +197,12 @@ mod tests {
     #[test]
     fn test_low_everything() {
         let result = compute_priority(&PriorityInput {
-            cvss_score: 2.0, in_kev: false, epss_score: 0.01,
-            greynoise_noise: false, greynoise_malicious: false, threatfox_hits: 0,
+            cvss_score: 2.0,
+            in_kev: false,
+            epss_score: 0.01,
+            greynoise_noise: false,
+            greynoise_malicious: false,
+            threatfox_hits: 0,
         });
         assert_eq!(result.priority, ThreatPriority::Low);
     }

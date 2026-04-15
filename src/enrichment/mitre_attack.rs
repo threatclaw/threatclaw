@@ -5,7 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-const ATTACK_STIX_URL: &str = "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json";
+const ATTACK_STIX_URL: &str =
+    "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json";
 
 /// A MITRE ATT&CK technique.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,9 +22,7 @@ pub struct MitreTechnique {
 
 /// Sync MITRE ATT&CK techniques from STIX JSON to the database.
 /// Returns the number of techniques synced.
-pub async fn sync_attack_techniques(
-    store: &dyn crate::db::Database,
-) -> Result<usize, String> {
+pub async fn sync_attack_techniques(store: &dyn crate::db::Database) -> Result<usize, String> {
     tracing::info!("MITRE ATT&CK: Starting sync from STIX bundle...");
 
     let client = reqwest::Client::builder()
@@ -31,17 +30,23 @@ pub async fn sync_attack_techniques(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let resp = client.get(ATTACK_STIX_URL).send().await
+    let resp = client
+        .get(ATTACK_STIX_URL)
+        .send()
+        .await
         .map_err(|e| format!("MITRE download failed: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("MITRE download returned {}", resp.status()));
     }
 
-    let data: serde_json::Value = resp.json().await
+    let data: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("MITRE JSON parse error: {e}"))?;
 
-    let objects = data["objects"].as_array()
+    let objects = data["objects"]
+        .as_array()
         .ok_or("No objects array in STIX bundle")?;
 
     let mut count = 0;
@@ -50,14 +55,19 @@ pub async fn sync_attack_techniques(
         if obj["type"].as_str() != Some("attack-pattern") {
             continue;
         }
-        if obj["revoked"].as_bool() == Some(true) || obj["x_mitre_deprecated"].as_bool() == Some(true) {
+        if obj["revoked"].as_bool() == Some(true)
+            || obj["x_mitre_deprecated"].as_bool() == Some(true)
+        {
             continue;
         }
 
         // Extract technique ID (e.g., T1059.001)
         let technique_id = obj["external_references"]
             .as_array()
-            .and_then(|refs| refs.iter().find(|r| r["source_name"].as_str() == Some("mitre-attack")))
+            .and_then(|refs| {
+                refs.iter()
+                    .find(|r| r["source_name"].as_str() == Some("mitre-attack"))
+            })
             .and_then(|r| r["external_id"].as_str())
             .unwrap_or("")
             .to_string();
@@ -67,7 +77,12 @@ pub async fn sync_attack_techniques(
         }
 
         let name = obj["name"].as_str().unwrap_or("").to_string();
-        let description = obj["description"].as_str().unwrap_or("").chars().take(500).collect::<String>();
+        let description = obj["description"]
+            .as_str()
+            .unwrap_or("")
+            .chars()
+            .take(500)
+            .collect::<String>();
 
         // Extract tactic from kill_chain_phases
         let tactic = obj["kill_chain_phases"]
@@ -79,14 +94,26 @@ pub async fn sync_attack_techniques(
 
         let platform: Vec<String> = obj["x_mitre_platforms"]
             .as_array()
-            .map(|p| p.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|p| {
+                p.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        let detection = obj["x_mitre_detection"].as_str().unwrap_or("").chars().take(300).collect::<String>();
+        let detection = obj["x_mitre_detection"]
+            .as_str()
+            .unwrap_or("")
+            .chars()
+            .take(300)
+            .collect::<String>();
 
         let url = obj["external_references"]
             .as_array()
-            .and_then(|refs| refs.iter().find(|r| r["source_name"].as_str() == Some("mitre-attack")))
+            .and_then(|refs| {
+                refs.iter()
+                    .find(|r| r["source_name"].as_str() == Some("mitre-attack"))
+            })
             .and_then(|r| r["url"].as_str())
             .unwrap_or("")
             .to_string();

@@ -62,11 +62,15 @@ fn extract_from_text(text: &str, iocs: &mut ExtractedIocs) {
         let mut pos = 0;
         while let Some(start) = text[pos..].find(prefix) {
             let abs_start = pos + start;
-            let url_end = text[abs_start..].find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '>' || c == ')' || c == ']')
+            let url_end = text[abs_start..]
+                .find(|c: char| {
+                    c.is_whitespace() || c == '"' || c == '\'' || c == '>' || c == ')' || c == ']'
+                })
                 .map(|e| abs_start + e)
                 .unwrap_or(text.len());
             let url = &text[abs_start..url_end];
-            if url.len() > 10 { // Minimum http://x.xx
+            if url.len() > 10 {
+                // Minimum http://x.xx
                 iocs.urls.insert(url.to_string());
                 // Extract domain from URL
                 if let Some(domain) = extract_domain_from_url(url) {
@@ -98,10 +102,14 @@ fn try_parse_ipv4(chars: &[char], start: usize) -> Option<(String, usize)> {
     while i < chars.len() {
         if chars[i].is_ascii_digit() {
             current.push(chars[i]);
-            if current.len() > 3 { return None; }
+            if current.len() > 3 {
+                return None;
+            }
         } else if chars[i] == '.' && !current.is_empty() {
             if let Ok(n) = current.parse::<u16>() {
-                if n > 255 { return None; }
+                if n > 255 {
+                    return None;
+                }
                 parts.push(n);
                 current.clear();
             } else {
@@ -115,7 +123,9 @@ fn try_parse_ipv4(chars: &[char], start: usize) -> Option<(String, usize)> {
 
     if !current.is_empty() {
         if let Ok(n) = current.parse::<u16>() {
-            if n <= 255 { parts.push(n); }
+            if n <= 255 {
+                parts.push(n);
+            }
         }
     }
 
@@ -129,7 +139,9 @@ fn try_parse_ipv4(chars: &[char], start: usize) -> Option<(String, usize)> {
 
 /// Extract domain from a URL.
 fn extract_domain_from_url(url: &str) -> Option<String> {
-    let without_scheme = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
     let domain = without_scheme.split('/').next()?;
     let domain = domain.split(':').next()?; // Remove port
     if domain.contains('.') && domain.len() > 3 {
@@ -141,7 +153,9 @@ fn extract_domain_from_url(url: &str) -> Option<String> {
 
 /// Check if an IP is private/local (should not be enriched externally).
 fn is_private_ip(ip: &str) -> bool {
-    crate::agent::ip_classifier::is_non_routable(ip) || ip.starts_with("0.") || ip == "255.255.255.255"
+    crate::agent::ip_classifier::is_non_routable(ip)
+        || ip.starts_with("0.")
+        || ip == "255.255.255.255"
 }
 
 #[cfg(test)]
@@ -151,7 +165,10 @@ mod tests {
     #[test]
     fn test_extract_ips() {
         let mut iocs = ExtractedIocs::default();
-        extract_from_text("Failed login from 185.220.101.42 to 192.168.1.107", &mut iocs);
+        extract_from_text(
+            "Failed login from 185.220.101.42 to 192.168.1.107",
+            &mut iocs,
+        );
         assert!(iocs.ips.contains("185.220.101.42"));
         // 192.168.1.107 is private, will be filtered in extract_from_logs
     }
@@ -159,7 +176,10 @@ mod tests {
     #[test]
     fn test_extract_urls() {
         let mut iocs = ExtractedIocs::default();
-        extract_from_text("Downloading from https://evil.com/malware.exe and http://bad.org/payload", &mut iocs);
+        extract_from_text(
+            "Downloading from https://evil.com/malware.exe and http://bad.org/payload",
+            &mut iocs,
+        );
         assert!(iocs.urls.contains("https://evil.com/malware.exe"));
         assert!(iocs.urls.contains("http://bad.org/payload"));
         assert!(iocs.domains.contains("evil.com"));
@@ -169,7 +189,10 @@ mod tests {
     #[test]
     fn test_extract_hash() {
         let mut iocs = ExtractedIocs::default();
-        extract_from_text("Hash: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", &mut iocs);
+        extract_from_text(
+            "Hash: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+            &mut iocs,
+        );
         assert_eq!(iocs.hashes.len(), 1);
     }
 

@@ -240,17 +240,23 @@ fn generate_build_id(_root: &Path) {
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
 
     // Build date (UTC)
-    let date = Command::new("date").args(["+%Y%m%d"]).output()
+    let date = Command::new("date")
+        .args(["+%Y%m%d"])
+        .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "unknown".into());
 
     // Git short hash
-    let git_hash = Command::new("git").args(["rev-parse", "--short=8", "HEAD"]).output()
+    let git_hash = Command::new("git")
+        .args(["rev-parse", "--short=8", "HEAD"])
+        .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|_| "nogit".into());
 
     // Git dirty flag
-    let dirty = Command::new("git").args(["status", "--porcelain"]).output()
+    let dirty = Command::new("git")
+        .args(["status", "--porcelain"])
+        .output()
         .map(|o| if o.stdout.is_empty() { "" } else { "-dirty" })
         .unwrap_or("");
 

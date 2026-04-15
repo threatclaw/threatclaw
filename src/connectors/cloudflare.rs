@@ -20,7 +20,9 @@ pub struct CloudflareConfig {
     pub max_events: u32,
 }
 
-fn default_limit() -> u32 { 100 }
+fn default_limit() -> u32 {
+    100
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CloudflareSyncResult {
@@ -30,13 +32,21 @@ pub struct CloudflareSyncResult {
     pub errors: Vec<String>,
 }
 
-pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) -> CloudflareSyncResult {
+pub async fn sync_cloudflare(
+    store: &dyn Database,
+    config: &CloudflareConfig,
+) -> CloudflareSyncResult {
     let mut result = CloudflareSyncResult {
-        events_imported: 0, alerts_created: 0, top_blocked_ips: vec![], errors: vec![],
+        events_imported: 0,
+        alerts_created: 0,
+        top_blocked_ips: vec![],
+        errors: vec![],
     };
 
     if config.api_token.is_empty() || config.zone_id.is_empty() {
-        result.errors.push("Cloudflare API token and Zone ID required".into());
+        result
+            .errors
+            .push("Cloudflare API token and Zone ID required".into());
         return result;
     }
 
@@ -51,30 +61,41 @@ pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) ->
         config.zone_id, since_str, config.max_events
     );
 
-    let resp = match client.post(GRAPHQL_URL)
+    let resp = match client
+        .post(GRAPHQL_URL)
         .header("Authorization", format!("Bearer {}", config.api_token))
         .json(&serde_json::json!({"query": query}))
         .timeout(Duration::from_secs(30))
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("Cloudflare request: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Cloudflare request: {}", e));
+            return result;
+        }
     };
 
     if !resp.status().is_success() {
-        result.errors.push(format!("Cloudflare HTTP {}", resp.status()));
+        result
+            .errors
+            .push(format!("Cloudflare HTTP {}", resp.status()));
         return result;
     }
 
     let body: serde_json::Value = match resp.json().await {
         Ok(b) => b,
-        Err(e) => { result.errors.push(format!("Cloudflare parse: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Cloudflare parse: {}", e));
+            return result;
+        }
     };
 
     // Check for GraphQL errors
     if let Some(errors) = body["errors"].as_array() {
         if !errors.is_empty() {
-            let msg = errors.iter()
+            let msg = errors
+                .iter()
                 .filter_map(|e| e["message"].as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
@@ -83,12 +104,15 @@ pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) ->
         }
     }
 
-    let events = match body["data"]["viewer"]["zones"].as_array()
+    let events = match body["data"]["viewer"]["zones"]
+        .as_array()
         .and_then(|zones| zones.first())
         .and_then(|zone| zone["firewallEventsAdaptive"].as_array())
     {
         Some(e) => e,
-        None => { return result; }
+        None => {
+            return result;
+        }
     };
 
     let mut ip_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
@@ -111,21 +135,35 @@ pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) ->
 
         // Create alert for block/challenge actions
         if action == "block" || action == "drop" {
-            let level = if path.contains("wp-login") || path.contains("xmlrpc") || path.contains("/admin") {
+            let level = if path.contains("wp-login")
+                || path.contains("xmlrpc")
+                || path.contains("/admin")
+            {
                 "high"
             } else {
                 "medium"
             };
 
-            let title = format!("Cloudflare WAF: {} {} from {} ({})", action, path, client_ip, country);
+            let title = format!(
+                "Cloudflare WAF: {} {} from {} ({})",
+                action, path, client_ip, country
+            );
             let _description = format!(
                 "Source: {}\nPath: {}\nUser-Agent: {}\nTime: {}",
                 source, path, user_agent, datetime
             );
 
-            if let Err(e) = store.insert_sigma_alert(
-                &format!("cf-{}", action), level, &title, "", Some(client_ip), None,
-            ).await {
+            if let Err(e) = store
+                .insert_sigma_alert(
+                    &format!("cf-{}", action),
+                    level,
+                    &title,
+                    "",
+                    Some(client_ip),
+                    None,
+                )
+                .await
+            {
                 result.errors.push(format!("Insert alert: {}", e));
             } else {
                 result.alerts_created += 1;
@@ -136,21 +174,37 @@ pub async fn sync_cloudflare(store: &dyn Database, config: &CloudflareConfig) ->
     // Top blocked IPs
     let mut sorted_ips: Vec<(String, u32)> = ip_counts.into_iter().collect();
     sorted_ips.sort_by(|a, b| b.1.cmp(&a.1));
-    result.top_blocked_ips = sorted_ips.iter().take(5)
+    result.top_blocked_ips = sorted_ips
+        .iter()
+        .take(5)
         .map(|(ip, count)| format!("{} ({}x)", ip, count))
         .collect();
 
     // If a single IP has > 50 blocks in 15 min, create a high-severity alert
     for (ip, count) in &sorted_ips {
         if *count >= 50 {
-            let title = format!("Brute force detected via Cloudflare: {} ({} blocks in 15 min)", ip, count);
-            let _ = store.insert_sigma_alert("cf-brute-force", "high", &title, "", Some(ip.as_str()), None).await;
+            let title = format!(
+                "Brute force detected via Cloudflare: {} ({} blocks in 15 min)",
+                ip, count
+            );
+            let _ = store
+                .insert_sigma_alert(
+                    "cf-brute-force",
+                    "high",
+                    &title,
+                    "",
+                    Some(ip.as_str()),
+                    None,
+                )
+                .await;
         }
     }
 
     tracing::info!(
         "CLOUDFLARE: {} events imported, {} alerts created, top IPs: {:?}",
-        result.events_imported, result.alerts_created, result.top_blocked_ips
+        result.events_imported,
+        result.alerts_created,
+        result.top_blocked_ips
     );
 
     result

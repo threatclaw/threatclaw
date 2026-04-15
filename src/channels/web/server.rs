@@ -212,12 +212,30 @@ pub async fn start_server(
             get(slack_relay_oauth_callback_handler),
         )
         // Dashboard auth endpoints (must be public — user is not yet authenticated)
-        .route("/api/auth/status", get(super::handlers::threatclaw_api::auth_status_handler))
-        .route("/api/auth/setup", post(super::handlers::threatclaw_api::auth_setup_handler))
-        .route("/api/auth/login", post(super::handlers::threatclaw_api::auth_login_handler))
-        .route("/api/auth/logout", post(super::handlers::threatclaw_api::auth_logout_handler))
-        .route("/api/auth/me", get(super::handlers::threatclaw_api::auth_me_handler))
-        .route("/api/auth/password", post(super::handlers::threatclaw_api::auth_change_password_handler));
+        .route(
+            "/api/auth/status",
+            get(super::handlers::threatclaw_api::auth_status_handler),
+        )
+        .route(
+            "/api/auth/setup",
+            post(super::handlers::threatclaw_api::auth_setup_handler),
+        )
+        .route(
+            "/api/auth/login",
+            post(super::handlers::threatclaw_api::auth_login_handler),
+        )
+        .route(
+            "/api/auth/logout",
+            post(super::handlers::threatclaw_api::auth_logout_handler),
+        )
+        .route(
+            "/api/auth/me",
+            get(super::handlers::threatclaw_api::auth_me_handler),
+        )
+        .route(
+            "/api/auth/password",
+            post(super::handlers::threatclaw_api::auth_change_password_handler),
+        );
 
     // Protected routes (require auth)
     let auth_state = AuthState { token: auth_token };
@@ -312,275 +330,949 @@ pub async fn start_server(
         )
         // ── ThreatClaw API ──
         // OpenAPI spec
-        .route("/api/tc/openapi.json", get(|| async {
-            let spec = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/openapi.json"));
-            (axum::http::StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "application/json")], spec)
-        }))
-        .route("/api/tc/health", get(super::handlers::threatclaw_api::tc_health_handler))
-        .route("/api/tc/findings", get(super::handlers::threatclaw_api::findings_list_handler))
-        .route("/api/tc/findings", post(super::handlers::threatclaw_api::findings_create_handler))
-        .route("/api/tc/findings/counts", get(super::handlers::threatclaw_api::findings_counts_handler))
-        .route("/api/tc/findings/{id}", get(super::handlers::threatclaw_api::findings_detail_handler))
-        .route("/api/tc/findings/{id}/status", axum::routing::put(super::handlers::threatclaw_api::findings_update_status_handler))
-        .route("/api/tc/alerts", get(super::handlers::threatclaw_api::alerts_list_handler))
-        .route("/api/tc/alerts/counts", get(super::handlers::threatclaw_api::alerts_counts_handler))
-        .route("/api/tc/alerts/{id}/status", axum::routing::put(super::handlers::threatclaw_api::alerts_update_status_handler))
-        .route("/api/tc/config/{skill_id}", get(super::handlers::threatclaw_api::skill_config_get_handler))
-        .route("/api/tc/config/{skill_id}", post(super::handlers::threatclaw_api::skill_config_set_handler))
-        .route("/api/tc/metrics", get(super::handlers::threatclaw_api::dashboard_metrics_handler))
+        .route(
+            "/api/tc/openapi.json",
+            get(|| async {
+                let spec = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/openapi.json"));
+                (
+                    axum::http::StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    spec,
+                )
+            }),
+        )
+        .route(
+            "/api/tc/health",
+            get(super::handlers::threatclaw_api::tc_health_handler),
+        )
+        .route(
+            "/api/tc/findings",
+            get(super::handlers::threatclaw_api::findings_list_handler),
+        )
+        .route(
+            "/api/tc/findings",
+            post(super::handlers::threatclaw_api::findings_create_handler),
+        )
+        .route(
+            "/api/tc/findings/counts",
+            get(super::handlers::threatclaw_api::findings_counts_handler),
+        )
+        .route(
+            "/api/tc/findings/{id}",
+            get(super::handlers::threatclaw_api::findings_detail_handler),
+        )
+        .route(
+            "/api/tc/findings/{id}/status",
+            axum::routing::put(super::handlers::threatclaw_api::findings_update_status_handler),
+        )
+        .route(
+            "/api/tc/alerts",
+            get(super::handlers::threatclaw_api::alerts_list_handler),
+        )
+        .route(
+            "/api/tc/alerts/counts",
+            get(super::handlers::threatclaw_api::alerts_counts_handler),
+        )
+        .route(
+            "/api/tc/alerts/{id}/status",
+            axum::routing::put(super::handlers::threatclaw_api::alerts_update_status_handler),
+        )
+        .route(
+            "/api/tc/config/{skill_id}",
+            get(super::handlers::threatclaw_api::skill_config_get_handler),
+        )
+        .route(
+            "/api/tc/config/{skill_id}",
+            post(super::handlers::threatclaw_api::skill_config_set_handler),
+        )
+        .route(
+            "/api/tc/metrics",
+            get(super::handlers::threatclaw_api::dashboard_metrics_handler),
+        )
         // Agent control
-        .route("/api/tc/agent/mode", get(super::handlers::threatclaw_api::agent_mode_get_handler))
-        .route("/api/tc/agent/mode", post(super::handlers::threatclaw_api::agent_mode_set_handler))
-        .route("/api/tc/agent/kill-switch", get(super::handlers::threatclaw_api::kill_switch_status_handler))
-        .route("/api/tc/agent/kill-switch", post(super::handlers::threatclaw_api::kill_switch_trigger_handler))
-        .route("/api/tc/pause", get(super::handlers::threatclaw_api::kill_switch_status_handler))
-        .route("/api/tc/pause", post(super::handlers::threatclaw_api::pause_toggle_handler))
-        .route("/api/tc/system-logs", get(super::handlers::threatclaw_api::system_logs_handler))
-        .route("/api/tc/logs/stats", get(super::handlers::threatclaw_api::log_stats_handler))
-        .route("/api/tc/sources/status", get(super::handlers::threatclaw_api::sources_status_handler))
-        .route("/api/tc/agent/audit", get(super::handlers::threatclaw_api::audit_entries_handler))
-        .route("/api/tc/agent/soul", get(super::handlers::threatclaw_api::soul_info_handler))
-        .route("/api/tc/agent/react-cycle", post(super::handlers::threatclaw_api::react_cycle_trigger_handler))
-        .route("/api/tc/agent/hitl-callback", post(super::handlers::threatclaw_api::hitl_callback_handler))
+        .route(
+            "/api/tc/agent/mode",
+            get(super::handlers::threatclaw_api::agent_mode_get_handler),
+        )
+        .route(
+            "/api/tc/agent/mode",
+            post(super::handlers::threatclaw_api::agent_mode_set_handler),
+        )
+        .route(
+            "/api/tc/agent/kill-switch",
+            get(super::handlers::threatclaw_api::kill_switch_status_handler),
+        )
+        .route(
+            "/api/tc/agent/kill-switch",
+            post(super::handlers::threatclaw_api::kill_switch_trigger_handler),
+        )
+        .route(
+            "/api/tc/pause",
+            get(super::handlers::threatclaw_api::kill_switch_status_handler),
+        )
+        .route(
+            "/api/tc/pause",
+            post(super::handlers::threatclaw_api::pause_toggle_handler),
+        )
+        .route(
+            "/api/tc/system-logs",
+            get(super::handlers::threatclaw_api::system_logs_handler),
+        )
+        .route(
+            "/api/tc/logs/stats",
+            get(super::handlers::threatclaw_api::log_stats_handler),
+        )
+        .route(
+            "/api/tc/sources/status",
+            get(super::handlers::threatclaw_api::sources_status_handler),
+        )
+        .route(
+            "/api/tc/agent/audit",
+            get(super::handlers::threatclaw_api::audit_entries_handler),
+        )
+        .route(
+            "/api/tc/agent/soul",
+            get(super::handlers::threatclaw_api::soul_info_handler),
+        )
+        .route(
+            "/api/tc/agent/react-cycle",
+            post(super::handlers::threatclaw_api::react_cycle_trigger_handler),
+        )
+        .route(
+            "/api/tc/agent/hitl-callback",
+            post(super::handlers::threatclaw_api::hitl_callback_handler),
+        )
         // Skills catalog + test (catalog is at /api/tc/catalog, used by dashboard)
-        .route("/api/tc/skills/{id}/test", post(super::handlers::threatclaw_api::skill_test_handler))
-        .route("/api/tc/skills/{id}/install", post(super::handlers::threatclaw_api::skill_install_handler))
+        .route(
+            "/api/tc/skills/{id}/test",
+            post(super::handlers::threatclaw_api::skill_test_handler),
+        )
+        .route(
+            "/api/tc/skills/{id}/install",
+            post(super::handlers::threatclaw_api::skill_install_handler),
+        )
         // SSH remote execution
-        .route("/api/tc/ssh/execute", post(super::handlers::threatclaw_api::ssh_execute_handler))
-        .route("/api/tc/targets/resolve/{ref}", get(super::handlers::threatclaw_api::target_resolve_handler))
+        .route(
+            "/api/tc/ssh/execute",
+            post(super::handlers::threatclaw_api::ssh_execute_handler),
+        )
+        .route(
+            "/api/tc/targets/resolve/{ref}",
+            get(super::handlers::threatclaw_api::target_resolve_handler),
+        )
         // Binary integrity
-        .route("/api/tc/security/verify-binary", get(super::handlers::threatclaw_api::binary_verify_handler))
+        .route(
+            "/api/tc/security/verify-binary",
+            get(super::handlers::threatclaw_api::binary_verify_handler),
+        )
         // Conversational bot
-        .route("/api/tc/bot/start", post(super::handlers::threatclaw_api::bot_start_handler))
-        .route("/api/tc/bot/status", get(super::handlers::threatclaw_api::bot_status_handler))
+        .route(
+            "/api/tc/bot/start",
+            post(super::handlers::threatclaw_api::bot_start_handler),
+        )
+        .route(
+            "/api/tc/bot/status",
+            get(super::handlers::threatclaw_api::bot_status_handler),
+        )
         // Command interpreter (direct API — for dashboard or any channel)
-        .route("/api/tc/command", post(super::handlers::threatclaw_api::command_handler))
+        .route(
+            "/api/tc/command",
+            post(super::handlers::threatclaw_api::command_handler),
+        )
         // Targets / Infrastructure
-        .route("/api/tc/targets", get(super::handlers::threatclaw_api::targets_list_handler))
-        .route("/api/tc/targets", post(super::handlers::threatclaw_api::targets_create_handler))
-        .route("/api/tc/targets/{id}", axum::routing::delete(super::handlers::threatclaw_api::targets_delete_handler))
+        .route(
+            "/api/tc/targets",
+            get(super::handlers::threatclaw_api::targets_list_handler),
+        )
+        .route(
+            "/api/tc/targets",
+            post(super::handlers::threatclaw_api::targets_create_handler),
+        )
+        .route(
+            "/api/tc/targets/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::targets_delete_handler),
+        )
         // ThreatClaw configuration (LLM, channels, permissions)
-        .route("/api/tc/config", get(super::handlers::threatclaw_api::config_get_handler))
-        .route("/api/tc/config", post(super::handlers::threatclaw_api::config_set_handler))
-        .route("/api/tc/config/test-channel", post(super::handlers::threatclaw_api::config_test_channel_handler))
+        .route(
+            "/api/tc/config",
+            get(super::handlers::threatclaw_api::config_get_handler),
+        )
+        .route(
+            "/api/tc/config",
+            post(super::handlers::threatclaw_api::config_set_handler),
+        )
+        .route(
+            "/api/tc/config/test-channel",
+            post(super::handlers::threatclaw_api::config_test_channel_handler),
+        )
         // Enrichment APIs (CVE, MITRE, CERT-FR, offline)
-        .route("/api/tc/enrichment/cve", get(super::handlers::threatclaw_api::cve_lookup_handler))
-        .route("/api/tc/enrichment/mitre/sync", post(super::handlers::threatclaw_api::mitre_sync_handler))
-        .route("/api/tc/enrichment/mitre/{id}", get(super::handlers::threatclaw_api::mitre_lookup_handler))
-        .route("/api/tc/enrichment/certfr/sync", post(super::handlers::threatclaw_api::certfr_sync_handler))
-        .route("/api/tc/enrichment/certfr/recent", get(super::handlers::threatclaw_api::certfr_recent_handler))
-        .route("/api/tc/enrichment/status", get(super::handlers::threatclaw_api::enrichment_status_handler))
-        .route("/api/tc/enrichment/kev/sync", post(super::handlers::threatclaw_api::kev_sync_handler))
-        .route("/api/tc/enrichment/kev/{cve_id}", get(super::handlers::threatclaw_api::kev_check_handler))
-        .route("/api/tc/enrichment/greynoise/{ip}", get(super::handlers::threatclaw_api::greynoise_handler))
-        .route("/api/tc/enrichment/threatfox/{ioc}", get(super::handlers::threatclaw_api::threatfox_handler))
-        .route("/api/tc/enrichment/malware/{hash}", get(super::handlers::threatclaw_api::malware_handler))
-        .route("/api/tc/enrichment/openphish/sync", post(super::handlers::threatclaw_api::openphish_sync_handler))
-        .route("/api/tc/enrichment/sync-all", post(super::handlers::threatclaw_api::enrichment_sync_all_handler))
-        .route("/api/tc/enrichment/epss/{cve_id}", get(super::handlers::threatclaw_api::epss_handler))
-        .route("/api/tc/enrichment/ipinfo/{ip}", get(super::handlers::threatclaw_api::ipinfo_handler))
-        .route("/api/tc/enrichment/priority", post(super::handlers::threatclaw_api::priority_score_handler))
+        .route(
+            "/api/tc/enrichment/cve",
+            get(super::handlers::threatclaw_api::cve_lookup_handler),
+        )
+        .route(
+            "/api/tc/enrichment/mitre/sync",
+            post(super::handlers::threatclaw_api::mitre_sync_handler),
+        )
+        .route(
+            "/api/tc/enrichment/mitre/{id}",
+            get(super::handlers::threatclaw_api::mitre_lookup_handler),
+        )
+        .route(
+            "/api/tc/enrichment/certfr/sync",
+            post(super::handlers::threatclaw_api::certfr_sync_handler),
+        )
+        .route(
+            "/api/tc/enrichment/certfr/recent",
+            get(super::handlers::threatclaw_api::certfr_recent_handler),
+        )
+        .route(
+            "/api/tc/enrichment/status",
+            get(super::handlers::threatclaw_api::enrichment_status_handler),
+        )
+        .route(
+            "/api/tc/enrichment/kev/sync",
+            post(super::handlers::threatclaw_api::kev_sync_handler),
+        )
+        .route(
+            "/api/tc/enrichment/kev/{cve_id}",
+            get(super::handlers::threatclaw_api::kev_check_handler),
+        )
+        .route(
+            "/api/tc/enrichment/greynoise/{ip}",
+            get(super::handlers::threatclaw_api::greynoise_handler),
+        )
+        .route(
+            "/api/tc/enrichment/threatfox/{ioc}",
+            get(super::handlers::threatclaw_api::threatfox_handler),
+        )
+        .route(
+            "/api/tc/enrichment/malware/{hash}",
+            get(super::handlers::threatclaw_api::malware_handler),
+        )
+        .route(
+            "/api/tc/enrichment/openphish/sync",
+            post(super::handlers::threatclaw_api::openphish_sync_handler),
+        )
+        .route(
+            "/api/tc/enrichment/sync-all",
+            post(super::handlers::threatclaw_api::enrichment_sync_all_handler),
+        )
+        .route(
+            "/api/tc/enrichment/epss/{cve_id}",
+            get(super::handlers::threatclaw_api::epss_handler),
+        )
+        .route(
+            "/api/tc/enrichment/ipinfo/{ip}",
+            get(super::handlers::threatclaw_api::ipinfo_handler),
+        )
+        .route(
+            "/api/tc/enrichment/priority",
+            post(super::handlers::threatclaw_api::priority_score_handler),
+        )
         // Instruct AI — SOAR playbooks, reports, Sigma rules (on-demand RSSI)
-        .route("/api/tc/instruct/generate", post(super::handlers::threatclaw_api::instruct_generate_handler))
+        .route(
+            "/api/tc/instruct/generate",
+            post(super::handlers::threatclaw_api::instruct_generate_handler),
+        )
         // Telegram direct API
-        .route("/api/tc/telegram/send", post(super::handlers::threatclaw_api::telegram_send_handler))
-        .route("/api/tc/telegram/poll", post(super::handlers::threatclaw_api::telegram_poll_handler))
-        .route("/api/tc/telegram/status", get(super::handlers::threatclaw_api::telegram_status_handler))
+        .route(
+            "/api/tc/telegram/send",
+            post(super::handlers::threatclaw_api::telegram_send_handler),
+        )
+        .route(
+            "/api/tc/telegram/poll",
+            post(super::handlers::threatclaw_api::telegram_poll_handler),
+        )
+        .route(
+            "/api/tc/telegram/status",
+            get(super::handlers::threatclaw_api::telegram_status_handler),
+        )
         // Olvid (ANSSI-certified messenger)
-        .route("/api/tc/olvid/send", post(super::handlers::threatclaw_api::olvid_send_handler))
-        .route("/api/tc/olvid/status", get(super::handlers::threatclaw_api::olvid_status_handler))
-        .route("/api/tc/olvid/discussions", get(super::handlers::threatclaw_api::olvid_discussions_handler))
+        .route(
+            "/api/tc/olvid/send",
+            post(super::handlers::threatclaw_api::olvid_send_handler),
+        )
+        .route(
+            "/api/tc/olvid/status",
+            get(super::handlers::threatclaw_api::olvid_status_handler),
+        )
+        .route(
+            "/api/tc/olvid/discussions",
+            get(super::handlers::threatclaw_api::olvid_discussions_handler),
+        )
         // Anonymizer custom rules
-        .route("/api/tc/anonymizer/rules", get(super::handlers::threatclaw_api::anonymizer_rules_list_handler))
-        .route("/api/tc/anonymizer/rules", post(super::handlers::threatclaw_api::anonymizer_rules_create_handler))
-        .route("/api/tc/anonymizer/rules/{id}", axum::routing::delete(super::handlers::threatclaw_api::anonymizer_rules_delete_handler))
+        .route(
+            "/api/tc/anonymizer/rules",
+            get(super::handlers::threatclaw_api::anonymizer_rules_list_handler),
+        )
+        .route(
+            "/api/tc/anonymizer/rules",
+            post(super::handlers::threatclaw_api::anonymizer_rules_create_handler),
+        )
+        .route(
+            "/api/tc/anonymizer/rules/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::anonymizer_rules_delete_handler),
+        )
         // HITL callback (Mattermost/Ntfy button actions — both GET and POST)
-        .route("/api/tc/hitl/callback", get(super::handlers::threatclaw_api::hitl_button_callback_handler))
-        .route("/api/tc/hitl/callback", post(super::handlers::threatclaw_api::hitl_button_callback_handler))
+        .route(
+            "/api/tc/hitl/callback",
+            get(super::handlers::threatclaw_api::hitl_button_callback_handler),
+        )
+        .route(
+            "/api/tc/hitl/callback",
+            post(super::handlers::threatclaw_api::hitl_button_callback_handler),
+        )
         // Intelligence engine + notification routing
-        .route("/api/tc/intelligence/situation", get(super::handlers::threatclaw_api::intelligence_situation_handler))
-        .route("/api/tc/intelligence/cycle", post(super::handlers::threatclaw_api::intelligence_cycle_handler))
-        .route("/api/tc/intelligence/start", post(super::handlers::threatclaw_api::intelligence_start_handler))
-        .route("/api/tc/notifications/routing", get(super::handlers::threatclaw_api::notification_routing_get_handler))
-        .route("/api/tc/notifications/routing", post(super::handlers::threatclaw_api::notification_routing_set_handler))
-        .route("/api/tc/notifications/settings", get(super::handlers::threatclaw_api::notification_settings_get_handler))
-        .route("/api/tc/notifications/settings", post(super::handlers::threatclaw_api::notification_settings_set_handler))
-        .route("/api/tc/notifications/test", post(super::handlers::threatclaw_api::notification_test_handler))
+        .route(
+            "/api/tc/intelligence/situation",
+            get(super::handlers::threatclaw_api::intelligence_situation_handler),
+        )
+        .route(
+            "/api/tc/intelligence/cycle",
+            post(super::handlers::threatclaw_api::intelligence_cycle_handler),
+        )
+        .route(
+            "/api/tc/intelligence/start",
+            post(super::handlers::threatclaw_api::intelligence_start_handler),
+        )
+        .route(
+            "/api/tc/notifications/routing",
+            get(super::handlers::threatclaw_api::notification_routing_get_handler),
+        )
+        .route(
+            "/api/tc/notifications/routing",
+            post(super::handlers::threatclaw_api::notification_routing_set_handler),
+        )
+        .route(
+            "/api/tc/notifications/settings",
+            get(super::handlers::threatclaw_api::notification_settings_get_handler),
+        )
+        .route(
+            "/api/tc/notifications/settings",
+            post(super::handlers::threatclaw_api::notification_settings_set_handler),
+        )
+        .route(
+            "/api/tc/notifications/test",
+            post(super::handlers::threatclaw_api::notification_test_handler),
+        )
         // Archive endpoints (soft delete for incidents + alerts)
-        .route("/api/tc/incidents/archive-resolved", post(super::handlers::threatclaw_api::incidents_archive_resolved_handler))
-        .route("/api/tc/incidents/{id}/archive", post(super::handlers::threatclaw_api::incident_archive_handler))
-        .route("/api/tc/alerts/archive-resolved", post(super::handlers::threatclaw_api::alerts_archive_resolved_handler))
+        .route(
+            "/api/tc/incidents/archive-resolved",
+            post(super::handlers::threatclaw_api::incidents_archive_resolved_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/archive",
+            post(super::handlers::threatclaw_api::incident_archive_handler),
+        )
+        .route(
+            "/api/tc/alerts/archive-resolved",
+            post(super::handlers::threatclaw_api::alerts_archive_resolved_handler),
+        )
         // Incident V1 — execute action + RSSI note + reinvestigate
-        .route("/api/tc/incidents/{id}/execute-action", post(super::handlers::threatclaw_api::incident_execute_action_handler))
-        .route("/api/tc/incidents/{id}/note", post(super::handlers::threatclaw_api::incident_add_note_handler))
-        .route("/api/tc/incidents/{id}/reinvestigate", post(super::handlers::threatclaw_api::incident_reinvestigate_handler))
+        .route(
+            "/api/tc/incidents/{id}/execute-action",
+            post(super::handlers::threatclaw_api::incident_execute_action_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/note",
+            post(super::handlers::threatclaw_api::incident_add_note_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/reinvestigate",
+            post(super::handlers::threatclaw_api::incident_reinvestigate_handler),
+        )
         // Backups (full DB snapshots, auto + manual)
-        .route("/api/tc/backups", get(super::handlers::threatclaw_api::backups_list_handler))
-        .route("/api/tc/backups/create", post(super::handlers::threatclaw_api::backups_create_handler))
-        .route("/api/tc/backups/download/{name}", get(super::handlers::threatclaw_api::backups_download_handler))
-        .route("/api/tc/backups/{name}", axum::routing::delete(super::handlers::threatclaw_api::backups_delete_handler))
-        .route("/api/tc/backups/settings", get(super::handlers::threatclaw_api::backups_settings_get_handler))
-        .route("/api/tc/backups/settings", post(super::handlers::threatclaw_api::backups_settings_set_handler))
+        .route(
+            "/api/tc/backups",
+            get(super::handlers::threatclaw_api::backups_list_handler),
+        )
+        .route(
+            "/api/tc/backups/create",
+            post(super::handlers::threatclaw_api::backups_create_handler),
+        )
+        .route(
+            "/api/tc/backups/download/{name}",
+            get(super::handlers::threatclaw_api::backups_download_handler),
+        )
+        .route(
+            "/api/tc/backups/{name}",
+            axum::routing::delete(super::handlers::threatclaw_api::backups_delete_handler),
+        )
+        .route(
+            "/api/tc/backups/settings",
+            get(super::handlers::threatclaw_api::backups_settings_get_handler),
+        )
+        .route(
+            "/api/tc/backups/settings",
+            post(super::handlers::threatclaw_api::backups_settings_set_handler),
+        )
         // Graph Intelligence (Apache AGE)
-        .route("/api/tc/graph/query", post(super::handlers::threatclaw_api::graph_query_handler))
-        .route("/api/tc/graph/context/{asset_id}", get(super::handlers::threatclaw_api::graph_context_handler))
-        .route("/api/tc/graph/attackers/{asset_id}", get(super::handlers::threatclaw_api::graph_attackers_handler))
-        .route("/api/tc/graph/investigations", get(super::handlers::threatclaw_api::graph_investigations_handler))
+        .route(
+            "/api/tc/graph/query",
+            post(super::handlers::threatclaw_api::graph_query_handler),
+        )
+        .route(
+            "/api/tc/graph/context/{asset_id}",
+            get(super::handlers::threatclaw_api::graph_context_handler),
+        )
+        .route(
+            "/api/tc/graph/attackers/{asset_id}",
+            get(super::handlers::threatclaw_api::graph_attackers_handler),
+        )
+        .route(
+            "/api/tc/graph/investigations",
+            get(super::handlers::threatclaw_api::graph_investigations_handler),
+        )
         // Graph Phase 3 — Confidence, Lateral, Notes
-        .route("/api/tc/graph/confidence/ip/{ip}", get(super::handlers::threatclaw_api::graph_confidence_ip_handler))
-        .route("/api/tc/graph/confidence/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_confidence_cve_handler))
-        .route("/api/tc/graph/lateral", get(super::handlers::threatclaw_api::graph_lateral_handler))
-        .route("/api/tc/graph/notes", post(super::handlers::threatclaw_api::graph_notes_create_handler))
-        .route("/api/tc/graph/notes", get(super::handlers::threatclaw_api::graph_notes_list_handler))
-        .route("/api/tc/graph/notes/ip/{ip}", get(super::handlers::threatclaw_api::graph_notes_ip_handler))
-        .route("/api/tc/graph/notes/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_notes_asset_handler))
-        .route("/api/tc/graph/notes/{note_id}", axum::routing::delete(super::handlers::threatclaw_api::graph_notes_delete_handler))
+        .route(
+            "/api/tc/graph/confidence/ip/{ip}",
+            get(super::handlers::threatclaw_api::graph_confidence_ip_handler),
+        )
+        .route(
+            "/api/tc/graph/confidence/cve/{cve_id}",
+            get(super::handlers::threatclaw_api::graph_confidence_cve_handler),
+        )
+        .route(
+            "/api/tc/graph/lateral",
+            get(super::handlers::threatclaw_api::graph_lateral_handler),
+        )
+        .route(
+            "/api/tc/graph/notes",
+            post(super::handlers::threatclaw_api::graph_notes_create_handler),
+        )
+        .route(
+            "/api/tc/graph/notes",
+            get(super::handlers::threatclaw_api::graph_notes_list_handler),
+        )
+        .route(
+            "/api/tc/graph/notes/ip/{ip}",
+            get(super::handlers::threatclaw_api::graph_notes_ip_handler),
+        )
+        .route(
+            "/api/tc/graph/notes/asset/{asset_id}",
+            get(super::handlers::threatclaw_api::graph_notes_asset_handler),
+        )
+        .route(
+            "/api/tc/graph/notes/{note_id}",
+            axum::routing::delete(super::handlers::threatclaw_api::graph_notes_delete_handler),
+        )
         // Graph Phase 4-5
-        .route("/api/tc/graph/campaigns", get(super::handlers::threatclaw_api::graph_campaigns_handler))
-        .route("/api/tc/graph/identity", get(super::handlers::threatclaw_api::graph_identity_handler))
-        .route("/api/tc/graph/blast-radius/{asset_id}", get(super::handlers::threatclaw_api::graph_blast_radius_handler))
-        .route("/api/tc/graph/attack-paths", get(super::handlers::threatclaw_api::graph_attack_paths_handler))
-        .route("/api/tc/graph/supply-chain", get(super::handlers::threatclaw_api::graph_supply_chain_handler))
-        .route("/api/tc/graph/supply-chain/nis2", get(super::handlers::threatclaw_api::graph_nis2_report_handler))
-        .route("/api/tc/graph/threat-actors", get(super::handlers::threatclaw_api::graph_threat_actors_handler))
-        .route("/api/tc/graph/coa/seed", post(super::handlers::threatclaw_api::graph_coa_seed_handler))
-        .route("/api/tc/graph/coa/cve/{cve_id}", get(super::handlers::threatclaw_api::graph_coa_cve_handler))
-        .route("/api/tc/graph/coa/asset/{asset_id}", get(super::handlers::threatclaw_api::graph_coa_asset_handler))
+        .route(
+            "/api/tc/graph/campaigns",
+            get(super::handlers::threatclaw_api::graph_campaigns_handler),
+        )
+        .route(
+            "/api/tc/graph/identity",
+            get(super::handlers::threatclaw_api::graph_identity_handler),
+        )
+        .route(
+            "/api/tc/graph/blast-radius/{asset_id}",
+            get(super::handlers::threatclaw_api::graph_blast_radius_handler),
+        )
+        .route(
+            "/api/tc/graph/attack-paths",
+            get(super::handlers::threatclaw_api::graph_attack_paths_handler),
+        )
+        .route(
+            "/api/tc/graph/supply-chain",
+            get(super::handlers::threatclaw_api::graph_supply_chain_handler),
+        )
+        .route(
+            "/api/tc/graph/supply-chain/nis2",
+            get(super::handlers::threatclaw_api::graph_nis2_report_handler),
+        )
+        .route(
+            "/api/tc/graph/threat-actors",
+            get(super::handlers::threatclaw_api::graph_threat_actors_handler),
+        )
+        .route(
+            "/api/tc/graph/coa/seed",
+            post(super::handlers::threatclaw_api::graph_coa_seed_handler),
+        )
+        .route(
+            "/api/tc/graph/coa/cve/{cve_id}",
+            get(super::handlers::threatclaw_api::graph_coa_cve_handler),
+        )
+        .route(
+            "/api/tc/graph/coa/asset/{asset_id}",
+            get(super::handlers::threatclaw_api::graph_coa_asset_handler),
+        )
         // Enrichment — Shodan, VirusTotal, HIBP
-        .route("/api/tc/enrichment/shodan/{ip}", get(super::handlers::threatclaw_api::enrichment_shodan_handler))
-        .route("/api/tc/enrichment/virustotal/ip/{ip}", get(super::handlers::threatclaw_api::enrichment_vt_ip_handler))
-        .route("/api/tc/enrichment/virustotal/hash/{hash}", get(super::handlers::threatclaw_api::enrichment_vt_hash_handler))
-        .route("/api/tc/enrichment/hibp/{email}", get(super::handlers::threatclaw_api::enrichment_hibp_handler))
+        .route(
+            "/api/tc/enrichment/shodan/{ip}",
+            get(super::handlers::threatclaw_api::enrichment_shodan_handler),
+        )
+        .route(
+            "/api/tc/enrichment/virustotal/ip/{ip}",
+            get(super::handlers::threatclaw_api::enrichment_vt_ip_handler),
+        )
+        .route(
+            "/api/tc/enrichment/virustotal/hash/{hash}",
+            get(super::handlers::threatclaw_api::enrichment_vt_hash_handler),
+        )
+        .route(
+            "/api/tc/enrichment/hibp/{email}",
+            get(super::handlers::threatclaw_api::enrichment_hibp_handler),
+        )
         // Intent parser + conversation mode
-        .route("/api/tc/command/intent", post(super::handlers::threatclaw_api::command_intent_handler))
-        .route("/api/tc/conversation/mode", get(super::handlers::threatclaw_api::conversation_mode_handler))
+        .route(
+            "/api/tc/command/intent",
+            post(super::handlers::threatclaw_api::command_intent_handler),
+        )
+        .route(
+            "/api/tc/conversation/mode",
+            get(super::handlers::threatclaw_api::conversation_mode_handler),
+        )
         // Instance identity (no limits)
-        .route("/api/tc/license", get(super::handlers::threatclaw_api::license_status_handler))
+        .route(
+            "/api/tc/license",
+            get(super::handlers::threatclaw_api::license_status_handler),
+        )
         // Unified skill catalog + execution
-        .route("/api/tc/catalog", get(super::handlers::threatclaw_api::tc_skills_catalog_handler))
-        .route("/api/tc/skills/run/{skill_id}", post(super::handlers::threatclaw_api::skill_run_handler))
+        .route(
+            "/api/tc/catalog",
+            get(super::handlers::threatclaw_api::tc_skills_catalog_handler),
+        )
+        .route(
+            "/api/tc/skills/run/{skill_id}",
+            post(super::handlers::threatclaw_api::skill_run_handler),
+        )
         // Connectors
-        .route("/api/tc/connectors/ad/sync", post(super::handlers::threatclaw_api::connector_ad_sync_handler))
-        .route("/api/tc/connectors/nmap/scan", post(super::handlers::threatclaw_api::connector_nmap_scan_handler))
-        .route("/api/tc/connectors/proxmox/sync", post(super::handlers::threatclaw_api::connector_proxmox_sync_handler))
-        .route("/api/tc/connectors/wazuh/sync", post(super::handlers::threatclaw_api::connector_wazuh_sync_handler))
-        .route("/api/tc/connectors/glpi/sync", post(super::handlers::threatclaw_api::connector_glpi_sync_handler))
-        .route("/api/tc/connectors/glpi/ticket", post(super::handlers::threatclaw_api::connector_glpi_ticket_handler))
-        .route("/api/tc/connectors/fortinet/sync", post(super::handlers::threatclaw_api::connector_fortinet_sync_handler))
-        .route("/api/tc/connectors/defectdojo/export", post(super::handlers::threatclaw_api::connector_defectdojo_handler))
-        .route("/api/tc/connectors/firewall/sync", post(super::handlers::threatclaw_api::connector_firewall_sync_handler))
-        .route("/api/tc/connectors/elastic-siem/sync", post(super::handlers::threatclaw_api::connector_elastic_siem_sync_handler))
-        .route("/api/tc/connectors/graylog/sync", post(super::handlers::threatclaw_api::connector_graylog_sync_handler))
-        .route("/api/tc/connectors/thehive/sync", post(super::handlers::threatclaw_api::connector_thehive_sync_handler))
-        .route("/api/tc/connectors/dfir-iris/sync", post(super::handlers::threatclaw_api::connector_dfir_iris_sync_handler))
-        .route("/api/tc/connectors/shuffle/sync", post(super::handlers::threatclaw_api::connector_shuffle_sync_handler))
-        .route("/api/tc/connectors/keycloak/sync", post(super::handlers::threatclaw_api::connector_keycloak_sync_handler))
-        .route("/api/tc/connectors/authentik/sync", post(super::handlers::threatclaw_api::connector_authentik_sync_handler))
-        .route("/api/tc/connectors/proxmox-backup/sync", post(super::handlers::threatclaw_api::connector_proxmox_backup_sync_handler))
-        .route("/api/tc/connectors/veeam/sync", post(super::handlers::threatclaw_api::connector_veeam_sync_handler))
-        .route("/api/tc/connectors/mikrotik/sync", post(super::handlers::threatclaw_api::connector_mikrotik_sync_handler))
+        .route(
+            "/api/tc/connectors/ad/sync",
+            post(super::handlers::threatclaw_api::connector_ad_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/nmap/scan",
+            post(super::handlers::threatclaw_api::connector_nmap_scan_handler),
+        )
+        .route(
+            "/api/tc/connectors/proxmox/sync",
+            post(super::handlers::threatclaw_api::connector_proxmox_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/wazuh/sync",
+            post(super::handlers::threatclaw_api::connector_wazuh_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/glpi/sync",
+            post(super::handlers::threatclaw_api::connector_glpi_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/glpi/ticket",
+            post(super::handlers::threatclaw_api::connector_glpi_ticket_handler),
+        )
+        .route(
+            "/api/tc/connectors/fortinet/sync",
+            post(super::handlers::threatclaw_api::connector_fortinet_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/defectdojo/export",
+            post(super::handlers::threatclaw_api::connector_defectdojo_handler),
+        )
+        .route(
+            "/api/tc/connectors/firewall/sync",
+            post(super::handlers::threatclaw_api::connector_firewall_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/elastic-siem/sync",
+            post(super::handlers::threatclaw_api::connector_elastic_siem_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/graylog/sync",
+            post(super::handlers::threatclaw_api::connector_graylog_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/thehive/sync",
+            post(super::handlers::threatclaw_api::connector_thehive_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/dfir-iris/sync",
+            post(super::handlers::threatclaw_api::connector_dfir_iris_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/shuffle/sync",
+            post(super::handlers::threatclaw_api::connector_shuffle_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/keycloak/sync",
+            post(super::handlers::threatclaw_api::connector_keycloak_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/authentik/sync",
+            post(super::handlers::threatclaw_api::connector_authentik_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/proxmox-backup/sync",
+            post(super::handlers::threatclaw_api::connector_proxmox_backup_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/veeam/sync",
+            post(super::handlers::threatclaw_api::connector_veeam_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/mikrotik/sync",
+            post(super::handlers::threatclaw_api::connector_mikrotik_sync_handler),
+        )
         // Remediation actions
-        .route("/api/tc/remediation/block-ip", post(super::handlers::threatclaw_api::remediation_block_ip_handler))
-        .route("/api/tc/remediation/disable-account", post(super::handlers::threatclaw_api::remediation_disable_account_handler))
+        .route(
+            "/api/tc/remediation/block-ip",
+            post(super::handlers::threatclaw_api::remediation_block_ip_handler),
+        )
+        .route(
+            "/api/tc/remediation/disable-account",
+            post(super::handlers::threatclaw_api::remediation_disable_account_handler),
+        )
         // Asset Resolution + Behavior
-        .route("/api/tc/graph/assets/resolve", post(super::handlers::threatclaw_api::graph_asset_resolve_handler))
-        .route("/api/tc/graph/assets", get(super::handlers::threatclaw_api::graph_assets_list_handler))
-        .route("/api/tc/graph/assets/stats", get(super::handlers::threatclaw_api::graph_assets_stats_handler))
-        .route("/api/tc/graph/assets/incomplete", get(super::handlers::threatclaw_api::graph_assets_incomplete_handler))
-        .route("/api/tc/graph/behavior/{username}", get(super::handlers::threatclaw_api::graph_behavior_handler))
-        .route("/api/tc/graph/behavior/score", post(super::handlers::threatclaw_api::graph_behavior_score_handler))
-        .route("/api/tc/graph/behavior/refresh", post(super::handlers::threatclaw_api::graph_behavior_refresh_handler))
+        .route(
+            "/api/tc/graph/assets/resolve",
+            post(super::handlers::threatclaw_api::graph_asset_resolve_handler),
+        )
+        .route(
+            "/api/tc/graph/assets",
+            get(super::handlers::threatclaw_api::graph_assets_list_handler),
+        )
+        .route(
+            "/api/tc/graph/assets/stats",
+            get(super::handlers::threatclaw_api::graph_assets_stats_handler),
+        )
+        .route(
+            "/api/tc/graph/assets/incomplete",
+            get(super::handlers::threatclaw_api::graph_assets_incomplete_handler),
+        )
+        .route(
+            "/api/tc/graph/behavior/{username}",
+            get(super::handlers::threatclaw_api::graph_behavior_handler),
+        )
+        .route(
+            "/api/tc/graph/behavior/score",
+            post(super::handlers::threatclaw_api::graph_behavior_score_handler),
+        )
+        .route(
+            "/api/tc/graph/behavior/refresh",
+            post(super::handlers::threatclaw_api::graph_behavior_refresh_handler),
+        )
         // Assets management (v1.6)
-        .route("/api/tc/assets", get(super::handlers::threatclaw_api::assets_list_handler))
-        .route("/api/tc/assets", post(super::handlers::threatclaw_api::assets_upsert_handler))
-        .route("/api/tc/assets/counts", get(super::handlers::threatclaw_api::assets_counts_handler))
-        .route("/api/tc/assets/categories", get(super::handlers::threatclaw_api::assets_categories_handler))
-        .route("/api/tc/assets/categories", post(super::handlers::threatclaw_api::assets_category_upsert_handler))
-        .route("/api/tc/assets/{id}", get(super::handlers::threatclaw_api::assets_get_handler))
-        .route("/api/tc/assets/{id}/security", get(super::handlers::threatclaw_api::asset_security_handler))
-        .route("/api/tc/assets/{id}", axum::routing::delete(super::handlers::threatclaw_api::assets_delete_handler))
+        .route(
+            "/api/tc/assets",
+            get(super::handlers::threatclaw_api::assets_list_handler),
+        )
+        .route(
+            "/api/tc/assets",
+            post(super::handlers::threatclaw_api::assets_upsert_handler),
+        )
+        .route(
+            "/api/tc/assets/counts",
+            get(super::handlers::threatclaw_api::assets_counts_handler),
+        )
+        .route(
+            "/api/tc/assets/categories",
+            get(super::handlers::threatclaw_api::assets_categories_handler),
+        )
+        .route(
+            "/api/tc/assets/categories",
+            post(super::handlers::threatclaw_api::assets_category_upsert_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}",
+            get(super::handlers::threatclaw_api::assets_get_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/security",
+            get(super::handlers::threatclaw_api::asset_security_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::assets_delete_handler),
+        )
         // Internal networks
-        .route("/api/tc/networks", get(super::handlers::threatclaw_api::networks_list_handler))
-        .route("/api/tc/networks", post(super::handlers::threatclaw_api::networks_add_handler))
-        .route("/api/tc/networks/{id}", axum::routing::delete(super::handlers::threatclaw_api::networks_delete_handler))
+        .route(
+            "/api/tc/networks",
+            get(super::handlers::threatclaw_api::networks_list_handler),
+        )
+        .route(
+            "/api/tc/networks",
+            post(super::handlers::threatclaw_api::networks_add_handler),
+        )
+        .route(
+            "/api/tc/networks/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::networks_delete_handler),
+        )
         // Company profile
-        .route("/api/tc/company", get(super::handlers::threatclaw_api::company_get_handler))
-        .route("/api/tc/company", post(super::handlers::threatclaw_api::company_update_handler))
+        .route(
+            "/api/tc/company",
+            get(super::handlers::threatclaw_api::company_get_handler),
+        )
+        .route(
+            "/api/tc/company",
+            post(super::handlers::threatclaw_api::company_update_handler),
+        )
         // Skill scheduler
-        .route("/api/tc/scheduler", get(super::handlers::threatclaw_api::scheduler_list_handler))
-        .route("/api/tc/scheduler", post(super::handlers::threatclaw_api::scheduler_save_handler))
+        .route(
+            "/api/tc/scheduler",
+            get(super::handlers::threatclaw_api::scheduler_list_handler),
+        )
+        .route(
+            "/api/tc/scheduler",
+            post(super::handlers::threatclaw_api::scheduler_save_handler),
+        )
         // Webhook ingest (external tool push)
-        .route("/api/tc/webhook/ingest/{source}", post(super::handlers::threatclaw_api::webhook_ingest_handler))
-        .route("/api/tc/webhook/token/{source}", post(super::handlers::threatclaw_api::webhook_generate_token_handler))
+        .route(
+            "/api/tc/webhook/ingest/{source}",
+            post(super::handlers::threatclaw_api::webhook_ingest_handler),
+        )
+        .route(
+            "/api/tc/webhook/token/{source}",
+            post(super::handlers::threatclaw_api::webhook_generate_token_handler),
+        )
         // New enrichment APIs (web security)
-        .route("/api/tc/enrichment/safebrowsing", post(super::handlers::threatclaw_api::enrichment_safebrowsing_handler))
-        .route("/api/tc/enrichment/ssllabs/{host}", get(super::handlers::threatclaw_api::enrichment_ssllabs_handler))
-        .route("/api/tc/enrichment/observatory/{host}", get(super::handlers::threatclaw_api::enrichment_observatory_handler))
-        .route("/api/tc/enrichment/crtsh/{domain}", get(super::handlers::threatclaw_api::enrichment_crtsh_handler))
-        .route("/api/tc/enrichment/wpscan/{slug}", get(super::handlers::threatclaw_api::enrichment_wpscan_handler))
-        .route("/api/tc/enrichment/phishtank", post(super::handlers::threatclaw_api::enrichment_phishtank_handler))
-        .route("/api/tc/enrichment/spamhaus/{ip}", get(super::handlers::threatclaw_api::enrichment_spamhaus_handler))
-        .route("/api/tc/enrichment/vulnlookup/{cve_id}", get(super::handlers::threatclaw_api::enrichment_vulnlookup_handler))
-        .route("/api/tc/enrichment/vulnlookup/{cve_id}/sightings", get(super::handlers::threatclaw_api::enrichment_vulnlookup_sightings_handler))
-        .route("/api/tc/enrichment/vulnlookup/{cve_id}/rules", get(super::handlers::threatclaw_api::enrichment_vulnlookup_rules_handler))
-        .route("/api/tc/enrichment/securitytrails/{domain}", get(super::handlers::threatclaw_api::enrichment_securitytrails_handler))
-        .route("/api/tc/enrichment/urlscan", post(super::handlers::threatclaw_api::enrichment_urlscan_handler))
-        .route("/api/tc/enrichment/wordfence/sync", post(super::handlers::threatclaw_api::enrichment_wordfence_handler))
-        .route("/api/tc/enrichment/wordfence/{slug}", get(super::handlers::threatclaw_api::enrichment_wordfence_lookup_handler))
+        .route(
+            "/api/tc/enrichment/safebrowsing",
+            post(super::handlers::threatclaw_api::enrichment_safebrowsing_handler),
+        )
+        .route(
+            "/api/tc/enrichment/ssllabs/{host}",
+            get(super::handlers::threatclaw_api::enrichment_ssllabs_handler),
+        )
+        .route(
+            "/api/tc/enrichment/observatory/{host}",
+            get(super::handlers::threatclaw_api::enrichment_observatory_handler),
+        )
+        .route(
+            "/api/tc/enrichment/crtsh/{domain}",
+            get(super::handlers::threatclaw_api::enrichment_crtsh_handler),
+        )
+        .route(
+            "/api/tc/enrichment/wpscan/{slug}",
+            get(super::handlers::threatclaw_api::enrichment_wpscan_handler),
+        )
+        .route(
+            "/api/tc/enrichment/phishtank",
+            post(super::handlers::threatclaw_api::enrichment_phishtank_handler),
+        )
+        .route(
+            "/api/tc/enrichment/spamhaus/{ip}",
+            get(super::handlers::threatclaw_api::enrichment_spamhaus_handler),
+        )
+        .route(
+            "/api/tc/enrichment/vulnlookup/{cve_id}",
+            get(super::handlers::threatclaw_api::enrichment_vulnlookup_handler),
+        )
+        .route(
+            "/api/tc/enrichment/vulnlookup/{cve_id}/sightings",
+            get(super::handlers::threatclaw_api::enrichment_vulnlookup_sightings_handler),
+        )
+        .route(
+            "/api/tc/enrichment/vulnlookup/{cve_id}/rules",
+            get(super::handlers::threatclaw_api::enrichment_vulnlookup_rules_handler),
+        )
+        .route(
+            "/api/tc/enrichment/securitytrails/{domain}",
+            get(super::handlers::threatclaw_api::enrichment_securitytrails_handler),
+        )
+        .route(
+            "/api/tc/enrichment/urlscan",
+            post(super::handlers::threatclaw_api::enrichment_urlscan_handler),
+        )
+        .route(
+            "/api/tc/enrichment/wordfence/sync",
+            post(super::handlers::threatclaw_api::enrichment_wordfence_handler),
+        )
+        .route(
+            "/api/tc/enrichment/wordfence/{slug}",
+            get(super::handlers::threatclaw_api::enrichment_wordfence_lookup_handler),
+        )
         // New connectors (web security)
-        .route("/api/tc/connectors/cloudflare/sync", post(super::handlers::threatclaw_api::connector_cloudflare_sync_handler))
-        .route("/api/tc/connectors/crowdsec/sync", post(super::handlers::threatclaw_api::connector_crowdsec_sync_handler))
-        .route("/api/tc/connectors/uptimerobot/sync", post(super::handlers::threatclaw_api::connector_uptimerobot_sync_handler))
-        .route("/api/tc/connectors/pihole/sync", post(super::handlers::threatclaw_api::connector_pihole_sync_handler))
-        .route("/api/tc/connectors/unifi/sync", post(super::handlers::threatclaw_api::connector_unifi_sync_handler))
-        .route("/api/tc/connectors/dhcp/sync", post(super::handlers::threatclaw_api::connector_dhcp_sync_handler))
-        .route("/api/tc/connectors/freebox/sync", post(super::handlers::threatclaw_api::connector_freebox_sync_handler))
-        .route("/api/tc/connectors/freebox/pair", post(super::handlers::threatclaw_api::connector_freebox_pair_handler))
-        .route("/api/tc/connectors/freebox/pair/status", get(super::handlers::threatclaw_api::connector_freebox_pair_status_handler))
-        .route("/api/tc/connectors/zeek/sync", post(super::handlers::threatclaw_api::connector_zeek_sync_handler))
-        .route("/api/tc/connectors/suricata/sync", post(super::handlers::threatclaw_api::connector_suricata_sync_handler))
-        .route("/api/tc/enrichment/mac/{mac}", get(super::handlers::threatclaw_api::enrichment_mac_handler))
+        .route(
+            "/api/tc/connectors/cloudflare/sync",
+            post(super::handlers::threatclaw_api::connector_cloudflare_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/crowdsec/sync",
+            post(super::handlers::threatclaw_api::connector_crowdsec_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/uptimerobot/sync",
+            post(super::handlers::threatclaw_api::connector_uptimerobot_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/pihole/sync",
+            post(super::handlers::threatclaw_api::connector_pihole_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/unifi/sync",
+            post(super::handlers::threatclaw_api::connector_unifi_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/dhcp/sync",
+            post(super::handlers::threatclaw_api::connector_dhcp_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/freebox/sync",
+            post(super::handlers::threatclaw_api::connector_freebox_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/freebox/pair",
+            post(super::handlers::threatclaw_api::connector_freebox_pair_handler),
+        )
+        .route(
+            "/api/tc/connectors/freebox/pair/status",
+            get(super::handlers::threatclaw_api::connector_freebox_pair_status_handler),
+        )
+        .route(
+            "/api/tc/connectors/zeek/sync",
+            post(super::handlers::threatclaw_api::connector_zeek_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/suricata/sync",
+            post(super::handlers::threatclaw_api::connector_suricata_sync_handler),
+        )
+        .route(
+            "/api/tc/enrichment/mac/{mac}",
+            get(super::handlers::threatclaw_api::enrichment_mac_handler),
+        )
         // NACE threat profiles
-        .route("/api/tc/threat-profiles", get(super::handlers::threatclaw_api::threat_profiles_list_handler))
-        .route("/api/tc/threat-profiles/{sector}", get(super::handlers::threatclaw_api::threat_profile_handler))
+        .route(
+            "/api/tc/threat-profiles",
+            get(super::handlers::threatclaw_api::threat_profiles_list_handler),
+        )
+        .route(
+            "/api/tc/threat-profiles/{sector}",
+            get(super::handlers::threatclaw_api::threat_profile_handler),
+        )
         // DB health monitoring
-        .route("/api/tc/db/health", get(super::handlers::threatclaw_api::db_health_handler))
+        .route(
+            "/api/tc/db/health",
+            get(super::handlers::threatclaw_api::db_health_handler),
+        )
         // Backup / Restore / Version
-        .route("/api/tc/backup/export", get(super::handlers::threatclaw_api::backup_export_handler))
+        .route(
+            "/api/tc/backup/export",
+            get(super::handlers::threatclaw_api::backup_export_handler),
+        )
         // Exports (rapports + data)
-        .route("/api/tc/exports/assets", post(super::handlers::threatclaw_api::export_data_handler))
-        .route("/api/tc/exports/alerts", post(super::handlers::threatclaw_api::export_data_handler))
-        .route("/api/tc/exports/findings", post(super::handlers::threatclaw_api::export_data_handler))
-        .route("/api/tc/exports/iocs", post(super::handlers::threatclaw_api::export_data_handler))
-        .route("/api/tc/exports/stix2", post(super::handlers::threatclaw_api::export_stix2_handler))
-        .route("/api/tc/exports/nis2-early-warning", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/nis2-intermediate", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/nis2-final", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/nis2-article21", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/executive-report", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/technical-report", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/misp-event", post(super::handlers::threatclaw_api::export_stix2_handler))
-        .route("/api/tc/exports/audit-trail", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/gdpr-article33", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/nist-incident", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/exports/iso27001-incident", post(super::handlers::threatclaw_api::export_report_handler))
-        .route("/api/tc/backup/import", post(super::handlers::threatclaw_api::backup_import_handler))
-        .route("/api/tc/version/check", get(super::handlers::threatclaw_api::version_check_handler))
+        .route(
+            "/api/tc/exports/assets",
+            post(super::handlers::threatclaw_api::export_data_handler),
+        )
+        .route(
+            "/api/tc/exports/alerts",
+            post(super::handlers::threatclaw_api::export_data_handler),
+        )
+        .route(
+            "/api/tc/exports/findings",
+            post(super::handlers::threatclaw_api::export_data_handler),
+        )
+        .route(
+            "/api/tc/exports/iocs",
+            post(super::handlers::threatclaw_api::export_data_handler),
+        )
+        .route(
+            "/api/tc/exports/stix2",
+            post(super::handlers::threatclaw_api::export_stix2_handler),
+        )
+        .route(
+            "/api/tc/exports/nis2-early-warning",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/nis2-intermediate",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/nis2-final",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/nis2-article21",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/executive-report",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/technical-report",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/misp-event",
+            post(super::handlers::threatclaw_api::export_stix2_handler),
+        )
+        .route(
+            "/api/tc/exports/audit-trail",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/gdpr-article33",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/nist-incident",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/exports/iso27001-incident",
+            post(super::handlers::threatclaw_api::export_report_handler),
+        )
+        .route(
+            "/api/tc/backup/import",
+            post(super::handlers::threatclaw_api::backup_import_handler),
+        )
+        .route(
+            "/api/tc/version/check",
+            get(super::handlers::threatclaw_api::version_check_handler),
+        )
         // Test scenarios (demo + E2E testing)
-        .route("/api/tc/test/scenarios", get(super::handlers::threatclaw_api::test_scenarios_list_handler))
-        .route("/api/tc/test/run/{id}", post(super::handlers::threatclaw_api::test_scenario_run_handler))
+        .route(
+            "/api/tc/test/scenarios",
+            get(super::handlers::threatclaw_api::test_scenarios_list_handler),
+        )
+        .route(
+            "/api/tc/test/run/{id}",
+            post(super::handlers::threatclaw_api::test_scenario_run_handler),
+        )
         // Incidents (See ADR-043)
-        .route("/api/tc/incidents", get(super::handlers::threatclaw_api::incidents_list_handler))
-        .route("/api/tc/incidents/{id}", get(super::handlers::threatclaw_api::incident_detail_handler))
-        .route("/api/tc/incidents/{id}/hitl", post(super::handlers::threatclaw_api::incident_hitl_handler).get(super::handlers::threatclaw_api::incident_hitl_get_handler))
-        .route("/api/tc/incidents/{id}/status", post(super::handlers::threatclaw_api::incident_status_handler))
+        .route(
+            "/api/tc/incidents",
+            get(super::handlers::threatclaw_api::incidents_list_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}",
+            get(super::handlers::threatclaw_api::incident_detail_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/hitl",
+            post(super::handlers::threatclaw_api::incident_hitl_handler)
+                .get(super::handlers::threatclaw_api::incident_hitl_get_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/status",
+            post(super::handlers::threatclaw_api::incident_status_handler),
+        )
         // Channel incoming — conversational bot on all channels
-        .route("/api/tc/channel/slack/incoming", post(super::handlers::channel_incoming::slack_incoming_handler))
-        .route("/api/tc/channel/mattermost/incoming", post(super::handlers::channel_incoming::mattermost_incoming_handler))
-        .route("/api/tc/channel/discord/incoming", post(super::handlers::channel_incoming::discord_incoming_handler))
-        .route("/api/tc/channel/{name}/incoming", post(super::handlers::channel_incoming::generic_incoming_handler))
+        .route(
+            "/api/tc/channel/slack/incoming",
+            post(super::handlers::channel_incoming::slack_incoming_handler),
+        )
+        .route(
+            "/api/tc/channel/mattermost/incoming",
+            post(super::handlers::channel_incoming::mattermost_incoming_handler),
+        )
+        .route(
+            "/api/tc/channel/discord/incoming",
+            post(super::handlers::channel_incoming::discord_incoming_handler),
+        )
+        .route(
+            "/api/tc/channel/{name}/incoming",
+            post(super::handlers::channel_incoming::generic_incoming_handler),
+        )
         // Settings read (for config tabs)
-        .route("/api/tc/settings/{user_id}/{key}", get(super::handlers::threatclaw_api::settings_read_handler))
+        .route(
+            "/api/tc/settings/{user_id}/{key}",
+            get(super::handlers::threatclaw_api::settings_read_handler),
+        )
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API
@@ -3170,7 +3862,9 @@ mod tests {
             cost_guard: None,
             routine_engine: Arc::new(tokio::sync::RwLock::new(None)),
             startup_time: std::time::Instant::now(),
-            hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(std::time::Duration::from_secs(3600))),
+            hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(
+                std::time::Duration::from_secs(3600),
+            )),
         })
     }
 

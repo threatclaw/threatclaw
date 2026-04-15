@@ -2,11 +2,15 @@
 // Each channel that supports receiving messages has a webhook endpoint here.
 // Messages are forwarded to the channel-agnostic command handler.
 
-use std::sync::Arc;
-use axum::{extract::{State, Json, Query, Path}, http::StatusCode, response::IntoResponse};
-use serde_json::json;
 use crate::channels::web::server::GatewayState;
+use axum::{
+    extract::{Json, Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
+use serde_json::json;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// POST /api/tc/channel/slack/incoming — Slack Events API / slash commands
 pub async fn slack_incoming_handler(
@@ -38,7 +42,12 @@ pub async fn slack_incoming_handler(
         return (StatusCode::OK, Json(json!({ "ok": true }))).into_response();
     }
 
-    tracing::info!("CHANNEL_IN: Slack message from {} in {}: {}", user, channel_id, &text[..text.len().min(50)]);
+    tracing::info!(
+        "CHANNEL_IN: Slack message from {} in {}: {}",
+        user,
+        channel_id,
+        &text[..text.len().min(50)]
+    );
 
     // Forward to command handler
     let response = process_incoming_message(state.clone(), text, "slack", user).await;
@@ -66,7 +75,11 @@ pub async fn mattermost_incoming_handler(
         return Json(json!({ "text": "Envoyez une commande (ex: status, scan, findings)" }));
     }
 
-    tracing::info!("CHANNEL_IN: Mattermost message from {}: {}", user, &clean_text[..clean_text.len().min(50)]);
+    tracing::info!(
+        "CHANNEL_IN: Mattermost message from {}: {}",
+        user,
+        &clean_text[..clean_text.len().min(50)]
+    );
 
     let response = process_incoming_message(state, clean_text, "mattermost", user).await;
 
@@ -89,16 +102,22 @@ pub async fn discord_incoming_handler(
     // Slash command
     if interaction_type == 2 {
         let text = body["data"]["options"][0]["value"].as_str().unwrap_or("");
-        let user = body["member"]["user"]["username"].as_str().unwrap_or("unknown");
+        let user = body["member"]["user"]["username"]
+            .as_str()
+            .unwrap_or("unknown");
 
         tracing::info!("CHANNEL_IN: Discord command from {}: {}", user, text);
 
         let response = process_incoming_message(state, text, "discord", user).await;
 
-        return (StatusCode::OK, Json(json!({
-            "type": 4,
-            "data": { "content": response }
-        }))).into_response();
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "type": 4,
+                "data": { "content": response }
+            })),
+        )
+            .into_response();
     }
 
     (StatusCode::OK, Json(json!({ "type": 1 }))).into_response()
@@ -110,11 +129,13 @@ pub async fn generic_incoming_handler(
     Path(channel_name): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let text = body["message"].as_str()
+    let text = body["message"]
+        .as_str()
         .or(body["text"].as_str())
         .or(body["content"].as_str())
         .unwrap_or("");
-    let user = body["from"].as_str()
+    let user = body["from"]
+        .as_str()
         .or(body["sender"].as_str())
         .or(body["user"].as_str())
         .unwrap_or("unknown");
@@ -123,7 +144,12 @@ pub async fn generic_incoming_handler(
         return Json(json!({ "error": "No message found in body" }));
     }
 
-    tracing::info!("CHANNEL_IN: {} message from {}: {}", channel_name, user, &text[..text.len().min(50)]);
+    tracing::info!(
+        "CHANNEL_IN: {} message from {}: {}",
+        channel_name,
+        user,
+        &text[..text.len().min(50)]
+    );
 
     let response = process_incoming_message(state, text, &channel_name, user).await;
 
@@ -142,32 +168,51 @@ async fn process_incoming_message(
         None => return "ThreatClaw non connecte a la base de donnees".into(),
     };
 
-    let llm_config = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let llm_config =
+        crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
 
     // Parse command via LLM
     let cmd = crate::agent::command_interpreter::parse_command(message, &llm_config).await;
 
     // Execute
-    let result = crate::agent::command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
+    let result =
+        crate::agent::command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
 
     let response_text = &result.message;
 
-    tracing::info!("CHANNEL_OUT: {} → {}: {}", channel, user, &response_text[..response_text.len().min(80)]);
+    tracing::info!(
+        "CHANNEL_OUT: {} → {}: {}",
+        channel,
+        user,
+        &response_text[..response_text.len().min(80)]
+    );
 
     response_text.to_string()
 }
 
 /// Reply to a Slack message.
-async fn reply_to_slack(store: &dyn crate::db::Database, channel_id: &str, text: &str) -> Result<(), String> {
-    let channels = store.get_setting("_system", "tc_config_channels").await
-        .ok().flatten().ok_or("No channels config")?;
-    let token = channels["slack"]["botToken"].as_str()
-        .filter(|s| !s.is_empty()).ok_or("Slack token not found")?;
+async fn reply_to_slack(
+    store: &dyn crate::db::Database,
+    channel_id: &str,
+    text: &str,
+) -> Result<(), String> {
+    let channels = store
+        .get_setting("_system", "tc_config_channels")
+        .await
+        .ok()
+        .flatten()
+        .ok_or("No channels config")?;
+    let token = channels["slack"]["botToken"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("Slack token not found")?;
 
     reqwest::Client::new()
         .post("https://slack.com/api/chat.postMessage")
         .header("Authorization", format!("Bearer {}", token))
         .json(&json!({ "channel": channel_id, "text": text }))
-        .send().await.map_err(|e| e.to_string())?;
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

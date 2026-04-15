@@ -1,9 +1,9 @@
 //! Production safeguards for the Intelligence Engine.
 
+use crate::db::Database;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use serde_json::json;
-use crate::db::Database;
 
 // ══════════════════════════════════════════════════════════
 // 1. FINDING DEDUPLICATION
@@ -19,14 +19,18 @@ pub async fn is_duplicate_finding(
 ) -> bool {
     use crate::db::threatclaw_store::ThreatClawStore;
 
-    let findings = store.list_findings(None, Some("open"), None, 100, 0).await.unwrap_or_default();
+    let findings = store
+        .list_findings(None, Some("open"), None, 100, 0)
+        .await
+        .unwrap_or_default();
 
     for f in &findings {
         // Check title similarity (contains the same key phrases)
-        let title_match = f.title.contains(title_pattern) ||
-            title_pattern.contains(&f.title) ||
-            (f.title.len() > 20 && title_pattern.len() > 20 &&
-             f.title[..20] == title_pattern[..title_pattern.len().min(20)]);
+        let title_match = f.title.contains(title_pattern)
+            || title_pattern.contains(&f.title)
+            || (f.title.len() > 20
+                && title_pattern.len() > 20
+                && f.title[..20] == title_pattern[..title_pattern.len().min(20)]);
 
         // Check asset match
         let asset_match = match (asset, f.asset.as_deref()) {
@@ -54,10 +58,7 @@ pub async fn is_duplicate_finding(
 
 /// Check if we should send a notification or if we're in cooldown.
 /// Returns true if notification should be SENT.
-pub async fn should_notify(
-    store: &dyn Database,
-    level: &str,
-) -> bool {
+pub async fn should_notify(store: &dyn Database, level: &str) -> bool {
     let key = "last_notification";
 
     if let Ok(Some(last)) = store.get_setting("_system", key).await {
@@ -69,29 +70,50 @@ pub async fn should_notify(
             let elapsed = chrono::Utc::now() - t.with_timezone(&chrono::Utc);
 
             // Critical: cooldown 15 min (if same level + score hasn't changed significantly)
-            if level == "Critical" && last_level == "Critical" && elapsed < chrono::Duration::minutes(15) {
-                tracing::debug!("SAFEGUARD: Critical notification cooldown ({:.0} min ago)", elapsed.num_minutes());
+            if level == "Critical"
+                && last_level == "Critical"
+                && elapsed < chrono::Duration::minutes(15)
+            {
+                tracing::debug!(
+                    "SAFEGUARD: Critical notification cooldown ({:.0} min ago)",
+                    elapsed.num_minutes()
+                );
                 return false;
             }
 
             // Alert: cooldown 30 min
-            if level == "Alert" && last_level == "Alert" && elapsed < chrono::Duration::minutes(30) {
-                tracing::debug!("SAFEGUARD: Alert notification cooldown ({:.0} min ago)", elapsed.num_minutes());
+            if level == "Alert" && last_level == "Alert" && elapsed < chrono::Duration::minutes(30)
+            {
+                tracing::debug!(
+                    "SAFEGUARD: Alert notification cooldown ({:.0} min ago)",
+                    elapsed.num_minutes()
+                );
                 return false;
             }
 
             // Digest: cooldown 12h
-            if level == "Digest" && last_level == "Digest" && elapsed < chrono::Duration::hours(12) {
-                tracing::debug!("SAFEGUARD: Digest notification cooldown ({:.0}h ago)", elapsed.num_hours());
+            if level == "Digest" && last_level == "Digest" && elapsed < chrono::Duration::hours(12)
+            {
+                tracing::debug!(
+                    "SAFEGUARD: Digest notification cooldown ({:.0}h ago)",
+                    elapsed.num_hours()
+                );
                 return false;
             }
 
             // If level escalated (e.g., Alert → Critical), always send
             let level_order = |l: &str| match l {
-                "Critical" => 3, "Alert" => 2, "Digest" => 1, _ => 0
+                "Critical" => 3,
+                "Alert" => 2,
+                "Digest" => 1,
+                _ => 0,
             };
             if level_order(level) > level_order(last_level) {
-                tracing::info!("SAFEGUARD: Level escalated {} → {} — sending", last_level, level);
+                tracing::info!(
+                    "SAFEGUARD: Level escalated {} → {} — sending",
+                    last_level,
+                    level
+                );
                 return true;
             }
         }
@@ -101,16 +123,18 @@ pub async fn should_notify(
 }
 
 /// Record that a notification was sent.
-pub async fn record_notification_sent(
-    store: &dyn Database,
-    level: &str,
-    score: f64,
-) {
-    let _ = store.set_setting("_system", "last_notification", &json!({
-        "level": level,
-        "score": score,
-        "time": chrono::Utc::now().to_rfc3339(),
-    })).await;
+pub async fn record_notification_sent(store: &dyn Database, level: &str, score: f64) {
+    let _ = store
+        .set_setting(
+            "_system",
+            "last_notification",
+            &json!({
+                "level": level,
+                "score": score,
+                "time": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -125,7 +149,11 @@ pub async fn get_cached_ioc(
     ioc_type: &str,
     ioc_value: &str,
 ) -> Option<serde_json::Value> {
-    let key = format!("{}_{}", ioc_type, ioc_value.replace('.', "_").replace(':', "_"));
+    let key = format!(
+        "{}_{}",
+        ioc_type,
+        ioc_value.replace('.', "_").replace(':', "_")
+    );
 
     if let Ok(Some(cached)) = store.get_setting("_ioc_cache", &key).await {
         if let Some(time) = cached["cached_at"].as_str() {
@@ -148,11 +176,21 @@ pub async fn cache_ioc(
     ioc_value: &str,
     result: &serde_json::Value,
 ) {
-    let key = format!("{}_{}", ioc_type, ioc_value.replace('.', "_").replace(':', "_"));
-    let _ = store.set_setting("_ioc_cache", &key, &json!({
-        "result": result,
-        "cached_at": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let key = format!(
+        "{}_{}",
+        ioc_type,
+        ioc_value.replace('.', "_").replace(':', "_")
+    );
+    let _ = store
+        .set_setting(
+            "_ioc_cache",
+            &key,
+            &json!({
+                "result": result,
+                "cached_at": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -232,10 +270,18 @@ pub fn validate_severity(raw: &str) -> Option<String> {
     }
 
     // Common misspellings / alternatives
-    if upper.contains("CRIT") { return Some("CRITICAL".into()); }
-    if upper.contains("HAUT") || upper.contains("ÉLEVÉ") { return Some("HIGH".into()); }
-    if upper.contains("MOYEN") { return Some("MEDIUM".into()); }
-    if upper.contains("BAS") || upper.contains("FAIBLE") { return Some("LOW".into()); }
+    if upper.contains("CRIT") {
+        return Some("CRITICAL".into());
+    }
+    if upper.contains("HAUT") || upper.contains("ÉLEVÉ") {
+        return Some("HIGH".into());
+    }
+    if upper.contains("MOYEN") {
+        return Some("MEDIUM".into());
+    }
+    if upper.contains("BAS") || upper.contains("FAIBLE") {
+        return Some("LOW".into());
+    }
 
     tracing::warn!("SAFEGUARD: Invalid severity '{}' — cannot recover", raw);
     None
@@ -272,8 +318,14 @@ pub async fn should_renotify_verdict(
     match store.get_setting("_system", &key).await {
         Ok(Some(prev)) => {
             let prev_severity = prev.get("severity").and_then(|v| v.as_str()).unwrap_or("");
-            let prev_confidence = prev.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let prev_verdict_type = prev.get("verdict_type").and_then(|v| v.as_str()).unwrap_or("");
+            let prev_confidence = prev
+                .get("confidence")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let prev_verdict_type = prev
+                .get("verdict_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             let severity_order = |s: &str| match s {
                 "CRITICAL" => 4,
@@ -292,7 +344,7 @@ pub async fn should_renotify_verdict(
             || (new_verdict.confidence() - prev_confidence).abs() > 0.20
         }
         Ok(None) => true, // First notification for this asset
-        Err(_) => true,    // DB error → notify to be safe
+        Err(_) => true,   // DB error → notify to be safe
     }
 }
 
@@ -334,14 +386,23 @@ pub async fn should_notify_incident(
 
     // Gate 1: minimum severity threshold
     if !settings.severity_meets_threshold(severity) {
-        tracing::debug!("NOTIF_GATE: {} severity {} below threshold {}", asset, severity, settings.min_severity);
+        tracing::debug!(
+            "NOTIF_GATE: {} severity {} below threshold {}",
+            asset,
+            severity,
+            settings.min_severity
+        );
         return false;
     }
 
     // Gate 2: quiet hours (if enabled, only let high-enough severity through)
     if settings.quiet_hours_enabled && is_outside_business_hours(store).await {
         if !settings.severity_meets_quiet_threshold(severity) {
-            tracing::debug!("NOTIF_GATE: {} suppressed during quiet hours ({})", asset, severity);
+            tracing::debug!(
+                "NOTIF_GATE: {} suppressed during quiet hours ({})",
+                asset,
+                severity
+            );
             return false;
         }
     }
@@ -357,7 +418,8 @@ pub async fn should_notify_incident(
         Ok(Some(prev)) => {
             if let Some(time_str) = prev.as_str() {
                 if let Ok(last_sent) = chrono::DateTime::parse_from_rfc3339(time_str) {
-                    let elapsed = (chrono::Utc::now() - last_sent.with_timezone(&chrono::Utc)).num_seconds();
+                    let elapsed =
+                        (chrono::Utc::now() - last_sent.with_timezone(&chrono::Utc)).num_seconds();
                     return elapsed > cooldown;
                 }
             }
@@ -371,21 +433,43 @@ pub async fn should_notify_incident(
 async fn is_outside_business_hours(store: &dyn Database) -> bool {
     if let Ok(Some(profile)) = store.get_setting("_system", "company_profile").await {
         // business_hours format: {"start": "08:00", "end": "18:00", "timezone": "Europe/Paris"}
-        let start = profile["business_hours"]["start"].as_str().unwrap_or("08:00");
+        let start = profile["business_hours"]["start"]
+            .as_str()
+            .unwrap_or("08:00");
         let end = profile["business_hours"]["end"].as_str().unwrap_or("18:00");
-        let tz_str = profile["business_hours"]["timezone"].as_str().unwrap_or("Europe/Paris");
+        let tz_str = profile["business_hours"]["timezone"]
+            .as_str()
+            .unwrap_or("Europe/Paris");
 
         let now_utc = chrono::Utc::now();
         // Simple offset: Paris = UTC+1 (winter) or UTC+2 (summer). Approximate with +2.
-        let offset_hours: i64 = if tz_str.contains("Paris") || tz_str.contains("Berlin") || tz_str.contains("CET") { 2 } else { 0 };
-        let local_hour = (now_utc.format("%H").to_string().parse::<i64>().unwrap_or(12) + offset_hours) % 24;
+        let offset_hours: i64 =
+            if tz_str.contains("Paris") || tz_str.contains("Berlin") || tz_str.contains("CET") {
+                2
+            } else {
+                0
+            };
+        let local_hour = (now_utc
+            .format("%H")
+            .to_string()
+            .parse::<i64>()
+            .unwrap_or(12)
+            + offset_hours)
+            % 24;
         let local_min = now_utc.format("%M").to_string().parse::<i64>().unwrap_or(0);
         let local_time = local_hour * 60 + local_min;
 
         let parse_hm = |s: &str| -> i64 {
             let parts: Vec<&str> = s.split(':').collect();
-            parts.first().and_then(|h| h.parse::<i64>().ok()).unwrap_or(0) * 60
-                + parts.get(1).and_then(|m| m.parse::<i64>().ok()).unwrap_or(0)
+            parts
+                .first()
+                .and_then(|h| h.parse::<i64>().ok())
+                .unwrap_or(0)
+                * 60
+                + parts
+                    .get(1)
+                    .and_then(|m| m.parse::<i64>().ok())
+                    .unwrap_or(0)
         };
 
         let start_min = parse_hm(start);
@@ -396,17 +480,15 @@ async fn is_outside_business_hours(store: &dyn Database) -> bool {
 }
 
 /// Record that an incident notification was sent for (asset, verdict_type).
-pub async fn record_incident_notified(
-    store: &dyn Database,
-    asset: &str,
-    verdict_type: &str,
-) {
+pub async fn record_incident_notified(store: &dyn Database, asset: &str, verdict_type: &str) {
     let key = format!("last_incident_notif:{}:{}", asset, verdict_type);
-    let _ = store.set_setting(
-        "_system",
-        &key,
-        &serde_json::json!(chrono::Utc::now().to_rfc3339()),
-    ).await;
+    let _ = store
+        .set_setting(
+            "_system",
+            &key,
+            &serde_json::json!(chrono::Utc::now().to_rfc3339()),
+        )
+        .await;
 }
 
 #[cfg(test)]
@@ -417,7 +499,10 @@ mod tests {
     fn test_validate_severity() {
         assert_eq!(validate_severity("CRITICAL"), Some("CRITICAL".into()));
         assert_eq!(validate_severity("high"), Some("HIGH".into()));
-        assert_eq!(validate_severity("LOW|MEDIUM|HIGH|CRITICAL"), Some("CRITICAL".into()));
+        assert_eq!(
+            validate_severity("LOW|MEDIUM|HIGH|CRITICAL"),
+            Some("CRITICAL".into())
+        );
         assert_eq!(validate_severity("critique"), Some("CRITICAL".into()));
         assert_eq!(validate_severity("élevé"), Some("HIGH".into()));
         assert_eq!(validate_severity("garbage"), None);

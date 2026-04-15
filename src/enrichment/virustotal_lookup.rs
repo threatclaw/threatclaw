@@ -34,14 +34,17 @@ pub struct VtHashResult {
 
 /// Lookup an IP address on VirusTotal.
 pub async fn lookup_ip(ip: &str, api_key: &str) -> Result<VtIpResult, String> {
-    if api_key.is_empty() { return Err("VirusTotal API key required".into()); }
+    if api_key.is_empty() {
+        return Err("VirusTotal API key required".into());
+    }
 
     let url = format!("{}/ip_addresses/{}", VT_API, ip);
     let resp = reqwest::Client::new()
         .get(&url)
         .header("x-apikey", api_key)
         .timeout(std::time::Duration::from_secs(15))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("VT request: {}", e))?;
 
     if !resp.status().is_success() {
@@ -66,14 +69,17 @@ pub async fn lookup_ip(ip: &str, api_key: &str) -> Result<VtIpResult, String> {
 
 /// Lookup a file hash on VirusTotal.
 pub async fn lookup_hash(hash: &str, api_key: &str) -> Result<VtHashResult, String> {
-    if api_key.is_empty() { return Err("VirusTotal API key required".into()); }
+    if api_key.is_empty() {
+        return Err("VirusTotal API key required".into());
+    }
 
     let url = format!("{}/files/{}", VT_API, hash);
     let resp = reqwest::Client::new()
         .get(&url)
         .header("x-apikey", api_key)
         .timeout(std::time::Duration::from_secs(15))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("VT request: {}", e))?;
 
     if !resp.status().is_success() {
@@ -91,7 +97,9 @@ pub async fn lookup_hash(hash: &str, api_key: &str) -> Result<VtHashResult, Stri
         harmless: stats["harmless"].as_u64().unwrap_or(0) as u32,
         undetected: stats["undetected"].as_u64().unwrap_or(0) as u32,
         type_description: attrs["type_description"].as_str().map(String::from),
-        popular_threat_name: attrs["popular_threat_classification"]["suggested_threat_label"].as_str().map(String::from),
+        popular_threat_name: attrs["popular_threat_classification"]["suggested_threat_label"]
+            .as_str()
+            .map(String::from),
         reputation: attrs["reputation"].as_i64().unwrap_or(0),
     })
 }

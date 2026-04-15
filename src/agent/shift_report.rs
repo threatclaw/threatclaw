@@ -89,9 +89,18 @@ async fn collect_shift_data(store: &dyn Database, since: DateTime<Utc>) -> Shift
     let new_alerts_count = store.count_alerts_since(since).await.unwrap_or(0);
     let new_incidents_count = store.count_incidents_since(since).await.unwrap_or(0);
 
-    let critical_findings = store.list_finding_titles_since(since, "CRITICAL", 10).await.unwrap_or_default();
-    let high_findings = store.list_finding_titles_since(since, "HIGH", 10).await.unwrap_or_default();
-    let active_assets = store.list_active_assets_since(since, 20).await.unwrap_or_default();
+    let critical_findings = store
+        .list_finding_titles_since(since, "CRITICAL", 10)
+        .await
+        .unwrap_or_default();
+    let high_findings = store
+        .list_finding_titles_since(since, "HIGH", 10)
+        .await
+        .unwrap_or_default();
+    let active_assets = store
+        .list_active_assets_since(since, 20)
+        .await
+        .unwrap_or_default();
     let ml_anomalies = store.list_ml_anomalies(0.7, 10).await.unwrap_or_default();
 
     let global_score = match store.get_setting("_system", "ie_last_score").await {
@@ -178,7 +187,11 @@ async fn analyze_shift(store: &dyn Database, data: &ShiftData) -> Result<ShiftRe
         serde_json::from_str(cleaned).map_err(|e| format!("L2 shift JSON parse error: {e}"))?;
 
     Ok(ShiftReport {
-        situation: v.get("situation").and_then(|v| v.as_str()).unwrap_or("calme").to_string(),
+        situation: v
+            .get("situation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("calme")
+            .to_string(),
         score: v.get("score").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         summary: v
             .get("summary")
@@ -302,7 +315,10 @@ pub async fn run_shift_loop(store: Arc<dyn Database>) {
         }
 
         // Acquire investigation semaphore — don't compete with real-time investigations
-        let _permit = super::intelligence_engine::INVESTIGATION_SEMAPHORE.acquire().await.ok();
+        let _permit = super::intelligence_engine::INVESTIGATION_SEMAPHORE
+            .acquire()
+            .await
+            .ok();
 
         match analyze_shift(&*store, &data).await {
             Ok(report) => {
@@ -345,13 +361,21 @@ fn format_list(items: &[String]) -> String {
     if items.is_empty() {
         "Aucun".to_string()
     } else {
-        items.iter().map(|f| format!("- {f}")).collect::<Vec<_>>().join("\n")
+        items
+            .iter()
+            .map(|f| format!("- {f}"))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
 fn extract_string_array(v: &serde_json::Value, key: &str) -> Vec<String> {
     v.get(key)
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|i| i.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|i| i.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }

@@ -6,9 +6,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::agent::routine::{
-    NotifyConfig, Routine, RoutineAction, RoutineGuardrails, Trigger,
-};
+use crate::agent::routine::{NotifyConfig, Routine, RoutineAction, RoutineGuardrails, Trigger};
 use crate::db::RoutineStore;
 
 /// Configuration for cyber-specific scheduling, loaded from threatclaw.toml.
@@ -175,7 +173,7 @@ Report format: PDF-ready with sections for each NIS2 article."#,
         name: "threatclaw-retention-cleanup",
         title: "Nettoyage rétention données",
         description: "Nettoyage nocturne des données expirées selon la politique de rétention",
-        schedule_fn: |_| "30 3 * * *",  // 03h30 chaque nuit
+        schedule_fn: |_| "30 3 * * *", // 03h30 chaque nuit
         prompt: r#"Run data retention cleanup:
 1. Execute SELECT * FROM run_retention_cleanup() to clean expired data
 2. Report the number of rows deleted per table
@@ -205,10 +203,7 @@ If critical issues found, notify RSSI via configured channel."#,
 ];
 
 /// Build a Routine from a template and schedule config.
-fn build_routine(
-    template: &CyberRoutineTemplate,
-    config: &CyberSchedulerConfig,
-) -> Routine {
+fn build_routine(template: &CyberRoutineTemplate, config: &CyberSchedulerConfig) -> Routine {
     let schedule = (template.schedule_fn)(&config.schedules);
     let now = Utc::now();
 
@@ -271,10 +266,7 @@ pub async fn ensure_default_routines(
             .await
         {
             Ok(Some(_)) => {
-                tracing::debug!(
-                    "Cyber routine '{}' already exists, skipping",
-                    template.name
-                );
+                tracing::debug!("Cyber routine '{}' already exists, skipping", template.name);
                 continue;
             }
             Ok(None) => {}
@@ -303,11 +295,7 @@ pub async fn ensure_default_routines(
                 created += 1;
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to create routine '{}': {}",
-                    template.name,
-                    e
-                );
+                tracing::warn!("Failed to create routine '{}': {}", template.name, e);
             }
         }
     }

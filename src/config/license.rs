@@ -23,7 +23,9 @@ pub enum LicenseTier {
 }
 
 impl Default for LicenseTier {
-    fn default() -> Self { Self::Community }
+    fn default() -> Self {
+        Self::Community
+    }
 }
 
 impl std::fmt::Display for LicenseTier {
@@ -89,7 +91,7 @@ impl LicenseConfig {
 /// Format: tc-XXXXXXXX-XXXX-XXXX-XXXXXXXX (128 bits from SHA-256).
 /// 2^128 = 340 undecillion combinations — collision-proof until the heat death of the universe.
 pub fn generate_instance_id() -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -106,10 +108,21 @@ pub fn generate_instance_id() -> String {
     hasher.update(format!("{:?}", std::thread::current().id()).as_bytes());
     let hash = hasher.finalize();
 
-    format!("tc-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}",
-        hash[0], hash[1], hash[2], hash[3],
-        hash[4], hash[5], hash[6], hash[7],
-        hash[8], hash[9], hash[10], hash[11])
+    format!(
+        "tc-{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}",
+        hash[0],
+        hash[1],
+        hash[2],
+        hash[3],
+        hash[4],
+        hash[5],
+        hash[6],
+        hash[7],
+        hash[8],
+        hash[9],
+        hash[10],
+        hash[11]
+    )
 }
 
 /// Load or create instance ID from database.
@@ -125,7 +138,9 @@ pub async fn load_or_create_instance_id(store: &dyn crate::db::Database) -> Stri
 
     // Generate new instance ID and persist
     let id = generate_instance_id();
-    let _ = store.set_setting("_system", "tc_instance_id", &serde_json::json!(id)).await;
+    let _ = store
+        .set_setting("_system", "tc_instance_id", &serde_json::json!(id))
+        .await;
     tracing::info!("INSTANCE: Generated new instance ID: {}", id);
     id
 }
@@ -144,7 +159,8 @@ pub async fn load_license(store: &dyn crate::db::Database) -> LicenseConfig {
         LicenseTier::Community
     };
 
-    let client_name = store.get_setting("_system", "tc_config_company")
+    let client_name = store
+        .get_setting("_system", "tc_config_company")
         .await
         .ok()
         .flatten()

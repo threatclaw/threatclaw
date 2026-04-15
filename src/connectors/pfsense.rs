@@ -79,8 +79,13 @@ struct DhcpLease {
 /// Sync firewall data into ThreatClaw graph.
 pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> FirewallSyncResult {
     let mut result = FirewallSyncResult {
-        arp_entries: 0, dhcp_leases: 0, interfaces: 0, vlans: 0,
-        firewall_rules: 0, assets_resolved: 0, errors: vec![],
+        arp_entries: 0,
+        dhcp_leases: 0,
+        interfaces: 0,
+        vlans: 0,
+        firewall_rules: 0,
+        assets_resolved: 0,
+        errors: vec![],
     };
 
     let client = match build_client(config) {
@@ -91,7 +96,11 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
         }
     };
 
-    tracing::info!("FIREWALL: Connecting to {} ({:?})", config.url, config.fw_type);
+    tracing::info!(
+        "FIREWALL: Connecting to {} ({:?})",
+        config.url,
+        config.fw_type
+    );
 
     // 1. Sync ARP table (all devices on network)
     match fetch_arp(&client, config).await {
@@ -112,7 +121,7 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                             vlan,
                             vm_id: None,
                             criticality: None,
-            services: serde_json::json!([]),
+                            services: serde_json::json!([]),
                             source: config.fw_type.source_name().into(),
                         };
                         asset_resolution::resolve_asset(store, &discovered).await;
@@ -120,8 +129,11 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                     }
                 }
             }
-            tracing::info!("FIREWALL: {} ARP entries → {} assets resolved",
-                result.arp_entries, result.assets_resolved);
+            tracing::info!(
+                "FIREWALL: {} ARP entries → {} assets resolved",
+                result.arp_entries,
+                result.assets_resolved
+            );
         }
         Err(e) => {
             result.errors.push(format!("ARP fetch failed: {}", e));
@@ -148,7 +160,7 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                             vlan,
                             vm_id: None,
                             criticality: None,
-            services: serde_json::json!([]),
+                            services: serde_json::json!([]),
                             source: "dhcp".into(),
                         };
                         asset_resolution::resolve_asset(store, &discovered).await;
@@ -166,24 +178,40 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
 
     // 3. Count interfaces and VLANs (for topology awareness)
     match fetch_interfaces(&client, config).await {
-        Ok(count) => { result.interfaces = count; }
-        Err(e) => { result.errors.push(format!("Interfaces fetch: {}", e)); }
+        Ok(count) => {
+            result.interfaces = count;
+        }
+        Err(e) => {
+            result.errors.push(format!("Interfaces fetch: {}", e));
+        }
     }
 
     match fetch_vlans(&client, config).await {
-        Ok(count) => { result.vlans = count; }
-        Err(e) => { result.errors.push(format!("VLANs fetch: {}", e)); }
+        Ok(count) => {
+            result.vlans = count;
+        }
+        Err(e) => {
+            result.errors.push(format!("VLANs fetch: {}", e));
+        }
     }
 
     match fetch_firewall_rules(&client, config).await {
-        Ok(count) => { result.firewall_rules = count; }
-        Err(e) => { result.errors.push(format!("Rules fetch: {}", e)); }
+        Ok(count) => {
+            result.firewall_rules = count;
+        }
+        Err(e) => {
+            result.errors.push(format!("Rules fetch: {}", e));
+        }
     }
 
     tracing::info!(
         "FIREWALL SYNC COMPLETE: {} ARP, {} DHCP, {} interfaces, {} VLANs, {} rules, {} assets",
-        result.arp_entries, result.dhcp_leases, result.interfaces,
-        result.vlans, result.firewall_rules, result.assets_resolved
+        result.arp_entries,
+        result.dhcp_leases,
+        result.interfaces,
+        result.vlans,
+        result.firewall_rules,
+        result.assets_resolved
     );
 
     result
@@ -213,7 +241,8 @@ async fn fetch_arp(client: &Client, config: &FirewallConfig) -> Result<Vec<ArpEn
         FirewallType::OPNsense => format!("{}/api/diagnostics/interface/getArp", config.url),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&config.auth_user, Some(&config.auth_secret))
         .send()
         .await
@@ -223,30 +252,38 @@ async fn fetch_arp(client: &Client, config: &FirewallConfig) -> Result<Vec<ArpEn
         return Err(format!("ARP: HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("ARP parse error: {}", e))?;
 
     // pfSense wraps in {data: [...]}, OPNsense returns array directly
     let entries_val = if config.fw_type == FirewallType::PfSense {
-        body.get("data").cloned().unwrap_or(serde_json::Value::Array(vec![]))
+        body.get("data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]))
     } else {
         body
     };
 
-    let entries: Vec<ArpEntry> = serde_json::from_value(entries_val)
-        .map_err(|e| format!("ARP deserialize error: {}", e))?;
+    let entries: Vec<ArpEntry> =
+        serde_json::from_value(entries_val).map_err(|e| format!("ARP deserialize error: {}", e))?;
 
     Ok(entries)
 }
 
 /// Fetch DHCP leases from firewall.
-async fn fetch_dhcp_leases(client: &Client, config: &FirewallConfig) -> Result<Vec<DhcpLease>, String> {
+async fn fetch_dhcp_leases(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<Vec<DhcpLease>, String> {
     let url = match config.fw_type {
         FirewallType::PfSense => format!("{}/api/v2/services/dhcpd/lease", config.url),
         FirewallType::OPNsense => format!("{}/api/dhcpv4/leases/searchLease", config.url),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&config.auth_user, Some(&config.auth_secret))
         .send()
         .await
@@ -256,18 +293,24 @@ async fn fetch_dhcp_leases(client: &Client, config: &FirewallConfig) -> Result<V
         return Err(format!("DHCP: HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("DHCP parse error: {}", e))?;
 
     // pfSense: {data: [...]}, OPNsense: {rows: [...]}
     let leases_val = if config.fw_type == FirewallType::PfSense {
-        body.get("data").cloned().unwrap_or(serde_json::Value::Array(vec![]))
+        body.get("data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]))
     } else {
-        body.get("rows").cloned().unwrap_or(serde_json::Value::Array(vec![]))
+        body.get("rows")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]))
     };
 
-    let leases: Vec<DhcpLease> = serde_json::from_value(leases_val)
-        .map_err(|e| format!("DHCP deserialize error: {}", e))?;
+    let leases: Vec<DhcpLease> =
+        serde_json::from_value(leases_val).map_err(|e| format!("DHCP deserialize error: {}", e))?;
 
     Ok(leases)
 }
@@ -279,7 +322,8 @@ async fn fetch_interfaces(client: &Client, config: &FirewallConfig) -> Result<us
         FirewallType::OPNsense => format!("{}/api/interfaces/overview/export", config.url),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&config.auth_user, Some(&config.auth_secret))
         .send()
         .await
@@ -289,11 +333,16 @@ async fn fetch_interfaces(client: &Client, config: &FirewallConfig) -> Result<us
         return Err(format!("Interfaces: HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Interfaces parse: {}", e))?;
 
     let count = if config.fw_type == FirewallType::PfSense {
-        body.get("data").and_then(|d| d.as_array()).map(|a| a.len()).unwrap_or(0)
+        body.get("data")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
     } else {
         body.as_array().map(|a| a.len()).unwrap_or(0)
     };
@@ -309,20 +358,32 @@ async fn fetch_vlans(client: &Client, config: &FirewallConfig) -> Result<usize, 
         FirewallType::OPNsense => format!("{}/api/interfaces/vlan_settings/searchItem", config.url),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&config.auth_user, Some(&config.auth_secret))
         .send()
         .await
         .map_err(|e| format!("VLANs request: {}", e))?;
 
-    if !resp.status().is_success() { return Ok(0); }
+    if !resp.status().is_success() {
+        return Ok(0);
+    }
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("VLANs parse: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("VLANs parse: {}", e))?;
 
     let count = if config.fw_type == FirewallType::PfSense {
-        body.get("data").and_then(|d| d.as_array()).map(|a| a.len()).unwrap_or(0)
+        body.get("data")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
     } else {
-        body.get("rows").and_then(|d| d.as_array()).map(|a| a.len()).unwrap_or(0)
+        body.get("rows")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
     };
 
     tracing::info!("FIREWALL: {} VLANs found", count);
@@ -336,20 +397,32 @@ async fn fetch_firewall_rules(client: &Client, config: &FirewallConfig) -> Resul
         FirewallType::OPNsense => format!("{}/api/firewall/filter/searchRule", config.url),
     };
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .basic_auth(&config.auth_user, Some(&config.auth_secret))
         .send()
         .await
         .map_err(|e| format!("Rules request: {}", e))?;
 
-    if !resp.status().is_success() { return Ok(0); }
+    if !resp.status().is_success() {
+        return Ok(0);
+    }
 
-    let body: serde_json::Value = resp.json().await.map_err(|e| format!("Rules parse: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Rules parse: {}", e))?;
 
     let count = if config.fw_type == FirewallType::PfSense {
-        body.get("data").and_then(|d| d.as_array()).map(|a| a.len()).unwrap_or(0)
+        body.get("data")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
     } else {
-        body.get("rows").and_then(|d| d.as_array()).map(|a| a.len()).unwrap_or(0)
+        body.get("rows")
+            .and_then(|d| d.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0)
     };
 
     tracing::info!("FIREWALL: {} firewall rules found", count);

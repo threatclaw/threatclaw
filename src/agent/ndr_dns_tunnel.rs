@@ -10,17 +10,17 @@
 //! Sources: zeek.dns and/or pihole logs.
 //! MITRE: T1071.004 (Application Layer Protocol: DNS)
 
-use std::collections::HashMap;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
+use std::collections::HashMap;
 
 /// Detection thresholds — tuned for PME (low traffic, high signal).
-const VOLUME_THRESHOLD: usize = 100;        // >100 queries/h to same domain
-const SUBDOMAIN_LEN_THRESHOLD: usize = 50;  // >50 chars = likely base32/base64 encoding
-const ENTROPY_THRESHOLD: f64 = 3.5;         // Shannon entropy > 3.5 = encoded data
-const TXT_VOLUME_THRESHOLD: usize = 20;     // >20 TXT queries to same domain/h
-const FAST_FLUX_THRESHOLD: usize = 10;      // >10 distinct IPs for same domain
-const MIN_SUBDOMAIN_LEN: usize = 8;         // Ignore short subdomains (normal)
+const VOLUME_THRESHOLD: usize = 100; // >100 queries/h to same domain
+const SUBDOMAIN_LEN_THRESHOLD: usize = 50; // >50 chars = likely base32/base64 encoding
+const ENTROPY_THRESHOLD: f64 = 3.5; // Shannon entropy > 3.5 = encoded data
+const TXT_VOLUME_THRESHOLD: usize = 20; // >20 TXT queries to same domain/h
+const FAST_FLUX_THRESHOLD: usize = 10; // >10 distinct IPs for same domain
+const MIN_SUBDOMAIN_LEN: usize = 8; // Ignore short subdomains (normal)
 
 /// Result of a DNS tunnel scan cycle.
 #[derive(Debug)]
@@ -51,27 +51,39 @@ pub async fn scan_dns_tunnels(
     minutes_back: i64,
 ) -> DnsTunnelResult {
     let mut result = DnsTunnelResult {
-        logs_checked: 0, tunnels_detected: 0, findings_created: 0,
+        logs_checked: 0,
+        tunnels_detected: 0,
+        findings_created: 0,
     };
 
     // Collect DNS logs from all available sources
     let mut all_queries: Vec<DnsQuery> = Vec::new();
 
     // Source 1: Zeek dns.log
-    let zeek_logs = store.query_logs(minutes_back, None, Some("zeek.dns"), 5000)
-        .await.unwrap_or_default();
+    let zeek_logs = store
+        .query_logs(minutes_back, None, Some("zeek.dns"), 5000)
+        .await
+        .unwrap_or_default();
     result.logs_checked += zeek_logs.len();
 
     for log in &zeek_logs {
         let query = log.data["query"].as_str().unwrap_or("");
-        if query.is_empty() || query == "-" { continue; }
-        let qtype = log.data["qtype_name"].as_str()
+        if query.is_empty() || query == "-" {
+            continue;
+        }
+        let qtype = log.data["qtype_name"]
+            .as_str()
             .or_else(|| log.data["qtype"].as_str())
             .unwrap_or("");
         let src = log.data["id.orig_h"].as_str().unwrap_or("");
         // Answers can contain resolved IPs
-        let answers = log.data["answers"].as_str().unwrap_or("")
-            .split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+        let answers = log.data["answers"]
+            .as_str()
+            .unwrap_or("")
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
 
         all_queries.push(DnsQuery {
             domain: query.to_lowercase(),
@@ -82,16 +94,22 @@ pub async fn scan_dns_tunnels(
     }
 
     // Source 2: Pi-hole logs (if available)
-    let pihole_logs = store.query_logs(minutes_back, None, Some("pihole"), 5000)
-        .await.unwrap_or_default();
+    let pihole_logs = store
+        .query_logs(minutes_back, None, Some("pihole"), 5000)
+        .await
+        .unwrap_or_default();
     result.logs_checked += pihole_logs.len();
 
     for log in &pihole_logs {
-        let query = log.data["query"].as_str()
+        let query = log.data["query"]
+            .as_str()
             .or_else(|| log.data["domain"].as_str())
             .unwrap_or("");
-        if query.is_empty() { continue; }
-        let src = log.data["client"].as_str()
+        if query.is_empty() {
+            continue;
+        }
+        let src = log.data["client"]
+            .as_str()
             .or_else(|| log.data["src_ip"].as_str())
             .unwrap_or("");
         let qtype = log.data["type"].as_str().unwrap_or("");
@@ -104,16 +122,22 @@ pub async fn scan_dns_tunnels(
         });
     }
 
-    if all_queries.is_empty() { return result; }
+    if all_queries.is_empty() {
+        return result;
+    }
 
     // Aggregate per (base_domain, src_ip)
     let mut domain_stats: HashMap<(String, String), DomainStats> = HashMap::new();
 
     for q in &all_queries {
         let base = extract_base_domain(&q.domain);
-        if base.is_empty() { continue; }
+        if base.is_empty() {
+            continue;
+        }
         // Skip well-known high-volume domains (NTP, OCSP, CDN, etc.)
-        if is_whitelisted_domain(&base) { continue; }
+        if is_whitelisted_domain(&base) {
+            continue;
+        }
 
         let key = (base.clone(), q.src_ip.clone());
         let stats = domain_stats.entry(key).or_insert_with(|| DomainStats {
@@ -151,48 +175,72 @@ pub async fn scan_dns_tunnels(
 
         // 1. Volume: many queries to same domain
         if stats.query_count >= VOLUME_THRESHOLD {
-            evidence.push(format!("{} requêtes DNS (seuil: {})", stats.query_count, VOLUME_THRESHOLD));
+            evidence.push(format!(
+                "{} requêtes DNS (seuil: {})",
+                stats.query_count, VOLUME_THRESHOLD
+            ));
             score += 30;
         }
 
         // 2. Long subdomains (base32/base64 encoding)
         let max_len = stats.subdomains.iter().map(|s| s.len()).max().unwrap_or(0);
-        let long_count = stats.subdomains.iter().filter(|s| s.len() > SUBDOMAIN_LEN_THRESHOLD).count();
+        let long_count = stats
+            .subdomains
+            .iter()
+            .filter(|s| s.len() > SUBDOMAIN_LEN_THRESHOLD)
+            .count();
         if long_count > 0 {
-            evidence.push(format!("{} sous-domaines > {} chars (max: {})",
-                long_count, SUBDOMAIN_LEN_THRESHOLD, max_len));
+            evidence.push(format!(
+                "{} sous-domaines > {} chars (max: {})",
+                long_count, SUBDOMAIN_LEN_THRESHOLD, max_len
+            ));
             score += 40;
         }
 
         // 3. High entropy subdomains
-        let entropies: Vec<f64> = stats.subdomains.iter()
+        let entropies: Vec<f64> = stats
+            .subdomains
+            .iter()
             .filter(|s| s.len() >= MIN_SUBDOMAIN_LEN)
             .map(|s| shannon_entropy(s))
             .collect();
-        let avg_entropy = if entropies.is_empty() { 0.0 }
-            else { entropies.iter().sum::<f64>() / entropies.len() as f64 };
+        let avg_entropy = if entropies.is_empty() {
+            0.0
+        } else {
+            entropies.iter().sum::<f64>() / entropies.len() as f64
+        };
         let high_entropy_count = entropies.iter().filter(|&&e| e > ENTROPY_THRESHOLD).count();
         if high_entropy_count > 3 {
-            evidence.push(format!("{} sous-domaines haute entropie (moy: {:.2}, seuil: {})",
-                high_entropy_count, avg_entropy, ENTROPY_THRESHOLD));
+            evidence.push(format!(
+                "{} sous-domaines haute entropie (moy: {:.2}, seuil: {})",
+                high_entropy_count, avg_entropy, ENTROPY_THRESHOLD
+            ));
             score += 30;
         }
 
         // 4. TXT record abuse (return channel for DNS tunnel)
         if stats.txt_count >= TXT_VOLUME_THRESHOLD {
-            evidence.push(format!("{} requêtes TXT (seuil: {})", stats.txt_count, TXT_VOLUME_THRESHOLD));
+            evidence.push(format!(
+                "{} requêtes TXT (seuil: {})",
+                stats.txt_count, TXT_VOLUME_THRESHOLD
+            ));
             score += 25;
         }
 
         // 5. Fast flux (many IPs for same domain)
         if stats.resolved_ips.len() >= FAST_FLUX_THRESHOLD {
-            evidence.push(format!("{} IPs distinctes (fast flux, seuil: {})",
-                stats.resolved_ips.len(), FAST_FLUX_THRESHOLD));
+            evidence.push(format!(
+                "{} IPs distinctes (fast flux, seuil: {})",
+                stats.resolved_ips.len(),
+                FAST_FLUX_THRESHOLD
+            ));
             score += 20;
         }
 
         // Threshold: need at least 2 indicators or 1 strong one (score >= 40)
-        if evidence.is_empty() || (evidence.len() < 2 && score < 40) { continue; }
+        if evidence.is_empty() || (evidence.len() < 2 && score < 40) {
+            continue;
+        }
 
         let severity = if score >= 70 { "CRITICAL" } else { "HIGH" };
 
@@ -216,7 +264,8 @@ pub async fn scan_dns_tunnels(
     if result.tunnels_detected > 0 {
         tracing::warn!(
             "NDR-DNS-TUNNEL: {} DNS logs analyzed, {} tunnels detected",
-            result.logs_checked, result.tunnels_detected
+            result.logs_checked,
+            result.tunnels_detected
         );
     }
 
@@ -244,27 +293,29 @@ async fn create_tunnel_finding(store: &dyn Database, tunnel: &TunnelCandidate) {
         tunnel.domain, tunnel.src_ip, evidence_text,
     );
 
-    let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-        skill_id: "ndr-dns-tunnel".into(),
-        title,
-        description: Some(description),
-        severity: tunnel.severity.into(),
-        category: Some("c2-detection".into()),
-        asset: Some(tunnel.src_ip.clone()),
-        source: Some("DNS tunneling analysis".into()),
-        metadata: Some(serde_json::json!({
-            "domain": tunnel.domain,
-            "src_ip": tunnel.src_ip,
-            "query_count": tunnel.query_count,
-            "max_subdomain_length": tunnel.max_subdomain_len,
-            "avg_subdomain_entropy": tunnel.avg_entropy,
-            "txt_query_count": tunnel.txt_count,
-            "unique_resolved_ips": tunnel.unique_ips,
-            "evidence": tunnel.evidence,
-            "detection": "dns-tunnel-analysis",
-            "mitre": ["T1071.004", "T1048.001"]
-        })),
-    }).await;
+    let _ = store
+        .insert_finding(&crate::db::threatclaw_store::NewFinding {
+            skill_id: "ndr-dns-tunnel".into(),
+            title,
+            description: Some(description),
+            severity: tunnel.severity.into(),
+            category: Some("c2-detection".into()),
+            asset: Some(tunnel.src_ip.clone()),
+            source: Some("DNS tunneling analysis".into()),
+            metadata: Some(serde_json::json!({
+                "domain": tunnel.domain,
+                "src_ip": tunnel.src_ip,
+                "query_count": tunnel.query_count,
+                "max_subdomain_length": tunnel.max_subdomain_len,
+                "avg_subdomain_entropy": tunnel.avg_entropy,
+                "txt_query_count": tunnel.txt_count,
+                "unique_resolved_ips": tunnel.unique_ips,
+                "evidence": tunnel.evidence,
+                "detection": "dns-tunnel-analysis",
+                "mitre": ["T1071.004", "T1048.001"]
+            })),
+        })
+        .await;
 }
 
 // ── Helper functions ──
@@ -295,8 +346,12 @@ fn extract_base_domain(fqdn: &str) -> String {
     // Handle 2-part TLDs (co.uk, com.br, org.au, etc.)
     let last = *labels.last().unwrap_or(&"");
     let second = labels.get(labels.len() - 2).unwrap_or(&"");
-    if matches!(*second, "co" | "com" | "org" | "net" | "edu" | "gov" | "ac" | "go") &&
-       last.len() <= 3 && labels.len() > 3 {
+    if matches!(
+        *second,
+        "co" | "com" | "org" | "net" | "edu" | "gov" | "ac" | "go"
+    ) && last.len() <= 3
+        && labels.len() > 3
+    {
         labels[labels.len() - 3..].join(".")
     } else {
         labels[labels.len() - 2..].join(".")
@@ -316,7 +371,9 @@ fn extract_subdomain(fqdn: &str, base: &str) -> String {
 /// Shannon entropy of a string (bits per character).
 /// High entropy (>3.5) suggests encoded/encrypted data.
 fn shannon_entropy(s: &str) -> f64 {
-    if s.is_empty() { return 0.0; }
+    if s.is_empty() {
+        return 0.0;
+    }
     let mut freq = [0u32; 256];
     for &b in s.as_bytes() {
         freq[b as usize] += 1;
@@ -342,22 +399,41 @@ fn looks_like_ip(s: &str) -> bool {
 fn is_whitelisted_domain(domain: &str) -> bool {
     const WHITELIST: &[&str] = &[
         // NTP
-        "pool.ntp.org", "ntp.ubuntu.com", "time.windows.com", "time.apple.com",
+        "pool.ntp.org",
+        "ntp.ubuntu.com",
+        "time.windows.com",
+        "time.apple.com",
         // OCSP / CRL
-        "ocsp.digicert.com", "ocsp.pki.goog", "ocsp.sectigo.com",
-        "crl.microsoft.com", "crl3.digicert.com",
+        "ocsp.digicert.com",
+        "ocsp.pki.goog",
+        "ocsp.sectigo.com",
+        "crl.microsoft.com",
+        "crl3.digicert.com",
         // OS updates
-        "windowsupdate.com", "update.microsoft.com", "ubuntu.com",
-        "debian.org", "download.docker.com",
+        "windowsupdate.com",
+        "update.microsoft.com",
+        "ubuntu.com",
+        "debian.org",
+        "download.docker.com",
         // CDN / Cloud infra
-        "cloudflare.com", "amazonaws.com", "azure.com", "googleapis.com",
-        "akamaiedge.net", "cloudfront.net", "fastly.net",
+        "cloudflare.com",
+        "amazonaws.com",
+        "azure.com",
+        "googleapis.com",
+        "akamaiedge.net",
+        "cloudfront.net",
+        "fastly.net",
         // DNS providers
-        "in-addr.arpa", "ip6.arpa",
+        "in-addr.arpa",
+        "ip6.arpa",
         // Common services
-        "google.com", "microsoft.com", "apple.com",
+        "google.com",
+        "microsoft.com",
+        "apple.com",
     ];
-    WHITELIST.iter().any(|w| domain == *w || domain.ends_with(&format!(".{}", w)))
+    WHITELIST
+        .iter()
+        .any(|w| domain == *w || domain.ends_with(&format!(".{}", w)))
 }
 
 #[cfg(test)]
@@ -374,7 +450,10 @@ mod tests {
 
     #[test]
     fn test_extract_subdomain() {
-        assert_eq!(extract_subdomain("aGVsbG8.data.evil.com", "evil.com"), "aGVsbG8.data");
+        assert_eq!(
+            extract_subdomain("aGVsbG8.data.evil.com", "evil.com"),
+            "aGVsbG8.data"
+        );
         assert_eq!(extract_subdomain("evil.com", "evil.com"), "");
         assert_eq!(extract_subdomain("x.evil.com", "evil.com"), "x");
     }

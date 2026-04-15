@@ -36,10 +36,7 @@ pub enum InvestigationVerdict {
         partial_findings: Vec<String>,
     },
     /// Informational — not urgent, add to daily digest
-    Informational {
-        analysis: String,
-        summary: String,
-    },
+    Informational { analysis: String, summary: String },
     /// Error or timeout during investigation
     Error {
         reason: String,
@@ -112,12 +109,20 @@ impl InvestigationVerdict {
     pub fn analysis_text(&self) -> String {
         match self {
             Self::Confirmed { analysis, .. } => analysis.clone(),
-            Self::FalsePositive { analysis, reason, .. } => format!("{} (raison : {})", analysis, reason),
+            Self::FalsePositive {
+                analysis, reason, ..
+            } => format!("{} (raison : {})", analysis, reason),
             Self::Inconclusive { analysis, .. } => analysis.clone(),
             Self::Informational { analysis, summary } => format!("{}\n\n{}", analysis, summary),
-            Self::Error { reason, partial_analysis } => {
-                if let Some(p) = partial_analysis { format!("Erreur : {} — {}", reason, p) }
-                else { format!("Erreur : {}", reason) }
+            Self::Error {
+                reason,
+                partial_analysis,
+            } => {
+                if let Some(p) = partial_analysis {
+                    format!("Erreur : {} — {}", reason, p)
+                } else {
+                    format!("Erreur : {}", reason)
+                }
             }
         }
     }
@@ -174,10 +179,7 @@ impl InvestigationResult {
 
                 // Correlations
                 if !correlations.is_empty() {
-                    msg.push_str(&format!(
-                        "\u{1f517} {}\n",
-                        correlations.join(", ")
-                    ));
+                    msg.push_str(&format!("\u{1f517} {}\n", correlations.join(", ")));
                 }
 
                 msg.push_str(&format!(

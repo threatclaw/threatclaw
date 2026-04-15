@@ -17,7 +17,10 @@ pub struct NmapConfig {
     /// Target subnets (e.g., "192.168.1.0/24" or "10.0.0.0/24,192.168.2.0/24")
     pub targets: String,
     /// Number of top ports to scan (default: 1000)
-    #[serde(default = "default_top_ports", deserialize_with = "deserialize_u16_lenient")]
+    #[serde(
+        default = "default_top_ports",
+        deserialize_with = "deserialize_u16_lenient"
+    )]
     pub top_ports: u16,
     /// Timing template (T1-T5, default: T3)
     #[serde(default = "default_timing")]
@@ -27,22 +30,37 @@ pub struct NmapConfig {
     pub use_docker: bool,
 }
 
-fn default_top_ports() -> u16 { 1000 }
-fn default_timing() -> String { "T3".into() }
+fn default_top_ports() -> u16 {
+    1000
+}
+fn default_timing() -> String {
+    "T3".into()
+}
 
 /// Accept both number (1000) and string ("1000") for top_ports
 fn deserialize_u16_lenient<'de, D>(deserializer: D) -> Result<u16, D::Error>
-where D: serde::Deserializer<'de> {
+where
+    D: serde::Deserializer<'de>,
+{
     use serde::de;
     struct U16Visitor;
     impl<'de> de::Visitor<'de> for U16Visitor {
         type Value = u16;
-        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { f.write_str("a number or numeric string") }
-        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u16, E> { Ok(v as u16) }
-        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u16, E> { Ok(v as u16) }
-        fn visit_f64<E: de::Error>(self, v: f64) -> Result<u16, E> { Ok(v as u16) }
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("a number or numeric string")
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<u16, E> {
+            Ok(v as u16)
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<u16, E> {
+            Ok(v as u16)
+        }
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<u16, E> {
+            Ok(v as u16)
+        }
         fn visit_str<E: de::Error>(self, v: &str) -> Result<u16, E> {
-            v.parse::<u16>().map_err(|_| de::Error::custom(format!("invalid port number: {v}")))
+            v.parse::<u16>()
+                .map_err(|_| de::Error::custom(format!("invalid port number: {v}")))
         }
     }
     deserializer.deserialize_any(U16Visitor)
@@ -62,8 +80,11 @@ pub struct NmapScanResult {
 pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapScanResult {
     let start = std::time::Instant::now();
     let mut result = NmapScanResult {
-        hosts_discovered: 0, assets_resolved: 0, open_ports_total: 0,
-        scan_duration_secs: 0, errors: vec![],
+        hosts_discovered: 0,
+        assets_resolved: 0,
+        open_ports_total: 0,
+        scan_duration_secs: 0,
+        errors: vec![],
     };
 
     tracing::info!("NMAP: Starting discovery scan on {}", config.targets);
@@ -73,7 +94,10 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
     let timing = if valid_timings.contains(&config.timing.as_str()) {
         config.timing.clone()
     } else {
-        tracing::warn!("NMAP: Invalid timing '{}', falling back to T3", config.timing);
+        tracing::warn!(
+            "NMAP: Invalid timing '{}', falling back to T3",
+            config.timing
+        );
         "T3".to_string()
     };
 
@@ -105,7 +129,10 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
     let hosts = parse_nmap_xml(&xml);
     result.hosts_discovered = hosts.len();
 
-    tracing::info!("NMAP: {} hosts discovered, feeding into Asset Resolution", hosts.len());
+    tracing::info!(
+        "NMAP: {} hosts discovered, feeding into Asset Resolution",
+        hosts.len()
+    );
 
     // Feed each host into the Asset Resolution Pipeline
     for host in &hosts {
@@ -113,20 +140,25 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
         result.open_ports_total += ports.len();
 
         // Build services JSON from nmap port details
-        let services_json: serde_json::Value = host.ports.iter().map(|p| {
-            serde_json::json!({
-                "port": p.port,
-                "proto": p.protocol,
-                "service": p.service,
-                "product": p.product,
-                "version": p.version,
+        let services_json: serde_json::Value = host
+            .ports
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "port": p.port,
+                    "proto": p.protocol,
+                    "service": p.service,
+                    "product": p.product,
+                    "version": p.version,
+                })
             })
-        }).collect();
+            .collect();
 
         // Try to build a meaningful name from MAC vendor if no hostname
-        let mac_vendor = host.mac.as_ref().and_then(|m| {
-            crate::enrichment::mac_oui_lookup::lookup(m).vendor
-        });
+        let mac_vendor = host
+            .mac
+            .as_ref()
+            .and_then(|m| crate::enrichment::mac_oui_lookup::lookup(m).vendor);
 
         let discovered = DiscoveredAsset {
             mac: host.mac.clone(),
@@ -146,15 +178,21 @@ pub async fn run_discovery(store: &dyn Database, config: &NmapConfig) -> NmapSca
         let resolution = asset_resolution::resolve_asset(store, &discovered).await;
         result.assets_resolved += 1;
 
-        tracing::debug!("NMAP: {} → {} ({:?})", host.ip,
-            resolution.asset_id, resolution.action);
+        tracing::debug!(
+            "NMAP: {} → {} ({:?})",
+            host.ip,
+            resolution.asset_id,
+            resolution.action
+        );
     }
 
     result.scan_duration_secs = start.elapsed().as_secs();
     tracing::info!(
         "NMAP COMPLETE: {} hosts, {} assets resolved, {} open ports, {}s",
-        result.hosts_discovered, result.assets_resolved,
-        result.open_ports_total, result.scan_duration_secs
+        result.hosts_discovered,
+        result.assets_resolved,
+        result.open_ports_total,
+        result.scan_duration_secs
     );
 
     result
@@ -165,10 +203,12 @@ async fn run_nmap_local(config: &NmapConfig) -> Result<String, String> {
     let output = Command::new("nmap")
         .args([
             "-sV",
-            "--top-ports", &config.top_ports.to_string(),
+            "--top-ports",
+            &config.top_ports.to_string(),
             &format!("-{}", config.timing),
             "--open",
-            "-oX", "-",  // XML output to stdout
+            "-oX",
+            "-", // XML output to stdout
         ])
         .args(config.targets.split(',').map(|t| t.trim()))
         .stdout(Stdio::piped())
@@ -182,21 +222,25 @@ async fn run_nmap_local(config: &NmapConfig) -> Result<String, String> {
         return Err(format!("nmap exited with {}: {}", output.status, stderr));
     }
 
-    String::from_utf8(output.stdout)
-        .map_err(|e| format!("nmap output is not valid UTF-8: {}", e))
+    String::from_utf8(output.stdout).map_err(|e| format!("nmap output is not valid UTF-8: {}", e))
 }
 
 /// Run nmap via Docker.
 async fn run_nmap_docker(config: &NmapConfig) -> Result<String, String> {
     let output = Command::new("docker")
         .args([
-            "run", "--rm", "--network", "host",
+            "run",
+            "--rm",
+            "--network",
+            "host",
             "instrumentisto/nmap:latest",
             "-sV",
-            "--top-ports", &config.top_ports.to_string(),
+            "--top-ports",
+            &config.top_ports.to_string(),
             &format!("-{}", config.timing),
             "--open",
-            "-oX", "-",
+            "-oX",
+            "-",
         ])
         .args(config.targets.split(',').map(|t| t.trim()))
         .stdout(Stdio::piped())
@@ -207,19 +251,21 @@ async fn run_nmap_docker(config: &NmapConfig) -> Result<String, String> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Docker nmap exited with {}: {}", output.status, stderr));
+        return Err(format!(
+            "Docker nmap exited with {}: {}",
+            output.status, stderr
+        ));
     }
 
-    String::from_utf8(output.stdout)
-        .map_err(|e| format!("Docker nmap output not UTF-8: {}", e))
+    String::from_utf8(output.stdout).map_err(|e| format!("Docker nmap output not UTF-8: {}", e))
 }
 
 /// Validate target string to prevent command injection.
 fn validate_targets(targets: &str) -> bool {
     // Only allow: digits, dots, slashes, commas, colons (IPv6), spaces, hyphens
-    targets.chars().all(|c|
+    targets.chars().all(|c| {
         c.is_ascii_digit() || c == '.' || c == '/' || c == ',' || c == ':' || c == ' ' || c == '-'
-    ) && !targets.is_empty()
+    }) && !targets.is_empty()
 }
 
 /// Parsed nmap host.
@@ -256,7 +302,11 @@ fn parse_nmap_xml(xml: &str) -> Vec<NmapHost> {
             && !trimmed.starts_with("<hostnames")
         {
             current_host = Some(NmapHost {
-                ip: String::new(), mac: None, hostname: None, os: None, ports: vec![],
+                ip: String::new(),
+                mac: None,
+                hostname: None,
+                os: None,
+                ports: vec![],
             });
         }
 
@@ -286,19 +336,22 @@ fn parse_nmap_xml(xml: &str) -> Vec<NmapHost> {
             // OS match (may be inside <os> wrapper on same line)
             if trimmed.contains("<osmatch ") {
                 if host.os.is_none() {
-                    host.os = extract_attr(
-                        &trimmed[trimmed.find("<osmatch").unwrap_or(0)..],
-                        "name",
-                    );
+                    host.os =
+                        extract_attr(&trimmed[trimmed.find("<osmatch").unwrap_or(0)..], "name");
                 }
             }
 
             // Port (may have service on same line)
             if trimmed.contains("<port ") && trimmed.contains("portid=") {
-                if let (Some(portid), Some(protocol)) = (extract_attr(trimmed, "portid"), extract_attr(trimmed, "protocol")) {
+                if let (Some(portid), Some(protocol)) = (
+                    extract_attr(trimmed, "portid"),
+                    extract_attr(trimmed, "protocol"),
+                ) {
                     if let Ok(port_num) = portid.parse::<u16>() {
                         // Only keep open ports
-                        if !trimmed.contains("state=\"open\"") && !trimmed.contains("state=\"open|filtered\"") {
+                        if !trimmed.contains("state=\"open\"")
+                            && !trimmed.contains("state=\"open|filtered\"")
+                        {
                             continue;
                         }
                         let (service, product, version) = if trimmed.contains("<service ") {
@@ -310,7 +363,13 @@ fn parse_nmap_xml(xml: &str) -> Vec<NmapHost> {
                         } else {
                             (String::new(), String::new(), String::new())
                         };
-                        host.ports.push(NmapPort { port: port_num, protocol, service, product, version });
+                        host.ports.push(NmapPort {
+                            port: port_num,
+                            protocol,
+                            service,
+                            product,
+                            version,
+                        });
                     }
                 }
             } else if trimmed.contains("<service ") && !trimmed.contains("<port ") {
@@ -369,12 +428,21 @@ mod tests {
 
     #[test]
     fn test_extract_attr() {
-        assert_eq!(extract_attr(r#"<address addr="192.168.1.1" addrtype="ipv4"/>"#, "addr"),
-            Some("192.168.1.1".into()));
-        assert_eq!(extract_attr(r#"<address addr="AA:BB:CC:DD:EE:FF" addrtype="mac"/>"#, "addr"),
-            Some("AA:BB:CC:DD:EE:FF".into()));
-        assert_eq!(extract_attr(r#"<hostname name="srv-web-01" type="PTR"/>"#, "name"),
-            Some("srv-web-01".into()));
+        assert_eq!(
+            extract_attr(r#"<address addr="192.168.1.1" addrtype="ipv4"/>"#, "addr"),
+            Some("192.168.1.1".into())
+        );
+        assert_eq!(
+            extract_attr(
+                r#"<address addr="AA:BB:CC:DD:EE:FF" addrtype="mac"/>"#,
+                "addr"
+            ),
+            Some("AA:BB:CC:DD:EE:FF".into())
+        );
+        assert_eq!(
+            extract_attr(r#"<hostname name="srv-web-01" type="PTR"/>"#, "name"),
+            Some("srv-web-01".into())
+        );
     }
 
     #[test]

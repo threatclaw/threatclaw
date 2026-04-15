@@ -10,24 +10,24 @@
 //! Combined weighted score determines beacon confidence.
 //! MITRE: T1071.001 (C2 Web Protocol), T1573.002 (Encrypted Channel)
 
-use std::collections::HashMap;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
+use std::collections::HashMap;
 
 /// Beacon detection thresholds.
-const MIN_CONNECTIONS: usize = 5;        // Need at least 5 connections to detect a pattern
-const MIN_INTERVAL_SECS: f64 = 5.0;      // Ignore intervals < 5s (normal keep-alive)
-const MAX_INTERVAL_SECS: f64 = 3600.0;   // Ignore intervals > 1h (not beacon-like)
+const MIN_CONNECTIONS: usize = 5; // Need at least 5 connections to detect a pattern
+const MIN_INTERVAL_SECS: f64 = 5.0; // Ignore intervals < 5s (normal keep-alive)
+const MAX_INTERVAL_SECS: f64 = 3600.0; // Ignore intervals > 1h (not beacon-like)
 
 /// Combined score thresholds (0.0 = perfect beacon, 1.0 = random human).
-const SCORE_CRITICAL: f64 = 0.15;        // Combined < 0.15 = almost certainly beacon
-const SCORE_HIGH: f64 = 0.30;            // Combined < 0.30 = suspicious regularity
+const SCORE_CRITICAL: f64 = 0.15; // Combined < 0.15 = almost certainly beacon
+const SCORE_HIGH: f64 = 0.30; // Combined < 0.30 = suspicious regularity
 
 /// Individual score weights (must sum to 1.0).
-const W_CV: f64 = 0.35;                  // Coefficient of variation — primary signal
-const W_SKEW: f64 = 0.20;               // Skew — asymmetry
-const W_MADM: f64 = 0.25;               // MADM — robust dispersion
-const W_BOWLEY: f64 = 0.20;             // Bowley — distribution shape
+const W_CV: f64 = 0.35; // Coefficient of variation — primary signal
+const W_SKEW: f64 = 0.20; // Skew — asymmetry
+const W_MADM: f64 = 0.25; // MADM — robust dispersion
+const W_BOWLEY: f64 = 0.20; // Bowley — distribution shape
 
 /// Result of a beacon scan cycle.
 #[derive(Debug)]
@@ -62,15 +62,22 @@ pub async fn scan_beacons(
     minutes_back: i64,
 ) -> BeaconScanResult {
     let mut result = BeaconScanResult {
-        connections_analyzed: 0, flow_groups: 0,
-        beacons_detected: 0, findings_created: 0,
+        connections_analyzed: 0,
+        flow_groups: 0,
+        beacons_detected: 0,
+        findings_created: 0,
     };
 
     // Query recent Zeek connection logs
-    let logs = store.query_logs(minutes_back, None, Some("zeek.conn"), 5000).await.unwrap_or_default();
+    let logs = store
+        .query_logs(minutes_back, None, Some("zeek.conn"), 5000)
+        .await
+        .unwrap_or_default();
     result.connections_analyzed = logs.len();
 
-    if logs.len() < MIN_CONNECTIONS { return result; }
+    if logs.len() < MIN_CONNECTIONS {
+        return result;
+    }
 
     // Group connections by (src_ip, dst_ip, dst_port)
     let mut flows: HashMap<(String, String, u16), Vec<f64>> = HashMap::new();
@@ -82,18 +89,27 @@ pub async fn scan_beacons(
         let dst = log.data["id.resp_h"].as_str().unwrap_or("");
         let port = log.data["id.resp_p"].as_u64().unwrap_or(0) as u16;
 
-        if src.is_empty() || dst.is_empty() || port == 0 { continue; }
+        if src.is_empty() || dst.is_empty() || port == 0 {
+            continue;
+        }
 
         // Skip internal-to-internal (not C2-like) — only flag outbound or external
-        if is_private(src) && is_private(dst) { continue; }
+        if is_private(src) && is_private(dst) {
+            continue;
+        }
         // Skip DNS (port 53) and NTP (port 123) — naturally regular
-        if port == 53 || port == 123 { continue; }
+        if port == 53 || port == 123 {
+            continue;
+        }
 
         // Extract timestamp as epoch float
         let ts = log.data["ts"].as_f64().unwrap_or(0.0);
-        if ts == 0.0 { continue; }
+        if ts == 0.0 {
+            continue;
+        }
 
-        flows.entry((src.to_string(), dst.to_string(), port))
+        flows
+            .entry((src.to_string(), dst.to_string(), port))
             .or_default()
             .push(ts);
 
@@ -107,18 +123,23 @@ pub async fn scan_beacons(
 
     // Analyze each flow for beacon patterns
     for ((src, dst, port), mut timestamps) in flows {
-        if timestamps.len() < MIN_CONNECTIONS { continue; }
+        if timestamps.len() < MIN_CONNECTIONS {
+            continue;
+        }
 
         // Sort timestamps chronologically
         timestamps.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         // Compute intervals between successive connections
-        let intervals: Vec<f64> = timestamps.windows(2)
+        let intervals: Vec<f64> = timestamps
+            .windows(2)
             .map(|w| w[1] - w[0])
             .filter(|&i| i >= MIN_INTERVAL_SECS && i <= MAX_INTERVAL_SECS)
             .collect();
 
-        if intervals.len() < MIN_CONNECTIONS - 1 { continue; }
+        if intervals.len() < MIN_CONNECTIONS - 1 {
+            continue;
+        }
 
         // Compute all 4 RITA scores
         let cv = compute_cv(&intervals);
@@ -133,10 +154,16 @@ pub async fn scan_beacons(
             let mean = intervals.iter().sum::<f64>() / intervals.len() as f64;
             let server_name = server_names.get(&(dst.clone(), port)).cloned();
             let candidate = BeaconCandidate {
-                src_ip: src, dst_ip: dst, dst_port: port,
+                src_ip: src,
+                dst_ip: dst,
+                dst_port: port,
                 connection_count: timestamps.len(),
                 mean_interval: mean,
-                cv, skew, madm, bowley, combined_score: combined,
+                cv,
+                skew,
+                madm,
+                bowley,
+                combined_score: combined,
                 server_name,
             };
             create_beacon_finding(store.as_ref(), &candidate).await;
@@ -148,7 +175,8 @@ pub async fn scan_beacons(
     if result.beacons_detected > 0 {
         tracing::warn!(
             "NDR-BEACON: {} flows analyzed, {} beacons detected",
-            result.flow_groups, result.beacons_detected
+            result.flow_groups,
+            result.beacons_detected
         );
     }
 
@@ -165,7 +193,9 @@ pub async fn scan_beacons(
 fn compute_cv(intervals: &[f64]) -> f64 {
     let n = intervals.len() as f64;
     let mean = intervals.iter().sum::<f64>() / n;
-    if mean <= 0.0 { return 1.0; }
+    if mean <= 0.0 {
+        return 1.0;
+    }
     let variance = intervals.iter().map(|i| (i - mean).powi(2)).sum::<f64>() / n;
     let cv = variance.sqrt() / mean;
     cv.min(1.0) // Clamp to 0-1
@@ -177,12 +207,20 @@ fn compute_cv(intervals: &[f64]) -> f64 {
 /// Normalized to 0-1 range via absolute value and clamping.
 fn compute_skew(intervals: &[f64]) -> f64 {
     let n = intervals.len() as f64;
-    if n < 3.0 { return 0.5; }
+    if n < 3.0 {
+        return 0.5;
+    }
     let mean = intervals.iter().sum::<f64>() / n;
     let variance = intervals.iter().map(|i| (i - mean).powi(2)).sum::<f64>() / n;
     let stddev = variance.sqrt();
-    if stddev <= 0.0 { return 0.0; } // All intervals identical = beacon
-    let skewness = intervals.iter().map(|i| ((i - mean) / stddev).powi(3)).sum::<f64>() / n;
+    if stddev <= 0.0 {
+        return 0.0;
+    } // All intervals identical = beacon
+    let skewness = intervals
+        .iter()
+        .map(|i| ((i - mean) / stddev).powi(3))
+        .sum::<f64>()
+        / n;
     // Normalize: |skew| / 2, clamped to 0-1
     // Low |skew| = symmetric = beacon-like
     (skewness.abs() / 2.0).min(1.0)
@@ -196,7 +234,9 @@ fn compute_madm(intervals: &[f64]) -> f64 {
     let mut sorted = intervals.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let median = percentile(&sorted, 50.0);
-    if median <= 0.0 { return 1.0; }
+    if median <= 0.0 {
+        return 1.0;
+    }
     // Compute absolute deviations from median
     let mut deviations: Vec<f64> = sorted.iter().map(|i| (i - median).abs()).collect();
     deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -214,14 +254,18 @@ fn compute_bowley(intervals: &[f64]) -> f64 {
     let mut sorted = intervals.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    if sorted.len() < 4 { return 0.5; }
+    if sorted.len() < 4 {
+        return 0.5;
+    }
 
     let q1 = percentile(&sorted, 25.0);
     let q2 = percentile(&sorted, 50.0);
     let q3 = percentile(&sorted, 75.0);
 
     let iqr = q3 - q1;
-    if iqr <= 0.0 { return 0.0; } // All quartiles equal = beacon
+    if iqr <= 0.0 {
+        return 0.0;
+    } // All quartiles equal = beacon
 
     let bowley = (q1 + q3 - 2.0 * q2) / iqr;
     // Normalize: |bowley| is already 0-1 range
@@ -230,8 +274,12 @@ fn compute_bowley(intervals: &[f64]) -> f64 {
 
 /// Compute percentile using linear interpolation.
 fn percentile(sorted: &[f64], pct: f64) -> f64 {
-    if sorted.is_empty() { return 0.0; }
-    if sorted.len() == 1 { return sorted[0]; }
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
     let idx = (pct / 100.0) * (sorted.len() - 1) as f64;
     let lower = idx.floor() as usize;
     let upper = idx.ceil() as usize;
@@ -245,15 +293,22 @@ fn percentile(sorted: &[f64], pct: f64) -> f64 {
 
 /// Create a finding for a detected beacon.
 async fn create_beacon_finding(store: &dyn Database, beacon: &BeaconCandidate) {
-    let severity = if beacon.combined_score < SCORE_CRITICAL { "CRITICAL" } else { "HIGH" };
-    let confidence = if beacon.combined_score < SCORE_CRITICAL { "très élevée" } else { "élevée" };
+    let severity = if beacon.combined_score < SCORE_CRITICAL {
+        "CRITICAL"
+    } else {
+        "HIGH"
+    };
+    let confidence = if beacon.combined_score < SCORE_CRITICAL {
+        "très élevée"
+    } else {
+        "élevée"
+    };
 
     let sni_info = beacon.server_name.as_deref().unwrap_or("inconnu");
 
     let title = format!(
         "Beacon C2 détecté: {} → {}:{} (intervalle {:.0}s, score {:.3})",
-        beacon.src_ip, beacon.dst_ip, beacon.dst_port,
-        beacon.mean_interval, beacon.combined_score
+        beacon.src_ip, beacon.dst_ip, beacon.dst_port, beacon.mean_interval, beacon.combined_score
     );
 
     let description = format!(
@@ -276,39 +331,49 @@ async fn create_beacon_finding(store: &dyn Database, beacon: &BeaconCandidate) {
          \n\
          Action recommandée: vérifier le processus source sur la machine, \
          analyser le trafic réseau, isoler si confirmé.",
-        beacon.src_ip, beacon.dst_ip, beacon.dst_port, sni_info,
+        beacon.src_ip,
+        beacon.dst_ip,
+        beacon.dst_port,
+        sni_info,
         beacon.connection_count,
         beacon.mean_interval,
-        beacon.combined_score, SCORE_HIGH, SCORE_CRITICAL,
+        beacon.combined_score,
+        SCORE_HIGH,
+        SCORE_CRITICAL,
         confidence,
-        beacon.cv, beacon.skew, beacon.madm, beacon.bowley,
+        beacon.cv,
+        beacon.skew,
+        beacon.madm,
+        beacon.bowley,
         beacon.combined_score,
     );
 
-    let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-        skill_id: "ndr-beacon".into(),
-        title,
-        description: Some(description),
-        severity: severity.into(),
-        category: Some("c2-detection".into()),
-        asset: Some(beacon.src_ip.clone()),
-        source: Some("Beacon timing analysis (RITA 4-score)".into()),
-        metadata: Some(serde_json::json!({
-            "src_ip": beacon.src_ip,
-            "dst_ip": beacon.dst_ip,
-            "dst_port": beacon.dst_port,
-            "server_name": beacon.server_name,
-            "connection_count": beacon.connection_count,
-            "mean_interval_sec": beacon.mean_interval,
-            "score_cv": beacon.cv,
-            "score_skew": beacon.skew,
-            "score_madm": beacon.madm,
-            "score_bowley": beacon.bowley,
-            "score_combined": beacon.combined_score,
-            "detection": "beacon-timing-rita",
-            "mitre": ["T1071.001", "T1573.002"]
-        })),
-    }).await;
+    let _ = store
+        .insert_finding(&crate::db::threatclaw_store::NewFinding {
+            skill_id: "ndr-beacon".into(),
+            title,
+            description: Some(description),
+            severity: severity.into(),
+            category: Some("c2-detection".into()),
+            asset: Some(beacon.src_ip.clone()),
+            source: Some("Beacon timing analysis (RITA 4-score)".into()),
+            metadata: Some(serde_json::json!({
+                "src_ip": beacon.src_ip,
+                "dst_ip": beacon.dst_ip,
+                "dst_port": beacon.dst_port,
+                "server_name": beacon.server_name,
+                "connection_count": beacon.connection_count,
+                "mean_interval_sec": beacon.mean_interval,
+                "score_cv": beacon.cv,
+                "score_skew": beacon.skew,
+                "score_madm": beacon.madm,
+                "score_bowley": beacon.bowley,
+                "score_combined": beacon.combined_score,
+                "detection": "beacon-timing-rita",
+                "mitre": ["T1071.001", "T1573.002"]
+            })),
+        })
+        .await;
 }
 
 /// Check if an IP is in a private/internal range.
@@ -377,7 +442,11 @@ mod tests {
             + W_SKEW * compute_skew(&intervals)
             + W_MADM * compute_madm(&intervals)
             + W_BOWLEY * compute_bowley(&intervals);
-        assert!(combined < SCORE_CRITICAL, "perfect beacon combined: {}", combined);
+        assert!(
+            combined < SCORE_CRITICAL,
+            "perfect beacon combined: {}",
+            combined
+        );
     }
 
     #[test]

@@ -96,7 +96,8 @@ async fn async_main() -> anyhow::Result<()> {
         }
         Some(Command::Logs(logs_cmd)) => {
             init_cli_tracing();
-            return threatclaw::cli::run_logs_command(logs_cmd.clone(), cli.config.as_deref()).await;
+            return threatclaw::cli::run_logs_command(logs_cmd.clone(), cli.config.as_deref())
+                .await;
         }
         Some(Command::Doctor) => {
             init_cli_tracing();
@@ -122,7 +123,8 @@ async fn async_main() -> anyhow::Result<()> {
             max_iterations,
         }) => {
             init_worker_tracing();
-            return threatclaw::worker::run_worker(*job_id, orchestrator_url, *max_iterations).await;
+            return threatclaw::worker::run_worker(*job_id, orchestrator_url, *max_iterations)
+                .await;
         }
         Some(Command::ClaudeBridge {
             job_id,
@@ -194,7 +196,10 @@ async fn async_main() -> anyhow::Result<()> {
     #[cfg(any(feature = "postgres", feature = "libsql"))]
     if !cli.no_onboard {
         if let Some(reason) = threatclaw::setup::check_onboard_needed() {
-            tracing::info!("First-run detected ({}). Configure via the dashboard at http://localhost:3001/setup", reason);
+            tracing::info!(
+                "First-run detected ({}). Configure via the dashboard at http://localhost:3001/setup",
+                reason
+            );
         }
     }
 

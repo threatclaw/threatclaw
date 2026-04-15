@@ -5,7 +5,7 @@
 //! L2 Reasoning receives notes in its investigation context.
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -74,7 +74,11 @@ pub async fn create_note(
     let conf = confidence.unwrap_or(0);
     let cypher = format!(
         "CREATE (n:Note {{id: '{}', content: '{}', author: '{}', confidence: {}, created: '{}'}}) RETURN n",
-        esc(&note.id), esc(content), esc(author_str), conf, note.created.to_rfc3339()
+        esc(&note.id),
+        esc(content),
+        esc(author_str),
+        conf,
+        note.created.to_rfc3339()
     );
     mutate(store, &cypher).await;
 
@@ -98,7 +102,11 @@ async fn annotate_object(store: &dyn Database, note_id: &str, object_ref: &str) 
         let cypher = format!(
             "MATCH (n:Note {{id: '{}'}}), (t:{} {{{}: '{}'}}) \
              CREATE (n)-[:ANNOTATES {{created: '{}'}}]->(t)",
-            esc(note_id), label, id_field, esc(object_ref), Utc::now().to_rfc3339()
+            esc(note_id),
+            label,
+            id_field,
+            esc(object_ref),
+            Utc::now().to_rfc3339()
         );
         if mutate(store, &cypher).await {
             tracing::debug!("NOTE: Linked {} → {}:{}", note_id, label, object_ref);
@@ -106,66 +114,87 @@ async fn annotate_object(store: &dyn Database, note_id: &str, object_ref: &str) 
         }
     }
 
-    tracing::warn!("NOTE: Could not link {} → {} (target not found in graph)", note_id, object_ref);
+    tracing::warn!(
+        "NOTE: Could not link {} → {} (target not found in graph)",
+        note_id,
+        object_ref
+    );
 }
 
 /// Find all notes annotating a specific IP.
 pub async fn find_notes_for_ip(store: &dyn Database, ip_addr: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (n:Note)-[:ANNOTATES]->(ip:IP {{addr: '{}'}}) \
+    query(
+        store,
+        &format!(
+            "MATCH (n:Note)-[:ANNOTATES]->(ip:IP {{addr: '{}'}}) \
          RETURN n.id, n.content, n.author, n.confidence, n.created \
          ORDER BY n.created DESC",
-        esc(ip_addr)
-    )).await
+            esc(ip_addr)
+        ),
+    )
+    .await
 }
 
 /// Find all notes annotating a specific asset.
 pub async fn find_notes_for_asset(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (n:Note)-[:ANNOTATES]->(a:Asset {{id: '{}'}}) \
+    query(
+        store,
+        &format!(
+            "MATCH (n:Note)-[:ANNOTATES]->(a:Asset {{id: '{}'}}) \
          RETURN n.id, n.content, n.author, n.confidence, n.created \
          ORDER BY n.created DESC",
-        esc(asset_id)
-    )).await
+            esc(asset_id)
+        ),
+    )
+    .await
 }
 
 /// Find all notes annotating a specific CVE.
 pub async fn find_notes_for_cve(store: &dyn Database, cve_id: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (n:Note)-[:ANNOTATES]->(c:CVE {{id: '{}'}}) \
+    query(
+        store,
+        &format!(
+            "MATCH (n:Note)-[:ANNOTATES]->(c:CVE {{id: '{}'}}) \
          RETURN n.id, n.content, n.author, n.confidence, n.created \
          ORDER BY n.created DESC",
-        esc(cve_id)
-    )).await
+            esc(cve_id)
+        ),
+    )
+    .await
 }
 
 /// Find all notes by a specific author.
 pub async fn find_notes_by_author(store: &dyn Database, author: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (n:Note)-[:ANNOTATES]->(target) \
+    query(
+        store,
+        &format!(
+            "MATCH (n:Note)-[:ANNOTATES]->(target) \
          WHERE n.author = '{}' \
          RETURN n.id, n.content, n.confidence, n.created, labels(target) \
          ORDER BY n.created DESC",
-        esc(author)
-    )).await
+            esc(author)
+        ),
+    )
+    .await
 }
 
 /// Get all notes (paginated).
 pub async fn list_notes(store: &dyn Database, limit: u64) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (n:Note)-[:ANNOTATES]->(target) \
+    query(
+        store,
+        &format!(
+            "MATCH (n:Note)-[:ANNOTATES]->(target) \
          RETURN n.id, n.content, n.author, n.confidence, n.created, labels(target) \
          ORDER BY n.created DESC LIMIT {}",
-        limit
-    )).await
+            limit
+        ),
+    )
+    .await
 }
 
 /// Delete a note and its ANNOTATES edges.
 pub async fn delete_note(store: &dyn Database, note_id: &str) -> bool {
-    let cypher = format!(
-        "MATCH (n:Note {{id: '{}'}}) DETACH DELETE n",
-        esc(note_id)
-    );
+    let cypher = format!("MATCH (n:Note {{id: '{}'}}) DETACH DELETE n", esc(note_id));
     mutate(store, &cypher).await
 }
 
@@ -179,7 +208,8 @@ pub fn format_notes_for_prompt(notes: &[serde_json::Value]) -> String {
     let mut out = String::from("## Notes Analyste (connaissance humaine validée)\n");
     for note in notes.iter().take(10) {
         let result = &note["result"];
-        let content = result["n.content"].as_str()
+        let content = result["n.content"]
+            .as_str()
             .or_else(|| result.as_str())
             .unwrap_or("");
         let author = result["n.author"].as_str().unwrap_or("rssi");
@@ -187,7 +217,10 @@ pub fn format_notes_for_prompt(notes: &[serde_json::Value]) -> String {
         let confidence = result["n.confidence"].as_i64().unwrap_or(0);
 
         if !content.is_empty() {
-            out.push_str(&format!("- [{}] {} (confiance {}/100): {}\n", created, author, confidence, content));
+            out.push_str(&format!(
+                "- [{}] {} (confiance {}/100): {}\n",
+                created, author, confidence, content
+            ));
         }
     }
     out

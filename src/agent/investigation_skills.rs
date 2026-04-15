@@ -4,9 +4,9 @@
 //! or deny its hypothesis. All skills here are read-only — no remediation,
 //! no write actions. Remediation goes through HITL at stage 3.
 
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
+use std::sync::Arc;
 
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
@@ -30,12 +30,30 @@ pub struct SkillResult {
 /// Schema of available investigation skills (injected into the LLM prompt)
 pub fn investigation_skills_description() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("ip_reputation", "Lookup IP reputation via GreyNoise. Returns malicious/benign/noise classification."),
-        ("cve_lookup", "Lookup CVE details from NVD cache. Returns CVSS score, description, exploited_in_wild."),
-        ("threat_intel", "Cross-reference an IoC (IP, URL, hash) with ThreatFox. Returns threat type, malware family."),
-        ("mitre_context", "Get MITRE ATT&CK technique details: name, tactic, description, detection."),
-        ("log_search", "Search recent logs by hostname. Returns matching log entries."),
-        ("asset_context", "Get asset details: category, OS, IPs, criticality."),
+        (
+            "ip_reputation",
+            "Lookup IP reputation via GreyNoise. Returns malicious/benign/noise classification.",
+        ),
+        (
+            "cve_lookup",
+            "Lookup CVE details from NVD cache. Returns CVSS score, description, exploited_in_wild.",
+        ),
+        (
+            "threat_intel",
+            "Cross-reference an IoC (IP, URL, hash) with ThreatFox. Returns threat type, malware family.",
+        ),
+        (
+            "mitre_context",
+            "Get MITRE ATT&CK technique details: name, tactic, description, detection.",
+        ),
+        (
+            "log_search",
+            "Search recent logs by hostname. Returns matching log entries.",
+        ),
+        (
+            "asset_context",
+            "Get asset details: category, OS, IPs, criticality.",
+        ),
     ]
 }
 
@@ -53,7 +71,10 @@ pub async fn execute_investigation_skill(
         "mitre_context" => execute_mitre_context(&request.params, store).await,
         "log_search" => execute_log_search(&request.params, store).await,
         "asset_context" => execute_asset_context(&request.params, store).await,
-        _ => (false, json!({"error": format!("Unknown skill: {}", request.skill_name)})),
+        _ => (
+            false,
+            json!({"error": format!("Unknown skill: {}", request.skill_name)}),
+        ),
     };
 
     SkillResult {
@@ -128,7 +149,10 @@ async fn execute_cve_lookup(params: &Value, store: &Arc<dyn Database>) -> (bool,
                 "patch_urls": cve.patch_urls,
             }),
         ),
-        Err(e) => (false, json!({"error": format!("CVE lookup: {e}"), "cve_id": cve_id})),
+        Err(e) => (
+            false,
+            json!({"error": format!("CVE lookup: {e}"), "cve_id": cve_id}),
+        ),
     }
 }
 
@@ -196,20 +220,11 @@ async fn execute_mitre_context(params: &Value, store: &Arc<dyn Database>) -> (bo
 }
 
 async fn execute_log_search(params: &Value, store: &Arc<dyn Database>) -> (bool, Value) {
-    let hostname = params
-        .get("hostname")
-        .and_then(|v| v.as_str());
-    let minutes = params
-        .get("hours")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(24)
-        * 60;
+    let hostname = params.get("hostname").and_then(|v| v.as_str());
+    let minutes = params.get("hours").and_then(|v| v.as_i64()).unwrap_or(24) * 60;
     let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(20);
 
-    match store
-        .query_logs(minutes, hostname, None, limit)
-        .await
-    {
+    match store.query_logs(minutes, hostname, None, limit).await {
         Ok(logs) => {
             let entries: Vec<Value> = logs
                 .iter()
@@ -222,10 +237,7 @@ async fn execute_log_search(params: &Value, store: &Arc<dyn Database>) -> (bool,
                     })
                 })
                 .collect();
-            (
-                true,
-                json!({"matches": entries.len(), "entries": entries}),
-            )
+            (true, json!({"matches": entries.len(), "entries": entries}))
         }
         Err(e) => (false, json!({"error": format!("Log search: {e}")})),
     }

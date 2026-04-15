@@ -22,8 +22,12 @@ pub struct VeeamConfig {
     pub max_sessions: u32,
 }
 
-fn default_true() -> bool { true }
-fn default_limit() -> u32 { 100 }
+fn default_true() -> bool {
+    true
+}
+fn default_limit() -> u32 {
+    100
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct VeeamSyncResult {
@@ -34,7 +38,9 @@ pub struct VeeamSyncResult {
 
 pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSyncResult {
     let mut result = VeeamSyncResult {
-        sessions_checked: 0, findings_created: 0, errors: vec![],
+        sessions_checked: 0,
+        findings_created: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -43,51 +49,74 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
         .build()
     {
         Ok(c) => c,
-        Err(e) => { result.errors.push(format!("HTTP client: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("HTTP client: {}", e));
+            return result;
+        }
     };
 
     let url = config.url.trim_end_matches('/');
     tracing::info!("VEEAM: Connecting to {}", url);
 
     // OAuth2 token
-    let token_resp = match client.post(format!("{}/api/oauth2/token", url))
+    let token_resp = match client
+        .post(format!("{}/api/oauth2/token", url))
         .header("x-api-version", "1.1-rev2")
         .form(&[
             ("grant_type", "password"),
             ("username", &config.username),
             ("password", &config.password),
         ])
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("Auth: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Auth: {}", e));
+            return result;
+        }
     };
 
     if !token_resp.status().is_success() {
         let status = token_resp.status();
         let text = token_resp.text().await.unwrap_or_default();
-        result.errors.push(format!("Auth HTTP {}: {}", status, &text[..text.len().min(200)]));
+        result.errors.push(format!(
+            "Auth HTTP {}: {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
         return result;
     }
 
     let token_data: serde_json::Value = match token_resp.json().await {
         Ok(d) => d,
-        Err(e) => { result.errors.push(format!("Parse token: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Parse token: {}", e));
+            return result;
+        }
     };
 
     let token = match token_data["access_token"].as_str() {
         Some(t) => t.to_string(),
-        None => { result.errors.push("No access_token".into()); return result; }
+        None => {
+            result.errors.push("No access_token".into());
+            return result;
+        }
     };
 
     tracing::info!("VEEAM: Authenticated");
 
     // Fetch backup sessions
-    let sessions_url = format!("{}/api/v1/sessions?limit={}&orderAsc=false", url, config.max_sessions);
-    match client.get(&sessions_url)
+    let sessions_url = format!(
+        "{}/api/v1/sessions?limit={}&orderAsc=false",
+        url, config.max_sessions
+    );
+    match client
+        .get(&sessions_url)
         .header("Authorization", format!("Bearer {}", token))
         .header("x-api-version", "1.1-rev2")
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -96,7 +125,8 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
 
                     for session in sessions {
                         let name = session["name"].as_str().unwrap_or("Unknown job");
-                        let session_result = session["result"]["result"].as_str()
+                        let session_result = session["result"]["result"]
+                            .as_str()
                             .or_else(|| session["result"].as_str())
                             .unwrap_or("");
                         let state = session["state"].as_str().unwrap_or("");
@@ -112,22 +142,27 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
                         };
 
                         if should_create {
-                            let _ = store.insert_finding(&NewFinding {
-                                skill_id: "skill-veeam".into(),
-                                title: format!("[Veeam] {} — {}", name, session_result),
-                                description: Some(format!("Type: {}, State: {}, Ended: {}", session_type, state, end_time)),
-                                severity: severity.into(),
-                                category: Some("backup".into()),
-                                asset: None,
-                                source: Some("Veeam Backup".into()),
-                                metadata: Some(serde_json::json!({
-                                    "job_name": name,
-                                    "result": session_result,
-                                    "state": state,
-                                    "session_type": session_type,
-                                    "end_time": end_time,
-                                })),
-                            }).await;
+                            let _ = store
+                                .insert_finding(&NewFinding {
+                                    skill_id: "skill-veeam".into(),
+                                    title: format!("[Veeam] {} — {}", name, session_result),
+                                    description: Some(format!(
+                                        "Type: {}, State: {}, Ended: {}",
+                                        session_type, state, end_time
+                                    )),
+                                    severity: severity.into(),
+                                    category: Some("backup".into()),
+                                    asset: None,
+                                    source: Some("Veeam Backup".into()),
+                                    metadata: Some(serde_json::json!({
+                                        "job_name": name,
+                                        "result": session_result,
+                                        "state": state,
+                                        "session_type": session_type,
+                                        "end_time": end_time,
+                                    })),
+                                })
+                                .await;
                             result.findings_created += 1;
                         }
                     }
@@ -135,7 +170,9 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
             }
         }
         Ok(resp) => {
-            result.errors.push(format!("Sessions HTTP {}", resp.status()));
+            result
+                .errors
+                .push(format!("Sessions HTTP {}", resp.status()));
         }
         Err(e) => {
             result.errors.push(format!("Sessions request: {}", e));
@@ -144,10 +181,12 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
 
     // Check malware detection (v12+ feature, may 404 on older versions)
     let malware_url = format!("{}/api/v1/malwareDetection/detectedObjects", url);
-    match client.get(&malware_url)
+    match client
+        .get(&malware_url)
         .header("Authorization", format!("Bearer {}", token))
         .header("x-api-version", "1.1-rev2")
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -157,20 +196,29 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
                         let malware_name = detection["malwareName"].as_str().unwrap_or("unknown");
                         let machine = detection["machineName"].as_str().unwrap_or("");
 
-                        let _ = store.insert_finding(&NewFinding {
-                            skill_id: "skill-veeam".into(),
-                            title: format!("[Veeam] Malware '{}' in backup of {}", malware_name, obj_name),
-                            description: Some(format!("Machine: {}", machine)),
-                            severity: "CRITICAL".into(),
-                            category: Some("malware".into()),
-                            asset: if machine.is_empty() { None } else { Some(machine.to_string()) },
-                            source: Some("Veeam Malware Detection".into()),
-                            metadata: Some(serde_json::json!({
-                                "object_name": obj_name,
-                                "malware_name": malware_name,
-                                "machine": machine,
-                            })),
-                        }).await;
+                        let _ = store
+                            .insert_finding(&NewFinding {
+                                skill_id: "skill-veeam".into(),
+                                title: format!(
+                                    "[Veeam] Malware '{}' in backup of {}",
+                                    malware_name, obj_name
+                                ),
+                                description: Some(format!("Machine: {}", machine)),
+                                severity: "CRITICAL".into(),
+                                category: Some("malware".into()),
+                                asset: if machine.is_empty() {
+                                    None
+                                } else {
+                                    Some(machine.to_string())
+                                },
+                                source: Some("Veeam Malware Detection".into()),
+                                metadata: Some(serde_json::json!({
+                                    "object_name": obj_name,
+                                    "malware_name": malware_name,
+                                    "machine": machine,
+                                })),
+                            })
+                            .await;
                         result.findings_created += 1;
                     }
                 }
@@ -184,10 +232,12 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
 
     // Check repository usage
     let repo_url = format!("{}/api/v1/backupInfrastructure/repositories", url);
-    match client.get(&repo_url)
+    match client
+        .get(&repo_url)
         .header("Authorization", format!("Bearer {}", token))
         .header("x-api-version", "1.1-rev2")
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
@@ -200,21 +250,30 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
                         if capacity > 0.0 {
                             let used_pct = ((capacity - free) / capacity * 100.0) as u32;
                             if used_pct >= 90 {
-                                let _ = store.insert_finding(&NewFinding {
-                                    skill_id: "skill-veeam".into(),
-                                    title: format!("[Veeam] Repository '{}' {}% full", name, used_pct),
-                                    description: Some(format!("Free: {:.1} GB / {:.1} GB total", free, capacity)),
-                                    severity: if used_pct >= 95 { "HIGH" } else { "MEDIUM" }.into(),
-                                    category: Some("backup".into()),
-                                    asset: None,
-                                    source: Some("Veeam Backup".into()),
-                                    metadata: Some(serde_json::json!({
-                                        "repository": name,
-                                        "used_pct": used_pct,
-                                        "capacity_gb": capacity,
-                                        "free_gb": free,
-                                    })),
-                                }).await;
+                                let _ = store
+                                    .insert_finding(&NewFinding {
+                                        skill_id: "skill-veeam".into(),
+                                        title: format!(
+                                            "[Veeam] Repository '{}' {}% full",
+                                            name, used_pct
+                                        ),
+                                        description: Some(format!(
+                                            "Free: {:.1} GB / {:.1} GB total",
+                                            free, capacity
+                                        )),
+                                        severity: if used_pct >= 95 { "HIGH" } else { "MEDIUM" }
+                                            .into(),
+                                        category: Some("backup".into()),
+                                        asset: None,
+                                        source: Some("Veeam Backup".into()),
+                                        metadata: Some(serde_json::json!({
+                                            "repository": name,
+                                            "used_pct": used_pct,
+                                            "capacity_gb": capacity,
+                                            "free_gb": free,
+                                        })),
+                                    })
+                                    .await;
                                 result.findings_created += 1;
                             }
                         }
@@ -225,6 +284,10 @@ pub async fn sync_veeam(store: &dyn Database, config: &VeeamConfig) -> VeeamSync
         _ => {}
     }
 
-    tracing::info!("VEEAM: Sync done — {} sessions, {} findings", result.sessions_checked, result.findings_created);
+    tracing::info!(
+        "VEEAM: Sync done — {} sessions, {} findings",
+        result.sessions_checked,
+        result.findings_created
+    );
     result
 }

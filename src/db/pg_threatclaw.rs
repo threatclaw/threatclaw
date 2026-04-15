@@ -24,7 +24,8 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
 fn strip_agtype_quotes(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
-            let cleaned: serde_json::Map<String, serde_json::Value> = map.into_iter()
+            let cleaned: serde_json::Map<String, serde_json::Value> = map
+                .into_iter()
                 .map(|(k, v)| (k, strip_agtype_quotes(v)))
                 .collect();
             serde_json::Value::Object(cleaned)
@@ -51,8 +52,12 @@ fn strip_agtype_quotes(value: serde_json::Value) -> serde_json::Value {
                     return serde_json::Value::Number(n);
                 }
             }
-            if s == "true" { return serde_json::Value::Bool(true); }
-            if s == "false" { return serde_json::Value::Bool(false); }
+            if s == "true" {
+                return serde_json::Value::Bool(true);
+            }
+            if s == "false" {
+                return serde_json::Value::Bool(false);
+            }
             value
         }
         _ => value,
@@ -71,8 +76,14 @@ fn split_return_columns(return_clause: &str) -> Vec<String> {
     let mut current = String::new();
     for ch in trimmed.chars() {
         match ch {
-            '(' | '[' => { depth += 1; current.push(ch); }
-            ')' | ']' => { depth -= 1; current.push(ch); }
+            '(' | '[' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' | ']' => {
+                depth -= 1;
+                current.push(ch);
+            }
             ',' if depth == 0 => {
                 cols.push(current.trim().to_string());
                 current.clear();
@@ -98,12 +109,15 @@ impl ThreatClawStore for PgBackend {
 
         // Deduplicate: if a finding with same skill_id + title + asset already exists
         // and is still open, update it instead of creating a duplicate.
-        let existing = conn.query_opt(
-            r#"SELECT id, status FROM findings
+        let existing = conn
+            .query_opt(
+                r#"SELECT id, status FROM findings
                WHERE skill_id = $1 AND title = $2 AND COALESCE(asset, '') = COALESCE($3, '')
                ORDER BY id DESC LIMIT 1"#,
-            &[&f.skill_id, &f.title, &f.asset],
-        ).await.map_err(query_err)?;
+                &[&f.skill_id, &f.title, &f.asset],
+            )
+            .await
+            .map_err(query_err)?;
 
         if let Some(row) = existing {
             let id: i64 = row.get(0);
@@ -114,7 +128,9 @@ impl ThreatClawStore for PgBackend {
                     r#"UPDATE findings SET detected_at = NOW(), metadata = $1, severity = $2
                        WHERE id = $3"#,
                     &[meta, &f.severity, &id],
-                ).await.map_err(query_err)?;
+                )
+                .await
+                .map_err(query_err)?;
                 return Ok(id);
             }
             // If resolved/false_positive but found again → reopen
@@ -123,7 +139,9 @@ impl ThreatClawStore for PgBackend {
                    resolved_by = NULL, metadata = $1, severity = $2
                    WHERE id = $3"#,
                 &[meta, &f.severity, &id],
-            ).await.map_err(query_err)?;
+            )
+            .await
+            .map_err(query_err)?;
             return Ok(id);
         }
 
@@ -131,14 +149,17 @@ impl ThreatClawStore for PgBackend {
         // already reported the same CVE on the same asset. If so, merge sources.
         let cve_id = meta.get("cve").and_then(|v| v.as_str()).unwrap_or("");
         if !cve_id.is_empty() {
-            let cross = conn.query_opt(
-                r#"SELECT id, source, metadata FROM findings
+            let cross = conn
+                .query_opt(
+                    r#"SELECT id, source, metadata FROM findings
                    WHERE metadata->>'cve' = $1
                    AND COALESCE(asset, '') = COALESCE($2, '')
                    AND skill_id != $3
                    ORDER BY id DESC LIMIT 1"#,
-                &[&cve_id, &f.asset, &f.skill_id],
-            ).await.map_err(query_err)?;
+                    &[&cve_id, &f.asset, &f.skill_id],
+                )
+                .await
+                .map_err(query_err)?;
 
             if let Some(row) = cross {
                 let id: i64 = row.get(0);
@@ -154,7 +175,8 @@ impl ThreatClawStore for PgBackend {
                 };
                 // Merge metadata: add confirmed_by list
                 if let Some(obj) = existing_meta.as_object_mut() {
-                    let mut confirmed: Vec<String> = obj.get("confirmed_by")
+                    let mut confirmed: Vec<String> = obj
+                        .get("confirmed_by")
                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default();
                     if !confirmed.contains(&new_source.to_string()) {
@@ -167,7 +189,9 @@ impl ThreatClawStore for PgBackend {
                        severity = CASE WHEN $3 = 'CRITICAL' THEN 'CRITICAL' ELSE severity END
                        WHERE id = $4"#,
                     &[&merged_source, &existing_meta, &f.severity, &id],
-                ).await.map_err(query_err)?;
+                )
+                .await
+                .map_err(query_err)?;
                 return Ok(id);
             }
         }
@@ -209,12 +233,24 @@ impl ThreatClawStore for PgBackend {
             .await
             .map_err(query_err)?;
 
-        Ok(rows.iter().map(|r| FindingRecord {
-            id: r.get(0), skill_id: r.get(1), title: r.get(2), description: r.get(3),
-            severity: r.get(4), status: r.get(5), category: r.get(6), asset: r.get(7),
-            source: r.get(8), metadata: r.get(9), detected_at: r.get(10),
-            resolved_at: r.get(11), resolved_by: r.get(12),
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| FindingRecord {
+                id: r.get(0),
+                skill_id: r.get(1),
+                title: r.get(2),
+                description: r.get(3),
+                severity: r.get(4),
+                status: r.get(5),
+                category: r.get(6),
+                asset: r.get(7),
+                source: r.get(8),
+                metadata: r.get(9),
+                detected_at: r.get(10),
+                resolved_at: r.get(11),
+                resolved_by: r.get(12),
+            })
+            .collect())
     }
 
     async fn count_findings_filtered(
@@ -224,13 +260,16 @@ impl ThreatClawStore for PgBackend {
         skill_id: Option<&str>,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            r#"SELECT COUNT(*)::bigint FROM findings
+        let row = conn
+            .query_one(
+                r#"SELECT COUNT(*)::bigint FROM findings
                WHERE ($1::text IS NULL OR UPPER(severity) = UPPER($1))
                  AND ($2::text IS NULL OR status = $2)
                  AND ($3::text IS NULL OR skill_id = $3)"#,
-            &[&severity, &status, &skill_id],
-        ).await.map_err(query_err)?;
+                &[&severity, &status, &skill_id],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
@@ -247,15 +286,27 @@ impl ThreatClawStore for PgBackend {
             .map_err(query_err)?;
 
         Ok(row.map(|r| FindingRecord {
-            id: r.get(0), skill_id: r.get(1), title: r.get(2), description: r.get(3),
-            severity: r.get(4), status: r.get(5), category: r.get(6), asset: r.get(7),
-            source: r.get(8), metadata: r.get(9), detected_at: r.get(10),
-            resolved_at: r.get(11), resolved_by: r.get(12),
+            id: r.get(0),
+            skill_id: r.get(1),
+            title: r.get(2),
+            description: r.get(3),
+            severity: r.get(4),
+            status: r.get(5),
+            category: r.get(6),
+            asset: r.get(7),
+            source: r.get(8),
+            metadata: r.get(9),
+            detected_at: r.get(10),
+            resolved_at: r.get(11),
+            resolved_by: r.get(12),
         }))
     }
 
     async fn update_finding_status(
-        &self, id: i64, status: &str, resolved_by: Option<&str>,
+        &self,
+        id: i64,
+        status: &str,
+        resolved_by: Option<&str>,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let resolved: Option<&str> = resolved_by;
@@ -264,12 +315,16 @@ impl ThreatClawStore for PgBackend {
                       resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
                WHERE id = $3"#,
             &[&status, &resolved, &id],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
     async fn auto_close_stale_findings(
-        &self, skill_id: &str, since: &str,
+        &self,
+        skill_id: &str,
+        since: &str,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_one(
@@ -283,12 +338,15 @@ impl ThreatClawStore for PgBackend {
             Ok(r) => Ok(r.get::<_, i64>(0)),
             Err(_) => {
                 // If no rows matched, the RETURNING fails — count directly
-                let count = conn.query_one(
-                    r#"SELECT COUNT(*)::bigint FROM findings
+                let count = conn
+                    .query_one(
+                        r#"SELECT COUNT(*)::bigint FROM findings
                        WHERE skill_id = $1 AND status = 'resolved' AND resolved_by = 'auto-rescan'
                        AND resolved_at > NOW() - INTERVAL '1 minute'"#,
-                    &[&skill_id],
-                ).await.map_err(query_err)?;
+                        &[&skill_id],
+                    )
+                    .await
+                    .map_err(query_err)?;
                 Ok(count.get::<_, i64>(0))
             }
         }
@@ -303,40 +361,68 @@ impl ThreatClawStore for PgBackend {
                    CASE severity WHEN 'critical' THEN 1 WHEN 'high' THEN 2
                    WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END"#,
                 &[],
-            ).await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1))).collect())
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1)))
+            .collect())
     }
 
     // ── Shift Report queries ──
 
-    async fn count_findings_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+    async fn count_findings_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            "SELECT COUNT(*)::bigint FROM findings WHERE detected_at >= $1",
-            &[&since],
-        ).await.map_err(query_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM findings WHERE detected_at >= $1",
+                &[&since],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
-    async fn count_alerts_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+    async fn count_alerts_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            "SELECT COUNT(*)::bigint FROM sigma_alerts WHERE matched_at >= $1",
-            &[&since],
-        ).await.map_err(query_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM sigma_alerts WHERE matched_at >= $1",
+                &[&since],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
-    async fn count_incidents_since(&self, since: chrono::DateTime<chrono::Utc>) -> Result<i64, DatabaseError> {
+    async fn count_incidents_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            "SELECT COUNT(*)::bigint FROM incidents WHERE created_at >= $1",
-            &[&since],
-        ).await.map_err(query_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM incidents WHERE created_at >= $1",
+                &[&since],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
-    async fn list_finding_titles_since(&self, since: chrono::DateTime<chrono::Utc>, severity: &str, limit: i64) -> Result<Vec<String>, DatabaseError> {
+    async fn list_finding_titles_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        severity: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
             "SELECT title FROM findings WHERE detected_at >= $1 AND UPPER(severity) = UPPER($2) ORDER BY detected_at DESC LIMIT $3",
@@ -345,7 +431,11 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
     }
 
-    async fn list_active_assets_since(&self, since: chrono::DateTime<chrono::Utc>, limit: i64) -> Result<Vec<String>, DatabaseError> {
+    async fn list_active_assets_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
             "SELECT DISTINCT COALESCE(asset, 'unknown') FROM findings WHERE detected_at >= $1 \
@@ -357,7 +447,11 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
     }
 
-    async fn list_ml_anomalies(&self, threshold: f64, limit: i64) -> Result<Vec<String>, DatabaseError> {
+    async fn list_ml_anomalies(
+        &self,
+        threshold: f64,
+        limit: i64,
+    ) -> Result<Vec<String>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
             "SELECT asset_id || ' (score: ' || ROUND(score::numeric, 2) || ')' FROM ml_scores WHERE score >= $1 ORDER BY score DESC LIMIT $2",
@@ -367,7 +461,11 @@ impl ThreatClawStore for PgBackend {
     }
 
     async fn list_alerts(
-        &self, level: Option<&str>, status: Option<&str>, limit: i64, offset: i64,
+        &self,
+        level: Option<&str>,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
     ) -> Result<Vec<AlertRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Exclude archived by default. Pass "include_archived" to bypass or
@@ -379,7 +477,11 @@ impl ThreatClawStore for PgBackend {
             None | Some("all") | Some("include_archived") => None,
             Some(s) => Some(s.to_string()),
         };
-        let archived_clause = if include_archived { "" } else { " AND status != 'archived'" };
+        let archived_clause = if include_archived {
+            ""
+        } else {
+            " AND status != 'archived'"
+        };
         let q = format!(
             "SELECT id, rule_id, level, title, status, hostname, \
                     host(source_ip), username, matched_at::text, matched_fields \
@@ -392,24 +494,40 @@ impl ThreatClawStore for PgBackend {
         );
         let rows = conn
             .query(q.as_str(), &[&level, &effective_status, &limit, &offset])
-            .await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| AlertRecord {
-            id: r.get(0), rule_id: r.get(1), level: r.get(2), title: r.get(3),
-            status: r.get(4), hostname: r.get(5), source_ip: r.get(6),
-            username: r.get(7), matched_at: r.get(8), matched_fields: r.get(9),
-        }).collect())
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| AlertRecord {
+                id: r.get(0),
+                rule_id: r.get(1),
+                level: r.get(2),
+                title: r.get(3),
+                status: r.get(4),
+                hostname: r.get(5),
+                source_ip: r.get(6),
+                username: r.get(7),
+                matched_at: r.get(8),
+                matched_fields: r.get(9),
+            })
+            .collect())
     }
 
     async fn count_alerts_filtered(
-        &self, level: Option<&str>, status: Option<&str>,
+        &self,
+        level: Option<&str>,
+        status: Option<&str>,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            r#"SELECT COUNT(*)::bigint FROM sigma_alerts
+        let row = conn
+            .query_one(
+                r#"SELECT COUNT(*)::bigint FROM sigma_alerts
                WHERE ($1::text IS NULL OR UPPER(level) = UPPER($1))
                  AND ($2::text IS NULL OR status = $2)"#,
-            &[&level, &status],
-        ).await.map_err(query_err)?;
+                &[&level, &status],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
@@ -421,16 +539,28 @@ impl ThreatClawStore for PgBackend {
                           host(source_ip), username, matched_at::text, matched_fields
                    FROM sigma_alerts WHERE id = $1"#,
                 &[&id],
-            ).await.map_err(query_err)?;
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.map(|r| AlertRecord {
-            id: r.get(0), rule_id: r.get(1), level: r.get(2), title: r.get(3),
-            status: r.get(4), hostname: r.get(5), source_ip: r.get(6),
-            username: r.get(7), matched_at: r.get(8), matched_fields: r.get(9),
+            id: r.get(0),
+            rule_id: r.get(1),
+            level: r.get(2),
+            title: r.get(3),
+            status: r.get(4),
+            hostname: r.get(5),
+            source_ip: r.get(6),
+            username: r.get(7),
+            matched_at: r.get(8),
+            matched_fields: r.get(9),
         }))
     }
 
     async fn update_alert_status(
-        &self, id: i64, status: &str, notes: Option<&str>,
+        &self,
+        id: i64,
+        status: &str,
+        notes: Option<&str>,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
@@ -438,7 +568,9 @@ impl ThreatClawStore for PgBackend {
                       resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
                WHERE id = $3"#,
             &[&status, &notes, &id],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
@@ -451,44 +583,79 @@ impl ThreatClawStore for PgBackend {
                    CASE level WHEN 'critical' THEN 1 WHEN 'high' THEN 2
                    WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END"#,
                 &[],
-            ).await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1))).collect())
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1)))
+            .collect())
     }
 
-    async fn get_skill_config(&self, skill_id: &str) -> Result<Vec<SkillConfigRecord>, DatabaseError> {
+    async fn get_skill_config(
+        &self,
+        skill_id: &str,
+    ) -> Result<Vec<SkillConfigRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
-            .query("SELECT skill_id, key, value FROM skill_configs WHERE skill_id = $1 ORDER BY key", &[&skill_id])
-            .await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| SkillConfigRecord {
-            skill_id: r.get(0), key: r.get(1), value: r.get(2),
-        }).collect())
+            .query(
+                "SELECT skill_id, key, value FROM skill_configs WHERE skill_id = $1 ORDER BY key",
+                &[&skill_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| SkillConfigRecord {
+                skill_id: r.get(0),
+                key: r.get(1),
+                value: r.get(2),
+            })
+            .collect())
     }
 
-    async fn set_skill_config(&self, skill_id: &str, key: &str, value: &str) -> Result<(), DatabaseError> {
+    async fn set_skill_config(
+        &self,
+        skill_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             r#"INSERT INTO skill_configs (skill_id, key, value, updated_at)
                VALUES ($1, $2, $3, NOW())
                ON CONFLICT (skill_id, key) DO UPDATE SET value = $3, updated_at = NOW()"#,
             &[&skill_id, &key, &value],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
     async fn delete_skill_config(&self, skill_id: &str, key: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn.execute("DELETE FROM skill_configs WHERE skill_id = $1 AND key = $2", &[&skill_id, &key])
-            .await.map_err(query_err)?;
+        conn.execute(
+            "DELETE FROM skill_configs WHERE skill_id = $1 AND key = $2",
+            &[&skill_id, &key],
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
-    async fn record_metric(&self, name: &str, value: f64, labels: &serde_json::Value) -> Result<(), DatabaseError> {
+    async fn record_metric(
+        &self,
+        name: &str,
+        value: f64,
+        labels: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             "INSERT INTO metrics_snapshots (metric_name, metric_value, labels) VALUES ($1, $2, $3)",
             &[&name, &value, labels],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
@@ -547,16 +714,19 @@ impl ThreatClawStore for PgBackend {
             .await
             .map_err(query_err)?;
 
-        let rules: Vec<serde_json::Value> = rows.iter().map(|r| {
-            serde_json::json!({
-                "id": r.get::<_, uuid::Uuid>(0).to_string(),
-                "label": r.get::<_, String>(1),
-                "pattern": r.get::<_, String>(2),
-                "token_prefix": r.get::<_, String>(3),
-                "capture_group": r.get::<_, i32>(4),
-                "enabled": r.get::<_, bool>(5),
+        let rules: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, uuid::Uuid>(0).to_string(),
+                    "label": r.get::<_, String>(1),
+                    "pattern": r.get::<_, String>(2),
+                    "token_prefix": r.get::<_, String>(3),
+                    "capture_group": r.get::<_, i32>(4),
+                    "enabled": r.get::<_, bool>(5),
+                })
             })
-        }).collect();
+            .collect();
 
         Ok(rules)
     }
@@ -586,8 +756,7 @@ impl ThreatClawStore for PgBackend {
         let uuid = uuid::Uuid::parse_str(id)
             .map_err(|e| DatabaseError::Query(format!("Invalid UUID: {e}")))?;
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn
-            .execute("DELETE FROM anonymizer_rules WHERE id = $1", &[&uuid])
+        conn.execute("DELETE FROM anonymizer_rules WHERE id = $1", &[&uuid])
             .await
             .map_err(query_err)?;
         Ok(())
@@ -633,13 +802,16 @@ impl ThreatClawStore for PgBackend {
             }
         };
 
-        Ok(rows.iter().map(|r| LogRecord {
-            id: r.get(0),
-            tag: r.try_get(1).ok(),
-            time: r.get(2),
-            hostname: r.try_get(3).ok(),
-            data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| LogRecord {
+                id: r.get(0),
+                tag: r.try_get(1).ok(),
+                time: r.get(2),
+                hostname: r.try_get(3).ok(),
+                data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
+            })
+            .collect())
     }
 
     async fn insert_log(
@@ -652,7 +824,9 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Async commit for logs only — absorb bursts without disk bottleneck
         // Max loss: 200ms of raw logs on crash. Critical tables stay synchronous.
-        let _ = conn.execute("SET LOCAL synchronous_commit = off", &[]).await;
+        let _ = conn
+            .execute("SET LOCAL synchronous_commit = off", &[])
+            .await;
         let data_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
         let row = conn.query_one(
             "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3::jsonb, $4::timestamptz) RETURNING id",
@@ -672,7 +846,10 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Ensure the rule exists (create a stub if not)
-        let rule_yaml = format!("title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test", title, level);
+        let rule_yaml = format!(
+            "title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test",
+            title, level
+        );
         let empty_json = serde_json::json!({});
         conn.execute(
             "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) VALUES ($1, $2, $3, $4, $5::jsonb, true) ON CONFLICT (id) DO NOTHING",
@@ -723,7 +900,10 @@ impl ThreatClawStore for PgBackend {
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Use direct interval interpolation — safe because minutes_back is i64, not user input
-        let query = format!("SELECT COUNT(*) FROM logs WHERE time >= NOW() - INTERVAL '{} minutes'", minutes_back);
+        let query = format!(
+            "SELECT COUNT(*) FROM logs WHERE time >= NOW() - INTERVAL '{} minutes'",
+            minutes_back
+        );
         let row = conn.query_one(&query, &[]).await.map_err(query_err)?;
         Ok(row.get::<_, i64>(0))
     }
@@ -733,17 +913,24 @@ impl ThreatClawStore for PgBackend {
 
         // AGE requires loading + search_path set per session
         conn.execute("LOAD 'age'", &[]).await.map_err(query_err)?;
-        conn.execute("SET search_path = ag_catalog, \"$user\", public", &[]).await.map_err(query_err)?;
+        conn.execute("SET search_path = ag_catalog, \"$user\", public", &[])
+            .await
+            .map_err(query_err)?;
 
         // Auto-create graph if it doesn't exist (first run or fresh DB)
         if !GRAPH_ENSURED.load(Ordering::Relaxed) {
-            let graph_exists = conn.query_opt(
-                "SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'threat_graph'",
-                &[],
-            ).await.map_err(query_err)?;
+            let graph_exists = conn
+                .query_opt(
+                    "SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'threat_graph'",
+                    &[],
+                )
+                .await
+                .map_err(query_err)?;
             if graph_exists.is_none() {
                 tracing::info!("GRAPH: Creating 'threat_graph' (first run)");
-                conn.execute("SELECT * FROM ag_catalog.create_graph('threat_graph')", &[]).await.map_err(query_err)?;
+                conn.execute("SELECT * FROM ag_catalog.create_graph('threat_graph')", &[])
+                    .await
+                    .map_err(query_err)?;
             }
             GRAPH_ENSURED.store(true, Ordering::Relaxed);
         }
@@ -797,7 +984,8 @@ impl ThreatClawStore for PgBackend {
         let col_names = split_return_columns(return_fields);
 
         // Build column aliases using the original expression names (quoted for dots)
-        let cols: String = col_names.iter()
+        let cols: String = col_names
+            .iter()
             .map(|name| {
                 let alias = name.trim();
                 let display = if let Some(pos) = alias.to_uppercase().rfind(" AS ") {
@@ -817,14 +1005,19 @@ impl ThreatClawStore for PgBackend {
 
         match conn.query(&*sql, &[]).await {
             Ok(rows) => {
-                let results: Vec<serde_json::Value> = rows.iter()
+                let results: Vec<serde_json::Value> = rows
+                    .iter()
                     .filter_map(|r| r.try_get::<_, serde_json::Value>(0).ok())
                     .map(|v| strip_agtype_quotes(v))
                     .collect();
                 Ok(results)
             }
             Err(e) => {
-                tracing::debug!("CYPHER SQL failed: {} | SQL: {}", e, &sql[..sql.len().min(200)]);
+                tracing::debug!(
+                    "CYPHER SQL failed: {} | SQL: {}",
+                    e,
+                    &sql[..sql.len().min(200)]
+                );
                 Err(query_err(e))
             }
         }
@@ -849,7 +1042,9 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let response_str = response_json.map(|v| serde_json::to_string(v).unwrap_or_default());
         let response_jsonb = response_str.as_deref().unwrap_or("null");
-        let raw: String = raw_response.map(|r| r.chars().take(2000).collect::<String>()).unwrap_or_default();
+        let raw: String = raw_response
+            .map(|r| r.chars().take(2000).collect::<String>())
+            .unwrap_or_default();
         let sev = severity.unwrap_or("");
         let conf = confidence.unwrap_or(0.0);
 
@@ -876,7 +1071,10 @@ impl ThreatClawStore for PgBackend {
         let category_owned = category.map(|s| s.to_string());
         let status_owned = status.map(|s| s.to_string());
         let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
-        let rows = conn.query(sql, &[&category_owned, &status_owned, &limit, &offset]).await.map_err(query_err)?;
+        let rows = conn
+            .query(sql, &[&category_owned, &status_owned, &limit, &offset])
+            .await
+            .map_err(query_err)?;
         Ok(rows.iter().map(|r| parse_asset_row(r)).collect())
     }
 
@@ -897,7 +1095,10 @@ impl ThreatClawStore for PgBackend {
 
     async fn get_asset(&self, id: &str) -> Result<Option<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query("SELECT * FROM assets WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        let rows = conn
+            .query("SELECT * FROM assets WHERE id = $1", &[&id])
+            .await
+            .map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))
     }
 
@@ -953,7 +1154,9 @@ impl ThreatClawStore for PgBackend {
 
     async fn delete_asset(&self, id: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn.execute("DELETE FROM assets WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        conn.execute("DELETE FROM assets WHERE id = $1", &[&id])
+            .await
+            .map_err(query_err)?;
         Ok(())
     }
 
@@ -963,22 +1166,40 @@ impl ThreatClawStore for PgBackend {
             "SELECT category, COUNT(*) as cnt FROM assets WHERE status = 'active' GROUP BY category ORDER BY cnt DESC",
             &[],
         ).await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1))).collect())
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1)))
+            .collect())
     }
 
     async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query("SELECT * FROM assets WHERE $1 = ANY(ip_addresses) LIMIT 1", &[&ip]).await.map_err(query_err)?;
+        let rows = conn
+            .query(
+                "SELECT * FROM assets WHERE $1 = ANY(ip_addresses) LIMIT 1",
+                &[&ip],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))
     }
 
     async fn find_asset_by_mac(&self, mac: &str) -> Result<Option<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query("SELECT * FROM assets WHERE mac_address = $1 LIMIT 1", &[&mac]).await.map_err(query_err)?;
+        let rows = conn
+            .query(
+                "SELECT * FROM assets WHERE mac_address = $1 LIMIT 1",
+                &[&mac],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))
     }
 
-    async fn find_asset_by_hostname(&self, hostname: &str) -> Result<Option<AssetRecord>, DatabaseError> {
+    async fn find_asset_by_hostname(
+        &self,
+        hostname: &str,
+    ) -> Result<Option<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let lower = hostname.to_lowercase();
         let rows = conn.query(
@@ -988,7 +1209,11 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.first().map(parse_asset_row))
     }
 
-    async fn mark_asset_user_modified(&self, id: &str, fields: &[&str]) -> Result<(), DatabaseError> {
+    async fn mark_asset_user_modified(
+        &self,
+        id: &str,
+        fields: &[&str],
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let fields_vec: Vec<String> = fields.iter().map(|f| f.to_string()).collect();
         conn.execute(
@@ -1002,7 +1227,11 @@ impl ThreatClawStore for PgBackend {
     // INTERNAL NETWORKS
     // ═══════════════════════════════════════════════════════════
 
-    async fn update_asset_software(&self, id: &str, software: &serde_json::Value) -> Result<(), DatabaseError> {
+    async fn update_asset_software(
+        &self,
+        id: &str,
+        software: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             r#"UPDATE assets SET software = (
@@ -1020,16 +1249,30 @@ impl ThreatClawStore for PgBackend {
 
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query("SELECT id, cidr, label, zone FROM internal_networks ORDER BY id", &[]).await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| InternalNetwork {
-            id: r.get::<_, i32>(0) as i64,
-            cidr: r.get(1),
-            label: r.try_get(2).ok(),
-            zone: r.try_get::<_, String>(3).unwrap_or_else(|_| "lan".into()),
-        }).collect())
+        let rows = conn
+            .query(
+                "SELECT id, cidr, label, zone FROM internal_networks ORDER BY id",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| InternalNetwork {
+                id: r.get::<_, i32>(0) as i64,
+                cidr: r.get(1),
+                label: r.try_get(2).ok(),
+                zone: r.try_get::<_, String>(3).unwrap_or_else(|_| "lan".into()),
+            })
+            .collect())
     }
 
-    async fn add_internal_network(&self, cidr: &str, label: Option<&str>, zone: Option<&str>) -> Result<i64, DatabaseError> {
+    async fn add_internal_network(
+        &self,
+        cidr: &str,
+        label: Option<&str>,
+        zone: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let z = zone.unwrap_or("lan");
         let row = conn.query_one(
@@ -1041,7 +1284,9 @@ impl ThreatClawStore for PgBackend {
 
     async fn delete_internal_network(&self, id: i64) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn.execute("DELETE FROM internal_networks WHERE id = $1", &[&id]).await.map_err(query_err)?;
+        conn.execute("DELETE FROM internal_networks WHERE id = $1", &[&id])
+            .await
+            .map_err(query_err)?;
         Ok(())
     }
 
@@ -1051,25 +1296,62 @@ impl ThreatClawStore for PgBackend {
 
     async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query("SELECT * FROM company_profile WHERE id = 1", &[]).await.map_err(query_err)?;
+        let rows = conn
+            .query("SELECT * FROM company_profile WHERE id = 1", &[])
+            .await
+            .map_err(query_err)?;
         if let Some(r) = rows.first() {
             Ok(CompanyProfile {
                 company_name: r.try_get("company_name").ok(),
                 nace_code: r.try_get("nace_code").ok(),
-                sector: r.try_get::<_, String>("sector").unwrap_or_else(|_| "other".into()),
-                company_size: r.try_get::<_, String>("company_size").unwrap_or_else(|_| "small".into()),
+                sector: r
+                    .try_get::<_, String>("sector")
+                    .unwrap_or_else(|_| "other".into()),
+                company_size: r
+                    .try_get::<_, String>("company_size")
+                    .unwrap_or_else(|_| "small".into()),
                 employee_count: r.try_get("employee_count").ok(),
-                country: r.try_get::<_, String>("country").unwrap_or_else(|_| "FR".into()),
-                business_hours: r.try_get::<_, String>("business_hours").unwrap_or_else(|_| "office".into()),
-                business_hours_start: r.try_get::<_, String>("business_hours_start").unwrap_or_else(|_| "08:00".into()),
-                business_hours_end: r.try_get::<_, String>("business_hours_end").unwrap_or_else(|_| "18:00".into()),
-                work_days: r.try_get::<_, Vec<String>>("work_days").unwrap_or_else(|_| vec!["mon".into(),"tue".into(),"wed".into(),"thu".into(),"fri".into()]),
-                geo_scope: r.try_get::<_, String>("geo_scope").unwrap_or_else(|_| "france".into()),
-                allowed_countries: r.try_get::<_, Vec<String>>("allowed_countries").unwrap_or_else(|_| vec!["FR".into()]),
-                blocked_countries: r.try_get::<_, Vec<String>>("blocked_countries").unwrap_or_default(),
-                critical_systems: r.try_get::<_, Vec<String>>("critical_systems").unwrap_or_default(),
-                compliance_frameworks: r.try_get::<_, Vec<String>>("compliance_frameworks").unwrap_or_default(),
-                anomaly_sensitivity: r.try_get::<_, String>("anomaly_sensitivity").unwrap_or_else(|_| "medium".into()),
+                country: r
+                    .try_get::<_, String>("country")
+                    .unwrap_or_else(|_| "FR".into()),
+                business_hours: r
+                    .try_get::<_, String>("business_hours")
+                    .unwrap_or_else(|_| "office".into()),
+                business_hours_start: r
+                    .try_get::<_, String>("business_hours_start")
+                    .unwrap_or_else(|_| "08:00".into()),
+                business_hours_end: r
+                    .try_get::<_, String>("business_hours_end")
+                    .unwrap_or_else(|_| "18:00".into()),
+                work_days: r
+                    .try_get::<_, Vec<String>>("work_days")
+                    .unwrap_or_else(|_| {
+                        vec![
+                            "mon".into(),
+                            "tue".into(),
+                            "wed".into(),
+                            "thu".into(),
+                            "fri".into(),
+                        ]
+                    }),
+                geo_scope: r
+                    .try_get::<_, String>("geo_scope")
+                    .unwrap_or_else(|_| "france".into()),
+                allowed_countries: r
+                    .try_get::<_, Vec<String>>("allowed_countries")
+                    .unwrap_or_else(|_| vec!["FR".into()]),
+                blocked_countries: r
+                    .try_get::<_, Vec<String>>("blocked_countries")
+                    .unwrap_or_default(),
+                critical_systems: r
+                    .try_get::<_, Vec<String>>("critical_systems")
+                    .unwrap_or_default(),
+                compliance_frameworks: r
+                    .try_get::<_, Vec<String>>("compliance_frameworks")
+                    .unwrap_or_default(),
+                anomaly_sensitivity: r
+                    .try_get::<_, String>("anomaly_sensitivity")
+                    .unwrap_or_else(|_| "medium".into()),
             })
         } else {
             Ok(CompanyProfile::default())
@@ -1092,11 +1374,27 @@ impl ThreatClawStore for PgBackend {
                 critical_systems = $14, compliance_frameworks = $15, anomaly_sensitivity = $16,
                 updated_at = NOW()
             WHERE id = 1"#,
-            &[&p.company_name, &p.nace_code, &p.sector, &p.company_size,
-              &p.employee_count, &p.country, &p.business_hours,
-              &p.business_hours_start, &p.business_hours_end, &work_days,
-              &p.geo_scope, &allowed, &blocked, &critical, &compliance, &p.anomaly_sensitivity],
-        ).await.map_err(query_err)?;
+            &[
+                &p.company_name,
+                &p.nace_code,
+                &p.sector,
+                &p.company_size,
+                &p.employee_count,
+                &p.country,
+                &p.business_hours,
+                &p.business_hours_start,
+                &p.business_hours_end,
+                &work_days,
+                &p.geo_scope,
+                &allowed,
+                &blocked,
+                &critical,
+                &compliance,
+                &p.anomaly_sensitivity,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
@@ -1110,11 +1408,18 @@ impl ThreatClawStore for PgBackend {
             "SELECT id, label, label_en, icon, color, subcategories, is_builtin FROM asset_categories ORDER BY sort_order, label",
             &[],
         ).await.map_err(query_err)?;
-        Ok(rows.iter().map(|r| AssetCategory {
-            id: r.get(0), label: r.get(1), label_en: r.get(2),
-            icon: r.get(3), color: r.get(4),
-            subcategories: r.get(5), is_builtin: r.get(6),
-        }).collect())
+        Ok(rows
+            .iter()
+            .map(|r| AssetCategory {
+                id: r.get(0),
+                label: r.get(1),
+                label_en: r.get(2),
+                icon: r.get(3),
+                color: r.get(4),
+                subcategories: r.get(5),
+                is_builtin: r.get(6),
+            })
+            .collect())
     }
 
     async fn upsert_asset_category(&self, c: &AssetCategory) -> Result<(), DatabaseError> {
@@ -1136,7 +1441,11 @@ impl ThreatClawStore for PgBackend {
     // ENRICHMENT CACHE
     // ═══════════════════════════════════════════════════════════
 
-    async fn get_enrichment_cache(&self, source: &str, key: &str) -> Result<Option<serde_json::Value>, DatabaseError> {
+    async fn get_enrichment_cache(
+        &self,
+        source: &str,
+        key: &str,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
             "SELECT value FROM enrichment_cache WHERE source = $1 AND key = $2 AND expires_at > NOW()",
@@ -1145,7 +1454,13 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.first().map(|r| r.get::<_, serde_json::Value>(0)))
     }
 
-    async fn set_enrichment_cache(&self, source: &str, key: &str, value: &serde_json::Value, ttl_hours: i64) -> Result<(), DatabaseError> {
+    async fn set_enrichment_cache(
+        &self,
+        source: &str,
+        key: &str,
+        value: &serde_json::Value,
+        ttl_hours: i64,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             "INSERT INTO enrichment_cache (source, key, value, expires_at) VALUES ($1, $2, $3, NOW() + $4 * INTERVAL '1 hour') ON CONFLICT (source, key) DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at, created_at = NOW()",
@@ -1160,18 +1475,29 @@ impl ThreatClawStore for PgBackend {
 
     async fn get_ml_score(&self, asset_id: &str) -> Result<Option<(f64, String)>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query(
-            "SELECT score, COALESCE(reason, '') FROM ml_scores WHERE asset_id = $1",
-            &[&asset_id],
-        ).await.map_err(query_err)?;
-        Ok(rows.first().map(|r| (r.get::<_, f32>(0) as f64, r.get::<_, String>(1))))
+        let rows = conn
+            .query(
+                "SELECT score, COALESCE(reason, '') FROM ml_scores WHERE asset_id = $1",
+                &[&asset_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .first()
+            .map(|r| (r.get::<_, f32>(0) as f64, r.get::<_, String>(1))))
     }
 
-    async fn get_all_ml_scores(&self) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> {
+    async fn get_all_ml_scores(
+        &self,
+    ) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let rows = conn.query(
-            "SELECT asset_id, score, COALESCE(reason, '') FROM ml_scores", &[],
-        ).await.map_err(query_err)?;
+        let rows = conn
+            .query(
+                "SELECT asset_id, score, COALESCE(reason, '') FROM ml_scores",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
         let mut map = std::collections::HashMap::new();
         for r in &rows {
             let id: String = r.get(0);
@@ -1182,7 +1508,13 @@ impl ThreatClawStore for PgBackend {
         Ok(map)
     }
 
-    async fn set_ml_score(&self, asset_id: &str, score: f64, reason: &str, features: &serde_json::Value) -> Result<(), DatabaseError> {
+    async fn set_ml_score(
+        &self,
+        asset_id: &str,
+        score: f64,
+        reason: &str,
+        features: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let score_f32 = score as f32;
         conn.execute(
@@ -1194,7 +1526,15 @@ impl ThreatClawStore for PgBackend {
 
     // ── Incidents (See ADR-043) ──
 
-    async fn create_incident(&self, asset: &str, title: &str, severity: &str, alert_ids: &[i32], finding_ids: &[i32], alert_count: i32) -> Result<i32, DatabaseError> {
+    async fn create_incident(
+        &self,
+        asset: &str,
+        title: &str,
+        severity: &str,
+        alert_ids: &[i32],
+        finding_ids: &[i32],
+        alert_count: i32,
+    ) -> Result<i32, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_one(
             "INSERT INTO incidents (asset, title, severity, alert_ids, finding_ids, alert_count) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
@@ -1203,7 +1543,16 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get("id"))
     }
 
-    async fn update_incident_verdict(&self, id: i32, verdict: &str, confidence: f64, summary: &str, mitre: &[String], proposed_actions: &serde_json::Value, investigation_log: &serde_json::Value) -> Result<(), DatabaseError> {
+    async fn update_incident_verdict(
+        &self,
+        id: i32,
+        verdict: &str,
+        confidence: f64,
+        summary: &str,
+        mitre: &[String],
+        proposed_actions: &serde_json::Value,
+        investigation_log: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let conf_f32 = confidence as f32;
         conn.execute(
@@ -1213,7 +1562,13 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
-    async fn update_incident_hitl(&self, id: i32, status: &str, responded_by: &str, response: &str) -> Result<(), DatabaseError> {
+    async fn update_incident_hitl(
+        &self,
+        id: i32,
+        status: &str,
+        responded_by: &str,
+        response: &str,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             "UPDATE incidents SET hitl_status = $2, hitl_responded_by = $3, hitl_response = $4, hitl_responded_at = NOW(), updated_at = NOW() WHERE id = $1",
@@ -1224,7 +1579,11 @@ impl ThreatClawStore for PgBackend {
 
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let resolved = if status == "resolved" || status == "closed" { "NOW()" } else { "NULL" };
+        let resolved = if status == "resolved" || status == "closed" {
+            "NOW()"
+        } else {
+            "NULL"
+        };
         conn.execute(
             &format!("UPDATE incidents SET status = $2, resolved_at = {}, updated_at = NOW() WHERE id = $1", resolved),
             &[&id, &status],
@@ -1232,7 +1591,12 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
-    async fn list_incidents(&self, status: Option<&str>, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_incidents(
+        &self,
+        status: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Status filter semantics:
         //   None or "all"     → default view, excludes 'archived'
@@ -1242,15 +1606,24 @@ impl ThreatClawStore for PgBackend {
         let status_owned = status.map(String::from);
         let rows = match status_owned.as_deref() {
             None | Some("all") => {
-                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status != 'archived' ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                let q = format!(
+                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status != 'archived' ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    limit, offset
+                );
                 conn.query(&q, &[]).await.map_err(query_err)?
             }
             Some("include_archived") => {
-                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                let q = format!(
+                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    limit, offset
+                );
                 conn.query(&q, &[]).await.map_err(query_err)?
             }
             Some(s) => {
-                let q = format!("SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}", limit, offset);
+                let q = format!(
+                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    limit, offset
+                );
                 conn.query(&q, &[&s.to_string()]).await.map_err(query_err)?
             }
         };
@@ -1312,18 +1685,24 @@ impl ThreatClawStore for PgBackend {
         })))
     }
 
-    async fn find_open_incident_for_asset(&self, asset: &str) -> Result<Option<i32>, DatabaseError> {
+    async fn find_open_incident_for_asset(
+        &self,
+        asset: &str,
+    ) -> Result<Option<i32>, DatabaseError> {
         // Only match incidents from the last 4 hours to allow "fresh" recurring
         // incidents to merge, but don't resurrect old ones that were never closed.
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_opt(
-            "SELECT id FROM incidents \
+        let row = conn
+            .query_opt(
+                "SELECT id FROM incidents \
              WHERE asset = $1 \
                AND status IN ('open', 'investigating') \
                AND updated_at > NOW() - INTERVAL '4 hours' \
              ORDER BY created_at DESC LIMIT 1",
-            &[&asset],
-        ).await.map_err(query_err)?;
+                &[&asset],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.map(|r| r.get("id")))
     }
 
@@ -1332,7 +1711,9 @@ impl ThreatClawStore for PgBackend {
         conn.execute(
             "UPDATE incidents SET alert_count = alert_count + $2, updated_at = NOW() WHERE id = $1",
             &[&id, &alert_count_delta],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
@@ -1355,10 +1736,13 @@ impl ThreatClawStore for PgBackend {
         // not in the legacy mitre_techniques table (which exists from migration
         // V21 but is unused — see enrichment/mitre_attack.rs).
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let row = conn.query_one(
-            "SELECT COUNT(*) AS cnt FROM settings WHERE user_id = '_mitre'",
-            &[],
-        ).await.map_err(query_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*) AS cnt FROM settings WHERE user_id = '_mitre'",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get("cnt"))
     }
 
@@ -1366,21 +1750,27 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Also archive incidents that have been closed for at least 1 hour
         // (gives the RSSI a short window to see the closure before it disappears).
-        let count = conn.execute(
-            "UPDATE incidents SET status = 'archived', updated_at = NOW() \
+        let count = conn
+            .execute(
+                "UPDATE incidents SET status = 'archived', updated_at = NOW() \
              WHERE status IN ('resolved', 'closed', 'false_positive')",
-            &[],
-        ).await.map_err(query_err)?;
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(count as i64)
     }
 
     async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let count = conn.execute(
-            "UPDATE sigma_alerts SET status = 'archived' \
+        let count = conn
+            .execute(
+                "UPDATE sigma_alerts SET status = 'archived' \
              WHERE status IN ('resolved', 'acknowledged')",
-            &[],
-        ).await.map_err(query_err)?;
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(count as i64)
     }
 
@@ -1402,11 +1792,19 @@ impl ThreatClawStore for PgBackend {
                AND matched_at < NOW() - INTERVAL '{} days'",
             days
         );
-        let alerts = conn.execute(alert_q.as_str(), &[]).await.map_err(query_err)? as i64;
+        let alerts = conn
+            .execute(alert_q.as_str(), &[])
+            .await
+            .map_err(query_err)? as i64;
         Ok((incidents, alerts))
     }
 
-    async fn add_incident_note(&self, id: i32, text: &str, author: &str) -> Result<(), DatabaseError> {
+    async fn add_incident_note(
+        &self,
+        id: i32,
+        text: &str,
+        author: &str,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let note = serde_json::json!({
             "text": text,
@@ -1420,7 +1818,9 @@ impl ThreatClawStore for PgBackend {
                  updated_at = NOW() \
              WHERE id = $1",
             &[&id, &note],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 }
@@ -1435,7 +1835,9 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
         subcategory: r.try_get("subcategory").ok(),
         role: r.try_get("role").ok(),
         criticality: r.get("criticality"),
-        ip_addresses: r.try_get::<_, Vec<String>>("ip_addresses").unwrap_or_default(),
+        ip_addresses: r
+            .try_get::<_, Vec<String>>("ip_addresses")
+            .unwrap_or_default(),
         mac_address: r.try_get("mac_address").ok(),
         hostname: r.try_get("hostname").ok(),
         fqdn: r.try_get("fqdn").ok(),
@@ -1443,21 +1845,35 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
         os: r.try_get("os").ok(),
         os_confidence: r.try_get::<_, f32>("os_confidence").unwrap_or(0.0),
         mac_vendor: r.try_get("mac_vendor").ok(),
-        services: r.try_get::<_, serde_json::Value>("services").unwrap_or(serde_json::json!([])),
+        services: r
+            .try_get::<_, serde_json::Value>("services")
+            .unwrap_or(serde_json::json!([])),
         source: r.get("source"),
-        first_seen: r.try_get::<_, chrono::DateTime<chrono::Utc>>("first_seen")
-            .map(|dt| dt.to_rfc3339()).unwrap_or_default(),
-        last_seen: r.try_get::<_, chrono::DateTime<chrono::Utc>>("last_seen")
-            .map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+        first_seen: r
+            .try_get::<_, chrono::DateTime<chrono::Utc>>("first_seen")
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default(),
+        last_seen: r
+            .try_get::<_, chrono::DateTime<chrono::Utc>>("last_seen")
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default(),
         owner: r.try_get("owner").ok(),
         location: r.try_get("location").ok(),
         tags: r.try_get::<_, Vec<String>>("tags").unwrap_or_default(),
         notes: r.try_get("notes").ok(),
-        classification_method: r.try_get::<_, String>("classification_method").unwrap_or_else(|_| "manual".into()),
-        classification_confidence: r.try_get::<_, f32>("classification_confidence").unwrap_or(1.0),
+        classification_method: r
+            .try_get::<_, String>("classification_method")
+            .unwrap_or_else(|_| "manual".into()),
+        classification_confidence: r
+            .try_get::<_, f32>("classification_confidence")
+            .unwrap_or(1.0),
         status: r.get("status"),
         sources: r.try_get::<_, Vec<String>>("sources").unwrap_or_default(),
-        software: r.try_get::<_, serde_json::Value>("software").unwrap_or(serde_json::json!([])),
-        user_modified: r.try_get::<_, Vec<String>>("user_modified").unwrap_or_default(),
+        software: r
+            .try_get::<_, serde_json::Value>("software")
+            .unwrap_or(serde_json::json!([])),
+        user_modified: r
+            .try_get::<_, Vec<String>>("user_modified")
+            .unwrap_or_default(),
     }
 }

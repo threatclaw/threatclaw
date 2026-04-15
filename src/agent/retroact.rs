@@ -29,13 +29,23 @@ pub struct RetroactResult {
 pub async fn mark_for_rescan(store: &dyn Database, finding_id: i64, reason: &str) {
     let rescan_at = chrono::Utc::now() + chrono::Duration::hours(48);
     let key = format!("finding_{}", finding_id);
-    let _ = store.set_setting(RESCAN_NS, &key, &serde_json::json!({
-        "finding_id": finding_id,
-        "reason": reason,
-        "rescan_at": rescan_at.to_rfc3339(),
-        "marked_at": chrono::Utc::now().to_rfc3339(),
-    })).await;
-    tracing::debug!("RETROACT: finding #{} marked for rescan at {}", finding_id, rescan_at);
+    let _ = store
+        .set_setting(
+            RESCAN_NS,
+            &key,
+            &serde_json::json!({
+                "finding_id": finding_id,
+                "reason": reason,
+                "rescan_at": rescan_at.to_rfc3339(),
+                "marked_at": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
+    tracing::debug!(
+        "RETROACT: finding #{} marked for rescan at {}",
+        finding_id,
+        rescan_at
+    );
 }
 
 /// Run the nocturnal retroact cycle.
@@ -44,16 +54,19 @@ pub async fn mark_for_rescan(store: &dyn Database, finding_id: i64, reason: &str
 /// - Re-fetch enrichment (GreyNoise, EPSS, ThreatFox, CISA KEV)
 /// - If threat status changed (IP now in KEV, EPSS jumped, etc.) → upgrade severity
 /// - If still inconclusive after 2 rescans → keep as-is (stop re-scanning)
-pub async fn run_retroact_cycle(
-    store: std::sync::Arc<dyn Database>,
-) -> RetroactResult {
+pub async fn run_retroact_cycle(store: std::sync::Arc<dyn Database>) -> RetroactResult {
     let mut result = RetroactResult {
-        candidates_checked: 0, upgraded: 0, cleared: 0, still_suspect: 0,
+        candidates_checked: 0,
+        upgraded: 0,
+        cleared: 0,
+        still_suspect: 0,
     };
 
     // Load all rescan candidates
     let candidates = load_rescan_candidates(store.as_ref()).await;
-    if candidates.is_empty() { return result; }
+    if candidates.is_empty() {
+        return result;
+    }
 
     let now = chrono::Utc::now();
 
@@ -61,7 +74,9 @@ pub async fn run_retroact_cycle(
         // Only process if rescan_at has passed
         if let Some(rescan_at) = &candidate.rescan_at {
             if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(rescan_at) {
-                if ts > now { continue; }
+                if ts > now {
+                    continue;
+                }
             }
         }
 
@@ -98,7 +113,8 @@ pub async fn run_retroact_cycle(
 
         // 1. Check CISA KEV for CVEs
         if !cve.is_empty() {
-            if let Some(kev) = crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve).await {
+            if let Some(kev) = crate::enrichment::cisa_kev::is_exploited(store.as_ref(), cve).await
+            {
                 escalation_reasons.push(format!(
                     "CVE {} ajoutée au CISA KEV — action requise avant {}",
                     cve, kev.due_date
@@ -111,11 +127,14 @@ pub async fn run_retroact_cycle(
             if let Ok(Ok(Some(epss))) = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
                 crate::enrichment::epss::lookup_epss(cve),
-            ).await {
+            )
+            .await
+            {
                 if epss.epss > 0.7 {
                     escalation_reasons.push(format!(
                         "EPSS {} : {:.0}% probabilité exploitation 30j (précédemment plus bas)",
-                        cve, epss.epss * 100.0
+                        cve,
+                        epss.epss * 100.0
                     ));
                 }
             }
@@ -123,11 +142,16 @@ pub async fn run_retroact_cycle(
 
         // 3. Check GreyNoise for IPs
         for ip in [src_ip, dst_ip] {
-            if ip.is_empty() || crate::agent::ip_classifier::is_non_routable(ip) { continue; }
+            if ip.is_empty() || crate::agent::ip_classifier::is_non_routable(ip) {
+                continue;
+            }
             // Check cache first
             let cached = crate::agent::production_safeguards::get_cached_ioc(
-                store.as_ref(), "greynoise", ip,
-            ).await;
+                store.as_ref(),
+                "greynoise",
+                ip,
+            )
+            .await;
             if let Some(cached) = cached {
                 if cached["classification"].as_str() == Some("malicious") {
                     escalation_reasons.push(format!(
@@ -155,34 +179,41 @@ pub async fn run_retroact_cycle(
             // UPGRADE: threat confirmed by new intelligence
             tracing::warn!(
                 "RETROACT: finding #{} UPGRADED — {}",
-                candidate.finding_id, escalation_reasons.join("; ")
+                candidate.finding_id,
+                escalation_reasons.join("; ")
             );
 
             // Create a new finding with escalated info (dedup will merge with existing)
-            let new_severity = if finding.severity.to_lowercase() == "medium" { "HIGH" }
-                else if finding.severity.to_lowercase() == "high" { "CRITICAL" }
-                else { &finding.severity };
+            let new_severity = if finding.severity.to_lowercase() == "medium" {
+                "HIGH"
+            } else if finding.severity.to_lowercase() == "high" {
+                "CRITICAL"
+            } else {
+                &finding.severity
+            };
 
-            let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-                skill_id: finding.skill_id.clone(),
-                title: format!("[RETROACT] {}", finding.title),
-                description: Some(format!(
-                    "Re-analyse rétrospective — nouvelles informations:\n- {}\n\n{}",
-                    escalation_reasons.join("\n- "),
-                    finding.description.as_deref().unwrap_or("")
-                )),
-                severity: new_severity.into(),
-                category: finding.category.clone(),
-                asset: finding.asset.clone(),
-                source: Some("Retroact re-scan".into()),
-                metadata: Some(serde_json::json!({
-                    "retroact": true,
-                    "original_finding_id": candidate.finding_id,
-                    "escalation_reasons": escalation_reasons,
-                    "original_severity": finding.severity,
-                    "detection": "retroact-rescan",
-                })),
-            }).await;
+            let _ = store
+                .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                    skill_id: finding.skill_id.clone(),
+                    title: format!("[RETROACT] {}", finding.title),
+                    description: Some(format!(
+                        "Re-analyse rétrospective — nouvelles informations:\n- {}\n\n{}",
+                        escalation_reasons.join("\n- "),
+                        finding.description.as_deref().unwrap_or("")
+                    )),
+                    severity: new_severity.into(),
+                    category: finding.category.clone(),
+                    asset: finding.asset.clone(),
+                    source: Some("Retroact re-scan".into()),
+                    metadata: Some(serde_json::json!({
+                        "retroact": true,
+                        "original_finding_id": candidate.finding_id,
+                        "escalation_reasons": escalation_reasons,
+                        "original_severity": finding.severity,
+                        "detection": "retroact-rescan",
+                    })),
+                })
+                .await;
 
             // Clean up rescan marker
             let _ = store.delete_setting(RESCAN_NS, &key).await;
@@ -196,18 +227,25 @@ pub async fn run_retroact_cycle(
                 result.still_suspect += 1;
                 tracing::debug!(
                     "RETROACT: finding #{} still inconclusive after {} rescans — closing retroact",
-                    candidate.finding_id, rescan_count
+                    candidate.finding_id,
+                    rescan_count
                 );
             } else {
                 // Schedule another rescan in 48h
                 let next = chrono::Utc::now() + chrono::Duration::hours(48);
-                let _ = store.set_setting(RESCAN_NS, &key, &serde_json::json!({
-                    "finding_id": candidate.finding_id,
-                    "reason": candidate.reason,
-                    "rescan_at": next.to_rfc3339(),
-                    "rescan_count": rescan_count,
-                    "marked_at": candidate.marked_at,
-                })).await;
+                let _ = store
+                    .set_setting(
+                        RESCAN_NS,
+                        &key,
+                        &serde_json::json!({
+                            "finding_id": candidate.finding_id,
+                            "reason": candidate.reason,
+                            "rescan_at": next.to_rfc3339(),
+                            "rescan_count": rescan_count,
+                            "marked_at": candidate.marked_at,
+                        }),
+                    )
+                    .await;
                 result.still_suspect += 1;
             }
         }
@@ -216,7 +254,10 @@ pub async fn run_retroact_cycle(
     if result.candidates_checked > 0 {
         tracing::info!(
             "RETROACT: {} checked, {} upgraded, {} cleared, {} still suspect",
-            result.candidates_checked, result.upgraded, result.cleared, result.still_suspect
+            result.candidates_checked,
+            result.upgraded,
+            result.cleared,
+            result.still_suspect
         );
     }
 
@@ -243,11 +284,10 @@ async fn load_rescan_candidates(store: &dyn Database) -> Vec<RescanCandidate> {
     // Load up to 200 candidate IDs from a tracking list.
     let tracking = store.get_setting(RESCAN_NS, "_tracking_ids").await;
     let ids: Vec<i64> = match tracking {
-        Ok(Some(val)) => {
-            val["ids"].as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
-                .unwrap_or_default()
-        }
+        Ok(Some(val)) => val["ids"]
+            .as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+            .unwrap_or_default(),
         _ => Vec::new(),
     };
 
@@ -270,19 +310,22 @@ async fn load_rescan_candidates(store: &dyn Database) -> Vec<RescanCandidate> {
 /// Add a finding ID to the retroact tracking list.
 pub async fn track_finding(store: &dyn Database, finding_id: i64) {
     let mut ids: Vec<i64> = match store.get_setting(RESCAN_NS, "_tracking_ids").await {
-        Ok(Some(val)) => {
-            val["ids"].as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
-                .unwrap_or_default()
-        }
+        Ok(Some(val)) => val["ids"]
+            .as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
+            .unwrap_or_default(),
         _ => Vec::new(),
     };
 
     if !ids.contains(&finding_id) {
         ids.push(finding_id);
         // Keep list bounded (max 500 tracked findings)
-        if ids.len() > 500 { ids.drain(0..ids.len() - 500); }
-        let _ = store.set_setting(RESCAN_NS, "_tracking_ids", &serde_json::json!({"ids": ids})).await;
+        if ids.len() > 500 {
+            ids.drain(0..ids.len() - 500);
+        }
+        let _ = store
+            .set_setting(RESCAN_NS, "_tracking_ids", &serde_json::json!({"ids": ids}))
+            .await;
     }
 }
 

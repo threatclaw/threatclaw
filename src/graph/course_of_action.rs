@@ -8,7 +8,7 @@
 //! and RSSI-defined custom playbooks.
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -40,8 +40,12 @@ pub async fn upsert_coa(store: &dyn Database, coa: &CourseOfAction) {
          SET c.name = '{}', c.description = '{}', c.action_type = '{}', \
          c.steps = '{}', c.mitre_id = '{}', c.estimated_minutes = {} \
          RETURN c",
-        esc(&coa.id), esc(&coa.name), esc(&coa.description), esc(&coa.action_type),
-        esc(&steps_json), esc(coa.mitre_id.as_deref().unwrap_or("")),
+        esc(&coa.id),
+        esc(&coa.name),
+        esc(&coa.description),
+        esc(&coa.action_type),
+        esc(&steps_json),
+        esc(coa.mitre_id.as_deref().unwrap_or("")),
         coa.estimated_minutes.unwrap_or(0)
     );
     mutate(store, &cypher).await;
@@ -52,7 +56,8 @@ pub async fn link_coa_to_cve(store: &dyn Database, coa_id: &str, cve_id: &str) {
     let cypher = format!(
         "MATCH (c:CourseOfAction {{id: '{}'}}), (v:CVE {{id: '{}'}}) \
          MERGE (c)-[:MITIGATES]->(v)",
-        esc(coa_id), esc(cve_id)
+        esc(coa_id),
+        esc(cve_id)
     );
     mutate(store, &cypher).await;
 }
@@ -62,38 +67,54 @@ pub async fn link_coa_to_technique(store: &dyn Database, coa_id: &str, mitre_id:
     let cypher = format!(
         "MATCH (c:CourseOfAction {{id: '{}'}}), (t:Technique {{mitre_id: '{}'}}) \
          MERGE (c)-[:MITIGATES]->(t)",
-        esc(coa_id), esc(mitre_id)
+        esc(coa_id),
+        esc(mitre_id)
     );
     mutate(store, &cypher).await;
 }
 
 /// Find all Courses of Action that mitigate a specific CVE.
 pub async fn find_coa_for_cve(store: &dyn Database, cve_id: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (c:CourseOfAction)-[:MITIGATES]->(v:CVE {{id: '{}'}}) \
+    query(
+        store,
+        &format!(
+            "MATCH (c:CourseOfAction)-[:MITIGATES]->(v:CVE {{id: '{}'}}) \
          RETURN c.id, c.name, c.description, c.steps, c.action_type, c.estimated_minutes \
          ORDER BY c.action_type",
-        esc(cve_id)
-    )).await
+            esc(cve_id)
+        ),
+    )
+    .await
 }
 
 /// Find all Courses of Action for a MITRE technique.
-pub async fn find_coa_for_technique(store: &dyn Database, mitre_id: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (c:CourseOfAction)-[:MITIGATES]->(t:Technique {{mitre_id: '{}'}}) \
+pub async fn find_coa_for_technique(
+    store: &dyn Database,
+    mitre_id: &str,
+) -> Vec<serde_json::Value> {
+    query(
+        store,
+        &format!(
+            "MATCH (c:CourseOfAction)-[:MITIGATES]->(t:Technique {{mitre_id: '{}'}}) \
          RETURN c.id, c.name, c.description, c.steps, c.action_type",
-        esc(mitre_id)
-    )).await
+            esc(mitre_id)
+        ),
+    )
+    .await
 }
 
 /// Find all CoAs relevant to an asset (via CVEs affecting it + techniques used against it).
 pub async fn find_coa_for_asset(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (c:CourseOfAction)-[:MITIGATES]->(v:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) \
+    query(
+        store,
+        &format!(
+            "MATCH (c:CourseOfAction)-[:MITIGATES]->(v:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) \
          RETURN DISTINCT c.id, c.name, c.description, c.steps, c.action_type, v.id AS cve_id \
          ORDER BY c.action_type",
-        esc(asset_id)
-    )).await
+            esc(asset_id)
+        ),
+    )
+    .await
 }
 
 /// Seed default MITRE ATT&CK mitigations as CoA nodes.
@@ -175,18 +196,18 @@ pub async fn seed_default_mitigations(store: &dyn Database) {
 
     // Map techniques to mitigations
     let technique_map: &[(&str, &str)] = &[
-        ("T1110", "coa--mitre-m1036"), // Brute Force → Account Policies
-        ("T1078", "coa--mitre-m1036"), // Valid Accounts → Account Policies
-        ("T1021", "coa--mitre-m1035"), // Remote Services → Limit Network
-        ("T1190", "coa--mitre-m1051"), // Exploit Public-Facing → Update Software
-        ("T1068", "coa--mitre-m1051"), // Priv Escalation → Update Software
-        ("T1204", "coa--mitre-m1049"), // User Execution → Antimalware
-        ("T1071", "coa--mitre-m1037"), // Application Layer Protocol → Filter Traffic
+        ("T1110", "coa--mitre-m1036"),     // Brute Force → Account Policies
+        ("T1078", "coa--mitre-m1036"),     // Valid Accounts → Account Policies
+        ("T1021", "coa--mitre-m1035"),     // Remote Services → Limit Network
+        ("T1190", "coa--mitre-m1051"),     // Exploit Public-Facing → Update Software
+        ("T1068", "coa--mitre-m1051"),     // Priv Escalation → Update Software
+        ("T1204", "coa--mitre-m1049"),     // User Execution → Antimalware
+        ("T1071", "coa--mitre-m1037"),     // Application Layer Protocol → Filter Traffic
         ("T1071.004", "coa--mitre-m1037"), // DNS → Filter Traffic
-        ("T1041", "coa--mitre-m1037"), // Exfiltration → Filter Traffic
-        ("T1059", "coa--mitre-m1049"), // Command Interpreter → Antimalware
-        ("T1003", "coa--mitre-m1036"), // Credential Dumping → Account Policies
-        ("T1566", "coa--mitre-m1049"), // Phishing → Antimalware
+        ("T1041", "coa--mitre-m1037"),     // Exfiltration → Filter Traffic
+        ("T1059", "coa--mitre-m1049"),     // Command Interpreter → Antimalware
+        ("T1003", "coa--mitre-m1036"),     // Credential Dumping → Account Policies
+        ("T1566", "coa--mitre-m1049"),     // Phishing → Antimalware
     ];
 
     for coa in &defaults {
@@ -197,13 +218,18 @@ pub async fn seed_default_mitigations(store: &dyn Database) {
         link_coa_to_technique(store, coa_id, technique).await;
     }
 
-    tracing::info!("COA: Seeded {} default mitigations with {} technique mappings",
-        defaults.len(), technique_map.len());
+    tracing::info!(
+        "COA: Seeded {} default mitigations with {} technique mappings",
+        defaults.len(),
+        technique_map.len()
+    );
 }
 
 /// Format CoAs for notification/HITL message.
 pub fn format_coa_for_alert(coas: &[serde_json::Value]) -> String {
-    if coas.is_empty() { return String::new(); }
+    if coas.is_empty() {
+        return String::new();
+    }
 
     let mut out = String::from("Playbook recommandé :\n");
     for (i, coa) in coas.iter().enumerate().take(3) {

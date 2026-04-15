@@ -23,9 +23,16 @@ pub enum InvestigationStep {
     /// Enrich a file hash.
     EnrichHash { sources: Vec<String> },
     /// Query the graph for historical data.
-    QueryHistory { entity_type: String, window_hours: u64 },
+    QueryHistory {
+        entity_type: String,
+        window_hours: u64,
+    },
     /// Correlate with other alerts (same IP, same asset, same timeframe).
-    CorrelateAlerts { same_ip: bool, same_asset: bool, window_hours: u64 },
+    CorrelateAlerts {
+        same_ip: bool,
+        same_asset: bool,
+        window_hours: u64,
+    },
     /// Map to MITRE ATT&CK techniques.
     MapMitreTechniques,
     /// Find attack paths in the graph.
@@ -79,14 +86,30 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation complète d'une attaque brute force SSH".into(),
             trigger_pattern: "ssh.*brute|failed.*password|sshd".into(),
             steps: vec![
-                InvestigationStep::EnrichIp { sources: vec!["greynoise".into(), "abuseipdb".into(), "ipinfo".into(), "crowdsec".into()] },
-                InvestigationStep::QueryHistory { entity_type: "IP".into(), window_hours: 24 },
-                InvestigationStep::CorrelateAlerts { same_ip: true, same_asset: true, window_hours: 1 },
+                InvestigationStep::EnrichIp {
+                    sources: vec![
+                        "greynoise".into(),
+                        "abuseipdb".into(),
+                        "ipinfo".into(),
+                        "crowdsec".into(),
+                    ],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "IP".into(),
+                    window_hours: 24,
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: true,
+                    same_asset: true,
+                    window_hours: 1,
+                },
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::FindAttackPaths,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "auto".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "auto".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 30,
@@ -97,13 +120,20 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'une CVE critique détectée sur un asset".into(),
             trigger_pattern: "CVE-.*|cve.*critical".into(),
             steps: vec![
-                InvestigationStep::EnrichCve { sources: vec!["nvd".into(), "cisa_kev".into(), "epss".into()] },
-                InvestigationStep::QueryHistory { entity_type: "CVE".into(), window_hours: 168 },
+                InvestigationStep::EnrichCve {
+                    sources: vec!["nvd".into(), "cisa_kev".into(), "epss".into()],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "CVE".into(),
+                    window_hours: 168,
+                },
                 InvestigationStep::FindAttackPaths,
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "auto".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "auto".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 15,
@@ -114,13 +144,26 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'une URL de phishing détectée dans les logs".into(),
             trigger_pattern: "phish|suspicious.*url|openphish".into(),
             steps: vec![
-                InvestigationStep::EnrichDomain { sources: vec!["openphish".into(), "urlhaus".into(), "virustotal".into()] },
-                InvestigationStep::EnrichIp { sources: vec!["greynoise".into(), "ipinfo".into()] },
-                InvestigationStep::QueryHistory { entity_type: "Domain".into(), window_hours: 48 },
-                InvestigationStep::CorrelateAlerts { same_ip: false, same_asset: true, window_hours: 24 },
+                InvestigationStep::EnrichDomain {
+                    sources: vec!["openphish".into(), "urlhaus".into(), "virustotal".into()],
+                },
+                InvestigationStep::EnrichIp {
+                    sources: vec!["greynoise".into(), "ipinfo".into()],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "Domain".into(),
+                    window_hours: 48,
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: false,
+                    same_asset: true,
+                    window_hours: 24,
+                },
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "auto".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "auto".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 20,
@@ -131,15 +174,28 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'une communication vers un serveur C2 connu".into(),
             trigger_pattern: "c2|beacon|command.*control|dns.*tunnel".into(),
             steps: vec![
-                InvestigationStep::EnrichIp { sources: vec!["threatfox".into(), "greynoise".into(), "ipinfo".into()] },
-                InvestigationStep::EnrichDomain { sources: vec!["threatfox".into(), "urlhaus".into()] },
-                InvestigationStep::QueryHistory { entity_type: "IP".into(), window_hours: 72 },
-                InvestigationStep::CorrelateAlerts { same_ip: true, same_asset: true, window_hours: 24 },
+                InvestigationStep::EnrichIp {
+                    sources: vec!["threatfox".into(), "greynoise".into(), "ipinfo".into()],
+                },
+                InvestigationStep::EnrichDomain {
+                    sources: vec!["threatfox".into(), "urlhaus".into()],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "IP".into(),
+                    window_hours: 72,
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: true,
+                    same_asset: true,
+                    window_hours: 24,
+                },
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::FindAttackPaths,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "CRITICAL".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "CRITICAL".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 25,
@@ -150,14 +206,25 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'un mouvement latéral détecté entre assets".into(),
             trigger_pattern: "lateral|pivot|ssh.*internal|rdp.*internal".into(),
             steps: vec![
-                InvestigationStep::EnrichIp { sources: vec!["ipinfo".into()] },
-                InvestigationStep::CorrelateAlerts { same_ip: true, same_asset: false, window_hours: 1 },
-                InvestigationStep::QueryHistory { entity_type: "Asset".into(), window_hours: 24 },
+                InvestigationStep::EnrichIp {
+                    sources: vec!["ipinfo".into()],
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: true,
+                    same_asset: false,
+                    window_hours: 1,
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "Asset".into(),
+                    window_hours: 24,
+                },
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::FindAttackPaths,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "CRITICAL".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "CRITICAL".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 30,
@@ -168,13 +235,24 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'un hash de fichier malveillant détecté".into(),
             trigger_pattern: "malware|hash|sha256|md5|trojan|ransomware".into(),
             steps: vec![
-                InvestigationStep::EnrichHash { sources: vec!["malware_bazaar".into(), "virustotal".into()] },
-                InvestigationStep::QueryHistory { entity_type: "Hash".into(), window_hours: 168 },
-                InvestigationStep::CorrelateAlerts { same_ip: false, same_asset: true, window_hours: 24 },
+                InvestigationStep::EnrichHash {
+                    sources: vec!["malware_bazaar".into(), "virustotal".into()],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "Hash".into(),
+                    window_hours: 168,
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: false,
+                    same_asset: true,
+                    window_hours: 24,
+                },
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "CRITICAL".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "CRITICAL".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 15,
@@ -185,15 +263,28 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             description: "Investigation d'une exfiltration de données via DNS tunneling".into(),
             trigger_pattern: "dns.*exfil|dns.*tunnel|base64.*dns|txt.*query".into(),
             steps: vec![
-                InvestigationStep::EnrichDomain { sources: vec!["threatfox".into(), "openphish".into()] },
-                InvestigationStep::EnrichIp { sources: vec!["greynoise".into(), "ipinfo".into()] },
-                InvestigationStep::QueryHistory { entity_type: "Domain".into(), window_hours: 48 },
-                InvestigationStep::CorrelateAlerts { same_ip: false, same_asset: true, window_hours: 4 },
+                InvestigationStep::EnrichDomain {
+                    sources: vec!["threatfox".into(), "openphish".into()],
+                },
+                InvestigationStep::EnrichIp {
+                    sources: vec!["greynoise".into(), "ipinfo".into()],
+                },
+                InvestigationStep::QueryHistory {
+                    entity_type: "Domain".into(),
+                    window_hours: 48,
+                },
+                InvestigationStep::CorrelateAlerts {
+                    same_ip: false,
+                    same_asset: true,
+                    window_hours: 4,
+                },
                 InvestigationStep::MapMitreTechniques,
                 InvestigationStep::FindAttackPaths,
                 InvestigationStep::BuildContext,
                 InvestigationStep::SendToReasoning,
-                InvestigationStep::CreateFinding { severity: "CRITICAL".into() },
+                InvestigationStep::CreateFinding {
+                    severity: "CRITICAL".into(),
+                },
                 InvestigationStep::NotifyRssi,
             ],
             estimated_duration_secs: 20,
@@ -207,9 +298,15 @@ pub fn match_investigation_graph(alert_title: &str) -> Option<String> {
     // Order matters: more specific patterns first
     let graphs: &[(&str, &[&str])] = &[
         ("lateral-movement", &["lateral", "pivot", "movement"]),
-        ("dns-exfiltration", &["dns exfil", "dns tunnel", "base64 dns"]),
+        (
+            "dns-exfiltration",
+            &["dns exfil", "dns tunnel", "base64 dns"],
+        ),
         ("c2-communication", &["c2", "beacon", "command and control"]),
-        ("ssh-brute-force", &["brute force", "brute", "failed password", "sshd"]),
+        (
+            "ssh-brute-force",
+            &["brute force", "brute", "failed password", "sshd"],
+        ),
         ("cve-critical", &["cve-", "critical"]),
         ("phishing-url", &["phish", "suspicious url", "openphish"]),
         ("malware-hash", &["malware", "trojan", "ransomware"]),
@@ -236,13 +333,34 @@ mod tests {
 
     #[test]
     fn test_match_graph() {
-        assert_eq!(match_investigation_graph("SSH brute force from 185.x.x.x"), Some("ssh-brute-force".into()));
-        assert_eq!(match_investigation_graph("CVE-2021-44228 Log4Shell"), Some("cve-critical".into()));
-        assert_eq!(match_investigation_graph("Phishing URL detected"), Some("phishing-url".into()));
-        assert_eq!(match_investigation_graph("C2 beacon every 60s"), Some("c2-communication".into()));
-        assert_eq!(match_investigation_graph("Lateral movement SSH root"), Some("lateral-movement".into()));
-        assert_eq!(match_investigation_graph("Malware hash detected"), Some("malware-hash".into()));
-        assert_eq!(match_investigation_graph("DNS exfiltration base64"), Some("dns-exfiltration".into()));
+        assert_eq!(
+            match_investigation_graph("SSH brute force from 185.x.x.x"),
+            Some("ssh-brute-force".into())
+        );
+        assert_eq!(
+            match_investigation_graph("CVE-2021-44228 Log4Shell"),
+            Some("cve-critical".into())
+        );
+        assert_eq!(
+            match_investigation_graph("Phishing URL detected"),
+            Some("phishing-url".into())
+        );
+        assert_eq!(
+            match_investigation_graph("C2 beacon every 60s"),
+            Some("c2-communication".into())
+        );
+        assert_eq!(
+            match_investigation_graph("Lateral movement SSH root"),
+            Some("lateral-movement".into())
+        );
+        assert_eq!(
+            match_investigation_graph("Malware hash detected"),
+            Some("malware-hash".into())
+        );
+        assert_eq!(
+            match_investigation_graph("DNS exfiltration base64"),
+            Some("dns-exfiltration".into())
+        );
         assert_eq!(match_investigation_graph("Normal log entry"), None);
     }
 }

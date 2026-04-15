@@ -26,7 +26,10 @@ impl std::fmt::Display for SoulError {
             Self::NotFound(p) => write!(f, "AGENT_SOUL.toml not found: {p}"),
             Self::ParseError(e) => write!(f, "AGENT_SOUL.toml parse error: {e}"),
             Self::TamperingDetected { expected, found } => {
-                write!(f, "SECURITY: AGENT_SOUL.toml hash mismatch — expected {expected}, found {found}")
+                write!(
+                    f,
+                    "SECURITY: AGENT_SOUL.toml hash mismatch — expected {expected}, found {found}"
+                )
             }
             Self::Empty => write!(f, "AGENT_SOUL.toml is empty"),
         }
@@ -74,8 +77,8 @@ impl AgentSoul {
             });
         }
 
-        let soul: AgentSoul =
-            toml::from_str(&String::from_utf8_lossy(&content)).map_err(|e| SoulError::ParseError(e.to_string()))?;
+        let soul: AgentSoul = toml::from_str(&String::from_utf8_lossy(&content))
+            .map_err(|e| SoulError::ParseError(e.to_string()))?;
 
         tracing::info!(
             "Agent soul verified: {} v{} — {} rules loaded",
@@ -146,7 +149,10 @@ mod tests {
         let content = soul_content().as_bytes();
         let computed = AgentSoul::compute_hash(content);
         let expected = COMPILED_SOUL_HASH.trim();
-        assert_eq!(computed, expected, "Compiled hash must match AGENT_SOUL.toml");
+        assert_eq!(
+            computed, expected,
+            "Compiled hash must match AGENT_SOUL.toml"
+        );
     }
 
     #[test]

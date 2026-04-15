@@ -1,14 +1,14 @@
 //! Conversational Bot — channel listener and command executor. See ADR-029.
 
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::json;
 use tokio::sync::Mutex;
 
 use crate::agent::command_interpreter::{
-    self, ParsedCommand, ExecutionType, PendingConfirmation,
-    format_for_telegram, format_confirmation_request,
+    self, ExecutionType, ParsedCommand, PendingConfirmation, format_confirmation_request,
+    format_for_telegram,
 };
 use crate::agent::llm_router::LlmRouterConfig;
 use crate::db::Database;
@@ -16,7 +16,7 @@ use crate::db::Database;
 /// A conversation message (for context memory).
 #[derive(Debug, Clone)]
 struct ConvMessage {
-    role: String,      // "user" or "assistant"
+    role: String, // "user" or "assistant"
     content: String,
     timestamp: chrono::DateTime<chrono::Utc>,
 }
@@ -97,14 +97,23 @@ pub fn spawn_telegram_bot(
                 if let Some(callback) = update.get("callback_query") {
                     let callback_id = callback["id"].as_str().unwrap_or("");
                     let data = callback["data"].as_str().unwrap_or("");
-                    let cb_chat_id = callback["message"]["chat"]["id"].as_i64().unwrap_or(0).to_string();
+                    let cb_chat_id = callback["message"]["chat"]["id"]
+                        .as_i64()
+                        .unwrap_or(0)
+                        .to_string();
                     let cb_message_id = callback["message"]["message_id"].as_i64().unwrap_or(0);
                     let cb_from_id = callback["from"]["id"].as_i64().unwrap_or(0);
                     let cb_from = callback["from"]["username"].as_str().unwrap_or("unknown");
 
                     // ADR-044 Couche 5: verify chat_id matches allowed chat
                     if cb_chat_id != allowed_chat_id {
-                        tracing::warn!("HITL_SECURITY: Callback from unauthorized chat {} (expected {}), user @{} (id:{})", cb_chat_id, allowed_chat_id, cb_from, cb_from_id);
+                        tracing::warn!(
+                            "HITL_SECURITY: Callback from unauthorized chat {} (expected {}), user @{} (id:{})",
+                            cb_chat_id,
+                            allowed_chat_id,
+                            cb_from,
+                            cb_from_id
+                        );
                         let _ = reqwest::Client::new()
                             .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
                             .json(&json!({ "callback_query_id": callback_id, "text": "Non autorise", "show_alert": true }))
@@ -115,7 +124,11 @@ pub fn spawn_telegram_bot(
                     // ADR-044 Couche 5: verify approver is authorized (by numeric ID, not spoofable username)
                     let allowed_approvers = get_allowed_approvers(&store).await;
                     if !allowed_approvers.is_empty() && !allowed_approvers.contains(&cb_from_id) {
-                        tracing::warn!("HITL_SECURITY: Callback from unauthorized user @{} (id:{}) — not in approver list", cb_from, cb_from_id);
+                        tracing::warn!(
+                            "HITL_SECURITY: Callback from unauthorized user @{} (id:{}) — not in approver list",
+                            cb_from,
+                            cb_from_id
+                        );
                         let _ = reqwest::Client::new()
                             .post(format!("https://api.telegram.org/bot{token}/answerCallbackQuery"))
                             .json(&json!({ "callback_query_id": callback_id, "text": "Vous n'etes pas autorise a approuver", "show_alert": true }))
@@ -123,7 +136,12 @@ pub fn spawn_telegram_bot(
                         continue;
                     }
 
-                    tracing::info!("CONV_BOT: Callback from @{} (id:{}): {}", cb_from, cb_from_id, data);
+                    tracing::info!(
+                        "CONV_BOT: Callback from @{} (id:{}): {}",
+                        cb_from,
+                        cb_from_id,
+                        data
+                    );
 
                     // See ADR-043: Handle incident HITL callbacks
                     if data.starts_with("incident_") {
@@ -145,7 +163,14 @@ pub fn spawn_telegram_bot(
                                     "reject" => "false_positive",
                                     _ => "investigate_more",
                                 };
-                                let _ = store.update_incident_hitl(incident_id, "responded", "telegram", response).await;
+                                let _ = store
+                                    .update_incident_hitl(
+                                        incident_id,
+                                        "responded",
+                                        "telegram",
+                                        response,
+                                    )
+                                    .await;
 
                                 if action == "approve" {
                                     // ADR-044: Execute real remediation
@@ -153,33 +178,62 @@ pub fn spawn_telegram_bot(
                                         store.clone(), incident_id, response
                                     ).await;
                                     remediation_msg = if success {
-                                        let _ = store.update_incident_status(incident_id, "resolved").await;
+                                        let _ = store
+                                            .update_incident_status(incident_id, "resolved")
+                                            .await;
                                         format!("✅ {}", msg)
                                     } else {
                                         format!("⚠️ Approuve mais echec execution: {}", msg)
                                     };
                                 } else if action == "reject" {
-                                    let _ = store.update_incident_status(incident_id, "closed").await;
+                                    let _ =
+                                        store.update_incident_status(incident_id, "closed").await;
                                     remediation_msg = "Marque faux positif".into();
                                 } else {
-                                    remediation_msg = "Investigation supplementaire demandee".into();
+                                    remediation_msg =
+                                        "Investigation supplementaire demandee".into();
                                 }
-                                tracing::info!("INCIDENT #{}: HITL {} by @{} (id:{}) via Telegram — {}", incident_id, response, cb_from, cb_from_id, remediation_msg);
+                                tracing::info!(
+                                    "INCIDENT #{}: HITL {} by @{} (id:{}) via Telegram — {}",
+                                    incident_id,
+                                    response,
+                                    cb_from,
+                                    cb_from_id,
+                                    remediation_msg
+                                );
                             }
 
-                            let status_emoji = match action { "approve" => "✅", "reject" => "❌", _ => "🔍" };
-                            let status_text = format!("{} Incident #{} — {} par @{} (id:{})\n\n{}", status_emoji, incident_id,
-                                match action { "approve" => "Remediation", "reject" => "Faux positif", _ => "Investigation" }, cb_from, cb_from_id, remediation_msg);
+                            let status_emoji = match action {
+                                "approve" => "✅",
+                                "reject" => "❌",
+                                _ => "🔍",
+                            };
+                            let status_text = format!(
+                                "{} Incident #{} — {} par @{} (id:{})\n\n{}",
+                                status_emoji,
+                                incident_id,
+                                match action {
+                                    "approve" => "Remediation",
+                                    "reject" => "Faux positif",
+                                    _ => "Investigation",
+                                },
+                                cb_from,
+                                cb_from_id,
+                                remediation_msg
+                            );
 
                             let _ = reqwest::Client::new()
-                                .post(format!("https://api.telegram.org/bot{token}/editMessageText"))
+                                .post(format!(
+                                    "https://api.telegram.org/bot{token}/editMessageText"
+                                ))
                                 .json(&json!({
                                     "chat_id": cb_chat_id,
                                     "message_id": cb_message_id,
                                     "text": status_text,
                                     "parse_mode": "Markdown",
                                 }))
-                                .send().await;
+                                .send()
+                                .await;
                         }
                     }
                     // Legacy HITL callbacks (hitl_approve/hitl_reject)
@@ -202,14 +256,17 @@ pub fn spawn_telegram_bot(
                             };
 
                             let _ = reqwest::Client::new()
-                                .post(format!("https://api.telegram.org/bot{token}/editMessageText"))
+                                .post(format!(
+                                    "https://api.telegram.org/bot{token}/editMessageText"
+                                ))
                                 .json(&json!({
                                     "chat_id": cb_chat_id,
                                     "message_id": cb_message_id,
                                     "text": status_text,
                                     "parse_mode": "Markdown",
                                 }))
-                                .send().await;
+                                .send()
+                                .await;
                         }
                     }
                     continue;
@@ -220,11 +277,15 @@ pub fn spawn_telegram_bot(
                 let chat_id = message["chat"]["id"].as_i64().unwrap_or(0).to_string();
                 let from = message["from"]["username"].as_str().unwrap_or("unknown");
 
-                if text.is_empty() { continue; }
+                if text.is_empty() {
+                    continue;
+                }
 
                 // Security: only process messages from allowed chat
                 if !allowed_chat_id.is_empty() && chat_id != allowed_chat_id {
-                    tracing::warn!("CONV_BOT: Ignoring message from unauthorized chat_id={chat_id} (expected {allowed_chat_id})");
+                    tracing::warn!(
+                        "CONV_BOT: Ignoring message from unauthorized chat_id={chat_id} (expected {allowed_chat_id})"
+                    );
                     continue;
                 }
 
@@ -233,7 +294,12 @@ pub fn spawn_telegram_bot(
                 // Check if system is paused
                 if let Ok(Some(paused)) = store.get_setting("_system", "tc_paused").await {
                     if paused.as_bool() == Some(true) {
-                        send_telegram(&token, &chat_id, "ThreatClaw est en pause. Reprenez depuis le dashboard.").await;
+                        send_telegram(
+                            &token,
+                            &chat_id,
+                            "ThreatClaw est en pause. Reprenez depuis le dashboard.",
+                        )
+                        .await;
                         continue;
                     }
                 }
@@ -248,7 +314,9 @@ pub fn spawn_telegram_bot(
 
                 if is_confirmation {
                     handle_confirmation(&token, &chat_id, text, &store, &state).await;
-                } else if let Some(incident_id) = pending_incident_for_channel(&store, "telegram").await {
+                } else if let Some(incident_id) =
+                    pending_incident_for_channel(&store, "telegram").await
+                {
                     // An incident notification is awaiting a reply. Try to route this message
                     // as an incident response ("1", "2", "3", "ignore", ...). If it doesn't
                     // match a numbered action, fall back to the normal command handler so the
@@ -283,14 +351,18 @@ async fn pending_incident_for_channel(store: &Arc<dyn Database>, channel: &str) 
     let at_str = val.get("at").and_then(|v| v.as_str())?;
     let at = chrono::DateTime::parse_from_rfc3339(at_str).ok()?;
     let age = (chrono::Utc::now() - at.with_timezone(&chrono::Utc)).num_seconds();
-    if age > 30 * 60 { return None; }
+    if age > 30 * 60 {
+        return None;
+    }
     Some(id)
 }
 
 /// Clear the pending incident marker for a channel (after the user has replied).
 async fn clear_pending_incident(store: &Arc<dyn Database>, channel: &str) {
     let key = format!("pending_incident:{}", channel);
-    let _ = store.set_setting("_system", &key, &serde_json::Value::Null).await;
+    let _ = store
+        .set_setting("_system", &key, &serde_json::Value::Null)
+        .await;
 }
 
 /// Try to route the user reply as a numbered incident action (1/2/3/ignore).
@@ -309,17 +381,25 @@ async fn handle_incident_reply(
     let action = match trimmed.as_str() {
         "1" | "oui" | "ok" | "go" | "bloque" | "bloquer" | "block" => "approve_remediate",
         "2" | "ticket" | "glpi" => "create_ticket",
-        "3" | "fp" | "faux" | "faux positif" | "false positive" | "false_positive" => "false_positive",
+        "3" | "fp" | "faux" | "faux positif" | "false positive" | "false_positive" => {
+            "false_positive"
+        }
         "ignore" | "non" | "no" | "skip" | "plus tard" => "ignore",
         _ => return false, // Not a numbered reply — let the normal command handler take it
     };
 
     // Acknowledge immediately so the user sees the bot reacted
     let ack = match action {
-        "approve_remediate" => format!("⏳ Incident #{} — exécution de la remédiation en cours…", incident_id),
+        "approve_remediate" => format!(
+            "⏳ Incident #{} — exécution de la remédiation en cours…",
+            incident_id
+        ),
         "create_ticket" => format!("⏳ Incident #{} — création du ticket GLPI…", incident_id),
         "false_positive" => format!("✅ Incident #{} marqué faux positif, clôturé.", incident_id),
-        "ignore" => format!("👌 Incident #{} ignoré. Il reste ouvert dans le dashboard.", incident_id),
+        "ignore" => format!(
+            "👌 Incident #{} ignoré. Il reste ouvert dans le dashboard.",
+            incident_id
+        ),
         _ => format!("⏳ Incident #{}…", incident_id),
     };
     send_telegram(token, chat_id, &ack).await;
@@ -328,23 +408,37 @@ async fn handle_incident_reply(
     clear_pending_incident(store, "telegram").await;
 
     // Update incident HITL status (audit trail)
-    let _ = store.update_incident_hitl(incident_id, "responded", "telegram", action).await;
+    let _ = store
+        .update_incident_hitl(incident_id, "responded", "telegram", action)
+        .await;
 
     // Execute the action (best effort — never block the bot)
     let result_msg: String = match action {
         "approve_remediate" => {
             let (ok, msg) = crate::agent::remediation_engine::execute_incident_remediation(
-                store.clone(), incident_id, "approve_remediate"
-            ).await;
-            if ok { format!("✅ Remédiation OK : {}", msg) }
-            else { format!("❌ Remédiation échouée : {}", msg) }
+                store.clone(),
+                incident_id,
+                "approve_remediate",
+            )
+            .await;
+            if ok {
+                format!("✅ Remédiation OK : {}", msg)
+            } else {
+                format!("❌ Remédiation échouée : {}", msg)
+            }
         }
         "create_ticket" => {
             let (ok, msg) = crate::agent::remediation_engine::execute_incident_remediation(
-                store.clone(), incident_id, "create_ticket"
-            ).await;
-            if ok { format!("✅ Ticket créé : {}", msg) }
-            else { format!("❌ Échec création ticket : {}", msg) }
+                store.clone(),
+                incident_id,
+                "create_ticket",
+            )
+            .await;
+            if ok {
+                format!("✅ Ticket créé : {}", msg)
+            } else {
+                format!("❌ Échec création ticket : {}", msg)
+            }
         }
         "false_positive" => {
             let _ = store.update_incident_status(incident_id, "closed").await;
@@ -376,19 +470,31 @@ async fn get_allowed_approvers(store: &Arc<dyn Database>) -> Vec<i64> {
 async fn get_telegram_config(store: &Arc<dyn Database>) -> Option<(String, String)> {
     // Token from env or DB
     let token = if let Ok(t) = std::env::var("TELEGRAM_BOT_TOKEN") {
-        if !t.is_empty() { t } else { return None; }
+        if !t.is_empty() {
+            t
+        } else {
+            return None;
+        }
     } else if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
-        channels["telegram"]["botToken"].as_str().filter(|t| !t.is_empty())?.to_string()
+        channels["telegram"]["botToken"]
+            .as_str()
+            .filter(|t| !t.is_empty())?
+            .to_string()
     } else {
         return None;
     };
 
     // Allowed chat ID
-    let chat_id = if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
-        channels["telegram"]["chatId"].as_str().unwrap_or("").trim().to_string()
-    } else {
-        String::new()
-    };
+    let chat_id =
+        if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
+            channels["telegram"]["chatId"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string()
+        } else {
+            String::new()
+        };
 
     // Check if channel is enabled
     if let Ok(Some(channels)) = store.get_setting("_system", "tc_config_channels").await {
@@ -407,19 +513,27 @@ async fn poll_telegram(token: &str, offset: i64) -> Result<Vec<serde_json::Value
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client.get(format!("https://api.telegram.org/bot{token}/getUpdates"))
+    let resp = client
+        .get(format!("https://api.telegram.org/bot{token}/getUpdates"))
         .query(&[
             ("offset", offset.to_string()),
             ("timeout", "10".to_string()),
-            ("allowed_updates", "[\"message\",\"callback_query\"]".to_string()),
+            (
+                "allowed_updates",
+                "[\"message\",\"callback_query\"]".to_string(),
+            ),
         ])
-        .send().await
+        .send()
+        .await
         .map_err(|e| e.to_string())?;
 
     let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
 
     if data["ok"].as_bool() != Some(true) {
-        return Err(format!("Telegram API error: {}", data["description"].as_str().unwrap_or("unknown")));
+        return Err(format!(
+            "Telegram API error: {}",
+            data["description"].as_str().unwrap_or("unknown")
+        ));
     }
 
     Ok(data["result"].as_array().cloned().unwrap_or_default())
@@ -442,12 +556,20 @@ async fn call_l0_conversation(
 
     // Determine source and model
     let (use_cloud, model, backend, api_key, base_url) = match &l0.source {
-        L0Source::Cloud => {
-            (true, l0.cloud_model.clone(), l0.cloud_backend.clone(), l0.cloud_api_key.clone(), l0.cloud_base_url.clone())
-        }
-        L0Source::Local => {
-            (false, l0.local_model.clone(), String::new(), String::new(), None)
-        }
+        L0Source::Cloud => (
+            true,
+            l0.cloud_model.clone(),
+            l0.cloud_backend.clone(),
+            l0.cloud_api_key.clone(),
+            l0.cloud_base_url.clone(),
+        ),
+        L0Source::Local => (
+            false,
+            l0.local_model.clone(),
+            String::new(),
+            String::new(),
+            None,
+        ),
         L0Source::Disabled => {
             // Fallback: use old behavior (try cloud L3, then local models)
             return call_llm_fallback(llm_config, system_prompt, user_message).await;
@@ -459,20 +581,47 @@ async fn call_l0_conversation(
         .timeout(std::time::Duration::from_secs(120)) // 120s to handle first model load on CPU
         .danger_accept_invalid_certs(true)
         .no_proxy()
-        .build().ok()?;
+        .build()
+        .ok()?;
 
     // Build system prompt with tool descriptions (for prompt-based mode)
     let full_system = if tool_mode == ToolCallMode::PromptBased {
-        format!("{}\n\n{}\n\nConversation récente:\n{}", system_prompt, tool_calling::tools_for_prompt(), history_context)
+        format!(
+            "{}\n\n{}\n\nConversation récente:\n{}",
+            system_prompt,
+            tool_calling::tools_for_prompt(),
+            history_context
+        )
     } else {
-        format!("{}\n\nConversation récente:\n{}", system_prompt, history_context)
+        format!(
+            "{}\n\nConversation récente:\n{}",
+            system_prompt, history_context
+        )
     };
 
     // ── Step 1: First LLM call (may produce a tool call or direct response) ──
     let first_response = if use_cloud {
-        call_cloud_api(&client, &backend, &model, &api_key, &base_url, &full_system, user_message, tool_mode).await
+        call_cloud_api(
+            &client,
+            &backend,
+            &model,
+            &api_key,
+            &base_url,
+            &full_system,
+            user_message,
+            tool_mode,
+        )
+        .await
     } else {
-        call_ollama_l0(&client, &l0.ollama_url, &model, &full_system, user_message, tool_mode).await
+        call_ollama_l0(
+            &client,
+            &l0.ollama_url,
+            &model,
+            &full_system,
+            user_message,
+            tool_mode,
+        )
+        .await
     };
 
     let (content, tool_calls) = match first_response {
@@ -495,7 +644,10 @@ async fn call_l0_conversation(
         tracing::info!("CONV_BOT L0: Tool call → {}({:?})", tc.name, tc.arguments);
         let tool_result = tool_calling::execute_tool(&tc, store).await;
         let tool_result_json = serde_json::to_string(&tool_result.data).unwrap_or_default();
-        tracing::info!("CONV_BOT L0: Tool result ({} chars)", tool_result_json.len());
+        tracing::info!(
+            "CONV_BOT L0: Tool result ({} chars)",
+            tool_result_json.len()
+        );
 
         // ── Step 3: Second LLM call with tool results injected ──
         let followup_system = format!(
@@ -509,9 +661,27 @@ async fn call_l0_conversation(
         );
 
         let second_response = if use_cloud {
-            call_cloud_api(&client, &backend, &model, &api_key, &base_url, &followup_system, &followup_message, ToolCallMode::None).await
+            call_cloud_api(
+                &client,
+                &backend,
+                &model,
+                &api_key,
+                &base_url,
+                &followup_system,
+                &followup_message,
+                ToolCallMode::None,
+            )
+            .await
         } else {
-            call_ollama_l0(&client, &l0.ollama_url, &model, &followup_system, &followup_message, ToolCallMode::None).await
+            call_ollama_l0(
+                &client,
+                &l0.ollama_url,
+                &model,
+                &followup_system,
+                &followup_message,
+                ToolCallMode::None,
+            )
+            .await
         };
 
         if let Some((text, _)) = second_response {
@@ -559,12 +729,19 @@ async fn call_ollama_l0(
         body["tools"] = crate::agent::tool_calling::tools_for_ollama();
     }
 
-    match client.post(format!("{}/api/chat", ollama_url)).json(&body).send().await {
+    match client
+        .post(format!("{}/api/chat", ollama_url))
+        .json(&body)
+        .send()
+        .await
+    {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
-                let content = data["message"]["content"].as_str()
+                let content = data["message"]["content"]
+                    .as_str()
                     .or_else(|| data["response"].as_str())
-                    .unwrap_or("").to_string();
+                    .unwrap_or("")
+                    .to_string();
 
                 // Extract native tool calls
                 let mut tool_calls = Vec::new();
@@ -584,7 +761,9 @@ async fn call_ollama_l0(
                 let duration = data["eval_duration"].as_f64().unwrap_or(1.0) / 1e9;
                 tracing::info!(
                     "CONV_BOT L0: {} responded ({} chars, {} tok, {:.1} tok/s, {} tool_calls)",
-                    model, content.len(), tok_count,
+                    model,
+                    content.len(),
+                    tok_count,
                     tok_count as f64 / duration.max(0.001),
                     tool_calls.len()
                 );
@@ -595,7 +774,11 @@ async fn call_ollama_l0(
             }
         }
         Ok(resp) => {
-            tracing::warn!("CONV_BOT L0: Ollama {} error: HTTP {}", model, resp.status());
+            tracing::warn!(
+                "CONV_BOT L0: Ollama {} error: HTTP {}",
+                model,
+                resp.status()
+            );
             None
         }
         Err(e) => {
@@ -621,7 +804,9 @@ async fn call_cloud_api(
     let api_url = match backend {
         "mistral" => "https://api.mistral.ai/v1/chat/completions".to_string(),
         "anthropic" => "https://api.anthropic.com/v1/messages".to_string(),
-        _ => base_url.clone().unwrap_or("https://api.openai.com/v1/chat/completions".into()),
+        _ => base_url
+            .clone()
+            .unwrap_or("https://api.openai.com/v1/chat/completions".into()),
     };
 
     let mut body = if backend == "anthropic" {
@@ -650,8 +835,9 @@ async fn call_cloud_api(
 
     let mut req = client.post(&api_url).json(&body);
     if backend == "anthropic" {
-        req = req.header("x-api-key", api_key)
-                 .header("anthropic-version", "2023-06-01");
+        req = req
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01");
     } else {
         req = req.header("Authorization", format!("Bearer {}", api_key));
     }
@@ -660,9 +846,15 @@ async fn call_cloud_api(
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
                 let content = if backend == "anthropic" {
-                    data["content"][0]["text"].as_str().unwrap_or("").to_string()
+                    data["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
                 } else {
-                    data["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string()
+                    data["choices"][0]["message"]["content"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string()
                 };
 
                 // Extract native tool calls (OpenAI/Mistral format)
@@ -671,7 +863,8 @@ async fn call_cloud_api(
                     for call in calls {
                         if let Some(name) = call["function"]["name"].as_str() {
                             let args_str = call["function"]["arguments"].as_str().unwrap_or("{}");
-                            let args: serde_json::Value = serde_json::from_str(args_str).unwrap_or(json!({}));
+                            let args: serde_json::Value =
+                                serde_json::from_str(args_str).unwrap_or(json!({}));
                             tool_calls.push(crate::agent::tool_calling::ToolCall {
                                 name: name.to_string(),
                                 arguments: args,
@@ -680,7 +873,12 @@ async fn call_cloud_api(
                     }
                 }
 
-                tracing::info!("CONV_BOT L0: Cloud {} responded ({} chars, {} tool_calls)", backend, content.len(), tool_calls.len());
+                tracing::info!(
+                    "CONV_BOT L0: Cloud {} responded ({} chars, {} tool_calls)",
+                    backend,
+                    content.len(),
+                    tool_calls.len()
+                );
                 Some((content, tool_calls))
             } else {
                 None
@@ -690,7 +888,12 @@ async fn call_cloud_api(
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
             let snippet: String = body.chars().take(300).collect();
-            tracing::warn!("CONV_BOT L0: Cloud {} error: HTTP {} — {}", backend, status, snippet);
+            tracing::warn!(
+                "CONV_BOT L0: Cloud {} error: HTTP {} — {}",
+                backend,
+                status,
+                snippet
+            );
             None
         }
         Err(e) => {
@@ -710,19 +913,28 @@ async fn call_llm_fallback(
         .timeout(std::time::Duration::from_secs(30))
         .danger_accept_invalid_certs(true)
         .no_proxy()
-        .build().ok()?;
+        .build()
+        .ok()?;
 
     // Try Cloud L3 if configured
     if let Some(ref cloud) = llm_config.cloud {
         if !cloud.api_key.is_empty() {
             let result = call_cloud_api(
-                &client, &cloud.backend, &cloud.model, &cloud.api_key,
-                &cloud.base_url, system_prompt, user_message,
+                &client,
+                &cloud.backend,
+                &cloud.model,
+                &cloud.api_key,
+                &cloud.base_url,
+                system_prompt,
+                user_message,
                 crate::agent::llm_router::ToolCallMode::None,
-            ).await;
+            )
+            .await;
             if let Some((text, _)) = result {
                 let clean = clean_llm_response(&text);
-                if !clean.is_empty() { return Some(clean); }
+                if !clean.is_empty() {
+                    return Some(clean);
+                }
             }
         }
     }
@@ -741,15 +953,25 @@ async fn call_llm_fallback(
             "keep_alive": -1,
             "options": { "temperature": 0.7, "num_predict": 500, "num_ctx": 8192 }
         });
-        match client.post(format!("{}/api/chat", base_url)).json(&body).send().await {
+        match client
+            .post(format!("{}/api/chat", base_url))
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(resp) if resp.status().is_success() => {
                 if let Ok(data) = resp.json::<serde_json::Value>().await {
-                    let content = data["message"]["content"].as_str()
+                    let content = data["message"]["content"]
+                        .as_str()
                         .or_else(|| data["response"].as_str())
                         .unwrap_or("");
                     let clean = clean_llm_response(content);
                     if !clean.is_empty() {
-                        tracing::info!("CONV_BOT: Fallback {} responded ({} chars)", model, clean.len());
+                        tracing::info!(
+                            "CONV_BOT: Fallback {} responded ({} chars)",
+                            model,
+                            clean.len()
+                        );
                         return Some(clean);
                     }
                 }
@@ -778,21 +1000,34 @@ fn clean_llm_response(text: &str) -> String {
                 match v {
                     serde_json::Value::String(s) if s.len() > 20 => Some(s.clone()),
                     serde_json::Value::Object(map) => {
-                        for key in &["greeting", "message", "response", "text", "résumé", "summary", "content", "answer"] {
+                        for key in &[
+                            "greeting", "message", "response", "text", "résumé", "summary",
+                            "content", "answer",
+                        ] {
                             if let Some(val) = map.get(*key) {
                                 if let Some(s) = val.as_str() {
-                                    if s.len() > 10 { return Some(s.to_string()); }
+                                    if s.len() > 10 {
+                                        return Some(s.to_string());
+                                    }
                                 }
-                                if let Some(s) = extract_text(val) { return Some(s); }
+                                if let Some(s) = extract_text(val) {
+                                    return Some(s);
+                                }
                             }
                         }
                         for val in map.values() {
-                            if let Some(s) = extract_text(val) { return Some(s); }
+                            if let Some(s) = extract_text(val) {
+                                return Some(s);
+                            }
                         }
                         None
                     }
                     serde_json::Value::Array(arr) => {
-                        for val in arr { if let Some(s) = extract_text(val) { return Some(s); } }
+                        for val in arr {
+                            if let Some(s) = extract_text(val) {
+                                return Some(s);
+                            }
+                        }
                         None
                     }
                     _ => None,
@@ -811,34 +1046,46 @@ fn clean_llm_response(text: &str) -> String {
 fn format_tool_result_as_text(tool_name: &str, data: &serde_json::Value) -> String {
     match tool_name {
         "get_security_status" => {
-            format!("Score sécurité : *{:.0}/100* — {}\nAlertes : {} · Findings : {} · Assets : {}",
+            format!(
+                "Score sécurité : *{:.0}/100* — {}\nAlertes : {} · Findings : {} · Assets : {}",
                 data["score"].as_f64().unwrap_or(0.0),
                 data["label"].as_str().unwrap_or("?"),
                 data["alerts_active"].as_i64().unwrap_or(0),
                 data["findings_open"].as_i64().unwrap_or(0),
-                data["assets_monitored"].as_i64().unwrap_or(0))
+                data["assets_monitored"].as_i64().unwrap_or(0)
+            )
         }
         "get_recent_alerts" => {
-            let mut lines = vec![format!("{} alertes récentes :", data["total"].as_i64().unwrap_or(0))];
+            let mut lines = vec![format!(
+                "{} alertes récentes :",
+                data["total"].as_i64().unwrap_or(0)
+            )];
             if let Some(alerts) = data["alerts"].as_array() {
                 for a in alerts.iter().take(5) {
-                    lines.push(format!("• [{}] {} — {} ({})",
+                    lines.push(format!(
+                        "• [{}] {} — {} ({})",
                         a["level"].as_str().unwrap_or("?"),
                         a["title"].as_str().unwrap_or("?"),
                         a["hostname"].as_str().unwrap_or("?"),
-                        a["timestamp"].as_str().unwrap_or("?")));
+                        a["timestamp"].as_str().unwrap_or("?")
+                    ));
                 }
             }
             lines.join("\n")
         }
         "get_recent_findings" => {
-            let mut lines = vec![format!("{} findings ouverts :", data["total"].as_i64().unwrap_or(0))];
+            let mut lines = vec![format!(
+                "{} findings ouverts :",
+                data["total"].as_i64().unwrap_or(0)
+            )];
             if let Some(findings) = data["findings"].as_array() {
                 for f in findings.iter().take(5) {
-                    lines.push(format!("• [{}] {} — {}",
+                    lines.push(format!(
+                        "• [{}] {} — {}",
                         f["severity"].as_str().unwrap_or("?"),
                         f["title"].as_str().unwrap_or("?"),
-                        f["asset"].as_str().unwrap_or("?")));
+                        f["asset"].as_str().unwrap_or("?")
+                    ));
                 }
             }
             lines.join("\n")
@@ -848,7 +1095,10 @@ fn format_tool_result_as_text(tool_name: &str, data: &serde_json::Value) -> Stri
 }
 
 async fn send_telegram(token: &str, chat_id: &str, text: &str) {
-    let client = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(10)).build() {
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+    {
         Ok(c) => c,
         Err(_) => return,
     };
@@ -860,9 +1110,11 @@ async fn send_telegram(token: &str, chat_id: &str, text: &str) {
         text.to_string()
     };
 
-    let _ = client.post(format!("https://api.telegram.org/bot{token}/sendMessage"))
+    let _ = client
+        .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
         .json(&json!({ "chat_id": chat_id, "text": text, "parse_mode": "Markdown" }))
-        .send().await;
+        .send()
+        .await;
 }
 
 /// Handle a new command (not a confirmation).
@@ -904,15 +1156,19 @@ async fn handle_new_command(
     let llm_config = LlmRouterConfig::from_db_settings(store.as_ref()).await;
 
     // Parse with context
-    let mut cmd = command_interpreter::parse_command_with_context(&resolved_text, &context, &llm_config).await;
+    let mut cmd =
+        command_interpreter::parse_command_with_context(&resolved_text, &context, &llm_config)
+            .await;
 
     // If no target found but we have a last_target, inject it
     if cmd.target.is_none() {
         let s = state.lock().await;
         if let Some(last) = s.last_target.get(chat_id) {
             // Only inject if the action typically needs a target
-            if matches!(cmd.execution_type,
-                ExecutionType::Skill { .. } | ExecutionType::Remediation { .. }) {
+            if matches!(
+                cmd.execution_type,
+                ExecutionType::Skill { .. } | ExecutionType::Remediation { .. }
+            ) {
                 cmd.target = Some(last.clone());
                 cmd.summary = format!("{} (cible: {})", cmd.summary, last);
             }
@@ -928,16 +1184,38 @@ async fn handle_new_command(
     match &cmd.execution_type {
         ExecutionType::Unknown => {
             // No keyword matched → L0 conversational engine with tool calling
-            let situation = store.get_setting("_system", "security_situation").await.ok().flatten();
-            let score = situation.as_ref().and_then(|s| s["global_score"].as_f64()).unwrap_or(100.0);
-            let alerts_count = store.count_alerts_filtered(None, Some("new")).await.unwrap_or(0);
-            let findings_count = store.count_findings_filtered(None, Some("open"), None).await.unwrap_or(0);
+            let situation = store
+                .get_setting("_system", "security_situation")
+                .await
+                .ok()
+                .flatten();
+            let score = situation
+                .as_ref()
+                .and_then(|s| s["global_score"].as_f64())
+                .unwrap_or(100.0);
+            let alerts_count = store
+                .count_alerts_filtered(None, Some("new"))
+                .await
+                .unwrap_or(0);
+            let findings_count = store
+                .count_findings_filtered(None, Some("open"), None)
+                .await
+                .unwrap_or(0);
 
             let history_ctx = {
                 let s = state.lock().await;
-                s.history.get(chat_id).map(|h| {
-                    h.iter().rev().take(6).rev().map(|m| format!("{}: {}", m.role, m.content)).collect::<Vec<_>>().join("\n")
-                }).unwrap_or_default()
+                s.history
+                    .get(chat_id)
+                    .map(|h| {
+                        h.iter()
+                            .rev()
+                            .take(6)
+                            .rev()
+                            .map(|m| format!("{}: {}", m.role, m.content))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default()
             };
 
             let system_prompt = format!(
@@ -949,7 +1227,8 @@ async fn handle_new_command(
                 score, alerts_count, findings_count
             );
 
-            let llm_response = call_l0_conversation(&llm_config, &system_prompt, text, store, &history_ctx).await;
+            let llm_response =
+                call_l0_conversation(&llm_config, &system_prompt, text, store, &history_ctx).await;
 
             let response = match llm_response {
                 Some(resp) => resp,
@@ -971,18 +1250,23 @@ async fn handle_new_command(
             send_telegram(token, chat_id, &confirm_msg).await;
             record_history(state, chat_id, &confirm_msg).await;
             let mut s = state.lock().await;
-            s.last_action.insert(chat_id.to_string(), cmd.action.clone());
-            s.pending.insert(chat_id.to_string(), PendingConfirmation {
-                command: cmd,
-                channel: "telegram".into(),
-                chat_id: chat_id.into(),
-                created_at: chrono::Utc::now(),
-            });
+            s.last_action
+                .insert(chat_id.to_string(), cmd.action.clone());
+            s.pending.insert(
+                chat_id.to_string(),
+                PendingConfirmation {
+                    command: cmd,
+                    channel: "telegram".into(),
+                    chat_id: chat_id.into(),
+                    created_at: chrono::Utc::now(),
+                },
+            );
         }
         _ => {
             // Execute directly (queries, skills, instruct)
             send_telegram(token, chat_id, &format!("⏳ {}", cmd.summary)).await;
-            let result = command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
+            let result =
+                command_interpreter::execute_command(&cmd, store.as_ref(), &llm_config).await;
 
             // Build response with follow-up suggestion
             let response = format_for_telegram(&result);
@@ -999,15 +1283,22 @@ async fn handle_new_command(
             // Update state
             {
                 let mut s = state.lock().await;
-                s.last_action.insert(chat_id.to_string(), cmd.action.clone());
+                s.last_action
+                    .insert(chat_id.to_string(), cmd.action.clone());
             }
 
             // Audit
             let audit_key = format!("conv_bot_{}_{}", cmd.action, chrono::Utc::now().timestamp());
-            let _ = store.set_setting("_audit", &audit_key, &json!({
-                "action": cmd.action, "target": cmd.target, "channel": "telegram",
-                "success": result.success, "timestamp": chrono::Utc::now().to_rfc3339(),
-            })).await;
+            let _ = store
+                .set_setting(
+                    "_audit",
+                    &audit_key,
+                    &json!({
+                        "action": cmd.action, "target": cmd.target, "channel": "telegram",
+                        "success": result.success, "timestamp": chrono::Utc::now().to_rfc3339(),
+                    }),
+                )
+                .await;
         }
     }
 }
@@ -1025,17 +1316,36 @@ async fn record_history(state: &Arc<Mutex<BotState>>, chat_id: &str, content: &s
 
 /// Resolve pronouns using conversation context.
 /// "bloque la" → "bloque 192.168.1.50" (if last target was 192.168.1.50)
-fn resolve_pronouns(text: &str, last_target: Option<&String>, _last_action: Option<&String>) -> String {
+fn resolve_pronouns(
+    text: &str,
+    last_target: Option<&String>,
+    _last_action: Option<&String>,
+) -> String {
     let lower = text.to_lowercase();
-    let pronouns = ["la", "le", "l'", "cette ip", "cette cible", "ce serveur", "lui", "dessus"];
+    let pronouns = [
+        "la",
+        "le",
+        "l'",
+        "cette ip",
+        "cette cible",
+        "ce serveur",
+        "lui",
+        "dessus",
+    ];
 
     if let Some(target) = last_target {
         for pronoun in &pronouns {
             // Check if text ends with or contains the pronoun as a reference
-            if lower.ends_with(pronoun) || lower.contains(&format!(" {} ", pronoun)) || lower.contains(&format!(" {}", pronoun)) {
+            if lower.ends_with(pronoun)
+                || lower.contains(&format!(" {} ", pronoun))
+                || lower.contains(&format!(" {}", pronoun))
+            {
                 let resolved = text.to_string().replace(pronoun, target);
                 // Also try with capitalized
-                let resolved = resolved.replace(&pronoun.chars().next().unwrap().to_uppercase().to_string(), target);
+                let resolved = resolved.replace(
+                    &pronoun.chars().next().unwrap().to_uppercase().to_string(),
+                    target,
+                );
                 tracing::debug!("CONV_BOT: Pronoun resolved '{}' → '{}'", text, resolved);
                 return resolved;
             }
@@ -1046,7 +1356,10 @@ fn resolve_pronouns(text: &str, last_target: Option<&String>, _last_action: Opti
 }
 
 /// Build conversation context string for LLM prompt.
-fn build_conversation_context(history: Option<&Vec<ConvMessage>>, last_target: Option<&String>) -> String {
+fn build_conversation_context(
+    history: Option<&Vec<ConvMessage>>,
+    last_target: Option<&String>,
+) -> String {
     let mut ctx = String::new();
 
     if let Some(target) = last_target {
@@ -1054,12 +1367,23 @@ fn build_conversation_context(history: Option<&Vec<ConvMessage>>, last_target: O
     }
 
     if let Some(hist) = history {
-        let recent: Vec<&ConvMessage> = hist.iter().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
+        let recent: Vec<&ConvMessage> = hist
+            .iter()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         if !recent.is_empty() {
             ctx.push_str("Conversation récente:\n");
             for msg in recent {
                 let role = if msg.role == "user" { "RSSI" } else { "Bot" };
-                ctx.push_str(&format!("{}: {}\n", role, msg.content.chars().take(150).collect::<String>()));
+                ctx.push_str(&format!(
+                    "{}: {}\n",
+                    role,
+                    msg.content.chars().take(150).collect::<String>()
+                ));
             }
         }
     }
@@ -1068,8 +1392,13 @@ fn build_conversation_context(history: Option<&Vec<ConvMessage>>, last_target: O
 }
 
 /// Suggest a follow-up action based on what was just done.
-fn suggest_followup(cmd: &ParsedCommand, result: &command_interpreter::CommandResult) -> Option<String> {
-    if !result.success { return None; }
+fn suggest_followup(
+    cmd: &ParsedCommand,
+    result: &command_interpreter::CommandResult,
+) -> Option<String> {
+    if !result.success {
+        return None;
+    }
 
     match cmd.action.as_str() {
         "lookup_ip" => {
@@ -1082,18 +1411,10 @@ fn suggest_followup(cmd: &ParsedCommand, result: &command_interpreter::CommandRe
         "scan_port" | "scan_vuln" => {
             Some("Générer un playbook pour les vulnérabilités trouvées ? Tapez `playbook`".into())
         }
-        "findings" => {
-            Some("Lancer une analyse ReAct ? Tapez `analyse`".into())
-        }
-        "alerts" => {
-            Some("Voir les findings associés ? Tapez `findings`".into())
-        }
-        "block_ip" => {
-            Some("Vérifier que le blocage est effectif ? Tapez `status`".into())
-        }
-        "react" => {
-            Some("Générer un rapport ? Tapez `rapport`".into())
-        }
+        "findings" => Some("Lancer une analyse ReAct ? Tapez `analyse`".into()),
+        "alerts" => Some("Voir les findings associés ? Tapez `findings`".into()),
+        "block_ip" => Some("Vérifier que le blocage est effectif ? Tapez `status`".into()),
+        "react" => Some("Générer un rapport ? Tapez `rapport`".into()),
         _ => None,
     }
 }
@@ -1107,12 +1428,23 @@ async fn handle_confirmation(
     state: &Arc<Mutex<BotState>>,
 ) {
     let lower = text.to_lowercase().trim().to_string();
-    let confirmed = lower == "oui" || lower == "ok" || lower == "go" || lower == "yes"
-        || lower == "confirmer" || lower == "confirm" || lower == "y";
-    let cancelled = lower == "non" || lower == "no" || lower == "annuler" || lower == "cancel" || lower == "n";
+    let confirmed = lower == "oui"
+        || lower == "ok"
+        || lower == "go"
+        || lower == "yes"
+        || lower == "confirmer"
+        || lower == "confirm"
+        || lower == "y";
+    let cancelled =
+        lower == "non" || lower == "no" || lower == "annuler" || lower == "cancel" || lower == "n";
 
     if !confirmed && !cancelled {
-        send_telegram(token, chat_id, "Répondez *oui* pour exécuter ou *non* pour annuler.").await;
+        send_telegram(
+            token,
+            chat_id,
+            "Répondez *oui* pour exécuter ou *non* pour annuler.",
+        )
+        .await;
         return;
     }
 
@@ -1132,34 +1464,48 @@ async fn handle_confirmation(
     }
 
     // Execute the confirmed remediation command directly (bypass the confirmation loop)
-    send_telegram(token, chat_id, &format!("Exécution en cours : {}", pending.command.summary)).await;
+    send_telegram(
+        token,
+        chat_id,
+        &format!("Exécution en cours : {}", pending.command.summary),
+    )
+    .await;
 
-    let result = if let command_interpreter::ExecutionType::Remediation { ref cmd_id } = pending.command.execution_type {
+    let result = if let command_interpreter::ExecutionType::Remediation { ref cmd_id } =
+        pending.command.execution_type
+    {
         // Validate via whitelist and execute
-        match crate::agent::remediation_whitelist::validate_remediation(cmd_id, &pending.command.params) {
-            Ok(validated) => {
-                match crate::agent::executor::execute_validated(&validated) {
-                    Ok(exec_result) => command_interpreter::CommandResult {
-                        success: exec_result.success,
-                        message: if exec_result.success {
-                            format!("Action exécutée avec succès.\n`{}`\n{}", exec_result.rendered_cmd, exec_result.stdout)
-                        } else {
-                            format!("Échec de l'exécution.\n`{}`\n{}", exec_result.rendered_cmd, exec_result.stderr)
-                        },
-                        data: Some(json!({
-                            "cmd_id": cmd_id, "executed": true,
-                            "success": exec_result.success,
-                            "stdout": exec_result.stdout,
-                            "stderr": exec_result.stderr,
-                        })),
+        match crate::agent::remediation_whitelist::validate_remediation(
+            cmd_id,
+            &pending.command.params,
+        ) {
+            Ok(validated) => match crate::agent::executor::execute_validated(&validated) {
+                Ok(exec_result) => command_interpreter::CommandResult {
+                    success: exec_result.success,
+                    message: if exec_result.success {
+                        format!(
+                            "Action exécutée avec succès.\n`{}`\n{}",
+                            exec_result.rendered_cmd, exec_result.stdout
+                        )
+                    } else {
+                        format!(
+                            "Échec de l'exécution.\n`{}`\n{}",
+                            exec_result.rendered_cmd, exec_result.stderr
+                        )
                     },
-                    Err(e) => command_interpreter::CommandResult {
-                        success: false,
-                        message: format!("Erreur d'exécution : {:?}", e),
-                        data: Some(json!({ "cmd_id": cmd_id, "executed": false })),
-                    },
-                }
-            }
+                    data: Some(json!({
+                        "cmd_id": cmd_id, "executed": true,
+                        "success": exec_result.success,
+                        "stdout": exec_result.stdout,
+                        "stderr": exec_result.stderr,
+                    })),
+                },
+                Err(e) => command_interpreter::CommandResult {
+                    success: false,
+                    message: format!("Erreur d'exécution : {:?}", e),
+                    data: Some(json!({ "cmd_id": cmd_id, "executed": false })),
+                },
+            },
             Err(e) => command_interpreter::CommandResult {
                 success: false,
                 message: format!("Commande refusée par la whitelist : {}", e),
@@ -1184,10 +1530,20 @@ async fn handle_confirmation(
     record_history(state, chat_id, &response).await;
 
     // Audit
-    let audit_key = format!("conv_bot_confirmed_{}_{}", pending.command.action, chrono::Utc::now().timestamp());
-    let _ = store.set_setting("_audit", &audit_key, &json!({
-        "action": pending.command.action, "target": pending.command.target,
-        "channel": "telegram", "confirmed_by": chat_id,
-        "success": result.success, "timestamp": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let audit_key = format!(
+        "conv_bot_confirmed_{}_{}",
+        pending.command.action,
+        chrono::Utc::now().timestamp()
+    );
+    let _ = store
+        .set_setting(
+            "_audit",
+            &audit_key,
+            &json!({
+                "action": pending.command.action, "target": pending.command.target,
+                "channel": "telegram", "confirmed_by": chat_id,
+                "success": result.success, "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 }

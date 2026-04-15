@@ -39,9 +39,7 @@ pub enum CredentialType {
     },
 
     /// Generic bearer token.
-    Token {
-        provider: String,
-    },
+    Token { provider: String },
 }
 
 /// SSH key algorithm.
@@ -136,8 +134,12 @@ pub struct TargetConfig {
     pub driver: Option<String>,
 }
 
-fn default_port() -> u16 { 22 }
-fn default_mode() -> String { "investigator".to_string() }
+fn default_port() -> u16 {
+    22
+}
+fn default_mode() -> String {
+    "investigator".to_string()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

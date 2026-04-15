@@ -20,7 +20,9 @@ pub struct FortinetConfig {
     pub no_tls_verify: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FortinetSyncResult {
@@ -32,7 +34,10 @@ pub struct FortinetSyncResult {
 
 pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> FortinetSyncResult {
     let mut result = FortinetSyncResult {
-        arp_entries: 0, assets_resolved: 0, interfaces: 0, errors: vec![],
+        arp_entries: 0,
+        assets_resolved: 0,
+        interfaces: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -41,16 +46,21 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         .build()
     {
         Ok(c) => c,
-        Err(e) => { result.errors.push(format!("HTTP client: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("HTTP client: {}", e));
+            return result;
+        }
     };
 
     tracing::info!("FORTINET: Connecting to {}", config.url);
 
     // ARP table
     let arp_url = format!("{}/api/v2/monitor/system/arp", config.url);
-    match client.get(&arp_url)
+    match client
+        .get(&arp_url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
@@ -73,7 +83,7 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                                 vlan: extract_vlan(iface),
                                 vm_id: None,
                                 criticality: None,
-            services: serde_json::json!([]),
+                                services: serde_json::json!([]),
                                 source: "fortinet".into(),
                             };
                             asset_resolution::resolve_asset(store, &discovered).await;
@@ -83,15 +93,21 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                 }
             }
         }
-        Ok(resp) => { result.errors.push(format!("ARP HTTP {}", resp.status())); }
-        Err(e) => { result.errors.push(format!("ARP: {}", e)); }
+        Ok(resp) => {
+            result.errors.push(format!("ARP HTTP {}", resp.status()));
+        }
+        Err(e) => {
+            result.errors.push(format!("ARP: {}", e));
+        }
     }
 
     // Interfaces
     let iface_url = format!("{}/api/v2/cmdb/system/interface", config.url);
-    match client.get(&iface_url)
+    match client
+        .get(&iface_url)
         .header("Authorization", format!("Bearer {}", config.api_key))
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(body) = resp.json::<serde_json::Value>().await {
@@ -101,8 +117,12 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         _ => {}
     }
 
-    tracing::info!("FORTINET SYNC: {} ARP entries, {} assets, {} interfaces",
-        result.arp_entries, result.assets_resolved, result.interfaces);
+    tracing::info!(
+        "FORTINET SYNC: {} ARP entries, {} assets, {} interfaces",
+        result.arp_entries,
+        result.assets_resolved,
+        result.interfaces
+    );
 
     result
 }
@@ -126,10 +146,12 @@ pub async fn block_ip(config: &FortinetConfig, ip: &str) -> Result<serde_json::V
         "comment": format!("ThreatClaw auto-block: {}", ip),
     });
 
-    let resp = client.post(&addr_url)
+    let resp = client
+        .post(&addr_url)
         .header("Authorization", format!("Bearer {}", config.api_key))
         .json(&addr_body)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Address create: {}", e))?;
 
     if !resp.status().is_success() && resp.status().as_u16() != 500 {

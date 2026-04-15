@@ -15,7 +15,9 @@ use futures::StreamExt;
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 
-use threatclaw::channels::{Channel, IncomingMessage, MessageStream, OutgoingResponse, StatusUpdate};
+use threatclaw::channels::{
+    Channel, IncomingMessage, MessageStream, OutgoingResponse, StatusUpdate,
+};
 use threatclaw::error::ChannelError;
 
 // ---------------------------------------------------------------------------

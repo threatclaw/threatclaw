@@ -43,7 +43,10 @@ impl NucleiScanner {
                 let v: serde_json::Value = serde_json::from_str(line).ok()?;
                 let template_id = v["template-id"].as_str().unwrap_or("unknown");
                 let name = v["info"]["name"].as_str().unwrap_or(template_id);
-                let severity = v["info"]["severity"].as_str().unwrap_or("info").to_lowercase();
+                let severity = v["info"]["severity"]
+                    .as_str()
+                    .unwrap_or("info")
+                    .to_lowercase();
                 let matched_at = v["matched-at"].as_str().unwrap_or("");
                 let description = v["info"]["description"].as_str().map(|s| s.to_string());
                 let tags = v["info"]["tags"].clone();
@@ -75,7 +78,11 @@ impl ScannerBackend for NucleiScanner {
     async fn health_check(&self) -> Result<String, String> {
         let output = match &self.config.mode {
             ScannerMode::Docker => {
-                let container = self.config.container.as_deref().unwrap_or("docker-nuclei-1");
+                let container = self
+                    .config
+                    .container
+                    .as_deref()
+                    .unwrap_or("docker-nuclei-1");
                 Command::new("docker")
                     .args(["exec", container, "nuclei", "--version"])
                     .output()
@@ -103,20 +110,34 @@ impl ScannerBackend for NucleiScanner {
 
     async fn scan(&self, target: &str, options: &serde_json::Value) -> Result<ScanResult, String> {
         let start = Instant::now();
-        let severity_filter = options["severity"].as_str().unwrap_or("critical,high,medium");
+        let severity_filter = options["severity"]
+            .as_str()
+            .unwrap_or("critical,high,medium");
 
         let output = match &self.config.mode {
             ScannerMode::Docker => {
-                let container = self.config.container.as_deref().unwrap_or("docker-nuclei-1");
+                let container = self
+                    .config
+                    .container
+                    .as_deref()
+                    .unwrap_or("docker-nuclei-1");
                 Command::new("docker")
                     .args([
-                        "exec", container, "nuclei",
-                        "-target", target,
-                        "-severity", severity_filter,
-                        "-json", "-silent",
-                        "-rate-limit", "50",
-                        "-timeout", "5",
-                        "-retries", "1",
+                        "exec",
+                        container,
+                        "nuclei",
+                        "-target",
+                        target,
+                        "-severity",
+                        severity_filter,
+                        "-json",
+                        "-silent",
+                        "-rate-limit",
+                        "50",
+                        "-timeout",
+                        "5",
+                        "-retries",
+                        "1",
                     ])
                     .output()
                     .map_err(|e| format!("Docker exec failed: {e}"))?
@@ -125,11 +146,16 @@ impl ScannerBackend for NucleiScanner {
                 let path = self.config.binary_path.as_deref().unwrap_or("nuclei");
                 Command::new(path)
                     .args([
-                        "-target", target,
-                        "-severity", severity_filter,
-                        "-json", "-silent",
-                        "-rate-limit", "50",
-                        "-timeout", "5",
+                        "-target",
+                        target,
+                        "-severity",
+                        severity_filter,
+                        "-json",
+                        "-silent",
+                        "-rate-limit",
+                        "50",
+                        "-timeout",
+                        "5",
                     ])
                     .output()
                     .map_err(|e| format!("Nuclei failed: {e}"))?
@@ -190,6 +216,9 @@ mod tests {
     fn test_local_config() {
         let scanner = NucleiScanner::local("/usr/bin/nuclei");
         assert_eq!(scanner.config.mode, ScannerMode::LocalBinary);
-        assert_eq!(scanner.config.binary_path, Some("/usr/bin/nuclei".to_string()));
+        assert_eq!(
+            scanner.config.binary_path,
+            Some("/usr/bin/nuclei".to_string())
+        );
     }
 }

@@ -49,7 +49,9 @@ pub async fn check_url(url: &str, api_key: &str) -> Result<SafeBrowsingResult, S
         return Err(format!("Safe Browsing HTTP {}", resp.status()));
     }
 
-    let result: serde_json::Value = resp.json().await
+    let result: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Safe Browsing parse: {}", e))?;
 
     let matches = result["matches"].as_array();
@@ -78,7 +80,8 @@ pub async fn check_urls(urls: &[&str], api_key: &str) -> Result<Vec<SafeBrowsing
         return Ok(vec![]);
     }
 
-    let entries: Vec<serde_json::Value> = urls.iter()
+    let entries: Vec<serde_json::Value> = urls
+        .iter()
         .take(500)
         .map(|u| serde_json::json!({"url": u}))
         .collect();
@@ -112,32 +115,38 @@ pub async fn check_urls(urls: &[&str], api_key: &str) -> Result<Vec<SafeBrowsing
         return Err(format!("Safe Browsing HTTP {}", resp.status()));
     }
 
-    let result: serde_json::Value = resp.json().await
+    let result: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Safe Browsing parse: {}", e))?;
 
     let matches = result["matches"].as_array();
 
     // Build a map of threat URLs
-    let mut threat_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut threat_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     if let Some(arr) = matches {
         for m in arr {
-            if let (Some(url), Some(tt)) = (
-                m["threat"]["url"].as_str(),
-                m["threatType"].as_str(),
-            ) {
-                threat_map.entry(url.to_string()).or_default().push(tt.to_string());
+            if let (Some(url), Some(tt)) = (m["threat"]["url"].as_str(), m["threatType"].as_str()) {
+                threat_map
+                    .entry(url.to_string())
+                    .or_default()
+                    .push(tt.to_string());
             }
         }
     }
 
-    Ok(urls.iter().map(|u| {
-        let types = threat_map.get(*u).cloned().unwrap_or_default();
-        SafeBrowsingResult {
-            url: u.to_string(),
-            is_threat: !types.is_empty(),
-            threat_types: types,
-        }
-    }).collect())
+    Ok(urls
+        .iter()
+        .map(|u| {
+            let types = threat_map.get(*u).cloned().unwrap_or_default();
+            SafeBrowsingResult {
+                url: u.to_string(),
+                is_threat: !types.is_empty(),
+                threat_types: types,
+            }
+        })
+        .collect())
 }
 
 #[cfg(test)]

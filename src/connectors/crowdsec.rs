@@ -12,7 +12,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrowdSecConfig {
-    pub url: String,          // e.g. "http://192.168.1.10:8080"
+    pub url: String, // e.g. "http://192.168.1.10:8080"
     pub bouncer_key: String,
 }
 
@@ -24,31 +24,48 @@ pub struct CrowdSecSyncResult {
     pub errors: Vec<String>,
 }
 
-pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startup: bool) -> CrowdSecSyncResult {
+pub async fn sync_crowdsec(
+    store: &dyn Database,
+    config: &CrowdSecConfig,
+    startup: bool,
+) -> CrowdSecSyncResult {
     let mut result = CrowdSecSyncResult {
-        new_decisions: 0, deleted_decisions: 0, alerts_created: 0, errors: vec![],
+        new_decisions: 0,
+        deleted_decisions: 0,
+        alerts_created: 0,
+        errors: vec![],
     };
 
     if config.bouncer_key.is_empty() {
-        result.errors.push("CrowdSec bouncer API key required".into());
+        result
+            .errors
+            .push("CrowdSec bouncer API key required".into());
         return result;
     }
 
     let client = reqwest::Client::new();
 
     let url = if startup {
-        format!("{}/v1/decisions/stream?startup=true", config.url.trim_end_matches('/'))
+        format!(
+            "{}/v1/decisions/stream?startup=true",
+            config.url.trim_end_matches('/')
+        )
     } else {
         format!("{}/v1/decisions/stream", config.url.trim_end_matches('/'))
     };
 
-    let resp = match client.get(&url)
+    let resp = match client
+        .get(&url)
         .header("X-Api-Key", &config.bouncer_key)
         .timeout(Duration::from_secs(15))
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("CrowdSec request: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("CrowdSec request: {}", e));
+            return result;
+        }
     };
 
     if resp.status().as_u16() == 403 {
@@ -56,13 +73,18 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
         return result;
     }
     if !resp.status().is_success() {
-        result.errors.push(format!("CrowdSec HTTP {}", resp.status()));
+        result
+            .errors
+            .push(format!("CrowdSec HTTP {}", resp.status()));
         return result;
     }
 
     let body: serde_json::Value = match resp.json().await {
         Ok(b) => b,
-        Err(e) => { result.errors.push(format!("CrowdSec parse: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("CrowdSec parse: {}", e));
+            return result;
+        }
     };
 
     // Process new decisions
@@ -74,7 +96,9 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
             let scenario = decision["scenario"].as_str().unwrap_or("unknown");
             let duration = decision["duration"].as_str().unwrap_or("");
 
-            if value.is_empty() { continue; }
+            if value.is_empty() {
+                continue;
+            }
 
             result.new_decisions += 1;
 
@@ -90,9 +114,10 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
                 scenario, duration, scope, value
             );
 
-            if let Err(e) = store.insert_sigma_alert(
-                scenario, level, &title, "", Some(value), None,
-            ).await {
+            if let Err(e) = store
+                .insert_sigma_alert(scenario, level, &title, "", Some(value), None)
+                .await
+            {
                 result.errors.push(format!("Create alert: {}", e));
             } else {
                 result.alerts_created += 1;
@@ -108,7 +133,9 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
 
     tracing::info!(
         "CROWDSEC: {} new decisions, {} deleted, {} alerts created",
-        result.new_decisions, result.deleted_decisions, result.alerts_created
+        result.new_decisions,
+        result.deleted_decisions,
+        result.alerts_created
     );
 
     result
@@ -117,19 +144,27 @@ pub async fn sync_crowdsec(store: &dyn Database, config: &CrowdSecConfig, startu
 /// Check if a specific IP has active decisions.
 pub async fn check_ip(config: &CrowdSecConfig, ip: &str) -> Result<Vec<String>, String> {
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/decisions?ip={}", config.url.trim_end_matches('/'), ip);
+    let url = format!(
+        "{}/v1/decisions?ip={}",
+        config.url.trim_end_matches('/'),
+        ip
+    );
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .header("X-Api-Key", &config.bouncer_key)
         .timeout(Duration::from_secs(10))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("CrowdSec check: {}", e))?;
 
     if !resp.status().is_success() {
         return Err(format!("CrowdSec HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("CrowdSec parse: {}", e))?;
 
     // null = no decisions (clean)
@@ -137,7 +172,8 @@ pub async fn check_ip(config: &CrowdSecConfig, ip: &str) -> Result<Vec<String>, 
         return Ok(vec![]);
     }
 
-    let decisions: Vec<String> = body.as_array()
+    let decisions: Vec<String> = body
+        .as_array()
         .map(|arr| {
             arr.iter()
                 .filter_map(|d| {

@@ -25,10 +25,7 @@ pub async fn check_url(url: &str, app_key: Option<&str>) -> Result<PhishTankResu
         return Err("URL required".into());
     }
 
-    let mut params = vec![
-        ("url", url.to_string()),
-        ("format", "json".to_string()),
-    ];
+    let mut params = vec![("url", url.to_string()), ("format", "json".to_string())];
     if let Some(key) = app_key {
         if !key.is_empty() {
             params.push(("app_key", key.to_string()));
@@ -52,20 +49,25 @@ pub async fn check_url(url: &str, app_key: Option<&str>) -> Result<PhishTankResu
         return Err(format!("PhishTank HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("PhishTank parse: {}", e))?;
 
     let results = &body["results"];
 
-    let in_database = results["in_database"].as_bool()
+    let in_database = results["in_database"]
+        .as_bool()
         .or_else(|| results["in_database"].as_str().map(|s| s == "true"))
         .unwrap_or(false);
 
-    let verified = results["verified"].as_bool()
+    let verified = results["verified"]
+        .as_bool()
         .or_else(|| results["verified"].as_str().map(|s| s == "true"))
         .unwrap_or(false);
 
-    let valid = results["valid"].as_bool()
+    let valid = results["valid"]
+        .as_bool()
         .or_else(|| results["valid"].as_str().map(|s| s == "true"))
         .unwrap_or(false);
 
@@ -74,7 +76,9 @@ pub async fn check_url(url: &str, app_key: Option<&str>) -> Result<PhishTankResu
         in_database,
         is_phish: in_database && verified && valid,
         verified,
-        phish_id: results["phish_id"].as_str().map(String::from)
+        phish_id: results["phish_id"]
+            .as_str()
+            .map(String::from)
             .or_else(|| results["phish_id"].as_u64().map(|n| n.to_string())),
         detail_url: results["phish_detail_page"].as_str().map(String::from),
     })

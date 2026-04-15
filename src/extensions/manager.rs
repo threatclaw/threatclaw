@@ -249,7 +249,9 @@ fn telegram_verification_instructions(bot_username: Option<&str>, code: &str) ->
         );
     }
 
-    format!("Send `/start {code}` to your Telegram bot. ThreatClaw will finish setup automatically.")
+    format!(
+        "Send `/start {code}` to your Telegram bot. ThreatClaw will finish setup automatically."
+    )
 }
 
 fn telegram_message_matches_verification_code(text: &str, code: &str) -> bool {

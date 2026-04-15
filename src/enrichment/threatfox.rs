@@ -21,9 +21,11 @@ pub struct ThreatFoxIoc {
 pub async fn lookup_ioc(ioc: &str, api_key: Option<&str>) -> Result<Vec<ThreatFoxIoc>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
-    let mut req = client.post(API_URL)
+    let mut req = client
+        .post(API_URL)
         .json(&serde_json::json!({ "query": "search_ioc", "search_term": ioc }));
     if let Some(key) = api_key {
         req = req.header("Auth-Key", key);
@@ -36,18 +38,30 @@ pub async fn lookup_ioc(ioc: &str, api_key: Option<&str>) -> Result<Vec<ThreatFo
         return Ok(vec![]);
     }
 
-    let results: Vec<ThreatFoxIoc> = data["data"].as_array()
-        .map(|arr| arr.iter().filter_map(|entry| {
-            Some(ThreatFoxIoc {
-                ioc_type: entry["ioc_type"].as_str()?.into(),
-                ioc_value: entry["ioc"].as_str()?.into(),
-                threat_type: entry["threat_type"].as_str().unwrap_or("").into(),
-                malware: entry["malware_printable"].as_str().map(String::from),
-                confidence_level: entry["confidence_level"].as_u64().map(|v| v as u8),
-                first_seen: entry["first_seen_utc"].as_str().map(String::from),
-                tags: entry["tags"].as_array().map(|t| t.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
-            })
-        }).collect())
+    let results: Vec<ThreatFoxIoc> = data["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|entry| {
+                    Some(ThreatFoxIoc {
+                        ioc_type: entry["ioc_type"].as_str()?.into(),
+                        ioc_value: entry["ioc"].as_str()?.into(),
+                        threat_type: entry["threat_type"].as_str().unwrap_or("").into(),
+                        malware: entry["malware_printable"].as_str().map(String::from),
+                        confidence_level: entry["confidence_level"].as_u64().map(|v| v as u8),
+                        first_seen: entry["first_seen_utc"].as_str().map(String::from),
+                        tags: entry["tags"]
+                            .as_array()
+                            .map(|t| {
+                                t.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
         .unwrap_or_default();
 
     Ok(results)

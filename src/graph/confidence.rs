@@ -69,12 +69,17 @@ pub async fn compute_ip_confidence(
     let mut total: f64 = 0.0;
 
     // 1. GreyNoise classification (weight: 0.20)
-    let gn_results = query(store, &format!(
-        "MATCH (ip:IP {{addr: '{}'}}) RETURN ip.classification",
-        esc(ip_addr)
-    )).await;
+    let gn_results = query(
+        store,
+        &format!(
+            "MATCH (ip:IP {{addr: '{}'}}) RETURN ip.classification",
+            esc(ip_addr)
+        ),
+    )
+    .await;
 
-    let gn_class = gn_results.first()
+    let gn_class = gn_results
+        .first()
         .and_then(|r| r["ip.classification"].as_str())
         .unwrap_or("unknown");
 
@@ -95,12 +100,17 @@ pub async fn compute_ip_confidence(
     });
 
     // 2. Historical attacks from this IP (weight: 0.20)
-    let attack_results = query(store, &format!(
-        "MATCH (ip:IP {{addr: '{}'}})-[att:ATTACKS]->(a:Asset) RETURN count(att)",
-        esc(ip_addr)
-    )).await;
+    let attack_results = query(
+        store,
+        &format!(
+            "MATCH (ip:IP {{addr: '{}'}})-[att:ATTACKS]->(a:Asset) RETURN count(att)",
+            esc(ip_addr)
+        ),
+    )
+    .await;
 
-    let attack_count = attack_results.first()
+    let attack_count = attack_results
+        .first()
         .and_then(|r| r["count(att)"].as_i64())
         .unwrap_or(0);
 
@@ -121,12 +131,17 @@ pub async fn compute_ip_confidence(
     });
 
     // 3. IP country/ASN reputation (weight: 0.20)
-    let geo_results = query(store, &format!(
-        "MATCH (ip:IP {{addr: '{}'}}) RETURN ip.country, ip.asn",
-        esc(ip_addr)
-    )).await;
+    let geo_results = query(
+        store,
+        &format!(
+            "MATCH (ip:IP {{addr: '{}'}}) RETURN ip.country, ip.asn",
+            esc(ip_addr)
+        ),
+    )
+    .await;
 
-    let country = geo_results.first()
+    let country = geo_results
+        .first()
         .and_then(|r| r["ip.country"].as_str())
         .unwrap_or("");
 
@@ -145,23 +160,33 @@ pub async fn compute_ip_confidence(
         weight: 0.20,
         raw_value: geo_raw,
         weighted_score: geo_weighted,
-        detail: if country.is_empty() { "unknown country".into() } else { format!("country={}", country) },
+        detail: if country.is_empty() {
+            "unknown country".into()
+        } else {
+            format!("country={}", country)
+        },
     });
 
     // 4. CVE on target asset (weight: 0.15)
     let cve_raw = if let Some(asset) = target_asset {
-        let cve_results = query(store, &format!(
-            "MATCH (c:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) RETURN c.cvss, c.in_kev",
-            esc(asset)
-        )).await;
+        let cve_results = query(
+            store,
+            &format!(
+                "MATCH (c:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) RETURN c.cvss, c.in_kev",
+                esc(asset)
+            ),
+        )
+        .await;
 
         if cve_results.is_empty() {
             0.1
         } else {
-            let max_cvss = cve_results.iter()
+            let max_cvss = cve_results
+                .iter()
                 .filter_map(|r| r["c.cvss"].as_f64())
                 .fold(0.0_f64, f64::max);
-            let has_kev = cve_results.iter()
+            let has_kev = cve_results
+                .iter()
                 .any(|r| r["c.in_kev"].as_bool() == Some(true));
 
             let base = (max_cvss / 10.0).min(1.0);
@@ -181,19 +206,21 @@ pub async fn compute_ip_confidence(
     });
 
     // 5. EPSS on related CVEs (weight: 0.10)
-    let epss_raw = if let Some(asset) = target_asset {
-        let epss_results = query(store, &format!(
+    let epss_raw =
+        if let Some(asset) = target_asset {
+            let epss_results = query(store, &format!(
             "MATCH (c:CVE)-[:AFFECTS]->(a:Asset {{id: '{}'}}) WHERE c.epss > 0 RETURN c.epss",
             esc(asset)
         )).await;
 
-        epss_results.iter()
-            .filter_map(|r| r["c.epss"].as_f64())
-            .fold(0.0_f64, f64::max)
-            .min(1.0)
-    } else {
-        0.0
-    };
+            epss_results
+                .iter()
+                .filter_map(|r| r["c.epss"].as_f64())
+                .fold(0.0_f64, f64::max)
+                .min(1.0)
+        } else {
+            0.0
+        };
     let epss_weighted = epss_raw * 0.10;
     total += epss_weighted;
     components.push(ScoreComponent {
@@ -208,9 +235,9 @@ pub async fn compute_ip_confidence(
     let hour = alert_hour.unwrap_or(12);
     let time_raw = match hour {
         0..=5 => 0.9,   // 00h-05h = very suspicious
-        22..=23 => 0.7,  // 22h-23h = suspicious
-        6..=8 => 0.3,    // early morning
-        _ => 0.1,         // business hours = normal
+        22..=23 => 0.7, // 22h-23h = suspicious
+        6..=8 => 0.3,   // early morning
+        _ => 0.1,       // business hours = normal
     };
     let time_weighted = time_raw * 0.10;
     total += time_weighted;
@@ -223,18 +250,20 @@ pub async fn compute_ip_confidence(
     });
 
     // 7. KEV boost (weight: 0.05)
-    let kev_raw = if let Some(asset) = target_asset {
-        let kev_results = query(store, &format!(
+    let kev_raw =
+        if let Some(asset) = target_asset {
+            let kev_results = query(store, &format!(
             "MATCH (c:CVE {{in_kev: true}})-[:AFFECTS]->(a:Asset {{id: '{}'}}) RETURN count(c)",
             esc(asset)
         )).await;
-        let kev_count = kev_results.first()
-            .and_then(|r| r["count(c)"].as_i64())
-            .unwrap_or(0);
-        if kev_count > 0 { 1.0 } else { 0.0 }
-    } else {
-        0.0
-    };
+            let kev_count = kev_results
+                .first()
+                .and_then(|r| r["count(c)"].as_i64())
+                .unwrap_or(0);
+            if kev_count > 0 { 1.0 } else { 0.0 }
+        } else {
+            0.0
+        };
     let kev_weighted = kev_raw * 0.05;
     total += kev_weighted;
     components.push(ScoreComponent {
@@ -279,12 +308,17 @@ pub async fn compute_cve_confidence(
     let mut total: f64 = 0.0;
 
     // 1. CVSS score (weight: 0.30)
-    let cve_results = query(store, &format!(
-        "MATCH (c:CVE {{id: '{}'}}) RETURN c.cvss, c.epss, c.in_kev",
-        esc(cve_id)
-    )).await;
+    let cve_results = query(
+        store,
+        &format!(
+            "MATCH (c:CVE {{id: '{}'}}) RETURN c.cvss, c.epss, c.in_kev",
+            esc(cve_id)
+        ),
+    )
+    .await;
 
-    let cvss = cve_results.first()
+    let cvss = cve_results
+        .first()
         .and_then(|r| r["c.cvss"].as_f64())
         .unwrap_or(0.0);
     let cvss_raw = (cvss / 10.0).min(1.0);
@@ -299,7 +333,8 @@ pub async fn compute_cve_confidence(
     });
 
     // 2. EPSS (weight: 0.25)
-    let epss = cve_results.first()
+    let epss = cve_results
+        .first()
         .and_then(|r| r["c.epss"].as_f64())
         .unwrap_or(0.0);
     let epss_weighted = epss * 0.25;
@@ -313,7 +348,8 @@ pub async fn compute_cve_confidence(
     });
 
     // 3. KEV (weight: 0.25)
-    let in_kev = cve_results.first()
+    let in_kev = cve_results
+        .first()
         .and_then(|r| r["c.in_kev"].as_bool())
         .unwrap_or(false);
     let kev_raw = if in_kev { 1.0 } else { 0.0 };
@@ -329,11 +365,16 @@ pub async fn compute_cve_confidence(
 
     // 4. Asset criticality (weight: 0.20)
     let asset_raw = if let Some(asset) = target_asset {
-        let asset_results = query(store, &format!(
-            "MATCH (a:Asset {{id: '{}'}}) RETURN a.criticality",
-            esc(asset)
-        )).await;
-        let criticality = asset_results.first()
+        let asset_results = query(
+            store,
+            &format!(
+                "MATCH (a:Asset {{id: '{}'}}) RETURN a.criticality",
+                esc(asset)
+            ),
+        )
+        .await;
+        let criticality = asset_results
+            .first()
             .and_then(|r| r["a.criticality"].as_str())
             .unwrap_or("medium");
         match criticality {
@@ -381,12 +422,20 @@ pub fn format_confidence(score: &ConfidenceScore) -> String {
     let mut out = format!("Confiance: {}/100 ({})\n", score.score, score.level);
     out.push_str(&format!("Sources corroborantes: {}", score.source_count));
     if score.corroboration_bonus > 0.0 {
-        out.push_str(&format!(" (+{:.0}% bonus)", score.corroboration_bonus * 100.0));
+        out.push_str(&format!(
+            " (+{:.0}% bonus)",
+            score.corroboration_bonus * 100.0
+        ));
     }
     out.push('\n');
     for c in &score.breakdown {
-        out.push_str(&format!("  {} ({:.0}%): {:.0}/100 — {}\n",
-            c.source, c.weight * 100.0, c.weighted_score * 100.0, c.detail));
+        out.push_str(&format!(
+            "  {} ({:.0}%): {:.0}/100 — {}\n",
+            c.source,
+            c.weight * 100.0,
+            c.weighted_score * 100.0,
+            c.detail
+        ));
     }
     out
 }

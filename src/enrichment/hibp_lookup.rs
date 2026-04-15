@@ -27,15 +27,21 @@ pub struct HibpBreach {
 
 /// Check if an email appears in known data breaches.
 pub async fn check_email(email: &str, api_key: &str) -> Result<HibpResult, String> {
-    if api_key.is_empty() { return Err("HIBP API key required".into()); }
+    if api_key.is_empty() {
+        return Err("HIBP API key required".into());
+    }
 
-    let url = format!("{}/breachedaccount/{}?truncateResponse=false", HIBP_API, email);
+    let url = format!(
+        "{}/breachedaccount/{}?truncateResponse=false",
+        HIBP_API, email
+    );
     let resp = reqwest::Client::new()
         .get(&url)
         .header("hibp-api-key", api_key)
         .header("user-agent", "ThreatClaw-SecurityAgent")
         .timeout(std::time::Duration::from_secs(10))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("HIBP request: {}", e))?;
 
     // 404 = not breached (good!)
@@ -52,20 +58,28 @@ pub async fn check_email(email: &str, api_key: &str) -> Result<HibpResult, Strin
         return Err(format!("HIBP HTTP {}", resp.status()));
     }
 
-    let breaches_raw: Vec<serde_json::Value> = resp.json().await
+    let breaches_raw: Vec<serde_json::Value> = resp
+        .json()
+        .await
         .map_err(|e| format!("HIBP parse: {}", e))?;
 
-    let breaches: Vec<HibpBreach> = breaches_raw.iter().map(|b| {
-        HibpBreach {
+    let breaches: Vec<HibpBreach> = breaches_raw
+        .iter()
+        .map(|b| HibpBreach {
             name: b["Name"].as_str().unwrap_or("").to_string(),
             domain: b["Domain"].as_str().unwrap_or("").to_string(),
             breach_date: b["BreachDate"].as_str().unwrap_or("").to_string(),
-            data_classes: b["DataClasses"].as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            data_classes: b["DataClasses"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
             is_verified: b["IsVerified"].as_bool().unwrap_or(false),
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok(HibpResult {
         email: email.to_string(),

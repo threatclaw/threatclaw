@@ -56,10 +56,13 @@ pub async fn scan_url(url: &str, api_key: &str) -> Result<UrlScanResult, String>
         return Err(format!("URLScan submit HTTP {} — {}", status, body));
     }
 
-    let submit_body: serde_json::Value = submit_resp.json().await
+    let submit_body: serde_json::Value = submit_resp
+        .json()
+        .await
         .map_err(|e| format!("URLScan submit parse: {}", e))?;
 
-    let uuid = submit_body["uuid"].as_str()
+    let uuid = submit_body["uuid"]
+        .as_str()
         .ok_or("URLScan: no UUID in response")?
         .to_string();
 
@@ -84,7 +87,9 @@ pub async fn scan_url(url: &str, api_key: &str) -> Result<UrlScanResult, String>
             continue;
         }
 
-        let body: serde_json::Value = poll_resp.json().await
+        let body: serde_json::Value = poll_resp
+            .json()
+            .await
             .map_err(|e| format!("URLScan result parse: {}", e))?;
 
         let verdicts = &body["verdicts"]["overall"];
@@ -98,9 +103,9 @@ pub async fn scan_url(url: &str, api_key: &str) -> Result<UrlScanResult, String>
             score: verdicts["score"].as_i64().unwrap_or(0) as i32,
             domain: page["domain"].as_str().map(String::from),
             ip: page["ip"].as_str().map(String::from),
-            status_code: page["status"].as_str()
-                .and_then(|s| s.parse::<i32>().ok()),
-            total_requests: stats["resourceStats"].as_array()
+            status_code: page["status"].as_str().and_then(|s| s.parse::<i32>().ok()),
+            total_requests: stats["resourceStats"]
+                .as_array()
                 .map(|a| a.len() as i32)
                 .unwrap_or(0),
             malicious_requests: stats["malicious"].as_i64().unwrap_or(0) as i32,

@@ -26,20 +26,14 @@ pub enum ApprovalAction {
         risk_level: String,
     },
     /// Destructive operation (delete, reset, revoke).
-    DestructiveOp {
-        operation: String,
-        resource: String,
-    },
+    DestructiveOp { operation: String, resource: String },
     /// Send external notification.
     ExternalNotification {
         channel: String,
         message_preview: String,
     },
     /// Custom approval request.
-    Custom {
-        title: String,
-        description: String,
-    },
+    Custom { title: String, description: String },
 }
 
 impl ApprovalAction {
@@ -149,10 +143,10 @@ impl Urgency {
     /// Timeout for this urgency level in seconds.
     pub fn timeout_secs(&self) -> u64 {
         match self {
-            Self::Low => 86400,      // 24 h
-            Self::Medium => 14400,   // 4 h
-            Self::High => 3600,      // 1 h
-            Self::Critical => 900,   // 15 min
+            Self::Low => 86400,    // 24 h
+            Self::Medium => 14400, // 4 h
+            Self::High => 3600,    // 1 h
+            Self::Critical => 900, // 15 min
         }
     }
 
@@ -203,8 +197,7 @@ impl ApprovalRequest {
     ) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
-        let expires_at =
-            now + chrono::Duration::seconds(urgency.timeout_secs() as i64);
+        let expires_at = now + chrono::Duration::seconds(urgency.timeout_secs() as i64);
 
         Self {
             id,
@@ -356,26 +349,18 @@ impl SlackMessageBuilder {
             ApprovalStatus::Approved { by, at, .. } => {
                 (format!("Approved by {by} at {at}"), ":white_check_mark:")
             }
-            ApprovalStatus::Rejected {
-                by,
-                at,
-                reason,
-            } => {
+            ApprovalStatus::Rejected { by, at, reason } => {
                 let reason_str = reason
                     .as_deref()
                     .map(|r| format!("\n*Reason:* {r}"))
                     .unwrap_or_default();
-                (
-                    format!("Rejected by {by} at {at}{reason_str}"),
-                    ":x:",
-                )
+                (format!("Rejected by {by} at {at}{reason_str}"), ":x:")
             }
-            ApprovalStatus::Expired => {
-                ("Request expired without a decision.".to_string(), ":hourglass:")
-            }
-            ApprovalStatus::Pending => {
-                ("Pending".to_string(), ":hourglass_flowing_sand:")
-            }
+            ApprovalStatus::Expired => (
+                "Request expired without a decision.".to_string(),
+                ":hourglass:",
+            ),
+            ApprovalStatus::Pending => ("Pending".to_string(), ":hourglass_flowing_sand:"),
         };
 
         serde_json::json!({
@@ -584,7 +569,11 @@ mod tests {
         let attachments = msg["attachments"].as_array().expect("attachments array");
         assert!(!attachments.is_empty());
         let blocks = attachments[0]["blocks"].as_array().expect("blocks array");
-        assert!(blocks.len() >= 4, "Expected at least 4 blocks, got {}", blocks.len());
+        assert!(
+            blocks.len() >= 4,
+            "Expected at least 4 blocks, got {}",
+            blocks.len()
+        );
 
         // First block must be a header.
         assert_eq!(blocks[0]["type"], "header");
@@ -624,7 +613,10 @@ mod tests {
         assert!(msg.is_object());
 
         let text = msg["text"].as_str().unwrap();
-        assert!(text.contains("Approved"), "Result text should contain 'Approved'");
+        assert!(
+            text.contains("Approved"),
+            "Result text should contain 'Approved'"
+        );
 
         let blocks = msg["blocks"].as_array().expect("blocks");
         assert!(!blocks.is_empty());
@@ -721,7 +713,10 @@ mod tests {
         req.reject("U666".to_string(), Some("Not authorized".to_string()));
         assert!(matches!(
             req.status,
-            ApprovalStatus::Rejected { reason: Some(_), .. }
+            ApprovalStatus::Rejected {
+                reason: Some(_),
+                ..
+            }
         ));
     }
 
@@ -814,8 +809,7 @@ mod tests {
         );
 
         let json = serde_json::to_string(&req).expect("serialize");
-        let deserialized: ApprovalRequest =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: ApprovalRequest = serde_json::from_str(&json).expect("deserialize");
 
         assert_eq!(deserialized.id, req.id);
         assert_eq!(deserialized.requester, "scheduler");
@@ -827,7 +821,12 @@ mod tests {
 
     #[test]
     fn test_urgency_colors_are_hex() {
-        for urgency in &[Urgency::Low, Urgency::Medium, Urgency::High, Urgency::Critical] {
+        for urgency in &[
+            Urgency::Low,
+            Urgency::Medium,
+            Urgency::High,
+            Urgency::Critical,
+        ] {
             let color = urgency.color();
             assert!(color.starts_with('#'), "Color should start with #");
             assert!(color.len() == 7, "Color should be #RRGGBB format");

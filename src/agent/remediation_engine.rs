@@ -1,10 +1,10 @@
 // See ADR-044: Remediation Engine — executes validated actions after HITL approval.
 // All actions pass through remediation_guard before execution.
 
-use std::sync::Arc;
-use serde_json::json;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
+use serde_json::json;
+use std::sync::Arc;
 
 /// Execute remediation for an approved incident.
 /// Returns (success, message) for notification.
@@ -35,16 +35,32 @@ pub async fn execute_incident_remediation(
         return (false, msg);
     }
 
-    tracing::info!("REMEDIATION: Executing {} on {} (incident #{})", action, asset, incident_id);
+    tracing::info!(
+        "REMEDIATION: Executing {} on {} (incident #{})",
+        action,
+        asset,
+        incident_id
+    );
 
     // Determine what to do based on action + available connectors
     let result = match action {
-        "approve_remediate" | "block_ip" => execute_block_ip(store.as_ref(), asset, incident_id).await,
+        "approve_remediate" | "block_ip" => {
+            execute_block_ip(store.as_ref(), asset, incident_id).await
+        }
         "disable_account" => execute_disable_account(store.as_ref(), asset, incident_id).await,
         "create_ticket" => execute_create_ticket(store.as_ref(), asset, title, incident_id).await,
         _ => {
-            tracing::warn!("REMEDIATION: Unknown action '{}' — marking resolved without execution", action);
-            (true, format!("Incident #{} marque resolu (action: {})", incident_id, action))
+            tracing::warn!(
+                "REMEDIATION: Unknown action '{}' — marking resolved without execution",
+                action
+            );
+            (
+                true,
+                format!(
+                    "Incident #{} marque resolu (action: {})",
+                    incident_id, action
+                ),
+            )
         }
     };
 
@@ -57,10 +73,17 @@ pub async fn execute_incident_remediation(
     });
 
     // Store in incident (update executed_actions array)
-    let _ = store.set_setting("_audit",
-        &format!("remediation_{}_{}", incident_id, chrono::Utc::now().timestamp()),
-        &executed
-    ).await;
+    let _ = store
+        .set_setting(
+            "_audit",
+            &format!(
+                "remediation_{}_{}",
+                incident_id,
+                chrono::Utc::now().timestamp()
+            ),
+            &executed,
+        )
+        .await;
 
     result
 }
@@ -72,21 +95,39 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
 
     let target_ip = match target_ip {
         Some(ip) => ip,
-        None => return (false, format!("Impossible de determiner l'IP a bloquer pour {}", asset)),
+        None => {
+            return (
+                false,
+                format!("Impossible de determiner l'IP a bloquer pour {}", asset),
+            );
+        }
     };
 
     // Validate IP is not protected
     if crate::agent::remediation_guard::is_protected_target(&target_ip) {
-        return (false, format!("IP {} est dans la liste d'infrastructure protegee", target_ip));
+        return (
+            false,
+            format!(
+                "IP {} est dans la liste d'infrastructure protegee",
+                target_ip
+            ),
+        );
     }
 
     // Only block external IPs by default
     if crate::agent::ip_classifier::is_non_routable(&target_ip) {
         // Internal IP — check if isolation is allowed (rate limited)
         if !crate::agent::remediation_guard::can_isolate() {
-            return (false, "Rate limit isolation interne atteint (max 3/heure)".into());
+            return (
+                false,
+                "Rate limit isolation interne atteint (max 3/heure)".into(),
+            );
         }
-        tracing::warn!("REMEDIATION: Isolating INTERNAL IP {} (incident #{})", target_ip, incident_id);
+        tracing::warn!(
+            "REMEDIATION: Isolating INTERNAL IP {} (incident #{})",
+            target_ip,
+            incident_id
+        );
     }
 
     // Load pfSense/OPNsense config from DB
@@ -94,16 +135,32 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
     match config {
         Some((fw_type, url, user, secret, no_tls)) => {
             let result = if fw_type == "opnsense" {
-                crate::connectors::remediation::opnsense_block_ip(&url, &user, &secret, &target_ip, no_tls).await
+                crate::connectors::remediation::opnsense_block_ip(
+                    &url, &user, &secret, &target_ip, no_tls,
+                )
+                .await
             } else {
-                crate::connectors::remediation::pfsense_block_ip(&url, &user, &secret, &target_ip, no_tls).await
+                crate::connectors::remediation::pfsense_block_ip(
+                    &url, &user, &secret, &target_ip, no_tls,
+                )
+                .await
             };
 
             if result.success {
-                (true, format!("IP {} bloquee sur {} (regle: {})", target_ip, fw_type,
-                    result.undo_info.as_deref().unwrap_or("n/a")))
+                (
+                    true,
+                    format!(
+                        "IP {} bloquee sur {} (regle: {})",
+                        target_ip,
+                        fw_type,
+                        result.undo_info.as_deref().unwrap_or("n/a")
+                    ),
+                )
             } else {
-                (false, format!("Echec blocage {} : {}", target_ip, result.message))
+                (
+                    false,
+                    format!("Echec blocage {} : {}", target_ip, result.message),
+                )
             }
         }
         None => (false, "Aucun firewall configure (pfSense/OPNsense)".into()),
@@ -111,13 +168,25 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
 }
 
 /// Disable AD account.
-async fn execute_disable_account(store: &dyn Database, asset: &str, incident_id: i32) -> (bool, String) {
+async fn execute_disable_account(
+    store: &dyn Database,
+    asset: &str,
+    incident_id: i32,
+) -> (bool, String) {
     // Get username from incident context (usually the compromised account)
     let username = extract_compromised_user(store, asset, incident_id).await;
 
     let username = match username {
         Some(u) => u,
-        None => return (false, format!("Impossible de determiner le compte a desactiver pour {}", asset)),
+        None => {
+            return (
+                false,
+                format!(
+                    "Impossible de determiner le compte a desactiver pour {}",
+                    asset
+                ),
+            );
+        }
     };
 
     // LDAP escape (ADR-044)
@@ -129,13 +198,23 @@ async fn execute_disable_account(store: &dyn Database, asset: &str, incident_id:
         Some((url, bind_dn, bind_pass, base_dn, no_tls)) => {
             let port: u16 = if no_tls { 389 } else { 636 };
             let result = crate::connectors::remediation::ad_disable_account(
-                &url, port, &bind_dn, &bind_pass, &base_dn, &escaped_username, no_tls
-            ).await;
+                &url,
+                port,
+                &bind_dn,
+                &bind_pass,
+                &base_dn,
+                &escaped_username,
+                no_tls,
+            )
+            .await;
 
             if result.success {
                 (true, format!("Compte {} desactive dans AD", username))
             } else {
-                (false, format!("Echec desactivation {} : {}", username, result.message))
+                (
+                    false,
+                    format!("Echec desactivation {} : {}", username, result.message),
+                )
             }
         }
         None => (false, "Active Directory non configure".into()),
@@ -143,13 +222,25 @@ async fn execute_disable_account(store: &dyn Database, asset: &str, incident_id:
 }
 
 /// Create GLPI ticket from incident.
-async fn execute_create_ticket(store: &dyn Database, asset: &str, title: &str, incident_id: i32) -> (bool, String) {
+async fn execute_create_ticket(
+    store: &dyn Database,
+    asset: &str,
+    title: &str,
+    incident_id: i32,
+) -> (bool, String) {
     let glpi_config = load_glpi_config(store).await;
     match glpi_config {
         Some((url, app_token, user_token)) => {
             match crate::connectors::glpi::create_ticket_from_incident(
-                &url, &app_token, &user_token, incident_id, asset, title
-            ).await {
+                &url,
+                &app_token,
+                &user_token,
+                incident_id,
+                asset,
+                title,
+            )
+            .await
+            {
                 Ok(ticket_id) => (true, format!("Ticket GLPI #{} cree", ticket_id)),
                 Err(e) => (false, format!("Echec creation ticket GLPI: {}", e)),
             }
@@ -160,29 +251,56 @@ async fn execute_create_ticket(store: &dyn Database, asset: &str, title: &str, i
 
 // ── Config loaders (read from DB settings) ──
 
-pub(crate) async fn load_firewall_config(store: &dyn Database) -> Option<(String, String, String, String, bool)> {
+pub(crate) async fn load_firewall_config(
+    store: &dyn Database,
+) -> Option<(String, String, String, String, bool)> {
     // Try pfSense first, then OPNsense
     for skill_id in &["skill-pfsense", "skill-opnsense"] {
         if let Ok(Some(val)) = store.get_setting(skill_id, "config").await {
             let url = val["url"].as_str().or(val["api_url"].as_str())?;
-            let user = val["api_key"].as_str().or(val["key"].as_str()).unwrap_or("");
-            let secret = val["api_secret"].as_str().or(val["secret"].as_str()).unwrap_or("");
+            let user = val["api_key"]
+                .as_str()
+                .or(val["key"].as_str())
+                .unwrap_or("");
+            let secret = val["api_secret"]
+                .as_str()
+                .or(val["secret"].as_str())
+                .unwrap_or("");
             let no_tls = val["no_tls_verify"].as_bool().unwrap_or(true);
-            let fw_type = if skill_id.contains("opn") { "opnsense" } else { "pfsense" };
-            return Some((fw_type.into(), url.into(), user.into(), secret.into(), no_tls));
+            let fw_type = if skill_id.contains("opn") {
+                "opnsense"
+            } else {
+                "pfsense"
+            };
+            return Some((
+                fw_type.into(),
+                url.into(),
+                user.into(),
+                secret.into(),
+                no_tls,
+            ));
         }
     }
     None
 }
 
 async fn load_ad_config(store: &dyn Database) -> Option<(String, String, String, String, bool)> {
-    let val = store.get_setting("skill-active-directory", "config").await.ok()??;
+    let val = store
+        .get_setting("skill-active-directory", "config")
+        .await
+        .ok()??;
     let url = val["host"].as_str().or(val["url"].as_str())?;
     let bind_dn = val["bind_dn"].as_str()?;
     let bind_pass = val["bind_password"].as_str()?;
     let base_dn = val["base_dn"].as_str()?;
     let no_tls = val["no_tls_verify"].as_bool().unwrap_or(true);
-    Some((url.into(), bind_dn.into(), bind_pass.into(), base_dn.into(), no_tls))
+    Some((
+        url.into(),
+        bind_dn.into(),
+        bind_pass.into(),
+        base_dn.into(),
+        no_tls,
+    ))
 }
 
 pub(crate) async fn load_glpi_config(store: &dyn Database) -> Option<(String, String, String)> {
@@ -215,7 +333,9 @@ pub async fn build_fallback_actions(
     }
 
     // Block IP — only if a firewall is configured AND we have an IP
-    let fw_info = load_firewall_config(store).await.map(|(ty, _u, _us, _s, _t)| ty);
+    let fw_info = load_firewall_config(store)
+        .await
+        .map(|(ty, _u, _us, _s, _t)| ty);
     match (&attacker_ip, &fw_info) {
         (Some(ip), Some(fw)) => {
             actions.push(serde_json::json!({
@@ -243,11 +363,20 @@ pub async fn build_fallback_actions(
     (actions, iocs)
 }
 
-pub async fn extract_attacker_ip(store: &dyn Database, asset: &str, _incident_id: i32) -> Option<String> {
+pub async fn extract_attacker_ip(
+    store: &dyn Database,
+    asset: &str,
+    _incident_id: i32,
+) -> Option<String> {
     // Look in recent sigma alerts for source_ip on this asset
-    let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, Some("new"), 50, 0)
+        .await
+        .unwrap_or_default();
     for alert in &alerts {
-        if alert.hostname.as_deref() == Some(asset) || alert.hostname.as_deref().map(|h| h.to_lowercase()) == Some(asset.to_lowercase()) {
+        if alert.hostname.as_deref() == Some(asset)
+            || alert.hostname.as_deref().map(|h| h.to_lowercase()) == Some(asset.to_lowercase())
+        {
             if let Some(ref src) = alert.source_ip {
                 if !src.is_empty() && !crate::agent::ip_classifier::is_non_routable(src) {
                     return Some(src.clone());
@@ -258,7 +387,11 @@ pub async fn extract_attacker_ip(store: &dyn Database, asset: &str, _incident_id
     None
 }
 
-async fn extract_compromised_user(_store: &dyn Database, _asset: &str, _incident_id: i32) -> Option<String> {
+async fn extract_compromised_user(
+    _store: &dyn Database,
+    _asset: &str,
+    _incident_id: i32,
+) -> Option<String> {
     // TODO: extract from alert metadata (agent.name, syscheck.user, etc.)
     None
 }

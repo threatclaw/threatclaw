@@ -24,11 +24,15 @@ pub async fn lookup_ip(ip: &str, api_key: &str) -> Result<OtxResult, String> {
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .header("X-OTX-API-KEY", api_key)
-        .send().await.map_err(|e| format!("OTX: {e}"))?;
+        .send()
+        .await
+        .map_err(|e| format!("OTX: {e}"))?;
 
     if !resp.status().is_success() {
         return Err(format!("OTX HTTP {}", resp.status()));
@@ -41,10 +45,20 @@ pub async fn lookup_ip(ip: &str, api_key: &str) -> Result<OtxResult, String> {
         pulse_count: data["pulse_info"]["count"].as_u64().unwrap_or(0) as u32,
         reputation: data["reputation"].as_i64().map(|v| v as i32),
         country: data["country_name"].as_str().map(String::from),
-        malware_families: data["pulse_info"]["pulses"].as_array()
-            .map(|p| p.iter().filter_map(|pulse| pulse["malware_families"].as_array()
-                .map(|f| f.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>()))
-                .flatten().collect())
+        malware_families: data["pulse_info"]["pulses"]
+            .as_array()
+            .map(|p| {
+                p.iter()
+                    .filter_map(|pulse| {
+                        pulse["malware_families"].as_array().map(|f| {
+                            f.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .flatten()
+                    .collect()
+            })
             .unwrap_or_default(),
     })
 }

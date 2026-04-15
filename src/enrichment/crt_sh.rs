@@ -46,7 +46,9 @@ pub async fn lookup_domain(domain: &str) -> Result<CrtShResult, String> {
         return Err(format!("crt.sh HTTP {}", resp.status()));
     }
 
-    let text = resp.text().await
+    let text = resp
+        .text()
+        .await
         .map_err(|e| format!("crt.sh read body: {}", e))?;
 
     // crt.sh returns empty body or "[]" if no results
@@ -58,8 +60,8 @@ pub async fn lookup_domain(domain: &str) -> Result<CrtShResult, String> {
         });
     }
 
-    let entries: Vec<serde_json::Value> = serde_json::from_str(&text)
-        .map_err(|e| format!("crt.sh parse: {}", e))?;
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(&text).map_err(|e| format!("crt.sh parse: {}", e))?;
 
     let mut subdomains = std::collections::HashSet::new();
     let mut certs = Vec::new();
@@ -107,7 +109,9 @@ pub async fn recent_certs(domain: &str, days: i64) -> Result<Vec<CrtShEntry>, St
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days);
     let cutoff_str = cutoff.format("%Y-%m-%d").to_string();
 
-    Ok(result.certificates.into_iter()
+    Ok(result
+        .certificates
+        .into_iter()
         .filter(|c| c.not_before >= cutoff_str)
         .collect())
 }

@@ -1,6 +1,6 @@
 //! Master password key derivation. See ADR-008, ADR-034.
 
-use argon2::{Argon2, Algorithm, Params, Version};
+use argon2::{Algorithm, Argon2, Params, Version};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 
@@ -8,8 +8,8 @@ use crate::secrets::types::SecretError;
 
 /// Argon2id parameters (OWASP recommended: m=64MiB, t=3, p=1)
 const ARGON2_M_COST: u32 = 65536; // 64 MiB
-const ARGON2_T_COST: u32 = 3;     // 3 iterations
-const ARGON2_P_COST: u32 = 1;     // 1 thread
+const ARGON2_T_COST: u32 = 3; // 3 iterations
+const ARGON2_P_COST: u32 = 1; // 1 thread
 const SALT_LEN: usize = 16;
 const KEY_LEN: usize = 32;
 

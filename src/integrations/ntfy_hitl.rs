@@ -36,10 +36,10 @@ impl Default for NtfyHitlConfig {
 /// Ntfy priority levels.
 fn severity_to_priority(risk: &str) -> &'static str {
     match risk {
-        "Critical" => "urgent",    // 5 — maps to ntfy urgent (phone rings)
-        "High" => "high",          // 4
-        "Medium" => "default",     // 3
-        _ => "low",                // 2
+        "Critical" => "urgent", // 5 — maps to ntfy urgent (phone rings)
+        "High" => "high",       // 4
+        "Medium" => "default",  // 3
+        _ => "low",             // 2
     }
 }
 
@@ -64,27 +64,44 @@ pub async fn send_approval(
         }
     }
 
-    let approve_url = format!("{}/api/tc/hitl/callback?action=approve&nonce={}", config.callback_url, nonce);
-    let reject_url = format!("{}/api/tc/hitl/callback?action=reject&nonce={}", config.callback_url, nonce);
+    let approve_url = format!(
+        "{}/api/tc/hitl/callback?action=approve&nonce={}",
+        config.callback_url, nonce
+    );
+    let reject_url = format!(
+        "{}/api/tc/hitl/callback?action=reject&nonce={}",
+        config.callback_url, nonce
+    );
 
-    let url = format!("{}/{}", config.server_url.trim_end_matches('/'), config.topic);
+    let url = format!(
+        "{}/{}",
+        config.server_url.trim_end_matches('/'),
+        config.topic
+    );
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let mut req = client.post(&url)
+    let mut req = client
+        .post(&url)
         .header("Title", "ThreatClaw — HITL Approbation")
         .header("Priority", severity_to_priority(risk))
-        .header("Tags", format!("warning,threatclaw,{}", risk.to_lowercase()))
+        .header(
+            "Tags",
+            format!("warning,threatclaw,{}", risk.to_lowercase()),
+        )
         // Ntfy action buttons: up to 3 buttons
         // Format: action=http, label, url, method=POST
-        .header("Actions", format!(
-            "http, Approuver, {}, method=POST, headers.Authorization=Bearer {}; \
+        .header(
+            "Actions",
+            format!(
+                "http, Approuver, {}, method=POST, headers.Authorization=Bearer {}; \
              http, Rejeter, {}, method=POST, headers.Authorization=Bearer {}",
-            approve_url, nonce, reject_url, nonce
-        ))
+                approve_url, nonce, reject_url, nonce
+            ),
+        )
         .body(body);
 
     // Add auth if configured
@@ -92,16 +109,26 @@ pub async fn send_approval(
         req = req.header("Authorization", format!("Bearer {}", token));
     }
 
-    let resp = req.send().await
+    let resp = req
+        .send()
+        .await
         .map_err(|e| format!("Ntfy send failed: {e}"))?;
 
     if resp.status().is_success() {
-        tracing::info!("HITL: Ntfy approval sent to topic={} (nonce: {})", config.topic, &nonce[..8.min(nonce.len())]);
+        tracing::info!(
+            "HITL: Ntfy approval sent to topic={} (nonce: {})",
+            config.topic,
+            &nonce[..8.min(nonce.len())]
+        );
         Ok(())
     } else {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        Err(format!("Ntfy returned {}: {}", status, body.chars().take(200).collect::<String>()))
+        Err(format!(
+            "Ntfy returned {}: {}",
+            status,
+            body.chars().take(200).collect::<String>()
+        ))
     }
 }
 
@@ -116,14 +143,19 @@ pub async fn send_notification(
         return Err("Ntfy not configured".into());
     }
 
-    let url = format!("{}/{}", config.server_url.trim_end_matches('/'), config.topic);
+    let url = format!(
+        "{}/{}",
+        config.server_url.trim_end_matches('/'),
+        config.topic
+    );
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let mut req = client.post(&url)
+    let mut req = client
+        .post(&url)
         .header("Title", title)
         .header("Priority", priority)
         .header("Tags", "shield,threatclaw")
@@ -133,15 +165,21 @@ pub async fn send_notification(
         req = req.header("Authorization", format!("Bearer {}", token));
     }
 
-    let resp = req.send().await
-        .map_err(|e| format!("Ntfy: {e}"))?;
+    let resp = req.send().await.map_err(|e| format!("Ntfy: {e}"))?;
 
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Ntfy HTTP {}", resp.status())) }
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Ntfy HTTP {}", resp.status()))
+    }
 }
 
 /// Test Ntfy connectivity by sending a test notification.
-pub async fn test_connection(server_url: &str, topic: &str, auth_token: Option<&str>) -> Result<String, String> {
+pub async fn test_connection(
+    server_url: &str,
+    topic: &str,
+    auth_token: Option<&str>,
+) -> Result<String, String> {
     let url = format!("{}/{}", server_url.trim_end_matches('/'), topic);
 
     let client = reqwest::Client::builder()
@@ -149,7 +187,8 @@ pub async fn test_connection(server_url: &str, topic: &str, auth_token: Option<&
         .build()
         .map_err(|e| format!("HTTP: {e}"))?;
 
-    let mut req = client.post(&url)
+    let mut req = client
+        .post(&url)
         .header("Title", "ThreatClaw — Test")
         .header("Priority", "low")
         .header("Tags", "white_check_mark,threatclaw")
@@ -159,8 +198,7 @@ pub async fn test_connection(server_url: &str, topic: &str, auth_token: Option<&
         req = req.header("Authorization", format!("Bearer {}", token));
     }
 
-    let resp = req.send().await
-        .map_err(|e| format!("Ntfy: {e}"))?;
+    let resp = req.send().await.map_err(|e| format!("Ntfy: {e}"))?;
 
     if resp.status().is_success() {
         Ok(format!("Ntfy connecté — topic: {}", topic))

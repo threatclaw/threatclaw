@@ -9,8 +9,7 @@ use crate::agent::executor;
 use crate::agent::hitl_nonce::{NonceError, NonceManager};
 use crate::agent::remediation_whitelist::{self, RiskLevel, ValidatedCommand};
 use crate::integrations::slack_hitl::{
-    ApprovalAction, ApprovalRequest, ApprovalStatus, SlackHitlConfig, SlackMessageBuilder,
-    Urgency,
+    ApprovalAction, ApprovalRequest, ApprovalStatus, SlackHitlConfig, SlackMessageBuilder, Urgency,
 };
 
 /// Result of sending an approval request to Slack.
@@ -95,7 +94,12 @@ pub async fn send_approval_to_slack(
         action,
         "ThreatClaw Agent".to_string(),
         risk_to_urgency(cmd.risk),
-        format!("{}\n\nNonce: `{}`\nCommande: `{}`", rationale, &nonce[..8], cmd.rendered_cmd),
+        format!(
+            "{}\n\nNonce: `{}`\nCommande: `{}`",
+            rationale,
+            &nonce[..8],
+            cmd.rendered_cmd
+        ),
         slack_config.default_channel.clone(),
     );
 
@@ -249,7 +253,8 @@ pub async fn enrich_hitl_with_instruct(
         .timeout(std::time::Duration::from_secs(30)) // Strict 30s timeout
         .danger_accept_invalid_certs(true)
         .no_proxy()
-        .build() {
+        .build()
+    {
         Ok(c) => c,
         Err(_) => return basic_hitl_message(analysis, severity),
     };
@@ -264,13 +269,17 @@ pub async fn enrich_hitl_with_instruct(
     match client.post(&url).json(&body).send().await {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(data) = resp.json::<serde_json::Value>().await {
-                let content = data["message"]["content"].as_str()
+                let content = data["message"]["content"]
+                    .as_str()
                     .or_else(|| data["response"].as_str())
                     .unwrap_or("");
 
                 if !content.is_empty() {
                     let parsed = parse_instruct_response(content);
-                    tracing::info!("HITL: Enriched by threatclaw_ai_8b_instruct ({} playbook steps)", parsed.playbook.len());
+                    tracing::info!(
+                        "HITL: Enriched by threatclaw_ai_8b_instruct ({} playbook steps)",
+                        parsed.playbook.len()
+                    );
                     return parsed;
                 }
             }
@@ -278,7 +287,10 @@ pub async fn enrich_hitl_with_instruct(
             basic_hitl_message(analysis, severity)
         }
         Ok(resp) => {
-            tracing::warn!("HITL: Instruct returned {}, using basic message", resp.status());
+            tracing::warn!(
+                "HITL: Instruct returned {}, using basic message",
+                resp.status()
+            );
             basic_hitl_message(analysis, severity)
         }
         Err(e) => {
@@ -299,23 +311,34 @@ fn parse_instruct_response(content: &str) -> HitlEnrichedMessage {
         let trimmed = line.trim();
         if trimmed.starts_with("RÉSUMÉ:") || trimmed.starts_with("RESUME:") {
             section = "summary";
-            summary = trimmed.split_once(':').map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+            summary = trimmed
+                .split_once(':')
+                .map(|(_, v)| v.trim().to_string())
+                .unwrap_or_default();
         } else if trimmed.starts_with("PLAYBOOK:") {
             section = "playbook";
         } else if trimmed.starts_with("IMPACT NIS2:") || trimmed.starts_with("IMPACT:") {
             section = "nis2";
-            nis2_impact = trimmed.split_once(':').map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+            nis2_impact = trimmed
+                .split_once(':')
+                .map(|(_, v)| v.trim().to_string())
+                .unwrap_or_default();
         } else if section == "summary" && !trimmed.is_empty() {
-            if !summary.is_empty() { summary.push(' '); }
+            if !summary.is_empty() {
+                summary.push(' ');
+            }
             summary.push_str(trimmed);
         } else if section == "playbook" && !trimmed.is_empty() {
             // Remove leading "1. ", "2. ", "- ", etc.
-            let step = trimmed.trim_start_matches(|c: char| c.is_numeric() || c == '.' || c == '-' || c == ' ');
+            let step = trimmed
+                .trim_start_matches(|c: char| c.is_numeric() || c == '.' || c == '-' || c == ' ');
             if !step.is_empty() {
                 playbook.push(step.to_string());
             }
         } else if section == "nis2" && !trimmed.is_empty() {
-            if !nis2_impact.is_empty() { nis2_impact.push(' '); }
+            if !nis2_impact.is_empty() {
+                nis2_impact.push(' ');
+            }
             nis2_impact.push_str(trimmed);
         }
     }
@@ -324,9 +347,17 @@ fn parse_instruct_response(content: &str) -> HitlEnrichedMessage {
     playbook.truncate(5);
 
     HitlEnrichedMessage {
-        summary: if summary.is_empty() { content.chars().take(200).collect() } else { summary },
+        summary: if summary.is_empty() {
+            content.chars().take(200).collect()
+        } else {
+            summary
+        },
         playbook,
-        nis2_impact: if nis2_impact.is_empty() { "Non évalué".to_string() } else { nis2_impact },
+        nis2_impact: if nis2_impact.is_empty() {
+            "Non évalué".to_string()
+        } else {
+            nis2_impact
+        },
         enriched_by: "threatclaw_ai_8b_instruct".to_string(),
     }
 }
@@ -334,7 +365,11 @@ fn parse_instruct_response(content: &str) -> HitlEnrichedMessage {
 /// Fallback basic HITL message when Instruct is unavailable.
 fn basic_hitl_message(analysis: &str, severity: &str) -> HitlEnrichedMessage {
     HitlEnrichedMessage {
-        summary: format!("[{}] {}", severity, analysis.chars().take(200).collect::<String>()),
+        summary: format!(
+            "[{}] {}",
+            severity,
+            analysis.chars().take(200).collect::<String>()
+        ),
         playbook: vec![],
         nis2_impact: "Non évalué — Instruct indisponible".to_string(),
         enriched_by: "basic_fallback".to_string(),
@@ -367,11 +402,13 @@ pub async fn send_hitl_to_telegram(
     store: &dyn crate::db::Database,
 ) -> Result<bool, String> {
     // Get Telegram config from DB
-    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
+    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store)
+        .await
         .ok_or("Telegram bot token not configured")?;
 
     let chat_id = match store.get_setting("_system", "tc_config_channels").await {
-        Ok(Some(channels)) => channels["telegram"]["chatId"].as_str()
+        Ok(Some(channels)) => channels["telegram"]["chatId"]
+            .as_str()
             .filter(|s| !s.trim().is_empty())
             .map(|s| s.trim().to_string())
             .ok_or("Telegram chat_id not configured")?,
@@ -385,21 +422,30 @@ pub async fn send_hitl_to_telegram(
         .build()
         .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let resp = client.post(format!("https://api.telegram.org/bot{token}/sendMessage"))
+    let resp = client
+        .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
         .json(&serde_json::json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown",
         }))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Telegram send failed: {e}"))?;
 
     let data: serde_json::Value = resp.json().await.unwrap_or_default();
     if data["ok"].as_bool() == Some(true) {
-        tracing::info!("HITL: Telegram message sent to chat_id={} (hitl_enriched_by: {})", chat_id, enriched.enriched_by);
+        tracing::info!(
+            "HITL: Telegram message sent to chat_id={} (hitl_enriched_by: {})",
+            chat_id,
+            enriched.enriched_by
+        );
         Ok(true)
     } else {
-        Err(format!("Telegram error: {}", data["description"].as_str().unwrap_or("unknown")))
+        Err(format!(
+            "Telegram error: {}",
+            data["description"].as_str().unwrap_or("unknown")
+        ))
     }
 }
 
@@ -408,11 +454,13 @@ pub async fn send_hitl_to_telegram_text(
     store: &dyn crate::db::Database,
     text: &str,
 ) -> Result<bool, String> {
-    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store).await
+    let token = crate::channels::web::handlers::threatclaw_api::get_telegram_token(store)
+        .await
         .ok_or("Telegram bot token not configured")?;
 
     let chat_id = match store.get_setting("_system", "tc_config_channels").await {
-        Ok(Some(channels)) => channels["telegram"]["chatId"].as_str()
+        Ok(Some(channels)) => channels["telegram"]["chatId"]
+            .as_str()
             .filter(|s| !s.trim().is_empty())
             .map(|s| s.trim().to_string())
             .ok_or("Telegram chat_id not configured")?,
@@ -421,15 +469,18 @@ pub async fn send_hitl_to_telegram_text(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP client error: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
 
-    let resp = client.post(format!("https://api.telegram.org/bot{token}/sendMessage"))
+    let resp = client
+        .post(format!("https://api.telegram.org/bot{token}/sendMessage"))
         .json(&serde_json::json!({
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "Markdown",
         }))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Telegram send failed: {e}"))?;
 
     let data: serde_json::Value = resp.json().await.unwrap_or_default();
@@ -437,7 +488,10 @@ pub async fn send_hitl_to_telegram_text(
         tracing::info!("HITL: Telegram HITL proposal sent to chat_id={}", chat_id);
         Ok(true)
     } else {
-        Err(format!("Telegram error: {}", data["description"].as_str().unwrap_or("unknown")))
+        Err(format!(
+            "Telegram error: {}",
+            data["description"].as_str().unwrap_or("unknown")
+        ))
     }
 }
 
@@ -502,9 +556,15 @@ mod tests {
     #[test]
     fn test_risk_to_urgency() {
         assert!(matches!(risk_to_urgency(RiskLevel::Low), Urgency::Low));
-        assert!(matches!(risk_to_urgency(RiskLevel::Medium), Urgency::Medium));
+        assert!(matches!(
+            risk_to_urgency(RiskLevel::Medium),
+            Urgency::Medium
+        ));
         assert!(matches!(risk_to_urgency(RiskLevel::High), Urgency::High));
-        assert!(matches!(risk_to_urgency(RiskLevel::Critical), Urgency::Critical));
+        assert!(matches!(
+            risk_to_urgency(RiskLevel::Critical),
+            Urgency::Critical
+        ));
     }
 
     #[tokio::test]
@@ -524,7 +584,8 @@ mod tests {
         let nonce = nonce_mgr.generate("net-002").await;
 
         let params: HashMap<String, String> = [("IP".to_string(), "10.0.0.42".to_string())].into();
-        let result = process_slack_callback(&nonce, false, "rssi@test.com", &nonce_mgr, &params).await;
+        let result =
+            process_slack_callback(&nonce, false, "rssi@test.com", &nonce_mgr, &params).await;
 
         assert!(result.is_ok());
         let r = result.unwrap();
@@ -545,7 +606,10 @@ mod tests {
 
         // Second use: REPLAY
         let r2 = process_slack_callback(&nonce, true, "attacker", &nonce_mgr, &params).await;
-        assert!(matches!(r2, Err(HitlBridgeError::NonceError(NonceError::AlreadyUsed))));
+        assert!(matches!(
+            r2,
+            Err(HitlBridgeError::NonceError(NonceError::AlreadyUsed))
+        ));
     }
 
     #[tokio::test]
@@ -553,8 +617,18 @@ mod tests {
         let nonce_mgr = test_nonce_manager();
         let params: HashMap<String, String> = HashMap::new();
 
-        let result = process_slack_callback("fake-nonce-12345678901234567890", true, "admin", &nonce_mgr, &params).await;
-        assert!(matches!(result, Err(HitlBridgeError::NonceError(NonceError::NotFound))));
+        let result = process_slack_callback(
+            "fake-nonce-12345678901234567890",
+            true,
+            "admin",
+            &nonce_mgr,
+            &params,
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(HitlBridgeError::NonceError(NonceError::NotFound))
+        ));
     }
 
     #[tokio::test]
@@ -564,7 +638,8 @@ mod tests {
 
         let params: HashMap<String, String> = [("IP".to_string(), "10.0.0.42".to_string())].into();
 
-        let result = process_slack_callback(&nonce, true, "rssi@test.com", &nonce_mgr, &params).await;
+        let result =
+            process_slack_callback(&nonce, true, "rssi@test.com", &nonce_mgr, &params).await;
         assert!(result.is_ok());
         let r = result.unwrap();
         assert!(r.approved);
@@ -575,8 +650,20 @@ mod tests {
 
     #[test]
     fn test_hitl_bridge_error_display() {
-        assert!(HitlBridgeError::SlackNotConfigured.to_string().contains("not configured"));
-        assert!(HitlBridgeError::SlackSendFailed("timeout".to_string()).to_string().contains("timeout"));
-        assert!(HitlBridgeError::NonceError(NonceError::AlreadyUsed).to_string().contains("replay"));
+        assert!(
+            HitlBridgeError::SlackNotConfigured
+                .to_string()
+                .contains("not configured")
+        );
+        assert!(
+            HitlBridgeError::SlackSendFailed("timeout".to_string())
+                .to_string()
+                .contains("timeout")
+        );
+        assert!(
+            HitlBridgeError::NonceError(NonceError::AlreadyUsed)
+                .to_string()
+                .contains("replay")
+        );
     }
 }

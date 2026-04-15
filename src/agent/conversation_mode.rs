@@ -13,7 +13,9 @@ pub enum ConversationMode {
 }
 
 impl Default for ConversationMode {
-    fn default() -> Self { Self::Local }
+    fn default() -> Self {
+        Self::Local
+    }
 }
 
 impl std::fmt::Display for ConversationMode {
@@ -73,24 +75,28 @@ fn anonymize_result(text: &str) -> String {
     let ip_re = regex::Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?\b").unwrap();
     let mut ip_counter = 1;
     let mut seen_ips = std::collections::HashMap::new();
-    result = ip_re.replace_all(&result, |caps: &regex::Captures| {
-        let ip = caps[0].to_string();
-        let label = seen_ips.entry(ip).or_insert_with(|| {
-            let l = format!("[IP-{}]", ip_counter);
-            ip_counter += 1;
-            l
-        });
-        label.clone()
-    }).to_string();
+    result = ip_re
+        .replace_all(&result, |caps: &regex::Captures| {
+            let ip = caps[0].to_string();
+            let label = seen_ips.entry(ip).or_insert_with(|| {
+                let l = format!("[IP-{}]", ip_counter);
+                ip_counter += 1;
+                l
+            });
+            label.clone()
+        })
+        .to_string();
 
     // Replace hostnames (srv-xxx, pc-xxx, dc-xxx)
     let host_re = regex::Regex::new(r"\b(srv|pc|dc|fw|sw|ap|nas)-[\w-]+\b").unwrap();
     let mut host_counter = 1;
-    result = host_re.replace_all(&result, |_caps: &regex::Captures| {
-        let label = format!("[HOST-{}]", host_counter);
-        host_counter += 1;
-        label
-    }).to_string();
+    result = host_re
+        .replace_all(&result, |_caps: &regex::Captures| {
+            let label = format!("[HOST-{}]", host_counter);
+            host_counter += 1;
+            label
+        })
+        .to_string();
 
     // Replace email-like patterns
     let email_re = regex::Regex::new(r"\b[\w.-]+@[\w.-]+\.\w+\b").unwrap();
@@ -104,11 +110,7 @@ fn anonymize_result(text: &str) -> String {
 }
 
 /// Format the response for cloud-assisted mode (clean French).
-fn format_response(
-    action: &cloud_intent::IntentAction,
-    raw: &str,
-    _anonymized: &str,
-) -> String {
+fn format_response(action: &cloud_intent::IntentAction, raw: &str, _anonymized: &str) -> String {
     // Add context header based on action type
     let header = match action {
         cloud_intent::IntentAction::Status => "Situation de votre infrastructure",
@@ -132,14 +134,15 @@ fn format_response(
 
 /// Get the current conversation mode from DB settings.
 pub async fn get_mode(store: &dyn Database) -> ConversationMode {
-    match store.get_setting("tc_config_general", "conversation_mode").await {
-        Ok(Some(val)) => {
-            match val.as_str().unwrap_or("local") {
-                "cloud_assisted" => ConversationMode::CloudAssisted,
-                "cloud_direct" => ConversationMode::CloudDirect,
-                _ => ConversationMode::Local,
-            }
-        }
+    match store
+        .get_setting("tc_config_general", "conversation_mode")
+        .await
+    {
+        Ok(Some(val)) => match val.as_str().unwrap_or("local") {
+            "cloud_assisted" => ConversationMode::CloudAssisted,
+            "cloud_direct" => ConversationMode::CloudDirect,
+            _ => ConversationMode::Local,
+        },
         _ => ConversationMode::Local,
     }
 }

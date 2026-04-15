@@ -914,7 +914,8 @@ mod tests {
             "demo",
             "tools-src/demo",
             Some(
-                "http://github.com/nearai/threatclaw/releases/latest/download/demo.wasm".to_string(),
+                "http://github.com/nearai/threatclaw/releases/latest/download/demo.wasm"
+                    .to_string(),
             ),
             None,
         );

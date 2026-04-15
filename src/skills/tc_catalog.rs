@@ -40,7 +40,9 @@ pub struct TcSkillManifest {
     pub help: Option<String>,
 }
 
-fn default_tool() -> String { "tool".into() }
+fn default_tool() -> String {
+    "tool".into()
+}
 
 /// The unified skill catalog.
 #[derive(Debug, Clone, Serialize)]
@@ -61,19 +63,28 @@ pub fn load_tc_catalog() -> TcCatalog {
 
     for dir in &dirs {
         let path = std::path::Path::new(dir);
-        if !path.exists() { continue; }
+        if !path.exists() {
+            continue;
+        }
 
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
                 let skill_path = if entry.path().is_dir() {
                     entry.path().join("skill.json")
-                } else if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
+                } else if entry
+                    .path()
+                    .extension()
+                    .map(|e| e == "json")
+                    .unwrap_or(false)
+                {
                     entry.path()
                 } else {
                     continue;
                 };
 
-                if !skill_path.exists() { continue; }
+                if !skill_path.exists() {
+                    continue;
+                }
 
                 if let Ok(content) = std::fs::read_to_string(&skill_path) {
                     match serde_json::from_str::<TcSkillManifest>(&content) {
@@ -91,17 +102,30 @@ pub fn load_tc_catalog() -> TcCatalog {
     }
 
     skills.sort_by(|a, b| {
-        b.default_active.cmp(&a.default_active)
+        b.default_active
+            .cmp(&a.default_active)
             .then(a.skill_type.cmp(&b.skill_type))
             .then(a.name.cmp(&b.name))
     });
 
     let tools = skills.iter().filter(|s| s.skill_type == "tool").count();
-    let connectors = skills.iter().filter(|s| s.skill_type == "connector").count();
-    let enrichment = skills.iter().filter(|s| s.skill_type == "enrichment").count();
+    let connectors = skills
+        .iter()
+        .filter(|s| s.skill_type == "connector")
+        .count();
+    let enrichment = skills
+        .iter()
+        .filter(|s| s.skill_type == "enrichment")
+        .count();
     let total = skills.len();
 
-    TcCatalog { skills, total, tools, connectors, enrichment }
+    TcCatalog {
+        skills,
+        total,
+        tools,
+        connectors,
+        enrichment,
+    }
 }
 
 #[cfg(test)]
@@ -110,7 +134,8 @@ mod tests {
 
     #[test]
     fn test_deserialize_manifest() {
-        let json = r#"{"id":"test","name":"Test","type":"tool","category":"test","default_active":false}"#;
+        let json =
+            r#"{"id":"test","name":"Test","type":"tool","category":"test","default_active":false}"#;
         let m: TcSkillManifest = serde_json::from_str(json).unwrap();
         assert_eq!(m.id, "test");
         assert_eq!(m.skill_type, "tool");

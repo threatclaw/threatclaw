@@ -9,7 +9,7 @@
 //! - IP is volatile (DHCP can reassign any time)
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -80,7 +80,11 @@ fn build_asset_name(discovered: &DiscoveredAsset) -> String {
     if let Some(ref mac) = discovered.mac {
         let oui = crate::enrichment::mac_oui_lookup::lookup(mac);
         if let Some(ref vendor) = oui.vendor {
-            let short_vendor = vendor.split_whitespace().next().unwrap_or(vendor).trim_end_matches(',');
+            let short_vendor = vendor
+                .split_whitespace()
+                .next()
+                .unwrap_or(vendor)
+                .trim_end_matches(',');
             if let Some(ref ip) = discovered.ip {
                 let suffix = ip.rsplit('.').next().unwrap_or(ip);
                 return format!("{}-{}", short_vendor, suffix);
@@ -135,7 +139,9 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
                     // CONFLICT: same hostname, different MAC = different machines
                     tracing::warn!(
                         "ASSET CONFLICT: hostname '{}' has MAC {} in graph but discovery reports MAC {}",
-                        hostname_clean, existing_norm, new_norm
+                        hostname_clean,
+                        existing_norm,
+                        new_norm
                     );
                     // Create a new asset with conflict flag
                     let result = create_new_asset(store, discovered, &now).await;
@@ -166,7 +172,8 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
         if let Some(existing) = find_asset_by_field(store, "ip", ip).await {
             // IP match is only valid if the existing asset was seen recently (< 24h)
             // Otherwise the IP may have been reassigned by DHCP
-            let is_recent = existing.last_seen
+            let is_recent = existing
+                .last_seen
                 .as_ref()
                 .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
                 .map(|ts| Utc::now().signed_duration_since(ts).num_hours() < 24)
@@ -177,8 +184,11 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
             }
             // IP was last seen > 24h ago — may have changed owner
             // Update old asset to remove this IP, create new
-            tracing::info!("ASSET: IP {} was last seen >24h ago on {}, creating new asset",
-                ip, existing.id);
+            tracing::info!(
+                "ASSET: IP {} was last seen >24h ago on {}, creating new asset",
+                ip,
+                existing.id
+            );
             clear_ip_from_asset(store, &existing.id, ip).await;
         }
     }
@@ -198,7 +208,11 @@ struct ExistingAsset {
 }
 
 /// Find an asset by a specific field.
-async fn find_asset_by_field(store: &dyn Database, field: &str, value: &str) -> Option<ExistingAsset> {
+async fn find_asset_by_field(
+    store: &dyn Database,
+    field: &str,
+    value: &str,
+) -> Option<ExistingAsset> {
     let results = query(store, &format!(
         "MATCH (a:Asset {{{}: '{}'}}) RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen LIMIT 1",
         field, esc(value)
@@ -209,7 +223,8 @@ async fn find_asset_by_field(store: &dyn Database, field: &str, value: &str) -> 
         mac: r["a.mac"].as_str().map(String::from),
         hostname: r["a.hostname"].as_str().map(String::from),
         ip: r["a.ip"].as_str().map(String::from),
-        sources: r["a.sources"].as_str()
+        sources: r["a.sources"]
+            .as_str()
             .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
             .unwrap_or_default(),
         last_seen: r["a.last_seen"].as_str().map(String::from),
@@ -223,18 +238,23 @@ async fn find_asset_by_hostname(store: &dyn Database, hostname: &str) -> Option<
         return Some(found);
     }
     // Try FQDN that starts with hostname
-    let results = query(store, &format!(
-        "MATCH (a:Asset) WHERE a.fqdn STARTS WITH '{}' \
+    let results = query(
+        store,
+        &format!(
+            "MATCH (a:Asset) WHERE a.fqdn STARTS WITH '{}' \
          RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen LIMIT 1",
-        esc(hostname)
-    )).await;
+            esc(hostname)
+        ),
+    )
+    .await;
 
     results.first().map(|r| ExistingAsset {
         id: r["a.id"].as_str().unwrap_or("").to_string(),
         mac: r["a.mac"].as_str().map(String::from),
         hostname: r["a.hostname"].as_str().map(String::from),
         ip: r["a.ip"].as_str().map(String::from),
-        sources: r["a.sources"].as_str()
+        sources: r["a.sources"]
+            .as_str()
             .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
             .unwrap_or_default(),
         last_seen: r["a.last_seen"].as_str().map(String::from),
@@ -265,7 +285,8 @@ async fn merge_asset(
     }
     // OS: prefer more specific (AD "Windows 11 Pro 23H2" > nmap "Windows")
     if let Some(ref os) = discovered.os {
-        if os.len() > 5 { // Only overwrite if it's a meaningful OS string
+        if os.len() > 5 {
+            // Only overwrite if it's a meaningful OS string
             sets.push(format!("a.os = '{}'", esc(os)));
         }
     }
@@ -300,35 +321,45 @@ async fn merge_asset(
 
     let cypher = format!(
         "MATCH (a:Asset {{id: '{}'}}) SET {} RETURN a",
-        esc(&existing.id), sets.join(", ")
+        esc(&existing.id),
+        sets.join(", ")
     );
     mutate(store, &cypher).await;
 
     // Also upsert to PostgreSQL assets table (enriches existing or creates if missing)
     let category = crate::agent::fingerprint::guess_category(discovered);
-    let _ = store.upsert_asset(&crate::db::threatclaw_store::NewAsset {
-        id: existing.id.clone(),
-        name: build_asset_name(discovered),
-        category: category.into(),
-        subcategory: None,
-        role: None,
-        criticality: discovered.criticality.clone().unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
-        ip_addresses: discovered.ip.iter().cloned().collect(),
-        mac_address: discovered.mac.clone(),
-        hostname: discovered.hostname.clone(),
-        fqdn: discovered.fqdn.clone(),
-        url: None,
-        os: discovered.os.clone(),
-        mac_vendor: None,
-        services: discovered.services.clone(),
-        source: discovered.source.clone(),
-        owner: None,
-        location: None,
-        tags: vec!["discovered".into()],
-    }).await;
+    let _ = store
+        .upsert_asset(&crate::db::threatclaw_store::NewAsset {
+            id: existing.id.clone(),
+            name: build_asset_name(discovered),
+            category: category.into(),
+            subcategory: None,
+            role: None,
+            criticality: discovered
+                .criticality
+                .clone()
+                .unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
+            ip_addresses: discovered.ip.iter().cloned().collect(),
+            mac_address: discovered.mac.clone(),
+            hostname: discovered.hostname.clone(),
+            fqdn: discovered.fqdn.clone(),
+            url: None,
+            os: discovered.os.clone(),
+            mac_vendor: None,
+            services: discovered.services.clone(),
+            source: discovered.source.clone(),
+            owner: None,
+            location: None,
+            tags: vec!["discovered".into()],
+        })
+        .await;
 
-    tracing::info!("ASSET MERGE: {} enriched by {} (confidence: {:.2})",
-        existing.id, discovered.source, confidence);
+    tracing::info!(
+        "ASSET MERGE: {} enriched by {} (confidence: {:.2})",
+        existing.id,
+        discovered.source,
+        confidence
+    );
 
     ResolutionResult {
         asset_id: existing.id.clone(),
@@ -394,29 +425,38 @@ async fn create_new_asset(
 
     // Also write to PostgreSQL assets table (the source of truth for the dashboard)
     let category = crate::agent::fingerprint::guess_category(discovered);
-    let _ = store.upsert_asset(&crate::db::threatclaw_store::NewAsset {
-        id: asset_id.clone(),
-        name: build_asset_name(discovered),
-        category: category.into(),
-        subcategory: None,
-        role: None,
-        criticality: discovered.criticality.clone().unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
-        ip_addresses: discovered.ip.iter().cloned().collect(),
-        mac_address: discovered.mac.clone(),
-        hostname: discovered.hostname.clone(),
-        fqdn: discovered.fqdn.clone(),
-        url: None,
-        os: discovered.os.clone(),
-        mac_vendor: None,
-        services: discovered.services.clone(),
-        source: discovered.source.clone(),
-        owner: None,
-        location: None,
-        tags: vec!["discovered".into()],
-    }).await;
+    let _ = store
+        .upsert_asset(&crate::db::threatclaw_store::NewAsset {
+            id: asset_id.clone(),
+            name: build_asset_name(discovered),
+            category: category.into(),
+            subcategory: None,
+            role: None,
+            criticality: discovered
+                .criticality
+                .clone()
+                .unwrap_or_else(|| crate::agent::fingerprint::guess_criticality(discovered).into()),
+            ip_addresses: discovered.ip.iter().cloned().collect(),
+            mac_address: discovered.mac.clone(),
+            hostname: discovered.hostname.clone(),
+            fqdn: discovered.fqdn.clone(),
+            url: None,
+            os: discovered.os.clone(),
+            mac_vendor: None,
+            services: discovered.services.clone(),
+            source: discovered.source.clone(),
+            owner: None,
+            location: None,
+            tags: vec!["discovered".into()],
+        })
+        .await;
 
-    tracing::info!("ASSET NEW: {} from {} (confidence: {:.2})",
-        asset_id, discovered.source, confidence);
+    tracing::info!(
+        "ASSET NEW: {} from {} (confidence: {:.2})",
+        asset_id,
+        discovered.source,
+        confidence
+    );
 
     ResolutionResult {
         asset_id,
@@ -438,7 +478,8 @@ async fn clear_ip_from_asset(store: &dyn Database, asset_id: &str, _ip: &str) {
 
 /// Normalize MAC address to lowercase colon-separated format.
 fn normalize_mac(mac: &str) -> String {
-    let clean: String = mac.chars()
+    let clean: String = mac
+        .chars()
         .filter(|c| c.is_ascii_hexdigit())
         .collect::<String>()
         .to_lowercase();
@@ -448,7 +489,8 @@ fn normalize_mac(mac: &str) -> String {
     }
 
     // Format as aa:bb:cc:dd:ee:ff
-    clean.as_bytes()
+    clean
+        .as_bytes()
         .chunks(2)
         .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
         .collect::<Vec<_>>()
@@ -466,19 +508,42 @@ fn generate_asset_id(discovered: &DiscoveredAsset) -> String {
     if let Some(ref ip) = discovered.ip {
         return format!("asset-{}", ip.replace('.', "-"));
     }
-    format!("asset-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("unknown"))
+    format!(
+        "asset-{}",
+        uuid::Uuid::new_v4()
+            .to_string()
+            .split('-')
+            .next()
+            .unwrap_or("unknown")
+    )
 }
 
 /// Sanitize an asset ID: lowercase + replace spaces and disallowed characters
 /// with '-'. Keeps a-z, 0-9, '-', '_', '.'. Required because the graph layer
 /// (Apache AGE Cypher) rejects IDs containing whitespace or punctuation.
 fn sanitize_id(s: &str) -> String {
-    let cleaned: String = s.trim().chars()
-        .map(|c| if c.is_alphanumeric() || "-_.".contains(c) { c } else { '-' })
+    let cleaned: String = s
+        .trim()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || "-_.".contains(c) {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     // Collapse repeated dashes and trim leading/trailing
-    let collapsed = cleaned.split('-').filter(|s| !s.is_empty()).collect::<Vec<_>>().join("-");
-    if collapsed.is_empty() { "unknown".into() } else { collapsed }
+    let collapsed = cleaned
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if collapsed.is_empty() {
+        "unknown".into()
+    } else {
+        collapsed
+    }
 }
 
 /// Calculate confidence based on the number and type of contributing sources.
@@ -500,44 +565,71 @@ fn calculate_confidence(sources: &[String]) -> f64 {
 
 /// List all assets sorted by confidence.
 pub async fn list_assets(store: &dyn Database, limit: u64) -> Vec<serde_json::Value> {
-    query(store, &format!(
-        "MATCH (a:Asset) \
+    query(
+        store,
+        &format!(
+            "MATCH (a:Asset) \
          RETURN a.id, a.mac, a.hostname, a.fqdn, a.ip, a.os, a.ou, a.vlan, \
          a.criticality, a.confidence, a.sources, a.first_seen, a.last_seen \
          ORDER BY a.confidence DESC LIMIT {}",
-        limit
-    )).await
+            limit
+        ),
+    )
+    .await
 }
 
 /// Find assets with low confidence (incomplete data — need more sources).
 pub async fn find_incomplete_assets(store: &dyn Database) -> Vec<serde_json::Value> {
-    query(store,
+    query(
+        store,
         "MATCH (a:Asset) WHERE a.confidence < 0.5 \
          RETURN a.id, a.hostname, a.ip, a.mac, a.confidence, a.sources \
-         ORDER BY a.confidence ASC LIMIT 50"
-    ).await
+         ORDER BY a.confidence ASC LIMIT 50",
+    )
+    .await
 }
 
 /// Find assets not seen in the last N hours (potentially offline/removed).
 pub async fn find_stale_assets(store: &dyn Database, hours: u64) -> Vec<serde_json::Value> {
     let cutoff = (Utc::now() - chrono::Duration::hours(hours as i64)).to_rfc3339();
-    query(store, &format!(
-        "MATCH (a:Asset) WHERE a.last_seen < '{}' \
+    query(
+        store,
+        &format!(
+            "MATCH (a:Asset) WHERE a.last_seen < '{}' \
          RETURN a.id, a.hostname, a.ip, a.last_seen \
          ORDER BY a.last_seen ASC LIMIT 50",
-        esc(&cutoff)
-    )).await
+            esc(&cutoff)
+        ),
+    )
+    .await
 }
 
 /// Get asset count by source.
 pub async fn asset_stats(store: &dyn Database) -> serde_json::Value {
     let total = query(store, "MATCH (a:Asset) RETURN count(a)").await;
-    let with_mac = query(store, "MATCH (a:Asset) WHERE a.mac IS NOT NULL RETURN count(a)").await;
-    let with_hostname = query(store, "MATCH (a:Asset) WHERE a.hostname IS NOT NULL RETURN count(a)").await;
+    let with_mac = query(
+        store,
+        "MATCH (a:Asset) WHERE a.mac IS NOT NULL RETURN count(a)",
+    )
+    .await;
+    let with_hostname = query(
+        store,
+        "MATCH (a:Asset) WHERE a.hostname IS NOT NULL RETURN count(a)",
+    )
+    .await;
 
-    let total_count = total.first().and_then(|r| r["count(a)"].as_i64()).unwrap_or(0);
-    let mac_count = with_mac.first().and_then(|r| r["count(a)"].as_i64()).unwrap_or(0);
-    let hostname_count = with_hostname.first().and_then(|r| r["count(a)"].as_i64()).unwrap_or(0);
+    let total_count = total
+        .first()
+        .and_then(|r| r["count(a)"].as_i64())
+        .unwrap_or(0);
+    let mac_count = with_mac
+        .first()
+        .and_then(|r| r["count(a)"].as_i64())
+        .unwrap_or(0);
+    let hostname_count = with_hostname
+        .first()
+        .and_then(|r| r["count(a)"].as_i64())
+        .unwrap_or(0);
 
     json!({
         "total_assets": total_count,
@@ -565,10 +657,16 @@ mod tests {
         let d = DiscoveredAsset {
             mac: Some("00:1A:2B:3C:4D:5E".into()),
             hostname: Some("PC-COMPTA-03".into()),
-            fqdn: None, ip: Some("192.168.30.15".into()),
-            os: None, ports: None, ou: None, vlan: None,
+            fqdn: None,
+            ip: Some("192.168.30.15".into()),
+            os: None,
+            ports: None,
+            ou: None,
+            vlan: None,
             services: serde_json::json!([]),
-            vm_id: None, criticality: None, source: "nmap".into(),
+            vm_id: None,
+            criticality: None,
+            source: "nmap".into(),
         };
         assert_eq!(generate_asset_id(&d), "pc-compta-03");
     }
@@ -577,10 +675,17 @@ mod tests {
     fn test_generate_asset_id_mac_only() {
         let d = DiscoveredAsset {
             mac: Some("00:1A:2B:3C:4D:5E".into()),
-            hostname: None, fqdn: None, ip: None,
-            os: None, ports: None, ou: None, vlan: None,
+            hostname: None,
+            fqdn: None,
+            ip: None,
+            os: None,
+            ports: None,
+            ou: None,
+            vlan: None,
             services: serde_json::json!([]),
-            vm_id: None, criticality: None, source: "arp".into(),
+            vm_id: None,
+            criticality: None,
+            source: "arp".into(),
         };
         assert_eq!(generate_asset_id(&d), "asset-001a2b3c4d5e");
     }
@@ -588,11 +693,18 @@ mod tests {
     #[test]
     fn test_generate_asset_id_ip_only() {
         let d = DiscoveredAsset {
-            mac: None, hostname: None, fqdn: None,
+            mac: None,
+            hostname: None,
+            fqdn: None,
             ip: Some("192.168.1.10".into()),
-            os: None, ports: None, ou: None, vlan: None,
+            os: None,
+            ports: None,
+            ou: None,
+            vlan: None,
             services: serde_json::json!([]),
-            vm_id: None, criticality: None, source: "nmap".into(),
+            vm_id: None,
+            criticality: None,
+            source: "nmap".into(),
         };
         assert_eq!(generate_asset_id(&d), "asset-192-168-1-10");
     }
@@ -612,7 +724,13 @@ mod tests {
 
     #[test]
     fn test_confidence_capped() {
-        let sources = vec!["nmap".into(), "dhcp".into(), "ad".into(), "pfSense".into(), "proxmox".into()];
+        let sources = vec![
+            "nmap".into(),
+            "dhcp".into(),
+            "ad".into(),
+            "pfSense".into(),
+            "proxmox".into(),
+        ];
         let conf = calculate_confidence(&sources);
         assert!(conf <= 1.0);
     }

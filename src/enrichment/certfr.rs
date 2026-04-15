@@ -22,9 +22,7 @@ pub struct CertFrAlert {
 
 /// Sync CERT-FR alerts from RSS feeds to the database.
 /// Returns the number of new alerts synced.
-pub async fn sync_certfr_alerts(
-    store: &dyn crate::db::Database,
-) -> Result<usize, String> {
+pub async fn sync_certfr_alerts(store: &dyn crate::db::Database) -> Result<usize, String> {
     tracing::info!("CERT-FR: Starting RSS sync...");
 
     let client = reqwest::Client::builder()
@@ -34,11 +32,12 @@ pub async fn sync_certfr_alerts(
 
     let mut total = 0;
 
-    for (feed_url, default_severity) in &[
-        (CERTFR_ALERTE_RSS, "critical"),
-        (CERTFR_AVI_RSS, "high"),
-    ] {
-        let resp = client.get(*feed_url).send().await
+    for (feed_url, default_severity) in &[(CERTFR_ALERTE_RSS, "critical"), (CERTFR_AVI_RSS, "high")]
+    {
+        let resp = client
+            .get(*feed_url)
+            .send()
+            .await
             .map_err(|e| format!("CERT-FR RSS download failed: {e}"))?;
 
         if !resp.status().is_success() {
@@ -46,7 +45,9 @@ pub async fn sync_certfr_alerts(
             continue;
         }
 
-        let xml = resp.text().await
+        let xml = resp
+            .text()
+            .await
             .map_err(|e| format!("CERT-FR RSS read error: {e}"))?;
 
         let count = parse_and_store_rss(&xml, default_severity, store).await?;
@@ -58,7 +59,9 @@ pub async fn sync_certfr_alerts(
         "last_sync": chrono::Utc::now().to_rfc3339(),
         "alert_count": total,
     });
-    let _ = store.set_setting("_system", "certfr_sync_meta", &meta).await;
+    let _ = store
+        .set_setting("_system", "certfr_sync_meta", &meta)
+        .await;
 
     tracing::info!("CERT-FR: Synced {total} alerts");
     Ok(total)
@@ -80,8 +83,12 @@ async fn parse_and_store_rss(
         let pub_date = extract_xml_tag(item, "pubDate").unwrap_or_default();
 
         // Extract alert ID from link (e.g., CERTFR-2026-ALE-003)
-        let alert_id = link.split('/').filter(|s| s.starts_with("CERTFR-")).next()
-            .unwrap_or("").to_string();
+        let alert_id = link
+            .split('/')
+            .filter(|s| s.starts_with("CERTFR-"))
+            .next()
+            .unwrap_or("")
+            .to_string();
 
         if alert_id.is_empty() {
             continue;
@@ -93,9 +100,12 @@ async fn parse_and_store_rss(
         }
 
         // Extract CVE IDs from description
-        let cve_ids: Vec<String> = extract_cve_ids(&description).into_iter().chain(
-            extract_cve_ids(&title)
-        ).collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let cve_ids: Vec<String> = extract_cve_ids(&description)
+            .into_iter()
+            .chain(extract_cve_ids(&title))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
 
         // Determine severity from title keywords
         let severity = if title.contains("[ALERTE]") || title.contains("ALERTE") {
@@ -148,7 +158,10 @@ fn extract_cve_ids(text: &str) -> Vec<String> {
     // Also scan for CVE pattern in continuous text (char-boundary safe)
     for (i, _) in text.char_indices() {
         if text[i..].starts_with("CVE-") {
-            let end = text[i..].find(|c: char| !c.is_alphanumeric() && c != '-').map(|p| i + p).unwrap_or(text.len());
+            let end = text[i..]
+                .find(|c: char| !c.is_alphanumeric() && c != '-')
+                .map(|p| i + p)
+                .unwrap_or(text.len());
             let candidate = &text[i..end];
             if candidate.len() >= 13 && !cves.contains(&candidate.to_string()) {
                 cves.push(candidate.to_string());
@@ -178,16 +191,17 @@ fn clean_html(text: &str) -> String {
 
 /// Get last sync metadata.
 pub async fn get_sync_meta(store: &dyn crate::db::Database) -> Option<serde_json::Value> {
-    store.get_setting("_system", "certfr_sync_meta").await.ok()?
+    store
+        .get_setting("_system", "certfr_sync_meta")
+        .await
+        .ok()?
 }
 
 /// Get recent alerts (last N).
-pub async fn get_recent_alerts(
-    store: &dyn crate::db::Database,
-    limit: usize,
-) -> Vec<CertFrAlert> {
+pub async fn get_recent_alerts(store: &dyn crate::db::Database, limit: usize) -> Vec<CertFrAlert> {
     let settings = store.list_settings("_certfr").await.unwrap_or_default();
-    let mut alerts: Vec<CertFrAlert> = settings.iter()
+    let mut alerts: Vec<CertFrAlert> = settings
+        .iter()
         .filter_map(|s| serde_json::from_value(s.value.clone()).ok())
         .collect();
     alerts.sort_by(|a, b| b.published.cmp(&a.published));
@@ -217,6 +231,9 @@ mod tests {
     fn test_extract_xml_tag() {
         let xml = "<title>My Title</title><link>http://example.com</link>";
         assert_eq!(extract_xml_tag(xml, "title"), Some("My Title".to_string()));
-        assert_eq!(extract_xml_tag(xml, "link"), Some("http://example.com".to_string()));
+        assert_eq!(
+            extract_xml_tag(xml, "link"),
+            Some("http://example.com".to_string())
+        );
     }
 }

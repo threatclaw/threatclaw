@@ -20,10 +20,10 @@ pub struct UrlhausResult {
 pub async fn lookup_url(url: &str, api_key: Option<&str>) -> Result<Option<UrlhausResult>, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
-    let mut req = client.post(API_URL)
-        .form(&[("url", url)]);
+    let mut req = client.post(API_URL).form(&[("url", url)]);
     if let Some(key) = api_key {
         req = req.header("Auth-Key", key);
     }
@@ -39,7 +39,14 @@ pub async fn lookup_url(url: &str, api_key: Option<&str>) -> Result<Option<Urlha
         url: data["url"].as_str().unwrap_or("").into(),
         url_status: data["url_status"].as_str().unwrap_or("").into(),
         threat: data["threat"].as_str().map(String::from),
-        tags: data["tags"].as_array().map(|t| t.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default(),
+        tags: data["tags"]
+            .as_array()
+            .map(|t| {
+                t.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
         date_added: data["date_added"].as_str().map(String::from),
         reporter: data["reporter"].as_str().map(String::from),
     }))

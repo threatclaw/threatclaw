@@ -60,12 +60,19 @@ impl TrivyScanner {
                     for vuln in vulns {
                         let vuln_id = vuln["VulnerabilityID"].as_str().unwrap_or("unknown");
                         let title = vuln["Title"].as_str().unwrap_or(vuln_id);
-                        let severity = vuln["Severity"].as_str().unwrap_or("UNKNOWN").to_lowercase();
+                        let severity = vuln["Severity"]
+                            .as_str()
+                            .unwrap_or("UNKNOWN")
+                            .to_lowercase();
                         let pkg_name = vuln["PkgName"].as_str().unwrap_or("");
                         let installed = vuln["InstalledVersion"].as_str().unwrap_or("");
                         let fixed = vuln["FixedVersion"].as_str().unwrap_or("");
                         let description = vuln["Description"].as_str().map(|s| {
-                            if s.len() > 300 { format!("{}...", &s[..300]) } else { s.to_string() }
+                            if s.len() > 300 {
+                                format!("{}...", &s[..300])
+                            } else {
+                                s.to_string()
+                            }
                         });
 
                         findings.push(ScanFinding {
@@ -115,7 +122,11 @@ impl ScannerBackend for TrivyScanner {
                 Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
             }
             ScannerMode::RemoteApi => {
-                let url = self.config.url.as_deref().unwrap_or("http://localhost:4954");
+                let url = self
+                    .config
+                    .url
+                    .as_deref()
+                    .unwrap_or("http://localhost:4954");
                 let resp = reqwest::Client::new()
                     .get(format!("{}/healthz", url))
                     .timeout(std::time::Duration::from_secs(5))
@@ -139,7 +150,10 @@ impl ScannerBackend for TrivyScanner {
             ScannerMode::Docker => {
                 let container = self.config.container.as_deref().unwrap_or("docker-trivy-1");
                 let output = Command::new("docker")
-                    .args(["exec", container, "trivy", scan_type, target, "--format", "json", "--quiet"])
+                    .args([
+                        "exec", container, "trivy", scan_type, target, "--format", "json",
+                        "--quiet",
+                    ])
                     .output()
                     .map_err(|e| format!("Trivy scan failed: {e}"))?;
                 String::from_utf8_lossy(&output.stdout).to_string()
@@ -153,7 +167,11 @@ impl ScannerBackend for TrivyScanner {
                 String::from_utf8_lossy(&output.stdout).to_string()
             }
             ScannerMode::RemoteApi => {
-                let url = self.config.url.as_deref().unwrap_or("http://localhost:4954");
+                let url = self
+                    .config
+                    .url
+                    .as_deref()
+                    .unwrap_or("http://localhost:4954");
                 let resp = reqwest::Client::new()
                     .post(format!("{}/scan", url))
                     .json(&serde_json::json!({ "target": target, "type": scan_type }))
@@ -161,7 +179,9 @@ impl ScannerBackend for TrivyScanner {
                     .send()
                     .await
                     .map_err(|e| format!("Trivy API error: {e}"))?;
-                resp.text().await.map_err(|e| format!("Response error: {e}"))?
+                resp.text()
+                    .await
+                    .map_err(|e| format!("Response error: {e}"))?
             }
         };
 

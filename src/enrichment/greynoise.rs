@@ -9,8 +9,8 @@ const COMMUNITY_URL: &str = "https://api.greynoise.io/v3/community/";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GreyNoiseResult {
     pub ip: String,
-    pub noise: bool,        // true = mass scanner (benign noise)
-    pub riot: bool,         // true = known benign service (CDN, DNS, etc.)
+    pub noise: bool,            // true = mass scanner (benign noise)
+    pub riot: bool,             // true = known benign service (CDN, DNS, etc.)
     pub classification: String, // "benign", "malicious", "unknown"
     pub name: Option<String>,
     pub message: Option<String>,
@@ -25,7 +25,8 @@ pub async fn lookup_ip(ip: &str, api_key: Option<&str>) -> Result<GreyNoiseResul
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build().map_err(|e| format!("HTTP: {e}"))?;
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
 
     let mut req = client.get(&url);
     if let Some(key) = api_key {

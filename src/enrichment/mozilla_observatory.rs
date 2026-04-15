@@ -38,7 +38,9 @@ pub async fn scan(host: &str) -> Result<ObservatoryResult, String> {
         return Err(format!("Observatory HTTP {}", resp.status()));
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("Observatory parse: {}", e))?;
 
     if let Some(err) = body["error"].as_str() {

@@ -71,7 +71,8 @@ impl NonceManager {
             // Fallback: timestamp-based (less secure but functional)
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default().as_nanos();
+                .unwrap_or_default()
+                .as_nanos();
             random_bytes[..16].copy_from_slice(&ts.to_le_bytes());
         }
 
@@ -106,12 +107,20 @@ impl NonceManager {
     }
 
     /// Verify nonce AND that params match what was originally approved.
-    pub async fn verify_and_consume_with_params(&self, nonce: &str, params_str: &str) -> Result<String, NonceError> {
+    pub async fn verify_and_consume_with_params(
+        &self,
+        nonce: &str,
+        params_str: &str,
+    ) -> Result<String, NonceError> {
         let mut nonces = self.nonces.write().await;
         let entry = nonces.get_mut(nonce).ok_or(NonceError::NotFound)?;
 
         if entry.used {
-            tracing::error!("SECURITY: Nonce replay attempt detected for cmd_id={}, nonce={}", entry.cmd_id, &nonce[..8]);
+            tracing::error!(
+                "SECURITY: Nonce replay attempt detected for cmd_id={}, nonce={}",
+                entry.cmd_id,
+                &nonce[..8]
+            );
             return Err(NonceError::AlreadyUsed);
         }
 
@@ -125,7 +134,10 @@ impl NonceManager {
             hasher.update(params_str.as_bytes());
             let check_hash = format!("{:x}", hasher.finalize())[..16].to_string();
             if check_hash != entry.params_hash {
-                tracing::error!("SECURITY: Nonce params mismatch for cmd_id={} — possible TOCTOU attack", entry.cmd_id);
+                tracing::error!(
+                    "SECURITY: Nonce params mismatch for cmd_id={} — possible TOCTOU attack",
+                    entry.cmd_id
+                );
                 return Err(NonceError::NotFound); // Treat as invalid
             }
         }

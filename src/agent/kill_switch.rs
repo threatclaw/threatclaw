@@ -1,7 +1,7 @@
 //! Emergency kill switch. See ADR-010.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
@@ -30,11 +30,19 @@ pub enum KillReason {
 impl std::fmt::Display for KillReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnauthorizedMemoryWrite => write!(f, "Tentative d'écriture mémoire non autorisée"),
-            Self::WhitelistViolation { attempts } => write!(f, "Violation whitelist ({attempts} tentatives)"),
+            Self::UnauthorizedMemoryWrite => {
+                write!(f, "Tentative d'écriture mémoire non autorisée")
+            }
+            Self::WhitelistViolation { attempts } => {
+                write!(f, "Violation whitelist ({attempts} tentatives)")
+            }
             Self::SoulTamperingAttempt => write!(f, "Tentative de modification du system prompt"),
-            Self::AutonomyTimeout { hours } => write!(f, "Timeout autonomie ({hours}h sans checkpoint)"),
-            Self::BehaviorAnomaly { score } => write!(f, "Anomalie comportementale (score: {score:.2})"),
+            Self::AutonomyTimeout { hours } => {
+                write!(f, "Timeout autonomie ({hours}h sans checkpoint)")
+            }
+            Self::BehaviorAnomaly { score } => {
+                write!(f, "Anomalie comportementale (score: {score:.2})")
+            }
             Self::SelfTargetingAttempt => write!(f, "Tentative de ciblage des propres services"),
             Self::ConsecutiveErrors { count } => write!(f, "Erreurs consécutives ({count})"),
             Self::ManualTrigger { triggered_by } => write!(f, "Arrêt manuel par {triggered_by}"),
@@ -350,7 +358,9 @@ mod tests {
             KillReason::BehaviorAnomaly { score: 0.95 },
             KillReason::SelfTargetingAttempt,
             KillReason::ConsecutiveErrors { count: 10 },
-            KillReason::ManualTrigger { triggered_by: "admin".to_string() },
+            KillReason::ManualTrigger {
+                triggered_by: "admin".to_string(),
+            },
         ];
 
         for reason in reasons {

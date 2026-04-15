@@ -68,102 +68,112 @@ pub struct ModelInfo {
 /// Catalogue des modèles recommandés par niveau.
 pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>> {
     let mut catalog = std::collections::HashMap::new();
-    catalog.insert("l0", vec![
-        ModelInfo {
-            model_id: "gemma4:26b".into(),
-            display_name: "Gemma 4 26B MoE".into(),
-            ram_gb: 10.0,
-            tool_call_mode: ToolCallMode::Native,
-            detail: "MoE 3.8B actifs · 256K context · Rapide sur CPU · Recommandé".into(),
-            recommended_ram: "24GB+".into(),
-        },
-        ModelInfo {
-            model_id: "mistral-small:24b".into(),
-            display_name: "Mistral Small 24B".into(),
-            ram_gb: 14.0,
-            tool_call_mode: ToolCallMode::Native,
-            detail: "Excellent FR · Tool calling natif".into(),
-            recommended_ram: "64GB+".into(),
-        },
-        ModelInfo {
-            model_id: "qwen3:14b".into(),
-            display_name: "Qwen3 14B".into(),
-            ram_gb: 9.3,
-            tool_call_mode: ToolCallMode::PromptBased,
-            detail: "Bon FR · Rapide sur CPU".into(),
-            recommended_ram: "32GB+".into(),
-        },
-        ModelInfo {
-            model_id: "gemma4:e4b".into(),
-            display_name: "Gemma 4 E4B".into(),
-            ram_gb: 3.0,
-            tool_call_mode: ToolCallMode::Native,
-            detail: "Ultra-léger · 256K context · Idéal PME 16GB".into(),
-            recommended_ram: "16GB+".into(),
-        },
-        ModelInfo {
-            model_id: "qwen3:8b".into(),
-            display_name: "Qwen3 8B".into(),
-            ram_gb: 5.2,
-            tool_call_mode: ToolCallMode::PromptBased,
-            detail: "Basique · Très léger".into(),
-            recommended_ram: "16GB+".into(),
-        },
-    ]);
-    catalog.insert("l1", vec![
-        ModelInfo {
-            model_id: "threatclaw-l1".into(),
-            display_name: "ThreatClaw AI Triage".into(),
-            ram_gb: 5.8,
-            tool_call_mode: ToolCallMode::None,
-            detail: "qwen3:8b + SOC prompt · Recommandé".into(),
-            recommended_ram: "16GB+".into(),
-        },
-        ModelInfo {
-            model_id: "gemma4:e4b".into(),
-            display_name: "Gemma 4 E4B Triage".into(),
-            ram_gb: 3.0,
-            tool_call_mode: ToolCallMode::None,
-            detail: "Ultra-léger · 3x plus rapide que qwen3:8b".into(),
-            recommended_ram: "16GB+".into(),
-        },
-        ModelInfo {
-            model_id: "qwen3:14b".into(),
-            display_name: "Qwen3 14B Triage".into(),
-            ram_gb: 9.3,
-            tool_call_mode: ToolCallMode::None,
-            detail: "Meilleur parsing · Plus lourd".into(),
-            recommended_ram: "32GB+".into(),
-        },
-    ]);
-    catalog.insert("l2", vec![
-        ModelInfo {
-            model_id: "threatclaw-l2".into(),
-            display_name: "ThreatClaw AI Reasoning".into(),
-            ram_gb: 8.5,
-            tool_call_mode: ToolCallMode::None,
-            detail: "Foundation-Sec Q8_0 · Recommandé".into(),
-            recommended_ram: "32GB+".into(),
-        },
-        ModelInfo {
-            model_id: "redsage:8b".into(),
-            display_name: "RedSage 8B (SOC Workflows)".into(),
-            ram_gb: 5.5,
-            tool_call_mode: ToolCallMode::None,
-            detail: "RISYS Lab · Workflows SOC réels · Q4_K_M".into(),
-            recommended_ram: "16GB+".into(),
-        },
-    ]);
-    catalog.insert("l25", vec![
-        ModelInfo {
+    catalog.insert(
+        "l0",
+        vec![
+            ModelInfo {
+                model_id: "gemma4:26b".into(),
+                display_name: "Gemma 4 26B MoE".into(),
+                ram_gb: 10.0,
+                tool_call_mode: ToolCallMode::Native,
+                detail: "MoE 3.8B actifs · 256K context · Rapide sur CPU · Recommandé".into(),
+                recommended_ram: "24GB+".into(),
+            },
+            ModelInfo {
+                model_id: "mistral-small:24b".into(),
+                display_name: "Mistral Small 24B".into(),
+                ram_gb: 14.0,
+                tool_call_mode: ToolCallMode::Native,
+                detail: "Excellent FR · Tool calling natif".into(),
+                recommended_ram: "64GB+".into(),
+            },
+            ModelInfo {
+                model_id: "qwen3:14b".into(),
+                display_name: "Qwen3 14B".into(),
+                ram_gb: 9.3,
+                tool_call_mode: ToolCallMode::PromptBased,
+                detail: "Bon FR · Rapide sur CPU".into(),
+                recommended_ram: "32GB+".into(),
+            },
+            ModelInfo {
+                model_id: "gemma4:e4b".into(),
+                display_name: "Gemma 4 E4B".into(),
+                ram_gb: 3.0,
+                tool_call_mode: ToolCallMode::Native,
+                detail: "Ultra-léger · 256K context · Idéal PME 16GB".into(),
+                recommended_ram: "16GB+".into(),
+            },
+            ModelInfo {
+                model_id: "qwen3:8b".into(),
+                display_name: "Qwen3 8B".into(),
+                ram_gb: 5.2,
+                tool_call_mode: ToolCallMode::PromptBased,
+                detail: "Basique · Très léger".into(),
+                recommended_ram: "16GB+".into(),
+            },
+        ],
+    );
+    catalog.insert(
+        "l1",
+        vec![
+            ModelInfo {
+                model_id: "threatclaw-l1".into(),
+                display_name: "ThreatClaw AI Triage".into(),
+                ram_gb: 5.8,
+                tool_call_mode: ToolCallMode::None,
+                detail: "qwen3:8b + SOC prompt · Recommandé".into(),
+                recommended_ram: "16GB+".into(),
+            },
+            ModelInfo {
+                model_id: "gemma4:e4b".into(),
+                display_name: "Gemma 4 E4B Triage".into(),
+                ram_gb: 3.0,
+                tool_call_mode: ToolCallMode::None,
+                detail: "Ultra-léger · 3x plus rapide que qwen3:8b".into(),
+                recommended_ram: "16GB+".into(),
+            },
+            ModelInfo {
+                model_id: "qwen3:14b".into(),
+                display_name: "Qwen3 14B Triage".into(),
+                ram_gb: 9.3,
+                tool_call_mode: ToolCallMode::None,
+                detail: "Meilleur parsing · Plus lourd".into(),
+                recommended_ram: "32GB+".into(),
+            },
+        ],
+    );
+    catalog.insert(
+        "l2",
+        vec![
+            ModelInfo {
+                model_id: "threatclaw-l2".into(),
+                display_name: "ThreatClaw AI Reasoning".into(),
+                ram_gb: 8.5,
+                tool_call_mode: ToolCallMode::None,
+                detail: "Foundation-Sec Q8_0 · Recommandé".into(),
+                recommended_ram: "32GB+".into(),
+            },
+            ModelInfo {
+                model_id: "redsage:8b".into(),
+                display_name: "RedSage 8B (SOC Workflows)".into(),
+                ram_gb: 5.5,
+                tool_call_mode: ToolCallMode::None,
+                detail: "RISYS Lab · Workflows SOC réels · Q4_K_M".into(),
+                recommended_ram: "16GB+".into(),
+            },
+        ],
+    );
+    catalog.insert(
+        "l25",
+        vec![ModelInfo {
             model_id: "threatclaw-l3".into(),
             display_name: "ThreatClaw AI Instruct".into(),
             ram_gb: 5.0,
             tool_call_mode: ToolCallMode::None,
             detail: "Foundation-Sec Q4_K_M · Recommandé".into(),
             recommended_ram: "32GB+".into(),
-        },
-    ]);
+        }],
+    );
     catalog
 }
 
@@ -205,7 +215,8 @@ impl Default for ConversationalLlmConfig {
             cloud_api_key: String::new(),
             anonymize: true,
             tool_call_mode: ToolCallMode::PromptBased,
-            ollama_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            ollama_url: std::env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             ram_estimate_gb: 0.0,
         }
     }
@@ -218,7 +229,11 @@ impl ConversationalLlmConfig {
             return ToolCallMode::Native; // All cloud APIs support native tool calling
         }
         let model = self.local_model.to_lowercase();
-        if model.contains("mistral") || model.contains("llama3") || model.contains("command-r") || model.contains("gemma4") {
+        if model.contains("mistral")
+            || model.contains("llama3")
+            || model.contains("command-r")
+            || model.contains("gemma4")
+        {
             ToolCallMode::Native
         } else {
             ToolCallMode::PromptBased
@@ -296,8 +311,10 @@ impl Default for PrimaryLlmConfig {
     fn default() -> Self {
         Self {
             backend: "ollama".to_string(),
-            model: std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string()),
-            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            model: std::env::var("OLLAMA_MODEL")
+                .unwrap_or_else(|_| "threatclaw-redsage".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             api_key: None,
         }
     }
@@ -318,8 +335,10 @@ pub struct ForensicLlmConfig {
 impl Default for ForensicLlmConfig {
     fn default() -> Self {
         Self {
-            model: std::env::var("FORENSIC_MODEL").unwrap_or_else(|_| "threatclaw-forensic".to_string()),
-            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            model: std::env::var("FORENSIC_MODEL")
+                .unwrap_or_else(|_| "threatclaw-forensic".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             idle_timeout_secs: 600, // 10 minutes
         }
     }
@@ -342,7 +361,8 @@ impl Default for InstructLlmConfig {
     fn default() -> Self {
         Self {
             model: std::env::var("INSTRUCT_MODEL").unwrap_or_else(|_| "threatclaw-l3".to_string()),
-            base_url: std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
+            base_url: std::env::var("OLLAMA_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             idle_timeout_secs: 300, // 5 minutes — déchargement rapide
         }
     }
@@ -460,7 +480,11 @@ impl LlmRouterConfig {
             if !backend.is_empty() && !api_key.is_empty() {
                 config.cloud = Some(CloudLlmConfig {
                     backend,
-                    model: if model.is_empty() { "claude-sonnet-4-20250514".to_string() } else { model },
+                    model: if model.is_empty() {
+                        "claude-sonnet-4-20250514".to_string()
+                    } else {
+                        model
+                    },
                     base_url,
                     api_key,
                 });
@@ -496,14 +520,20 @@ impl LlmRouterConfig {
         }
 
         // ── Anonymize primary (tc_config_anonymize_primary) ──
-        if let Ok(Some(anon_val)) = store.get_setting("_system", "tc_config_anonymize_primary").await {
+        if let Ok(Some(anon_val)) = store
+            .get_setting("_system", "tc_config_anonymize_primary")
+            .await
+        {
             if let Some(anon) = anon_val.as_bool() {
                 config.anonymize_primary = anon;
             }
         }
 
         // ── Conversational L0 (tc_config_conversational) ──
-        if let Ok(Some(conv_val)) = store.get_setting("_system", "tc_config_conversational").await {
+        if let Ok(Some(conv_val)) = store
+            .get_setting("_system", "tc_config_conversational")
+            .await
+        {
             let source = match conv_val["source"].as_str().unwrap_or("disabled") {
                 "local" => L0Source::Local,
                 "cloud" => L0Source::Cloud,
@@ -543,9 +573,18 @@ impl LlmRouterConfig {
         tracing::debug!(
             "LLM config loaded: L0={:?}/{} primary={}/{} cloud={}",
             config.conversational.source,
-            if config.conversational.source == L0Source::Local { &config.conversational.local_model } else { &config.conversational.cloud_model },
-            config.primary.backend, config.primary.model,
-            config.cloud.as_ref().map(|c| format!("{}/{}", c.backend, c.model)).unwrap_or("none".into())
+            if config.conversational.source == L0Source::Local {
+                &config.conversational.local_model
+            } else {
+                &config.conversational.cloud_model
+            },
+            config.primary.backend,
+            config.primary.model,
+            config
+                .cloud
+                .as_ref()
+                .map(|c| format!("{}/{}", c.backend, c.model))
+                .unwrap_or("none".into())
         );
 
         config
@@ -643,9 +682,15 @@ impl LlmRouterConfig {
         let l0 = self.conversational.estimated_ram_gb();
         let l1 = {
             let catalog = model_catalog();
-            catalog.get("l1").and_then(|models| {
-                models.iter().find(|m| m.model_id == self.primary.model).map(|m| m.ram_gb)
-            }).unwrap_or(5.8) // conservative default for unknown model
+            catalog
+                .get("l1")
+                .and_then(|models| {
+                    models
+                        .iter()
+                        .find(|m| m.model_id == self.primary.model)
+                        .map(|m| m.ram_gb)
+                })
+                .unwrap_or(5.8) // conservative default for unknown model
         };
         l0 + l1
     }
@@ -655,15 +700,27 @@ impl LlmRouterConfig {
         let permanent = self.total_permanent_ram_gb();
         let l2 = {
             let catalog = model_catalog();
-            catalog.get("l2").and_then(|models| {
-                models.iter().find(|m| m.model_id == self.forensic.model).map(|m| m.ram_gb)
-            }).unwrap_or(8.5)
+            catalog
+                .get("l2")
+                .and_then(|models| {
+                    models
+                        .iter()
+                        .find(|m| m.model_id == self.forensic.model)
+                        .map(|m| m.ram_gb)
+                })
+                .unwrap_or(8.5)
         };
         let l25 = {
             let catalog = model_catalog();
-            catalog.get("l25").and_then(|models| {
-                models.iter().find(|m| m.model_id == self.instruct.model).map(|m| m.ram_gb)
-            }).unwrap_or(5.0)
+            catalog
+                .get("l25")
+                .and_then(|models| {
+                    models
+                        .iter()
+                        .find(|m| m.model_id == self.instruct.model)
+                        .map(|m| m.ram_gb)
+                })
+                .unwrap_or(5.0)
         };
         permanent + l2.max(l25) // mutual exclusion: max of L2 and L2.5
     }
@@ -677,7 +734,8 @@ mod tests {
     fn test_default_config() {
         let config = LlmRouterConfig::default();
         // Default model depends on OLLAMA_MODEL env var; without it, "threatclaw-redsage"
-        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        let expected_model =
+            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
         assert_eq!(config.primary.model, expected_model);
         assert_eq!(config.primary.backend, "ollama");
         assert!(config.cloud.is_none());
@@ -792,10 +850,16 @@ mod tests {
 
     #[test]
     fn test_requires_anonymization() {
-        let anon = LlmRouterConfig { cloud_escalation: CloudEscalation::Anonymized, ..Default::default() };
+        let anon = LlmRouterConfig {
+            cloud_escalation: CloudEscalation::Anonymized,
+            ..Default::default()
+        };
         assert!(anon.requires_anonymization());
 
-        let direct = LlmRouterConfig { cloud_escalation: CloudEscalation::Direct, ..Default::default() };
+        let direct = LlmRouterConfig {
+            cloud_escalation: CloudEscalation::Direct,
+            ..Default::default()
+        };
         assert!(!direct.requires_anonymization());
     }
 
@@ -866,7 +930,8 @@ mod tests {
     #[test]
     fn test_model_for_task() {
         let config = LlmRouterConfig::default();
-        let expected_model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
+        let expected_model =
+            std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "threatclaw-redsage".to_string());
         assert_eq!(config.model_for_task(LlmTask::Correlation), expected_model);
         assert_eq!(config.model_for_task(LlmTask::Chat), expected_model);
     }
@@ -891,7 +956,10 @@ mod tests {
         };
         assert!(config.conversational.is_enabled());
         assert_eq!(config.conversational.estimated_ram_gb(), 14.0);
-        assert_eq!(config.conversational.detect_tool_call_mode(), ToolCallMode::Native);
+        assert_eq!(
+            config.conversational.detect_tool_call_mode(),
+            ToolCallMode::Native
+        );
     }
 
     #[test]
@@ -909,7 +977,10 @@ mod tests {
         };
         assert!(config.conversational.is_enabled());
         assert_eq!(config.conversational.estimated_ram_gb(), 0.0);
-        assert_eq!(config.conversational.detect_tool_call_mode(), ToolCallMode::Native);
+        assert_eq!(
+            config.conversational.detect_tool_call_mode(),
+            ToolCallMode::Native
+        );
         assert!(config.conversational.anonymize);
     }
 
@@ -968,7 +1039,10 @@ mod tests {
         assert!(catalog.contains_key("l25"));
         assert!(!catalog["l0"].is_empty());
         // Mistral Small should be native tool calling
-        let mistral = catalog["l0"].iter().find(|m| m.model_id.contains("mistral")).unwrap();
+        let mistral = catalog["l0"]
+            .iter()
+            .find(|m| m.model_id.contains("mistral"))
+            .unwrap();
         assert_eq!(mistral.tool_call_mode, ToolCallMode::Native);
     }
 }

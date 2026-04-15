@@ -8,13 +8,13 @@
 
 #[cfg(feature = "import")]
 mod import_integration_tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tempfile::TempDir;
     use threatclaw::db::Database;
     use threatclaw::db::libsql::LibSqlBackend;
     use threatclaw::import::ImportStats;
     use threatclaw::import::openclaw::reader::OpenClawReader;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tempfile::TempDir;
     use uuid::Uuid;
 
     /// Helper: Create a test database and return both the DB and temp dir

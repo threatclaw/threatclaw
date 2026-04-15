@@ -1050,9 +1050,11 @@ impl WasmChannel {
         })?;
 
         // Use the generated add_to_linker function from bindgen for our custom interface
-        SandboxedChannel::add_to_linker::<_, wasmtime::component::HasSelf<ChannelStoreData>>(linker, |state| state).map_err(|e| {
-            WasmChannelError::Config(format!("Failed to add host functions: {}", e))
-        })?;
+        SandboxedChannel::add_to_linker::<_, wasmtime::component::HasSelf<ChannelStoreData>>(
+            linker,
+            |state| state,
+        )
+        .map_err(|e| WasmChannelError::Config(format!("Failed to add host functions: {}", e)))?;
 
         Ok(())
     }

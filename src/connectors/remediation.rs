@@ -34,14 +34,16 @@ pub async fn pfsense_block_ip(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return RemediationResult {
-            action: "pfsense_block_ip".into(),
-            target: ip_to_block.into(),
-            success: false,
-            message: format!("HTTP client error: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "pfsense_block_ip".into(),
+                target: ip_to_block.into(),
+                success: false,
+                message: format!("HTTP client error: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
     // Validate IP format (prevent injection)
@@ -70,21 +72,24 @@ pub async fn pfsense_block_ip(
         "apply": true
     });
 
-    let resp = match client.post(&url)
+    let resp = match client
+        .post(&url)
         .basic_auth(auth_user, Some(auth_secret))
         .json(&rule)
         .send()
         .await
     {
         Ok(r) => r,
-        Err(e) => return RemediationResult {
-            action: "pfsense_block_ip".into(),
-            target: ip_to_block.into(),
-            success: false,
-            message: format!("API request failed: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "pfsense_block_ip".into(),
+                target: ip_to_block.into(),
+                success: false,
+                message: format!("API request failed: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
     let status = resp.status();
@@ -92,14 +97,24 @@ pub async fn pfsense_block_ip(
 
     if status.is_success() {
         let rule_id = body["data"]["id"].as_i64().unwrap_or(0);
-        tracing::info!("REMEDIATION: Blocked IP {} on pfSense (rule #{})", ip_to_block, rule_id);
+        tracing::info!(
+            "REMEDIATION: Blocked IP {} on pfSense (rule #{})",
+            ip_to_block,
+            rule_id
+        );
         RemediationResult {
             action: "pfsense_block_ip".into(),
             target: ip_to_block.into(),
             success: true,
-            message: format!("IP {} bloquee sur le firewall (regle #{})", ip_to_block, rule_id),
+            message: format!(
+                "IP {} bloquee sur le firewall (regle #{})",
+                ip_to_block, rule_id
+            ),
             reversible: true,
-            undo_info: Some(format!("DELETE {}/api/v2/firewall/rule/{}", fw_url, rule_id)),
+            undo_info: Some(format!(
+                "DELETE {}/api/v2/firewall/rule/{}",
+                fw_url, rule_id
+            )),
         }
     } else {
         RemediationResult {
@@ -127,14 +142,16 @@ pub async fn opnsense_block_ip(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return RemediationResult {
-            action: "opnsense_block_ip".into(),
-            target: ip_to_block.into(),
-            success: false,
-            message: format!("HTTP client error: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "opnsense_block_ip".into(),
+                target: ip_to_block.into(),
+                success: false,
+                message: format!("HTTP client error: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
     if !is_valid_ip(ip_to_block) {
@@ -165,21 +182,24 @@ pub async fn opnsense_block_ip(
         }
     });
 
-    let resp = match client.post(&url)
+    let resp = match client
+        .post(&url)
         .basic_auth(api_key, Some(api_secret))
         .json(&rule)
         .send()
         .await
     {
         Ok(r) => r,
-        Err(e) => return RemediationResult {
-            action: "opnsense_block_ip".into(),
-            target: ip_to_block.into(),
-            success: false,
-            message: format!("OPNsense API error: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "opnsense_block_ip".into(),
+                target: ip_to_block.into(),
+                success: false,
+                message: format!("OPNsense API error: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
     let status = resp.status();
@@ -190,19 +210,27 @@ pub async fn opnsense_block_ip(
 
         // Apply the rule
         let apply_url = format!("{}/api/firewall/filter/apply", fw_url);
-        let _ = client.post(&apply_url)
+        let _ = client
+            .post(&apply_url)
             .basic_auth(api_key, Some(api_secret))
             .send()
             .await;
 
-        tracing::info!("REMEDIATION: Blocked IP {} on OPNsense (uuid: {})", ip_to_block, uuid);
+        tracing::info!(
+            "REMEDIATION: Blocked IP {} on OPNsense (uuid: {})",
+            ip_to_block,
+            uuid
+        );
         RemediationResult {
             action: "opnsense_block_ip".into(),
             target: ip_to_block.into(),
             success: true,
             message: format!("IP {} bloquee sur OPNsense", ip_to_block),
             reversible: true,
-            undo_info: Some(format!("DELETE {}/api/firewall/filter/delRule/{}", fw_url, uuid)),
+            undo_info: Some(format!(
+                "DELETE {}/api/firewall/filter/delRule/{}",
+                fw_url, uuid
+            )),
         }
     } else {
         RemediationResult {
@@ -231,7 +259,7 @@ pub async fn ad_disable_account(
     username_to_disable: &str,
     no_tls_verify: bool,
 ) -> RemediationResult {
-    use ldap3::{LdapConnAsync, LdapConnSettings, Scope, Mod};
+    use ldap3::{LdapConnAsync, LdapConnSettings, Mod, Scope};
 
     let url = if port == 636 {
         format!("ldaps://{}:{}", host, port)
@@ -245,19 +273,25 @@ pub async fn ad_disable_account(
 
     let (conn, mut ldap) = match LdapConnAsync::with_settings(settings, &url).await {
         Ok(c) => c,
-        Err(e) => return RemediationResult {
-            action: "ad_disable_account".into(),
-            target: username_to_disable.into(),
-            success: false,
-            message: format!("LDAP connection failed: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "ad_disable_account".into(),
+                target: username_to_disable.into(),
+                success: false,
+                message: format!("LDAP connection failed: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
-    tokio::spawn(async move { let _ = conn.drive().await; });
+    tokio::spawn(async move {
+        let _ = conn.drive().await;
+    });
 
-    if let Err(e) = ldap.simple_bind(bind_dn, bind_pw).await
+    if let Err(e) = ldap
+        .simple_bind(bind_dn, bind_pw)
+        .await
         .and_then(|res| res.success().map(|_| ()))
     {
         return RemediationResult {
@@ -271,20 +305,31 @@ pub async fn ad_disable_account(
     }
 
     // Find the user's DN
-    let filter = format!("(&(objectCategory=person)(objectClass=user)(sAMAccountName={}))", username_to_disable);
-    let (results, _) = match ldap.search(base_dn, Scope::Subtree, &filter, vec!["distinguishedName", "userAccountControl"])
+    let filter = format!(
+        "(&(objectCategory=person)(objectClass=user)(sAMAccountName={}))",
+        username_to_disable
+    );
+    let (results, _) = match ldap
+        .search(
+            base_dn,
+            Scope::Subtree,
+            &filter,
+            vec!["distinguishedName", "userAccountControl"],
+        )
         .await
         .and_then(|res| res.success())
     {
         Ok(r) => r,
-        Err(e) => return RemediationResult {
-            action: "ad_disable_account".into(),
-            target: username_to_disable.into(),
-            success: false,
-            message: format!("LDAP search failed: {}", e),
-            reversible: true,
-            undo_info: None,
-        },
+        Err(e) => {
+            return RemediationResult {
+                action: "ad_disable_account".into(),
+                target: username_to_disable.into(),
+                success: false,
+                message: format!("LDAP search failed: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
     };
 
     if results.is_empty() {
@@ -303,7 +348,9 @@ pub async fn ad_disable_account(
     let user_dn = &entry.dn;
 
     // Get current userAccountControl
-    let current_uac = entry.attrs.get("userAccountControl")
+    let current_uac = entry
+        .attrs
+        .get("userAccountControl")
         .and_then(|v| v.first())
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(512); // 512 = NORMAL_ACCOUNT
@@ -312,21 +359,36 @@ pub async fn ad_disable_account(
     let new_uac = current_uac | 0x0002;
 
     let new_uac_str = new_uac.to_string();
-    let mods = vec![
-        Mod::Replace("userAccountControl", std::collections::HashSet::from([new_uac_str.as_str()])),
-    ];
+    let mods = vec![Mod::Replace(
+        "userAccountControl",
+        std::collections::HashSet::from([new_uac_str.as_str()]),
+    )];
 
-    match ldap.modify(user_dn, mods).await.and_then(|res| res.success().map(|_| ())) {
+    match ldap
+        .modify(user_dn, mods)
+        .await
+        .and_then(|res| res.success().map(|_| ()))
+    {
         Ok(_) => {
-            tracing::warn!("REMEDIATION: Disabled AD account '{}' (DN: {})", username_to_disable, user_dn);
+            tracing::warn!(
+                "REMEDIATION: Disabled AD account '{}' (DN: {})",
+                username_to_disable,
+                user_dn
+            );
             let _ = ldap.unbind().await;
             RemediationResult {
                 action: "ad_disable_account".into(),
                 target: username_to_disable.into(),
                 success: true,
-                message: format!("Compte '{}' desactive dans Active Directory", username_to_disable),
+                message: format!(
+                    "Compte '{}' desactive dans Active Directory",
+                    username_to_disable
+                ),
                 reversible: true,
-                undo_info: Some(format!("Re-enable: set userAccountControl={} on {}", current_uac, user_dn)),
+                undo_info: Some(format!(
+                    "Re-enable: set userAccountControl={} on {}",
+                    current_uac, user_dn
+                )),
             }
         }
         Err(e) => {
@@ -335,7 +397,10 @@ pub async fn ad_disable_account(
                 action: "ad_disable_account".into(),
                 target: username_to_disable.into(),
                 success: false,
-                message: format!("Echec desactivation: {} — le compte de service a-t-il les droits ?", e),
+                message: format!(
+                    "Echec desactivation: {} — le compte de service a-t-il les droits ?",
+                    e
+                ),
                 reversible: true,
                 undo_info: None,
             }
@@ -344,7 +409,8 @@ pub async fn ad_disable_account(
 }
 
 fn is_valid_ip(ip: &str) -> bool {
-    ip.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':')
+    ip.chars()
+        .all(|c| c.is_ascii_digit() || c == '.' || c == ':')
         && !ip.is_empty()
         && ip.len() <= 45
 }

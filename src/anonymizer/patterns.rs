@@ -104,16 +104,14 @@ pub(crate) static RE_SIRET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b\d{3}\s?\d{3}\s?\d{3}\s?\d{5}\b").expect("RE_SIRET is a valid regex")
 });
 
-pub(crate) static RE_SIREN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b\d{3}\s?\d{3}\s?\d{3}\b").expect("RE_SIREN is a valid regex")
-});
+pub(crate) static RE_SIREN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d{3}\s?\d{3}\s?\d{3}\b").expect("RE_SIREN is a valid regex"));
 
 // ---------------------------------------------------------------------------
 // MAC addresses (EUI-48)
 // ---------------------------------------------------------------------------
 pub(crate) static RE_MAC_ADDR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b[0-9a-f]{2}(?:[:\-][0-9a-f]{2}){5}\b")
-        .expect("RE_MAC_ADDR is a valid regex")
+    Regex::new(r"(?i)\b[0-9a-f]{2}(?:[:\-][0-9a-f]{2}){5}\b").expect("RE_MAC_ADDR is a valid regex")
 });
 
 /// Category tags for placeholder generation.
@@ -242,8 +240,7 @@ mod tests {
         let key = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKC...\n-----END RSA PRIVATE KEY-----";
         assert!(RE_SSH_KEY.is_match(key));
 
-        let ec_key =
-            "-----BEGIN EC PRIVATE KEY-----\nMHQCAQE...\n-----END EC PRIVATE KEY-----";
+        let ec_key = "-----BEGIN EC PRIVATE KEY-----\nMHQCAQE...\n-----END EC PRIVATE KEY-----";
         assert!(RE_SSH_KEY.is_match(ec_key));
 
         let openssh_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1r...\n-----END OPENSSH PRIVATE KEY-----";
@@ -283,9 +280,7 @@ mod tests {
     #[test]
     fn test_azure_connection_string() {
         assert!(RE_AZURE_CONN.is_match("AccountKey=base64encodedkey=="));
-        assert!(RE_AZURE_CONN.is_match(
-            "DefaultEndpointsProtocol=https"
-        ));
+        assert!(RE_AZURE_CONN.is_match("DefaultEndpointsProtocol=https"));
     }
 
     // --- GCP key tests ---

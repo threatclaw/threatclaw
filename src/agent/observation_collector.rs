@@ -48,14 +48,34 @@ impl ObservationSet {
 
     /// Génère le résumé textuel des observations.
     pub fn build_summary(&mut self) {
-        let findings = self.observations.iter().filter(|o| o.category == ObservationCategory::Finding).count();
-        let alerts = self.observations.iter().filter(|o| o.category == ObservationCategory::Alert).count();
-        let critical = self.observations.iter().filter(|o| o.severity.as_deref() == Some("critical")).count();
-        let high = self.observations.iter().filter(|o| o.severity.as_deref() == Some("high")).count();
+        let findings = self
+            .observations
+            .iter()
+            .filter(|o| o.category == ObservationCategory::Finding)
+            .count();
+        let alerts = self
+            .observations
+            .iter()
+            .filter(|o| o.category == ObservationCategory::Alert)
+            .count();
+        let critical = self
+            .observations
+            .iter()
+            .filter(|o| o.severity.as_deref() == Some("critical"))
+            .count();
+        let high = self
+            .observations
+            .iter()
+            .filter(|o| o.severity.as_deref() == Some("high"))
+            .count();
 
         self.summary = format!(
             "{} observations: {} findings, {} alertes ({} critiques, {} hautes)",
-            self.observations.len(), findings, alerts, critical, high
+            self.observations.len(),
+            findings,
+            alerts,
+            critical,
+            high
         );
     }
 
@@ -146,7 +166,12 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        let end = s.char_indices().take_while(|(i, _)| *i < max).last().map(|(i, c)| i + c.len_utf8()).unwrap_or(0);
+        let end = s
+            .char_indices()
+            .take_while(|(i, _)| *i < max)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
         format!("{}...", &s[..end])
     }
 }

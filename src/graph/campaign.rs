@@ -4,7 +4,7 @@
 //! assets in a short time window. Groups them into a STIX Campaign object.
 
 use crate::db::Database;
-use crate::graph::threat_graph::{query, mutate};
+use crate::graph::threat_graph::{mutate, query};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -68,7 +68,11 @@ pub async fn detect_campaigns(store: &dyn Database) -> CampaignAnalysis {
         }
     }
 
-    CampaignAnalysis { campaigns, total_campaigns: total, summary }
+    CampaignAnalysis {
+        campaigns,
+        total_campaigns: total,
+        summary,
+    }
 }
 
 /// Detect IPs from the same country attacking the same asset.
@@ -82,30 +86,46 @@ async fn detect_country_clusters(store: &dyn Database) -> Vec<Campaign> {
          ORDER BY attacks DESC LIMIT 10"
     ).await;
 
-    results.iter().filter_map(|r| {
-        let result = r;
-        let asset_id = result["a.id"].as_str()?;
-        let hostname = result["a.hostname"].as_str().unwrap_or(asset_id);
-        let country = result["country"].as_str()?;
-        let attacks = result["attacks"].as_i64().unwrap_or(0);
-        let ips: Vec<String> = result["ips"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default();
+    results
+        .iter()
+        .filter_map(|r| {
+            let result = r;
+            let asset_id = result["a.id"].as_str()?;
+            let hostname = result["a.hostname"].as_str().unwrap_or(asset_id);
+            let country = result["country"].as_str()?;
+            let attacks = result["attacks"].as_i64().unwrap_or(0);
+            let ips: Vec<String> = result["ips"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
 
-        if ips.len() < 3 { return None; }
+            if ips.len() < 3 {
+                return None;
+            }
 
-        Some(Campaign {
-            id: format!("campaign--country-{}-{}", country.to_lowercase(), asset_id),
-            name: format!("Campagne {} → {}", country, hostname),
-            description: format!("{} IPs depuis {} ciblent {} ({} attaques)", ips.len(), country, hostname, attacks),
-            source_ips: ips,
-            targets: vec![hostname.to_string()],
-            common_asn: None,
-            common_country: Some(country.to_string()),
-            attack_count: attacks,
-            confidence: calculate_campaign_confidence(attacks, country),
+            Some(Campaign {
+                id: format!("campaign--country-{}-{}", country.to_lowercase(), asset_id),
+                name: format!("Campagne {} → {}", country, hostname),
+                description: format!(
+                    "{} IPs depuis {} ciblent {} ({} attaques)",
+                    ips.len(),
+                    country,
+                    hostname,
+                    attacks
+                ),
+                source_ips: ips,
+                targets: vec![hostname.to_string()],
+                common_asn: None,
+                common_country: Some(country.to_string()),
+                attack_count: attacks,
+                confidence: calculate_campaign_confidence(attacks, country),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Detect IPs sharing the same ASN attacking multiple assets.
@@ -119,32 +139,52 @@ async fn detect_asn_clusters(store: &dyn Database) -> Vec<Campaign> {
          ORDER BY attacks DESC LIMIT 10"
     ).await;
 
-    results.iter().filter_map(|r| {
-        let result = r;
-        let asn = result["asn"].as_str()?;
-        let attacks = result["attacks"].as_i64().unwrap_or(0);
-        let ips: Vec<String> = result["ips"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default();
-        let targets: Vec<String> = result["targets"].as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-            .unwrap_or_default();
+    results
+        .iter()
+        .filter_map(|r| {
+            let result = r;
+            let asn = result["asn"].as_str()?;
+            let attacks = result["attacks"].as_i64().unwrap_or(0);
+            let ips: Vec<String> = result["ips"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let targets: Vec<String> = result["targets"]
+                .as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
 
-        if ips.len() < 2 { return None; }
+            if ips.len() < 2 {
+                return None;
+            }
 
-        Some(Campaign {
-            id: format!("campaign--asn-{}", asn.replace(' ', "-").to_lowercase()),
-            name: format!("Campagne ASN {}", asn),
-            description: format!("{} IPs depuis ASN {} ciblent {} assets ({} attaques)",
-                ips.len(), asn, targets.len(), attacks),
-            source_ips: ips,
-            targets,
-            common_asn: Some(asn.to_string()),
-            common_country: None,
-            attack_count: attacks,
-            confidence: 60,
+            Some(Campaign {
+                id: format!("campaign--asn-{}", asn.replace(' ', "-").to_lowercase()),
+                name: format!("Campagne ASN {}", asn),
+                description: format!(
+                    "{} IPs depuis ASN {} ciblent {} assets ({} attaques)",
+                    ips.len(),
+                    asn,
+                    targets.len(),
+                    attacks
+                ),
+                source_ips: ips,
+                targets,
+                common_asn: Some(asn.to_string()),
+                common_country: None,
+                attack_count: attacks,
+                confidence: 60,
+            })
         })
-    }).collect()
+        .collect()
 }
 
 fn calculate_campaign_confidence(attacks: i64, country: &str) -> u8 {
@@ -171,8 +211,11 @@ async fn persist_campaign(store: &dyn Database, campaign: &Campaign) {
         "MERGE (c:Campaign {{id: '{}'}}) \
          SET c.name = '{}', c.description = '{}', c.confidence = {}, \
          c.attack_count = {}, c.country = '{}', c.asn = '{}' RETURN c",
-        esc(&campaign.id), esc(&campaign.name), esc(&campaign.description),
-        campaign.confidence, campaign.attack_count,
+        esc(&campaign.id),
+        esc(&campaign.name),
+        esc(&campaign.description),
+        campaign.confidence,
+        campaign.attack_count,
         esc(campaign.common_country.as_deref().unwrap_or("")),
         esc(campaign.common_asn.as_deref().unwrap_or(""))
     );
@@ -182,7 +225,8 @@ async fn persist_campaign(store: &dyn Database, campaign: &Campaign) {
     for ip in campaign.source_ips.iter().take(20) {
         let link = format!(
             "MATCH (c:Campaign {{id: '{}'}}), (ip:IP {{addr: '{}'}}) MERGE (ip)-[:PART_OF]->(c)",
-            esc(&campaign.id), esc(ip)
+            esc(&campaign.id),
+            esc(ip)
         );
         mutate(store, &link).await;
     }
@@ -190,11 +234,13 @@ async fn persist_campaign(store: &dyn Database, campaign: &Campaign) {
 
 /// List all detected campaigns.
 pub async fn list_campaigns(store: &dyn Database) -> Vec<serde_json::Value> {
-    query(store,
+    query(
+        store,
         "MATCH (c:Campaign) \
          RETURN c.id, c.name, c.description, c.confidence, c.attack_count, c.country, c.asn \
-         ORDER BY c.attack_count DESC LIMIT 20"
-    ).await
+         ORDER BY c.attack_count DESC LIMIT 20",
+    )
+    .await
 }
 
 #[cfg(test)]

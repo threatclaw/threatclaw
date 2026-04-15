@@ -7,8 +7,8 @@
 //!
 //! The core calls the same `ScannerBackend` trait regardless of mode.
 
+pub mod backend;
 pub mod nuclei;
 pub mod trivy;
-pub mod backend;
 
-pub use backend::{ScannerBackend, ScannerMode, ScannerConfig, ScanResult};
+pub use backend::{ScanResult, ScannerBackend, ScannerConfig, ScannerMode};

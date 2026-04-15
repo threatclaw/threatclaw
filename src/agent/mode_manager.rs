@@ -132,8 +132,7 @@ impl ModeConfig {
 
     /// Vérifie si le HITL double confirmation est requis pour ce niveau de risque.
     pub fn needs_double_confirm(&self, risk: RiskLevel) -> bool {
-        self.hitl_double_confirm_high
-            && matches!(risk, RiskLevel::High | RiskLevel::Critical)
+        self.hitl_double_confirm_high && matches!(risk, RiskLevel::High | RiskLevel::Critical)
     }
 }
 

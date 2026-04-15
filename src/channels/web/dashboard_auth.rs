@@ -10,12 +10,12 @@
 //! - Brute force: 5 fails → 15min lock
 //! - Constant-time comparison for tokens
 
-use std::sync::Arc;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::SaltString;
 use argon2::password_hash::rand_core::OsRng;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 use crate::db::Database;
 
@@ -64,7 +64,8 @@ pub struct UserInfo {
 pub fn hash_password(password: &str) -> Result<String, String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let hash = argon2.hash_password(password.as_bytes(), &salt)
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt)
         .map_err(|e| format!("Password hash failed: {}", e))?;
     Ok(hash.to_string())
 }
@@ -75,7 +76,9 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
         Ok(h) => h,
         Err(_) => return false,
     };
-    Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
 }
 
 /// Generate a session token and return (raw_token, sha256_hash).
@@ -94,11 +97,13 @@ pub fn generate_session_token() -> (String, String) {
     hasher.update(COUNTER.fetch_add(1, Ordering::Relaxed).to_le_bytes());
     hasher.update(format!("{:?}", std::thread::current().id()).as_bytes());
     // Extra entropy: mix in a second time sample
-    hasher.update(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .to_le_bytes());
+    hasher.update(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+            .to_le_bytes(),
+    );
     let hash = hasher.finalize();
 
     let raw_token = hex::encode(hash);
@@ -115,7 +120,9 @@ fn hash_token(token: &str) -> String {
 
 /// Check if any user exists (first-run detection).
 pub async fn has_any_user(store: &Arc<dyn Database>) -> bool {
-    store.get_setting("_auth", "users_index").await
+    store
+        .get_setting("_auth", "users_index")
+        .await
         .ok()
         .flatten()
         .and_then(|v| v.as_array().map(|a| !a.is_empty()))
@@ -124,24 +131,44 @@ pub async fn has_any_user(store: &Arc<dyn Database>) -> bool {
 
 /// Get user by email.
 async fn get_user(store: &Arc<dyn Database>, email: &str) -> Option<DashboardUser> {
-    let key = format!("user_{}", email.to_lowercase().replace('@', "_at_").replace('.', "_"));
-    store.get_setting("_auth", &key).await.ok()?.and_then(|v| serde_json::from_value(v).ok())
+    let key = format!(
+        "user_{}",
+        email.to_lowercase().replace('@', "_at_").replace('.', "_")
+    );
+    store
+        .get_setting("_auth", &key)
+        .await
+        .ok()?
+        .and_then(|v| serde_json::from_value(v).ok())
 }
 
 /// Save user to store.
 async fn save_user(store: &Arc<dyn Database>, user: &DashboardUser) -> Result<(), String> {
-    let key = format!("user_{}", user.email.to_lowercase().replace('@', "_at_").replace('.', "_"));
-    store.set_setting("_auth", &key, &serde_json::to_value(user).unwrap())
-        .await.map_err(|e| format!("DB error: {}", e))?;
+    let key = format!(
+        "user_{}",
+        user.email
+            .to_lowercase()
+            .replace('@', "_at_")
+            .replace('.', "_")
+    );
+    store
+        .set_setting("_auth", &key, &serde_json::to_value(user).unwrap())
+        .await
+        .map_err(|e| format!("DB error: {}", e))?;
 
     // Update users index
-    let mut index: Vec<String> = store.get_setting("_auth", "users_index").await
-        .ok().flatten()
+    let mut index: Vec<String> = store
+        .get_setting("_auth", "users_index")
+        .await
+        .ok()
+        .flatten()
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
     if !index.contains(&user.email) {
         index.push(user.email.clone());
-        let _ = store.set_setting("_auth", "users_index", &serde_json::json!(index)).await;
+        let _ = store
+            .set_setting("_auth", "users_index", &serde_json::json!(index))
+            .await;
     }
     Ok(())
 }
@@ -198,7 +225,8 @@ pub async fn authenticate(
     ip: &str,
     user_agent: &str,
 ) -> Result<(UserInfo, String), String> {
-    let mut user = get_user(store, email).await
+    let mut user = get_user(store, email)
+        .await
         .ok_or("Email ou mot de passe incorrect")?;
 
     // Check lock
@@ -249,7 +277,13 @@ pub async fn authenticate(
     };
 
     let session_key = format!("session_{}", token_hash);
-    let _ = store.set_setting("_auth", &session_key, &serde_json::to_value(&session).unwrap()).await;
+    let _ = store
+        .set_setting(
+            "_auth",
+            &session_key,
+            &serde_json::to_value(&session).unwrap(),
+        )
+        .await;
 
     log_event(store, &user.email, "login_success", ip).await;
 
@@ -271,14 +305,19 @@ pub async fn validate_session(store: &Arc<dyn Database>, token: &str) -> Option<
     let token_hash = hash_token(token);
     let session_key = format!("session_{}", token_hash);
 
-    let session: SessionRecord = store.get_setting("_auth", &session_key).await.ok()?
+    let session: SessionRecord = store
+        .get_setting("_auth", &session_key)
+        .await
+        .ok()?
         .and_then(|v| serde_json::from_value(v).ok())?;
 
     // Check expiry
     if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(&session.expires_at) {
         if chrono::Utc::now() > expires {
             // Expired — clean up
-            let _ = store.set_setting("_auth", &session_key, &serde_json::json!(null)).await;
+            let _ = store
+                .set_setting("_auth", &session_key, &serde_json::json!(null))
+                .await;
             return None;
         }
     }
@@ -287,12 +326,18 @@ pub async fn validate_session(store: &Arc<dyn Database>, token: &str) -> Option<
     let new_expires = chrono::Utc::now() + chrono::Duration::seconds(SESSION_DURATION_SECS);
     let mut renewed = serde_json::to_value(&session).unwrap_or_default();
     if let Some(obj) = renewed.as_object_mut() {
-        obj.insert("expires_at".into(), serde_json::json!(new_expires.to_rfc3339()));
+        obj.insert(
+            "expires_at".into(),
+            serde_json::json!(new_expires.to_rfc3339()),
+        );
     }
     let _ = store.set_setting("_auth", &session_key, &renewed).await;
 
     // Load user
-    let index: Vec<String> = store.get_setting("_auth", "users_index").await.ok()?
+    let index: Vec<String> = store
+        .get_setting("_auth", "users_index")
+        .await
+        .ok()?
         .and_then(|v| serde_json::from_value(v).ok())?;
 
     for email in &index {
@@ -314,7 +359,9 @@ pub async fn validate_session(store: &Arc<dyn Database>, token: &str) -> Option<
 pub async fn delete_session(store: &Arc<dyn Database>, token: &str) {
     let token_hash = hash_token(token);
     let session_key = format!("session_{}", token_hash);
-    let _ = store.set_setting("_auth", &session_key, &serde_json::json!(null)).await;
+    let _ = store
+        .set_setting("_auth", &session_key, &serde_json::json!(null))
+        .await;
 }
 
 // ── Password Management ──
@@ -325,7 +372,8 @@ pub async fn change_password(
     email: &str,
     new_password: &str,
 ) -> Result<(), String> {
-    let mut user = get_user(store, email).await
+    let mut user = get_user(store, email)
+        .await
         .ok_or("Utilisateur introuvable")?;
     user.password_hash = hash_password(new_password)?;
     save_user(store, &user).await?;
@@ -365,7 +413,10 @@ pub fn build_session_cookie(token: &str, _max_age_secs: i64) -> String {
 /// Build Set-Cookie header to clear session.
 pub fn clear_session_cookie() -> String {
     let secure = if is_https() { "; Secure" } else { "" };
-    format!("tc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{}", secure)
+    format!(
+        "tc_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{}",
+        secure
+    )
 }
 
 /// Detect if running behind HTTPS (nginx sets X-Forwarded-Proto, or TC_HTTPS env)
@@ -378,10 +429,16 @@ fn is_https() -> bool {
 
 async fn log_event(store: &Arc<dyn Database>, email: &str, event: &str, ip: &str) {
     let key = format!("event_{}_{}", event, chrono::Utc::now().timestamp_millis());
-    let _ = store.set_setting("_auth_log", &key, &serde_json::json!({
-        "email": email, "event": event, "ip": ip,
-        "timestamp": chrono::Utc::now().to_rfc3339(),
-    })).await;
+    let _ = store
+        .set_setting(
+            "_auth_log",
+            &key,
+            &serde_json::json!({
+                "email": email, "event": event, "ip": ip,
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+            }),
+        )
+        .await;
 }
 
 #[cfg(test)]
@@ -413,7 +470,10 @@ mod tests {
 
     #[test]
     fn test_extract_cookie() {
-        assert_eq!(extract_session_cookie("tc_session=abc123; other=x"), Some("abc123".into()));
+        assert_eq!(
+            extract_session_cookie("tc_session=abc123; other=x"),
+            Some("abc123".into())
+        );
         assert_eq!(extract_session_cookie("other=x"), None);
         assert_eq!(extract_session_cookie("tc_session="), None);
     }
@@ -439,12 +499,16 @@ mod tests {
     #[test]
     fn test_secure_flag_when_https() {
         // SAFETY: single-threaded test, no concurrent env access
-        unsafe { std::env::set_var("TC_HTTPS", "true"); }
+        unsafe {
+            std::env::set_var("TC_HTTPS", "true");
+        }
         let c = build_session_cookie("tok", 3600);
         assert!(c.contains("Secure"));
         let c2 = clear_session_cookie();
         assert!(c2.contains("Secure"));
-        unsafe { std::env::remove_var("TC_HTTPS"); }
+        unsafe {
+            std::env::remove_var("TC_HTTPS");
+        }
     }
 
     #[test]

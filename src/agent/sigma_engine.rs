@@ -1,9 +1,9 @@
 //! Native Sigma rule matching engine. See ADR-020.
 
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::RwLock;
-use serde_json::Value;
 
 // ── Global compiled rules ──
 
@@ -25,16 +25,16 @@ pub struct CompiledRule {
 }
 
 pub enum FieldMatcher {
-    Exact(String, String),               // field, value
-    Contains(String, String),            // field, substring
-    StartsWith(String, String),          // field, prefix
-    EndsWith(String, String),            // field, suffix
-    Wildcard(String, String),            // field, glob pattern
-    AnyOf(String, Vec<String>),          // field, [values]
+    Exact(String, String),      // field, value
+    Contains(String, String),   // field, substring
+    StartsWith(String, String), // field, prefix
+    EndsWith(String, String),   // field, suffix
+    Wildcard(String, String),   // field, glob pattern
+    AnyOf(String, Vec<String>), // field, [values]
 }
 
 pub enum Condition {
-    Ref(String),                         // "selection"
+    Ref(String), // "selection"
     And(Box<Condition>, Box<Condition>),
     Or(Box<Condition>, Box<Condition>),
     Not(Box<Condition>),
@@ -97,9 +97,13 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                     }
                     Value::Array(arr) => {
                         // List of values → AnyOf
-                        let values: Vec<String> = arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from)
-                                .or_else(|| v.as_i64().map(|n| n.to_string())))
+                        let values: Vec<String> = arr
+                            .iter()
+                            .filter_map(|v| {
+                                v.as_str()
+                                    .map(String::from)
+                                    .or_else(|| v.as_i64().map(|n| n.to_string()))
+                            })
                             .collect();
                         matchers.push(FieldMatcher::AnyOf(field, values));
                     }
@@ -187,12 +191,16 @@ fn match_rule(rule: &CompiledRule, log: &Value, log_tag: Option<&str>) -> Option
     // Check logsource filter
     if let Some(ref cat) = rule.logsource_category {
         if let Some(tag) = log_tag {
-            if !tag.contains(cat) { return None; }
+            if !tag.contains(cat) {
+                return None;
+            }
         }
     }
     if let Some(ref prod) = rule.logsource_product {
         if let Some(tag) = log_tag {
-            if !tag.contains(prod) { return None; }
+            if !tag.contains(prod) {
+                return None;
+            }
         }
     }
 
@@ -225,10 +233,12 @@ fn eval_condition(
             }
         }
         Condition::And(a, b) => {
-            eval_condition(a, selections, log, matched) && eval_condition(b, selections, log, matched)
+            eval_condition(a, selections, log, matched)
+                && eval_condition(b, selections, log, matched)
         }
         Condition::Or(a, b) => {
-            eval_condition(a, selections, log, matched) || eval_condition(b, selections, log, matched)
+            eval_condition(a, selections, log, matched)
+                || eval_condition(b, selections, log, matched)
         }
         Condition::Not(inner) => {
             let mut dummy = Vec::new();
@@ -238,8 +248,14 @@ fn eval_condition(
 }
 
 /// Check if ALL matchers in a selection match the log.
-fn eval_selection(matchers: &[FieldMatcher], log: &Value, matched: &mut Vec<(String, String)>) -> bool {
-    if matchers.is_empty() { return false; }
+fn eval_selection(
+    matchers: &[FieldMatcher],
+    log: &Value,
+    matched: &mut Vec<(String, String)>,
+) -> bool {
+    if matchers.is_empty() {
+        return false;
+    }
     for m in matchers {
         if !eval_matcher(m, log, matched) {
             return false;
@@ -332,7 +348,9 @@ fn find_field(log: &Value, field: &str) -> Option<String> {
             None => {
                 // Try case-insensitive search at current level
                 if let Some(obj) = current.as_object() {
-                    let found = obj.iter().find(|(k, _)| k.to_lowercase() == part.to_lowercase());
+                    let found = obj
+                        .iter()
+                        .find(|(k, _)| k.to_lowercase() == part.to_lowercase());
                     if let Some((_, v)) = found {
                         current = v;
                         continue;
@@ -362,17 +380,27 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
 }
 
 fn wildcard_match_inner(pattern: &[char], text: &[char], pi: usize, ti: usize) -> bool {
-    if pi == pattern.len() && ti == text.len() { return true; }
-    if pi == pattern.len() { return false; }
+    if pi == pattern.len() && ti == text.len() {
+        return true;
+    }
+    if pi == pattern.len() {
+        return false;
+    }
 
     if pattern[pi] == '*' {
         // Skip consecutive *
         let mut pi2 = pi;
-        while pi2 < pattern.len() && pattern[pi2] == '*' { pi2 += 1; }
-        if pi2 == pattern.len() { return true; } // trailing *
+        while pi2 < pattern.len() && pattern[pi2] == '*' {
+            pi2 += 1;
+        }
+        if pi2 == pattern.len() {
+            return true;
+        } // trailing *
 
         for ti2 in ti..=text.len() {
-            if wildcard_match_inner(pattern, text, pi2, ti2) { return true; }
+            if wildcard_match_inner(pattern, text, pi2, ti2) {
+                return true;
+            }
         }
         false
     } else if ti < text.len() && (pattern[pi] == '?' || pattern[pi] == text[ti]) {
@@ -416,7 +444,9 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
         let level = row["level"].as_str().unwrap_or("medium").to_string();
         let detection = &row["detection_json"];
 
-        if detection.is_null() { continue; }
+        if detection.is_null() {
+            continue;
+        }
 
         if let Some((matchers, condition)) = compile_detection(detection) {
             compiled.push(CompiledRule {
@@ -426,14 +456,22 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
                 logsource_category: row["logsource_category"].as_str().map(String::from),
                 logsource_product: row["logsource_product"].as_str().map(String::from),
                 logsource_service: row["logsource_service"].as_str().map(String::from),
-                tags: row["tags"].as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                tags: row["tags"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default(),
                 matchers,
                 condition,
             });
         } else {
-            tracing::debug!("SIGMA ENGINE: Skipped rule {} — could not compile detection", row["id"]);
+            tracing::debug!(
+                "SIGMA ENGINE: Skipped rule {} — could not compile detection",
+                row["id"]
+            );
         }
     }
 
@@ -456,7 +494,9 @@ pub async fn match_log(log: &Value, log_tag: Option<&str>) -> Vec<SigmaMatch> {
 // See ADR-030: sigma dedup uses in-memory HashSet before DB fallback
 pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: i64) {
     let rules = SIGMA_RULES.read().await;
-    if rules.is_empty() { return; }
+    if rules.is_empty() {
+        return;
+    }
 
     let logs = match store.query_logs(minutes_back, None, None, 2000).await {
         Ok(l) => l,
@@ -473,13 +513,17 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 let dedup_key = format!("{}_{}", m.rule_id, hostname);
 
                 // Fast in-memory dedup (skip DB query for same rule+host within this cycle)
-                if !cycle_dedup.insert(dedup_key.clone()) { continue; }
+                if !cycle_dedup.insert(dedup_key.clone()) {
+                    continue;
+                }
 
                 // DB dedup fallback (15 min window across cycles)
                 if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
                     if let Some(at) = prev["at"].as_str() {
                         if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(at) {
-                            if chrono::Utc::now().signed_duration_since(ts) < chrono::Duration::minutes(15) {
+                            if chrono::Utc::now().signed_duration_since(ts)
+                                < chrono::Duration::minutes(15)
+                            {
                                 continue;
                             }
                         }
@@ -487,26 +531,38 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 }
 
                 // Create alert
-                let source_ip = m.matched_fields.iter()
+                let source_ip = m
+                    .matched_fields
+                    .iter()
                     .find(|(f, _)| f.contains("ip") || f.contains("addr") || f.contains("source"))
                     .map(|(_, v)| v.as_str());
-                let username = m.matched_fields.iter()
+                let username = m
+                    .matched_fields
+                    .iter()
                     .find(|(f, _)| f.contains("user") || f.contains("account"))
                     .map(|(_, v)| v.as_str());
 
-                let _ = store.insert_sigma_alert(
-                    &m.rule_id,
-                    &m.level,
-                    &m.rule_title,
-                    hostname,
-                    source_ip,
-                    username,
-                ).await;
+                let _ = store
+                    .insert_sigma_alert(
+                        &m.rule_id,
+                        &m.level,
+                        &m.rule_title,
+                        hostname,
+                        source_ip,
+                        username,
+                    )
+                    .await;
 
                 // Dedup marker (expires in 15 min via settings cleanup)
-                let _ = store.set_setting("_sigma_dedup", &format!("{}_{}", m.rule_id, hostname), &serde_json::json!({
-                    "at": chrono::Utc::now().to_rfc3339(),
-                })).await;
+                let _ = store
+                    .set_setting(
+                        "_sigma_dedup",
+                        &format!("{}_{}", m.rule_id, hostname),
+                        &serde_json::json!({
+                            "at": chrono::Utc::now().to_rfc3339(),
+                        }),
+                    )
+                    .await;
 
                 alerts_created += 1;
             }
@@ -514,6 +570,11 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     }
 
     if alerts_created > 0 {
-        tracing::info!("SIGMA ENGINE: {} alerts from {} logs ({} rules)", alerts_created, logs.len(), rules.len());
+        tracing::info!(
+            "SIGMA ENGINE: {} alerts from {} logs ({} rules)",
+            alerts_created,
+            logs.len(),
+            rules.len()
+        );
     }
 }

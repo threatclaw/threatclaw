@@ -22,7 +22,10 @@ pub fn init_command_registry() {
                 registry.load_skill_actions(path);
             }
         }
-        tracing::info!("WHITELIST: Global registry initialized — {} total commands", registry.len());
+        tracing::info!(
+            "WHITELIST: Global registry initialized — {} total commands",
+            registry.len()
+        );
         registry
     });
 }
@@ -99,12 +102,19 @@ pub enum RemediationError {
 impl std::fmt::Display for RemediationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotInWhitelist(id) => write!(f, "Command '{id}' is not in the remediation whitelist"),
-            Self::ForbiddenTarget(t) => write!(f, "Target '{t}' is forbidden (system/protected account)"),
+            Self::NotInWhitelist(id) => {
+                write!(f, "Command '{id}' is not in the remediation whitelist")
+            }
+            Self::ForbiddenTarget(t) => {
+                write!(f, "Target '{t}' is forbidden (system/protected account)")
+            }
             Self::ForbiddenPath(p) => write!(f, "Path '{p}' is in a forbidden directory"),
             Self::MissingParam(p) => write!(f, "Required parameter '{p}' is missing"),
             Self::ParamInjection { param, value } => {
-                write!(f, "Parameter '{param}' contains injection characters: '{value}'")
+                write!(
+                    f,
+                    "Parameter '{param}' contains injection characters: '{value}'"
+                )
             }
             Self::TooManyTargets { max, requested } => {
                 write!(f, "Too many targets: max {max}, requested {requested}")
@@ -168,7 +178,14 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         undo_template: Some("usermod -U {USERNAME}"),
         requires_hitl: true,
         max_targets: 1,
-        forbidden_targets: &["root", "daemon", "www-data", "threatclaw", "nobody", "systemd-network"],
+        forbidden_targets: &[
+            "root",
+            "daemon",
+            "www-data",
+            "threatclaw",
+            "nobody",
+            "systemd-network",
+        ],
         forbidden_paths: &[],
         param_keys: &["USERNAME"],
     },
@@ -222,7 +239,7 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         undo_template: None,
         requires_hitl: true,
         max_targets: 5,
-        forbidden_targets: &["1"],  // PID 1 = init
+        forbidden_targets: &["1"], // PID 1 = init
         forbidden_paths: &[],
         param_keys: &["PID"],
     },
@@ -237,7 +254,9 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         requires_hitl: true,
         max_targets: 10,
         forbidden_targets: &[],
-        forbidden_paths: &["/etc", "/bin", "/usr", "/lib", "/boot", "/sbin", "/dev", "/proc", "/sys"],
+        forbidden_paths: &[
+            "/etc", "/bin", "/usr", "/lib", "/boot", "/sbin", "/dev", "/proc", "/sys",
+        ],
         param_keys: &["FILEPATH"],
     },
     // === PACKAGES ===
@@ -264,7 +283,13 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         undo_template: Some("docker start {CONTAINER}"),
         requires_hitl: true,
         max_targets: 3,
-        forbidden_targets: &["threatclaw-core", "threatclaw-db", "threatclaw-dashboard", "docker-threatclaw-db-1", "docker-redis-1"],
+        forbidden_targets: &[
+            "threatclaw-core",
+            "threatclaw-db",
+            "threatclaw-dashboard",
+            "docker-threatclaw-db-1",
+            "docker-redis-1",
+        ],
         forbidden_paths: &[],
         param_keys: &["CONTAINER"],
     },
@@ -372,7 +397,16 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         undo_template: Some("systemctl start {SERVICE}"),
         requires_hitl: true,
         max_targets: 3,
-        forbidden_targets: &["sshd", "ssh", "systemd-journald", "docker", "containerd", "threatclaw", "postgresql", "redis"],
+        forbidden_targets: &[
+            "sshd",
+            "ssh",
+            "systemd-journald",
+            "docker",
+            "containerd",
+            "threatclaw",
+            "postgresql",
+            "redis",
+        ],
         forbidden_paths: &[],
         param_keys: &["SERVICE"],
     },
@@ -385,7 +419,16 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         undo_template: Some("systemctl enable {SERVICE}"),
         requires_hitl: true,
         max_targets: 3,
-        forbidden_targets: &["sshd", "ssh", "systemd-journald", "docker", "containerd", "threatclaw", "postgresql", "redis"],
+        forbidden_targets: &[
+            "sshd",
+            "ssh",
+            "systemd-journald",
+            "docker",
+            "containerd",
+            "threatclaw",
+            "postgresql",
+            "redis",
+        ],
         forbidden_paths: &[],
         param_keys: &["SERVICE"],
     },
@@ -400,7 +443,9 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
         requires_hitl: true,
         max_targets: 10,
         forbidden_targets: &[],
-        forbidden_paths: &["/etc", "/bin", "/usr", "/lib", "/boot", "/sbin", "/dev", "/proc", "/sys"],
+        forbidden_paths: &[
+            "/etc", "/bin", "/usr", "/lib", "/boot", "/sbin", "/dev", "/proc", "/sys",
+        ],
         param_keys: &["FILEPATH"],
     },
     RemediationCommand {
@@ -604,7 +649,9 @@ pub static REMEDIATION_WHITELIST: &[RemediationCommand] = &[
 ];
 
 // ── Caractères interdits dans les paramètres (anti-injection de commande) ──
-const FORBIDDEN_CHARS: &[char] = &[';', '|', '&', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\\', '\'', '"'];
+const FORBIDDEN_CHARS: &[char] = &[
+    ';', '|', '&', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\\', '\'', '"',
+];
 
 /// Valide un paramètre contre les injections de commande.
 fn validate_param(key: &str, value: &str) -> Result<(), RemediationError> {
@@ -656,9 +703,15 @@ pub struct DynamicCommand {
     pub param_keys: Vec<String>,
 }
 
-fn default_risk() -> String { "low".to_string() }
-fn default_true() -> bool { true }
-fn default_max_targets() -> u32 { 5 }
+fn default_risk() -> String {
+    "low".to_string()
+}
+fn default_true() -> bool {
+    true
+}
+fn default_max_targets() -> u32 {
+    5
+}
 
 impl DynamicCommand {
     fn risk_level(&self) -> RiskLevel {
@@ -679,7 +732,9 @@ pub struct CommandRegistry {
 
 impl CommandRegistry {
     pub fn new() -> Self {
-        Self { dynamic_commands: Vec::new() }
+        Self {
+            dynamic_commands: Vec::new(),
+        }
     }
 
     /// Charge les actions déclarées par les skills depuis leurs skill.json.
@@ -692,8 +747,14 @@ impl CommandRegistry {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
                             if let Some(actions) = val.get("actions").and_then(|a| a.as_array()) {
                                 for action in actions {
-                                    if let Ok(cmd) = serde_json::from_value::<DynamicCommand>(action.clone()) {
-                                        tracing::info!("Loaded skill action: {} from {}", cmd.id, entry.path().display());
+                                    if let Ok(cmd) =
+                                        serde_json::from_value::<DynamicCommand>(action.clone())
+                                    {
+                                        tracing::info!(
+                                            "Loaded skill action: {} from {}",
+                                            cmd.id,
+                                            entry.path().display()
+                                        );
                                         self.dynamic_commands.push(cmd);
                                     }
                                 }
@@ -703,8 +764,11 @@ impl CommandRegistry {
                 }
             }
         }
-        tracing::info!("CommandRegistry: {} core + {} skill actions loaded",
-            REMEDIATION_WHITELIST.len(), self.dynamic_commands.len());
+        tracing::info!(
+            "CommandRegistry: {} core + {} skill actions loaded",
+            REMEDIATION_WHITELIST.len(),
+            self.dynamic_commands.len()
+        );
     }
 
     /// Recherche une commande (core d'abord, puis dynamiques).
@@ -769,7 +833,8 @@ fn validate_core_command(
     cmd_id: &str,
     params: &HashMap<String, String>,
 ) -> Result<ValidatedCommand, RemediationError> {
-    let cmd = find_command(cmd_id).ok_or_else(|| RemediationError::NotInWhitelist(cmd_id.to_string()))?;
+    let cmd =
+        find_command(cmd_id).ok_or_else(|| RemediationError::NotInWhitelist(cmd_id.to_string()))?;
 
     // Vérifier que tous les paramètres requis sont présents
     for key in cmd.param_keys {
@@ -891,7 +956,9 @@ mod tests {
     use super::*;
 
     fn params(kvs: &[(&str, &str)]) -> HashMap<String, String> {
-        kvs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        kvs.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
@@ -900,7 +967,10 @@ mod tests {
         let result = validate_remediation("net-001", &p);
         assert!(result.is_ok());
         let cmd = result.unwrap();
-        assert_eq!(cmd.rendered_cmd, "iptables -A INPUT -s 192.168.1.100 -j DROP");
+        assert_eq!(
+            cmd.rendered_cmd,
+            "iptables -A INPUT -s 192.168.1.100 -j DROP"
+        );
         assert!(cmd.undo_cmd.is_some());
     }
 
@@ -936,35 +1006,50 @@ mod tests {
     fn test_injection_semicolon() {
         let p = params(&[("IP", "1.2.3.4; rm -rf /")]);
         let result = validate_remediation("net-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
     fn test_injection_pipe() {
         let p = params(&[("USERNAME", "user|cat /etc/shadow")]);
         let result = validate_remediation("usr-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
     fn test_injection_backtick() {
         let p = params(&[("IP", "`whoami`")]);
         let result = validate_remediation("net-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
     fn test_injection_dollar() {
         let p = params(&[("CONTAINER", "$(cat /etc/passwd)")]);
         let result = validate_remediation("docker-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
     fn test_injection_path_traversal() {
         let p = params(&[("FILEPATH", "/tmp/../../etc/shadow")]);
         let result = validate_remediation("file-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
@@ -992,7 +1077,10 @@ mod tests {
     fn test_undo_command_rendered() {
         let p = params(&[("IP", "10.0.0.5")]);
         let cmd = validate_remediation("net-001", &p).unwrap();
-        assert_eq!(cmd.undo_cmd, Some("iptables -D INPUT -s 10.0.0.5 -j DROP".to_string()));
+        assert_eq!(
+            cmd.undo_cmd,
+            Some("iptables -D INPUT -s 10.0.0.5 -j DROP".to_string())
+        );
     }
 
     #[test]
@@ -1006,7 +1094,11 @@ mod tests {
     fn test_all_whitelist_entries_have_valid_ids() {
         for cmd in REMEDIATION_WHITELIST {
             assert!(!cmd.id.is_empty());
-            assert!(cmd.id.contains('-'), "ID should be category-number: {}", cmd.id);
+            assert!(
+                cmd.id.contains('-'),
+                "ID should be category-number: {}",
+                cmd.id
+            );
         }
     }
 
@@ -1016,8 +1108,11 @@ mod tests {
         // Low-risk read-only commands (scan, lookup, skill checks) can skip HITL.
         for cmd in REMEDIATION_WHITELIST {
             if cmd.risk != RiskLevel::Low {
-                assert!(cmd.requires_hitl,
-                    "Non-low-risk command {} ({:?}) must require HITL", cmd.id, cmd.risk);
+                assert!(
+                    cmd.requires_hitl,
+                    "Non-low-risk command {} ({:?}) must require HITL",
+                    cmd.id, cmd.risk
+                );
             }
         }
     }
@@ -1076,7 +1171,10 @@ mod tests {
         // Injection attempt
         let p = params(&[("TARGET", "; rm -rf /")]);
         let result = validate_dynamic_command(&cmd, "skill-test-001", &p);
-        assert!(matches!(result, Err(RemediationError::ParamInjection { .. })));
+        assert!(matches!(
+            result,
+            Err(RemediationError::ParamInjection { .. })
+        ));
     }
 
     #[test]
@@ -1119,7 +1217,10 @@ mod tests {
         let p = params(&[("IP", "10.0.0.1")]);
         let result = validate_dynamic_command(&cmd, "skill-test-003", &p).unwrap();
         assert_eq!(result.risk, RiskLevel::High);
-        assert_eq!(result.undo_cmd, Some("iptables -D INPUT -s 10.0.0.1 -j DROP".to_string()));
+        assert_eq!(
+            result.undo_cmd,
+            Some("iptables -D INPUT -s 10.0.0.1 -j DROP".to_string())
+        );
     }
 
     #[test]

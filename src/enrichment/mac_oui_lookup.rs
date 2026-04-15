@@ -17,7 +17,8 @@ fn get_db() -> &'static Option<mac_oui::Oui> {
             "assets/oui.csv".into(),
             "/usr/share/threatclaw/oui.csv".into(),
         ];
-        let result = csv_paths.iter()
+        let result = csv_paths
+            .iter()
             .filter_map(|p| mac_oui::Oui::from_csv_file(p.as_str()).ok())
             .next();
         match result {
@@ -52,10 +53,18 @@ pub fn lookup(mac: &str) -> MacVendorResult {
                 vendor: Some(entry.company_name.clone()),
                 country: Some(entry.country_code.clone()),
             },
-            _ => MacVendorResult { mac: clean, vendor: None, country: None },
+            _ => MacVendorResult {
+                mac: clean,
+                vendor: None,
+                country: None,
+            },
         }
     } else {
-        MacVendorResult { mac: clean, vendor: None, country: None }
+        MacVendorResult {
+            mac: clean,
+            vendor: None,
+            country: None,
+        }
     }
 }
 

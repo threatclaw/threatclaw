@@ -22,8 +22,12 @@ pub struct TheHiveConfig {
     pub max_alerts: u32,
 }
 
-fn default_true() -> bool { true }
-fn default_limit() -> u32 { 100 }
+fn default_true() -> bool {
+    true
+}
+fn default_limit() -> u32 {
+    100
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TheHiveSyncResult {
@@ -35,7 +39,10 @@ pub struct TheHiveSyncResult {
 
 pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHiveSyncResult {
     let mut result = TheHiveSyncResult {
-        alerts_imported: 0, observables_imported: 0, findings_created: 0, errors: vec![],
+        alerts_imported: 0,
+        observables_imported: 0,
+        findings_created: 0,
+        errors: vec![],
     };
 
     let client = match Client::builder()
@@ -44,7 +51,10 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         .build()
     {
         Ok(c) => c,
-        Err(e) => { result.errors.push(format!("HTTP client: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("HTTP client: {}", e));
+            return result;
+        }
     };
 
     let url = config.url.trim_end_matches('/');
@@ -57,25 +67,37 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         "to": config.max_alerts
     });
 
-    let resp = match client.post(format!("{}/api/v1/query", url))
+    let resp = match client
+        .post(format!("{}/api/v1/query", url))
         .header("Authorization", format!("Bearer {}", config.api_key))
         .json(&query_body)
-        .send().await
+        .send()
+        .await
     {
         Ok(r) => r,
-        Err(e) => { result.errors.push(format!("Alerts request: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Alerts request: {}", e));
+            return result;
+        }
     };
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
-        result.errors.push(format!("Alerts HTTP {}: {}", status, &text[..text.len().min(200)]));
+        result.errors.push(format!(
+            "Alerts HTTP {}: {}",
+            status,
+            &text[..text.len().min(200)]
+        ));
         return result;
     }
 
     let alerts: Vec<serde_json::Value> = match resp.json().await {
         Ok(a) => a,
-        Err(e) => { result.errors.push(format!("Parse alerts: {}", e)); return result; }
+        Err(e) => {
+            result.errors.push(format!("Parse alerts: {}", e));
+            return result;
+        }
     };
 
     tracing::info!("THEHIVE: {} alerts found", alerts.len());
@@ -86,7 +108,8 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         let severity = alert["severity"].as_u64().unwrap_or(1);
         let source = alert["source"].as_str().unwrap_or("");
         let source_ref = alert["sourceRef"].as_str().unwrap_or("");
-        let tags: Vec<&str> = alert["tags"].as_array()
+        let tags: Vec<&str> = alert["tags"]
+            .as_array()
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
@@ -98,32 +121,29 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         };
 
         // Insert as sigma alert
-        let _ = store.insert_sigma_alert(
-            source_ref,
-            tc_severity,
-            title,
-            "",
-            None,
-            None,
-        ).await;
+        let _ = store
+            .insert_sigma_alert(source_ref, tc_severity, title, "", None, None)
+            .await;
         result.alerts_imported += 1;
 
         // Create finding for severity >= 2
         if severity >= 2 {
-            let _ = store.insert_finding(&NewFinding {
-                skill_id: "skill-thehive".into(),
-                title: format!("[TheHive] {}", title),
-                description: Some(description.to_string()),
-                severity: tc_severity.into(),
-                category: Some("soar".into()),
-                asset: None,
-                source: Some(format!("TheHive ({})", source)),
-                metadata: Some(serde_json::json!({
-                    "source_ref": source_ref,
-                    "tags": tags,
-                    "thehive_severity": severity,
-                })),
-            }).await;
+            let _ = store
+                .insert_finding(&NewFinding {
+                    skill_id: "skill-thehive".into(),
+                    title: format!("[TheHive] {}", title),
+                    description: Some(description.to_string()),
+                    severity: tc_severity.into(),
+                    category: Some("soar".into()),
+                    asset: None,
+                    source: Some(format!("TheHive ({})", source)),
+                    metadata: Some(serde_json::json!({
+                        "source_ref": source_ref,
+                        "tags": tags,
+                        "thehive_severity": severity,
+                    })),
+                })
+                .await;
             result.findings_created += 1;
         }
     }
@@ -135,10 +155,12 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         "to": 200
     });
 
-    match client.post(format!("{}/api/v1/query", url))
+    match client
+        .post(format!("{}/api/v1/query", url))
         .header("Authorization", format!("Bearer {}", config.api_key))
         .json(&obs_body)
-        .send().await
+        .send()
+        .await
     {
         Ok(resp) if resp.status().is_success() => {
             if let Ok(observables) = resp.json::<Vec<serde_json::Value>>().await {
@@ -149,20 +171,22 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
                     let is_ioc = obs["ioc"].as_bool().unwrap_or(false);
 
                     if is_ioc && !data.is_empty() {
-                        let _ = store.insert_finding(&NewFinding {
-                            skill_id: "skill-thehive".into(),
-                            title: format!("[TheHive IOC] {} = {}", data_type, data),
-                            description: obs["message"].as_str().map(|s| s.to_string()),
-                            severity: "MEDIUM".into(),
-                            category: Some("ioc".into()),
-                            asset: None,
-                            source: Some("TheHive Observable".into()),
-                            metadata: Some(serde_json::json!({
-                                "data_type": data_type,
-                                "data": data,
-                                "tags": obs["tags"],
-                            })),
-                        }).await;
+                        let _ = store
+                            .insert_finding(&NewFinding {
+                                skill_id: "skill-thehive".into(),
+                                title: format!("[TheHive IOC] {} = {}", data_type, data),
+                                description: obs["message"].as_str().map(|s| s.to_string()),
+                                severity: "MEDIUM".into(),
+                                category: Some("ioc".into()),
+                                asset: None,
+                                source: Some("TheHive Observable".into()),
+                                metadata: Some(serde_json::json!({
+                                    "data_type": data_type,
+                                    "data": data,
+                                    "tags": obs["tags"],
+                                })),
+                            })
+                            .await;
                         result.observables_imported += 1;
                     }
                 }
@@ -176,7 +200,11 @@ pub async fn sync_thehive(store: &dyn Database, config: &TheHiveConfig) -> TheHi
         }
     }
 
-    tracing::info!("THEHIVE: Sync done — {} alerts, {} observables, {} findings",
-        result.alerts_imported, result.observables_imported, result.findings_created);
+    tracing::info!(
+        "THEHIVE: Sync done — {} alerts, {} observables, {} findings",
+        result.alerts_imported,
+        result.observables_imported,
+        result.findings_created
+    );
     result
 }

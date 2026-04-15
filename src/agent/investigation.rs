@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
 use crate::agent::incident_dossier::IncidentDossier;
-use crate::agent::investigation_skills::{execute_investigation_skill, SkillRequest};
+use crate::agent::investigation_skills::{SkillRequest, execute_investigation_skill};
 use crate::agent::llm_router::LlmRouterConfig;
 use crate::agent::prompt_builder::build_investigation_prompt;
 use crate::agent::verdict::{InvestigationResult, InvestigationVerdict, ProposedAction};
@@ -214,8 +214,7 @@ pub async fn run_investigation(
     );
 
     // Get language preference
-    let lang = crate::agent::prompt_builder::get_language(store.as_ref())
-        .await;
+    let lang = crate::agent::prompt_builder::get_language(store.as_ref()).await;
 
     loop {
         // Guard-rails
@@ -260,11 +259,25 @@ pub async fn run_investigation(
             Ok(Ok(resp)) => resp,
             Ok(Err(e)) => {
                 error!("INVESTIGATION: LLM call failed: {e}");
-                return make_error_result(dossier_id, asset, &format!("LLM failed: {e}"), start, iteration, skill_calls);
+                return make_error_result(
+                    dossier_id,
+                    asset,
+                    &format!("LLM failed: {e}"),
+                    start,
+                    iteration,
+                    skill_calls,
+                );
             }
             Err(_) => {
                 error!("INVESTIGATION: LLM call timed out (900s)");
-                return make_error_result(dossier_id, asset, "LLM timeout 900s", start, iteration, skill_calls);
+                return make_error_result(
+                    dossier_id,
+                    asset,
+                    "LLM timeout 900s",
+                    start,
+                    iteration,
+                    skill_calls,
+                );
             }
         };
 
@@ -289,27 +302,44 @@ pub async fn run_investigation(
         );
 
         // Track the best LLM response for fallback (keep highest confidence)
-        if best_parsed.as_ref().map_or(true, |(_, c, _)| parsed.confidence > *c) {
-            best_parsed = Some((parsed.analysis.clone(), parsed.confidence, parsed.correlations.clone()));
+        if best_parsed
+            .as_ref()
+            .map_or(true, |(_, c, _)| parsed.confidence > *c)
+        {
+            best_parsed = Some((
+                parsed.analysis.clone(),
+                parsed.confidence,
+                parsed.correlations.clone(),
+            ));
         }
 
         // LLM wants more info → execute requested skills (skip previously failed ones)
         if parsed.needs_more_info && !parsed.skill_requests.is_empty() {
-            let actionable_requests: Vec<&SkillRequest> = parsed.skill_requests.iter()
+            let actionable_requests: Vec<&SkillRequest> = parsed
+                .skill_requests
+                .iter()
                 .filter(|r| !failed_skills.contains(&r.skill_name))
                 .collect();
 
             if actionable_requests.is_empty() {
-                debug!("INVESTIGATION: All requested skills already failed — skipping re-request, using current analysis");
+                debug!(
+                    "INVESTIGATION: All requested skills already failed — skipping re-request, using current analysis"
+                );
                 // Don't continue looping — fall through to verdict logic
             } else {
                 for req in &actionable_requests {
                     if skill_calls >= config.max_skill_calls {
-                        warn!("INVESTIGATION: Max skill calls ({}) reached", config.max_skill_calls);
+                        warn!(
+                            "INVESTIGATION: Max skill calls ({}) reached",
+                            config.max_skill_calls
+                        );
                         break;
                     }
 
-                    info!("INVESTIGATION: Calling skill {} ({:?})", req.skill_name, req.params);
+                    info!(
+                        "INVESTIGATION: Calling skill {} ({:?})",
+                        req.skill_name, req.params
+                    );
                     match tokio::time::timeout(
                         config.skill_timeout,
                         execute_investigation_skill(req, &store),
@@ -348,9 +378,8 @@ pub async fn run_investigation(
         // CRITICAL → escalate to L2 Forensic (once)
         if severity == "CRITICAL" && iteration <= 2 {
             info!("INVESTIGATION: CRITICAL → escalating to L2 Forensic");
-            let l2_prompt = format!(
-                "{prompt}\n\n--- L2 FORENSIC: Analyse root-cause complète requise. ---\n"
-            );
+            let l2_prompt =
+                format!("{prompt}\n\n--- L2 FORENSIC: Analyse root-cause complète requise. ---\n");
 
             if let Ok(Ok(l2_raw)) = tokio::time::timeout(
                 Duration::from_secs(180),
@@ -429,12 +458,14 @@ pub async fn run_investigation(
     }
 
     // Timeout or max iterations without verdict — use best LLM response if available
-    let (fallback_analysis, fallback_confidence, fallback_findings) = best_parsed
-        .unwrap_or_else(|| (
-            "Investigation non concluante — timeout ou max itérations atteint".into(),
-            0.4,
-            vec![],
-        ));
+    let (fallback_analysis, fallback_confidence, fallback_findings) =
+        best_parsed.unwrap_or_else(|| {
+            (
+                "Investigation non concluante — timeout ou max itérations atteint".into(),
+                0.4,
+                vec![],
+            )
+        });
     InvestigationResult {
         dossier_id,
         asset,

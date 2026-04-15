@@ -28,9 +28,11 @@ pub async fn analyze(host: &str) -> Result<SslLabsResult, String> {
 
     // Start new scan
     let url = format!("{}/analyze?host={}&startNew=on&all=done", API_BASE, host);
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .timeout(std::time::Duration::from_secs(15))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("SSL Labs request: {}", e))?;
 
     if resp.status().as_u16() == 429 {
@@ -43,7 +45,9 @@ pub async fn analyze(host: &str) -> Result<SslLabsResult, String> {
         return Err(format!("SSL Labs HTTP {}", resp.status()));
     }
 
-    let mut body: serde_json::Value = resp.json().await
+    let mut body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("SSL Labs parse: {}", e))?;
 
     // Poll until READY or ERROR (max 60 polls × 5s = 5 min)
@@ -58,21 +62,27 @@ pub async fn analyze(host: &str) -> Result<SslLabsResult, String> {
             }
             "DNS" | "IN_PROGRESS" => {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                let resp = client.get(&poll_url)
+                let resp = client
+                    .get(&poll_url)
                     .timeout(std::time::Duration::from_secs(15))
-                    .send().await
+                    .send()
+                    .await
                     .map_err(|e| format!("SSL Labs poll: {}", e))?;
                 if !resp.status().is_success() {
                     return Err(format!("SSL Labs poll HTTP {}", resp.status()));
                 }
-                body = resp.json().await
+                body = resp
+                    .json()
+                    .await
                     .map_err(|e| format!("SSL Labs poll parse: {}", e))?;
             }
             _ => {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                let resp = client.get(&poll_url)
+                let resp = client
+                    .get(&poll_url)
                     .timeout(std::time::Duration::from_secs(15))
-                    .send().await
+                    .send()
+                    .await
                     .map_err(|e| format!("SSL Labs poll: {}", e))?;
                 body = resp.json().await.unwrap_or_default();
             }
@@ -111,7 +121,8 @@ pub async fn analyze(host: &str) -> Result<SslLabsResult, String> {
         .unwrap_or_default();
 
     // Parse cert expiry
-    let cert_expiry = body["certs"].as_array()
+    let cert_expiry = body["certs"]
+        .as_array()
         .and_then(|certs| certs.first())
         .and_then(|c| c["notAfter"].as_i64())
         .map(|ts| {
@@ -137,21 +148,25 @@ pub async fn get_cached_grade(host: &str) -> Result<Option<String>, String> {
     let resp = reqwest::Client::new()
         .get(&url)
         .timeout(std::time::Duration::from_secs(10))
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("SSL Labs cache check: {}", e))?;
 
     if !resp.status().is_success() {
         return Ok(None);
     }
 
-    let body: serde_json::Value = resp.json().await
+    let body: serde_json::Value = resp
+        .json()
+        .await
         .map_err(|e| format!("SSL Labs parse: {}", e))?;
 
     if body["status"].as_str() != Some("READY") {
         return Ok(None);
     }
 
-    let grade = body["endpoints"].as_array()
+    let grade = body["endpoints"]
+        .as_array()
         .and_then(|a| a.first())
         .and_then(|e| e["grade"].as_str())
         .map(String::from);

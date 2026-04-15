@@ -39,8 +39,18 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1048".into(), // Exfiltration over alternative protocol
             ],
             compliance: vec!["nis2".into(), "hipaa".into(), "hds".into(), "rgpd".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "iot".into(), "printer".into()],
-            high_priority_alerts: vec!["ransomware".into(), "data-exfiltration".into(), "unauthorized-access".into(), "iot-anomaly".into()],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "iot".into(),
+                "printer".into(),
+            ],
+            high_priority_alerts: vec![
+                "ransomware".into(),
+                "data-exfiltration".into(),
+                "unauthorized-access".into(),
+                "iot-anomaly".into(),
+            ],
             low_priority_alerts: vec!["port-scan".into()],
             sensitivity: 1.5,
         },
@@ -55,9 +65,19 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1005".into(), // Data from local system
                 "T1552".into(), // Unsecured credentials
             ],
-            compliance: vec!["nis2".into(), "pci-dss".into(), "rgpd".into(), "dora".into()],
+            compliance: vec![
+                "nis2".into(),
+                "pci-dss".into(),
+                "rgpd".into(),
+                "dora".into(),
+            ],
             expected_assets: vec!["server".into(), "workstation".into(), "network".into()],
-            high_priority_alerts: vec!["credential-theft".into(), "data-exfiltration".into(), "fraud".into(), "unauthorized-access".into()],
+            high_priority_alerts: vec![
+                "credential-theft".into(),
+                "data-exfiltration".into(),
+                "fraud".into(),
+                "unauthorized-access".into(),
+            ],
             low_priority_alerts: vec![],
             sensitivity: 1.4,
         },
@@ -73,8 +93,18 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1486".into(), // Data encrypted for impact
             ],
             compliance: vec!["nis2".into(), "iec-62443".into(), "rgpd".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "ot".into(), "network".into()],
-            high_priority_alerts: vec!["ot-anomaly".into(), "plc-access".into(), "ransomware".into(), "lateral-movement".into()],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "ot".into(),
+                "network".into(),
+            ],
+            high_priority_alerts: vec![
+                "ot-anomaly".into(),
+                "plc-access".into(),
+                "ransomware".into(),
+                "lateral-movement".into(),
+            ],
             low_priority_alerts: vec!["web-scan".into()],
             sensitivity: 1.2,
         },
@@ -90,8 +120,18 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1486".into(), // Ransomware
             ],
             compliance: vec!["pci-dss".into(), "rgpd".into(), "nis2".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "website".into(), "network".into()],
-            high_priority_alerts: vec!["web-compromise".into(), "payment-fraud".into(), "data-exfiltration".into(), "magecart".into()],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "website".into(),
+                "network".into(),
+            ],
+            high_priority_alerts: vec![
+                "web-compromise".into(),
+                "payment-fraud".into(),
+                "data-exfiltration".into(),
+                "magecart".into(),
+            ],
             low_priority_alerts: vec![],
             sensitivity: 1.1,
         },
@@ -106,9 +146,24 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1048".into(), // Exfiltration
                 "T1547".into(), // Boot or logon autostart execution
             ],
-            compliance: vec!["nis2".into(), "rgpd".into(), "rgs".into(), "anssi-hygiene".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "website".into(), "printer".into()],
-            high_priority_alerts: vec!["ransomware".into(), "credential-theft".into(), "apt".into(), "data-exfiltration".into()],
+            compliance: vec![
+                "nis2".into(),
+                "rgpd".into(),
+                "rgs".into(),
+                "anssi-hygiene".into(),
+            ],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "website".into(),
+                "printer".into(),
+            ],
+            high_priority_alerts: vec![
+                "ransomware".into(),
+                "credential-theft".into(),
+                "apt".into(),
+                "data-exfiltration".into(),
+            ],
             low_priority_alerts: vec![],
             sensitivity: 1.3,
         },
@@ -124,8 +179,18 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1059".into(), // Command scripting
             ],
             compliance: vec!["nis2".into(), "iec-62443".into(), "anssi-isc".into()],
-            expected_assets: vec!["server".into(), "ot".into(), "network".into(), "workstation".into()],
-            high_priority_alerts: vec!["ot-anomaly".into(), "scada-access".into(), "ransomware".into(), "lateral-movement".into()],
+            expected_assets: vec![
+                "server".into(),
+                "ot".into(),
+                "network".into(),
+                "workstation".into(),
+            ],
+            high_priority_alerts: vec![
+                "ot-anomaly".into(),
+                "scada-access".into(),
+                "ransomware".into(),
+                "lateral-movement".into(),
+            ],
             low_priority_alerts: vec![],
             sensitivity: 1.4,
         },
@@ -140,8 +205,17 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1071".into(), // C2 application layer
             ],
             compliance: vec!["nis2".into(), "rgpd".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "mobile".into(), "iot".into()],
-            high_priority_alerts: vec!["ransomware".into(), "gps-spoofing".into(), "fleet-anomaly".into()],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "mobile".into(),
+                "iot".into(),
+            ],
+            high_priority_alerts: vec![
+                "ransomware".into(),
+                "gps-spoofing".into(),
+                "fleet-anomaly".into(),
+            ],
             low_priority_alerts: vec![],
             sensitivity: 1.2,
         },
@@ -155,7 +229,12 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
                 "T1059".into(), // Command scripting
             ],
             compliance: vec!["rgpd".into(), "nis2".into()],
-            expected_assets: vec!["server".into(), "workstation".into(), "website".into(), "printer".into()],
+            expected_assets: vec![
+                "server".into(),
+                "workstation".into(),
+                "website".into(),
+                "printer".into(),
+            ],
             high_priority_alerts: vec!["ransomware".into(), "data-exfiltration".into()],
             low_priority_alerts: vec!["port-scan".into(), "web-scan".into()],
             sensitivity: 1.0,
@@ -181,11 +260,20 @@ pub fn get_profile(sector: &str) -> ThreatProfile {
 
 /// Get all available sector profiles.
 pub fn list_profiles() -> Vec<ThreatProfile> {
-    ["healthcare", "finance", "industry", "retail", "government",
-     "energy", "transport", "education", "services"]
-        .iter()
-        .map(|s| get_profile(s))
-        .collect()
+    [
+        "healthcare",
+        "finance",
+        "industry",
+        "retail",
+        "government",
+        "energy",
+        "transport",
+        "education",
+        "services",
+    ]
+    .iter()
+    .map(|s| get_profile(s))
+    .collect()
 }
 
 /// Check if a MITRE technique is relevant for the given sector.
@@ -197,7 +285,10 @@ pub fn is_technique_relevant(sector: &str, technique_id: &str) -> bool {
 /// Check if an alert category is high priority for the given sector.
 pub fn is_high_priority(sector: &str, alert_category: &str) -> bool {
     let profile = get_profile(sector);
-    profile.high_priority_alerts.iter().any(|c| alert_category.contains(c))
+    profile
+        .high_priority_alerts
+        .iter()
+        .any(|c| alert_category.contains(c))
 }
 
 /// Get compliance frameworks for a sector.
@@ -228,8 +319,8 @@ mod tests {
     #[test]
     fn test_technique_relevance() {
         assert!(is_technique_relevant("healthcare", "T1486")); // Ransomware
-        assert!(is_technique_relevant("industry", "T0831"));   // ICS manipulation
-        assert!(!is_technique_relevant("retail", "T0831"));    // Not ICS
+        assert!(is_technique_relevant("industry", "T0831")); // ICS manipulation
+        assert!(!is_technique_relevant("retail", "T0831")); // Not ICS
     }
 
     #[test]

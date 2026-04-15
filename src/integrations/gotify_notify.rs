@@ -37,7 +37,11 @@ pub async fn send_notification(
         return Err("Gotify not configured".into());
     }
 
-    let url = format!("{}/message?token={}", config.server_url.trim_end_matches('/'), config.app_token);
+    let url = format!(
+        "{}/message?token={}",
+        config.server_url.trim_end_matches('/'),
+        config.app_token
+    );
 
     let payload = json!({
         "title": title,
@@ -53,9 +57,11 @@ pub async fn send_notification(
         .build()
         .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Gotify: {e}"))?;
 
     if resp.status().is_success() {
@@ -68,7 +74,11 @@ pub async fn send_notification(
 
 /// Test Gotify connectivity.
 pub async fn test_connection(server_url: &str, app_token: &str) -> Result<String, String> {
-    let url = format!("{}/message?token={}", server_url.trim_end_matches('/'), app_token);
+    let url = format!(
+        "{}/message?token={}",
+        server_url.trim_end_matches('/'),
+        app_token
+    );
 
     let payload = json!({
         "title": "ThreatClaw — Test",
@@ -81,9 +91,11 @@ pub async fn test_connection(server_url: &str, app_token: &str) -> Result<String
         .build()
         .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.post(&url)
+    let resp = client
+        .post(&url)
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Gotify: {e}"))?;
 
     if resp.status().is_success() {

@@ -39,7 +39,12 @@ pub struct AdSyncResult {
 /// Sync Active Directory into ThreatClaw graph.
 pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     let mut result = AdSyncResult {
-        computers: 0, users: 0, groups: 0, admins: 0, ous: 0, errors: vec![],
+        computers: 0,
+        users: 0,
+        groups: 0,
+        admins: 0,
+        ous: 0,
+        errors: vec![],
     };
 
     // Connect
@@ -63,10 +68,14 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     };
 
     // Drive the connection I/O in background
-    tokio::spawn(async move { let _ = conn.drive().await; });
+    tokio::spawn(async move {
+        let _ = conn.drive().await;
+    });
 
     // Bind
-    if let Err(e) = ldap.simple_bind(&config.bind_dn, &config.bind_password).await
+    if let Err(e) = ldap
+        .simple_bind(&config.bind_dn, &config.bind_password)
+        .await
         .and_then(|res| res.success().map(|_| ()))
     {
         result.errors.push(format!("Bind failed: {}", e));
@@ -77,20 +86,35 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     tracing::info!("AD: Connected and bound to {}", url);
 
     // Sync computers
-    match search_paged(&mut ldap, &config.base_dn,
+    match search_paged(
+        &mut ldap,
+        &config.base_dn,
         "(&(objectCategory=computer)(objectClass=computer))",
-        vec!["cn", "dNSHostName", "operatingSystem", "operatingSystemVersion",
-             "lastLogonTimestamp", "distinguishedName", "description", "userAccountControl"],
-    ).await {
+        vec![
+            "cn",
+            "dNSHostName",
+            "operatingSystem",
+            "operatingSystemVersion",
+            "lastLogonTimestamp",
+            "distinguishedName",
+            "description",
+            "userAccountControl",
+        ],
+    )
+    .await
+    {
         Ok(entries) => {
             for entry in &entries {
                 let hostname = get_attr(entry, "cn").unwrap_or_default();
                 let fqdn = get_attr(entry, "dNSHostName");
-                let os = get_attr(entry, "operatingSystem")
-                    .map(|os| {
-                        let ver = get_attr(entry, "operatingSystemVersion").unwrap_or_default();
-                        if ver.is_empty() { os } else { format!("{} {}", os, ver) }
-                    });
+                let os = get_attr(entry, "operatingSystem").map(|os| {
+                    let ver = get_attr(entry, "operatingSystemVersion").unwrap_or_default();
+                    if ver.is_empty() {
+                        os
+                    } else {
+                        format!("{} {}", os, ver)
+                    }
+                });
                 let ou = extract_ou(&entry.dn);
                 let disabled = is_account_disabled(entry);
 
@@ -106,7 +130,7 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
                         vlan: None,
                         vm_id: None,
                         criticality: None,
-            services: serde_json::json!([]),
+                        services: serde_json::json!([]),
                         source: "ad".into(),
                     };
                     asset_resolution::resolve_asset(store, &discovered).await;
@@ -122,12 +146,25 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     }
 
     // Sync users
-    match search_paged(&mut ldap, &config.base_dn,
+    match search_paged(
+        &mut ldap,
+        &config.base_dn,
         "(&(objectCategory=person)(objectClass=user))",
-        vec!["sAMAccountName", "cn", "displayName", "mail", "department",
-             "memberOf", "lastLogonTimestamp", "userAccountControl", "adminCount",
-             "distinguishedName"],
-    ).await {
+        vec![
+            "sAMAccountName",
+            "cn",
+            "displayName",
+            "mail",
+            "department",
+            "memberOf",
+            "lastLogonTimestamp",
+            "userAccountControl",
+            "adminCount",
+            "distinguishedName",
+        ],
+    )
+    .await
+    {
         Ok(entries) => {
             for entry in &entries {
                 let username = get_attr(entry, "sAMAccountName").unwrap_or_default();
@@ -139,20 +176,31 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
                 let groups = get_attr_multi(entry, "memberOf");
 
                 if !username.is_empty() && !disabled {
-                    let is_admin = admin_count > 0 || groups.iter().any(|g|
-                        g.contains("Domain Admins") || g.contains("Administrators")
-                    );
+                    let is_admin = admin_count > 0
+                        || groups
+                            .iter()
+                            .any(|g| g.contains("Domain Admins") || g.contains("Administrators"));
 
                     identity_graph::upsert_user(
-                        store, &username, is_admin, false,
+                        store,
+                        &username,
+                        is_admin,
+                        false,
                         department.as_deref(),
-                    ).await;
+                    )
+                    .await;
 
                     result.users += 1;
-                    if is_admin { result.admins += 1; }
+                    if is_admin {
+                        result.admins += 1;
+                    }
                 }
             }
-            tracing::info!("AD: Synced {} users ({} admins)", result.users, result.admins);
+            tracing::info!(
+                "AD: Synced {} users ({} admins)",
+                result.users,
+                result.admins
+            );
         }
         Err(e) => {
             result.errors.push(format!("User search failed: {}", e));
@@ -161,10 +209,20 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     }
 
     // Sync groups
-    match search_paged(&mut ldap, &config.base_dn,
+    match search_paged(
+        &mut ldap,
+        &config.base_dn,
         "(objectClass=group)",
-        vec!["cn", "member", "description", "distinguishedName", "groupType"],
-    ).await {
+        vec![
+            "cn",
+            "member",
+            "description",
+            "distinguishedName",
+            "groupType",
+        ],
+    )
+    .await
+    {
         Ok(entries) => {
             result.groups = entries.len();
             tracing::info!("AD: Found {} groups", result.groups);
@@ -175,10 +233,14 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
     }
 
     // Sync OUs
-    match search_paged(&mut ldap, &config.base_dn,
+    match search_paged(
+        &mut ldap,
+        &config.base_dn,
         "(objectClass=organizationalUnit)",
         vec!["ou", "name", "description", "distinguishedName"],
-    ).await {
+    )
+    .await
+    {
         Ok(entries) => {
             result.ous = entries.len();
             tracing::info!("AD: Found {} OUs", result.ous);
@@ -193,7 +255,11 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
 
     tracing::info!(
         "AD SYNC COMPLETE: {} computers, {} users ({} admins), {} groups, {} OUs",
-        result.computers, result.users, result.admins, result.groups, result.ous
+        result.computers,
+        result.users,
+        result.admins,
+        result.groups,
+        result.ous
     );
 
     result
@@ -210,7 +276,8 @@ async fn search_paged(
     let page_size: i32 = 500;
 
     // Use the simple search with paging control
-    let (results, _res) = ldap.search(base_dn, Scope::Subtree, filter, attrs)
+    let (results, _res) = ldap
+        .search(base_dn, Scope::Subtree, filter, attrs)
         .await
         .map_err(|e| format!("LDAP search error: {}", e))?
         .success()
@@ -225,9 +292,7 @@ async fn search_paged(
 
 /// Extract a single-valued attribute.
 fn get_attr(entry: &SearchEntry, name: &str) -> Option<String> {
-    entry.attrs.get(name)
-        .and_then(|v| v.first())
-        .cloned()
+    entry.attrs.get(name).and_then(|v| v.first()).cloned()
 }
 
 /// Extract a multi-valued attribute.
@@ -256,12 +321,13 @@ fn is_account_disabled(entry: &SearchEntry) -> bool {
 #[allow(dead_code)]
 fn filetime_to_iso(filetime_str: &str) -> Option<String> {
     let ft: i64 = filetime_str.parse().ok()?;
-    if ft <= 0 { return None; }
+    if ft <= 0 {
+        return None;
+    }
     const EPOCH_DIFF: i64 = 116_444_736_000_000_000;
     let unix_100ns = ft - EPOCH_DIFF;
     let secs = unix_100ns / 10_000_000;
-    chrono::DateTime::from_timestamp(secs, 0)
-        .map(|dt| dt.to_rfc3339())
+    chrono::DateTime::from_timestamp(secs, 0).map(|dt| dt.to_rfc3339())
 }
 
 #[cfg(test)]

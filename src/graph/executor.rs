@@ -4,12 +4,14 @@
 //! in order: enrich → correlate → query graph → build context → send to L2.
 //! The LLM NEVER decides how to investigate. The graph decides.
 
-use std::sync::Arc;
-use std::collections::HashMap;
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::db::Database;
-use crate::graph::investigation::{InvestigationStep, InvestigationGraph, InvestigationResult, StepResult};
+use crate::graph::investigation::{
+    InvestigationGraph, InvestigationResult, InvestigationStep, StepResult,
+};
 
 /// Execute a complete investigation graph for an alert.
 pub async fn run_investigation(
@@ -25,14 +27,27 @@ pub async fn run_investigation(
 
     context.insert("alert_title".into(), json!(alert_title));
     context.insert("graph_id".into(), json!(graph.id));
-    if let Some(ip) = source_ip { context.insert("source_ip".into(), json!(ip)); }
-    if let Some(host) = hostname { context.insert("hostname".into(), json!(host)); }
+    if let Some(ip) = source_ip {
+        context.insert("source_ip".into(), json!(ip));
+    }
+    if let Some(host) = hostname {
+        context.insert("hostname".into(), json!(host));
+    }
 
-    tracing::info!("INVESTIGATION: Starting '{}' for alert: {}", graph.id, alert_title);
+    tracing::info!(
+        "INVESTIGATION: Starting '{}' for alert: {}",
+        graph.id,
+        alert_title
+    );
 
     for (i, step) in graph.steps.iter().enumerate() {
         let step_start = std::time::Instant::now();
-        let step_type = format!("{:?}", step).split('{').next().unwrap_or("Unknown").trim().to_string();
+        let step_type = format!("{:?}", step)
+            .split('{')
+            .next()
+            .unwrap_or("Unknown")
+            .trim()
+            .to_string();
 
         let result = match step {
             InvestigationStep::EnrichIp { sources } => {
@@ -40,22 +55,43 @@ pub async fn run_investigation(
             }
             InvestigationStep::EnrichDomain { sources } => {
                 // Extract domain from context if available
-                let domain = context.get("domain").and_then(|v| v.as_str()).map(String::from);
+                let domain = context
+                    .get("domain")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 execute_enrich_domain(domain.as_deref(), sources, &mut context).await
             }
             InvestigationStep::EnrichCve { sources } => {
-                let cve = context.get("cve_id").and_then(|v| v.as_str()).map(String::from);
+                let cve = context
+                    .get("cve_id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 execute_enrich_cve(store.as_ref(), cve.as_deref(), sources, &mut context).await
             }
             InvestigationStep::EnrichHash { sources } => {
-                let hash = context.get("file_hash").and_then(|v| v.as_str()).map(String::from);
+                let hash = context
+                    .get("file_hash")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
                 execute_enrich_hash(hash.as_deref(), sources, &mut context).await
             }
-            InvestigationStep::QueryHistory { entity_type, window_hours } => {
-                execute_query_history(store.as_ref(), entity_type, *window_hours, &context).await
-            }
-            InvestigationStep::CorrelateAlerts { same_ip, same_asset, window_hours } => {
-                execute_correlate(store.as_ref(), *same_ip, *same_asset, *window_hours, &context).await
+            InvestigationStep::QueryHistory {
+                entity_type,
+                window_hours,
+            } => execute_query_history(store.as_ref(), entity_type, *window_hours, &context).await,
+            InvestigationStep::CorrelateAlerts {
+                same_ip,
+                same_asset,
+                window_hours,
+            } => {
+                execute_correlate(
+                    store.as_ref(),
+                    *same_ip,
+                    *same_asset,
+                    *window_hours,
+                    &context,
+                )
+                .await
             }
             InvestigationStep::MapMitreTechniques => {
                 execute_map_mitre(store.as_ref(), alert_title, &mut context).await
@@ -79,7 +115,13 @@ pub async fn run_investigation(
         };
 
         let duration = step_start.elapsed().as_millis() as u64;
-        tracing::debug!("INVESTIGATION: Step {}/{} {} ({} ms)", i + 1, graph.steps.len(), step_type, duration);
+        tracing::debug!(
+            "INVESTIGATION: Step {}/{} {} ({} ms)",
+            i + 1,
+            graph.steps.len(),
+            step_type,
+            duration
+        );
 
         steps_completed.push(StepResult {
             step_index: i,
@@ -91,7 +133,12 @@ pub async fn run_investigation(
     }
 
     let total_duration = start.elapsed().as_millis() as u64;
-    tracing::info!("INVESTIGATION: '{}' complete — {} steps, {} ms", graph.id, steps_completed.len(), total_duration);
+    tracing::info!(
+        "INVESTIGATION: '{}' complete — {} steps, {} ms",
+        graph.id,
+        steps_completed.len(),
+        total_duration
+    );
 
     InvestigationResult {
         graph_id: graph.id.clone(),
@@ -111,9 +158,15 @@ async fn execute_enrich_ip(
     sources: &[String],
     context: &mut HashMap<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let Some(ip) = source_ip else { return json!({"skipped": "no source IP"}) };
+    let Some(ip) = source_ip else {
+        return json!({"skipped": "no source IP"});
+    };
     let ip = ip.split('/').next().unwrap_or(ip).trim();
-    if ip.is_empty() || ip.starts_with("10.") || ip.starts_with("192.168.") || ip.starts_with("127.") {
+    if ip.is_empty()
+        || ip.starts_with("10.")
+        || ip.starts_with("192.168.")
+        || ip.starts_with("127.")
+    {
         return json!({"skipped": "private IP"});
     }
 
@@ -124,8 +177,10 @@ async fn execute_enrich_ip(
             "greynoise" => {
                 if let Ok(gn) = tokio::time::timeout(
                     std::time::Duration::from_secs(8),
-                    crate::enrichment::greynoise::lookup_ip(ip, None)
-                ).await {
+                    crate::enrichment::greynoise::lookup_ip(ip, None),
+                )
+                .await
+                {
                     if let Ok(gn) = gn {
                         enrichment["greynoise"] = json!({
                             "classification": gn.classification,
@@ -138,8 +193,10 @@ async fn execute_enrich_ip(
             "ipinfo" => {
                 if let Ok(Ok(geo)) = tokio::time::timeout(
                     std::time::Duration::from_secs(5),
-                    crate::enrichment::ipinfo::lookup_ip(ip)
-                ).await {
+                    crate::enrichment::ipinfo::lookup_ip(ip),
+                )
+                .await
+                {
                     enrichment["ipinfo"] = json!({
                         "country": geo.country,
                         "org": geo.org,
@@ -157,8 +214,17 @@ async fn execute_enrich_ip(
 
     // Store in graph
     let country = enrichment["ipinfo"]["country"].as_str().map(String::from);
-    let classification = enrichment["greynoise"]["classification"].as_str().map(String::from);
-    crate::graph::threat_graph::upsert_ip(store, ip, country.as_deref(), None, classification.as_deref()).await;
+    let classification = enrichment["greynoise"]["classification"]
+        .as_str()
+        .map(String::from);
+    crate::graph::threat_graph::upsert_ip(
+        store,
+        ip,
+        country.as_deref(),
+        None,
+        classification.as_deref(),
+    )
+    .await;
 
     context.insert("ip_enrichment".into(), enrichment.clone());
     enrichment
@@ -169,7 +235,9 @@ async fn execute_enrich_domain(
     sources: &[String],
     context: &mut HashMap<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let Some(domain) = domain else { return json!({"skipped": "no domain"}) };
+    let Some(domain) = domain else {
+        return json!({"skipped": "no domain"});
+    };
     let mut enrichment = json!({});
 
     for source in sources {
@@ -195,7 +263,9 @@ async fn execute_enrich_cve(
     sources: &[String],
     context: &mut HashMap<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let Some(cve) = cve_id else { return json!({"skipped": "no CVE ID"}) };
+    let Some(cve) = cve_id else {
+        return json!({"skipped": "no CVE ID"});
+    };
     let mut enrichment = json!({});
 
     for source in sources {
@@ -241,7 +311,9 @@ async fn execute_enrich_hash(
     sources: &[String],
     context: &mut HashMap<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let Some(_hash) = hash else { return json!({"skipped": "no hash"}) };
+    let Some(_hash) = hash else {
+        return json!({"skipped": "no hash"});
+    };
     let enrichment = json!({"sources_checked": sources});
     context.insert("hash_enrichment".into(), enrichment.clone());
     enrichment
@@ -289,8 +361,12 @@ async fn execute_correlate(
 
     if same_ip {
         if let Some(ip) = context.get("source_ip").and_then(|v| v.as_str()) {
-            let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
-            let related: Vec<_> = alerts.iter()
+            let alerts = store
+                .list_alerts(None, Some("new"), 50, 0)
+                .await
+                .unwrap_or_default();
+            let related: Vec<_> = alerts
+                .iter()
                 .filter(|a| a.source_ip.as_deref().map(|s| s.contains(ip)) == Some(true))
                 .map(|a| json!({"title": a.title, "level": a.level}))
                 .collect();
@@ -300,8 +376,12 @@ async fn execute_correlate(
 
     if same_asset {
         if let Some(host) = context.get("hostname").and_then(|v| v.as_str()) {
-            let alerts = store.list_alerts(None, Some("new"), 50, 0).await.unwrap_or_default();
-            let related: Vec<_> = alerts.iter()
+            let alerts = store
+                .list_alerts(None, Some("new"), 50, 0)
+                .await
+                .unwrap_or_default();
+            let related: Vec<_> = alerts
+                .iter()
                 .filter(|a| a.hostname.as_deref() == Some(host))
                 .map(|a| json!({"title": a.title, "level": a.level}))
                 .collect();
@@ -320,19 +400,59 @@ async fn execute_map_mitre(
 ) -> serde_json::Value {
     // Simple keyword-to-MITRE mapping
     let mappings: &[(&[&str], &str, &str)] = &[
-        (&["brute force", "brute", "password"], "T1110", "Brute Force"),
+        (
+            &["brute force", "brute", "password"],
+            "T1110",
+            "Brute Force",
+        ),
         (&["ssh", "rdp", "remote"], "T1021", "Remote Services"),
-        (&["lateral", "movement", "pivot"], "T1021", "Remote Services"),
+        (
+            &["lateral", "movement", "pivot"],
+            "T1021",
+            "Remote Services",
+        ),
         (&["phish", "spear"], "T1566", "Phishing"),
-        (&["exfil", "transfer", "upload"], "T1041", "Exfiltration Over C2 Channel"),
+        (
+            &["exfil", "transfer", "upload"],
+            "T1041",
+            "Exfiltration Over C2 Channel",
+        ),
         (&["dns tunnel", "dns exfil"], "T1071.004", "DNS"),
-        (&["c2", "beacon", "command"], "T1071", "Application Layer Protocol"),
-        (&["privilege", "escalat", "sudo", "root"], "T1068", "Exploitation for Privilege Escalation"),
-        (&["log4j", "log4shell", "jndi"], "T1190", "Exploit Public-Facing Application"),
-        (&["reverse shell", "shell", "bind"], "T1059", "Command and Scripting Interpreter"),
-        (&["credential", "password", "shadow"], "T1003", "OS Credential Dumping"),
-        (&["scan", "port", "nmap"], "T1046", "Network Service Scanning"),
-        (&["malware", "trojan", "ransomware"], "T1204", "User Execution"),
+        (
+            &["c2", "beacon", "command"],
+            "T1071",
+            "Application Layer Protocol",
+        ),
+        (
+            &["privilege", "escalat", "sudo", "root"],
+            "T1068",
+            "Exploitation for Privilege Escalation",
+        ),
+        (
+            &["log4j", "log4shell", "jndi"],
+            "T1190",
+            "Exploit Public-Facing Application",
+        ),
+        (
+            &["reverse shell", "shell", "bind"],
+            "T1059",
+            "Command and Scripting Interpreter",
+        ),
+        (
+            &["credential", "password", "shadow"],
+            "T1003",
+            "OS Credential Dumping",
+        ),
+        (
+            &["scan", "port", "nmap"],
+            "T1046",
+            "Network Service Scanning",
+        ),
+        (
+            &["malware", "trojan", "ransomware"],
+            "T1204",
+            "User Execution",
+        ),
     ];
 
     let lower = alert_title.to_lowercase();
@@ -354,7 +474,9 @@ async fn execute_find_paths(
     hostname: Option<&str>,
     context: &mut HashMap<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let Some(host) = hostname else { return json!({"skipped": "no hostname"}) };
+    let Some(host) = hostname else {
+        return json!({"skipped": "no hostname"});
+    };
 
     let attackers = crate::graph::threat_graph::find_attackers(store, host).await;
     let cves = crate::graph::threat_graph::find_asset_cves(store, host).await;

@@ -75,8 +75,13 @@ pub async fn detect_lateral_movement(store: &dyn Database) -> LateralAnalysis {
     let summary = build_summary(&chains, &fan_outs, &critical_paths);
 
     if total > 0 {
-        tracing::warn!("LATERAL: {} detections — {} chains, {} fan-outs, {} critical paths",
-            total, chains.len(), fan_outs.len(), critical_paths.len());
+        tracing::warn!(
+            "LATERAL: {} detections — {} chains, {} fan-outs, {} critical paths",
+            total,
+            chains.len(),
+            fan_outs.len(),
+            critical_paths.len()
+        );
     }
 
     LateralAnalysis {
@@ -94,12 +99,14 @@ pub async fn detect_lateral_movement(store: &dyn Database) -> LateralAnalysis {
 /// Query: Find IPs that attack multiple different assets (potential pivot).
 pub async fn detect_multi_hop_chains(store: &dyn Database) -> Vec<LateralPath> {
     // Find IPs that attack 2+ different assets — indicates lateral movement or recon
-    let results = query(store,
+    let results = query(
+        store,
         "MATCH (ip:IP)-[:ATTACKS]->(a1:Asset), (ip)-[:ATTACKS]->(a2:Asset) \
          WHERE a1 <> a2 \
          RETURN DISTINCT ip.addr, a1.id, a1.hostname, a2.id, a2.hostname, a2.criticality \
-         LIMIT 50"
-    ).await;
+         LIMIT 50",
+    )
+    .await;
 
     let mut chains = vec![];
     let mut seen = std::collections::HashSet::new();
@@ -115,7 +122,9 @@ pub async fn detect_multi_hop_chains(store: &dyn Database) -> Vec<LateralPath> {
 
         // Deduplicate
         let key = format!("{}-{}-{}", ip, a1_id, a2_id);
-        if seen.contains(&key) { continue; }
+        if seen.contains(&key) {
+            continue;
+        }
         seen.insert(key);
 
         if !ip.is_empty() && !a1_id.is_empty() && !a2_id.is_empty() {
@@ -136,27 +145,39 @@ pub async fn detect_multi_hop_chains(store: &dyn Database) -> Vec<LateralPath> {
 /// Detect fan-out: one IP targeting many different assets.
 /// This indicates reconnaissance or automated lateral scanning.
 pub async fn detect_fan_out(store: &dyn Database, threshold: i64) -> Vec<FanOutAnomaly> {
-    let results = query(store, &format!(
-        "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
+    let results = query(
+        store,
+        &format!(
+            "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
          WITH ip, collect(DISTINCT a.hostname) AS targets, count(DISTINCT a) AS cnt \
          WHERE cnt >= {} \
          RETURN ip.addr, ip.country, ip.classification, cnt, targets \
          ORDER BY cnt DESC \
          LIMIT 20",
-        threshold
-    )).await;
+            threshold
+        ),
+    )
+    .await;
 
     let mut fan_outs = vec![];
     for r in &results {
         let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("").to_string();
         let country = result["ip.country"].as_str().unwrap_or("").to_string();
-        let classification = result["ip.classification"].as_str().unwrap_or("unknown").to_string();
+        let classification = result["ip.classification"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
         let cnt = result["cnt"].as_i64().unwrap_or(0);
 
         // Parse targets array
-        let targets: Vec<String> = result["targets"].as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        let targets: Vec<String> = result["targets"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
 
         if !ip.is_empty() && cnt >= threshold {
@@ -177,19 +198,24 @@ pub async fn detect_fan_out(store: &dyn Database, threshold: i64) -> Vec<FanOutA
 /// This is the highest-priority detection — a confirmed threat reaching crown jewels.
 pub async fn detect_paths_to_critical(store: &dyn Database) -> Vec<LateralPath> {
     // Find malicious IPs that attack critical assets
-    let results = query(store,
+    let results = query(
+        store,
         "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
          WHERE ip.classification = 'malicious' AND a.criticality = 'critical' \
          RETURN ip.addr, a.id, a.hostname \
-         LIMIT 20"
-    ).await;
+         LIMIT 20",
+    )
+    .await;
 
     let mut paths = vec![];
     for r in &results {
         let result = r;
         let ip = result["ip.addr"].as_str().unwrap_or("").to_string();
         let asset_id = result["a.id"].as_str().unwrap_or("").to_string();
-        let hostname = result["a.hostname"].as_str().unwrap_or(&asset_id).to_string();
+        let hostname = result["a.hostname"]
+            .as_str()
+            .unwrap_or(&asset_id)
+            .to_string();
 
         if !ip.is_empty() && !asset_id.is_empty() {
             paths.push(LateralPath {
@@ -210,34 +236,52 @@ pub async fn detect_paths_to_critical(store: &dyn Database) -> Vec<LateralPath> 
 /// If IP attacks Asset A which has CVE-X, and Asset B also has CVE-X,
 /// Asset B is a likely next target.
 pub async fn detect_shared_vulnerability_paths(store: &dyn Database) -> Vec<serde_json::Value> {
-    query(store,
+    query(
+        store,
         "MATCH (ip:IP)-[:ATTACKS]->(a1:Asset)<-[:AFFECTS]-(c:CVE)-[:AFFECTS]->(a2:Asset) \
          WHERE a1 <> a2 \
          RETURN ip.addr, a1.hostname, c.id, c.cvss, a2.hostname, a2.criticality \
          ORDER BY c.cvss DESC \
-         LIMIT 30"
-    ).await
+         LIMIT 30",
+    )
+    .await
 }
 
-fn build_summary(chains: &[LateralPath], fan_outs: &[FanOutAnomaly], critical_paths: &[LateralPath]) -> String {
+fn build_summary(
+    chains: &[LateralPath],
+    fan_outs: &[FanOutAnomaly],
+    critical_paths: &[LateralPath],
+) -> String {
     let mut parts = vec![];
 
     if !chains.is_empty() {
-        parts.push(format!("{} chaînes d'attaque multi-sauts détectées", chains.len()));
+        parts.push(format!(
+            "{} chaînes d'attaque multi-sauts détectées",
+            chains.len()
+        ));
         let critical_chains: Vec<_> = chains.iter().filter(|c| c.target_is_critical).collect();
         if !critical_chains.is_empty() {
-            parts.push(format!("  dont {} vers des assets critiques", critical_chains.len()));
+            parts.push(format!(
+                "  dont {} vers des assets critiques",
+                critical_chains.len()
+            ));
         }
     }
 
     if !fan_outs.is_empty() {
         for fo in fan_outs {
-            parts.push(format!("IP {} ({}) cible {} assets", fo.ip_addr, fo.country, fo.target_count));
+            parts.push(format!(
+                "IP {} ({}) cible {} assets",
+                fo.ip_addr, fo.country, fo.target_count
+            ));
         }
     }
 
     if !critical_paths.is_empty() {
-        parts.push(format!("{} IPs malveillantes atteignent des assets critiques", critical_paths.len()));
+        parts.push(format!(
+            "{} IPs malveillantes atteignent des assets critiques",
+            critical_paths.len()
+        ));
         for p in critical_paths.iter().take(3) {
             parts.push(format!("  {} → {}", p.entry_point, p.final_target));
         }
@@ -304,8 +348,11 @@ mod tests {
     #[test]
     fn test_format_lateral_empty() {
         let analysis = LateralAnalysis {
-            chains: vec![], fan_outs: vec![], critical_paths: vec![],
-            total_detections: 0, summary: String::new(),
+            chains: vec![],
+            fan_outs: vec![],
+            critical_paths: vec![],
+            total_detections: 0,
+            summary: String::new(),
         };
         assert_eq!(format_lateral_alert(&analysis), "");
     }

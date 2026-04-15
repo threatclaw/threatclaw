@@ -47,19 +47,20 @@ pub mod branding;
 pub mod channels;
 pub mod cli;
 pub mod config;
+pub mod connectors;
 pub mod context;
 pub mod db;
 pub mod document_extraction;
+pub mod enrichment;
 pub mod error;
 pub mod estimation;
-pub mod graph;
 pub mod evaluation;
 pub mod extensions;
+pub mod graph;
 pub mod history;
 pub mod hooks;
 #[cfg(feature = "import")]
 pub mod import;
-pub mod connectors;
 pub mod integrations;
 pub mod llm;
 pub mod observability;
@@ -83,7 +84,6 @@ pub mod util;
 pub mod webhooks;
 pub mod worker;
 pub mod workspace;
-pub mod enrichment;
 
 #[cfg(test)]
 pub mod testing;

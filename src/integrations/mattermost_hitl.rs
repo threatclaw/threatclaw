@@ -86,26 +86,32 @@ pub async fn send_approval(
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let resp = client.post(&config.webhook_url)
+    let resp = client
+        .post(&config.webhook_url)
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Mattermost webhook failed: {e}"))?;
 
     if resp.status().is_success() {
-        tracing::info!("HITL: Mattermost approval sent (nonce: {})", &nonce[..8.min(nonce.len())]);
+        tracing::info!(
+            "HITL: Mattermost approval sent (nonce: {})",
+            &nonce[..8.min(nonce.len())]
+        );
         Ok(())
     } else {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        Err(format!("Mattermost returned {}: {}", status, body.chars().take(200).collect::<String>()))
+        Err(format!(
+            "Mattermost returned {}: {}",
+            status,
+            body.chars().take(200).collect::<String>()
+        ))
     }
 }
 
 /// Send a simple notification to Mattermost (no buttons).
-pub async fn send_notification(
-    config: &MattermostHitlConfig,
-    text: &str,
-) -> Result<(), String> {
+pub async fn send_notification(config: &MattermostHitlConfig, text: &str) -> Result<(), String> {
     if !config.enabled || config.webhook_url.is_empty() {
         return Err("Mattermost not configured".into());
     }
@@ -121,13 +127,18 @@ pub async fn send_notification(
         .build()
         .map_err(|e| format!("HTTP client: {e}"))?;
 
-    let resp = client.post(&config.webhook_url)
+    let resp = client
+        .post(&config.webhook_url)
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Mattermost send failed: {e}"))?;
 
-    if resp.status().is_success() { Ok(()) }
-    else { Err(format!("Mattermost returned {}", resp.status())) }
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Mattermost returned {}", resp.status()))
+    }
 }
 
 /// Test Mattermost webhook connectivity.
@@ -142,9 +153,11 @@ pub async fn test_connection(webhook_url: &str) -> Result<String, String> {
         .build()
         .map_err(|e| format!("HTTP: {e}"))?;
 
-    let resp = client.post(webhook_url)
+    let resp = client
+        .post(webhook_url)
         .json(&payload)
-        .send().await
+        .send()
+        .await
         .map_err(|e| format!("Mattermost: {e}"))?;
 
     if resp.status().is_success() {

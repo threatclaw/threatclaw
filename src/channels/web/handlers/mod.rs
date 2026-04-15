@@ -2,8 +2,8 @@
 //!
 //! Each module groups related endpoint handlers by domain.
 
-pub mod skills;
-pub mod threatclaw_api;
+pub mod channel_incoming;
 pub mod jobs;
 pub mod routines;
-pub mod channel_incoming;
+pub mod skills;
+pub mod threatclaw_api;

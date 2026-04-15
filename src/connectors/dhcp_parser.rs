@@ -27,11 +27,16 @@ pub struct DhcpSyncResult {
 /// Called when new logs with tag "syslog.*.dhcp" arrive.
 pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
     let mut result = DhcpSyncResult {
-        leases_parsed: 0, assets_created: 0, errors: vec![],
+        leases_parsed: 0,
+        assets_created: 0,
+        errors: vec![],
     };
 
     // Query recent DHCP logs (last 60 min)
-    let logs = store.query_logs(60, None, Some("dhcp"), 500).await.unwrap_or_default();
+    let logs = store
+        .query_logs(60, None, Some("dhcp"), 500)
+        .await
+        .unwrap_or_default();
 
     let mut seen_macs = std::collections::HashSet::new();
 
@@ -40,7 +45,9 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
 
         // Parse ISC dhcpd format: "DHCPACK on 192.168.1.50 to 00:1a:2b:3c:4d:5e (hostname) via eth0"
         if let Some(lease) = parse_dhcpd_line(msg) {
-            if seen_macs.contains(&lease.mac) { continue; }
+            if seen_macs.contains(&lease.mac) {
+                continue;
+            }
             seen_macs.insert(lease.mac.clone());
             result.leases_parsed += 1;
 
@@ -59,13 +66,20 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
                 source: "dhcp".into(),
             };
             let res = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
-            tracing::debug!("DHCP ASSET: {} → {:?} ({})", lease.mac, res.action, res.asset_id);
+            tracing::debug!(
+                "DHCP ASSET: {} → {:?} ({})",
+                lease.mac,
+                res.action,
+                res.asset_id
+            );
             result.assets_created += 1;
         }
 
         // Parse dnsmasq format: "dnsmasq-dhcp: DHCPACK(eth0) 192.168.1.50 00:1a:2b:3c:4d:5e hostname"
         if let Some(lease) = parse_dnsmasq_line(msg) {
-            if seen_macs.contains(&lease.mac) { continue; }
+            if seen_macs.contains(&lease.mac) {
+                continue;
+            }
             seen_macs.insert(lease.mac.clone());
             result.leases_parsed += 1;
 
@@ -90,7 +104,11 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
     }
 
     if result.leases_parsed > 0 {
-        tracing::info!("DHCP: {} leases parsed, {} assets created", result.leases_parsed, result.assets_created);
+        tracing::info!(
+            "DHCP: {} leases parsed, {} assets created",
+            result.leases_parsed,
+            result.assets_created
+        );
     }
 
     result
@@ -99,21 +117,29 @@ pub async fn process_dhcp_logs(store: &dyn Database) -> DhcpSyncResult {
 /// Parse ISC dhcpd log line.
 /// Format: "DHCPACK on 192.168.1.50 to 00:1a:2b:3c:4d:5e (hostname) via eth0"
 fn parse_dhcpd_line(line: &str) -> Option<DhcpLease> {
-    if !line.contains("DHCPACK") && !line.contains("DHCPOFFER") { return None; }
+    if !line.contains("DHCPACK") && !line.contains("DHCPOFFER") {
+        return None;
+    }
 
     // Extract IP (after "on " or after "DHCPACK ")
-    let ip = line.split(" on ").nth(1)
+    let ip = line
+        .split(" on ")
+        .nth(1)
         .or_else(|| line.split("DHCPACK ").nth(1))
         .and_then(|s| s.split_whitespace().next())
         .map(|s| s.trim().to_string())?;
 
     // Extract MAC (after "to ")
-    let mac = line.split(" to ").nth(1)
+    let mac = line
+        .split(" to ")
+        .nth(1)
         .and_then(|s| s.split_whitespace().next())
         .map(|s| s.trim().to_string())?;
 
     // Extract hostname (in parentheses)
-    let hostname = line.split('(').nth(1)
+    let hostname = line
+        .split('(')
+        .nth(1)
         .and_then(|s| s.split(')').next())
         .filter(|s| !s.is_empty() && !s.contains("via"))
         .map(|s| s.to_string());
@@ -124,17 +150,24 @@ fn parse_dhcpd_line(line: &str) -> Option<DhcpLease> {
 /// Parse dnsmasq DHCP log line.
 /// Format: "dnsmasq-dhcp: DHCPACK(eth0) 192.168.1.50 00:1a:2b:3c:4d:5e hostname"
 fn parse_dnsmasq_line(line: &str) -> Option<DhcpLease> {
-    if !line.contains("dnsmasq-dhcp") || !line.contains("DHCPACK") { return None; }
+    if !line.contains("dnsmasq-dhcp") || !line.contains("DHCPACK") {
+        return None;
+    }
 
     let after_ack = line.split("DHCPACK").nth(1)?;
     // Skip the (interface) part
     let after_iface = after_ack.split(')').nth(1)?;
     let parts: Vec<&str> = after_iface.split_whitespace().collect();
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
 
     let ip = parts[0].to_string();
     let mac = parts[1].to_string();
-    let hostname = parts.get(2).filter(|s| !s.is_empty() && **s != "*").map(|s| s.to_string());
+    let hostname = parts
+        .get(2)
+        .filter(|s| !s.is_empty() && **s != "*")
+        .map(|s| s.to_string());
 
     Some(DhcpLease { mac, ip, hostname })
 }

@@ -73,7 +73,8 @@ pub async fn resolve_target(
                 target_id: id.to_string(),
                 host: host.to_string(),
                 port: val["port"].as_u64().unwrap_or(22) as u16,
-                username: val["credential_name"].as_str()
+                username: val["credential_name"]
+                    .as_str()
                     .unwrap_or("root")
                     .to_string(),
                 credential_name: val["credential_name"].as_str().map(String::from),
@@ -96,17 +97,19 @@ pub fn execute_ssh(
     timeout_secs: u64,
 ) -> Result<ExecutionResult, SshExecutorError> {
     let mut ssh_args = vec![
-        "-o".to_string(), "BatchMode=yes".to_string(),
-        "-o".to_string(), format!("ConnectTimeout={}", timeout_secs.min(10)),
-        "-o".to_string(), "StrictHostKeyChecking=accept-new".to_string(),
-        "-p".to_string(), target.port.to_string(),
+        "-o".to_string(),
+        "BatchMode=yes".to_string(),
+        "-o".to_string(),
+        format!("ConnectTimeout={}", timeout_secs.min(10)),
+        "-o".to_string(),
+        "StrictHostKeyChecking=accept-new".to_string(),
+        "-p".to_string(),
+        target.port.to_string(),
     ];
 
     // Add host key if known (TOFU model)
     if let Some(ref _key) = target.ssh_host_key {
-        ssh_args.extend_from_slice(&[
-            "-o".to_string(), "StrictHostKeyChecking=yes".to_string(),
-        ]);
+        ssh_args.extend_from_slice(&["-o".to_string(), "StrictHostKeyChecking=yes".to_string()]);
     }
 
     let destination = format!("{}@{}", target.username, target.host);
@@ -115,7 +118,10 @@ pub fn execute_ssh(
 
     tracing::info!(
         "SSH_EXECUTOR: {}@{}:{} — {}",
-        target.username, target.host, target.port, cmd.rendered_cmd
+        target.username,
+        target.host,
+        target.port,
+        cmd.rendered_cmd
     );
 
     let output = std::process::Command::new("ssh")
@@ -129,19 +135,23 @@ pub fn execute_ssh(
         exit_code: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        rendered_cmd: format!("ssh {}@{}:{} '{}'",
-            target.username, target.host, target.port, cmd.rendered_cmd),
+        rendered_cmd: format!(
+            "ssh {}@{}:{} '{}'",
+            target.username, target.host, target.port, cmd.rendered_cmd
+        ),
     };
 
     if result.success {
         tracing::info!(
             "SSH_EXECUTOR: {} on {} completed (exit 0)",
-            cmd.id, target.target_id
+            cmd.id,
+            target.target_id
         );
     } else {
         tracing::warn!(
             "SSH_EXECUTOR: {} on {} failed (exit {}): {}",
-            cmd.id, target.target_id,
+            cmd.id,
+            target.target_id,
             result.exit_code.unwrap_or(-1),
             result.stderr.trim()
         );
@@ -166,8 +176,16 @@ mod tests {
 
     #[test]
     fn test_ssh_executor_error_display() {
-        assert!(SshExecutorError::TargetNotFound("srv-01".into()).to_string().contains("srv-01"));
-        assert!(SshExecutorError::TargetNotSsh("fw-01".into()).to_string().contains("SSH"));
+        assert!(
+            SshExecutorError::TargetNotFound("srv-01".into())
+                .to_string()
+                .contains("srv-01")
+        );
+        assert!(
+            SshExecutorError::TargetNotSsh("fw-01".into())
+                .to_string()
+                .contains("SSH")
+        );
         assert!(SshExecutorError::Timeout.to_string().contains("timed out"));
     }
 }
