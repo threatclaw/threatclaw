@@ -35,10 +35,15 @@ COPY docs/openapi.json docs/openapi.json
 COPY AGENT_SOUL.toml AGENT_SOUL.toml
 # Skills catalog — loaded at runtime by tc_catalog.rs for the dashboard Skills page
 COPY skills-catalog/ skills-catalog/
+# Typst templates — used at runtime by compile_typst_pdf() for PDF report generation
+COPY templates/ templates/
 # [[bench]] entries in Cargo.toml require bench sources to exist for cargo to parse the manifest
 COPY benches/ benches/
 
 RUN cargo build --release --bin threatclaw
+
+# Stage 1.5: Typst (pull pre-built binary from official image, avoids cargo install)
+FROM ghcr.io/typst/typst:latest AS typst-bin
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim
@@ -51,6 +56,8 @@ COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 COPY --from=builder /app/skills-catalog /app/skills-catalog
+COPY --from=builder /app/templates /app/templates
+COPY --from=typst-bin /bin/typst /usr/local/bin/typst
 
 # Non-root user with pre-created writable data dir (volume mount target)
 RUN useradd -m -u 1000 -s /bin/bash threatclaw && \

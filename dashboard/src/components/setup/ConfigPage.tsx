@@ -352,10 +352,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
             <h3 style={{ marginBottom: "4px" }}>{tr("shiftReportTitle", locale)}</h3>
             <p style={{ fontSize: "13px", opacity: 0.7, marginBottom: "12px" }}>{tr("shiftReportDesc", locale)}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
-              <label className="tc-toggle">
-                <input type="checkbox" checked={shiftReport.enabled} onChange={e => setShiftReport(p => ({ ...p, enabled: e.target.checked }))} />
-                <span className="tc-toggle-slider" />
-              </label>
+              <input type="checkbox" className="tc-toggle" checked={shiftReport.enabled} onChange={e => setShiftReport(p => ({ ...p, enabled: e.target.checked }))} />
               <span style={{ fontSize: "14px" }}>{tr("shiftReportEnabled", locale)}</span>
             </div>
             {shiftReport.enabled && (

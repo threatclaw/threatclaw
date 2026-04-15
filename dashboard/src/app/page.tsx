@@ -214,7 +214,7 @@ export default function HomePage() {
             { name: "PostgreSQL", connected: dbStatus === "ok", color: "#3080d0", detail: "Base de données PG16" },
             { name: "AI", connected: aiModels.length > 0, color: "#9060d0", detail: `${aiModels.length} modèle(s)`, restartable: true },
             { name: "Intel. Engine", connected: services[0]?.status === "ok", color: "#d03020", detail: "Corrélation & scoring" },
-            { name: "ML Engine", connected: mlStatus.anomaly !== "inactive", color: "#d09020", detail: mlStatus.modelTrained ? "Modèle entraîné" : "En attente", restartable: true },
+            { name: "ML Engine", connected: services[0]?.status === "ok", color: "#d09020", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : mlStatus.dataDays > 0 ? (locale === "fr" ? `Apprentissage (${mlStatus.dataDays}/14j)` : `Learning (${mlStatus.dataDays}/14d)`) : (locale === "fr" ? "En attente de données" : "Waiting for data"), restartable: true },
             { name: "Skills", connected: services[0]?.status === "ok", color: "#06b6d4", detail: "49 skills" },
             { name: "Channels", connected: activeChannels.length > 0, color: "#30a050", detail: activeChannels.join(", ") || "Non configuré" },
             { name: "Logs", connected: dbStatus === "ok", color: "#f97316", detail: "Syslog + FluentBit" },
