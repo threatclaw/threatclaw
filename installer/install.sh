@@ -29,7 +29,7 @@
 set -eo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-readonly TC_VERSION="1.0.0-beta"
+readonly TC_VERSION="1.0.1-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
 readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/main"
 readonly LOG_FILE="/var/log/threatclaw-install.log"

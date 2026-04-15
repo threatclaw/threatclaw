@@ -95,8 +95,9 @@ patch_file() {
 readme_val=$(printf '%s' "$VERSION" | sed 's/-/--/g')
 patch_file README.md "s|badge/version-[^-]*\(--\|-\)\?[A-Za-z0-9.]*\?-red|badge/version-${readme_val}-red|"
 
-# CHANGELOG top header — only if it matches `## [x.y.z*]`
-patch_file CHANGELOG.md "0,/^## \[/s|^## \[[^]]*\]|## [${VERSION}]|"
+# CHANGELOG is intentionally NOT auto-patched: a version bump needs a new
+# section with real release notes, not a rename of the previous header.
+# Edit CHANGELOG.md by hand when cutting a release.
 
 # docker-compose.yml header
 patch_file docker/docker-compose.yml "s|ThreatClaw v[0-9][0-9A-Za-z.\-]*|ThreatClaw v${VERSION}|"

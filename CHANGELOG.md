@@ -6,6 +6,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.1-beta] — 2026-04-16
+
+Post-launch quality release. No new features — security, stability, hygiene.
+
+### Security
+- **Dependabot sweep** — wasmtime 36.0.7, tar 0.4.45, rand 0.9.3, next 14.2.35, picomatch 4.0.4
+- **Supply chain note** — documented upstream `nearai/threatclaw` WASM dependency in `registry/README.md` ahead of v2.0.0 re-host & re-sign plan
+
+### Fixed
+- **Test suite** — recovered 51 failing lib tests (env mutex poison cascade via `env_lock()` helper, sandbox tests, backend tests)
+- **Installer** — bumped core readiness timeout from 120s to 180s to accommodate slower cold-start VMs
+- **Dashboard i18n drift** — patched the most visible pages (Status, About, Login, Skills) so FR/EN parity matches shipped UI
+- **Dashboard** — missing `locale` hook in `AssetFindings` component
+- **CHANGELOG rename bug** — `scripts/sync-version.sh` was rewriting the top section header instead of inserting a new one
+
+### Added
+- **`docs/adr-index.md`** — 44 Architecture Decision Records indexed with one-line summaries
+- **`scripts/sync-version.sh`** — single source of truth version propagation (Cargo.toml → README, docker-compose, installer, dashboard, issue templates)
+- **`scripts/check-consistency.sh`** — repo-wide drift check (version strings, i18n parity, dashboard endpoints, migration fields, skill catalog, Dockerfile COPY coverage)
+
+---
+
 ## [1.0.0-beta] — 2026-04-14
 
 First public beta release of ThreatClaw — autonomous cybersecurity agent for SMBs.
