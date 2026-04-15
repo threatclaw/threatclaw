@@ -67,13 +67,10 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Extract changelog for this version, or generate from commits
           if [ -f CHANGELOG.md ]; then
-            # Try to extract section for this version
             CHANGELOG=$(sed -n "/^## .*${{ steps.version.outputs.VERSION }}/,/^## /p" CHANGELOG.md | head -n -1)
           fi
           if [ -z "$CHANGELOG" ]; then
-            # Fall back to commits since last tag
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
             if [ -n "$PREV_TAG" ]; then
               CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
@@ -81,7 +78,6 @@ jobs:
               CHANGELOG=$(git log --pretty=format:"- %s (%h)" -20)
             fi
           fi
-          # Write to file for the release body
           echo "$CHANGELOG" > /tmp/release-notes.md
 
       - name: Prepare release asset
@@ -90,6 +86,12 @@ jobs:
           chmod +x threatclaw-linux-amd64
           tar czf threatclaw-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz \
             threatclaw-linux-amd64
+
+      - name: Delete existing Release if present
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ github.ref_name }}" -R "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
