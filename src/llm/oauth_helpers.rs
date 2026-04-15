@@ -402,7 +402,8 @@ mod tests {
 
     #[tokio::test]
     async fn bind_rejects_wildcard_ipv6() {
-        // SAFETY: test is single-threaded; env var is restored immediately after.
+        let _guard = crate::config::helpers::env_lock();
+        // SAFETY: holding ENV_MUTEX prevents concurrent env mutation from other tests.
         unsafe { std::env::set_var("OAUTH_CALLBACK_HOST", "::") };
         let result = bind_callback_listener().await;
         unsafe { std::env::remove_var("OAUTH_CALLBACK_HOST") };

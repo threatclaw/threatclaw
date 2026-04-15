@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn resolve_falls_back_to_settings() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let mut settings = Settings::default();
         settings.builder.max_iterations = 99;
         settings.builder.auto_register = false;
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn env_overrides_settings() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let mut settings = Settings::default();
         settings.builder.timeout_secs = 123;
 

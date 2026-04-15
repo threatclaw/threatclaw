@@ -836,7 +836,7 @@ INJECTED="pwned"#;
 
     #[test]
     fn test_libsql_autodetect_sets_backend_when_db_exists() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("DATABASE_BACKEND").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::remove_var("DATABASE_BACKEND") };
@@ -907,7 +907,7 @@ INJECTED="pwned"#;
 
     #[test]
     fn test_libsql_autodetect_does_not_override_explicit_backend() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("DATABASE_BACKEND").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::set_var("DATABASE_BACKEND", "postgres") };
@@ -1034,7 +1034,7 @@ INJECTED="pwned"#;
     fn test_threatclaw_base_dir_default() {
         // This test must run first (or in isolation) before the LazyLock is initialized.
         // It verifies that when THREATCLAW_BASE_DIR is not set, the default path is used.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("THREATCLAW_BASE_DIR").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::remove_var("THREATCLAW_BASE_DIR") };
@@ -1054,7 +1054,7 @@ INJECTED="pwned"#;
     fn test_threatclaw_base_dir_env_override() {
         // This test verifies that when THREATCLAW_BASE_DIR is set,
         // the custom path is used. Must run before LazyLock is initialized.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("THREATCLAW_BASE_DIR").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::set_var("THREATCLAW_BASE_DIR", "/custom/threatclaw/path") };
@@ -1076,7 +1076,7 @@ INJECTED="pwned"#;
     fn test_compute_base_dir_env_path_join() {
         // Verifies that threatclaw_env_path correctly joins .env to the base dir.
         // Uses compute_threatclaw_base_dir directly to avoid LazyLock caching.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("THREATCLAW_BASE_DIR").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::set_var("THREATCLAW_BASE_DIR", "/my/custom/dir") };
@@ -1098,7 +1098,7 @@ INJECTED="pwned"#;
     #[test]
     fn test_threatclaw_base_dir_empty_env() {
         // Verifies that empty THREATCLAW_BASE_DIR falls back to default.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("THREATCLAW_BASE_DIR").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::set_var("THREATCLAW_BASE_DIR", "") };
@@ -1120,7 +1120,7 @@ INJECTED="pwned"#;
     #[test]
     fn test_threatclaw_base_dir_special_chars() {
         // Verifies that paths with special characters are handled correctly.
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let old_val = std::env::var("THREATCLAW_BASE_DIR").ok();
         // SAFETY: ENV_MUTEX ensures single-threaded access to env vars in tests
         unsafe { std::env::set_var("THREATCLAW_BASE_DIR", "/tmp/test_with-special.chars") };

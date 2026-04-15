@@ -10,9 +10,23 @@ use crate::config::INJECTED_VARS;
 /// The process environment is global state shared across all threads.
 /// Per-module mutexes do NOT prevent races between modules running in
 /// parallel.  Every `unsafe { set_var / remove_var }` call in tests
-/// MUST hold this single lock.
+/// MUST acquire this lock via `env_lock()` below.
 #[cfg(test)]
 pub(crate) static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Acquire the ENV_MUTEX, ignoring poison.
+///
+/// A poisoned mutex happens when a test panics while holding the lock.
+/// Without this helper, every subsequent test that calls
+/// `crate::config::helpers::env_lock()` fails with "env mutex poisoned", masking
+/// the real cause. Recovering the inner value lets tests keep running
+/// and surfaces the actual panic.
+#[cfg(test)]
+pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    ENV_MUTEX
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+}
 
 /// Thread-safe mutable overlay for env vars set at runtime.
 ///
@@ -208,7 +222,7 @@ mod tests {
 
     #[test]
     fn real_env_var_takes_priority_over_runtime_override() {
-        let _guard = ENV_MUTEX.lock().unwrap();
+        let _guard = crate::config::helpers::env_lock();
         let key = "THREATCLAW_TEST_ENV_PRIORITY_42";
 
         // Set runtime override

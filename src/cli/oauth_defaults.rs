@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn test_callback_host_default() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("OAUTH_CALLBACK_HOST").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -646,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_callback_host_env_override() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original_host = std::env::var("OAUTH_CALLBACK_HOST").ok();
         let original_url = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
@@ -673,7 +673,7 @@ mod tests {
 
     #[test]
     fn test_callback_url_default() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // Clear both env vars to test default behavior
         let original_url = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         let original_host = std::env::var("OAUTH_CALLBACK_HOST").ok();
@@ -697,7 +697,7 @@ mod tests {
 
     #[test]
     fn test_callback_url_env_override() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -862,7 +862,7 @@ mod tests {
 
     #[test]
     fn test_use_gateway_callback_false_by_default() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_use_gateway_callback_true_for_hosted() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -899,7 +899,7 @@ mod tests {
 
     #[test]
     fn test_use_gateway_callback_false_for_localhost() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -917,7 +917,7 @@ mod tests {
 
     #[test]
     fn test_use_gateway_callback_false_for_empty() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -937,7 +937,7 @@ mod tests {
     fn test_build_platform_state_with_instance() {
         use crate::cli::oauth_defaults::build_platform_state;
 
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_INSTANCE_NAME").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -957,7 +957,7 @@ mod tests {
     fn test_build_platform_state_without_instance() {
         use crate::cli::oauth_defaults::build_platform_state;
 
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var("THREATCLAW_INSTANCE_NAME").ok();
         let original_oc = std::env::var("OPENCLAW_INSTANCE_NAME").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
@@ -980,7 +980,7 @@ mod tests {
     fn test_build_platform_state_with_openclaw_instance() {
         use crate::cli::oauth_defaults::build_platform_state;
 
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         let original_ic = std::env::var("THREATCLAW_INSTANCE_NAME").ok();
         let original_oc = std::env::var("OPENCLAW_INSTANCE_NAME").ok();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.

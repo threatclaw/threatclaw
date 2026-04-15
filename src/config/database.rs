@@ -231,8 +231,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ssl_mode_default_is_prefer() {
-        assert_eq!(SslMode::default(), SslMode::Prefer);
+    fn ssl_mode_default_is_require() {
+        // Changed from Prefer to Require in ADR-039 (PostgreSQL TLS hardening).
+        assert_eq!(SslMode::default(), SslMode::Require);
     }
 
     #[test]

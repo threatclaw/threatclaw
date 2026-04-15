@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn embeddings_disabled_not_overridden_by_openai_key() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
 
         clear_embedding_env();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn embeddings_enabled_from_settings() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_embedding_env();
 
         let settings = Settings {
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn embeddings_env_override_takes_precedence() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
 
         clear_embedding_env();
         // SAFETY: Under ENV_MUTEX.
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn embedding_base_url_parsed_from_env() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_embedding_env();
 
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn embedding_base_url_defaults_to_none() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_embedding_env();
 
         let settings = Settings::default();

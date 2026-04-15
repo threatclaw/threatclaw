@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn resolve_uses_settings_channel_values_with_owner_scope_user_ids() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::config::helpers::env_lock();
         let mut settings = Settings::default();
         settings.channels.http_enabled = true;
         settings.channels.http_host = Some("127.0.0.2".to_string());

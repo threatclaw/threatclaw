@@ -975,7 +975,9 @@ mod tests {
         let findings = parse_semgrep(json);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, "CRITICAL");
-        assert!(findings[0].title.contains("sql-injection"));
+        // Title is derived from the human-readable message, rule_id is in description.
+        assert!(findings[0].title.contains("SQL injection"));
+        assert!(findings[0].description.contains("sql-injection"));
     }
 
     #[test]

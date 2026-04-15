@@ -737,10 +737,11 @@ mod tests {
 
     #[test]
     fn check_llm_config_shows_nearai_model_for_nearai_backend() {
-        let _guard = crate::config::helpers::ENV_MUTEX.lock().expect("env mutex");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX, no concurrent env access.
+        // Default backend is "ollama" since v1.0.0-beta — set explicitly to nearai.
         unsafe {
-            std::env::remove_var("LLM_BACKEND");
+            std::env::set_var("LLM_BACKEND", "nearai");
         }
         let settings = Settings::default();
         match check_llm_config(&settings) {
@@ -764,7 +765,7 @@ mod tests {
 
     #[test]
     fn check_embeddings_disabled_by_default_returns_skip() {
-        let _guard = crate::config::helpers::ENV_MUTEX.lock().expect("env mutex");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("EMBEDDING_ENABLED");
@@ -786,7 +787,7 @@ mod tests {
 
     #[test]
     fn check_routines_enabled_by_default() {
-        let _guard = crate::config::helpers::ENV_MUTEX.lock().expect("env mutex");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("ROUTINES_ENABLED");

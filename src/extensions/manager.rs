@@ -6688,7 +6688,7 @@ mod tests {
 
     #[test]
     fn should_use_gateway_mode_true_for_tunnel_url() {
-        let _guard = GATEWAY_ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = GATEWAY_ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         // SAFETY: Under GATEWAY_ENV_MUTEX, no concurrent env access.
         unsafe {
@@ -6710,7 +6710,7 @@ mod tests {
 
     #[test]
     fn should_use_gateway_mode_false_without_tunnel() {
-        let _guard = GATEWAY_ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = GATEWAY_ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         unsafe {
             std::env::remove_var("THREATCLAW_OAUTH_CALLBACK_URL");
@@ -6731,7 +6731,7 @@ mod tests {
 
     #[test]
     fn should_use_gateway_mode_false_for_loopback_tunnel() {
-        let _guard = GATEWAY_ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = GATEWAY_ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
         let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
         unsafe {
             std::env::remove_var("THREATCLAW_OAUTH_CALLBACK_URL");
@@ -6759,7 +6759,7 @@ mod tests {
 
     impl EnvGuard {
         fn new() -> Self {
-            let guard = GATEWAY_ENV_MUTEX.lock().expect("env mutex poisoned");
+            let guard = GATEWAY_ENV_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
             let original = std::env::var("THREATCLAW_OAUTH_CALLBACK_URL").ok();
             // SAFETY: Under GATEWAY_ENV_MUTEX, no concurrent env access.
             unsafe {

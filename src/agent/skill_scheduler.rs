@@ -120,8 +120,9 @@ mod tests {
 
     #[test]
     fn test_should_run() {
-        // Create a fixed time: Tuesday 2026-03-23 14:00:00 UTC
-        let now = chrono::DateTime::parse_from_rfc3339("2026-03-23T14:00:00Z")
+        // Create a fixed time: Tuesday 2026-03-24 14:00:00 UTC
+        // (2026-03-23 is a Monday — prior version had an off-by-one in the comment)
+        let now = chrono::DateTime::parse_from_rfc3339("2026-03-24T14:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc);
 
@@ -130,7 +131,7 @@ mod tests {
         assert!(should_run_now("* * * * *", &now)); // Every minute
         assert!(!should_run_now("30 14 * * *", &now)); // 14:30 not 14:00
         assert!(!should_run_now("0 15 * * *", &now)); // 15:00 not 14:00
-        assert!(should_run_now("0 14 23 * *", &now)); // 23rd at 14:00
+        assert!(should_run_now("0 14 24 * *", &now)); // 24th at 14:00
         assert!(should_run_now("0 14 * * 2", &now)); // Tuesday at 14:00
     }
 

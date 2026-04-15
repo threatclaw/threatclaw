@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn openai_compatible_uses_selected_model_when_llm_model_unset() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
 
         let settings = Settings {
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn openai_compatible_llm_model_env_overrides_selected_model() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn ollama_uses_selected_model_when_ollama_model_unset() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_ollama_env();
 
         let settings = Settings {
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn ollama_model_env_overrides_selected_model() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_ollama_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -607,7 +607,7 @@ mod tests {
 
     #[test]
     fn openai_compatible_preserves_dotted_model_name() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
 
         let settings = Settings {
@@ -628,7 +628,7 @@ mod tests {
 
     #[test]
     fn registry_provider_resolves_groq() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("LLM_BACKEND");
@@ -653,7 +653,7 @@ mod tests {
 
     #[test]
     fn registry_provider_resolves_tinfoil() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("LLM_BACKEND");
@@ -681,7 +681,7 @@ mod tests {
 
     #[test]
     fn registry_provider_alias_resolves_zai() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("LLM_BACKEND");
@@ -706,21 +706,28 @@ mod tests {
 
     #[test]
     fn nearai_backend_has_no_registry_provider() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
-            std::env::remove_var("LLM_BACKEND");
+            // Explicitly set nearai — the default backend is "ollama", so we must
+            // opt into nearai to test its behavior.
+            std::env::set_var("LLM_BACKEND", "nearai");
         }
 
         let settings = Settings::default();
         let cfg = LlmConfig::resolve(&settings).expect("resolve should succeed");
+
+        unsafe {
+            std::env::remove_var("LLM_BACKEND");
+        }
+
         assert_eq!(cfg.backend, "nearai");
         assert!(cfg.provider.is_none());
     }
 
     #[test]
     fn backend_alias_normalized_to_canonical_id() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -746,7 +753,7 @@ mod tests {
 
     #[test]
     fn unknown_backend_falls_back_to_openai_compatible() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -770,7 +777,7 @@ mod tests {
 
     #[test]
     fn nearai_aliases_all_resolve_to_nearai() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
 
         for alias in &["nearai", "near_ai", "near"] {
             // SAFETY: Under ENV_MUTEX.
@@ -797,7 +804,7 @@ mod tests {
 
     #[test]
     fn base_url_resolution_priority() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_openai_compatible_env();
 
         // SAFETY: Under ENV_MUTEX.
@@ -855,7 +862,7 @@ mod tests {
     fn anthropic_oauth_token_sets_placeholder_api_key() {
         use secrecy::ExposeSecret;
 
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_anthropic_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -893,7 +900,7 @@ mod tests {
     fn anthropic_api_key_takes_priority_over_oauth() {
         use secrecy::ExposeSecret;
 
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_anthropic_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -926,7 +933,7 @@ mod tests {
 
     #[test]
     fn non_anthropic_provider_has_no_oauth_token() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         clear_anthropic_env();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
@@ -1034,7 +1041,7 @@ mod tests {
 
     #[test]
     fn test_request_timeout_defaults_to_120() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::remove_var("LLM_REQUEST_TIMEOUT_SECS");
@@ -1045,7 +1052,7 @@ mod tests {
 
     #[test]
     fn test_request_timeout_configurable() {
-        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let _guard = crate::config::helpers::env_lock();
         // SAFETY: Under ENV_MUTEX.
         unsafe {
             std::env::set_var("LLM_REQUEST_TIMEOUT_SECS", "300");

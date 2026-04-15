@@ -3459,7 +3459,7 @@ mod tests {
 
     #[test]
     fn test_wizard_owner_id_uses_resolved_env_scope() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::config::helpers::env_lock();
         let _owner = EnvGuard::set("THREATCLAW_OWNER_ID", " wizard-owner ");
 
         let wizard = SetupWizard::new();
@@ -3468,7 +3468,7 @@ mod tests {
 
     #[test]
     fn test_wizard_owner_id_uses_toml_scope() {
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::config::helpers::env_lock();
         let _owner = EnvGuard::clear("THREATCLAW_OWNER_ID");
         let dir = tempdir().unwrap(); // safety: test-only tempdir setup
         let path = dir.path().join("config.toml");
@@ -3484,7 +3484,7 @@ mod tests {
     fn test_try_with_config_and_toml_propagates_invalid_owner_env() {
         use std::os::unix::ffi::OsStringExt;
 
-        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::config::helpers::env_lock();
         let original = std::env::var_os("THREATCLAW_OWNER_ID");
         unsafe {
             std::env::set_var("THREATCLAW_OWNER_ID", OsString::from_vec(vec![0x66, 0x80]));
@@ -3914,7 +3914,7 @@ mod tests {
     fn test_build_nearai_model_fetch_config_picks_up_api_key_env() {
         use secrecy::ExposeSecret;
 
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::helpers::env_lock();
         let _guard = EnvGuard::set("NEARAI_API_KEY", "test-cloud-api-key-12345");
         let _guard2 = EnvGuard::clear("NEARAI_BASE_URL");
 
@@ -3938,7 +3938,7 @@ mod tests {
     /// the config should have `api_key: None` (session token path).
     #[test]
     fn test_build_nearai_model_fetch_config_none_when_no_api_key() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::helpers::env_lock();
         let _guard = EnvGuard::clear("NEARAI_API_KEY");
         let _guard2 = EnvGuard::clear("NEARAI_BASE_URL");
 
@@ -3957,7 +3957,7 @@ mod tests {
     /// Regression test for #799: empty NEARAI_API_KEY should be treated as absent.
     #[test]
     fn test_build_nearai_model_fetch_config_none_when_empty_api_key() {
-        let _lock = ENV_MUTEX.lock().unwrap();
+        let _lock = crate::config::helpers::env_lock();
         let _guard = EnvGuard::set("NEARAI_API_KEY", "");
 
         let config = build_nearai_model_fetch_config();
