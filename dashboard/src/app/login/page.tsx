@@ -138,7 +138,7 @@ export default function LoginPage() {
               </label>
               <input
                 type="text" value={displayName} onChange={e => setDisplayName(e.target.value)}
-                placeholder="Administrateur"
+                placeholder={locale === "fr" ? "Administrateur" : "Administrator"}
                 style={{
                   width: "100%", padding: "12px 14px", fontSize: "13px",
                   background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",

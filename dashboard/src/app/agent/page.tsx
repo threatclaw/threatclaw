@@ -5,6 +5,8 @@ import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
 import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { Shield, AlertOctagon, Play, Loader2, Eye, Bell, ShieldCheck, Zap, CheckCircle2, Clock } from "lucide-react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   fetchAgentMode, setAgentMode, fetchKillSwitch, triggerKillSwitch,
   fetchSoulInfo, triggerReactCycle, fetchAuditEntries,
@@ -17,6 +19,7 @@ const MODE_ICONS: Record<string, React.ElementType> = {
 };
 
 export default function AgentPage() {
+  const locale = useLocale();
   const [mode, setMode] = useState<AgentModeResponse | null>(null);
   const [killSwitch, setKillSwitchState] = useState<KillSwitchStatus | null>(null);
   const [soul, setSoul] = useState<SoulInfo | null>(null);
@@ -81,7 +84,7 @@ export default function AgentPage() {
                   <span style={{ fontSize: "8px", color: "#903020" }}>CONFIRMER</span>
                 </ChromeButton>
                 <ChromeButton onClick={() => setKillConfirm(false)}>
-                  <span style={{ fontSize: "8px" }}>Annuler</span>
+                  <span style={{ fontSize: "8px" }}>{tr("cancel", locale)}</span>
                 </ChromeButton>
               </div>
             ) : (

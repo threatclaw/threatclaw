@@ -355,8 +355,8 @@ export default function SkillsPage() {
   return (
     <div style={{ padding: "0 24px 40px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Skills</h1>
-        <button className="tc-btn-embossed" onClick={refresh}><RefreshCw size={12} /> Actualiser</button>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("skills", locale)}</h1>
+        <button className="tc-btn-embossed" onClick={refresh}><RefreshCw size={12} /> {tr("refresh", locale)}</button>
       </div>
 
       {/* ── Sliding tabs ── */}
@@ -667,7 +667,7 @@ export default function SkillsPage() {
             </div>
             {modalSkill.config && Object.keys(modalSkill.config).length > 0 && (
               <div style={{ marginBottom: "16px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>Configuration</div>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>{locale === "fr" ? "Configuration" : "Configuration"}</div>
                 {Object.entries(modalSkill.config)
                   .sort(([, a]: [string, any], [, b]: [string, any]) => {
                     // Required fields first, then by type (string > password > boolean > number)

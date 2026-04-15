@@ -65,19 +65,19 @@ function LicensePage() {
       <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Instance</span>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("instance", locale)}</span>
             <span style={{ fontSize: "13px", fontWeight: 700, fontFamily: "monospace", color: "var(--tc-text)" }}>
               {info?.instance_id || "..."}
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Assets</span>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("assets", locale)}</span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>
               {info?.asset_count || 0} <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontWeight: 400 }}>{tr("noLimit", locale)}</span>
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Licence</span>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{locale === "fr" ? "Licence" : "License"}</span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-green)" }}>
               {tr("freeUnlimited", locale)}
             </span>
@@ -91,11 +91,11 @@ function LicensePage() {
           <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>{tr("myAccount", locale)}</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "var(--tc-text-muted)" }}>Email</span>
+              <span style={{ color: "var(--tc-text-muted)" }}>{tr("email", locale)}</span>
               <span style={{ color: "var(--tc-text)", fontWeight: 600 }}>{user.email}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px" }}>
-              <span style={{ color: "var(--tc-text-muted)" }}>Rôle</span>
+              <span style={{ color: "var(--tc-text-muted)" }}>{tr("role", locale)}</span>
               <span style={{ color: "var(--tc-text)", fontWeight: 600, textTransform: "capitalize" }}>{user.role}</span>
             </div>
           </div>

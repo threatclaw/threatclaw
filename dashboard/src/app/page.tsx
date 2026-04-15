@@ -227,7 +227,7 @@ export default function HomePage() {
       <div data-tour="score" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard accent="grid">
           <div style={{ textAlign: "center" }}>
-            <div style={labelCaps}>Score sécurité</div>
+            <div style={labelCaps}>{tr("securityScore", locale)}</div>
             <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
               {score != null ? Math.round(score) : "—"}
             </div>
@@ -477,40 +477,40 @@ export default function HomePage() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
         <NeuCard accent="grid" style={{ padding: "14px" }}>
-          <div style={labelCaps}>Sécurité</div>
+          <div style={labelCaps}>{tr("security", locale)}</div>
           {config?.permissions ? (
             <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-              {config.permissions === "READ_ONLY" ? "Observation" : config.permissions === "ALERT_ONLY" ? "Alertes" : config.permissions === "REMEDIATE_WITH_APPROVAL" ? "Remédiation" : "Auto"}
+              {config.permissions === "READ_ONLY" ? (locale === "fr" ? "Observation" : "Observe") : config.permissions === "ALERT_ONLY" ? (locale === "fr" ? "Alertes" : "Alerts") : config.permissions === "REMEDIATE_WITH_APPROVAL" ? (locale === "fr" ? "Remédiation" : "Remediate") : "Auto"}
             </div>
           ) : (
             <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              Configurer <ChevronRight size={11} />
+              {tr("configure", locale)} <ChevronRight size={11} />
             </button>
           )}
         </NeuCard>
         <NeuCard accent="blue" style={{ padding: "14px" }}>
-          <div style={labelCaps}>Canaux</div>
+          <div style={labelCaps}>{tr("channels", locale)}</div>
           {activeChannels.length > 0 ? (
             <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
               {activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
             </div>
           ) : (
             <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              Configurer <ChevronRight size={11} />
+              {tr("configure", locale)} <ChevronRight size={11} />
             </button>
           )}
         </NeuCard>
         <NeuCard accent="green" style={{ padding: "14px" }}>
-          <div style={labelCaps}>Base de données</div>
+          <div style={labelCaps}>{tr("database", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, color: dbStatus === "ok" ? "#30a050" : dbStatus === "checking" ? "var(--tc-text-muted)" : "#d03020", marginTop: "4px" }}>
-            {dbStatus === "ok" ? "Opérationnel" : dbStatus === "checking" ? "Vérification..." : "Non connecté"}
+            {dbStatus === "ok" ? (locale === "fr" ? "Opérationnel" : "Operational") : dbStatus === "checking" ? (locale === "fr" ? "Vérification..." : "Checking...") : (locale === "fr" ? "Non connecté" : "Not connected")}
           </div>
           <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PG16 + AGE + TimescaleDB</div>
         </NeuCard>
         <NeuCard accent="dots" style={{ padding: "14px" }}>
-          <div style={labelCaps}>Disque</div>
+          <div style={labelCaps}>{tr("disk", locale)}</div>
           <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>{diskFree || "—"}</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>sur /srv</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{locale === "fr" ? "sur /srv" : "on /srv"}</div>
         </NeuCard>
       </div>
 

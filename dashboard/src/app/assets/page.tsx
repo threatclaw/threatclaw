@@ -222,6 +222,7 @@ function SecurityTab({ assetId }: { assetId: string }) {
 }
 
 function AssetFindings({ asset }: { asset: any }) {
+  const locale = useLocale();
   const [findings, setFindings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -271,9 +272,9 @@ function AssetFindings({ asset }: { asset: any }) {
   if (findings.length === 0) {
     return (
       <div style={{ marginTop: "12px" }}>
-        <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Vulnérabilités</div>
+        <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>{tr("vulnerabilities", locale)}</div>
         <div style={{ fontSize: "10px", color: "var(--tc-green)", display: "flex", alignItems: "center", gap: "4px" }}>
-          <CheckCircle2 size={12} /> Aucune vulnérabilité détectée sur cet asset
+          <CheckCircle2 size={12} /> {locale === "fr" ? "Aucune vulnérabilité détectée sur cet asset" : "No vulnerabilities detected on this asset"}
         </div>
       </div>
     );
@@ -427,7 +428,7 @@ export default function AssetsPage() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
         <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>Assets</h1>
+          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("assets", locale)}</h1>
           <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
             {total} asset{total !== 1 ? "s" : ""} dans votre infrastructure
           </p>
