@@ -473,14 +473,18 @@ download_configs() {
     chmod 644 secrets/*.txt
     log_info "Generated Docker secrets (secrets/)"
 
-    # TC_DB_PASSWORD is set BOTH in .env AND as a Docker secret.
-    # Reason: fluent-bit 3.2 is distroless — it cannot cat /run/secrets/* and
-    # requires the password as an env var (${TC_DB_PASSWORD} in compose).
-    # The core service reads it from the secret file via entrypoint.sh.
-    # Trade-off: password in plain-text in .env (chmod 600), but .env is
-    # protected by the umask and never committed to git (gitignored).
+    # Secrets are set BOTH in .env AND as Docker secret files.
+    # Reasons:
+    #  - TC_DB_PASSWORD: fluent-bit 3.2 is distroless (no shell to cat the
+    #    secret file) — it reads password from ${TC_DB_PASSWORD} env var.
+    #  - TC_AUTH_TOKEN: the dashboard image uses the default Node entrypoint
+    #    (not our dashboard-entrypoint.sh wrapper) so it cannot cat the secret
+    #    file at startup — it reads token from ${TC_AUTH_TOKEN} env var in compose.
+    # The core service reads both from secret files via entrypoint.sh.
+    # Trade-off: secrets in plain-text in .env, mitigated by chmod 600 and
+    # .env being in .gitignore.
     sed -i "s/^TC_DB_PASSWORD=.*/TC_DB_PASSWORD=${db_pass}/" .env
-    sed -i "s/^TC_AUTH_TOKEN=.*/# TC_AUTH_TOKEN managed via Docker secrets (secrets\/tc_auth_token.txt)/" .env
+    sed -i "s/^TC_AUTH_TOKEN=.*/TC_AUTH_TOKEN=${auth_token}/" .env
 
     # HTTP_WEBHOOK_SECRET — required by core for HTTP channel authentication
     local http_webhook_secret

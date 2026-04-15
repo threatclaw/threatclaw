@@ -33,6 +33,8 @@ COPY providers.json providers.json
 COPY docs/openapi.json docs/openapi.json
 # Agent soul — hashed at build time by build.rs, loaded at runtime
 COPY AGENT_SOUL.toml AGENT_SOUL.toml
+# Skills catalog — loaded at runtime by tc_catalog.rs for the dashboard Skills page
+COPY skills-catalog/ skills-catalog/
 # [[bench]] entries in Cargo.toml require bench sources to exist for cargo to parse the manifest
 COPY benches/ benches/
 
@@ -42,18 +44,23 @@ RUN cargo build --release --bin threatclaw
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libssl3 postgresql-client \
+    ca-certificates libssl3 postgresql-client curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
+COPY --from=builder /app/skills-catalog /app/skills-catalog
 
 # Non-root user with pre-created writable data dir (volume mount target)
 RUN useradd -m -u 1000 -s /bin/bash threatclaw && \
     mkdir -p /app/data /app/certs && \
     chown -R threatclaw:threatclaw /app/data /app/certs
 USER threatclaw
+
+# CWD for the binary — tc_catalog.rs uses relative paths like "skills-catalog"
+# and expects to find them next to the binary's working directory.
+WORKDIR /app
 
 EXPOSE 3000
 
