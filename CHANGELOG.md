@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.3-beta] — 2026-04-17
+
+### Added
+- **Demo isolation** — all simulation data tagged `demo=true` with unique session UUID, auto-cleanup after 1h
+- **Cleanup API** — `POST /api/tc/test/cleanup` to purge demo data, `GET /api/tc/test/status` for demo data counts
+- **Badge [DEMO]** — notifications on Telegram/Slack/Discord show `[DEMO - SIMULATION]` banner with disclaimer
+- **Dashboard Simulation page** — renamed Tests to Simulation, added isolation banner, demo data counter, cleanup button, full i18n FR/EN
+
+### Fixed
+- Simulation scenarios no longer pollute production graph, ML baseline, findings, or compliance reports
+- Demo findings prefixed with `[DEMO]` in title for visibility
+
+---
+
 ## [1.0.2-beta] — 2026-04-16
 
 ### Added

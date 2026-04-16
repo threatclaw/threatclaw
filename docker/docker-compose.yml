@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  ThreatClaw v1.0.2-beta — Hardened Docker Stack              ║
+# ║  ThreatClaw v1.0.3-beta — Hardened Docker Stack              ║
 # ║                                                              ║
 # ║  Usage:  docker compose up -d                                ║
 # ║  That's it. Everything starts, configures, and connects.     ║
