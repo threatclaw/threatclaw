@@ -1823,6 +1823,95 @@ impl ThreatClawStore for PgBackend {
         .map_err(query_err)?;
         Ok(())
     }
+
+    // ── Demo data management ──
+
+    async fn count_demo_findings(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM findings WHERE metadata->>'demo' = 'true'",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn count_demo_alerts(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM sigma_alerts WHERE title LIKE '[DEMO]%'",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_demo_findings(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "WITH deleted AS (DELETE FROM findings WHERE metadata->>'demo' = 'true' RETURNING 1) SELECT COUNT(*)::bigint FROM deleted",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_demo_alerts(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "WITH deleted AS (DELETE FROM sigma_alerts WHERE title LIKE '[DEMO]%' RETURNING 1) SELECT COUNT(*)::bigint FROM deleted",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_demo_logs(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "WITH deleted AS (DELETE FROM logs WHERE data->>'demo' = 'true' RETURNING 1) SELECT COUNT(*)::bigint FROM deleted",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_demo_data_older_than(&self, ttl_minutes: i64) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let interval = format!("{} minutes", ttl_minutes);
+        let r1 = conn
+            .execute(
+                &format!("DELETE FROM findings WHERE metadata->>'demo' = 'true' AND detected_at < NOW() - INTERVAL '{}'", interval),
+                &[],
+            )
+            .await
+            .unwrap_or(0);
+        let r2 = conn
+            .execute(
+                &format!("DELETE FROM sigma_alerts WHERE title LIKE '[DEMO]%' AND detected_at < NOW() - INTERVAL '{}'", interval),
+                &[],
+            )
+            .await
+            .unwrap_or(0);
+        let r3 = conn
+            .execute(
+                &format!("DELETE FROM logs WHERE data->>'demo' = 'true' AND time < NOW() - INTERVAL '{}'", interval),
+                &[],
+            )
+            .await
+            .unwrap_or(0);
+        Ok((r1 + r2 + r3) as i64)
+    }
 }
 
 // ── Helper: parse asset row ──

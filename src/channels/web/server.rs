@@ -1239,6 +1239,14 @@ pub async fn start_server(
             "/api/tc/test/run/{id}",
             post(super::handlers::threatclaw_api::test_scenario_run_handler),
         )
+        .route(
+            "/api/tc/test/cleanup",
+            post(super::handlers::threatclaw_api::test_cleanup_handler),
+        )
+        .route(
+            "/api/tc/test/status",
+            get(super::handlers::threatclaw_api::test_demo_status_handler),
+        )
         // Incidents (See ADR-043)
         .route(
             "/api/tc/incidents",

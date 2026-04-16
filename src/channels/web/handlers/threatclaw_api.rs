@@ -3460,6 +3460,60 @@ pub async fn test_scenario_run_handler(
     })))
 }
 
+/// POST /api/tc/test/cleanup — delete all demo data (findings, alerts, logs with demo=true)
+pub async fn test_cleanup_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let result = cleanup_demo_data(store.as_ref()).await;
+    tracing::info!("DEMO CLEANUP: {:?}", result);
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// GET /api/tc/test/status — count demo data currently in DB
+pub async fn test_demo_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let counts = count_demo_data(store.as_ref()).await;
+    Ok(Json(serde_json::json!(counts)))
+}
+
+/// Count demo data in the database.
+async fn count_demo_data(store: &dyn crate::db::Database) -> serde_json::Value {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let findings = store.count_demo_findings().await.unwrap_or(0);
+    let alerts = store.count_demo_alerts().await.unwrap_or(0);
+    serde_json::json!({
+        "demo_findings": findings,
+        "demo_alerts": alerts,
+        "total": findings + alerts,
+    })
+}
+
+/// Delete all demo data from the database.
+async fn cleanup_demo_data(store: &dyn crate::db::Database) -> serde_json::Value {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let findings_deleted = store.delete_demo_findings().await.unwrap_or(0);
+    let alerts_deleted = store.delete_demo_alerts().await.unwrap_or(0);
+    let logs_deleted = store.delete_demo_logs().await.unwrap_or(0);
+    serde_json::json!({
+        "findings_deleted": findings_deleted,
+        "alerts_deleted": alerts_deleted,
+        "logs_deleted": logs_deleted,
+        "total_deleted": findings_deleted + alerts_deleted + logs_deleted,
+    })
+}
+
+/// Background job: cleanup demo data older than TTL (called from scheduler).
+pub async fn demo_cleanup_job(store: Arc<dyn crate::db::Database>, ttl_minutes: i64) {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let deleted = store.delete_demo_data_older_than(ttl_minutes).await.unwrap_or(0);
+    if deleted > 0 {
+        tracing::info!("DEMO CLEANUP JOB: deleted {} expired demo entries (TTL={}min)", deleted, ttl_minutes);
+    }
+}
+
 // ══════════════════════════════════════════════════════════
 // ENRICHMENT SOURCES — CISA KEV, GreyNoise, ThreatFox, etc.
 // ══════════════════════════════════════════════════════════

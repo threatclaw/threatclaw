@@ -324,6 +324,14 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<(), DatabaseError>;
     async fn count_alerts_by_level(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
+    // Demo data management
+    async fn count_demo_findings(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn count_demo_alerts(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn delete_demo_findings(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn delete_demo_alerts(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn delete_demo_logs(&self) -> Result<i64, DatabaseError> { Ok(0) }
+    async fn delete_demo_data_older_than(&self, _ttl_minutes: i64) -> Result<i64, DatabaseError> { Ok(0) }
+
     // Skill configs
     async fn get_skill_config(
         &self,
