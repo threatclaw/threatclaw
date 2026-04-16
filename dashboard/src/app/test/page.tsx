@@ -5,8 +5,10 @@ import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   Play, Loader2, CheckCircle2, XCircle, Shield, AlertTriangle,
-  Zap, Bug, Wifi, Server, RefreshCw, Terminal,
+  Zap, Bug, Wifi, Server, RefreshCw, Terminal, Trash2, Info,
 } from "lucide-react";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 interface Scenario {
   id: string;
@@ -40,18 +42,30 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
 };
 
 export default function TestPage() {
+  const locale = useLocale();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, { status: string; message: string; time: string }>>({});
   const [situation, setSituation] = useState<{ global_score?: number; notification_level?: string; open_findings?: number; active_alerts?: number } | null>(null);
+  const [demoStatus, setDemoStatus] = useState<{ demo_findings: number; demo_alerts: number; total: number }>({ demo_findings: 0, demo_alerts: 0, total: 0 });
+  const [cleaning, setCleaning] = useState(false);
 
   useEffect(() => {
     fetch("/api/tc/test/scenarios")
       .then(r => r.json())
       .then(d => { setScenarios(d.scenarios || []); setLoading(false); })
       .catch(() => setLoading(false));
+    refreshDemoStatus();
   }, []);
+
+  const refreshDemoStatus = async () => {
+    try {
+      const res = await fetch("/api/tc/test/status");
+      const d = await res.json();
+      setDemoStatus(d);
+    } catch { /* */ }
+  };
 
   const refreshSituation = async () => {
     try {
@@ -63,13 +77,25 @@ export default function TestPage() {
 
   useEffect(() => {
     refreshSituation();
-    const t = setInterval(refreshSituation, 10000);
+    const t = setInterval(() => { refreshSituation(); refreshDemoStatus(); }, 10000);
     return () => clearInterval(t);
   }, []);
 
+  const cleanupDemo = async () => {
+    setCleaning(true);
+    try {
+      const res = await fetch("/api/tc/test/cleanup", { method: "POST" });
+      const d = await res.json();
+      setResults({});
+      await refreshDemoStatus();
+      await refreshSituation();
+    } catch { /* */ }
+    setCleaning(false);
+  };
+
   const runScenario = async (id: string) => {
     setRunning(id);
-    setResults(prev => ({ ...prev, [id]: { status: "running", message: "Injection des données dans le pipeline...", time: new Date().toLocaleTimeString("fr-FR") } }));
+    setResults(prev => ({ ...prev, [id]: { status: "running", message: locale === "fr" ? "Injection des donnees dans le pipeline..." : "Injecting data into pipeline...", time: new Date().toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US") } }));
 
     try {
       const res = await fetch(`/api/tc/test/run/${id}?notify=true`, { method: "POST" });
@@ -79,29 +105,30 @@ export default function TestPage() {
         [id]: {
           status: data.ok ? "success" : "error",
           message: data.message,
-          time: new Date().toLocaleTimeString("fr-FR"),
+          time: new Date().toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US"),
         },
       }));
     } catch (e) {
       setResults(prev => ({
         ...prev,
-        [id]: { status: "error", message: "Erreur réseau", time: new Date().toLocaleTimeString("fr-FR") },
+        [id]: { status: "error", message: locale === "fr" ? "Erreur reseau" : "Network error", time: new Date().toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US") },
       }));
     }
 
     setRunning(null);
-
-    // Refresh situation after 5s (time for intelligence cycle)
+    setTimeout(refreshDemoStatus, 5000);
     setTimeout(refreshSituation, 5000);
+    setTimeout(refreshDemoStatus, 15000);
     setTimeout(refreshSituation, 15000);
-    setTimeout(refreshSituation, 30000);
   };
 
   if (loading) return (
     <ChromeInsetCard>
       <div style={{ textAlign: "center", padding: "32px" }}>
         <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 12px", color: "var(--tc-red)" }} />
-        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>Chargement des scénarios...</div>
+        <div style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>
+          {locale === "fr" ? "Chargement des scenarios..." : "Loading scenarios..."}
+        </div>
       </div>
     </ChromeInsetCard>
   );
@@ -109,14 +136,49 @@ export default function TestPage() {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
+      <div style={{ marginBottom: "16px" }}>
         <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-          Simulation & Tests
+          {locale === "fr" ? "Simulation d'attaques" : "Attack Simulation"}
         </h1>
         <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          Scénarios de test réalistes — injectent des vrais logs/findings/alertes dans le pipeline
+          {locale === "fr"
+            ? "Scenarios realistes pour tester le pipeline complet. Les donnees sont isolees et supprimees automatiquement."
+            : "Realistic scenarios to test the full pipeline. Data is isolated and automatically cleaned up."}
         </p>
       </div>
+
+      {/* Isolation banner */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", marginBottom: "16px",
+        borderRadius: "var(--tc-radius-card)", background: "rgba(48,128,208,0.06)", border: "1px solid rgba(48,128,208,0.15)",
+      }}>
+        <Info size={16} color="#3080d0" style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1, fontSize: "11px", color: "#3080d0", lineHeight: "1.5" }}>
+          {locale === "fr"
+            ? "Les donnees de simulation sont taguees [DEMO] et isolees de la production. Elles sont supprimees automatiquement apres 1 heure. Le ML ne sera pas contamine. Les rapports NIS2/ISO excluent les donnees demo."
+            : "Simulation data is tagged [DEMO] and isolated from production. It is automatically deleted after 1 hour. ML baseline will not be affected. NIS2/ISO reports exclude demo data."}
+        </div>
+      </div>
+
+      {/* Demo data status + cleanup */}
+      {demoStatus.total > 0 && (
+        <ChromeInsetCard style={{ marginBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>
+                {locale === "fr" ? "Donnees de simulation presentes" : "Simulation data present"}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+                {demoStatus.demo_findings} findings + {demoStatus.demo_alerts} {locale === "fr" ? "alertes" : "alerts"}
+              </div>
+            </div>
+            <ChromeButton onClick={cleanupDemo} disabled={cleaning} variant="glass">
+              {cleaning ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {locale === "fr" ? "Nettoyer maintenant" : "Clean up now"}
+            </ChromeButton>
+          </div>
+        </ChromeInsetCard>
+      )}
 
       {/* Current situation */}
       {situation && situation.global_score !== undefined && (
@@ -138,11 +200,11 @@ export default function TestPage() {
                 }}>{situation.notification_level || "silence"}</span>
               </div>
               <div style={{ fontSize: "12px", color: "var(--tc-text-muted)" }}>
-                {situation.open_findings || 0} findings — {situation.active_alerts || 0} alertes
+                {situation.open_findings || 0} findings — {situation.active_alerts || 0} {locale === "fr" ? "alertes" : "alerts"}
               </div>
             </div>
-            <ChromeButton onClick={refreshSituation} variant="glass">
-              <RefreshCw size={14} /> Rafraîchir
+            <ChromeButton onClick={() => { refreshSituation(); refreshDemoStatus(); }} variant="glass">
+              <RefreshCw size={14} /> {locale === "fr" ? "Rafraichir" : "Refresh"}
             </ChromeButton>
           </div>
         </ChromeInsetCard>
@@ -157,9 +219,7 @@ export default function TestPage() {
           const isRunning = running === s.id;
 
           return (
-            <ChromeInsetCard key={s.id} style={{
-              borderRadius: "var(--tc-radius-card)",
-            }}>
+            <ChromeInsetCard key={s.id} style={{ borderRadius: "var(--tc-radius-card)" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: "14px" }}>
                 {/* Icon */}
                 <div style={{
@@ -210,7 +270,7 @@ export default function TestPage() {
                   variant="primary"
                 >
                   {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-                  {isRunning ? "En cours..." : "Lancer"}
+                  {isRunning ? (locale === "fr" ? "En cours..." : "Running...") : (locale === "fr" ? "Lancer" : "Run")}
                 </ChromeButton>
               </div>
             </ChromeInsetCard>
@@ -221,15 +281,33 @@ export default function TestPage() {
       {/* Info */}
       <ChromeInsetCard style={{ marginTop: "20px" }}>
         <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: 1.7 }}>
-          <strong style={{ color: "var(--tc-text)" }}>Comment ça marche</strong>
+          <strong style={{ color: "var(--tc-text)" }}>
+            {locale === "fr" ? "Comment ca marche" : "How it works"}
+          </strong>
           <br /><br />
-          Chaque scénario injecte des <strong style={{ color: "var(--tc-text)" }}>vrais logs</strong> dans la table PostgreSQL (comme Fluent Bit),
-          crée des <strong style={{ color: "var(--tc-text)" }}>vrais findings</strong> et des <strong style={{ color: "var(--tc-text)" }}>vraies alertes Sigma</strong>.
-          <br /><br />
-          {"L'Intelligence Engine traite ensuite ces données exactement comme en production : extraction d'IoCs, enrichissement (EPSS, GreyNoise, IPinfo), calcul du score, et notification au RSSI si nécessaire."}
-          <br /><br />
-          Les données de test restent dans la base et sont visibles dans Findings et Alertes.
-          Tous les IoCs utilisés sont <strong style={{ color: "var(--tc-red)" }}>réels</strong> (IPs Tor connues, CVEs exploitées, etc.).
+          {locale === "fr" ? (
+            <>
+              Chaque scenario injecte des <strong style={{ color: "var(--tc-text)" }}>vrais logs</strong> dans PostgreSQL,
+              cree des <strong style={{ color: "var(--tc-text)" }}>findings</strong> et des <strong style={{ color: "var(--tc-text)" }}>alertes Sigma</strong>.
+              <br /><br />
+              {"L'Intelligence Engine traite ces donnees exactement comme en production : extraction d'IoCs, enrichissement (EPSS, GreyNoise, IPinfo), calcul du score, notification au RSSI."}
+              <br /><br />
+              <strong style={{ color: "var(--tc-green)" }}>Toutes les donnees sont taguees [DEMO]</strong> et isolees de la production.
+              Elles sont supprimees automatiquement apres 1 heure. Le baseline ML n'est pas affecte.
+              Tous les IoCs utilises sont <strong style={{ color: "var(--tc-red)" }}>reels</strong> (IPs Tor, CVEs exploitees).
+            </>
+          ) : (
+            <>
+              Each scenario injects <strong style={{ color: "var(--tc-text)" }}>real logs</strong> into PostgreSQL,
+              creates <strong style={{ color: "var(--tc-text)" }}>findings</strong> and <strong style={{ color: "var(--tc-text)" }}>Sigma alerts</strong>.
+              <br /><br />
+              The Intelligence Engine processes this data exactly like production: IoC extraction, enrichment (EPSS, GreyNoise, IPinfo), scoring, RSSI notification.
+              <br /><br />
+              <strong style={{ color: "var(--tc-green)" }}>All data is tagged [DEMO]</strong> and isolated from production.
+              Automatically deleted after 1 hour. ML baseline is not affected.
+              All IoCs used are <strong style={{ color: "var(--tc-red)" }}>real</strong> (Tor IPs, exploited CVEs).
+            </>
+          )}
         </div>
       </ChromeInsetCard>
     </div>

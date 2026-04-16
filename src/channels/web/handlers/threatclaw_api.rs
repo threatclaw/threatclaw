@@ -3508,9 +3508,16 @@ async fn cleanup_demo_data(store: &dyn crate::db::Database) -> serde_json::Value
 /// Background job: cleanup demo data older than TTL (called from scheduler).
 pub async fn demo_cleanup_job(store: Arc<dyn crate::db::Database>, ttl_minutes: i64) {
     use crate::db::threatclaw_store::ThreatClawStore;
-    let deleted = store.delete_demo_data_older_than(ttl_minutes).await.unwrap_or(0);
+    let deleted = store
+        .delete_demo_data_older_than(ttl_minutes)
+        .await
+        .unwrap_or(0);
     if deleted > 0 {
-        tracing::info!("DEMO CLEANUP JOB: deleted {} expired demo entries (TTL={}min)", deleted, ttl_minutes);
+        tracing::info!(
+            "DEMO CLEANUP JOB: deleted {} expired demo entries (TTL={}min)",
+            deleted,
+            ttl_minutes
+        );
     }
 }
 

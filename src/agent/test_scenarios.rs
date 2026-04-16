@@ -186,7 +186,7 @@ pub async fn run_scenario(
 
         let _ = store.insert_finding(&NewFinding {
             skill_id: "react-cycle".into(),
-            title: format!("Analyse IA L{} — {} ({:.0}% confiance)", react_result.escalation_level, severity, confidence * 100.0),
+            title: format!("[DEMO] Analyse IA L{} — {} ({:.0}% confiance)", react_result.escalation_level, severity, confidence * 100.0),
             description: Some(format!(
                 "Analyse automatique par ThreatClaw AI :\n{}\n\nCorrélations : {}\nActions proposées : {}",
                 analysis.analysis, correlations.join(", "), actions_count
@@ -278,11 +278,17 @@ pub async fn run_scenario(
         };
 
         if let Some(ref msg) = alert_msg {
+            // Wrap with [DEMO] badge so RSSI knows it's a simulation
+            let demo_msg = format!(
+                "⚠️ *[DEMO — SIMULATION]* ⚠️\n\n{}\n\n---\n_Mode demonstration — aucune action reelle executee.\nDonnees supprimees automatiquement dans 1h._",
+                msg
+            );
+            let demo_digest = format!("[DEMO] {}", situation.digest_message);
             let results = crate::agent::notification_router::route_notification(
                 store.as_ref(),
                 situation.notification_level,
-                msg,
-                &situation.digest_message,
+                &demo_msg,
+                &demo_digest,
             )
             .await;
             for (ch, r) in &results {
@@ -309,7 +315,11 @@ pub async fn run_scenario(
 // SCENARIO: SSH Brute Force
 // ═══════════════════════════════════════════════════════════
 
-async fn run_ssh_brute_force(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_ssh_brute_force(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let attacker_ip = "185.220.101.42"; // Real Tor exit node, malicious in GreyNoise
     let target = "192.168.1.107";
     let now = chrono::Utc::now();
@@ -508,7 +518,11 @@ async fn run_phishing(store: &Arc<dyn Database>, result: &mut ScenarioResult, de
 // SCENARIO: Lateral Movement
 // ═══════════════════════════════════════════════════════════
 
-async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_lateral_movement(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let compromised = "192.168.1.50";
     let target = "192.168.1.107";
     let now = chrono::Utc::now();
@@ -589,7 +603,11 @@ async fn run_lateral_movement(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: C2 Communication
 // ═══════════════════════════════════════════════════════════
 
-async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_c2_communication(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let target = "192.168.1.50";
     let c2_domain = "update-service-cdn.xyz";
     let c2_ip = "91.215.85.209";
@@ -660,7 +678,11 @@ async fn run_c2_communication(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: Full Intrusion (kill chain complète)
 // ═══════════════════════════════════════════════════════════
 
-async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_full_intrusion(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     // Phase 1: Reconnaissance (scan de ports)
     let attacker = "185.220.101.42";
     let target = "192.168.1.107";
@@ -828,7 +850,11 @@ async fn run_full_intrusion(store: &Arc<dyn Database>, result: &mut ScenarioResu
 // 3 attaquants → 5 serveurs → CVEs réels → pivot → exfiltration
 // ═══════════════════════════════════════════════════════════
 
-async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_apt_multi_target(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let now = chrono::Utc::now();
 
     // Attaquants (IPs réelles malveillantes dans les feeds publics)
@@ -1191,7 +1217,11 @@ async fn run_apt_multi_target(store: &Arc<dyn Database>, result: &mut ScenarioRe
 // SCENARIO: Propagation ransomware réseau
 // ═══════════════════════════════════════════════════════════
 
-async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_ransomware_spread(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let now = chrono::Utc::now();
     let attacker = "194.26.192.77";
     let patient_zero = "192.168.1.50";
@@ -1363,7 +1393,11 @@ async fn run_ransomware_spread(store: &Arc<dyn Database>, result: &mut ScenarioR
 // SCENARIO: Compromission WordPress
 // ═══════════════════════════════════════════════════════════
 
-async fn run_web_compromise(store: &Arc<dyn Database>, result: &mut ScenarioResult, demo_session: &str) {
+async fn run_web_compromise(
+    store: &Arc<dyn Database>,
+    result: &mut ScenarioResult,
+    demo_session: &str,
+) {
     let now = chrono::Utc::now();
     let attacker = "45.155.205.233";
     let web_server = "192.168.1.80";
@@ -1566,7 +1600,13 @@ async fn inject_log(
     }
     let time_str = time.to_rfc3339();
     match store.insert_log(tag, hostname, &data, &time_str).await {
-        Ok(id) => tracing::debug!("DEMO: Injected log id={} tag={} host={} session={}", id, tag, hostname, demo_session),
+        Ok(id) => tracing::debug!(
+            "DEMO: Injected log id={} tag={} host={} session={}",
+            id,
+            tag,
+            hostname,
+            demo_session
+        ),
         Err(e) => tracing::warn!("DEMO: Failed to inject log: {e}"),
     }
 }
@@ -1586,10 +1626,22 @@ async fn inject_sigma_alert(
     let demo_title = format!("[DEMO] {}", title);
     let demo_rule_id = format!("demo-{}-{}", rule_id, &demo_session[..8]);
     match store
-        .insert_sigma_alert(&demo_rule_id, level, &demo_title, hostname, source_ip, username)
+        .insert_sigma_alert(
+            &demo_rule_id,
+            level,
+            &demo_title,
+            hostname,
+            source_ip,
+            username,
+        )
         .await
     {
-        Ok(id) => tracing::debug!("DEMO: Injected sigma alert id={} rule={} session={}", id, demo_rule_id, demo_session),
+        Ok(id) => tracing::debug!(
+            "DEMO: Injected sigma alert id={} rule={} session={}",
+            id,
+            demo_rule_id,
+            demo_session
+        ),
         Err(e) => tracing::warn!("DEMO: Failed to inject alert: {e}"),
     }
 }

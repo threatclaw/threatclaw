@@ -166,7 +166,7 @@ const T: Record<string, Record<Locale, string>> = {
   general: { fr: "General", en: "General" },
   about: { fr: "A propos", en: "About" },
   agent: { fr: "Agent", en: "Agent" },
-  tests: { fr: "Tests", en: "Tests" },
+  tests: { fr: "Simulation", en: "Simulation" },
 
   // ── Status page ──
   dashboard: { fr: "Dashboard", en: "Dashboard" },
