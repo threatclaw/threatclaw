@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.2-beta] — 2026-04-16
+
+### Added
+- **ThreatClaw Agent Windows** — PowerShell installer (`install-agent.ps1`): installs osquery (MSI silent), configures 14 collection queries (software, connections, event log, PowerShell logging, patches, services, autoexec), creates Scheduled Task (5 min sync as SYSTEM)
+- **One-liner Windows** — `$env:TC_URL='...'; $env:TC_TOKEN='...'; irm get.threatclaw.io/agent/windows | iex`
+- **Dashboard: Agent tab in Config** — new tab with: editable server URL (auto-detected), token generation, Linux/Windows install tabs with pre-filled one-liners, registered agents table with last-sync status
+- **API: GET /api/tc/webhook/token/{source}** — read existing webhook token without regenerating
+- **API: GET /api/tc/endpoint-agents** — list registered osquery agents with server IP
+
+### Changed
+- Home page: replaced large agent install block with compact link to Config > Agent tab
+- Agent descriptions clarified: the agent collects telemetry (read-only), it does not perform actions on endpoints
+
+### Fixed
+- Cloudflare Worker routes updated: `/agent/windows` serves `install-agent.ps1`
+
+---
+
 ## [1.0.1-beta] — 2026-04-16
 
 Post-launch quality release. No new features — security, stability, hygiene.

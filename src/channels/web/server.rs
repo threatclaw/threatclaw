@@ -1024,7 +1024,13 @@ pub async fn start_server(
         )
         .route(
             "/api/tc/webhook/token/{source}",
-            post(super::handlers::threatclaw_api::webhook_generate_token_handler),
+            get(super::handlers::threatclaw_api::webhook_get_token_handler)
+                .post(super::handlers::threatclaw_api::webhook_generate_token_handler),
+        )
+        // Endpoint agents (osquery-based)
+        .route(
+            "/api/tc/endpoint-agents",
+            get(super::handlers::threatclaw_api::endpoint_agents_handler),
         )
         // New enrichment APIs (web security)
         .route(

@@ -4330,6 +4330,76 @@ pub async fn webhook_generate_token_handler(
     }
 }
 
+/// GET /api/tc/webhook/token/{source} — read existing token (without regenerating)
+pub async fn webhook_get_token_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(source): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let key = format!("webhook_token_{}", source);
+    match store.get_setting("webhook_ingest", &key).await {
+        Ok(Some(val)) => {
+            let token = val.as_str().unwrap_or("").to_string();
+            Ok(Json(serde_json::json!({
+                "source": source,
+                "token": token,
+                "exists": true,
+                "endpoint": format!("/api/tc/webhook/ingest/{}", source),
+            })))
+        }
+        _ => Ok(Json(serde_json::json!({
+            "source": source,
+            "exists": false,
+        }))),
+    }
+}
+
+/// GET /api/tc/endpoint-agents — list registered osquery agents
+pub async fn endpoint_agents_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Collect all agents from _osquery_agents namespace
+    let mut agents: Vec<serde_json::Value> = Vec::new();
+    // Scan by index (agent_0, agent_1, ...)
+    for i in 0..100 {
+        let key = format!("agent_{}", i);
+        if let Ok(Some(val)) = store.get_setting("_osquery_agents", &key).await {
+            let mut entry = val.clone();
+            if let Some(obj) = entry.as_object_mut() {
+                obj.insert("agent_id".to_string(), serde_json::json!(key));
+            }
+            agents.push(entry);
+        }
+    }
+    // Also scan agent-<hostname>-<serial> patterns (agent IDs from installer)
+    // These are stored as agent_agent-<hostname>-<serial>
+    if let Ok(all) = store.list_settings("_osquery_agents").await {
+        for row in &all {
+            if row.key.starts_with("agent_agent-") {
+                let already = agents.iter().any(|a| {
+                    a["hostname"].as_str() == row.value["hostname"].as_str()
+                        && row.value["hostname"].as_str().is_some()
+                });
+                if !already {
+                    let mut entry = row.value.clone();
+                    if let Some(obj) = entry.as_object_mut() {
+                        let agent_id = row.key.strip_prefix("agent_").unwrap_or(&row.key);
+                        obj.insert("agent_id".to_string(), serde_json::json!(agent_id));
+                    }
+                    agents.push(entry);
+                }
+            }
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "agents": agents,
+        "server_ip": get_local_ip(),
+    })))
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════

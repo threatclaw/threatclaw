@@ -165,6 +165,7 @@ const T: Record<string, Record<Locale, string>> = {
   // ── Config tabs ──
   general: { fr: "General", en: "General" },
   about: { fr: "A propos", en: "About" },
+  agent: { fr: "Agent", en: "Agent" },
   tests: { fr: "Tests", en: "Tests" },
 
   // ── Status page ──
@@ -341,7 +342,6 @@ const T: Record<string, Record<Locale, string>> = {
   findings: { fr: "Findings", en: "Findings" },
   alerts: { fr: "Alertes", en: "Alerts" },
   intelligence: { fr: "Intelligence", en: "Intelligence" },
-  agent: { fr: "Agent", en: "Agent" },
   config: { fr: "Config", en: "Config" },
   lightMode: { fr: "Mode clair", en: "Light mode" },
   darkMode: { fr: "Mode sombre", en: "Dark mode" },
