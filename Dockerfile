@@ -7,7 +7,7 @@
 #   docker run --env-file .env -p 3000:3000 threatclaw:latest
 
 # Stage 1: Build
-FROM rust:1.92-slim-bookworm AS builder
+FROM rust:1.94-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev cmake gcc g++ \

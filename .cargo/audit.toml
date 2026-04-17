@@ -1,0 +1,21 @@
+# cargo-audit configuration
+# All advisories below are in OPTIONAL features (libsql, bedrock, import) not
+# enabled in the default production build (default = ["postgres", "html-to-markdown"]).
+# Direct rustls-webpki is 0.103.12 (patched).
+# Full rationale in deny.toml.
+
+[advisories]
+ignore = [
+    # rustls-webpki 0.101.x / 0.102.x — transitive via aws-smithy (bedrock)
+    # and libsql. Default build uses rustls-webpki 0.103.12 which is patched.
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+
+    # Unmaintained transitives via libsql (optional feature).
+    "RUSTSEC-2025-0141",  # bincode 1.x
+    "RUSTSEC-2025-0134",  # rustls-pemfile 2.2.0
+
+    # fxhash via wasmtime profiling. Unmaintained, not a CVE.
+    "RUSTSEC-2025-0057",
+]

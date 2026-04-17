@@ -6,6 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.5-beta] — 2026-04-17
+
+### Security
+- **Dashboard — 0 CVE** — Next.js 14.2.35 → 16.2.4 patches 5 high-severity advisories (GHSA-9g9p-9gw9-jx7f, GHSA-h25m-26qc-wcjf, GHSA-ggv3-7p47-pfv8, GHSA-3x4c-7xq6-9pq8, GHSA-q4gf-8mx6-v5v3). `npm audit` reports 0 vulnerabilities.
+- **Rust default build — 0 active CVE** — `rustls-webpki` 0.103.10 → 0.103.12 (RUSTSEC-2026-0049/0098/0099), `rand` 0.8.5 → 0.8.6 (RUSTSEC-2026-0097). `cargo audit` exit 0.
+- **libsql** 0.6.0 → 0.9.30 (optional `libsql`/`import` features)
+- Documented transitive advisories in optional features (`bedrock`, `libsql`) via `.cargo/audit.toml` with rationale — none affect the default production binary
+
+### Changed
+- **React 18 → 19** — enables new Server Components features for future work
+- **Node.js 20 → 22** on Docker images (Node 20 EOL April 2026)
+- **Turbopack** now default for Next.js builds (~2-5× faster Docker builds)
+- **Docker base images aligned and bumped** :
+  - `rust:1.92-slim-bookworm` → `rust:1.94-bookworm` (cloud Dockerfile — aligns with docker/Dockerfile)
+  - `ollama/ollama:0.20.2` → `0.21.0`
+  - `fluent/fluent-bit:3.2` → `4.2`
+  - `nginx:1.27.4-alpine` → `1.30.0-alpine`
+- `src/middleware.ts` renamed to `src/proxy.ts` (Next.js 16 convention)
+
+### Fixed
+- **Syslog ingestion from LAN devices now works** — fluent-bit was attached only to the `threatclaw-internal` network (declared `internal: true`), which caused Docker to silently drop port publishing for 514/udp, 514/tcp and 5140/udp. External syslog sources (pfSense, FortiGate, Linux rsyslog, network switches) could not reach the collector. Added a dedicated `threatclaw-ingest` network (non-internal) so fluent-bit can accept log traffic from the host network while keeping DB access via `threatclaw-internal`.
+- `lucide-react` 0.303 → 0.545 for React 19 peer dependency compatibility
+
+---
+
 ## [1.0.4-beta] — 2026-04-17
 
 ### Added
