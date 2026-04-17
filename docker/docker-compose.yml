@@ -290,7 +290,8 @@ services:
           memory: 64M
           cpus: "0.25"
     networks:
-      - threatclaw-internal
+      - threatclaw-internal   # DB connection
+      - threatclaw-ingest     # External syslog/HTTP log sources (port publishing requires non-internal)
     logging: *default-logging
 
   # ── ML Engine — Behavioral Analysis ──────────────────────
@@ -436,6 +437,8 @@ networks:
   threatclaw-internal:
     driver: bridge
     internal: true    # No internet — DB, ML, Fluent-bit, inter-service
+  threatclaw-ingest:
+    driver: bridge    # Fluent-bit only — accepts external syslog/HTTP from LAN devices (pfSense, FortiGate, Linux rsyslog)
   threatclaw-frontend:
     driver: bridge    # Nginx + Dashboard + Core — proxied to outside
   threatclaw-egress:

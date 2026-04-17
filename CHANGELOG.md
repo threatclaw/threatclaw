@@ -26,6 +26,7 @@ Earlier `v0.x` entries below reflect pre-public internal development and are kep
 - `src/middleware.ts` renamed to `src/proxy.ts` (Next.js 16 convention)
 
 ### Fixed
+- **Syslog ingestion from LAN devices now works** — fluent-bit was attached only to the `threatclaw-internal` network (declared `internal: true`), which caused Docker to silently drop port publishing for 514/udp, 514/tcp and 5140/udp. External syslog sources (pfSense, FortiGate, Linux rsyslog, network switches) could not reach the collector. Added a dedicated `threatclaw-ingest` network (non-internal) so fluent-bit can accept log traffic from the host network while keeping DB access via `threatclaw-internal`.
 - `lucide-react` 0.303 → 0.545 for React 19 peer dependency compatibility
 
 ---
