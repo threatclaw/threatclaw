@@ -9,7 +9,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Install dependencies ────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 
 RUN apk add --no-cache libc6-compat
 
@@ -31,7 +31,7 @@ RUN if [ -f pnpm-lock.yaml ]; then \
     fi
 
 # ── Stage 2: Build the Next.js application ──────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -52,7 +52,7 @@ RUN if [ -f pnpm-lock.yaml ]; then \
     fi
 
 # ── Stage 3: Production runtime ─────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 
 LABEL org.opencontainers.image.title="ThreatClaw Dashboard" \
       org.opencontainers.image.description="Security operations dashboard for ThreatClaw" \
