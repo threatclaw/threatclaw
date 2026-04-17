@@ -1,13 +1,24 @@
 [advisories]
 unmaintained = "workspace"
 yanked = "deny"
+# All advisories below are in OPTIONAL features (libsql, bedrock, import) not
+# enabled in the default production build (default = ["postgres", "html-to-markdown"]).
+# Direct rustls-webpki is 0.103.12 (patched).
 ignore = [
-    # ── rustls-webpki 0.101.7 / 0.102.8 (transitive, pinned by upstream) ──
-    # CRL Distribution Point matching bypass — affects old rustls versions
-    # pulled by libsql 0.6.0 (rustls 0.22) and aws-smithy (rustls 0.21).
-    # Our direct rustls-webpki 0.103.10 is patched. These old versions cannot
-    # be upgraded without upstream releasing new libsql/aws-sdk versions.
-    "RUSTSEC-2026-0049",
+    # ── rustls-webpki 0.101.x / 0.102.x (transitive, optional features) ──
+    # Pulled via aws-smithy (rustls 0.21) and libsql (rustls 0.22). Default
+    # build uses 0.103.12 which is patched.
+    "RUSTSEC-2026-0049",  # CRL Distribution Point bypass
+    "RUSTSEC-2026-0098",  # Name constraints URI bypass
+    "RUSTSEC-2026-0099",  # Name constraints wildcard bypass
+
+    # ── Unmaintained transitives via libsql (optional `libsql`/`import`) ──
+    "RUSTSEC-2025-0141",  # bincode 1.x unmaintained
+    "RUSTSEC-2025-0134",  # rustls-pemfile 2.2.0 unmaintained
+
+    # ── fxhash via wasmtime profiling (default build) ──
+    # Unmaintained (not a CVE). Waiting on wasmtime migration to rustc-hash.
+    "RUSTSEC-2025-0057",
 ]
 
 [licenses]
