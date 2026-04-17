@@ -29,7 +29,7 @@
 set -eo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-readonly TC_VERSION="1.0.3-beta"
+readonly TC_VERSION="1.0.4-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
 readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/main"
 readonly LOG_FILE="/var/log/threatclaw-install.log"
@@ -155,6 +155,24 @@ cmd_uninstall() {
   done
 
   # No docker image prune — could remove unrelated images on shared servers
+
+  # Remove systemd service unit
+  if [ -f /etc/systemd/system/threatclaw.service ]; then
+    systemctl disable threatclaw.service 2>/dev/null || true
+    rm -f /etc/systemd/system/threatclaw.service
+    systemctl daemon-reload 2>/dev/null || true
+    log_info "Removed systemd service"
+  fi
+
+  # Remove logrotate config + log directory
+  rm -f /etc/logrotate.d/threatclaw
+  rm -rf /var/log/threatclaw
+
+  # Remove /etc/threatclaw symlink
+  if [ -L /etc/threatclaw ]; then
+    rm -f /etc/threatclaw
+    log_info "Removed /etc/threatclaw symlink"
+  fi
 
   # Remove data directory
   if [ -d "$TC_DIR" ]; then
@@ -539,6 +557,78 @@ download_configs() {
 }
 
 # ── Start services ───────────────────────────────────────────────────────────
+setup_system_integration() {
+  log_step "Setting up system integration..."
+
+  # 1. /etc/threatclaw symlink → /opt/threatclaw
+  # Makes config discoverable by sysadmins via the standard FHS location
+  if [ ! -e /etc/threatclaw ] && [ ! -L /etc/threatclaw ]; then
+    ln -s "$TC_DIR" /etc/threatclaw
+    log_info "Created symlink /etc/threatclaw -> ${TC_DIR}"
+  elif [ -L /etc/threatclaw ]; then
+    log_info "/etc/threatclaw symlink already exists"
+  else
+    log_warn "/etc/threatclaw exists and is not a symlink — skipping"
+  fi
+
+  # 2. /var/log/threatclaw/ — aggregated runtime logs
+  # Fluent-bit and containers can redirect here for persistence across recreate
+  mkdir -p /var/log/threatclaw
+  chmod 755 /var/log/threatclaw
+  log_info "Created /var/log/threatclaw/ for runtime log persistence"
+
+  # 3. logrotate config — prevent logs from growing unbounded
+  local logrotate_conf="/etc/logrotate.d/threatclaw"
+  if [ ! -f "$logrotate_conf" ]; then
+    cat > "$logrotate_conf" <<'LOGROTATE'
+/var/log/threatclaw/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    sharedscripts
+}
+LOGROTATE
+    log_info "Installed logrotate config at ${logrotate_conf}"
+  fi
+
+  # 4. systemd service unit — auto-start on reboot
+  local systemd_unit="/etc/systemd/system/threatclaw.service"
+  if command -v systemctl >/dev/null 2>&1; then
+    cat > "$systemd_unit" <<SYSTEMD
+[Unit]
+Description=ThreatClaw — Autonomous Cybersecurity Agent
+Documentation=https://threatclaw.io
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=${TC_DIR}
+ExecStart=/usr/bin/docker compose up -d
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+    systemctl daemon-reload
+    systemctl enable threatclaw.service >/dev/null 2>&1
+    log_info "Installed systemd service — ThreatClaw will auto-start on reboot"
+    log_info "  Check status: systemctl status threatclaw"
+    log_info "  Manual stop:  systemctl stop threatclaw"
+  else
+    log_warn "systemctl not found — auto-start on reboot not configured"
+  fi
+}
+
 start_services() {
   log_step "Starting ThreatClaw..."
   cd "$TC_DIR"
@@ -649,9 +739,10 @@ print_success() {
   fi
 
   echo -e "  ${BOLD}Paths:${NC}"
-  echo -e "    Config & data:  ${TC_DIR}"
+  echo -e "    Config & data:  ${TC_DIR} (also accessible via /etc/threatclaw)"
   echo -e "    Docker storage: ${docker_root}"
-  echo -e "    Logs:           cd ${TC_DIR} && docker compose logs -f"
+  echo -e "    Runtime logs:   /var/log/threatclaw/ (rotation: 14 days)"
+  echo -e "    Container logs: cd ${TC_DIR} && docker compose logs -f"
   echo ""
   echo -e "  ${BOLD}Next steps:${NC}"
   echo -e "    1. Open the dashboard and create your admin account"
@@ -659,10 +750,10 @@ print_success() {
   echo -e "    3. Configure log sources (syslog) and connectors (Wazuh, etc.)"
   echo ""
   echo -e "  ${BOLD}Commands:${NC}"
-  echo "    cd ${TC_DIR} && docker compose ps          # Service status"
+  echo "    systemctl status threatclaw                 # Service status (auto-start on reboot)"
+  echo "    systemctl restart threatclaw                # Restart"
+  echo "    cd ${TC_DIR} && docker compose ps           # Detailed container status"
   echo "    cd ${TC_DIR} && docker compose logs -f      # Live logs"
-  echo "    cd ${TC_DIR} && docker compose restart      # Restart"
-  echo "    cd ${TC_DIR} && docker compose down         # Stop"
   echo ""
   local data_flag=""
   if [ "$TC_DIR" != "$DEFAULT_DIR" ]; then
@@ -710,6 +801,7 @@ main() {
   detect_proxy
   download_configs
   start_services
+  setup_system_integration
   print_success
 }
 
