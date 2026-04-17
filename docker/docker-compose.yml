@@ -206,7 +206,7 @@ services:
   # ── Ollama — Local LLM ──────────────────────────────────
   ollama:
     <<: *security-defaults
-    image: ollama/ollama:0.20.2
+    image: ollama/ollama:0.21.0
     cap_add:
       - NET_BIND_SERVICE
     expose:
@@ -253,7 +253,7 @@ services:
   # ── Fluent Bit — Syslog & Log Collector ─────────────────
   fluent-bit:
     <<: *security-defaults
-    image: fluent/fluent-bit:3.2
+    image: fluent/fluent-bit:4.2
     cap_add:
       - NET_BIND_SERVICE
       - DAC_READ_SEARCH
@@ -335,7 +335,7 @@ services:
   # ── Nginx Reverse Proxy (HTTPS) ────────────────────────────
   nginx:
     <<: *security-defaults
-    image: nginx:1.27.4-alpine
+    image: nginx:1.30.0-alpine
     cap_add:
       - NET_BIND_SERVICE
       - CHOWN
