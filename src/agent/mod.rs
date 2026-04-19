@@ -41,6 +41,7 @@ pub mod ip_classifier;
 pub mod job_monitor;
 pub mod kill_switch;
 pub mod llm_router;
+pub mod llm_schemas;
 pub mod memory;
 pub mod mode_manager;
 pub mod nace_profiles;
