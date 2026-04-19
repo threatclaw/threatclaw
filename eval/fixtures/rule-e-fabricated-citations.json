@@ -1,0 +1,30 @@
+{
+  "name": "rule-e-fabricated-citations",
+  "description": "LLM confirmed with citation pointing at alert_id 999 that does NOT exist in dossier: rule E downgrades.",
+  "dossier": {
+    "global_score": 50.0,
+    "ml_anomaly_score": 0.5,
+    "sigma_alert_ids": [
+      { "id": 42, "level": "medium" }
+    ],
+    "finding_ids": [],
+    "kev_cves": []
+  },
+  "llm_output": {
+    "verdict": "confirmed",
+    "severity": "HIGH",
+    "confidence": 0.85,
+    "mitre_techniques": [],
+    "cves": [],
+    "evidence_citations": [
+      { "claim": "13 failed auths", "evidence_type": "alert", "evidence_id": "999" }
+    ]
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "inconclusive",
+    "final_severity": "MEDIUM",
+    "rule_code": "rule_e_fabricated_citations",
+    "applied": true
+  }
+}
