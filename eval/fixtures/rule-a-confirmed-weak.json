@@ -1,0 +1,26 @@
+{
+  "name": "rule-a-confirmed-weak",
+  "description": "LLM says 'confirmed HIGH' but all deterministic signals are weak: rule A must downgrade in Strict mode.",
+  "dossier": {
+    "global_score": 15.0,
+    "ml_anomaly_score": 0.1,
+    "sigma_alert_ids": [],
+    "finding_ids": [],
+    "kev_cves": []
+  },
+  "llm_output": {
+    "verdict": "confirmed",
+    "severity": "HIGH",
+    "confidence": 0.92,
+    "mitre_techniques": ["T1110"],
+    "cves": [],
+    "evidence_citations": []
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "inconclusive",
+    "final_severity": "MEDIUM",
+    "rule_code": "rule_a_confirmed_but_weak",
+    "applied": true
+  }
+}
