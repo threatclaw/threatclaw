@@ -38,9 +38,7 @@ pub fn parse_or_repair(json_str: &str) -> Result<Value, String> {
     match serde_json::from_str::<Value>(json_str) {
         Ok(v) => Ok(v),
         Err(primary_err) => {
-            tracing::warn!(
-                "LLM JSON parse failed, attempting repair via llm_json: {primary_err}"
-            );
+            tracing::warn!("LLM JSON parse failed, attempting repair via llm_json: {primary_err}");
             match llm_json::repair_json(json_str, &Default::default()) {
                 Ok(repaired) => {
                     let candidate: Value = serde_json::from_str(&repaired).map_err(|e| {

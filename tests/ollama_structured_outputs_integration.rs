@@ -46,15 +46,17 @@ async fn triage_schema_is_enforced_by_ollama() {
         .await
         .expect("Ollama call failed — is it running and is the model pulled?");
 
-    eprintln!("\n=== Ollama response (len={}) ===\n{raw}\n================\n", raw.len());
+    eprintln!(
+        "\n=== Ollama response (len={}) ===\n{raw}\n================\n",
+        raw.len()
+    );
 
     // Step 1: the response must be valid JSON.
     let parsed: serde_json::Value =
         serde_json::from_str(&raw).expect("response must parse as JSON (FSM-guaranteed)");
 
     // Step 2: the response must validate against the triage schema.
-    let validator = jsonschema::validator_for(&triage_schema())
-        .expect("triage_schema compiles");
+    let validator = jsonschema::validator_for(&triage_schema()).expect("triage_schema compiles");
 
     if !validator.is_valid(&parsed) {
         let errors: Vec<String> = validator

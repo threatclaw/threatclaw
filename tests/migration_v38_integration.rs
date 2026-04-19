@@ -55,9 +55,8 @@ async fn v38_seeds_validation_mode_off() {
         .await
         .expect("get_setting should not fail on a healthy store");
 
-    let raw = value.expect(
-        "V38 migration must seed `tc_config_llm_validation_mode` for the _system scope",
-    );
+    let raw = value
+        .expect("V38 migration must seed `tc_config_llm_validation_mode` for the _system scope");
 
     assert_eq!(
         raw,

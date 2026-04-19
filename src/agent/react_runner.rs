@@ -680,11 +680,7 @@ async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<Llm
 /// Thin wrapper autour de [`call_ollama_with_schema`] avec `schema = None`.
 /// Conserve la compatibilité 100% avec les appelants historiques qui
 /// n'ont pas besoin de contrainte structurelle forte (ex: shift_report).
-pub async fn call_ollama(
-    base_url: &str,
-    model: &str,
-    prompt: &str,
-) -> Result<String, String> {
+pub async fn call_ollama(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
     call_ollama_with_schema(base_url, model, prompt, None).await
 }
 

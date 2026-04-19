@@ -540,8 +540,8 @@ mod tests {
     #[test]
     fn test_rule_b_escalates_false_positive_on_strong_signals() {
         let llm = snap("false_positive", "LOW", 0.9);
-        let m = rule_b_false_positive_but_strong(&llm, &signals_strong())
-            .expect("rule must trigger");
+        let m =
+            rule_b_false_positive_but_strong(&llm, &signals_strong()).expect("rule must trigger");
         assert_eq!(m.new_verdict, "inconclusive");
         assert_eq!(m.new_severity, "HIGH");
         assert!((m.new_confidence - 0.72).abs() < 1e-9);
@@ -594,8 +594,8 @@ mod tests {
         let llm = snap("confirmed", "HIGH", 0.9);
         let mut s = signals_weak();
         s.validation_error_count = 2;
-        let m = rule_d_validation_errors(&llm, &s, ValidationMode::Strict)
-            .expect("rule must trigger");
+        let m =
+            rule_d_validation_errors(&llm, &s, ValidationMode::Strict).expect("rule must trigger");
         assert_eq!(m.new_verdict, "inconclusive");
         assert!((m.new_confidence - 0.54).abs() < 1e-9);
     }

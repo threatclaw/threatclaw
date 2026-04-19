@@ -18,9 +18,7 @@
 
 use serde_json::json;
 
-use threatclaw::agent::validators::{
-    ErrorKind, cve, mitre, validate_parsed_response,
-};
+use threatclaw::agent::validators::{ErrorKind, cve, mitre, validate_parsed_response};
 use threatclaw::config::{DatabaseBackend, DatabaseConfig, SslMode};
 use threatclaw::db::postgres::PgBackend;
 use threatclaw::db::{Database, SettingsStore};

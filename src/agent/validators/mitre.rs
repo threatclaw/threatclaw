@@ -28,9 +28,7 @@ pub fn validate_format(field: &str, id: &str) -> Result<(), ValidationError> {
             field: field.to_string(),
             value: id.to_string(),
             kind: ErrorKind::InvalidFormat,
-            message: format!(
-                "{id:?} does not match the MITRE technique shape T#### or T####.###"
-            ),
+            message: format!("{id:?} does not match the MITRE technique shape T#### or T####.###"),
         })
     }
 }

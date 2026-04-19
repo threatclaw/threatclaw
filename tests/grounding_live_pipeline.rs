@@ -256,8 +256,7 @@ async fn live_ssh_brute_force_lenient_then_strict() {
     eprintln!("===============================");
 
     // Strict pass (same LLM output replayed for comparison).
-    let (_, _, final_strict, _, rule_strict) =
-        run_pipeline(&raw, &dossier, ValidationMode::Strict);
+    let (_, _, final_strict, _, rule_strict) = run_pipeline(&raw, &dossier, ValidationMode::Strict);
     eprintln!("\n=== STRICT PIPELINE RESULT ===");
     eprintln!("  Final verdict (APPLIED in Strict): {final_strict}");
     eprintln!("  Rule code: {rule_strict}");
@@ -301,7 +300,10 @@ async fn live_adversarial_rule_triggers() {
     // Get a real LLM response to use as base shape.
     let raw = match call_ollama_with_schema(&url, &model, &prompt, Some(forensic_schema())).await {
         Ok(r) => r,
-        Err(e) if e.contains("vocabulary required for format") || e.contains("runner has unexpectedly stopped") => {
+        Err(e)
+            if e.contains("vocabulary required for format")
+                || e.contains("runner has unexpectedly stopped") =>
+        {
             eprintln!("  (model has FSM/schema issues, using legacy JSON mode)");
             call_ollama_with_schema(&url, &model, &prompt, None)
                 .await
@@ -312,7 +314,10 @@ async fn live_adversarial_rule_triggers() {
 
     let json_str = strip_markdown_fences(&raw);
     let base: serde_json::Value = parse_or_repair(json_str).expect("parse base");
-    eprintln!("\n=== BASE LLM OUTPUT ===\n{}\n=======================", serde_json::to_string_pretty(&base).unwrap());
+    eprintln!(
+        "\n=== BASE LLM OUTPUT ===\n{}\n=======================",
+        serde_json::to_string_pretty(&base).unwrap()
+    );
 
     // ── Adversarial variant 1: force rule A (confirmed + weak signals) ──
     let mut v1 = base.clone();

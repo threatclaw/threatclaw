@@ -3,8 +3,8 @@
 #![cfg(feature = "postgres")]
 
 use threatclaw::config::{DatabaseBackend, DatabaseConfig, SslMode};
-use threatclaw::db::postgres::PgBackend;
 use threatclaw::db::Database;
+use threatclaw::db::postgres::PgBackend;
 
 fn load_database_config() -> DatabaseConfig {
     let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
