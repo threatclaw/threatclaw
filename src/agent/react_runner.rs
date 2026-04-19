@@ -694,12 +694,24 @@ pub async fn call_ollama(
 ///
 /// Si `schema` est `None`, on retombe sur le mode legacy `format: "json"`
 /// (pas de contrainte structurelle, juste un hint au sampler).
+#[tracing::instrument(
+    name = "call_ollama_with_schema",
+    skip(prompt, schema),
+    fields(
+        gen_ai_system = "ollama",
+        gen_ai_request_model = %model,
+        threatclaw_schema_used = schema.is_some(),
+        threatclaw_prompt_len = prompt.len(),
+    ),
+)]
 pub async fn call_ollama_with_schema(
     base_url: &str,
     model: &str,
     prompt: &str,
     schema: Option<serde_json::Value>,
 ) -> Result<String, String> {
+    let _call_start = std::time::Instant::now();
+    let _schema_used = schema.is_some();
     let url = format!("{}/api/chat", base_url);
 
     // Keep-alive strategy: by default L0/L1 stay resident (avoid cold-start lag
@@ -764,6 +776,22 @@ pub async fn call_ollama_with_schema(
     // Chat API: response is in message.content
     if let Some(content) = data["message"]["content"].as_str() {
         if !content.is_empty() {
+            let llm_level = if model.starts_with("qwen") {
+                "L1"
+            } else if model.to_lowercase().contains("foundation") {
+                "L2"
+            } else {
+                "L0"
+            };
+            crate::telemetry::log_llm_call(
+                "ollama",
+                model,
+                llm_level,
+                prompt,
+                content.len(),
+                _call_start.elapsed().as_millis(),
+                _schema_used,
+            );
             return Ok(content.to_string());
         }
     }
