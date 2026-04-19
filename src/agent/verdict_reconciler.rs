@@ -239,6 +239,74 @@ pub fn rule_d_validation_errors(
     })
 }
 
+/// Outcome of a full reconciliation run.
+#[derive(Debug, Clone)]
+pub struct ReconciliationOutcome {
+    pub log: ReconciliationLog,
+    /// Whether the caller should apply the modification (true only in
+    /// Strict mode with a rule match).
+    pub apply: bool,
+}
+
+/// Run the full rule cascade and produce a log + outcome.
+///
+/// Priority order (first match wins):
+///   D (strict-only validation errors) → A → B → C
+///
+/// In Lenient mode the rules still run and the log records their verdict,
+/// but `apply` is `false` so the caller keeps the LLM output. In Off mode
+/// we short-circuit and return an empty log with `apply=false`.
+pub fn reconcile_verdict(
+    llm: &LlmVerdictSnapshot,
+    dossier: &IncidentDossier,
+    report: &ValidationReport,
+    mode: ValidationMode,
+) -> ReconciliationOutcome {
+    let signals = SignalsSnapshot::from_context(dossier, report);
+
+    if mode == ValidationMode::Off {
+        return ReconciliationOutcome {
+            log: ReconciliationLog {
+                mode,
+                applied: false,
+                original: llm.clone(),
+                reconciled: llm.clone(),
+                signals,
+                modification: None,
+            },
+            apply: false,
+        };
+    }
+
+    let modification = rule_d_validation_errors(llm, &signals, mode)
+        .or_else(|| rule_a_confirmed_but_weak(llm, &signals))
+        .or_else(|| rule_b_false_positive_but_strong(llm, &signals))
+        .or_else(|| rule_c_inconclusive_but_kev(llm, &signals));
+
+    let reconciled = match &modification {
+        Some(m) => LlmVerdictSnapshot {
+            verdict: m.new_verdict.clone(),
+            severity: m.new_severity.clone(),
+            confidence: m.new_confidence,
+        },
+        None => llm.clone(),
+    };
+
+    let apply = mode == ValidationMode::Strict && modification.is_some();
+
+    ReconciliationOutcome {
+        log: ReconciliationLog {
+            mode,
+            applied: apply,
+            original: llm.clone(),
+            reconciled,
+            signals,
+            modification,
+        },
+        apply,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,5 +578,63 @@ mod tests {
         let llm = snap("confirmed", "HIGH", 0.9);
         let s = signals_weak(); // validation_error_count = 0
         assert!(rule_d_validation_errors(&llm, &s, ValidationMode::Strict).is_none());
+    }
+
+    #[test]
+    fn test_reconcile_off_mode_is_noop() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let dossier = empty_dossier();
+        let report = ValidationReport::default();
+        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Off);
+        assert!(!outcome.apply);
+        assert!(outcome.log.modification.is_none());
+        assert_eq!(outcome.log.reconciled, llm);
+    }
+
+    #[test]
+    fn test_reconcile_lenient_logs_but_does_not_apply() {
+        // Rule A should trigger but apply=false in Lenient.
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let dossier = empty_dossier(); // weak signals
+        let report = ValidationReport::default();
+        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Lenient);
+        assert!(!outcome.apply);
+        assert!(outcome.log.modification.is_some());
+        assert_eq!(
+            outcome.log.modification.as_ref().unwrap().reason_code,
+            "rule_a_confirmed_but_weak"
+        );
+    }
+
+    #[test]
+    fn test_reconcile_strict_applies_modification() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let dossier = empty_dossier();
+        let report = ValidationReport::default();
+        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Strict);
+        assert!(outcome.apply);
+        assert_eq!(outcome.log.reconciled.verdict, "inconclusive");
+    }
+
+    #[test]
+    fn test_reconcile_priority_d_over_a() {
+        // Build a case where BOTH rule D and rule A would match.
+        // In Strict mode, rule D must win (priority).
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let dossier = empty_dossier(); // weak → rule A would match
+        let mut report = ValidationReport::default();
+        report.push_error(crate::agent::validators::ValidationError {
+            field: "x".into(),
+            value: "y".into(),
+            kind: crate::agent::validators::ErrorKind::InvalidFormat,
+            message: "m".into(),
+        });
+        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Strict);
+        assert!(outcome.apply);
+        assert_eq!(
+            outcome.log.modification.as_ref().unwrap().reason_code,
+            "rule_d_validation_errors",
+            "rule D must win over rule A when both apply"
+        );
     }
 }
