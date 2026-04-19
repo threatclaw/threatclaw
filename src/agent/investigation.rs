@@ -277,7 +277,7 @@ pub async fn run_investigation(
         };
 
         // Parse LLM response
-        let parsed = match parse_llm_response(&llm_raw) {
+        let mut parsed = match parse_llm_response(&llm_raw) {
             Ok(p) => p,
             Err(e) => {
                 warn!("INVESTIGATION: Parse failed (iter {iteration}): {e}");
@@ -296,17 +296,17 @@ pub async fn run_investigation(
             parsed.skill_requests.len()
         );
 
-        // ── Phase 2: typed validation (controlled by tc_config_llm_validation_mode) ──
+        // ── Phase 2 + 3 : validation typée + reconciler ──
+        // (contrôlé par tc_config_llm_validation_mode ; Off court-circuite tout)
         let validation_mode =
             crate::agent::validation_mode::load_validation_mode(store.as_ref()).await;
         if validation_mode != crate::agent::validation_mode::ValidationMode::Off {
-            // Re-parse the raw LLM response into a generic Value for validation
-            // (ParsedLlmResponse has already lost field structure).
             let json_str = crate::agent::llm_parsing::strip_markdown_fences(&llm_raw);
             if let Ok(generic) = crate::agent::llm_parsing::parse_or_repair(json_str) {
                 let report =
                     crate::agent::validators::validate_parsed_response(&generic, store.as_ref())
                         .await;
+
                 if !report.is_clean() {
                     warn!(
                         "INVESTIGATION: validation report (mode={:?}) errors={} warnings={}",
@@ -326,12 +326,50 @@ pub async fn run_investigation(
                             warn_item.field, warn_item.value, warn_item.message
                         );
                     }
-                    // Phase 3 will reconcile the verdict based on this report.
-                    // Phase 2 only logs for now — strict mode behavior is a
-                    // phase-3 responsibility (reconcile_verdict will consume
-                    // the report).
                 } else {
                     tracing::debug!("INVESTIGATION: validation clean");
+                }
+
+                // Phase 3 : reconciler the LLM verdict against deterministic signals.
+                let llm_snapshot = crate::agent::verdict_reconciler::LlmVerdictSnapshot {
+                    verdict: parsed.verdict.clone(),
+                    severity: parsed.severity.clone(),
+                    confidence: parsed.confidence,
+                };
+                let outcome = crate::agent::verdict_reconciler::reconcile_verdict(
+                    &llm_snapshot,
+                    &dossier,
+                    &report,
+                    validation_mode,
+                );
+
+                if let Some(modif) = &outcome.log.modification {
+                    warn!(
+                        "INVESTIGATION: reconciler matched '{}' (apply={}): {} -> {} (conf {:.2} -> {:.2})",
+                        modif.reason_code,
+                        outcome.apply,
+                        outcome.log.original.verdict,
+                        outcome.log.reconciled.verdict,
+                        outcome.log.original.confidence,
+                        outcome.log.reconciled.confidence,
+                    );
+                } else {
+                    tracing::debug!(
+                        "INVESTIGATION: reconciler clean (no rule matched, mode={:?})",
+                        validation_mode
+                    );
+                }
+
+                // Strict mode: mutate `parsed` so the downstream match that
+                // builds the InvestigationVerdict uses the reconciled values.
+                if outcome.apply {
+                    parsed.verdict = outcome.log.reconciled.verdict.clone();
+                    parsed.severity = outcome.log.reconciled.severity.clone();
+                    parsed.confidence = outcome.log.reconciled.confidence;
+                    info!(
+                        "INVESTIGATION: reconciler applied in STRICT mode — verdict is now '{}'",
+                        parsed.verdict
+                    );
                 }
             }
         }
