@@ -280,3 +280,179 @@ async fn live_ssh_brute_force_lenient_then_strict() {
         "LLM must respect the enum (schema FSM guarantee): got {original_lenient}"
     );
 }
+
+/// Adversarial post-parse mutation test.
+///
+/// We take a real Ollama response (to start from realistic JSON shape)
+/// then MUTATE it in three ways to force rule A / D / E to trigger.
+/// Each variant is run through the pipeline and we assert the expected
+/// rule fires in Strict mode.
+///
+/// This exercises the grounding layer end-to-end without relying on the
+/// LLM to spontaneously produce adversarial output.
+#[tokio::test]
+#[ignore]
+async fn live_adversarial_rule_triggers() {
+    let url = ollama_url();
+    let model = ollama_model();
+    let dossier = brute_force_dossier();
+    let prompt = brute_force_prompt();
+
+    // Get a real LLM response to use as base shape.
+    let raw = match call_ollama_with_schema(&url, &model, &prompt, Some(forensic_schema())).await {
+        Ok(r) => r,
+        Err(e) if e.contains("vocabulary required for format") || e.contains("runner has unexpectedly stopped") => {
+            eprintln!("  (model has FSM/schema issues, using legacy JSON mode)");
+            call_ollama_with_schema(&url, &model, &prompt, None)
+                .await
+                .expect("legacy JSON mode must succeed")
+        }
+        Err(e) => panic!("Ollama call failed: {e}"),
+    };
+
+    let json_str = strip_markdown_fences(&raw);
+    let base: serde_json::Value = parse_or_repair(json_str).expect("parse base");
+    eprintln!("\n=== BASE LLM OUTPUT ===\n{}\n=======================", serde_json::to_string_pretty(&base).unwrap());
+
+    // ── Adversarial variant 1: force rule A (confirmed + weak signals) ──
+    let mut v1 = base.clone();
+    if let Some(obj) = v1.as_object_mut() {
+        obj.insert("verdict".into(), serde_json::json!("confirmed"));
+        obj.insert("severity".into(), serde_json::json!("HIGH"));
+        obj.insert("confidence".into(), serde_json::json!(0.92));
+    }
+    // Use a weak-signals dossier for this variant.
+    let weak_dossier = {
+        let mut d = dossier.clone();
+        d.global_score = 15.0;
+        d.asset_score = 15.0;
+        d.ml_scores.anomaly_score = 0.1;
+        d.sigma_alerts.clear();
+        d.findings.clear();
+        d
+    };
+    let (_, _, final_a, original_a, rule_a) =
+        run_pipeline_from_value(&v1, &weak_dossier, ValidationMode::Strict);
+    eprintln!(
+        "\n=== ADVERSARIAL #1 (confirmed + weak signals) ===\n  LLM: {original_a} -> Strict: {final_a} (rule: {rule_a})\n================================================="
+    );
+    assert_eq!(
+        rule_a, "rule_a_confirmed_but_weak",
+        "rule A must trigger on confirmed + weak signals"
+    );
+    assert_eq!(final_a, "inconclusive", "rule A downgrades to inconclusive");
+
+    // ── Adversarial variant 2: force rule D (malformed MITRE) ──
+    let mut v2 = base.clone();
+    if let Some(obj) = v2.as_object_mut() {
+        obj.insert("verdict".into(), serde_json::json!("confirmed"));
+        obj.insert("severity".into(), serde_json::json!("HIGH"));
+        obj.insert("confidence".into(), serde_json::json!(0.88));
+        obj.insert(
+            "mitre_techniques".into(),
+            serde_json::json!(["T10555"]), // 5 digits → malformed
+        );
+    }
+    let (_, _, final_d, original_d, rule_d) =
+        run_pipeline_from_value(&v2, &weak_dossier, ValidationMode::Strict);
+    eprintln!(
+        "\n=== ADVERSARIAL #2 (confirmed + malformed MITRE T10555) ===\n  LLM: {original_d} -> Strict: {final_d} (rule: {rule_d})\n==========================================================="
+    );
+    assert_eq!(
+        rule_d, "rule_d_validation_errors",
+        "rule D must trigger on malformed MITRE"
+    );
+
+    // ── Adversarial variant 3: force rule E (fabricated citation) ──
+    let mut v3 = base.clone();
+    if let Some(obj) = v3.as_object_mut() {
+        obj.insert("verdict".into(), serde_json::json!("confirmed"));
+        obj.insert("severity".into(), serde_json::json!("HIGH"));
+        obj.insert("confidence".into(), serde_json::json!(0.85));
+        obj.insert(
+            "evidence_citations".into(),
+            serde_json::json!([
+                {
+                    "claim": "13 failed auths",
+                    "evidence_type": "alert",
+                    "evidence_id": "999"  // doesn't exist in dossier
+                }
+            ]),
+        );
+    }
+    let (_, _, final_e, original_e, rule_e) =
+        run_pipeline_from_value(&v3, &dossier, ValidationMode::Strict);
+    eprintln!(
+        "\n=== ADVERSARIAL #3 (confirmed + fabricated citation alert_id=999) ===\n  LLM: {original_e} -> Strict: {final_e} (rule: {rule_e})\n====================================================================="
+    );
+    assert_eq!(
+        rule_e, "rule_e_fabricated_citations",
+        "rule E must trigger on fabricated citation"
+    );
+    assert_eq!(final_e, "inconclusive", "rule E downgrades to inconclusive");
+
+    eprintln!("\n✅ All 3 adversarial rule triggers validated end-to-end.");
+}
+
+fn run_pipeline_from_value(
+    v: &serde_json::Value,
+    dossier: &IncidentDossier,
+    mode: ValidationMode,
+) -> (ValidationReport, usize, String, String, String) {
+    // Mirror run_pipeline() but take a pre-parsed value.
+    let mut report = ValidationReport::default();
+    if let Some(arr) = v.get("mitre_techniques").and_then(|x| x.as_array()) {
+        for (i, item) in arr.iter().enumerate() {
+            let field = format!("mitre_techniques[{i}]");
+            if let Some(id) = item.as_str() {
+                if let Err(e) = validators::mitre::validate_format(&field, id) {
+                    report.push_error(e);
+                }
+            }
+        }
+    }
+    if let Some(arr) = v.get("cves").and_then(|x| x.as_array()) {
+        for (i, item) in arr.iter().enumerate() {
+            let field = format!("cves[{i}]");
+            if let Some(id) = item.as_str() {
+                if let Err(e) = validators::cve::validate_format(&field, id) {
+                    report.push_error(e);
+                }
+            }
+        }
+    }
+    let citations: Vec<EvidenceCitation> = v
+        .get("evidence_citations")
+        .and_then(|c| serde_json::from_value(c.clone()).ok())
+        .unwrap_or_default();
+    let citation_report = evidence_tracker::validate_citations(&citations, dossier);
+    let fab_count = citation_report.fabricated_count();
+    let llm = LlmVerdictSnapshot {
+        verdict: v
+            .get("verdict")
+            .and_then(|x| x.as_str())
+            .unwrap_or("inconclusive")
+            .to_string(),
+        severity: v
+            .get("severity")
+            .and_then(|x| x.as_str())
+            .unwrap_or("MEDIUM")
+            .to_string(),
+        confidence: v.get("confidence").and_then(|x| x.as_f64()).unwrap_or(0.5),
+    };
+    let outcome =
+        verdict_reconciler::reconcile_verdict(&llm, dossier, &report, &citation_report, mode);
+    let rule_code = outcome
+        .log
+        .modification
+        .as_ref()
+        .map(|m| m.reason_code.clone())
+        .unwrap_or_else(|| "none".into());
+    (
+        report,
+        fab_count,
+        outcome.log.reconciled.verdict.clone(),
+        outcome.log.original.verdict.clone(),
+        rule_code,
+    )
+}
