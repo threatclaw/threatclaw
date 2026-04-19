@@ -169,6 +169,41 @@ pub fn rule_b_false_positive_but_strong(
     }
 }
 
+/// Rule C: LLM stays `inconclusive` but a CISA KEV-listed CVE was found
+/// AND the overall score is high.
+///
+/// Triggers when ALL of:
+/// - LLM verdict = "inconclusive"
+/// - global_score > 70
+/// - kev_cve_count >= 1
+///
+/// Upgrades to `confirmed MEDIUM` with confidence clamped to [0.60, 0.75]
+/// (we trust the deterministic signals, but not enough to claim CRITICAL).
+pub fn rule_c_inconclusive_but_kev(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "inconclusive" {
+        return None;
+    }
+    if signals.global_score > 70.0 && signals.kev_cve_count >= 1 {
+        let new_confidence = llm.confidence.max(0.6).min(0.75);
+        Some(Modification {
+            new_verdict: "confirmed".into(),
+            new_severity: "MEDIUM".into(),
+            new_confidence,
+            reason_code: "rule_c_inconclusive_but_kev".into(),
+            reason_text: format!(
+                "LLM was uncertain but signals override: global_score={:.1} (> 70), \
+                 CISA KEV CVE count={}",
+                signals.global_score, signals.kev_cve_count
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +421,33 @@ mod tests {
         s.ml_anomaly_score = 0.85; // not strictly > 0.85
         let llm = snap("false_positive", "LOW", 0.9);
         assert!(rule_b_false_positive_but_strong(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_c_upgrades_inconclusive_on_kev_plus_score() {
+        let llm = snap("inconclusive", "MEDIUM", 0.5);
+        let mut s = signals_strong();
+        s.kev_cve_count = 1;
+        let m = rule_c_inconclusive_but_kev(&llm, &s).expect("rule must trigger");
+        assert_eq!(m.new_verdict, "confirmed");
+        assert_eq!(m.new_severity, "MEDIUM");
+        assert!(m.new_confidence <= 0.75);
+        assert!(m.new_confidence >= 0.6);
+    }
+
+    #[test]
+    fn test_rule_c_skips_without_kev() {
+        let llm = snap("inconclusive", "MEDIUM", 0.4);
+        let mut s = signals_strong();
+        s.kev_cve_count = 0;
+        assert!(rule_c_inconclusive_but_kev(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_c_skips_when_score_insufficient() {
+        let llm = snap("inconclusive", "MEDIUM", 0.4);
+        let mut s = signals_strong();
+        s.global_score = 60.0; // <= 70
+        assert!(rule_c_inconclusive_but_kev(&llm, &s).is_none());
     }
 }
