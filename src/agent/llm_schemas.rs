@@ -19,6 +19,22 @@
 //! All three share a common "severity + confidence + analysis" core. Verdict
 //! enum values are lowercase + underscores to match the prompt contract
 //! documented in `src/agent/prompt_builder.rs`.
+//!
+//! **Note on regex patterns (v1.1.0-beta / post-Phase 6 debug)** :
+//! We deliberately do NOT embed `pattern` regex constraints for MITRE IDs,
+//! CVE IDs, or hashes in these schemas. Reason:
+//! - llama.cpp's JSON-Schema → GBNF compiler chokes on `\d` / `\s` escapes
+//!   and stack-overflows on certain regex shapes (see ollama#12422 and
+//!   llama.cpp#19010 — closed "not planned" as of Jan 2026).
+//! - The crash manifests as SIGSEGV on mistral-small:24b and
+//!   "failed to load model vocabulary required for format" on qwen3:14b.
+//! - Phase 2 `validators::{mitre,cve,hash}::validate_format()` perform the
+//!   exact same regex checks in pure Rust post-parse, with zero chance of
+//!   crashing the LLM runtime.
+//!
+//! Net effect: the FSM sampler still enforces enums + types + lengths +
+//! `required` fields, and Phase 2 validators catch every regex-shaped
+//! violation downstream. No loss of grounding strength.
 
 use serde_json::{Value, json};
 
@@ -46,12 +62,11 @@ pub fn triage_schema() -> Value {
             },
             "analysis": {
                 "type": "string",
-                "minLength": 5,
-                "maxLength": 2000
+                "minLength": 5
             },
             "correlations": {
                 "type": "array",
-                "items": { "type": "string", "maxLength": 500 }
+                "items": { "type": "string" }
             },
             "needs_more_info": { "type": "boolean" },
             "skill_requests": {
@@ -105,22 +120,15 @@ pub fn forensic_schema() -> Value {
             },
             "analysis": {
                 "type": "string",
-                "minLength": 10,
-                "maxLength": 4000
+                "minLength": 10
             },
             "mitre_techniques": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "pattern": "^T\\d{4}(\\.\\d{3})?$"
-                }
+                "items": { "type": "string", "minLength": 5 }
             },
             "cves": {
                 "type": "array",
-                "items": {
-                    "type": "string",
-                    "pattern": "^CVE-\\d{4}-\\d{4,}$"
-                }
+                "items": { "type": "string", "minLength": 13 }
             },
             "iocs": {
                 "type": "array",
@@ -194,12 +202,11 @@ pub fn verdict_schema() -> Value {
             },
             "analysis": {
                 "type": "string",
-                "minLength": 10,
-                "maxLength": 4000
+                "minLength": 10
             },
             "mitre_techniques": {
                 "type": "array",
-                "items": { "type": "string", "pattern": "^T\\d{4}(\\.\\d{3})?$" }
+                "items": { "type": "string", "minLength": 5 }
             },
             "evidence_citations": {
                 "type": "array",
@@ -307,23 +314,25 @@ mod tests {
     }
 
     #[test]
-    fn test_forensic_rejects_malformed_mitre_id() {
+    fn test_forensic_rejects_too_short_mitre_id() {
+        // minLength 5 still rejects obviously-too-short values ("T1").
         let validator = compile(&forensic_schema());
         let instance = json!({
             "verdict": "confirmed",
             "severity": "HIGH",
             "confidence": 0.8,
             "analysis": "some activity detected",
-            "mitre_techniques": ["T1055.999", "NOT_A_TECHNIQUE"]
+            "mitre_techniques": ["T1"]
         });
         assert!(
             !validator.is_valid(&instance),
-            "malformed MITRE IDs must be rejected by the regex pattern"
+            "too-short MITRE IDs must be rejected by minLength"
         );
     }
 
     #[test]
-    fn test_forensic_rejects_bogus_cve_id() {
+    fn test_forensic_rejects_too_short_cve_id() {
+        // minLength 13 rejects "CVE-21-001" (10 chars).
         let validator = compile(&forensic_schema());
         let instance = json!({
             "verdict": "confirmed",
@@ -335,7 +344,30 @@ mod tests {
         });
         assert!(
             !validator.is_valid(&instance),
-            "malformed CVE id must be rejected"
+            "too-short CVE id must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_forensic_accepts_wrong_pattern_right_length_mitre() {
+        // Documenting intentional relaxation: the schema alone accepts
+        // "T1055.999" (right length, wrong pattern). Phase 2 validators
+        // (validators::mitre::validate_format) catch this at parse time —
+        // the benchmark rule D fixture proves it end-to-end.
+        // maxLength was removed because it triggered
+        // "number of repetitions exceeds sane defaults" in llama.cpp
+        // grammar compilation (see top-of-file comment).
+        let validator = compile(&forensic_schema());
+        let instance = json!({
+            "verdict": "confirmed",
+            "severity": "HIGH",
+            "confidence": 0.8,
+            "analysis": "some activity detected",
+            "mitre_techniques": ["T1055.999", "NOT_A_TECHNIQUE"]
+        });
+        assert!(
+            validator.is_valid(&instance),
+            "schema alone no longer rejects format-invalid MITRE IDs — Phase 2 validator does"
         );
     }
 
