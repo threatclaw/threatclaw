@@ -99,6 +99,42 @@ pub struct ReconciliationLog {
     pub modification: Option<Modification>,
 }
 
+/// Rule A: LLM claims `confirmed` but deterministic signals are weak.
+///
+/// Triggers when ALL of the following hold:
+/// - LLM verdict = "confirmed"
+/// - global_score < 30 (Rust scoring says the asset is not in trouble)
+/// - zero Sigma critical alerts (no rule-based confirmation)
+/// - ml_anomaly_score < 0.3 (ML agrees nothing unusual)
+///
+/// Downgrades to `inconclusive` with confidence × 0.7.
+pub fn rule_a_confirmed_but_weak(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    if signals.global_score < 30.0
+        && signals.sigma_critical_count == 0
+        && signals.ml_anomaly_score < 0.3
+    {
+        Some(Modification {
+            new_verdict: "inconclusive".into(),
+            new_severity: "MEDIUM".into(),
+            new_confidence: (llm.confidence * 0.7).clamp(0.0, 1.0),
+            reason_code: "rule_a_confirmed_but_weak".into(),
+            reason_text: format!(
+                "LLM claimed 'confirmed' but deterministic signals are weak: \
+                 global_score={:.1} (< 30), sigma_critical=0, ml_anomaly={:.2} (< 0.3)",
+                signals.global_score, signals.ml_anomaly_score
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +273,60 @@ mod tests {
         let json = serde_json::to_value(&snap).unwrap();
         assert_eq!(json["verdict"], "confirmed");
         assert_eq!(json["severity"], "HIGH");
+    }
+
+    fn snap(verdict: &str, severity: &str, confidence: f64) -> LlmVerdictSnapshot {
+        LlmVerdictSnapshot {
+            verdict: verdict.into(),
+            severity: severity.into(),
+            confidence,
+        }
+    }
+
+    fn signals_weak() -> SignalsSnapshot {
+        SignalsSnapshot {
+            global_score: 15.0,
+            ml_anomaly_score: 0.1,
+            sigma_critical_count: 0,
+            sigma_high_count: 0,
+            kev_cve_count: 0,
+            validation_error_count: 0,
+            validation_warning_count: 0,
+        }
+    }
+
+    fn signals_strong() -> SignalsSnapshot {
+        SignalsSnapshot {
+            global_score: 80.0,
+            ml_anomaly_score: 0.9,
+            sigma_critical_count: 2,
+            sigma_high_count: 3,
+            kev_cve_count: 1,
+            validation_error_count: 0,
+            validation_warning_count: 0,
+        }
+    }
+
+    #[test]
+    fn test_rule_a_downgrades_confirmed_on_weak_signals() {
+        let llm = snap("confirmed", "HIGH", 0.92);
+        let m = rule_a_confirmed_but_weak(&llm, &signals_weak()).expect("rule must trigger");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert!((m.new_confidence - 0.92 * 0.7).abs() < 1e-9);
+        assert_eq!(m.reason_code, "rule_a_confirmed_but_weak");
+    }
+
+    #[test]
+    fn test_rule_a_skips_when_llm_not_confirmed() {
+        let llm = snap("false_positive", "LOW", 0.9);
+        assert!(rule_a_confirmed_but_weak(&llm, &signals_weak()).is_none());
+    }
+
+    #[test]
+    fn test_rule_a_skips_when_any_signal_strong() {
+        let mut s = signals_weak();
+        s.sigma_critical_count = 1; // one critical = strong enough
+        let llm = snap("confirmed", "HIGH", 0.9);
+        assert!(rule_a_confirmed_but_weak(&llm, &s).is_none());
     }
 }
