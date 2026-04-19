@@ -384,10 +384,11 @@ pub async fn run_investigation(
 
             if let Ok(Ok(l2_raw)) = tokio::time::timeout(
                 Duration::from_secs(180),
-                crate::agent::react_runner::call_ollama(
+                crate::agent::react_runner::call_ollama_with_schema(
                     &llm_config.forensic.base_url,
                     &llm_config.forensic.model,
                     &l2_prompt,
+                    Some(crate::agent::llm_schemas::forensic_schema()),
                 ),
             )
             .await

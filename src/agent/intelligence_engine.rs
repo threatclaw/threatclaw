@@ -1314,10 +1314,11 @@ pub async fn reinvestigate_incident(
     );
     let l2_raw = tokio::time::timeout(
         std::time::Duration::from_secs(900),
-        crate::agent::react_runner::call_ollama(
+        crate::agent::react_runner::call_ollama_with_schema(
             &l2_base_url,
             &llm_config.forensic.model,
             &l2_prompt,
+            Some(crate::agent::llm_schemas::forensic_schema()),
         ),
     )
     .await
@@ -2455,10 +2456,11 @@ pub fn spawn_intelligence_ticker(
                                         };
                                     match tokio::time::timeout(
                                         std::time::Duration::from_secs(900),
-                                        crate::agent::react_runner::call_ollama(
+                                        crate::agent::react_runner::call_ollama_with_schema(
                                             &l2_base_url,
                                             &llm_config.forensic.model,
                                             &l2_prompt,
+                                            Some(crate::agent::llm_schemas::forensic_schema()),
                                         ),
                                     )
                                     .await

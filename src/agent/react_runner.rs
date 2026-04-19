@@ -388,10 +388,11 @@ pub async fn run_react_cycle(
 
         // Use L2 forensic model for CRITICAL, L1 for retries
         let analysis_l2_raw = if is_critical {
-            match call_ollama(
+            match call_ollama_with_schema(
                 &config.llm.forensic.base_url,
                 &config.llm.forensic.model,
                 &enriched_prompt,
+                Some(crate::agent::llm_schemas::forensic_schema()),
             )
             .await
             {
@@ -622,7 +623,13 @@ async fn call_primary(llm: &LlmRouterConfig, prompt: &str) -> Result<LlmAnalysis
             .map_err(|e| format!("JSON parse failed: {e}"))
     } else {
         // Local Ollama
-        let response = call_ollama(&llm.primary.base_url, &llm.primary.model, prompt).await?;
+        let response = call_ollama_with_schema(
+            &llm.primary.base_url,
+            &llm.primary.model,
+            prompt,
+            Some(crate::agent::llm_schemas::triage_schema()),
+        )
+        .await?;
         react_cycle::parse_llm_response(&response).map_err(|e| format!("JSON parse failed: {e}"))
     }
 }
@@ -654,8 +661,17 @@ fn deanonymize_analysis(mut analysis: LlmAnalysis, anon_map: &AnonymizationMap) 
 }
 
 /// Appelle Ollama et parse la réponse JSON.
+///
+/// Utilise `triage_schema` par défaut car ce helper est appelé sur le modèle
+/// L1 primaire dans le pipeline react_runner legacy (demo scenarios).
 async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<LlmAnalysis, String> {
-    let response = call_ollama(base_url, model, prompt).await?;
+    let response = call_ollama_with_schema(
+        base_url,
+        model,
+        prompt,
+        Some(crate::agent::llm_schemas::triage_schema()),
+    )
+    .await?;
     react_cycle::parse_llm_response(&response).map_err(|e| format!("JSON parse failed: {e}"))
 }
 
