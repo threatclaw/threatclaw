@@ -23,6 +23,7 @@ pub mod compaction;
 pub mod context_monitor;
 pub mod conversation_mode;
 pub mod conversational_bot;
+pub mod evidence_tracker;
 pub mod cost_guard;
 pub mod cyber_scheduler;
 mod dispatcher;
