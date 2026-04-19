@@ -204,6 +204,41 @@ pub fn rule_c_inconclusive_but_kev(
     }
 }
 
+/// Rule D: Validation report contains blocking errors.
+///
+/// Triggers only in Strict mode. When the LLM produced a `confirmed`
+/// verdict but the phase-2 validators flagged format violations (invented
+/// MITRE IDs, malformed CVEs, etc.), the verdict is untrustworthy —
+/// downgrade to `inconclusive`.
+///
+/// Lenient / Off modes observe the report but leave the verdict alone.
+pub fn rule_d_validation_errors(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+    mode: ValidationMode,
+) -> Option<Modification> {
+    if mode != ValidationMode::Strict {
+        return None;
+    }
+    if signals.validation_error_count == 0 {
+        return None;
+    }
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    Some(Modification {
+        new_verdict: "inconclusive".into(),
+        new_severity: "MEDIUM".into(),
+        new_confidence: (llm.confidence * 0.6).clamp(0.0, 1.0),
+        reason_code: "rule_d_validation_errors".into(),
+        reason_text: format!(
+            "Strict mode: {} validation error(s) in LLM output block the \
+             confirmed verdict. Downgraded to inconclusive for analyst review.",
+            signals.validation_error_count
+        ),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,5 +484,31 @@ mod tests {
         let mut s = signals_strong();
         s.global_score = 60.0; // <= 70
         assert!(rule_c_inconclusive_but_kev(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_d_downgrades_in_strict_with_errors() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let mut s = signals_weak();
+        s.validation_error_count = 2;
+        let m = rule_d_validation_errors(&llm, &s, ValidationMode::Strict)
+            .expect("rule must trigger");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert!((m.new_confidence - 0.54).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rule_d_skips_in_lenient_mode() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let mut s = signals_weak();
+        s.validation_error_count = 5;
+        assert!(rule_d_validation_errors(&llm, &s, ValidationMode::Lenient).is_none());
+    }
+
+    #[test]
+    fn test_rule_d_skips_when_no_errors() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let s = signals_weak(); // validation_error_count = 0
+        assert!(rule_d_validation_errors(&llm, &s, ValidationMode::Strict).is_none());
     }
 }
