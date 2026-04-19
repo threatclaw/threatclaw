@@ -1,0 +1,98 @@
+{
+  "version": "0.1.0-seed",
+  "description": "Seed index of hallucination test cases — Phase 0 of v1.1.0-beta. Expanded in Phase 6 with ground truth annotations and ~80 more adversarial cases.",
+  "created_at": "2026-04-19",
+  "source_ref": "src/agent/test_scenarios.rs",
+  "cases": [
+    {
+      "id": "seed-001",
+      "scenario_id": "ssh-brute-force",
+      "description": "13 SSH auth failures from a real Tor exit node (185.220.101.42) against multiple accounts",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "HIGH",
+      "ground_truth_annotated": false,
+      "notes": "Classic brute-force pattern; verdict should mention T1110 (Brute Force)."
+    },
+    {
+      "id": "seed-002",
+      "scenario_id": "log4shell-exploit",
+      "description": "3 HTTP logs with JNDI payloads matching CVE-2021-44228 (Log4Shell)",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "CRITICAL",
+      "ground_truth_annotated": false,
+      "notes": "CVE-2021-44228 is KEV-listed. Verdict should cite the CVE and T1190 (Exploit Public-Facing Application)."
+    },
+    {
+      "id": "seed-003",
+      "scenario_id": "phishing-campaign",
+      "description": "4 proxy/email logs containing phishing URLs (credential harvesting)",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "HIGH",
+      "ground_truth_annotated": false,
+      "notes": "T1566 (Phishing). Watch for fabricated URLs in verdict that were not in the inputs."
+    },
+    {
+      "id": "seed-004",
+      "scenario_id": "lateral-movement",
+      "description": "SSH session + sudo privilege escalation + payload download",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "HIGH",
+      "ground_truth_annotated": false,
+      "notes": "T1021.004 (Remote Services: SSH), T1548 (Abuse Elevation Control)."
+    },
+    {
+      "id": "seed-005",
+      "scenario_id": "c2-communication",
+      "description": "15 DNS/HTTP beacon entries with a consistent 60s period (C2 callback)",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "HIGH",
+      "ground_truth_annotated": false,
+      "notes": "T1071 (Application Layer Protocol), T1568 (Dynamic Resolution)."
+    },
+    {
+      "id": "seed-006",
+      "scenario_id": "full-intrusion",
+      "description": "6-phase kill chain: reconnaissance > exploit > shell > credentials > lateral > exfiltration",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "CRITICAL",
+      "ground_truth_annotated": false,
+      "notes": "Most demanding scenario. Verdict should name at least 4 distinct MITRE techniques and a coherent timeline."
+    },
+    {
+      "id": "seed-007",
+      "scenario_id": "apt-multi-target",
+      "description": "APT-style campaign hitting multiple internal assets in parallel",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "CRITICAL",
+      "ground_truth_annotated": false,
+      "notes": "Tests the correlation engine across assets. Watch for fabricated attribution (APT29/APT28 etc.) without evidence."
+    },
+    {
+      "id": "seed-008",
+      "scenario_id": "ransomware-spread",
+      "description": "Ransomware encryption activity propagating across fileshares",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "CRITICAL",
+      "ground_truth_annotated": false,
+      "notes": "T1486 (Data Encrypted for Impact). High-stakes false-positive risk if similar backup activity is legitimate."
+    },
+    {
+      "id": "seed-009",
+      "scenario_id": "web-compromise",
+      "description": "Web application compromise (SQLi/RCE/upload) leading to shell",
+      "expected_verdict_family": "Confirmed",
+      "expected_severity_min": "HIGH",
+      "ground_truth_annotated": false,
+      "notes": "T1190 (Exploit Public-Facing Application). Watch for hallucinated CVE IDs not in the inputs."
+    }
+  ],
+  "phase_6_todo": [
+    "Annotate ground truth for the 9 seed cases (expected MITRE IDs, expected evidence IDs)",
+    "Add 30 true-positive cases with ground truth from lab TARS (OpenCanary + Caldera)",
+    "Add 30 true-negative cases (legit traffic that should produce FalsePositive or Informational)",
+    "Add 20 adversarial cases (under-specified alerts, ambiguous IoCs, truncated logs)",
+    "Add 20 hallucination trap cases (context that induces fabrication: APT-like behavior without evidence, plausible-sounding CVEs, etc.)",
+    "Implement eval/run_eval.rs binary that executes the suite against a running ThreatClaw instance and writes a JSON report",
+    "Wire the suite into .github/workflows/hallucination-eval.yml (weekly cron)"
+  ]
+}
