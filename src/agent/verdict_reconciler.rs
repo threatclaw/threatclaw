@@ -239,6 +239,39 @@ pub fn rule_d_validation_errors(
     })
 }
 
+/// Rule E: LLM claims `confirmed` but at least one cited evidence is
+/// absent from the dossier (i.e. fabricated).
+///
+/// Triggers only in Strict mode. Downgrades to `inconclusive MEDIUM`
+/// with confidence reduced to 50% — we cannot trust any part of a
+/// verdict whose evidence does not exist.
+pub fn rule_e_fabricated_citations(
+    llm: &LlmVerdictSnapshot,
+    citation_report: &crate::agent::evidence_tracker::CitationReport,
+    mode: ValidationMode,
+) -> Option<Modification> {
+    if mode != ValidationMode::Strict {
+        return None;
+    }
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    if citation_report.fabricated_count() == 0 {
+        return None;
+    }
+    Some(Modification {
+        new_verdict: "inconclusive".into(),
+        new_severity: "MEDIUM".into(),
+        new_confidence: (llm.confidence * 0.5).clamp(0.0, 1.0),
+        reason_code: "rule_e_fabricated_citations".into(),
+        reason_text: format!(
+            "Strict mode: {} fabricated citation(s) — LLM cited evidence not present in the dossier. \
+             Verdict downgraded for analyst review.",
+            citation_report.fabricated_count()
+        ),
+    })
+}
+
 /// Outcome of a full reconciliation run.
 #[derive(Debug, Clone)]
 pub struct ReconciliationOutcome {
@@ -260,6 +293,7 @@ pub fn reconcile_verdict(
     llm: &LlmVerdictSnapshot,
     dossier: &IncidentDossier,
     report: &ValidationReport,
+    citation_report: &crate::agent::evidence_tracker::CitationReport,
     mode: ValidationMode,
 ) -> ReconciliationOutcome {
     let signals = SignalsSnapshot::from_context(dossier, report);
@@ -279,6 +313,7 @@ pub fn reconcile_verdict(
     }
 
     let modification = rule_d_validation_errors(llm, &signals, mode)
+        .or_else(|| rule_e_fabricated_citations(llm, citation_report, mode))
         .or_else(|| rule_a_confirmed_but_weak(llm, &signals))
         .or_else(|| rule_b_false_positive_but_strong(llm, &signals))
         .or_else(|| rule_c_inconclusive_but_kev(llm, &signals));
@@ -585,7 +620,13 @@ mod tests {
         let llm = snap("confirmed", "HIGH", 0.9);
         let dossier = empty_dossier();
         let report = ValidationReport::default();
-        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Off);
+        let outcome = reconcile_verdict(
+            &llm,
+            &dossier,
+            &report,
+            &crate::agent::evidence_tracker::CitationReport::default(),
+            ValidationMode::Off,
+        );
         assert!(!outcome.apply);
         assert!(outcome.log.modification.is_none());
         assert_eq!(outcome.log.reconciled, llm);
@@ -597,7 +638,13 @@ mod tests {
         let llm = snap("confirmed", "HIGH", 0.9);
         let dossier = empty_dossier(); // weak signals
         let report = ValidationReport::default();
-        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Lenient);
+        let outcome = reconcile_verdict(
+            &llm,
+            &dossier,
+            &report,
+            &crate::agent::evidence_tracker::CitationReport::default(),
+            ValidationMode::Lenient,
+        );
         assert!(!outcome.apply);
         assert!(outcome.log.modification.is_some());
         assert_eq!(
@@ -611,7 +658,13 @@ mod tests {
         let llm = snap("confirmed", "HIGH", 0.9);
         let dossier = empty_dossier();
         let report = ValidationReport::default();
-        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Strict);
+        let outcome = reconcile_verdict(
+            &llm,
+            &dossier,
+            &report,
+            &crate::agent::evidence_tracker::CitationReport::default(),
+            ValidationMode::Strict,
+        );
         assert!(outcome.apply);
         assert_eq!(outcome.log.reconciled.verdict, "inconclusive");
     }
@@ -629,12 +682,81 @@ mod tests {
             kind: crate::agent::validators::ErrorKind::InvalidFormat,
             message: "m".into(),
         });
-        let outcome = reconcile_verdict(&llm, &dossier, &report, ValidationMode::Strict);
+        let outcome = reconcile_verdict(
+            &llm,
+            &dossier,
+            &report,
+            &crate::agent::evidence_tracker::CitationReport::default(),
+            ValidationMode::Strict,
+        );
         assert!(outcome.apply);
         assert_eq!(
             outcome.log.modification.as_ref().unwrap().reason_code,
             "rule_d_validation_errors",
             "rule D must win over rule A when both apply"
+        );
+    }
+
+    fn fab_report(n: usize) -> crate::agent::evidence_tracker::CitationReport {
+        use crate::agent::evidence_tracker::{CitationReport, EvidenceCitation, EvidenceType};
+        let mut r = CitationReport::default();
+        for i in 0..n {
+            r.fabricated.push(EvidenceCitation {
+                claim: format!("claim {i}"),
+                evidence_type: EvidenceType::Alert,
+                evidence_id: format!("fake-{i}"),
+                excerpt: None,
+            });
+        }
+        r
+    }
+
+    #[test]
+    fn test_rule_e_downgrades_on_fabricated_in_strict() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let report = fab_report(2);
+        let m = rule_e_fabricated_citations(&llm, &report, ValidationMode::Strict)
+            .expect("rule must trigger");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert!((m.new_confidence - 0.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rule_e_skips_in_lenient() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let report = fab_report(5);
+        assert!(rule_e_fabricated_citations(&llm, &report, ValidationMode::Lenient).is_none());
+    }
+
+    #[test]
+    fn test_rule_e_skips_when_no_fabricated() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let report = crate::agent::evidence_tracker::CitationReport::default();
+        assert!(rule_e_fabricated_citations(&llm, &report, ValidationMode::Strict).is_none());
+    }
+
+    #[test]
+    fn test_reconcile_priority_d_over_e() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let dossier = empty_dossier();
+        let mut report = ValidationReport::default();
+        report.push_error(crate::agent::validators::ValidationError {
+            field: "x".into(),
+            value: "y".into(),
+            kind: crate::agent::validators::ErrorKind::InvalidFormat,
+            message: "m".into(),
+        });
+        let citation_report = fab_report(2);
+        let outcome = reconcile_verdict(
+            &llm,
+            &dossier,
+            &report,
+            &citation_report,
+            ValidationMode::Strict,
+        );
+        assert_eq!(
+            outcome.log.modification.as_ref().unwrap().reason_code,
+            "rule_d_validation_errors"
         );
     }
 }

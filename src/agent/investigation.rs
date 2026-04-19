@@ -341,10 +341,21 @@ pub async fn run_investigation(
                     severity: parsed.severity.clone(),
                     confidence: parsed.confidence,
                 };
+                let citation_report = crate::agent::evidence_tracker::validate_citations(
+                    &parsed.evidence_citations,
+                    &dossier,
+                );
+                if !citation_report.fabricated.is_empty() {
+                    warn!(
+                        "INVESTIGATION: {} fabricated citation(s) detected",
+                        citation_report.fabricated.len()
+                    );
+                }
                 let outcome = crate::agent::verdict_reconciler::reconcile_verdict(
                     &llm_snapshot,
                     &dossier,
                     &report,
+                    &citation_report,
                     validation_mode,
                 );
 
