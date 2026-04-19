@@ -81,6 +81,7 @@ pub mod tool_calling;
 pub mod tool_output_wrapper;
 pub mod undo;
 pub mod validation_mode;
+pub mod validators;
 pub mod verdict;
 
 pub(crate) use agent_loop::truncate_for_preview;
