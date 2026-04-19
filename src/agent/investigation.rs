@@ -245,13 +245,14 @@ pub async fn run_investigation(
         // Build prompt with dossier + accumulated skill results
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
-        // Call L1 LLM
+        // Call L1 LLM with triage_schema (phase 1 structured outputs)
         let llm_raw = match tokio::time::timeout(
             Duration::from_secs(900),
-            crate::agent::react_runner::call_ollama(
+            crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
                 &prompt,
+                Some(crate::agent::llm_schemas::triage_schema()),
             ),
         )
         .await
