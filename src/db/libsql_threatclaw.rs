@@ -298,6 +298,7 @@ impl ThreatClawStore for LibSqlBackend {
         _: &[String],
         _: &serde_json::Value,
         _: &serde_json::Value,
+        _: &serde_json::Value,
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

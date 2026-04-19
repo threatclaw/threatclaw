@@ -1410,6 +1410,10 @@ pub async fn reinvestigate_incident(
     });
     let inv_log = serde_json::json!({ "reinvestigated_at": chrono::Utc::now().to_rfc3339() });
 
+    // Phase 4: reinvestigate path does not have a full verdict struct, so
+    // evidence_citations default to empty — the LLM output here is a raw
+    // JSON blob that we do not re-decode into Confirmed{ evidence_citations }.
+    let empty_citations = serde_json::json!([]);
     store
         .update_incident_verdict(
             incident_id,
@@ -1419,6 +1423,7 @@ pub async fn reinvestigate_incident(
             &parsed_mitre,
             &proposed,
             &inv_log,
+            &empty_citations,
         )
         .await
         .map_err(|e| format!("DB update failed: {e}"))?;
@@ -2620,6 +2625,16 @@ pub fn spawn_intelligence_ticker(
                                         "iterations": result.iterations,
                                         "skill_calls": result.skill_calls,
                                     });
+                                    // Phase 4: extract evidence_citations from the Confirmed
+                                    // variant of the verdict if present; empty array otherwise.
+                                    let evidence_citations_json = match &result.verdict {
+                                        crate::agent::verdict::InvestigationVerdict::Confirmed {
+                                            evidence_citations,
+                                            ..
+                                        } => serde_json::to_value(evidence_citations)
+                                            .unwrap_or(serde_json::json!([])),
+                                        _ => serde_json::json!([]),
+                                    };
                                     let _ = store_inv
                                         .update_incident_verdict(
                                             incident_id,
@@ -2629,6 +2644,7 @@ pub fn spawn_intelligence_ticker(
                                             &parsed_mitre,
                                             &proposed,
                                             &inv_log,
+                                            &evidence_citations_json,
                                         )
                                         .await;
                                     tracing::info!(
