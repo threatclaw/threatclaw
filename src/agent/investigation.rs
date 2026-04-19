@@ -188,6 +188,15 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
 ///
 /// This is the core of stage 2: the ReAct loop analyzes the dossier,
 /// optionally calls investigation skills for more data, and produces a verdict.
+#[tracing::instrument(
+    name = "run_investigation",
+    skip(dossier, store, llm_config, config),
+    fields(
+        threatclaw_dossier_id = %dossier.id,
+        threatclaw_primary_asset = %dossier.primary_asset,
+        threatclaw_global_score = dossier.global_score,
+    ),
+)]
 pub async fn run_investigation(
     dossier: IncidentDossier,
     store: Arc<dyn Database>,
@@ -375,6 +384,28 @@ pub async fn run_investigation(
                         validation_mode
                     );
                 }
+
+                // Phase 5: structured telemetry events (OTel-consumable).
+                crate::telemetry::log_reconcile_outcome(
+                    None,
+                    &format!("{:?}", validation_mode).to_lowercase(),
+                    outcome.apply,
+                    &outcome.log.original.verdict,
+                    &outcome.log.reconciled.verdict,
+                    outcome
+                        .log
+                        .modification
+                        .as_ref()
+                        .map(|m| m.reason_code.as_str()),
+                    report.errors.len(),
+                    citation_report.fabricated_count(),
+                );
+                crate::telemetry::log_citation_report(
+                    None,
+                    citation_report.verified.len(),
+                    citation_report.unverifiable.len(),
+                    citation_report.fabricated_count(),
+                );
 
                 // Strict mode: mutate `parsed` so the downstream match that
                 // builds the InvestigationVerdict uses the reconciled values.
