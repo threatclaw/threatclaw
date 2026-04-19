@@ -22,6 +22,11 @@ pub enum InvestigationVerdict {
         correlations: Vec<String>,
         proposed_actions: Vec<ProposedAction>,
         llm_level: String,
+        /// Phase 4 (v1.1.0-beta): evidence citations that support the verdict.
+        /// Serde default + skip_serializing_if keep backward-compat with
+        /// historical verdicts that never had this field.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        evidence_citations: Vec<crate::agent::evidence_tracker::EvidenceCitation>,
     },
     /// False positive — auto-close findings, no notification
     FalsePositive {
@@ -139,6 +144,7 @@ impl InvestigationResult {
                 correlations,
                 proposed_actions,
                 llm_level,
+                evidence_citations: _,
             } => {
                 let emoji = match severity.as_str() {
                     "CRITICAL" => "\u{1f534}",
@@ -217,6 +223,71 @@ impl InvestigationResult {
             )),
 
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::evidence_tracker::{EvidenceCitation, EvidenceType};
+
+    #[test]
+    fn test_confirmed_without_citations_serializes_without_the_field() {
+        let v = InvestigationVerdict::Confirmed {
+            analysis: "x".into(),
+            severity: "HIGH".into(),
+            confidence: 0.9,
+            correlations: vec![],
+            proposed_actions: vec![],
+            llm_level: "L2".into(),
+            evidence_citations: vec![],
+        };
+        let json = serde_json::to_value(&v).unwrap();
+        assert!(
+            json.get("evidence_citations").is_none(),
+            "empty citations must be skipped for BC: {json}"
+        );
+    }
+
+    #[test]
+    fn test_confirmed_with_citations_serializes_them() {
+        let v = InvestigationVerdict::Confirmed {
+            analysis: "x".into(),
+            severity: "HIGH".into(),
+            confidence: 0.9,
+            correlations: vec![],
+            proposed_actions: vec![],
+            llm_level: "L2".into(),
+            evidence_citations: vec![EvidenceCitation {
+                claim: "13 failed auths".into(),
+                evidence_type: EvidenceType::Alert,
+                evidence_id: "42".into(),
+                excerpt: None,
+            }],
+        };
+        let json = serde_json::to_value(&v).unwrap();
+        assert!(json["evidence_citations"].is_array());
+        assert_eq!(json["evidence_citations"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_legacy_confirmed_deserializes_without_citations() {
+        let legacy = r#"{
+            "type": "Confirmed",
+            "analysis": "x",
+            "severity": "HIGH",
+            "confidence": 0.9,
+            "correlations": [],
+            "proposed_actions": [],
+            "llm_level": "L1"
+        }"#;
+        let v: InvestigationVerdict = serde_json::from_str(legacy).unwrap();
+        match v {
+            InvestigationVerdict::Confirmed {
+                evidence_citations, ..
+            } => assert!(evidence_citations.is_empty()),
+            _ => panic!("expected Confirmed"),
         }
     }
 }

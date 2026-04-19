@@ -481,6 +481,7 @@ pub async fn run_investigation(
                             correlations: l2.correlations,
                             proposed_actions: l2.proposed_actions,
                             llm_level: "L2 Forensique".into(),
+                            evidence_citations: vec![],
                         },
                         duration_secs: start.elapsed().as_secs(),
                         iterations: iteration,
@@ -502,6 +503,7 @@ pub async fn run_investigation(
                     correlations: parsed.correlations,
                     proposed_actions: parsed.proposed_actions,
                     llm_level: "L1 Triage".into(),
+                    evidence_citations: vec![],
                 },
                 "false_positive" => InvestigationVerdict::FalsePositive {
                     analysis: parsed.analysis.clone(),
