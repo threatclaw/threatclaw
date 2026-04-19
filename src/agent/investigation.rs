@@ -127,7 +127,49 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
         .trim_end_matches("```")
         .trim();
 
-    let v: Value = serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
+    // Primary parse. With Ollama structured outputs (phase 1 v1.1.0-beta) the
+    // response is already FSM-constrained so this almost always succeeds.
+    // The repair fallback is kept as a defense-in-depth measure for the rare
+    // case where num_predict truncates the output or a non-schema call site
+    // returns malformed JSON (e.g. trailing comma, unescaped quote).
+    //
+    // Note: llm_json is aggressive and will "repair" arbitrary text into
+    // JSON-encoded strings or nulls. We therefore require the repaired value
+    // to be an object with at least one expected field, otherwise treat as
+    // irreparable to avoid silent hallucinations (garbage → empty verdict).
+    let v: Value = match serde_json::from_str::<Value>(json_str) {
+        Ok(v) => v,
+        Err(primary_err) => {
+            tracing::warn!(
+                "LLM JSON parse failed, attempting repair via llm_json: {primary_err}"
+            );
+            match llm_json::repair_json(json_str, &Default::default()) {
+                Ok(repaired) => {
+                    let candidate: Value = serde_json::from_str(&repaired).map_err(|e| {
+                        format!(
+                        "JSON parse error even after repair (primary: {primary_err}, repaired: {e})"
+                    )
+                    })?;
+                    // Defense against over-eager repair: must be an object with
+                    // at least a \`verdict\` or \`analysis\` field to be meaningful.
+                    if !candidate.is_object()
+                        || (candidate.get("verdict").is_none()
+                            && candidate.get("analysis").is_none())
+                    {
+                        return Err(format!(
+                            "JSON parse error: {primary_err} (repair produced shape without expected fields: {repaired})"
+                        ));
+                    }
+                    candidate
+                }
+                Err(repair_err) => {
+                    return Err(format!(
+                        "JSON parse error: {primary_err} (repair also failed: {repair_err})"
+                    ));
+                }
+            }
+        }
+    };
 
     Ok(ParsedLlmResponse {
         verdict: v
@@ -502,5 +544,56 @@ fn make_error_result(
         iterations,
         skill_calls,
         completed_at: Utc::now(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_llm_response_valid_json() {
+        let raw = r#"{
+            "verdict":"confirmed",
+            "analysis":"Brute force detected",
+            "severity":"HIGH",
+            "confidence":0.9,
+            "correlations":[],
+            "needs_more_info":false,
+            "skill_requests":[],
+            "proposed_actions":[]
+        }"#;
+        let parsed = parse_llm_response(raw).expect("valid JSON must parse");
+        assert_eq!(parsed.verdict, "confirmed");
+        assert_eq!(parsed.severity, "HIGH");
+        assert!((parsed.confidence - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_parse_llm_response_strips_markdown_fences() {
+        let raw = "```json\n{\"verdict\":\"inconclusive\",\"analysis\":\"\",\"severity\":\"MEDIUM\",\"confidence\":0.5,\"correlations\":[],\"needs_more_info\":false,\"skill_requests\":[],\"proposed_actions\":[]}\n```";
+        let parsed = parse_llm_response(raw).expect("fenced JSON must parse");
+        assert_eq!(parsed.verdict, "inconclusive");
+    }
+
+    #[test]
+    fn test_parse_llm_response_repairs_trailing_comma() {
+        // Trailing comma is invalid JSON but a common LLM slip; llm_json should
+        // repair it and the second parse must succeed.
+        let raw = r#"{"verdict":"confirmed","analysis":"ok","severity":"HIGH","confidence":0.9,"correlations":[],"needs_more_info":false,"skill_requests":[],"proposed_actions":[],}"#;
+        let parsed = parse_llm_response(raw);
+        assert!(
+            parsed.is_ok(),
+            "llm_json must repair the trailing comma; got: {:?}",
+            parsed.err()
+        );
+        assert_eq!(parsed.unwrap().verdict, "confirmed");
+    }
+
+    #[test]
+    fn test_parse_llm_response_irreparable_returns_err() {
+        let raw = "this is definitely not JSON and llm_json cannot help here <<<>>>";
+        let result = parse_llm_response(raw);
+        assert!(result.is_err(), "irreparable garbage must return Err");
     }
 }
