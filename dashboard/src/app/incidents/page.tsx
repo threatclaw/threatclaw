@@ -28,6 +28,18 @@ interface IncidentNote {
   at: string;
 }
 
+/**
+ * Phase 4 (v1.1.0-beta): evidence citation attached to a Confirmed verdict.
+ * Optional to preserve backward compatibility with incidents created before
+ * the phase-4 migration.
+ */
+export interface EvidenceCitation {
+  claim: string;
+  evidence_type: "alert" | "finding" | "log" | "graph_node";
+  evidence_id: string;
+  excerpt?: string;
+}
+
 interface Incident {
   id: number;
   asset: string;
@@ -44,6 +56,8 @@ interface Incident {
   proposed_actions: { actions?: IncidentAction[]; iocs?: string[] } | null | any;
   mitre_techniques: string[] | null;
   notes: IncidentNote[] | null;
+  /** Phase 4: evidence citations. Empty array / undefined for legacy incidents. */
+  evidence_citations?: EvidenceCitation[];
   created_at: string;
   updated_at: string;
   resolved_at: string | null;

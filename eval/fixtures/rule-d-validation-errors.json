@@ -1,0 +1,26 @@
+{
+  "name": "rule-d-validation-errors",
+  "description": "LLM confirmed with malformed MITRE ID (T10555 — wrong digit count): rule D downgrades in Strict.",
+  "dossier": {
+    "global_score": 15.0,
+    "ml_anomaly_score": 0.1,
+    "sigma_alert_ids": [],
+    "finding_ids": [],
+    "kev_cves": []
+  },
+  "llm_output": {
+    "verdict": "confirmed",
+    "severity": "HIGH",
+    "confidence": 0.88,
+    "mitre_techniques": ["T10555"],
+    "cves": [],
+    "evidence_citations": []
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "inconclusive",
+    "final_severity": "MEDIUM",
+    "rule_code": "rule_d_validation_errors",
+    "applied": true
+  }
+}

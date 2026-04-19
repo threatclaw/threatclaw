@@ -558,6 +558,7 @@ pub trait ThreatClawStore: Send + Sync {
         mitre: &[String],
         proposed_actions: &serde_json::Value,
         investigation_log: &serde_json::Value,
+        evidence_citations: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
 
     async fn update_incident_hitl(

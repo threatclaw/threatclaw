@@ -1,0 +1,26 @@
+{
+  "name": "rule-c-inconclusive-kev",
+  "description": "LLM inconclusive but global_score > 70 + KEV hit: rule C upgrades to confirmed MEDIUM.",
+  "dossier": {
+    "global_score": 85.0,
+    "ml_anomaly_score": 0.5,
+    "sigma_alert_ids": [],
+    "finding_ids": [],
+    "kev_cves": ["CVE-2021-44228"]
+  },
+  "llm_output": {
+    "verdict": "inconclusive",
+    "severity": "MEDIUM",
+    "confidence": 0.5,
+    "mitre_techniques": ["T1190"],
+    "cves": ["CVE-2021-44228"],
+    "evidence_citations": []
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "confirmed",
+    "final_severity": "MEDIUM",
+    "rule_code": "rule_c_inconclusive_but_kev",
+    "applied": true
+  }
+}

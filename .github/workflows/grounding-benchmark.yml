@@ -1,0 +1,48 @@
+name: Grounding Benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/agent/**'
+      - 'src/telemetry/**'
+      - 'eval/**'
+      - 'tests/grounding_benchmark.rs'
+      - '.github/workflows/grounding-benchmark.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/agent/**'
+      - 'src/telemetry/**'
+      - 'eval/**'
+      - 'tests/grounding_benchmark.rs'
+  schedule:
+    # Weekly sanity check (sundays at 03:00 UTC).
+    - cron: '0 3 * * 0'
+
+jobs:
+  benchmark:
+    name: Deterministic grounding benchmark
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run deterministic benchmark
+        run: cargo test --test grounding_benchmark
+
+      - name: Emit JSON report
+        run: cargo test --test grounding_benchmark benchmark_emit_report -- --ignored --nocapture
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: grounding-benchmark-report
+          path: eval/latest-benchmark-report.json
+          retention-days: 90

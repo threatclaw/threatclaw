@@ -1,0 +1,31 @@
+{
+  "name": "passthrough-clean-verdict",
+  "description": "LLM confirmed with strong signals + verified citations: no rule triggers, verdict kept as-is.",
+  "dossier": {
+    "global_score": 75.0,
+    "ml_anomaly_score": 0.82,
+    "sigma_alert_ids": [
+      { "id": 42, "level": "critical" }
+    ],
+    "finding_ids": [7],
+    "kev_cves": []
+  },
+  "llm_output": {
+    "verdict": "confirmed",
+    "severity": "HIGH",
+    "confidence": 0.88,
+    "mitre_techniques": ["T1110"],
+    "cves": [],
+    "evidence_citations": [
+      { "claim": "Sigma alert 42 fired", "evidence_type": "alert", "evidence_id": "42" },
+      { "claim": "Finding 7 supports", "evidence_type": "finding", "evidence_id": "7" }
+    ]
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "confirmed",
+    "final_severity": "HIGH",
+    "rule_code": "none",
+    "applied": false
+  }
+}

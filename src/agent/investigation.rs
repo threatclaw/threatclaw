@@ -116,18 +116,13 @@ struct ParsedLlmResponse {
     needs_more_info: bool,
     skill_requests: Vec<SkillRequest>,
     proposed_actions: Vec<ProposedAction>,
+    evidence_citations: Vec<crate::agent::evidence_tracker::EvidenceCitation>,
 }
 
 fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
-    // Strip markdown code fences if present
-    let json_str = raw
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
-
-    let v: Value = serde_json::from_str(json_str).map_err(|e| format!("JSON parse error: {e}"))?;
+    // Fence stripping + parse-with-repair are shared with react_cycle.
+    let json_str = crate::agent::llm_parsing::strip_markdown_fences(raw);
+    let v: Value = crate::agent::llm_parsing::parse_or_repair(json_str)?;
 
     Ok(ParsedLlmResponse {
         verdict: v
@@ -180,6 +175,10 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
             .get("proposed_actions")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default(),
+        evidence_citations: v
+            .get("evidence_citations")
+            .and_then(|c| serde_json::from_value(c.clone()).ok())
+            .unwrap_or_default(),
     })
 }
 
@@ -189,6 +188,15 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
 ///
 /// This is the core of stage 2: the ReAct loop analyzes the dossier,
 /// optionally calls investigation skills for more data, and produces a verdict.
+#[tracing::instrument(
+    name = "run_investigation",
+    skip(dossier, store, llm_config, config),
+    fields(
+        threatclaw_dossier_id = %dossier.id,
+        threatclaw_primary_asset = %dossier.primary_asset,
+        threatclaw_global_score = dossier.global_score,
+    ),
+)]
 pub async fn run_investigation(
     dossier: IncidentDossier,
     store: Arc<dyn Database>,
@@ -245,13 +253,14 @@ pub async fn run_investigation(
         // Build prompt with dossier + accumulated skill results
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
-        // Call L1 LLM
+        // Call L1 LLM with triage_schema (phase 1 structured outputs)
         let llm_raw = match tokio::time::timeout(
             Duration::from_secs(900),
-            crate::agent::react_runner::call_ollama(
+            crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
                 &prompt,
+                Some(crate::agent::llm_schemas::triage_schema()),
             ),
         )
         .await
@@ -282,7 +291,7 @@ pub async fn run_investigation(
         };
 
         // Parse LLM response
-        let parsed = match parse_llm_response(&llm_raw) {
+        let mut parsed = match parse_llm_response(&llm_raw) {
             Ok(p) => p,
             Err(e) => {
                 warn!("INVESTIGATION: Parse failed (iter {iteration}): {e}");
@@ -300,6 +309,117 @@ pub async fn run_investigation(
             parsed.needs_more_info,
             parsed.skill_requests.len()
         );
+
+        // ── Phase 2 + 3 : validation typée + reconciler ──
+        // (contrôlé par tc_config_llm_validation_mode ; Off court-circuite tout)
+        let validation_mode =
+            crate::agent::validation_mode::load_validation_mode(store.as_ref()).await;
+        if validation_mode != crate::agent::validation_mode::ValidationMode::Off {
+            let json_str = crate::agent::llm_parsing::strip_markdown_fences(&llm_raw);
+            if let Ok(generic) = crate::agent::llm_parsing::parse_or_repair(json_str) {
+                let report =
+                    crate::agent::validators::validate_parsed_response(&generic, store.as_ref())
+                        .await;
+
+                if !report.is_clean() {
+                    warn!(
+                        "INVESTIGATION: validation report (mode={:?}) errors={} warnings={}",
+                        validation_mode,
+                        report.errors.len(),
+                        report.warnings.len()
+                    );
+                    for err in &report.errors {
+                        warn!(
+                            "  validation error: {} = {:?} ({})",
+                            err.field, err.value, err.message
+                        );
+                    }
+                    for warn_item in &report.warnings {
+                        info!(
+                            "  validation warning: {} = {:?} ({})",
+                            warn_item.field, warn_item.value, warn_item.message
+                        );
+                    }
+                } else {
+                    tracing::debug!("INVESTIGATION: validation clean");
+                }
+
+                // Phase 3 : reconciler the LLM verdict against deterministic signals.
+                let llm_snapshot = crate::agent::verdict_reconciler::LlmVerdictSnapshot {
+                    verdict: parsed.verdict.clone(),
+                    severity: parsed.severity.clone(),
+                    confidence: parsed.confidence,
+                };
+                let citation_report = crate::agent::evidence_tracker::validate_citations(
+                    &parsed.evidence_citations,
+                    &dossier,
+                );
+                if !citation_report.fabricated.is_empty() {
+                    warn!(
+                        "INVESTIGATION: {} fabricated citation(s) detected",
+                        citation_report.fabricated.len()
+                    );
+                }
+                let outcome = crate::agent::verdict_reconciler::reconcile_verdict(
+                    &llm_snapshot,
+                    &dossier,
+                    &report,
+                    &citation_report,
+                    validation_mode,
+                );
+
+                if let Some(modif) = &outcome.log.modification {
+                    warn!(
+                        "INVESTIGATION: reconciler matched '{}' (apply={}): {} -> {} (conf {:.2} -> {:.2})",
+                        modif.reason_code,
+                        outcome.apply,
+                        outcome.log.original.verdict,
+                        outcome.log.reconciled.verdict,
+                        outcome.log.original.confidence,
+                        outcome.log.reconciled.confidence,
+                    );
+                } else {
+                    tracing::debug!(
+                        "INVESTIGATION: reconciler clean (no rule matched, mode={:?})",
+                        validation_mode
+                    );
+                }
+
+                // Phase 5: structured telemetry events (OTel-consumable).
+                crate::telemetry::log_reconcile_outcome(
+                    None,
+                    &format!("{:?}", validation_mode).to_lowercase(),
+                    outcome.apply,
+                    &outcome.log.original.verdict,
+                    &outcome.log.reconciled.verdict,
+                    outcome
+                        .log
+                        .modification
+                        .as_ref()
+                        .map(|m| m.reason_code.as_str()),
+                    report.errors.len(),
+                    citation_report.fabricated_count(),
+                );
+                crate::telemetry::log_citation_report(
+                    None,
+                    citation_report.verified.len(),
+                    citation_report.unverifiable.len(),
+                    citation_report.fabricated_count(),
+                );
+
+                // Strict mode: mutate `parsed` so the downstream match that
+                // builds the InvestigationVerdict uses the reconciled values.
+                if outcome.apply {
+                    parsed.verdict = outcome.log.reconciled.verdict.clone();
+                    parsed.severity = outcome.log.reconciled.severity.clone();
+                    parsed.confidence = outcome.log.reconciled.confidence;
+                    info!(
+                        "INVESTIGATION: reconciler applied in STRICT mode — verdict is now '{}'",
+                        parsed.verdict
+                    );
+                }
+            }
+        }
 
         // Track the best LLM response for fallback (keep highest confidence)
         if best_parsed
@@ -383,10 +503,11 @@ pub async fn run_investigation(
 
             if let Ok(Ok(l2_raw)) = tokio::time::timeout(
                 Duration::from_secs(180),
-                crate::agent::react_runner::call_ollama(
+                crate::agent::react_runner::call_ollama_with_schema(
                     &llm_config.forensic.base_url,
                     &llm_config.forensic.model,
                     &l2_prompt,
+                    Some(crate::agent::llm_schemas::forensic_schema()),
                 ),
             )
             .await
@@ -407,6 +528,7 @@ pub async fn run_investigation(
                             correlations: l2.correlations,
                             proposed_actions: l2.proposed_actions,
                             llm_level: "L2 Forensique".into(),
+                            evidence_citations: vec![],
                         },
                         duration_secs: start.elapsed().as_secs(),
                         iterations: iteration,
@@ -428,6 +550,7 @@ pub async fn run_investigation(
                     correlations: parsed.correlations,
                     proposed_actions: parsed.proposed_actions,
                     llm_level: "L1 Triage".into(),
+                    evidence_citations: parsed.evidence_citations,
                 },
                 "false_positive" => InvestigationVerdict::FalsePositive {
                     analysis: parsed.analysis.clone(),
@@ -500,5 +623,93 @@ fn make_error_result(
         iterations,
         skill_calls,
         completed_at: Utc::now(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_llm_response_valid_json() {
+        let raw = r#"{
+            "verdict":"confirmed",
+            "analysis":"Brute force detected",
+            "severity":"HIGH",
+            "confidence":0.9,
+            "correlations":[],
+            "needs_more_info":false,
+            "skill_requests":[],
+            "proposed_actions":[]
+        }"#;
+        let parsed = parse_llm_response(raw).expect("valid JSON must parse");
+        assert_eq!(parsed.verdict, "confirmed");
+        assert_eq!(parsed.severity, "HIGH");
+        assert!((parsed.confidence - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_parse_llm_response_strips_markdown_fences() {
+        let raw = "```json\n{\"verdict\":\"inconclusive\",\"analysis\":\"\",\"severity\":\"MEDIUM\",\"confidence\":0.5,\"correlations\":[],\"needs_more_info\":false,\"skill_requests\":[],\"proposed_actions\":[]}\n```";
+        let parsed = parse_llm_response(raw).expect("fenced JSON must parse");
+        assert_eq!(parsed.verdict, "inconclusive");
+    }
+
+    #[test]
+    fn test_parse_llm_response_repairs_trailing_comma() {
+        // Trailing comma is invalid JSON but a common LLM slip; llm_json should
+        // repair it and the second parse must succeed.
+        let raw = r#"{"verdict":"confirmed","analysis":"ok","severity":"HIGH","confidence":0.9,"correlations":[],"needs_more_info":false,"skill_requests":[],"proposed_actions":[],}"#;
+        let parsed = parse_llm_response(raw);
+        assert!(
+            parsed.is_ok(),
+            "llm_json must repair the trailing comma; got: {:?}",
+            parsed.err()
+        );
+        assert_eq!(parsed.unwrap().verdict, "confirmed");
+    }
+
+    #[test]
+    fn test_parse_llm_response_irreparable_returns_err() {
+        let raw = "this is definitely not JSON and llm_json cannot help here <<<>>>";
+        let result = parse_llm_response(raw);
+        assert!(result.is_err(), "irreparable garbage must return Err");
+    }
+
+    #[test]
+    fn test_parse_llm_response_extracts_evidence_citations() {
+        let raw = r#"{
+            "verdict": "confirmed",
+            "analysis": "Brute force confirmed.",
+            "severity": "HIGH",
+            "confidence": 0.9,
+            "correlations": [],
+            "needs_more_info": false,
+            "skill_requests": [],
+            "proposed_actions": [],
+            "evidence_citations": [
+                { "claim": "13 failed auths", "evidence_type": "alert", "evidence_id": "42" },
+                { "claim": "Tor exit node", "evidence_type": "log", "evidence_id": "hash-abc" }
+            ]
+        }"#;
+        let parsed = parse_llm_response(raw).expect("parse");
+        assert_eq!(parsed.evidence_citations.len(), 2);
+        assert_eq!(parsed.evidence_citations[0].evidence_id, "42");
+    }
+
+    #[test]
+    fn test_parse_llm_response_no_citations_defaults_empty() {
+        let raw = r#"{
+            "verdict": "confirmed",
+            "analysis": "x",
+            "severity": "MEDIUM",
+            "confidence": 0.5,
+            "correlations": [],
+            "needs_more_info": false,
+            "skill_requests": [],
+            "proposed_actions": []
+        }"#;
+        let parsed = parse_llm_response(raw).expect("parse");
+        assert!(parsed.evidence_citations.is_empty());
     }
 }

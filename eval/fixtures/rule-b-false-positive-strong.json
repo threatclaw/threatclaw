@@ -1,0 +1,28 @@
+{
+  "name": "rule-b-false-positive-strong",
+  "description": "LLM dismisses as false_positive but ML anomaly >0.85 + sigma_critical >= 1: rule B escalates.",
+  "dossier": {
+    "global_score": 80.0,
+    "ml_anomaly_score": 0.92,
+    "sigma_alert_ids": [
+      { "id": 101, "level": "critical" }
+    ],
+    "finding_ids": [],
+    "kev_cves": []
+  },
+  "llm_output": {
+    "verdict": "false_positive",
+    "severity": "LOW",
+    "confidence": 0.9,
+    "mitre_techniques": [],
+    "cves": [],
+    "evidence_citations": []
+  },
+  "expected": {
+    "mode": "strict",
+    "final_verdict": "inconclusive",
+    "final_severity": "HIGH",
+    "rule_code": "rule_b_false_positive_but_strong",
+    "applied": true
+  }
+}
