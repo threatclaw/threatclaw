@@ -1,0 +1,241 @@
+//! Phase-3 verdict reconciler: combine the LLM verdict with deterministic
+//! signals (Rust scoring, ML anomaly, Sigma matches, CISA KEV flag) and
+//! the phase-2 validation report to decide the final verdict.
+//!
+//! Design principles:
+//! - **Pure sync rules** — every rule is a `fn(inputs) -> Option<Modification>`.
+//! - **Conservative** — when signals disagree with the LLM, we downgrade
+//!   to `inconclusive`, we do not upgrade to `confirmed` unless a hard
+//!   deterministic signal (CISA KEV + high global score) justifies it.
+//! - **Always logged** — every reconciliation run (even a no-op) produces
+//!   a structured record suitable for persistence in `investigation_log`.
+//! - **Strict mode applies, Lenient only observes** — Lenient reconciles
+//!   and logs the outcome but keeps the LLM verdict; Strict modifies.
+//!
+//! The four built-in rules are applied in priority order (first match wins):
+//! 1. `rule_d_validation_errors` — structural errors block confident verdict
+//! 2. `rule_a_confirmed_but_weak` — downgrade confirmed when signals weak
+//! 3. `rule_b_false_positive_but_strong` — escalate dismissal when signals strong
+//! 4. `rule_c_inconclusive_but_kev` — upgrade on CISA KEV hit + high score
+
+use serde::{Deserialize, Serialize};
+
+use crate::agent::incident_dossier::IncidentDossier;
+use crate::agent::validation_mode::ValidationMode;
+use crate::agent::validators::ValidationReport;
+
+/// Deterministic signals snapshot taken at reconcile time.
+/// Serialized into the investigation_log for audit trails.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SignalsSnapshot {
+    pub global_score: f64,
+    pub ml_anomaly_score: f64,
+    pub sigma_critical_count: usize,
+    pub sigma_high_count: usize,
+    pub kev_cve_count: usize,
+    pub validation_error_count: usize,
+    pub validation_warning_count: usize,
+}
+
+impl SignalsSnapshot {
+    /// Build a snapshot from a dossier + validation report.
+    pub fn from_context(dossier: &IncidentDossier, report: &ValidationReport) -> Self {
+        let sigma_critical_count = dossier
+            .sigma_alerts
+            .iter()
+            .filter(|a| a.level.eq_ignore_ascii_case("critical"))
+            .count();
+        let sigma_high_count = dossier
+            .sigma_alerts
+            .iter()
+            .filter(|a| a.level.eq_ignore_ascii_case("high"))
+            .count();
+        let kev_cve_count = dossier
+            .enrichment
+            .cve_details
+            .iter()
+            .filter(|cve| cve.is_kev)
+            .count();
+
+        Self {
+            global_score: dossier.global_score,
+            ml_anomaly_score: dossier.ml_scores.anomaly_score,
+            sigma_critical_count,
+            sigma_high_count,
+            kev_cve_count,
+            validation_error_count: report.errors.len(),
+            validation_warning_count: report.warnings.len(),
+        }
+    }
+}
+
+/// Inputs to the LLM verdict (as strings — `ParsedLlmResponse` internal shape).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LlmVerdictSnapshot {
+    pub verdict: String,
+    pub severity: String,
+    pub confidence: f64,
+}
+
+/// Modification proposed by a rule.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Modification {
+    pub new_verdict: String,
+    pub new_severity: String,
+    pub new_confidence: f64,
+    pub reason_code: String,
+    pub reason_text: String,
+}
+
+/// Structured log of a reconciliation run. Persisted in `investigation_log`
+/// JSONB alongside the LLM response for audit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReconciliationLog {
+    pub mode: ValidationMode,
+    pub applied: bool,
+    pub original: LlmVerdictSnapshot,
+    pub reconciled: LlmVerdictSnapshot,
+    pub signals: SignalsSnapshot,
+    pub modification: Option<Modification>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::incident_dossier::*;
+    use crate::agent::intelligence_engine::NotificationLevel;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    fn empty_dossier() -> IncidentDossier {
+        IncidentDossier {
+            id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            primary_asset: "test".into(),
+            findings: vec![],
+            sigma_alerts: vec![],
+            enrichment: EnrichmentBundle {
+                ip_reputations: vec![],
+                cve_details: vec![],
+                threat_intel: vec![],
+                enrichment_lines: vec![],
+            },
+            correlations: CorrelationBundle {
+                kill_chain_detected: false,
+                kill_chain_steps: vec![],
+                active_attack: false,
+                known_exploits: vec![],
+                related_assets: vec![],
+                campaign_id: None,
+            },
+            graph_intel: None,
+            ml_scores: MlBundle {
+                anomaly_score: 0.0,
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            },
+            asset_score: 0.0,
+            global_score: 0.0,
+            notification_level: NotificationLevel::Silence,
+        }
+    }
+
+    #[test]
+    fn test_signals_snapshot_empty_dossier() {
+        let dossier = empty_dossier();
+        let report = ValidationReport::default();
+        let snap = SignalsSnapshot::from_context(&dossier, &report);
+        assert_eq!(snap.global_score, 0.0);
+        assert_eq!(snap.sigma_critical_count, 0);
+        assert_eq!(snap.kev_cve_count, 0);
+    }
+
+    #[test]
+    fn test_signals_snapshot_counts_sigma_critical() {
+        let mut dossier = empty_dossier();
+        dossier.sigma_alerts = vec![
+            DossierAlert {
+                id: 1,
+                rule_name: "x".into(),
+                level: "critical".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+            },
+            DossierAlert {
+                id: 2,
+                rule_name: "y".into(),
+                level: "Critical".into(), // case-insensitive
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+            },
+            DossierAlert {
+                id: 3,
+                rule_name: "z".into(),
+                level: "high".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+            },
+        ];
+        let report = ValidationReport::default();
+        let snap = SignalsSnapshot::from_context(&dossier, &report);
+        assert_eq!(snap.sigma_critical_count, 2);
+        assert_eq!(snap.sigma_high_count, 1);
+    }
+
+    #[test]
+    fn test_signals_snapshot_counts_kev_cves() {
+        let mut dossier = empty_dossier();
+        dossier.enrichment.cve_details = vec![
+            CveDetail {
+                cve_id: "CVE-2021-44228".into(),
+                cvss_score: Some(10.0),
+                epss_score: Some(0.97),
+                is_kev: true,
+                description: "Log4Shell".into(),
+            },
+            CveDetail {
+                cve_id: "CVE-2023-99999".into(),
+                cvss_score: Some(5.0),
+                epss_score: Some(0.1),
+                is_kev: false,
+                description: "minor".into(),
+            },
+        ];
+        let report = ValidationReport::default();
+        let snap = SignalsSnapshot::from_context(&dossier, &report);
+        assert_eq!(snap.kev_cve_count, 1);
+    }
+
+    #[test]
+    fn test_signals_snapshot_counts_validation_issues() {
+        let dossier = empty_dossier();
+        let mut report = ValidationReport::default();
+        report.push_error(crate::agent::validators::ValidationError {
+            field: "x".into(),
+            value: "y".into(),
+            kind: crate::agent::validators::ErrorKind::InvalidFormat,
+            message: "m".into(),
+        });
+        report.push_warning(crate::agent::validators::ValidationError {
+            field: "a".into(),
+            value: "b".into(),
+            kind: crate::agent::validators::ErrorKind::UnknownIdentifier,
+            message: "m".into(),
+        });
+        let snap = SignalsSnapshot::from_context(&dossier, &report);
+        assert_eq!(snap.validation_error_count, 1);
+        assert_eq!(snap.validation_warning_count, 1);
+    }
+
+    #[test]
+    fn test_llm_verdict_snapshot_serializes() {
+        let snap = LlmVerdictSnapshot {
+            verdict: "confirmed".into(),
+            severity: "HIGH".into(),
+            confidence: 0.9,
+        };
+        let json = serde_json::to_value(&snap).unwrap();
+        assert_eq!(json["verdict"], "confirmed");
+        assert_eq!(json["severity"], "HIGH");
+    }
+}
