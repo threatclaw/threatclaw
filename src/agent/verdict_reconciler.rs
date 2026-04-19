@@ -135,6 +135,40 @@ pub fn rule_a_confirmed_but_weak(
     }
 }
 
+/// Rule B: LLM dismisses as `false_positive` but deterministic signals are
+/// strong.
+///
+/// Triggers when ALL of:
+/// - LLM verdict = "false_positive"
+/// - ml_anomaly_score > 0.85
+/// - sigma_critical_count >= 1
+///
+/// Escalates to `inconclusive` (not `confirmed` — we lack hard evidence
+/// to overturn the LLM) with confidence reduced to 80%.
+pub fn rule_b_false_positive_but_strong(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "false_positive" {
+        return None;
+    }
+    if signals.ml_anomaly_score > 0.85 && signals.sigma_critical_count >= 1 {
+        Some(Modification {
+            new_verdict: "inconclusive".into(),
+            new_severity: "HIGH".into(),
+            new_confidence: (llm.confidence * 0.8).clamp(0.0, 1.0),
+            reason_code: "rule_b_false_positive_but_strong".into(),
+            reason_text: format!(
+                "LLM dismissed as 'false_positive' but signals are strong: \
+                 ml_anomaly={:.2} (> 0.85), sigma_critical={}",
+                signals.ml_anomaly_score, signals.sigma_critical_count
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,5 +362,29 @@ mod tests {
         s.sigma_critical_count = 1; // one critical = strong enough
         let llm = snap("confirmed", "HIGH", 0.9);
         assert!(rule_a_confirmed_but_weak(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_b_escalates_false_positive_on_strong_signals() {
+        let llm = snap("false_positive", "LOW", 0.9);
+        let m = rule_b_false_positive_but_strong(&llm, &signals_strong())
+            .expect("rule must trigger");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.new_severity, "HIGH");
+        assert!((m.new_confidence - 0.72).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rule_b_skips_when_llm_not_false_positive() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        assert!(rule_b_false_positive_but_strong(&llm, &signals_strong()).is_none());
+    }
+
+    #[test]
+    fn test_rule_b_skips_when_ml_anomaly_borderline() {
+        let mut s = signals_strong();
+        s.ml_anomaly_score = 0.85; // not strictly > 0.85
+        let llm = snap("false_positive", "LOW", 0.9);
+        assert!(rule_b_false_positive_but_strong(&llm, &s).is_none());
     }
 }
