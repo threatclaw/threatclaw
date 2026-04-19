@@ -296,6 +296,46 @@ pub async fn run_investigation(
             parsed.skill_requests.len()
         );
 
+        // ── Phase 2: typed validation (controlled by tc_config_llm_validation_mode) ──
+        let validation_mode =
+            crate::agent::validation_mode::load_validation_mode(store.as_ref()).await;
+        if validation_mode != crate::agent::validation_mode::ValidationMode::Off {
+            // Re-parse the raw LLM response into a generic Value for validation
+            // (ParsedLlmResponse has already lost field structure).
+            let json_str = crate::agent::llm_parsing::strip_markdown_fences(&llm_raw);
+            if let Ok(generic) = crate::agent::llm_parsing::parse_or_repair(json_str) {
+                let report =
+                    crate::agent::validators::validate_parsed_response(&generic, store.as_ref())
+                        .await;
+                if !report.is_clean() {
+                    warn!(
+                        "INVESTIGATION: validation report (mode={:?}) errors={} warnings={}",
+                        validation_mode,
+                        report.errors.len(),
+                        report.warnings.len()
+                    );
+                    for err in &report.errors {
+                        warn!(
+                            "  validation error: {} = {:?} ({})",
+                            err.field, err.value, err.message
+                        );
+                    }
+                    for warn_item in &report.warnings {
+                        info!(
+                            "  validation warning: {} = {:?} ({})",
+                            warn_item.field, warn_item.value, warn_item.message
+                        );
+                    }
+                    // Phase 3 will reconcile the verdict based on this report.
+                    // Phase 2 only logs for now — strict mode behavior is a
+                    // phase-3 responsibility (reconcile_verdict will consume
+                    // the report).
+                } else {
+                    tracing::debug!("INVESTIGATION: validation clean");
+                }
+            }
+        }
+
         // Track the best LLM response for fallback (keep highest confidence)
         if best_parsed
             .as_ref()

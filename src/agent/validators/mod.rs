@@ -77,6 +77,97 @@ impl ValidationReport {
     }
 }
 
+/// Run all relevant validators on a parsed LLM response object.
+///
+/// Scans the following fields (if present):
+/// - `mitre_techniques`  : array of strings → format + existence
+/// - `cves`              : array of strings → format + existence (warnings)
+/// - `iocs`              : array of {type, value} → per-type format check
+///
+/// Format violations go to `errors`. Existence misses go to `warnings`
+/// (per phase-2 design: not our job to say the CVE is fabricated, just
+/// to flag "we didn't verify this").
+///
+/// Returns a `ValidationReport` (never errors out — validation collects,
+/// it does not propagate).
+pub async fn validate_parsed_response(
+    parsed: &serde_json::Value,
+    store: &dyn crate::db::Database,
+) -> ValidationReport {
+    let mut report = ValidationReport::default();
+
+    // MITRE techniques
+    if let Some(arr) = parsed.get("mitre_techniques").and_then(|v| v.as_array()) {
+        for (i, item) in arr.iter().enumerate() {
+            let field = format!("mitre_techniques[{i}]");
+            if let Some(id) = item.as_str() {
+                match mitre::validate_format(&field, id) {
+                    Ok(()) => {
+                        if let Err(e) = mitre::validate_exists(&field, id, store).await {
+                            report.push_warning(e);
+                        }
+                    }
+                    Err(e) => report.push_error(e),
+                }
+            } else {
+                report.push_error(ValidationError {
+                    field,
+                    value: item.to_string(),
+                    kind: ErrorKind::InvalidFormat,
+                    message: "mitre_technique entry is not a string".into(),
+                });
+            }
+        }
+    }
+
+    // CVEs
+    if let Some(arr) = parsed.get("cves").and_then(|v| v.as_array()) {
+        for (i, item) in arr.iter().enumerate() {
+            let field = format!("cves[{i}]");
+            if let Some(id) = item.as_str() {
+                match cve::validate_format(&field, id) {
+                    Ok(()) => {
+                        if let Err(e) = cve::validate_exists(&field, id, store).await {
+                            report.push_warning(e);
+                        }
+                    }
+                    Err(e) => report.push_error(e),
+                }
+            } else {
+                report.push_error(ValidationError {
+                    field,
+                    value: item.to_string(),
+                    kind: ErrorKind::InvalidFormat,
+                    message: "cve entry is not a string".into(),
+                });
+            }
+        }
+    }
+
+    // IoCs (array of { type, value })
+    if let Some(arr) = parsed.get("iocs").and_then(|v| v.as_array()) {
+        for (i, item) in arr.iter().enumerate() {
+            let field = format!("iocs[{i}]");
+            let ioc_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let ioc_value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            let result = match ioc_type {
+                "ip" => ioc::validate_ip(&field, ioc_value),
+                "sha256" => hash::validate_sha256(&field, ioc_value),
+                "sha1" => hash::validate_sha1(&field, ioc_value),
+                "md5" => hash::validate_md5(&field, ioc_value),
+                // For domain/url/email we do not enforce format in phase 2
+                // (see comments in ioc.rs). Skip cleanly.
+                _ => Ok(()),
+            };
+            if let Err(e) = result {
+                report.push_error(e);
+            }
+        }
+    }
+
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
