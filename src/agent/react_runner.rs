@@ -659,11 +659,30 @@ async fn call_and_parse(base_url: &str, model: &str, prompt: &str) -> Result<Llm
     react_cycle::parse_llm_response(&response).map_err(|e| format!("JSON parse failed: {e}"))
 }
 
-/// Appelle Ollama via l'API Chat (plus fiable que generate pour le JSON structuré).
-pub(crate) async fn call_ollama(
+/// Appelle Ollama via l'API Chat en mode JSON libre (legacy `format: "json"`).
+///
+/// Thin wrapper autour de [`call_ollama_with_schema`] avec `schema = None`.
+/// Conserve la compatibilité 100% avec les appelants historiques qui
+/// n'ont pas besoin de contrainte structurelle forte (ex: shift_report).
+pub async fn call_ollama(
     base_url: &str,
     model: &str,
     prompt: &str,
+) -> Result<String, String> {
+    call_ollama_with_schema(base_url, model, prompt, None).await
+}
+
+/// Appelle Ollama via l'API Chat avec (optionnellement) un JSON Schema
+/// passé au paramètre `format` — Ollama 0.5+ compile le schéma en FSM via
+/// llama.cpp et garantit que la sortie respecte la structure demandée.
+///
+/// Si `schema` est `None`, on retombe sur le mode legacy `format: "json"`
+/// (pas de contrainte structurelle, juste un hint au sampler).
+pub async fn call_ollama_with_schema(
+    base_url: &str,
+    model: &str,
+    prompt: &str,
+    schema: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let url = format!("{}/api/chat", base_url);
 
@@ -679,6 +698,10 @@ pub(crate) async fn call_ollama(
         || model.starts_with("mistral-small");
     let keep_alive = if is_permanent { "24h" } else { "30s" };
 
+    // Format: either the caller-provided JSON Schema (FSM-constrained output
+    // via llama.cpp, Ollama 0.5+) or the legacy "json" string mode.
+    let format_value = schema.unwrap_or_else(|| json!("json"));
+
     let body = json!({
         "model": model,
         "messages": [
@@ -688,7 +711,7 @@ pub(crate) async fn call_ollama(
             }
         ],
         "stream": false,
-        "format": "json",
+        "format": format_value,
         "keep_alive": keep_alive,
         // num_ctx=8192: Ollama's default (2048) is too small for incident
         // dossiers. 8K gives room for ~15 log lines + analysis + JSON schema.
