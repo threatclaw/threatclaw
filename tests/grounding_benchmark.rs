@@ -261,3 +261,104 @@ fn benchmark_all_fixtures_pass() {
         );
     }
 }
+
+#[derive(Debug, Serialize)]
+struct BenchmarkReport {
+    version: &'static str,
+    timestamp: String,
+    total_scenarios: usize,
+    passed: usize,
+    failed: usize,
+    rule_coverage: std::collections::BTreeMap<String, usize>,
+    scenarios: Vec<ScenarioOutcome>,
+    metrics: Metrics,
+}
+
+#[derive(Debug, Serialize)]
+struct Metrics {
+    rule_match_accuracy: f64,
+    reconciliation_agreement_rate: f64,
+    mode_coverage_off: usize,
+    mode_coverage_lenient: usize,
+    mode_coverage_strict: usize,
+}
+
+#[test]
+#[ignore]
+fn benchmark_emit_report() {
+    let fixtures = load_fixtures();
+    let mut scenarios = Vec::with_capacity(fixtures.len());
+    let mut passed = 0usize;
+    let mut failed = 0usize;
+    let mut rule_coverage: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    let mut mode_off = 0usize;
+    let mut mode_lenient = 0usize;
+    let mut mode_strict = 0usize;
+
+    for fx in &fixtures {
+        let outcome = run_scenario(fx);
+        if outcome.passed {
+            passed += 1;
+        } else {
+            failed += 1;
+        }
+        *rule_coverage
+            .entry(outcome.expected_rule_code.clone())
+            .or_insert(0) += 1;
+        match fx.expected.mode.as_str() {
+            "off" => mode_off += 1,
+            "lenient" => mode_lenient += 1,
+            "strict" => mode_strict += 1,
+            _ => {}
+        }
+        scenarios.push(outcome);
+    }
+
+    let total = scenarios.len() as f64;
+    let rule_match_accuracy = if total > 0.0 {
+        scenarios
+            .iter()
+            .filter(|s| s.actual_rule_code == s.expected_rule_code)
+            .count() as f64
+            / total
+    } else {
+        1.0
+    };
+    let reconciliation_agreement_rate = if total > 0.0 {
+        scenarios
+            .iter()
+            .filter(|s| s.actual_verdict == s.expected_verdict)
+            .count() as f64
+            / total
+    } else {
+        1.0
+    };
+
+    let report = BenchmarkReport {
+        version: "1.0.0-phase6",
+        timestamp: Utc::now().to_rfc3339(),
+        total_scenarios: scenarios.len(),
+        passed,
+        failed,
+        rule_coverage,
+        scenarios,
+        metrics: Metrics {
+            rule_match_accuracy,
+            reconciliation_agreement_rate,
+            mode_coverage_off: mode_off,
+            mode_coverage_lenient: mode_lenient,
+            mode_coverage_strict: mode_strict,
+        },
+    };
+
+    let report_path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("eval/latest-benchmark-report.json");
+    let json = serde_json::to_string_pretty(&report).expect("serialize report");
+    fs::write(&report_path, &json).expect("write benchmark report");
+
+    eprintln!("\n=== Benchmark report ===\n{json}\n========================\n");
+    eprintln!("Written to: {}", report_path.display());
+
+    assert_eq!(failed, 0, "benchmark reported {failed} failure(s)");
+}
