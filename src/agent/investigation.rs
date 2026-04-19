@@ -116,6 +116,7 @@ struct ParsedLlmResponse {
     needs_more_info: bool,
     skill_requests: Vec<SkillRequest>,
     proposed_actions: Vec<ProposedAction>,
+    evidence_citations: Vec<crate::agent::evidence_tracker::EvidenceCitation>,
 }
 
 fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
@@ -173,6 +174,10 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
         proposed_actions: v
             .get("proposed_actions")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default(),
+        evidence_citations: v
+            .get("evidence_citations")
+            .and_then(|c| serde_json::from_value(c.clone()).ok())
             .unwrap_or_default(),
     })
 }
@@ -503,7 +508,7 @@ pub async fn run_investigation(
                     correlations: parsed.correlations,
                     proposed_actions: parsed.proposed_actions,
                     llm_level: "L1 Triage".into(),
-                    evidence_citations: vec![],
+                    evidence_citations: parsed.evidence_citations,
                 },
                 "false_positive" => InvestigationVerdict::FalsePositive {
                     analysis: parsed.analysis.clone(),
@@ -627,5 +632,42 @@ mod tests {
         let raw = "this is definitely not JSON and llm_json cannot help here <<<>>>";
         let result = parse_llm_response(raw);
         assert!(result.is_err(), "irreparable garbage must return Err");
+    }
+
+    #[test]
+    fn test_parse_llm_response_extracts_evidence_citations() {
+        let raw = r#"{
+            "verdict": "confirmed",
+            "analysis": "Brute force confirmed.",
+            "severity": "HIGH",
+            "confidence": 0.9,
+            "correlations": [],
+            "needs_more_info": false,
+            "skill_requests": [],
+            "proposed_actions": [],
+            "evidence_citations": [
+                { "claim": "13 failed auths", "evidence_type": "alert", "evidence_id": "42" },
+                { "claim": "Tor exit node", "evidence_type": "log", "evidence_id": "hash-abc" }
+            ]
+        }"#;
+        let parsed = parse_llm_response(raw).expect("parse");
+        assert_eq!(parsed.evidence_citations.len(), 2);
+        assert_eq!(parsed.evidence_citations[0].evidence_id, "42");
+    }
+
+    #[test]
+    fn test_parse_llm_response_no_citations_defaults_empty() {
+        let raw = r#"{
+            "verdict": "confirmed",
+            "analysis": "x",
+            "severity": "MEDIUM",
+            "confidence": 0.5,
+            "correlations": [],
+            "needs_more_info": false,
+            "skill_requests": [],
+            "proposed_actions": []
+        }"#;
+        let parsed = parse_llm_response(raw).expect("parse");
+        assert!(parsed.evidence_citations.is_empty());
     }
 }
