@@ -6,6 +6,86 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.6-beta] — 2026-04-19
+
+### Added — Grounding layer (infrastructure, **off by default**)
+
+A full anti-hallucination layer for the LLM verdict pipeline is now
+shipped. Activation is opt-in via the `tc_config_llm_validation_mode`
+DB setting (`off` | `lenient` | `strict`). Off by default so existing
+installations are unaffected until an operator flips the switch.
+
+**Five layers** stacked between the LLM output and the final verdict:
+
+1. **Ollama structured outputs** (`format: <JSON Schema>`) — the
+   FSM-constrained sampler guarantees enum / type / length compliance
+   at inference time. Regex patterns deliberately NOT included in the
+   schema (see `docs/MODEL_COMPATIBILITY.md`) because the llama.cpp
+   grammar compiler segfaults on them; Phase 2 validators compensate.
+2. **Typed Rust validators** — MITRE / CVE / IoC / hash format
+   enforcement in `src/agent/validators/`. Invalid identifiers are
+   collected in a `ValidationReport` consumed downstream.
+3. **Verdict reconciler** (`src/agent/verdict_reconciler.rs`) — 5
+   business rules (A/B/C/D/E, priority D>E>A>B>C) that downgrade or
+   upgrade LLM verdicts based on deterministic signals (global_score,
+   ML anomaly, Sigma alerts, CISA KEV).
+4. **Evidence citations** — migration `V39__evidence_citations.sql`
+   adds a JSONB column; LLM verdicts must cite concrete alert / finding
+   IDs. Fabricated citations (IDs absent from the dossier) trigger
+   rule E and downgrade `confirmed` to `inconclusive` in strict mode.
+5. **Structured telemetry** — `src/telemetry/` emits OTel-compatible
+   events (`threatclaw.llm_call`, `.reconciler`, `.citations`) for
+   audit and observability. Ready for Langfuse / Phoenix / Loki
+   ingestion without code change.
+
+### Added — Public benchmark
+
+`cargo test --test grounding_benchmark` runs 6 deterministic fixtures
+covering every rule branch. Current v1.0.6 results: **rule match
+accuracy 100%**, **reconciliation agreement 100%**. See
+`docs/BENCHMARK_RESULTS.md` for reproduction.
+
+### Added — Migrations
+
+- `V38__llm_validation_mode.sql` — seeds the validation mode setting.
+- `V39__evidence_citations.sql` — JSONB column + GIN index on
+  `incidents` for citation persistence.
+
+### Added — Documentation
+
+- `docs/BENCHMARK_RESULTS.md` — benchmark methodology + current metrics.
+- `docs/OBSERVABILITY.md` — structured tracing fields + ingestion recipes.
+- `docs/MODEL_COMPATIBILITY.md` — Ollama structured-outputs compatibility
+  notes for common GGUF models.
+
+### Changed — Schema ingestion for all five LLM call sites
+
+The L1 triage + the three L2 forensic call sites now pass a JSON
+Schema to `format`. `call_ollama` is retained as a thin wrapper for
+non-JSON callers (shift_report).
+
+### Fixed
+
+- `llm_json` fallback path guards against over-eager repair (bare
+  strings, nulls): requires the repaired value to be an object with at
+  least a `verdict` or `analysis` field.
+- Parser deduplication: `strip_markdown_fences` + `parse_or_repair`
+  live in `src/agent/llm_parsing.rs` and are shared between
+  `investigation.rs` and the reconciler.
+
+### Operator notes
+
+- **Upgrade path**: no manual migration required — running the new
+  binary applies V38 + V39 automatically via refinery.
+- **Activating the grounding layer**: set
+  `tc_config_llm_validation_mode` to `"lenient"` in the DB to observe
+  without modifying verdicts, or `"strict"` to apply downgrades. The
+  default `"off"` keeps pre-v1.0.6 behavior.
+- **Observed model compatibility** (Ollama 0.20.4 + schema FSM):
+  qwen3:14b, qwen2.5:7b-instruct, mistral-small:24b, and
+  Foundation-Sec-8B-Reasoning all work after our schema simplification.
+  See `docs/MODEL_COMPATIBILITY.md` for details.
+
 ## [1.0.5-beta] — 2026-04-17
 
 ### Security
