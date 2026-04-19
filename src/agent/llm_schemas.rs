@@ -147,6 +147,22 @@ pub fn forensic_schema() -> Value {
                         "rationale": { "type": "string", "minLength": 1 }
                     }
                 }
+            },
+            "evidence_citations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["claim", "evidence_type", "evidence_id"],
+                    "properties": {
+                        "claim": { "type": "string", "minLength": 5 },
+                        "evidence_type": {
+                            "type": "string",
+                            "enum": ["alert", "finding", "log", "graph_node"]
+                        },
+                        "evidence_id": { "type": "string", "minLength": 1 },
+                        "excerpt": { "type": "string" }
+                    }
+                }
             }
         }
     })
@@ -339,6 +355,44 @@ mod tests {
         assert!(
             validator.is_valid(&instance),
             "verdict with citations must validate"
+        );
+    }
+
+    #[test]
+    fn test_forensic_accepts_citations() {
+        let validator = compile(&forensic_schema());
+        let instance = json!({
+            "verdict": "confirmed",
+            "severity": "HIGH",
+            "confidence": 0.9,
+            "analysis": "SSH brute force confirmed with 13 failed attempts.",
+            "mitre_techniques": ["T1110"],
+            "evidence_citations": [
+                { "claim": "13 failed attempts", "evidence_type": "alert", "evidence_id": "42" }
+            ]
+        });
+        assert!(
+            validator.is_valid(&instance),
+            "forensic with citations must validate"
+        );
+    }
+
+    #[test]
+    fn test_forensic_rejects_unknown_evidence_type() {
+        let validator = compile(&forensic_schema());
+        let instance = json!({
+            "verdict": "confirmed",
+            "severity": "HIGH",
+            "confidence": 0.9,
+            "analysis": "analysis text long enough",
+            "mitre_techniques": ["T1110"],
+            "evidence_citations": [
+                { "claim": "something", "evidence_type": "file", "evidence_id": "1" }
+            ]
+        });
+        assert!(
+            !validator.is_valid(&instance),
+            "evidence_type 'file' must be rejected (not in enum)"
         );
     }
 
