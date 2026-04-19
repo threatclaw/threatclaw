@@ -40,6 +40,7 @@ pub mod ioc_bloom;
 pub mod ip_classifier;
 pub mod job_monitor;
 pub mod kill_switch;
+pub mod llm_parsing;
 pub mod llm_router;
 pub mod llm_schemas;
 pub mod memory;
