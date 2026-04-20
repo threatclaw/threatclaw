@@ -77,6 +77,54 @@ set_paths() {
     mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR" 2>/dev/null || true
 }
 
+# ── Detect existing install (for update flow) ──
+detect_existing() {
+    IS_UPDATE=0
+    PREVIOUS_VERSION=""
+
+    if [ -x "${INSTALL_DIR}/threatclaw" ]; then
+        IS_UPDATE=1
+        PREVIOUS_VERSION=$("${INSTALL_DIR}/threatclaw" --version 2>/dev/null | awk '{print $NF}')
+        info "Existing installation detected (version: ${PREVIOUS_VERSION:-unknown})"
+    fi
+}
+
+# ── Restart existing service if this is an update ──
+restart_service_if_running() {
+    [ "$IS_UPDATE" -eq 0 ] && return 0
+
+    if [ "$PLATFORM" = "linux" ]; then
+        if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet threatclaw 2>/dev/null; then
+            info "Restarting threatclaw.service to apply update (migrations will run at boot)..."
+            if [ "$(id -u)" -eq 0 ]; then
+                systemctl restart threatclaw
+            else
+                sudo systemctl restart threatclaw
+            fi
+
+            # Wait up to 10s for service to come back up
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+                if systemctl is-active --quiet threatclaw 2>/dev/null; then
+                    info "Service restarted ✓ (now on $(${INSTALL_DIR}/threatclaw --version 2>/dev/null | awk '{print $NF}'))"
+                    return 0
+                fi
+                sleep 1
+            done
+            warn "Service did not come back up cleanly — check: journalctl -u threatclaw -n 50"
+        else
+            info "No running threatclaw service detected — restart manually after this install"
+        fi
+    elif [ "$PLATFORM" = "darwin" ]; then
+        PLIST_FILE="$HOME/Library/LaunchAgents/io.threatclaw.agent.plist"
+        if [ -f "$PLIST_FILE" ] && launchctl list 2>/dev/null | grep -q io.threatclaw.agent; then
+            info "Reloading LaunchAgent to apply update..."
+            launchctl unload "$PLIST_FILE" 2>/dev/null || true
+            launchctl load "$PLIST_FILE"
+            info "LaunchAgent reloaded ✓"
+        fi
+    fi
+}
+
 # ── Check requirements ──
 check_requirements() {
     if ! command -v curl &> /dev/null; then
@@ -286,6 +334,19 @@ check_ollama() {
 # ── Print next steps ──
 print_next_steps() {
     echo ""
+    if [ "$IS_UPDATE" -eq 1 ]; then
+        info "Update complete! 🎉"
+        if [ -n "$PREVIOUS_VERSION" ] && [ "$PREVIOUS_VERSION" != "$VERSION" ]; then
+            info "  Updated: ${PREVIOUS_VERSION} → ${VERSION}"
+        fi
+        echo ""
+        echo "  DB migrations : appliquées automatiquement au démarrage du service."
+        echo "  Vérifier       : journalctl -u threatclaw -n 20 | grep 'migrations applied'"
+        echo "  Dashboard      : http://localhost:3001"
+        echo ""
+        return 0
+    fi
+
     info "Installation complete! 🎉"
     echo ""
     echo "  Next steps:"
@@ -321,13 +382,23 @@ main() {
 
     detect_platform
     set_paths
+    detect_existing
     check_requirements
     get_latest_version
     download_binary
     install_binary
-    setup_infrastructure
-    setup_service
-    check_ollama
+
+    if [ "$IS_UPDATE" -eq 1 ]; then
+        # Update flow: keep existing config/service, just restart if running
+        info "Update mode — configuration and service files preserved."
+        restart_service_if_running
+    else
+        # Fresh install flow
+        setup_infrastructure
+        setup_service
+        check_ollama
+    fi
+
     print_next_steps
 }
 
