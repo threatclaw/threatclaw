@@ -1,14 +1,56 @@
 {
   "id": "skill-mikrotik",
   "name": "MikroTik RouterOS",
-  "description": "Import firewall logs, DHCP leases and system status from MikroTik routers",
+  "version": "1.0.0",
+  "description": "Supervise vos routeurs MikroTik : drops firewall, pression CPU/mémoire, scans DDoS, DHCP pour découverte d'assets. Alimente le graphe réseau.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "network",
   "icon": "wifi",
-  "config_fields": {
-    "url": {"type": "string", "label": "Router URL", "placeholder": "https://192.168.88.1", "required": true, "help": "URL du routeur MikroTik (REST API, RouterOS 7.1+)"},
-    "username": {"type": "string", "label": "Username", "placeholder": "admin", "required": true},
-    "password": {"type": "password", "label": "Password", "required": true},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "MikroTik RouterOS est un OS de routeurs/switchs très utilisé en PME (CCR, hAP, CRS). ThreatClaw interroge son API REST pour détecter les attaques réseau et découvrir vos équipements.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte au routeur en PULL via l'API REST toutes les 5 minutes :\n\n• GET /rest/system/resource — CPU / mémoire / version\n• GET /rest/log?topics=firewall — logs firewall pour détection de scans\n• GET /rest/ip/dhcp-server/lease — leases DHCP pour asset discovery\n• GET /rest/ip/firewall/connection — nb de connexions actives (>5000 = alerte)\n\nFlux : ThreatClaw ──HTTPS PULL──> RouterOS (REST API)\n\n⚠️ ROUTEROS 7.1+ OBLIGATOIRE\n\nL'API REST n'existe PAS dans RouterOS 6.x ni dans les versions antérieures à 7.1. Si votre routeur est plus ancien, ce connecteur ne fonctionnera pas.\n\nVérifiez la version : /system resource print (en CLI) ou WebFig > System > Resources.\n\n⚠️ ACTIVER L'API REST\n\nPar défaut, l'API REST est désactivée. Activez-la :\n\n• WebFig > IP > Services > www-ssl : activer (port 443)\n• Ou en CLI : /ip service enable www-ssl\n\n🔐 SÉCURITÉ — UTILISATEUR DÉDIÉ LECTURE SEULE\n\nNe donnez PAS le compte admin du routeur. Créez un utilisateur dédié avec permissions minimales :\n\n1. /user group add name=tc-readonly policy=read,api,rest-api,!write,!policy,!sensitive\n2. /user add name=tc-reader group=tc-readonly password=XXX\n3. Pour restreindre l'IP de connexion : /user set tc-reader address=IP_THREATCLAW\n\n🎯 CE QUE THREATCLAW DÉTECTE\n\n• CPU > 80 % ou RAM > 90 % → finding MEDIUM\n• ≥ 10 drops firewall depuis même IP → alerte Sigma (port scan probable)\n• ≥ 50 drops firewall depuis même IP → finding HIGH\n• > 5000 connexions actives → finding (possible DDoS)\n• Leases DHCP → alimente le graphe d'assets (découverte automatique)\n\n📋 PRÉ-REQUIS\n\n• RouterOS 7.1 ou plus récent\n• Service www-ssl actif (port 443)\n• Compte dédié avec group tc-readonly\n• Certificat TLS (MikroTik génère un auto-signé par défaut — gardez « no_tls_verify »)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https",
+    "default_port": 443
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du routeur MikroTik",
+      "placeholder": "https://192.168.88.1",
+      "hint": "Adresse IP ou FQDN de votre routeur. Port 443 par défaut (HTTPS www-ssl). Assurez-vous que le service est activé dans IP > Services.",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Utilisateur MikroTik (lecture seule)",
+      "placeholder": "tc-reader",
+      "hint": "Compte dédié avec group « read,api,rest-api ». N'utilisez PAS le compte admin.",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe",
+      "hint": "Mot de passe du compte MikroTik. Stocké chiffré par ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Laissez activé — MikroTik utilise un certificat auto-signé par défaut. Désactivez uniquement si vous avez installé un certificat valide.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "findings": "db",
+    "sigma_alerts": "db",
+    "assets": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

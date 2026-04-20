@@ -1,17 +1,74 @@
 {
   "id": "skill-proxmox-backup",
   "name": "Proxmox Backup Server",
-  "description": "Monitor backup jobs and datastore usage from Proxmox Backup Server",
+  "version": "1.0.0",
+  "description": "Supervise Proxmox Backup Server : jobs échoués, échecs de vérification, saturation des datastores. Remonte les incidents comme findings.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "backup",
   "icon": "hard-drive",
-  "config_fields": {
-    "url": {"type": "string", "label": "PBS URL", "placeholder": "https://pbs:8007", "required": true},
-    "username": {"type": "string", "label": "Username", "placeholder": "root@pam", "help": "Utilisateur PBS"},
-    "password": {"type": "password", "label": "Password"},
-    "token_name": {"type": "string", "label": "API Token Name (alt)", "placeholder": "user@pam!monitoring", "help": "Alternative au username/password"},
-    "token_value": {"type": "password", "label": "API Token Value (alt)"},
-    "datastore": {"type": "string", "label": "Datastore", "placeholder": "backup-store", "help": "Nom du datastore (vide = tous)"},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "Proxmox Backup Server (PBS) est la solution de sauvegarde dédiée pour Proxmox VE, avec déduplication et vérification cryptographique. ThreatClaw surveille vos jobs pour détecter les sauvegardes cassées.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à PBS en PULL via l'API REST toutes les 30 minutes :\n\n• GET /api2/json/nodes/localhost/tasks — historique des tâches (backup, verify, prune, GC)\n• GET /api2/json/status/datastore-usage — taux de remplissage des datastores\n\nFlux : ThreatClaw ──HTTPS PULL──> Proxmox Backup Server (API REST)\n\n🎯 CE QUE THREATCLAW DÉTECTE\n\n• Jobs de backup échoués → finding HIGH\n• Échecs de vérification (verify) → finding HIGH (critique : sauvegarde corrompue)\n• Datastore > 85 % plein → finding MEDIUM\n• Datastore > 95 % plein → finding HIGH\n• Garbage collection ou prune en erreur → finding MEDIUM\n\nLa vérification (verify) est cruciale : PBS détecte la corruption silencieuse. Un échec de verify = votre sauvegarde pourrait être inutilisable en restauration.\n\n🔑 AUTHENTIFICATION — API TOKEN RECOMMANDÉ\n\n① API Token (recommandé)\n   1. PBS Web UI > Configuration > Access Control > API Token > Add\n   2. User : créez un user dédié (ex: tc-audit@pbs) avec rôle Audit\n   3. Token Name : « threatclaw »\n   4. Expire : laissez vide ou planifiez une rotation\n   5. Copier le secret affiché (visible une seule fois)\n   6. Format du token name à renseigner : tc-audit@pbs!threatclaw\n\n② Username + password (fallback)\n   Utilisez un compte dédié avec rôle Audit. Déconseillé — mot de passe transmis à chaque auth.\n\nRôles PBS :\n• Audit : lecture seule sur tâches et status (minimum requis)\n• NoAccess/DatastoreReader/etc. : trop restrictif ou trop large\n\n⚠️ NE DONNEZ JAMAIS root@pam\n\nroot@pam a tous les droits sur PBS (lecture/écriture/suppression de backups). Un compromis = destruction de vos sauvegardes. Créez toujours un user dédié avec rôle Audit.\n\n📋 PRÉ-REQUIS\n\n• Proxmox Backup Server 2.0+\n• Port 8007/TCP accessible depuis ThreatClaw\n• Utilisateur dédié (tc-audit@pbs ou similaire) avec rôle Audit",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 30,
+    "protocol": "https",
+    "default_port": 8007
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Proxmox Backup Server",
+      "placeholder": "https://pbs.monentreprise.local:8007",
+      "hint": "Adresse complète de PBS avec le port (8007 par défaut). Utilisez https://.",
+      "required": true
+    },
+    "token_name": {
+      "type": "string",
+      "description": "API Token Name (recommandé)",
+      "placeholder": "tc-audit@pbs!threatclaw",
+      "hint": "Format complet : user@realm!nom-du-token. Si renseigné, username/password sont ignorés.",
+      "required": false
+    },
+    "token_value": {
+      "type": "password",
+      "description": "API Token Value",
+      "hint": "Le secret du token, affiché une seule fois à la création. Si perdu, supprimez et recréez le token.",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "description": "Username (alternative)",
+      "placeholder": "tc-audit@pbs",
+      "hint": "Utilisé uniquement si aucun token n'est fourni. JAMAIS root@pam. Format user@realm.",
+      "required": false
+    },
+    "password": {
+      "type": "password",
+      "description": "Password (alternative)",
+      "hint": "Mot de passe du compte PBS. Non requis si API Token utilisé.",
+      "required": false
+    },
+    "datastore": {
+      "type": "string",
+      "description": "Datastore à surveiller (optionnel)",
+      "placeholder": "backup-store",
+      "hint": "Nom d'un datastore spécifique. Laissez vide pour tous surveiller.",
+      "required": false
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "PBS utilise un certificat auto-signé par défaut. Laissez activé sauf PKI reconnue.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 30,
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

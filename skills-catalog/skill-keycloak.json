@@ -1,15 +1,69 @@
 {
   "id": "skill-keycloak",
   "name": "Keycloak IAM",
-  "description": "Import authentication events and admin actions from Keycloak",
+  "version": "1.0.0",
+  "description": "Importe les events de login Keycloak (échecs, brute force, registrations) et les actions admin (création/suppression d'utilisateurs, rôles). Alimente les findings IAM.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "iam",
   "icon": "lock",
-  "config_fields": {
-    "url": {"type": "string", "label": "Keycloak URL", "placeholder": "https://keycloak:8443", "required": true},
-    "client_id": {"type": "string", "label": "Client ID", "required": true, "help": "Service account client ID (Admin CLI ou custom)"},
-    "client_secret": {"type": "password", "label": "Client Secret", "required": true},
-    "realm": {"type": "string", "label": "Realm", "placeholder": "master", "help": "Realm Keycloak a surveiller"},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "Keycloak est une solution IAM open-source (SSO, OIDC, SAML) largement utilisée en entreprise. ThreatClaw surveille ses events pour détecter les menaces sur vos identités.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à Keycloak en PULL toutes les 10 minutes via OAuth2 client_credentials :\n\n• GET /admin/realms/{realm}/events — events de login (LOGIN, LOGIN_ERROR, REGISTER)\n• GET /admin/realms/{realm}/admin-events — actions admin (CRUD users/roles/groups)\n\nFlux : ThreatClaw ──OAuth2 + HTTPS PULL──> Keycloak (Admin REST API)\n\n⚠️ ÉTAPE CRITIQUE — ACTIVER LES EVENTS CÔTÉ KEYCLOAK\n\nPar défaut, Keycloak ne stocke PAS les events. Si vous oubliez cette étape, l'API retourne toujours un tableau vide et ThreatClaw ne remontera rien.\n\nActivez-les dans l'interface admin :\n\n1. Realm Settings > Events (onglet)\n2. Login events settings : Save events = ON\n   Choisissez les event types à capturer (au minimum LOGIN, LOGIN_ERROR, REGISTER)\n   Expiration : 30 jours recommandé\n3. Admin events settings : Save events = ON\n   Include representation : ON (pour avoir le contexte des changements)\n\n🎯 QUEL REALM SURVEILLER ?\n\n⚠️ NE LAISSEZ PAS « master » EN PRODUCTION.\n\nLe realm « master » est le realm d'administration de Keycloak — il ne contient que vos comptes admin Keycloak eux-mêmes. Vos utilisateurs applicatifs sont dans un ou plusieurs realms dédiés (ex: « employees », « customers »).\n\nCréez une instance de cette skill par realm à surveiller, en précisant le bon realm dans la config.\n\n🔑 CRÉER UN SERVICE ACCOUNT DÉDIÉ\n\n1. Keycloak Admin > realm concerné > Clients > Create client\n2. Client ID : « threatclaw-reader », Client type : OpenID Connect\n3. Client authentication : ON, Service accounts roles : ON, les autres : OFF\n4. Save\n5. Onglet Credentials > copier le Client secret\n6. Onglet Service accounts roles > Assign role > sélectionner :\n   • view-events\n   • view-users\n   • query-users\n   • query-events\n   (ces rôles sont dans realm-management — basculez le filtre « filter by clients » > realm-management)\n\n🎯 CE QUE THREATCLAW DÉTECTE\n\n• Brute force : ≥ 5 LOGIN_ERROR depuis la même IP → finding HIGH\n• Création d'utilisateur (REGISTER) → finding LOW\n• Admin CREATE USER/ROLE ou UPDATE ROLE → finding MEDIUM\n• Admin DELETE USER/GROUP/ROLE → finding HIGH\n• LOGIN_ERROR isolés → alertes Sigma pour corrélation\n\n📋 PRÉ-REQUIS\n\n• Keycloak 18+ (API admin REST stable)\n• Events activés dans Realm Settings (voir ci-dessus)\n• Port 8443/TCP accessible depuis ThreatClaw (ou 443 si reverse-proxy)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 10,
+    "protocol": "https",
+    "default_port": 8443
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Keycloak",
+      "placeholder": "https://sso.monentreprise.fr",
+      "hint": "URL racine de Keycloak (sans /admin ni /realms). Si Keycloak est derrière un reverse-proxy sur 443, utilisez l'URL publique.",
+      "required": true
+    },
+    "realm": {
+      "type": "string",
+      "description": "Realm à surveiller",
+      "placeholder": "employees",
+      "hint": "Le realm applicatif (PAS « master » en production). Créez une instance de cette skill par realm à surveiller.",
+      "required": true
+    },
+    "client_id": {
+      "type": "string",
+      "description": "Client ID du service account",
+      "placeholder": "threatclaw-reader",
+      "hint": "Client OIDC créé dans le realm ciblé avec Service Accounts activé et les rôles view-events, view-users, query-users, query-events.",
+      "required": true
+    },
+    "client_secret": {
+      "type": "password",
+      "description": "Client Secret",
+      "hint": "Secret affiché dans l'onglet Credentials du client. Stocké chiffré par ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Activer si Keycloak utilise un certificat auto-signé. Désactivez en production avec Let's Encrypt.",
+      "default": true
+    },
+    "max_events": {
+      "type": "number",
+      "description": "Nombre max d'events par cycle (login + admin)",
+      "hint": "Par défaut 200. Augmentez si gros trafic d'auth (1000-5000).",
+      "default": 200,
+      "required": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 10,
+  "outputs": {
+    "findings": "db",
+    "sigma_alerts": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

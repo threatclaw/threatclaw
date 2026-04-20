@@ -1,13 +1,48 @@
 {
   "id": "skill-shuffle",
   "name": "Shuffle SOAR",
-  "description": "Import workflow execution status from Shuffle SOAR",
+  "version": "1.0.0",
+  "description": "Supervise l'exécution de vos workflows Shuffle. Remonte les échecs et interruptions comme findings pour éviter qu'un incident SOAR passe silencieusement.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "soar",
   "icon": "activity",
-  "config_fields": {
-    "url": {"type": "string", "label": "Shuffle URL", "placeholder": "https://shuffle:3443", "required": true},
-    "api_key": {"type": "password", "label": "API Key", "required": true, "help": "Clé API Shuffle (Settings > Authentication)"},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "Shuffle est un SOAR open-source qui automatise vos réponses à incident (playbooks, orchestration, enrichissement). ThreatClaw surveille l'état de vos workflows pour détecter quand vos automatisations tombent en panne.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à Shuffle en PULL via l'API REST toutes les 15 minutes :\n\n• GET /api/v1/workflows — liste vos workflows\n• GET /api/v1/workflows/{id}/executions — dernières exécutions de chaque workflow\n\nPour chaque workflow, ThreatClaw analyse les 10 dernières exécutions et remonte :\n\n• Status FAILURE → finding HIGH\n• Status ABORTED → finding MEDIUM\n\nFlux : ThreatClaw ──HTTPS PULL──> Shuffle (API REST v1)\n\n🎯 POURQUOI C'EST IMPORTANT\n\nUn workflow SOAR qui échoue = un incident qui n'est pas traité automatiquement comme prévu.\n\nExemple concret : votre workflow « Isolate compromised host » échoue silencieusement pendant 3 jours. Pendant ce temps, les détections EDR déclenchent la quarantaine automatique, mais elle ne fonctionne plus. ThreatClaw vous alerte dès la première FAILURE pour que vous corrigiez avant incident majeur.\n\n⚠️ LECTURE SEULE — PAS DE DÉCLENCHEMENT\n\nThreatClaw NE DÉCLENCHE PAS de workflows dans Shuffle. Ce connecteur observe uniquement les exécutions passées.\n\nSi vous voulez faire l'inverse (TC pousse un findings vers un workflow Shuffle comme trigger), utilisez Shuffle > Triggers > Webhook et pointez vers ThreatClaw. Ce n'est pas géré par cette skill.\n\n🔑 CRÉER UNE CLÉ API DÉDIÉE\n\n1. Créer un utilisateur Shuffle dédié (ex: tc-reader)\n   • Settings > Admin > Users > Add user\n   • Role : Reader (lecture seule sur workflows)\n2. Se connecter en tant que tc-reader\n3. Profil > API key > Copier la clé\n\nLa clé est personnelle et liée à l'utilisateur ; ses permissions limitent ce que TC voit.\n\n📋 PRÉ-REQUIS\n\n• Shuffle 1.4 ou plus récent\n• Port 3443/TCP (HTTPS par défaut Shuffle) accessible depuis ThreatClaw\n• Si Shuffle est exposé via reverse-proxy sur 443, utilisez l'URL publique\n• Au moins un workflow actif dans Shuffle (sinon rien à superviser)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 15,
+    "protocol": "https",
+    "default_port": 3443
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Shuffle",
+      "placeholder": "https://shuffle.monentreprise.local:3443",
+      "hint": "Adresse complète avec port. 3443 en accès direct ; 443 si exposé via reverse-proxy. Utilisez https://.",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "Clé API Shuffle",
+      "placeholder": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "hint": "Clé API du compte tc-reader. À récupérer dans Profil > API key. Stockée chiffrée par ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Activer si Shuffle utilise un certificat auto-signé. Désactivez avec PKI reconnue.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 15,
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

@@ -1,14 +1,61 @@
 {
   "id": "skill-veeam",
-  "name": "Veeam Backup",
-  "description": "Monitor backup jobs and malware detection from Veeam Backup & Replication",
+  "name": "Veeam Backup & Replication",
+  "version": "1.0.0",
+  "description": "Supervise les sauvegardes Veeam : jobs échoués, détection ransomware (v12+), saturation des repositories. Alimente les findings.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "backup",
   "icon": "hard-drive",
-  "config_fields": {
-    "url": {"type": "string", "label": "Veeam URL", "placeholder": "https://veeam:9419", "required": true},
-    "username": {"type": "string", "label": "Username", "placeholder": "DOMAIN\\admin", "required": true},
-    "password": {"type": "password", "label": "Password", "required": true},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "Veeam Backup & Replication est la solution de sauvegarde la plus utilisée en PME. ThreatClaw interroge son API REST pour remonter les incidents qui mettent vos sauvegardes en danger.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à votre serveur Veeam en PULL via l'API REST (port 9419) toutes les 30 minutes et crée des findings pour :\n\n• Jobs en échec ou en warning (GET /api/v1/sessions)\n• Détections ransomware intégrées (GET /api/v1/malwareDetection/detectedObjects, Veeam v12+)\n• Repositories saturés à plus de 90 % (GET /api/v1/backupInfrastructure/repositories)\n\nFlux : ThreatClaw ──HTTPS PULL──> Veeam B&R (API REST v1)\n\n⚠️ SÉCURITÉ — NE DONNEZ JAMAIS UN COMPTE ADMIN\n\nVeeam expose potentiellement l'ensemble de vos backups et mots de passe d'hyperviseurs. Un compte compromis = tout votre plan de reprise compromis.\n\nCréez un compte Veeam dédié en LECTURE SEULE :\n\n1. Veeam Console > Users and Roles\n2. Add > choisir un utilisateur local (ex: tc-readonly) ou AD\n3. Assigner UNIQUEMENT le rôle « Veeam Backup Viewer »\n4. Ne cochez AUCUN autre rôle (Administrator, Operator, Restore Operator)\n\nLe rôle Viewer suffit largement pour les 3 endpoints ci-dessus.\n\n🔌 FORMATS DE NOM D'UTILISATEUR ACCEPTÉS\n\n• Local : tc-readonly\n• Domaine NetBIOS : MONENTREPRISE\\tc-readonly\n• UPN : tc-readonly@monentreprise.local\n\n📋 PRÉ-REQUIS\n\n• Veeam Backup & Replication v11 minimum (malware detection : v12+)\n• API REST activée (activée par défaut)\n• Port 9419/TCP accessible depuis ThreatClaw",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 30,
+    "protocol": "https",
+    "default_port": 9419
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du serveur Veeam",
+      "placeholder": "https://veeam.monentreprise.local:9419",
+      "hint": "Adresse complète du serveur Veeam Backup & Replication avec le port de l'API REST (9419 par défaut). Utilisez https://.",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Utilisateur Veeam (lecture seule)",
+      "placeholder": "tc-readonly",
+      "hint": "Compte dédié avec UNIQUEMENT le rôle « Veeam Backup Viewer ». N'utilisez jamais un compte admin. Formats acceptés : local (tc-readonly), NetBIOS (DOMAINE\\tc-readonly) ou UPN (tc-readonly@domaine.local).",
+      "required": true
+    },
+    "password": {
+      "type": "password",
+      "description": "Mot de passe",
+      "hint": "Mot de passe du compte Veeam. Stocké chiffré par ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Veeam utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez remplacé le certificat par une autorité reconnue.",
+      "default": true
+    },
+    "max_sessions": {
+      "type": "number",
+      "description": "Nombre max de sessions à analyser par cycle",
+      "hint": "Par défaut 100. Augmentez si vous avez beaucoup de jobs courts (ex: 500+).",
+      "default": 100,
+      "required": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 30,
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

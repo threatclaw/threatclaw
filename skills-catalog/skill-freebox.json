@@ -7,7 +7,7 @@
   "trust": "official",
   "type": "connector",
   "category": "network",
-  "help": "La Freebox (Free) expose une API REST locale (Freebox OS) qui permet de lister tous les appareils connectés à votre réseau domestique ou de petite entreprise : adresses MAC, IP, hostname, fabricant, type d'appareil et statut en ligne/hors ligne.\n\nThreatClaw utilise cette API pour découvrir automatiquement vos assets réseau. C'est particulièrement utile pour les TPE/PME qui utilisent une Freebox comme routeur principal — aucun équipement réseau supplémentaire n'est nécessaire.\n\nPrérequis :\n• Une Freebox (Revolution, Delta, Pop, Ultra) avec Freebox OS activé\n• L'appairage initial se fait sur l'écran LCD de la Freebox (validation physique)\n• ThreatClaw doit être sur le même réseau local que la Freebox",
+  "help": "La Freebox (Free) expose une API REST locale (Freebox OS) qui permet de lister tous les appareils connectés à votre réseau domestique ou de petite entreprise : adresses MAC, IP, hostname, fabricant, type d'appareil et statut en ligne/hors ligne.\n\nThreatClaw utilise cette API pour découvrir automatiquement vos assets réseau. C'est particulièrement utile pour les TPE/PME qui utilisent une Freebox comme routeur principal — aucun équipement réseau supplémentaire n'est nécessaire.\n\n🔄 APPAIRAGE INITIAL (à faire UNE fois)\n\nLaissez le champ « Token d'application » VIDE et enregistrez la config. ThreatClaw va :\n\n1. Envoyer une demande d'appairage à la Freebox\n2. L'écran LCD de votre Freebox affiche : « Autoriser l'accès à ThreatClaw ? »\n3. Validez physiquement avec la flèche DROITE (↑ pour accepter)\n4. ThreatClaw sauvegarde automatiquement le token généré\n\nVous n'avez jamais à copier/coller quoi que ce soit. Après cette étape unique, les syncs se font automatiquement toutes les 5 minutes.\n\n📋 PRÉ-REQUIS\n\n• Une Freebox (Revolution, Delta, Pop, Ultra) avec Freebox OS activé\n• Accès physique à la Freebox pour la validation initiale sur l'écran LCD\n• ThreatClaw doit être sur le même réseau local que la Freebox\n• Port 80 (http://mafreebox.freebox.fr) accessible depuis ThreatClaw",
   "execution": {
     "mode": "poll",
     "interval_seconds": 300,
@@ -25,8 +25,8 @@
     "freebox_app_token": {
       "type": "string",
       "description": "Token d'application Freebox",
-      "hint": "Le token est obtenu lors de l'appairage initial. ThreatClaw envoie une demande d'autorisation et vous devez valider physiquement sur l'écran LCD de la Freebox (flèche droite). Le token est ensuite conservé automatiquement.",
-      "required": true,
+      "hint": "LAISSEZ CE CHAMP VIDE au premier démarrage. ThreatClaw déclenche automatiquement la demande d'appairage, et vous validez physiquement sur l'écran LCD de la Freebox (flèche droite pour accepter). Le token généré est ensuite sauvegardé ici automatiquement — vous n'avez rien à copier/coller.",
+      "required": false,
       "secret": true
     }
   },

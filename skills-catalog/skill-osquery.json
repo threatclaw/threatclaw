@@ -7,7 +7,7 @@
   "trust": "official",
   "type": "connector",
   "category": "endpoints",
-  "help": "L'agent ThreatClaw est basé sur osquery (Linux Foundation, Apache 2.0). Il s'installe sur chaque machine du parc et remonte en temps réel :\n\n• Inventaire logiciels + versions (corrélé automatiquement avec les CVE connues)\n• Connexions réseau par processus (détection C2 par croisement Bloom filter)\n• Cache DNS (alimentation DGA detection ML)\n• Événements fichiers (FIM — modification de /etc/passwd, authorized_keys...)\n• Événements processus (kill chain — Word lance cmd.exe lance powershell...)\n• Informations OS, hardware, mises à jour\n\n📡 Deux modes de connexion :\n\n1. Agent installé — Installez l'agent sur chaque machine via le one-liner.\n   Les résultats sont envoyés automatiquement à ThreatClaw.\n\n2. osquery existant — Si osquery est déjà déployé (via Fleet, Kolide...),\n   configurez l'envoi des logs JSON vers ThreatClaw via webhook.\n\nInstallation de l'agent :\n  curl -fsSL get.threatclaw.io/agent | bash\n\nOu via webhook depuis un osquery existant :\n  POST /api/tc/webhook/ingest/osquery?token=VOTRE_TOKEN",
+  "help": "L'agent ThreatClaw est basé sur osquery (Linux Foundation, Apache 2.0). Il s'installe sur chaque machine du parc et remonte en temps réel :\n\n• Inventaire logiciels + versions (corrélé automatiquement avec les CVE connues)\n• Connexions réseau par processus (détection C2 par croisement Bloom filter)\n• Cache DNS (alimentation DGA detection ML)\n• Événements fichiers (FIM — modification de /etc/passwd, authorized_keys...)\n• Événements processus (kill chain — Word lance cmd.exe lance powershell...)\n• Informations OS, hardware, mises à jour\n\n🔄 COMMENT ÇA MARCHE ?\n\n⚠️ ThreatClaw ne se connecte PAS aux endpoints. Ce sont les endpoints qui POUSSENT leurs données osquery vers ThreatClaw (architecture PUSH, comme Suricata).\n\nFlux : Agent osquery sur endpoint ──HTTPS POST──> ThreatClaw (webhook + token)\n\nDans les DEUX modes ci-dessous, les données arrivent via le même endpoint webhook POST /api/tc/webhook/ingest/osquery?token=XXX. Le token sécurise cette réception.\n\n📡 DEUX MODES DE DÉPLOIEMENT\n\n① AGENT ThreatClaw (recommandé pour nouveaux déploiements)\n   Installez l'agent ThreatClaw sur chaque machine via le one-liner :\n\n     curl -fsSL get.threatclaw.io/agent | TC_URL=https://votre-tc TC_TOKEN=VOTRE_TOKEN bash\n\n   L'agent = osquery + script léger qui POST les résultats au webhook TC. Aucune dépendance à Fleet/Kolide.\n\n② WEBHOOK (si vous avez déjà Fleet / Kolide / osquery-in-a-box)\n   Configurez votre fleet manager existant pour POST les logs JSON vers :\n     POST https://votre-threatclaw/api/tc/webhook/ingest/osquery?token=VOTRE_TOKEN\n\n   Pour Fleet : Settings > Integrations > Webhook.\n   Pour Kolide : configurable via custom log destination.\n\n🔐 SÉCURITÉ DU TOKEN\n\nLe token est généré automatiquement et est utilisé dans les DEUX modes ci-dessus. Il identifie ThreatClaw côté émetteur et prévient l'injection de faux logs par un attaquant. Régénérable à tout moment (il faudra mettre à jour les agents).\n\n📋 PRÉ-REQUIS\n\n• Port HTTPS de ThreatClaw (8445) accessible depuis vos endpoints\n• Si TC est sur Internet : TLS avec certificat valide (Let's Encrypt)\n• Si TC est en LAN : accessible via VPN ou WireGuard depuis les endpoints distants",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
@@ -18,7 +18,7 @@
       "type": "string",
       "description": "Mode de connexion",
       "placeholder": "webhook",
-      "hint": "\"agent\" si vous installez l'agent ThreatClaw. \"webhook\" si vous avez déjà osquery/Fleet déployé.",
+      "hint": "\"agent\" si vous installez l'agent ThreatClaw via le one-liner. \"webhook\" si vous avez déjà Fleet/Kolide/osquery déployé. Dans les deux cas, le token ci-dessous sert à authentifier les données entrantes.",
       "required": true,
       "default": "webhook",
       "enum": ["agent", "webhook"]
@@ -26,7 +26,7 @@
     "webhook_token": {
       "type": "password",
       "description": "Token webhook (généré automatiquement)",
-      "hint": "Ce token sécurise la réception des résultats osquery. Configurez-le dans l'agent ou dans votre Fleet.",
+      "hint": "Généré automatiquement. Utilisé dans les DEUX modes (agent ET webhook). À passer en paramètre du one-liner d'installation agent, OU à configurer dans Fleet/Kolide comme custom log destination. URL complète : POST https://<votre-threatclaw>/api/tc/webhook/ingest/osquery?token=<ce-token>",
       "required": false,
       "auto_generate": true
     }

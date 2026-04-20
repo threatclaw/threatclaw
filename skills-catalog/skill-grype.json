@@ -3,7 +3,7 @@
   "name": "Grype Vulnerability Scanner",
   "version": "1.0.0",
   "description": "Scan de vulnerabilites dans les images Docker et les artefacts. Compatible SBOM Syft.",
-  "help": "Grype scanne vos images Docker pour detecter les vulnerabilites connues (CVE) dans les paquets systeme et les dependances applicatives. Compatible avec les SBOM generes par Syft pour une analyse supply chain complete. Identifie les CVE critiques avec leur score CVSS, le paquet affecte et la version corrigee disponible. Essentiel pour securiser vos conteneurs en production et repondre aux exigences NIS2 sur la chaine d'approvisionnement logicielle.",
+  "help": "Grype scanne vos images Docker pour detecter les vulnerabilites connues (CVE) dans les paquets systeme et les dependances applicatives. Compatible avec les SBOM generes par Syft pour une analyse supply chain complete. Identifie les CVE critiques avec leur score CVSS, le paquet affecte et la version corrigee disponible. Essentiel pour securiser vos conteneurs en production et repondre aux exigences NIS2 sur la chaine d'approvisionnement logicielle.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > Grype > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-grype (pour cron externe)\n\nL'image cible est resolue dans l'ordre : image locale presente sur le serveur TC → Docker Hub (public) → registre prive si configure. Pour un registre prive, pullez l'image d'abord avec docker login + docker pull sur le serveur TC.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",
