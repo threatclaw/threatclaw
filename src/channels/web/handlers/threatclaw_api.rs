@@ -7619,3 +7619,222 @@ pub async fn settings_read_handler(
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e))),
     }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Governance endpoints (v1.2) — AI governance posture + compliance scores.
+// Backed by src/compliance/ (NIS2 + ISO 27001 native evaluators) and the
+// ai_systems table (migration V41). Feeds the /governance page.
+// ─────────────────────────────────────────────────────────────
+
+/// GET /api/tc/governance/summary
+///
+/// Returns everything the Governance dashboard needs in one shot :
+///   - compliance scores per framework (NIS2 + ISO 27001)
+///   - AI systems inventory counts by status
+///   - Shadow AI findings count (category AI_USAGE_POLICY)
+///   - critical/high findings totals
+pub async fn governance_summary_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let findings = store
+        .list_findings(None, None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 10000, 0)
+        .await
+        .unwrap_or_default();
+
+    let input = crate::compliance::ComplianceInput {
+        findings: &findings,
+        alerts: &alerts,
+        assets: &assets,
+    };
+    let reports = crate::compliance::evaluate_all(&input);
+
+    let ai_counts = store
+        .count_ai_systems_by_status()
+        .await
+        .unwrap_or_default();
+    let ai_counts_map: serde_json::Map<String, serde_json::Value> = ai_counts
+        .into_iter()
+        .map(|(status, count)| (status, serde_json::Value::from(count)))
+        .collect();
+
+    let shadow_ai_count = findings
+        .iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.eq_ignore_ascii_case("AI_USAGE_POLICY"))
+                .unwrap_or(false)
+        })
+        .count();
+
+    let critical = findings
+        .iter()
+        .filter(|f| f.severity.eq_ignore_ascii_case("critical"))
+        .count();
+    let high = findings
+        .iter()
+        .filter(|f| f.severity.eq_ignore_ascii_case("high"))
+        .count();
+
+    Ok(Json(serde_json::json!({
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "compliance": reports,
+        "ai_systems": {
+            "by_status": ai_counts_map,
+            "total": ai_counts_map.values().filter_map(|v| v.as_i64()).sum::<i64>(),
+        },
+        "shadow_ai": {
+            "findings_count": shadow_ai_count,
+        },
+        "findings_summary": {
+            "total": findings.len(),
+            "critical": critical,
+            "high": high,
+        },
+    })))
+}
+
+/// GET /api/tc/governance/ai-systems
+///
+/// Lists AI systems (inventory). Optional query param `status` to filter.
+pub async fn governance_ai_systems_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = params.get("status").map(|s| s.as_str());
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+    let systems = store
+        .list_ai_systems(status, limit)
+        .await
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({
+        "count": systems.len(),
+        "data": systems,
+    })))
+}
+
+/// POST /api/tc/governance/ai-systems
+///
+/// Upserts a declared AI system. Body : NewAiSystem JSON.
+/// Used by the RSSI to "claim" a shadow-detected system or add a known one.
+pub async fn governance_ai_system_upsert_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let system = crate::db::threatclaw_store::NewAiSystem {
+        name: body
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unnamed AI system")
+            .to_string(),
+        category: body
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("llm-commercial")
+            .to_string(),
+        provider: body.get("provider").and_then(|v| v.as_str()).map(String::from),
+        endpoint: body.get("endpoint").and_then(|v| v.as_str()).map(String::from),
+        status: body
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("declared")
+            .to_string(),
+        risk_level: body.get("risk_level").and_then(|v| v.as_str()).map(String::from),
+        metadata: body.get("metadata").cloned(),
+    };
+    let id = store.upsert_ai_system(&system).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "status": "ok", "id": id })))
+}
+
+/// PATCH /api/tc/governance/ai-systems/{id}
+///
+/// Status promotion (detected → declared → assessed) + optional risk_level.
+/// Body : { status, risk_level?, declared_by? }
+pub async fn governance_ai_system_status_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = body
+        .get("status")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "status is required".to_string()))?;
+    let risk_level = body.get("risk_level").and_then(|v| v.as_str());
+    let declared_by = body.get("declared_by").and_then(|v| v.as_str());
+    store
+        .update_ai_system_status(id, status, risk_level, declared_by)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "status": "ok", "id": id, "new_status": status })))
+}
+
+/// GET /api/tc/governance/shadow-ai-findings
+///
+/// Lists findings with category starting with AI_ (governance-tagged).
+/// Lighter payload than /findings : just fields the Governance card needs.
+pub async fn governance_shadow_ai_findings_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let all = store
+        .list_findings(None, Some("open"), None, limit * 3, 0)
+        .await
+        .unwrap_or_default();
+    let ai: Vec<_> = all
+        .into_iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.to_uppercase().starts_with("AI_"))
+                .unwrap_or(false)
+        })
+        .take(limit as usize)
+        .collect();
+    Ok(Json(serde_json::json!({
+        "count": ai.len(),
+        "data": ai,
+    })))
+}
+
+/// POST /api/tc/governance/qualify-shadow-ai
+///
+/// Trigger the shadow-ai-monitor qualification pipeline.
+/// Scans open sigma_alerts with rule_id `shadow-ai-*`, creates a finding with
+/// category = AI_USAGE_POLICY per hit + upserts an ai_systems row, then marks
+/// the alert as `investigating` to avoid double-qualify.
+pub async fn governance_qualify_shadow_ai_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::agent::shadow_ai::qualify_shadow_ai_alerts(store.as_ref()).await {
+        Ok(result) => Ok(Json(serde_json::json!({
+            "status": "ok",
+            "alerts_scanned": result.alerts_scanned,
+            "findings_created": result.findings_created,
+            "ai_systems_upserted": result.ai_systems_upserted,
+            "skipped_existing": result.skipped_existing,
+        }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
