@@ -7846,3 +7846,322 @@ pub async fn governance_qualify_shadow_ai_handler(
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
+
+// ─────────────────────────────────────────────────────────────
+// AI Governance PDF exports (v1.3) — EU AI Act, ISO 42001,
+// NIST AI RMF, corporate whitepaper. All go through Typst via
+// compile_typst_pdf() with dedicated templates in /app/templates.
+// ─────────────────────────────────────────────────────────────
+
+/// POST /api/tc/exports/{eu-ai-act,iso42001,nist-ai-rmf,whitepaper-ai-governance}
+///
+/// Unified handler for the 4 AI governance reports. Routes by URI path,
+/// builds a JSON payload from compliance evaluators + ai_systems + shadow
+/// findings, then renders via Typst (PDF) or returns raw JSON.
+pub async fn governance_export_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let format = body
+        .get("format")
+        .and_then(|f| f.as_str())
+        .unwrap_or("json");
+    let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
+
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
+    };
+    let path = uri.path();
+    let company = store.get_company_profile().await.unwrap_or_default();
+    let company_name = company.company_name.as_deref().unwrap_or("Organisation");
+
+    // Gather all the inputs once
+    let findings = store
+        .list_findings(None, None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 10000, 0)
+        .await
+        .unwrap_or_default();
+    let ai_systems = store.list_ai_systems(None, 500).await.unwrap_or_default();
+    let ai_counts = store.count_ai_systems_by_status().await.unwrap_or_default();
+
+    let compliance_input = crate::compliance::ComplianceInput {
+        findings: &findings,
+        alerts: &alerts,
+        assets: &assets,
+    };
+    let reports = crate::compliance::evaluate_all(&compliance_input);
+
+    // Derive helpers shared across templates
+    let count_status = |s: &str| -> i64 {
+        ai_counts
+            .iter()
+            .find(|(st, _)| st == s)
+            .map(|(_, n)| *n)
+            .unwrap_or(0)
+    };
+    let shadow_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.to_uppercase().starts_with("AI_"))
+                .unwrap_or(false)
+        })
+        .collect();
+    let shadow_providers: std::collections::HashSet<String> = shadow_findings
+        .iter()
+        .filter_map(|f| {
+            f.metadata
+                .get("llm_provider")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+    let shadow_assets: std::collections::HashSet<String> = shadow_findings
+        .iter()
+        .filter_map(|f| f.asset.clone())
+        .collect();
+
+    // Report-specific data shaping
+    let (template_name, payload) = if path.contains("eu-ai-act") {
+        let eu_report = reports
+            .iter()
+            .find(|r| r.framework == "eu_ai_act")
+            .or_else(|| reports.iter().find(|r| r.framework == "iso42001")); // fallback
+        let selected = eu_report.unwrap_or_else(|| &reports[0]);
+
+        let articles_json: Vec<_> = selected
+            .articles
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "title": a.title,
+                    "description": a.description,
+                    "score": a.score,
+                    "relevant_findings": a.relevant_findings,
+                    "critical_hits": a.critical_hits,
+                    "high_hits": a.high_hits,
+                    "medium_hits": a.medium_hits,
+                    "top_recommendation": a.top_recommendation,
+                })
+            })
+            .collect();
+
+        let high_risk = ai_systems
+            .iter()
+            .filter(|s| s.risk_level.as_deref() == Some("high"))
+            .count() as i64;
+
+        (
+            "eu-ai-act-report",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": selected.overall_score,
+                "maturity_label": selected.maturity_label,
+                "gaps": selected.gaps,
+                "articles": articles_json,
+                "ai_systems_total": ai_systems.len(),
+                "ai_systems_declared": count_status("declared"),
+                "ai_systems_detected": count_status("detected"),
+                "ai_systems_high_risk": high_risk,
+                "priority_actions": top_actions_from_reports(&reports, 5),
+            }),
+        )
+    } else if path.contains("iso42001") && !path.contains("incident") {
+        let r = reports
+            .iter()
+            .find(|r| r.framework == "iso42001")
+            .unwrap_or(&reports[0]);
+        let articles_json = report_articles_to_json(r);
+        (
+            "iso42001-assessment",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": r.overall_score,
+                "maturity_label": r.maturity_label,
+                "gaps": r.gaps,
+                "articles": articles_json,
+            }),
+        )
+    } else if path.contains("nist-ai-rmf") {
+        let r = reports
+            .iter()
+            .find(|r| r.framework == "nist_ai_rmf")
+            .unwrap_or(&reports[0]);
+        let articles_json = report_articles_to_json(r);
+        (
+            "nist-ai-rmf-governance",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": r.overall_score,
+                "maturity_label": r.maturity_label,
+                "gaps": r.gaps,
+                "articles": articles_json,
+            }),
+        )
+    } else {
+        // Whitepaper — aggregates everything
+        let compliance_avg = if reports.is_empty() {
+            50.0
+        } else {
+            reports.iter().map(|r| r.overall_score as f64).sum::<f64>() / reports.len() as f64
+        };
+
+        let systems_json: Vec<_> = ai_systems
+            .iter()
+            .take(30)
+            .map(|s| {
+                serde_json::json!({
+                    "provider": s.provider,
+                    "endpoint": s.endpoint,
+                    "category": s.category,
+                    "status": s.status,
+                    "risk_level": s.risk_level,
+                })
+            })
+            .collect();
+
+        let shadow_latest: Vec<_> = shadow_findings
+            .iter()
+            .take(15)
+            .map(|f| {
+                serde_json::json!({
+                    "detected_at": f.detected_at,
+                    "title": f.title,
+                    "asset": f.asset,
+                    "severity": f.severity,
+                })
+            })
+            .collect();
+
+        let reports_json: Vec<_> = reports
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "framework": r.framework,
+                    "framework_label": r.framework_label,
+                    "overall_score": r.overall_score,
+                    "maturity_label": r.maturity_label,
+                    "total_findings": r.total_findings,
+                    "critical_findings": r.critical_findings,
+                    "gaps": r.gaps,
+                    "articles": report_articles_to_json(r),
+                })
+            })
+            .collect();
+
+        let critical = findings
+            .iter()
+            .filter(|f| f.severity.eq_ignore_ascii_case("critical"))
+            .count() as i64;
+
+        (
+            "whitepaper-ai-governance",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "shadow_ai_findings": shadow_findings.len(),
+                "shadow_ai_providers": shadow_providers.len(),
+                "shadow_ai_assets": shadow_assets.len(),
+                "shadow_ai_latest": shadow_latest,
+                "ai_systems_total": ai_systems.len(),
+                "ai_systems_detected": count_status("detected"),
+                "ai_systems_declared": count_status("declared"),
+                "ai_systems_assessed": count_status("assessed"),
+                "ai_systems": systems_json,
+                "compliance_reports": reports_json,
+                "compliance_avg": compliance_avg,
+                "critical_findings": critical,
+                "top_recommendations": top_actions_from_reports(&reports, 5),
+            }),
+        )
+    };
+
+    if format == "pdf" {
+        match compile_typst_pdf(template_name, &payload) {
+            Ok(pdf_bytes) => {
+                let filename = format!(
+                    "threatclaw_{}_{}.pdf",
+                    template_name,
+                    chrono::Utc::now().format("%Y%m%d")
+                );
+                return (
+                    StatusCode::OK,
+                    [
+                        ("Content-Type", "application/pdf"),
+                        (
+                            "Content-Disposition",
+                            Box::leak(
+                                format!("attachment; filename=\"{}\"", filename).into_boxed_str(),
+                            ),
+                        ),
+                    ],
+                    pdf_bytes,
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Typst compile error: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    Json(payload).into_response()
+}
+
+/// Collect the top N non-null recommendations across all reports.
+fn top_actions_from_reports(
+    reports: &[crate::compliance::ComplianceReport],
+    n: usize,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for r in reports {
+        for a in &r.articles {
+            if let Some(reco) = &a.top_recommendation {
+                if !out.contains(reco) {
+                    out.push(reco.clone());
+                    if out.len() >= n {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde_json::Value> {
+    r.articles
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "id": a.id,
+                "title": a.title,
+                "description": a.description,
+                "score": a.score,
+                "relevant_findings": a.relevant_findings,
+                "critical_hits": a.critical_hits,
+                "high_hits": a.high_hits,
+                "medium_hits": a.medium_hits,
+                "top_recommendation": a.top_recommendation,
+            })
+        })
+        .collect()
+}

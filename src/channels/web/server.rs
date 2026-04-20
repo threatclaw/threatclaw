@@ -1246,6 +1246,23 @@ pub async fn start_server(
             "/api/tc/governance/qualify-shadow-ai",
             post(super::handlers::threatclaw_api::governance_qualify_shadow_ai_handler),
         )
+        // AI governance PDF/JSON exports (v1.3)
+        .route(
+            "/api/tc/exports/eu-ai-act",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/iso42001",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/nist-ai-rmf",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/whitepaper-ai-governance",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
         .route(
             "/api/tc/backup/import",
             post(super::handlers::threatclaw_api::backup_import_handler),
