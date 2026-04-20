@@ -59,6 +59,57 @@ pub struct SkillConfigRecord {
     pub value: String,
 }
 
+/// Read-only view of an agent_audit_log row (V16 immutable log).
+/// Used by exports/audit-trail and the governance dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntryRecord {
+    pub id: String,
+    pub timestamp: String,
+    pub event_type: String,
+    pub agent_mode: String,
+    pub cmd_id: Option<String>,
+    pub approved_by: Option<String>,
+    pub success: Option<bool>,
+    pub error_message: Option<String>,
+    pub skill_id: Option<String>,
+    pub row_hash: String,
+    pub previous_hash: Option<String>,
+}
+
+/// Row of the `ai_systems` governance table (V41).
+/// Unified inventory : IA declared by the CISO + IA detected in shadow
+/// by `skill-shadow-ai-monitor`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiSystemRecord {
+    pub id: i64,
+    pub name: String,
+    pub category: String, // llm-commercial | llm-self-hosted | agent | embedding | coding-assistant
+    pub provider: Option<String>,
+    pub endpoint: Option<String>,
+    pub status: String,             // detected | declared | assessed | retired
+    pub risk_level: Option<String>, // high | medium | low
+    pub assessment_status: Option<String>, // pending | in_progress | completed
+    pub declared_by: Option<String>,
+    pub declared_at: Option<String>,
+    pub first_seen: String,
+    pub last_seen: String,
+    pub remediation: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+/// Input for upsert — on conflict (category, provider, endpoint) the last_seen
+/// is refreshed and the status may be promoted (detected → declared).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewAiSystem {
+    pub name: String,
+    pub category: String,
+    pub provider: Option<String>,
+    pub endpoint: Option<String>,
+    pub status: String,
+    pub risk_level: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricRecord {
     pub metric_name: String,
@@ -290,6 +341,53 @@ pub trait ThreatClawStore: Send + Sync {
         _threshold: f64,
         _limit: i64,
     ) -> Result<Vec<String>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// List entries from the immutable agent_audit_log (V16).
+    /// Used by the audit-trail export and the governance dashboard. Default
+    /// implementation returns an empty list for backends that don't support
+    /// the append-only plpgsql-triggered table (only PostgreSQL does).
+    async fn list_audit_entries_between(
+        &self,
+        _since: Option<chrono::DateTime<chrono::Utc>>,
+        _until: Option<chrono::DateTime<chrono::Utc>>,
+        _limit: i64,
+    ) -> Result<Vec<AuditEntryRecord>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    // ── AI Systems (governance inventory, V41) ──
+
+    /// List all AI systems (declared + detected). Filter by status if provided.
+    async fn list_ai_systems(
+        &self,
+        _status: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<AiSystemRecord>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// Insert or update an AI system (unique by category + provider + endpoint).
+    /// On conflict, refreshes last_seen and metadata, preserves existing status
+    /// unless the incoming one is more advanced (detected → declared → assessed).
+    async fn upsert_ai_system(&self, _system: &NewAiSystem) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
+    /// Promote status + optional risk_level + declared_by (CISO action).
+    async fn update_ai_system_status(
+        &self,
+        _id: i64,
+        _status: &str,
+        _risk_level: Option<&str>,
+        _declared_by: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    /// Count of AI systems grouped by status (for Governance card).
+    async fn count_ai_systems_by_status(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         Ok(vec![])
     }
 

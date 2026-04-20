@@ -1222,6 +1222,47 @@ pub async fn start_server(
             "/api/tc/exports/iso27001-incident",
             post(super::handlers::threatclaw_api::export_report_handler),
         )
+        // ── Governance (v1.2) — compliance + AI inventory ──
+        .route(
+            "/api/tc/governance/summary",
+            get(super::handlers::threatclaw_api::governance_summary_handler),
+        )
+        .route(
+            "/api/tc/governance/ai-systems",
+            get(super::handlers::threatclaw_api::governance_ai_systems_list_handler)
+                .post(super::handlers::threatclaw_api::governance_ai_system_upsert_handler),
+        )
+        .route(
+            "/api/tc/governance/ai-systems/{id}",
+            axum::routing::patch(
+                super::handlers::threatclaw_api::governance_ai_system_status_handler,
+            ),
+        )
+        .route(
+            "/api/tc/governance/shadow-ai-findings",
+            get(super::handlers::threatclaw_api::governance_shadow_ai_findings_handler),
+        )
+        .route(
+            "/api/tc/governance/qualify-shadow-ai",
+            post(super::handlers::threatclaw_api::governance_qualify_shadow_ai_handler),
+        )
+        // AI governance PDF/JSON exports (v1.3)
+        .route(
+            "/api/tc/exports/eu-ai-act",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/iso42001",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/nist-ai-rmf",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
+        .route(
+            "/api/tc/exports/whitepaper-ai-governance",
+            post(super::handlers::threatclaw_api::governance_export_handler),
+        )
         .route(
             "/api/tc/backup/import",
             post(super::handlers::threatclaw_api::backup_import_handler),
