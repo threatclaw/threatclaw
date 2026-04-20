@@ -14,8 +14,11 @@
 //! No DB trait changes here — reuses existing `insert_finding`,
 //! `upsert_ai_system` and `update_alert_status`. Pure orchestration.
 
+use crate::db::Database;
 use crate::db::threatclaw_store::{NewAiSystem, NewFinding, ThreatClawStore};
 use serde_json::json;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Result of a qualification run.
 #[derive(Debug, Default)]
@@ -230,6 +233,47 @@ fn severity_from_rule(rule_id: &str) -> &'static str {
         "shadow-ai-002" => "low",
         _ => "medium",
     }
+}
+
+/// Default qualification interval — 5 minutes is a good trade-off between
+/// responsiveness (RSSI sees shadow AI usage quickly) and DB load (a full
+/// list_alerts + per-alert insert is cheap but not free).
+pub const DEFAULT_QUALIFY_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Spawn a background task that runs `qualify_shadow_ai_alerts` every
+/// `interval` for the lifetime of the process. Returns the JoinHandle so
+/// the caller can abort it on graceful shutdown.
+///
+/// The first run is delayed by the interval (skip immediate tick) to avoid
+/// hammering the DB right at boot before Zeek has pushed anything.
+pub fn spawn_qualify_cron(
+    db: Arc<dyn Database>,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.tick().await; // skip immediate first tick
+        loop {
+            ticker.tick().await;
+            match qualify_shadow_ai_alerts(db.as_ref()).await {
+                Ok(result) if result.alerts_scanned == 0 => {
+                    tracing::debug!(target: "shadow_ai", "cron tick — no shadow-ai alerts to qualify");
+                }
+                Ok(result) => {
+                    tracing::info!(
+                        target: "shadow_ai",
+                        alerts_scanned = result.alerts_scanned,
+                        findings_created = result.findings_created,
+                        ai_systems_upserted = result.ai_systems_upserted,
+                        "shadow-ai qualification cycle completed"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(target: "shadow_ai", error = %e, "shadow-ai qualification cycle failed");
+                }
+            }
+        }
+    })
 }
 
 #[cfg(test)]
