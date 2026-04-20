@@ -362,6 +362,19 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
+    async fn record_kev_observation(
+        &self,
+        _: &str,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<bool, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn record_kev_first_match(&self, _: &str, _: Option<i32>) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn kev_tta_metrics(&self) -> Result<serde_json::Value, DatabaseError> {
+        Err(not_supported())
+    }
     async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

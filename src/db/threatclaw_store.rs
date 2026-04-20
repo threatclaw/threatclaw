@@ -722,6 +722,27 @@ pub trait ThreatClawStore: Send + Sync {
         limit: i64,
     ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
+    // ── CISA KEV time-to-alert ──
+
+    /// Record a newly-observed KEV entry. Idempotent on `cve_id`.
+    /// Returns true when a new row was inserted (first observation).
+    async fn record_kev_observation(
+        &self,
+        cve_id: &str,
+        kev_published_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Mark the moment this KEV entry first matched one of our assets.
+    /// No-op if already set (first-match semantics).
+    async fn record_kev_first_match(
+        &self,
+        cve_id: &str,
+        incident_id: Option<i32>,
+    ) -> Result<(), DatabaseError>;
+
+    /// Dashboard metric — from the kev_tta_metrics_30d materialized view.
+    async fn kev_tta_metrics(&self) -> Result<serde_json::Value, DatabaseError>;
+
     async fn list_incidents(
         &self,
         status: Option<&str>,

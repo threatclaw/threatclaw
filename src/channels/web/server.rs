@@ -775,6 +775,10 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::incident_blast_radius_recompute_handler),
         )
         .route(
+            "/api/tc/metrics/kev-tta",
+            get(super::handlers::threatclaw_api::kev_tta_metrics_handler),
+        )
+        .route(
             "/api/tc/suppression-rules",
             get(super::handlers::threatclaw_api::list_suppression_rules_handler)
                 .post(super::handlers::threatclaw_api::create_suppression_rule_handler),

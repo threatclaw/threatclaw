@@ -1965,6 +1965,64 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn record_kev_observation(
+        &self,
+        cve_id: &str,
+        kev_published_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<bool, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .execute(
+                "INSERT INTO cve_exposure_alerts (cve_id, kev_published_at)
+                 VALUES ($1, $2)
+                 ON CONFLICT (cve_id) DO NOTHING",
+                &[&cve_id, &kev_published_at],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows > 0)
+    }
+
+    async fn record_kev_first_match(
+        &self,
+        cve_id: &str,
+        incident_id: Option<i32>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE cve_exposure_alerts
+                SET first_asset_match_at = COALESCE(first_asset_match_at, NOW()),
+                    incident_id = COALESCE(incident_id, $2)
+              WHERE cve_id = $1",
+            &[&cve_id, &incident_id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn kev_tta_metrics(&self) -> Result<serde_json::Value, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT matched_count, observed_count,
+                        tta_alert_p50_sec, tta_alert_p95_sec, tta_alert_max_sec,
+                        tta_ingest_p50_sec
+                   FROM kev_tta_metrics_30d",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(serde_json::json!({
+            "matched_count":   row.get::<_, Option<i64>>("matched_count").unwrap_or(0),
+            "observed_count":  row.get::<_, Option<i64>>("observed_count").unwrap_or(0),
+            "tta_alert_p50_sec": row.try_get::<_, Option<f64>>("tta_alert_p50_sec").ok().flatten(),
+            "tta_alert_p95_sec": row.try_get::<_, Option<f64>>("tta_alert_p95_sec").ok().flatten(),
+            "tta_alert_max_sec": row.get::<_, Option<i32>>("tta_alert_max_sec"),
+            "tta_ingest_p50_sec": row.try_get::<_, Option<f64>>("tta_ingest_p50_sec").ok().flatten(),
+        }))
+    }
+
     async fn list_incidents(
         &self,
         status: Option<&str>,

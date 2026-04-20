@@ -8190,6 +8190,19 @@ fn top_actions_from_reports(
     out
 }
 
+// ── CISA KEV time-to-alert metric (See roadmap §3.5) ──
+
+pub async fn kev_tta_metrics_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let metrics = store
+        .kev_tta_metrics()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+    Ok(Json(metrics))
+}
+
 // ── Suppression rules (See ADR-047) ──
 
 #[derive(serde::Deserialize)]
