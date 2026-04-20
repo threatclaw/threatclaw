@@ -775,6 +775,22 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::incident_blast_radius_recompute_handler),
         )
         .route(
+            "/api/tc/suppression-rules",
+            get(super::handlers::threatclaw_api::list_suppression_rules_handler)
+                .post(super::handlers::threatclaw_api::create_suppression_rule_handler),
+        )
+        // Preview endpoint at a distinct path so the `{id}` UUID extractor
+        // below doesn't shadow it.
+        .route(
+            "/api/tc/suppression-rules-preview",
+            post(super::handlers::threatclaw_api::preview_suppression_rule_handler),
+        )
+        .route(
+            "/api/tc/suppression-rules/{id}",
+            get(super::handlers::threatclaw_api::get_suppression_rule_handler)
+                .delete(super::handlers::threatclaw_api::disable_suppression_rule_handler),
+        )
+        .route(
             "/api/tc/graph/attack-paths",
             get(super::handlers::threatclaw_api::graph_attack_paths_handler),
         )

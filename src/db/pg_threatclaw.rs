@@ -18,6 +18,27 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// See ADR-047.
+fn row_to_suppression_rule(r: tokio_postgres::Row) -> serde_json::Value {
+    serde_json::json!({
+        "id": r.get::<_, uuid::Uuid>("id").to_string(),
+        "name": r.get::<_, String>("name"),
+        "predicate": r.try_get::<_, serde_json::Value>("predicate").unwrap_or(serde_json::json!({})),
+        "predicate_source": r.get::<_, String>("predicate_source"),
+        "action": r.get::<_, String>("action"),
+        "severity_cap": r.get::<_, Option<String>>("severity_cap"),
+        "scope": r.get::<_, String>("scope"),
+        "reason": r.get::<_, String>("reason"),
+        "created_by": r.get::<_, String>("created_by"),
+        "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+        "expires_at": r.get::<_, chrono::DateTime<chrono::Utc>>("expires_at").to_rfc3339(),
+        "enabled": r.get::<_, bool>("enabled"),
+        "match_count": r.get::<_, i64>("match_count"),
+        "last_match_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("last_match_at").map(|t| t.to_rfc3339()),
+        "source": r.get::<_, String>("source"),
+    })
+}
+
 /// Strip extra quotes from agtype values.
 /// AGE serializes strings as `"\"value\""` in JSON — this unwraps them to `"value"`.
 /// Also handles numeric strings that should be numbers, and boolean strings.
@@ -1787,6 +1808,161 @@ impl ThreatClawStore for PgBackend {
             &[&id, &status],
         ).await.map_err(query_err)?;
         Ok(())
+    }
+
+    async fn list_suppression_rules(
+        &self,
+        enabled_only: bool,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = if enabled_only {
+            conn.query(
+                "SELECT id, name, predicate, predicate_source, action, severity_cap,
+                        scope, reason, created_by, created_at, expires_at, enabled,
+                        match_count, last_match_at, source
+                   FROM suppression_rules
+                  WHERE enabled = TRUE AND expires_at > NOW()
+                  ORDER BY created_at DESC",
+                &[],
+            )
+            .await
+            .map_err(query_err)?
+        } else {
+            conn.query(
+                "SELECT id, name, predicate, predicate_source, action, severity_cap,
+                        scope, reason, created_by, created_at, expires_at, enabled,
+                        match_count, last_match_at, source
+                   FROM suppression_rules
+                  ORDER BY created_at DESC",
+                &[],
+            )
+            .await
+            .map_err(query_err)?
+        };
+        Ok(rows.into_iter().map(row_to_suppression_rule).collect())
+    }
+
+    async fn get_suppression_rule(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_opt(
+                "SELECT id, name, predicate, predicate_source, action, severity_cap,
+                    scope, reason, created_by, created_at, expires_at, enabled,
+                    match_count, last_match_at, source
+               FROM suppression_rules WHERE id = $1",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(row_to_suppression_rule))
+    }
+
+    async fn create_suppression_rule(
+        &self,
+        name: &str,
+        predicate: &serde_json::Value,
+        predicate_source: &str,
+        action: &str,
+        severity_cap: Option<&str>,
+        scope: &str,
+        reason: &str,
+        created_by: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        source: &str,
+    ) -> Result<uuid::Uuid, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO suppression_rules
+                     (name, predicate, predicate_source, action, severity_cap,
+                      scope, reason, created_by, expires_at, source)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                         COALESCE($9, NOW() + INTERVAL '90 days'), $10)
+                 RETURNING id",
+                &[
+                    &name,
+                    predicate,
+                    &predicate_source,
+                    &action,
+                    &severity_cap,
+                    &scope,
+                    &reason,
+                    &created_by,
+                    &expires_at,
+                    &source,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get("id"))
+    }
+
+    async fn disable_suppression_rule(&self, id: uuid::Uuid) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE suppression_rules SET enabled = FALSE WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn load_active_suppression_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        self.list_suppression_rules(true).await
+    }
+
+    async fn bump_suppression_match(&self, id: uuid::Uuid) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE suppression_rules
+                SET match_count = match_count + 1,
+                    last_match_at = NOW()
+              WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn list_incidents_for_preview(
+        &self,
+        lookback_days: i32,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, asset, title, severity, verdict, status,
+                        mitre_techniques, alert_count, created_at
+                   FROM incidents
+                  WHERE created_at > NOW() - ($1::int || ' days')::interval
+                  ORDER BY created_at DESC
+                  LIMIT $2",
+                &[&lookback_days, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, i32>("id"),
+                    "asset": r.get::<_, String>("asset"),
+                    "title": r.get::<_, String>("title"),
+                    "severity": r.get::<_, Option<String>>("severity"),
+                    "verdict": r.get::<_, String>("verdict"),
+                    "status": r.get::<_, String>("status"),
+                    "mitre_techniques": r.get::<_, Option<Vec<String>>>("mitre_techniques"),
+                    "alert_count": r.get::<_, Option<i32>>("alert_count"),
+                    "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+                })
+            })
+            .collect())
     }
 
     async fn list_incidents(

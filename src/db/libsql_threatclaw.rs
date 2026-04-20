@@ -319,6 +319,49 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn list_suppression_rules(
+        &self,
+        _: bool,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn get_suppression_rule(
+        &self,
+        _: uuid::Uuid,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn create_suppression_rule(
+        &self,
+        _: &str,
+        _: &serde_json::Value,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+        _: &str,
+    ) -> Result<uuid::Uuid, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn disable_suppression_rule(&self, _: uuid::Uuid) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn load_active_suppression_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn bump_suppression_match(&self, _: uuid::Uuid) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_incidents_for_preview(
+        &self,
+        _: i32,
+        _: i64,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
