@@ -1234,7 +1234,9 @@ pub async fn start_server(
         )
         .route(
             "/api/tc/governance/ai-systems/{id}",
-            axum::routing::patch(super::handlers::threatclaw_api::governance_ai_system_status_handler),
+            axum::routing::patch(
+                super::handlers::threatclaw_api::governance_ai_system_status_handler,
+            ),
         )
         .route(
             "/api/tc/governance/shadow-ai-findings",

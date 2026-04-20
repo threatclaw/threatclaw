@@ -7658,10 +7658,7 @@ pub async fn governance_summary_handler(
     };
     let reports = crate::compliance::evaluate_all(&input);
 
-    let ai_counts = store
-        .count_ai_systems_by_status()
-        .await
-        .unwrap_or_default();
+    let ai_counts = store.count_ai_systems_by_status().await.unwrap_or_default();
     let ai_counts_map: serde_json::Map<String, serde_json::Value> = ai_counts
         .into_iter()
         .map(|(status, count)| (status, serde_json::Value::from(count)))
@@ -7747,14 +7744,23 @@ pub async fn governance_ai_system_upsert_handler(
             .and_then(|v| v.as_str())
             .unwrap_or("llm-commercial")
             .to_string(),
-        provider: body.get("provider").and_then(|v| v.as_str()).map(String::from),
-        endpoint: body.get("endpoint").and_then(|v| v.as_str()).map(String::from),
+        provider: body
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        endpoint: body
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         status: body
             .get("status")
             .and_then(|v| v.as_str())
             .unwrap_or("declared")
             .to_string(),
-        risk_level: body.get("risk_level").and_then(|v| v.as_str()).map(String::from),
+        risk_level: body
+            .get("risk_level")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         metadata: body.get("metadata").cloned(),
     };
     let id = store.upsert_ai_system(&system).await.map_err(db_err)?;
@@ -7781,7 +7787,9 @@ pub async fn governance_ai_system_status_handler(
         .update_ai_system_status(id, status, risk_level, declared_by)
         .await
         .map_err(db_err)?;
-    Ok(Json(serde_json::json!({ "status": "ok", "id": id, "new_status": status })))
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "id": id, "new_status": status }),
+    ))
 }
 
 /// GET /api/tc/governance/shadow-ai-findings

@@ -45,8 +45,8 @@ pub struct ComplianceReport {
     pub overall_score: i32,      // weighted avg of article scores
     pub maturity_label: String,  // "Initial" → "Optimisé"
     pub articles: Vec<ArticleScore>,
-    pub gaps: Vec<String>,        // article IDs with score < 50
-    pub total_findings: i32,      // input count
+    pub gaps: Vec<String>,   // article IDs with score < 50
+    pub total_findings: i32, // input count
     pub critical_findings: i32,
 }
 

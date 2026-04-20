@@ -83,11 +83,11 @@ pub struct AuditEntryRecord {
 pub struct AiSystemRecord {
     pub id: i64,
     pub name: String,
-    pub category: String,   // llm-commercial | llm-self-hosted | agent | embedding | coding-assistant
+    pub category: String, // llm-commercial | llm-self-hosted | agent | embedding | coding-assistant
     pub provider: Option<String>,
     pub endpoint: Option<String>,
-    pub status: String,     // detected | declared | assessed | retired
-    pub risk_level: Option<String>,      // high | medium | low
+    pub status: String,             // detected | declared | assessed | retired
+    pub risk_level: Option<String>, // high | medium | low
     pub assessment_status: Option<String>, // pending | in_progress | completed
     pub declared_by: Option<String>,
     pub declared_at: Option<String>,

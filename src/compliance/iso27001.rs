@@ -8,8 +8,8 @@
 //! Référence : ISO/IEC 27001:2022 Annex A & ISO/IEC 27002:2022.
 
 use super::{
-    matches_any_keyword, maturity_label, score_from_hits, ArticleScore, ComplianceInput,
-    ComplianceReport,
+    ArticleScore, ComplianceInput, ComplianceReport, matches_any_keyword, maturity_label,
+    score_from_hits,
 };
 
 pub fn evaluate(input: &ComplianceInput<'_>) -> ComplianceReport {
@@ -19,7 +19,11 @@ pub fn evaluate(input: &ComplianceInput<'_>) -> ComplianceReport {
         .collect();
 
     let total: i32 = articles.iter().map(|a| a.score).sum();
-    let overall = if articles.is_empty() { 100 } else { total / articles.len() as i32 };
+    let overall = if articles.is_empty() {
+        100
+    } else {
+        total / articles.len() as i32
+    };
 
     let gaps: Vec<String> = articles
         .iter()
@@ -59,10 +63,25 @@ const CATEGORIES: &[Category] = &[
         title: "Organizational controls",
         description: "Politiques, rôles, responsabilités, gestion fournisseurs, classification.",
         keywords: &[
-            "policy", "politique", "role", "rôle", "responsibility", "responsabilité",
-            "supplier", "fournisseur", "classification", "governance", "gouvernance",
-            "third-party", "tiers", "vendor", "ai.shadow", "ai_usage_policy",
-            "ai_governance", "compliance", "conformité",
+            "policy",
+            "politique",
+            "role",
+            "rôle",
+            "responsibility",
+            "responsabilité",
+            "supplier",
+            "fournisseur",
+            "classification",
+            "governance",
+            "gouvernance",
+            "third-party",
+            "tiers",
+            "vendor",
+            "ai.shadow",
+            "ai_usage_policy",
+            "ai_governance",
+            "compliance",
+            "conformité",
         ],
         action: "Documenter les politiques de sécurité et inventorier les IA tierces",
     },
@@ -71,9 +90,21 @@ const CATEGORIES: &[Category] = &[
         title: "People controls",
         description: "Sensibilisation, formation, départs, confidentialité, gestion RH.",
         keywords: &[
-            "phishing", "hameçonnage", "awareness", "sensibilisation", "training",
-            "formation", "onboarding", "offboarding", "hr", "rh", "confidentiality",
-            "confidentialité", "ndar", "nda", "clearance",
+            "phishing",
+            "hameçonnage",
+            "awareness",
+            "sensibilisation",
+            "training",
+            "formation",
+            "onboarding",
+            "offboarding",
+            "hr",
+            "rh",
+            "confidentiality",
+            "confidentialité",
+            "ndar",
+            "nda",
+            "clearance",
         ],
         action: "Renforcer la sensibilisation et le cycle de vie des accès utilisateurs",
     },
@@ -82,9 +113,21 @@ const CATEGORIES: &[Category] = &[
         title: "Physical controls",
         description: "Sécurité physique, zones, équipements, câblage, élimination des supports.",
         keywords: &[
-            "physical", "physique", "badge", "biometric", "biométrique", "camera",
-            "caméra", "vidéo", "surveillance", "alarm", "alarme", "datacenter",
-            "zone", "secure area", "équipement",
+            "physical",
+            "physique",
+            "badge",
+            "biometric",
+            "biométrique",
+            "camera",
+            "caméra",
+            "vidéo",
+            "surveillance",
+            "alarm",
+            "alarme",
+            "datacenter",
+            "zone",
+            "secure area",
+            "équipement",
         ],
         action: "Audit des contrôles d'accès physique et inventaire des équipements",
     },
@@ -93,13 +136,43 @@ const CATEGORIES: &[Category] = &[
         title: "Technological controls",
         description: "Endpoint, réseau, chiffrement, backup, logs, supervision, gestion des vulnérabilités.",
         keywords: &[
-            "endpoint", "network", "réseau", "encryption", "chiffrement", "tls",
-            "ssl", "vpn", "firewall", "pare-feu", "backup", "sauvegarde", "log",
-            "logging", "siem", "monitoring", "supervision", "vulnerability",
-            "vulnérabilité", "cve", "patch", "edr", "ids", "ips", "mfa",
-            "authentication", "authentification", "anomaly", "anomalie",
-            "exfiltration", "intrusion", "malware", "ransomware", "c2",
-            "ransomware", "ddos", "phishing",
+            "endpoint",
+            "network",
+            "réseau",
+            "encryption",
+            "chiffrement",
+            "tls",
+            "ssl",
+            "vpn",
+            "firewall",
+            "pare-feu",
+            "backup",
+            "sauvegarde",
+            "log",
+            "logging",
+            "siem",
+            "monitoring",
+            "supervision",
+            "vulnerability",
+            "vulnérabilité",
+            "cve",
+            "patch",
+            "edr",
+            "ids",
+            "ips",
+            "mfa",
+            "authentication",
+            "authentification",
+            "anomaly",
+            "anomalie",
+            "exfiltration",
+            "intrusion",
+            "malware",
+            "ransomware",
+            "c2",
+            "ransomware",
+            "ddos",
+            "phishing",
         ],
         action: "Réduire les vulnérabilités critiques et renforcer la détection",
     },
@@ -227,7 +300,11 @@ mod tests {
 
     #[test]
     fn ai_usage_policy_hits_a5_organizational() {
-        let findings = vec![fake_finding("medium", "Shadow AI ChatGPT", "AI_USAGE_POLICY")];
+        let findings = vec![fake_finding(
+            "medium",
+            "Shadow AI ChatGPT",
+            "AI_USAGE_POLICY",
+        )];
         let alerts: Vec<AlertRecord> = vec![];
         let assets: Vec<AssetRecord> = vec![];
         let input = ComplianceInput {
