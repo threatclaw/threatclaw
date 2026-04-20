@@ -2444,6 +2444,49 @@ pub async fn graph_blast_radius_handler(
     Ok(Json(serde_json::json!(br)))
 }
 
+/// POST /api/tc/incidents/{id}/blast-radius/recompute — snapshot refresh.
+/// See ADR-048.
+pub async fn incident_blast_radius_recompute_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(incident_id): Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let incident = store
+        .get_incident(incident_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "incident not found".to_string()))?;
+
+    let asset = incident
+        .get("asset")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "incident has no asset".to_string(),
+            )
+        })?
+        .to_string();
+
+    let cache = crate::graph::normalized::global::get().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "graph cache not initialized".to_string(),
+        )
+    })?;
+
+    let snapshot = crate::agent::blast_radius_trigger::compute_and_persist(
+        store.as_ref(),
+        &cache,
+        incident_id,
+        &asset,
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("compute: {e}")))?;
+
+    Ok(Json(serde_json::json!(snapshot)))
+}
+
 /// GET /api/tc/graph/attack-paths — predict attack paths.
 pub async fn graph_attack_paths_handler(
     State(state): State<Arc<GatewayState>>,

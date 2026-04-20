@@ -2654,6 +2654,16 @@ pub fn spawn_intelligence_ticker(
                                         result.verdict.confidence() * 100.0
                                     );
 
+                                    // See ADR-048.
+                                    crate::agent::blast_radius_trigger::try_auto_trigger(
+                                        store_inv.as_ref(),
+                                        incident_id,
+                                        &asset_name,
+                                        &parsed_mitre,
+                                        &incident_severity,
+                                    )
+                                    .await;
+
                                     // Send incident notification (gated by NotificationSettings: severity threshold,
                                     // per-severity cooldown, quiet hours, escalation bypass).
                                     let verdict_type_str =

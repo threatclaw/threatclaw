@@ -2,6 +2,7 @@
 
 pub mod cache;
 pub mod edge;
+pub mod global;
 pub mod node;
 pub mod query;
 pub mod storage;

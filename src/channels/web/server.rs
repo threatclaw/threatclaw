@@ -771,6 +771,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::graph_blast_radius_handler),
         )
         .route(
+            "/api/tc/incidents/{id}/blast-radius/recompute",
+            post(super::handlers::threatclaw_api::incident_blast_radius_recompute_handler),
+        )
+        .route(
             "/api/tc/graph/attack-paths",
             get(super::handlers::threatclaw_api::graph_attack_paths_handler),
         )

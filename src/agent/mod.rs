@@ -15,6 +15,8 @@ pub mod agentic_loop;
 mod attachments;
 pub mod backup_manager;
 pub mod binary_verify;
+#[cfg(feature = "postgres")]
+pub mod blast_radius_trigger;
 pub mod cloud_caller;
 pub mod cloud_intent;
 pub mod command_interpreter;
