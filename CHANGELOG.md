@@ -6,6 +6,67 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.8-dev] — Unreleased
+
+> **Sprint scope** — v1.0.8 ships 5 features consolidating ThreatClaw into a
+> production-grade SOC-in-a-box: auto blast-radius on sensitive incidents,
+> a normalized typed graph, first-class suppression rules with TTL +
+> audit trail, CISA-KEV time-to-alert telemetry, and an LLM-narrated
+> monthly RSSI PDF report. Full rationale: `internal/feature-roadmap.md`
+> and ADR-045…049.
+
+### Planned — Graph storage normalisé (ADR-045)
+
+- **Migration V42** — `graph_nodes`, `graph_edges`, `graph_edge_catalog`
+  replace ad-hoc joins across AD / Azure / AWS / Cloudflare / Proxmox.
+  Typed edge kinds, Dijkstra-ready weights, provenance per skill.
+- **`src/graph/`** refactor split into `node.rs`, `edge.rs`, `storage.rs`,
+  `query.rs`, `cache.rs`. `petgraph` in-memory cache refreshed via
+  `LISTEN graph_update` DB triggers.
+
+### Planned — Blast radius automatique (ADR-048)
+
+- Auto-triggered on `phishing | credential_theft | malware_execution |
+  privilege_escalation | lateral_movement | data_exfiltration`.
+- Deterministic 0-100 score, cached JSONB snapshot, identity enrichment
+  (AD groups, MFA, admin flags) via `skill-active-directory`.
+- `BlastRadiusCard` React component at the top of `IncidentDetailPage`.
+
+### Planned — Suppression rules v1 (ADR-047)
+
+- **Migration V44** — `suppression_rules` with **mandatory 90-day TTL**,
+  required justification (≥10 chars), full audit trail in
+  `suppression_audit`.
+- CEL-based predicates via `cel-interpreter` crate.
+- Wizard UI from any incident card: click → pre-filled predicate →
+  **14-day dry-run preview** → create. Pattern inspired by CrowdStrike
+  Falcon "affected threats preview".
+
+### Planned — KEV time-to-alert telemetry
+
+- **Migration V45** — `cve_exposure_alerts` with `GENERATED` columns
+  `tta_ingest_sec` and `tta_alert_sec`.
+- Dashboard widget exposing P50/P95 time from CISA KEV publication to
+  ThreatClaw alert on affected assets.
+
+### Planned — Rapport mensuel RSSI
+
+- **Migration V46** — `monthly_rssi_summary` materialized view refreshed
+  hourly via `pg_cron`.
+- Single-page A4 PDF via `skill-report-gen` (Typst). NIS2 Article 21 §2
+  control coverage mapping. LLM-generated narrative (grounded per
+  v1.0.7 citations layer).
+- `GET /api/tc/reports/monthly/:yyyy-mm.pdf` + dashboard home widget.
+
+### Planned — Infrastructure
+
+- **ADR-045** — Graph storage normalisé
+- **ADR-046** — Rules engine (Cedar authz + CEL predicates)
+- **ADR-047** — Suppression rules TTL + audit
+- **ADR-048** — Blast radius auto-trigger
+
+---
+
 ## [1.0.7-beta] — 2026-04-20
 
 ### Added — Shadow AI detection (Zeek-based, passive, 0 MITM)
