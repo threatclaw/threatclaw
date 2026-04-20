@@ -667,6 +667,14 @@ pub trait ThreatClawStore: Send + Sync {
         response: &str,
     ) -> Result<(), DatabaseError>;
 
+    /// Attach a pre-computed blast-radius snapshot. See ADR-048.
+    async fn attach_blast_radius_snapshot(
+        &self,
+        id: i32,
+        score: u8,
+        snapshot: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
 
     async fn list_incidents(

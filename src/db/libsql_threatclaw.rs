@@ -311,6 +311,14 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn attach_blast_radius_snapshot(
+        &self,
+        _: i32,
+        _: u8,
+        _: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

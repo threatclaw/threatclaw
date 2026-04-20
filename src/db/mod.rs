@@ -121,6 +121,12 @@ pub async fn connect_with_handles(
 
             handles.pg_pool = Some(pg.pool());
 
+            // See ADR-045.
+            let pool_for_graph = pg.pool();
+            if let Err(e) = crate::graph::normalized::global::init(&pool_for_graph).await {
+                tracing::warn!("graph cache init skipped: {}", e);
+            }
+
             Ok((Arc::new(pg) as Arc<dyn Database>, handles))
         }
         #[allow(unreachable_patterns)]
