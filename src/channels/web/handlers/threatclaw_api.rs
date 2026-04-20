@@ -5944,6 +5944,34 @@ pub async fn export_report_handler(
         .and_then(|f| f.as_str())
         .unwrap_or("json");
     let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
+
+    // Governance v1.2 — contextual parameters (all optional, back-compat):
+    //   incident_id     → réutilise le même ID pour early/intermediate/final (chaînage)
+    //   date_range.{start,end} → filtre alerts/findings (period-bound reports)
+    //   gdpr_override   → force le flag RGPD required sur Art.33
+    //   max_records     → cap pour exports raw-data (fallback : 5000)
+    let incident_id_override = body
+        .get("incident_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let (date_start, date_end) = body
+        .get("date_range")
+        .and_then(|v| v.as_object())
+        .map(|o| {
+            (
+                o.get("start").and_then(|s| s.as_str()).map(String::from),
+                o.get("end").and_then(|e| e.as_str()).map(String::from),
+            )
+        })
+        .unwrap_or((None, None));
+    let gdpr_override = body.get("gdpr_override").and_then(|v| v.as_bool());
+    let max_records = body
+        .get("max_records")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(5000)
+        .clamp(100, 10_000);
+
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
@@ -5952,18 +5980,76 @@ pub async fn export_report_handler(
     let path = uri.path();
     let now = chrono::Utc::now();
 
-    let alerts = store
-        .list_alerts(None, None, 1000, 0)
+    // Load raw lists (cap at max_records for data-heavy reports)
+    let list_cap = max_records.max(1000);
+    let alerts_all = store
+        .list_alerts(None, None, list_cap, 0)
         .await
         .unwrap_or_default();
-    let findings = store
-        .list_findings(None, None, None, 1000, 0)
+    let findings_all = store
+        .list_findings(None, None, None, list_cap, 0)
         .await
         .unwrap_or_default();
     let assets = store
         .list_assets(None, None, 1000, 0)
         .await
         .unwrap_or_default();
+
+    // Period filter applied in-memory (date_range from body).
+    // Accepts RFC3339 or YYYY-MM-DD. Unparseable → ignored, full list used.
+    let parse_bound = |s: &str, end: bool| -> Option<chrono::DateTime<chrono::Utc>> {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+            return Some(dt.with_timezone(&chrono::Utc));
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            let time = if end {
+                chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap()
+            } else {
+                chrono::NaiveTime::MIN
+            };
+            return Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                d.and_time(time),
+                chrono::Utc,
+            ));
+        }
+        None
+    };
+    let range_start = date_start.as_deref().and_then(|s| parse_bound(s, false));
+    let range_end = date_end.as_deref().and_then(|s| parse_bound(s, true));
+
+    let in_range = |ts: &str| -> bool {
+        if range_start.is_none() && range_end.is_none() {
+            return true;
+        }
+        let parsed = chrono::DateTime::parse_from_rfc3339(ts)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc));
+        match parsed {
+            Some(dt) => {
+                if let Some(s) = range_start {
+                    if dt < s {
+                        return false;
+                    }
+                }
+                if let Some(e) = range_end {
+                    if dt > e {
+                        return false;
+                    }
+                }
+                true
+            }
+            None => true, // keep if timestamp unparseable, avoid silent data loss
+        }
+    };
+
+    let alerts: Vec<_> = alerts_all
+        .into_iter()
+        .filter(|a| in_range(&a.matched_at))
+        .collect();
+    let findings: Vec<_> = findings_all
+        .into_iter()
+        .filter(|f| in_range(&f.detected_at))
+        .collect();
 
     let situation = store
         .get_setting("_system", "security_situation")
@@ -6025,7 +6111,11 @@ pub async fn export_report_handler(
     };
 
     let notification_id = format!("TC-{}-{:03}", now.format("%Y-%m%d"), 1);
-    let incident_id = format!("TC-INC-{}-001", now.format("%Y%m%d"));
+    // Governance v1.2 — honor incident_id from body to chain early/intermediate/final
+    // reports against the same incident. Falls back to the synthetic ID when absent.
+    let incident_id = incident_id_override
+        .clone()
+        .unwrap_or_else(|| format!("TC-INC-{}-001", now.format("%Y%m%d")));
     let generated_display = now.format("%d/%m/%Y %H:%M").to_string();
     let critical_alerts: Vec<_> = alerts.iter().filter(|a| a.level == "critical").collect();
 
@@ -6098,8 +6188,12 @@ pub async fn export_report_handler(
     };
 
     // ── RGPD Art.33 auto-detection ──
-    // Determine if personal data is likely involved → triggers CNIL notification
-    let gdpr_required = {
+    // Determine if personal data is likely involved → triggers CNIL notification.
+    // Governance v1.2 — the RSSI can force the flag to "yes"/"no" via body.gdpr_override
+    // (auto-detection sometimes misses edge cases where the RSSI has better context).
+    let gdpr_required = if let Some(forced) = gdpr_override {
+        if forced { "yes" } else { "no" }
+    } else {
         // Criterion 1: incident type is data leak
         let is_data_leak = incident_type == "data_leak";
         // Criterion 2: database assets are affected
@@ -6310,15 +6404,55 @@ pub async fn export_report_handler(
             }),
         )
     } else if path.contains("audit-trail") {
+        // Governance v1.2 — pull real entries from agent_audit_log (V16 immutable log).
+        // Uses the date_range bounds when provided, otherwise dumps the latest window
+        // capped by max_records. The period label reflects the actual bounds used.
+        let audit_entries = store
+            .list_audit_entries_between(range_start, range_end, max_records)
+            .await
+            .unwrap_or_default();
+
+        let entries_json: Vec<serde_json::Value> = audit_entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "timestamp": e.timestamp,
+                    "event_type": e.event_type,
+                    "agent_mode": e.agent_mode,
+                    "cmd_id": e.cmd_id,
+                    "approved_by": e.approved_by,
+                    "success": e.success,
+                    "error_message": e.error_message,
+                    "skill_id": e.skill_id,
+                    "row_hash": e.row_hash,
+                    "previous_hash": e.previous_hash,
+                })
+            })
+            .collect();
+
+        let journal_hash = audit_entries
+            .first()
+            .map(|e| format!("sha256:{}", e.row_hash))
+            .unwrap_or_else(|| "sha256:empty".to_string());
+
+        let period_start_display = range_start
+            .map(|d| d.format("%d/%m/%Y").to_string())
+            .unwrap_or_else(|| "—".to_string());
+        let period_end_display = range_end
+            .map(|d| d.format("%d/%m/%Y").to_string())
+            .unwrap_or_else(|| now.format("%d/%m/%Y").to_string());
+
         (
             "audit-trail",
             serde_json::json!({
                 "company_name": company_name,
-                "period": format!("{}", now.format("%B %Y")),
-                "period_start": now.format("%d/%m/%Y").to_string(),
-                "period_end": now.format("%d/%m/%Y").to_string(),
-                "entries": [],
-                "journal_hash": "sha256:pending",
+                "period": format!("{} → {}", period_start_display, period_end_display),
+                "period_start": period_start_display,
+                "period_end": period_end_display,
+                "entries_count": entries_json.len(),
+                "entries": entries_json,
+                "journal_hash": journal_hash,
             }),
         )
     } else if path.contains("gdpr") {
