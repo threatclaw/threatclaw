@@ -8190,6 +8190,190 @@ fn top_actions_from_reports(
     out
 }
 
+// ── Suppression rules (See ADR-047) ──
+
+#[derive(serde::Deserialize)]
+pub struct CreateSuppressionRuleRequest {
+    pub name: String,
+    pub predicate_source: String,
+    #[serde(default = "default_action")]
+    pub action: String,
+    pub severity_cap: Option<String>,
+    #[serde(default = "default_scope")]
+    pub scope: String,
+    pub reason: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default = "default_created_by")]
+    pub created_by: String,
+    #[serde(default = "default_source")]
+    pub source: String,
+}
+
+fn default_action() -> String {
+    "drop".into()
+}
+fn default_scope() -> String {
+    "global".into()
+}
+fn default_created_by() -> String {
+    "dashboard".into()
+}
+fn default_source() -> String {
+    "manual".into()
+}
+
+#[derive(serde::Deserialize)]
+pub struct PreviewRequest {
+    pub predicate_source: String,
+    #[serde(default = "default_lookback_days")]
+    pub lookback_days: i32,
+}
+
+fn default_lookback_days() -> i32 {
+    14
+}
+
+pub async fn list_suppression_rules_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let enabled_only = q.get("enabled_only").map(|s| s == "true").unwrap_or(false);
+    let rules = store
+        .list_suppression_rules(enabled_only)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+    Ok(Json(serde_json::json!({ "rules": rules })))
+}
+
+pub async fn get_suppression_rule_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<uuid::Uuid>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let rule = store
+        .get_suppression_rule(id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "rule not found".to_string()))?;
+    Ok(Json(rule))
+}
+
+pub async fn create_suppression_rule_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<CreateSuppressionRuleRequest>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // Validate CEL compiles before persisting. Prevents invalid rules
+    // from ever hitting the DB.
+    crate::agent::suppression::cel_exec::compile(&req.predicate_source)
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("CEL: {e}")))?;
+
+    if req.reason.len() < 10 {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reason must be at least 10 characters".to_string(),
+        ));
+    }
+    if !["drop", "downgrade", "tag"].contains(&req.action.as_str()) {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "action must be one of: drop, downgrade, tag".to_string(),
+        ));
+    }
+
+    let predicate_doc = serde_json::json!({ "cel": req.predicate_source });
+    let id = store
+        .create_suppression_rule(
+            &req.name,
+            &predicate_doc,
+            &req.predicate_source,
+            &req.action,
+            req.severity_cap.as_deref(),
+            &req.scope,
+            &req.reason,
+            &req.created_by,
+            req.expires_at,
+            &req.source,
+        )
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+
+    // Hot-reload the engine so the new rule takes effect immediately.
+    if let Err(e) = crate::agent::suppression::global::reload(store.as_ref()).await {
+        tracing::warn!("SUPPRESSION: reload after create failed: {}", e);
+    }
+
+    Ok(Json(serde_json::json!({ "id": id.to_string() })))
+}
+
+pub async fn disable_suppression_rule_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<uuid::Uuid>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store
+        .disable_suppression_rule(id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+    if let Err(e) = crate::agent::suppression::global::reload(store.as_ref()).await {
+        tracing::warn!("SUPPRESSION: reload after disable failed: {}", e);
+    }
+    Ok(Json(serde_json::json!({ "disabled": true })))
+}
+
+pub async fn preview_suppression_rule_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<PreviewRequest>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let program = crate::agent::suppression::cel_exec::compile(&req.predicate_source)
+        .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, format!("CEL: {e}")))?;
+
+    let lookback = req.lookback_days.clamp(1, 365);
+    let candidates = store
+        .list_incidents_for_preview(lookback, 10_000)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+
+    let mut matched = 0usize;
+    let mut confirmed_matches = 0usize;
+    let mut eval_errors = 0usize;
+    let mut sample: Vec<serde_json::Value> = Vec::with_capacity(10);
+
+    for incident in &candidates {
+        match crate::agent::suppression::cel_exec::evaluate(&program, incident) {
+            Ok(true) => {
+                matched += 1;
+                if incident.get("verdict").and_then(|v| v.as_str()) == Some("confirmed") {
+                    confirmed_matches += 1;
+                }
+                if sample.len() < 10 {
+                    sample.push(incident.clone());
+                }
+            }
+            Ok(false) => {}
+            Err(_) => eval_errors += 1,
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "candidates_total": candidates.len(),
+        "matched": matched,
+        "confirmed_matches": confirmed_matches,
+        "eval_errors": eval_errors,
+        "lookback_days": lookback,
+        "warning": if confirmed_matches > 0 {
+            Some("Rule would suppress previously-confirmed incidents — review before creating.")
+        } else {
+            None
+        },
+        "sample": sample,
+    })))
+}
+
 fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde_json::Value> {
     r.articles
         .iter()

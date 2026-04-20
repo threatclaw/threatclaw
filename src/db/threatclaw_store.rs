@@ -677,6 +677,51 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
 
+    // ── Suppression rules (See ADR-047) ──
+
+    async fn list_suppression_rules(
+        &self,
+        enabled_only: bool,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    async fn get_suppression_rule(
+        &self,
+        id: uuid::Uuid,
+    ) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    async fn create_suppression_rule(
+        &self,
+        name: &str,
+        predicate: &serde_json::Value,
+        predicate_source: &str,
+        action: &str,
+        severity_cap: Option<&str>,
+        scope: &str,
+        reason: &str,
+        created_by: &str,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        source: &str,
+    ) -> Result<uuid::Uuid, DatabaseError>;
+
+    async fn disable_suppression_rule(&self, id: uuid::Uuid) -> Result<(), DatabaseError>;
+
+    /// Returns the raw rows needed to rebuild the in-memory engine.
+    /// Only enabled + non-expired rules are returned.
+    async fn load_active_suppression_rules(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Bump match_count + last_match_at. Cheap atomic update used on
+    /// the hot path — tolerant of write contention.
+    async fn bump_suppression_match(&self, id: uuid::Uuid) -> Result<(), DatabaseError>;
+
+    /// Preview helper: count + sample incidents created in the last
+    /// `lookback_days` days. Expression evaluation is performed by the
+    /// caller in Rust — this only returns candidate events.
+    async fn list_incidents_for_preview(
+        &self,
+        lookback_days: i32,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
     async fn list_incidents(
         &self,
         status: Option<&str>,

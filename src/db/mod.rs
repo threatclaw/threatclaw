@@ -127,6 +127,11 @@ pub async fn connect_with_handles(
                 tracing::warn!("graph cache init skipped: {}", e);
             }
 
+            // See ADR-047.
+            if let Err(e) = crate::agent::suppression::global::reload(&pg).await {
+                tracing::warn!("suppression engine init skipped: {}", e);
+            }
+
             Ok((Arc::new(pg) as Arc<dyn Database>, handles))
         }
         #[allow(unreachable_patterns)]
