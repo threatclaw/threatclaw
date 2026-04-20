@@ -10,6 +10,8 @@ import OnboardingBanner from "@/components/chrome/OnboardingBanner";
 import OnboardingLevelPicker from "@/components/chrome/OnboardingLevelPicker";
 import OnboardingTour from "@/components/chrome/OnboardingTour";
 import { useOnboarding } from "@/lib/useOnboarding";
+import KevTtaCard from "@/components/metrics/KevTtaCard";
+import MonthlyRssiCard from "@/components/metrics/MonthlyRssiCard";
 import {
   CheckCircle2, Loader2, Settings, Puzzle, Activity,
   Cpu, MessageSquare, Shield, Server, ArrowRight,
@@ -348,6 +350,12 @@ export default function HomePage() {
           </div>
         </div>
       </NeuCard>
+
+      {/* ══ v1.0.8 metrics row: KEV TTA + Monthly RSSI report ══ */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+        <KevTtaCard locale={locale} />
+        <MonthlyRssiCard locale={locale} />
+      </div>
 
       {/* ══ ThreatClaw Agent — link to Config ══ */}
       <NeuCard accent="blue" style={{ marginBottom: "20px", padding: "10px 16px", cursor: "pointer" }} onClick={() => window.location.href = "/setup#agent"}>

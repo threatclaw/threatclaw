@@ -8,62 +8,145 @@ Earlier `v0.x` entries below reflect pre-public internal development and are kep
 
 ## [1.0.8-dev] — Unreleased
 
-> **Sprint scope** — v1.0.8 ships 5 features consolidating ThreatClaw into a
-> production-grade SOC-in-a-box: auto blast-radius on sensitive incidents,
-> a normalized typed graph, first-class suppression rules with TTL +
-> audit trail, CISA-KEV time-to-alert telemetry, and an LLM-narrated
-> monthly RSSI PDF report. Full rationale: `internal/feature-roadmap.md`
-> and ADR-045…049.
+> ThreatClaw v1.0.8 livre 5 features qui consolident la plateforme en
+> SOC-in-a-box de niveau production : blast radius automatique sur
+> incidents sensibles, graph d'assets typé normalisé, règles de
+> suppression avec TTL et audit trail, télémétrie time-to-alert CISA
+> KEV, et rapport mensuel RSSI PDF. Rationale complète dans
+> `internal/feature-roadmap.md` et ADR-045…048.
 
-### Planned — Graph storage normalisé (ADR-045)
+### Added — Blast radius automatique (ADR-048)
+
+- **Migration V43** — colonnes `blast_radius_snapshot JSONB`,
+  `blast_radius_computed_at` et `blast_radius_score SMALLINT (0-100)`
+  sur `incidents`, avec index partiel sur le score pour tri/Top N.
+- Déclenchement auto après `update_incident_verdict` pour les
+  catégories à risque latéral (T1566 phishing, T1078 valid accounts,
+  T1003 credential dumping, T1068 privesc, T1021 lateral movement,
+  T1041/T1567 exfiltration, T1486 ransomware impact, T1098 account
+  manipulation) au niveau de sévérité HIGH ou supérieur.
+- Score déterministe 0-100 : `min(100, Σ(criticality × 10 / (hop+1)))`
+  pondéré par la criticity de chaque asset atteint dans les 3 sauts.
+- Endpoint `POST /api/tc/incidents/{id}/blast-radius/recompute` pour
+  rafraîchir un snapshot à la main.
+- Composant React `BlastRadiusCard` en tête du détail incident : score
+  coloré, libellé humain localisé, top 10 assets impactés avec icône
+  par type (user/host/database/app/vm…), criticité et nombre de sauts,
+  bouton « Recalculer ».
+
+### Added — Graph storage normalisé (ADR-045)
 
 - **Migration V42** — `graph_nodes`, `graph_edges`, `graph_edge_catalog`
-  replace ad-hoc joins across AD / Azure / AWS / Cloudflare / Proxmox.
-  Typed edge kinds, Dijkstra-ready weights, provenance per skill.
-- **`src/graph/`** refactor split into `node.rs`, `edge.rs`, `storage.rs`,
-  `query.rs`, `cache.rs`. `petgraph` in-memory cache refreshed via
-  `LISTEN graph_update` DB triggers.
+  remplacent les jointures ad-hoc sur `assets`/`identities`/`sessions`.
+  Edges typés avec poids Dijkstra-ready ; 24 kinds pré-seedés couvrant
+  AD (MemberOf, AdminTo, HasSession, GenericAll, CanRDP…), Azure AD
+  (AZOwns, AZContributor…), AWS (AssumeRole, S3Access), Cloudflare
+  (ZeroTrustAccess), Proxmox (HypervisorOf, VMConsole), réseau
+  (ReachableOn, ResolvesTo), data (Stores).
+- Provenance par skill + TTL optionnel par edge (sessions,
+  lease DHCP éphémères).
+- `pg_notify('graph_update', …)` via trigger AFTER INSERT/UPDATE/DELETE
+  pour invalidation incrémentale du cache in-memory.
+- Cache `petgraph::DiGraph` derrière `tokio::sync::RwLock` initialisé
+  au boot depuis `graph::normalized::global::init(pool)`, exposé via
+  `global::get() -> Option<Arc<GraphCache>>`.
+- Algos : BFS borné (blast radius), Dijkstra pondéré (`shortest_path`),
+  reconstruction de chemin `Vec<PathStep>` avec `edge_kind` + weight.
+- Nouvelle dépendance : `petgraph = "0.6"`.
 
-### Planned — Blast radius automatique (ADR-048)
+### Added — Suppression rules v1 (ADR-046, ADR-047)
 
-- Auto-triggered on `phishing | credential_theft | malware_execution |
-  privilege_escalation | lateral_movement | data_exfiltration`.
-- Deterministic 0-100 score, cached JSONB snapshot, identity enrichment
-  (AD groups, MFA, admin flags) via `skill-active-directory`.
-- `BlastRadiusCard` React component at the top of `IncidentDetailPage`.
+- **Migration V44** — `suppression_rules` avec TTL obligatoire 90 j
+  par défaut (`expires_at NOT NULL`), raison ≥ 10 caractères
+  (contrainte CHECK SQL), catalog d'actions `drop|downgrade|tag`,
+  scope `global|skill:*|asset_group:*`, traçabilité source
+  `manual|suggested|imported_sigma`.
+- Table `suppression_audit` séparée avec audit trigger auto
+  (created/updated/enabled/disabled/expired/matched_milestone) et
+  diff JSONB des champs clés.
+- Predicats CEL (Common Expression Language) compilés via la crate
+  `cel-interpreter = "0.10"`. Wrap `std::panic::catch_unwind` sur
+  `Program::compile` pour neutraliser le bug connu antlr4rust sur
+  input malformé (bug upstream documenté).
+- `SuppressionEngine` thread-safe (RwLock<Arc<Vec<CompiledRule>>>,
+  swap atomique), `replace_rules` retourne un `CompileReport`
+  (compiled / failed_compile / skipped_expired).
+- Hot reload automatique après chaque CUD via l'API + au boot dans
+  `db::mod.rs`. Rules invalides loguées et skippées, ne bloquent
+  pas le hot path d'ingestion.
+- API REST :
+  - `GET  /api/tc/suppression-rules?enabled_only={bool}`
+  - `POST /api/tc/suppression-rules`
+  - `GET  /api/tc/suppression-rules/{id}`
+  - `DELETE /api/tc/suppression-rules/{id}` (soft disable)
+  - `POST /api/tc/suppression-rules-preview` (14-day dry-run)
+- Wizard UI `SuppressionWizard` lancé depuis le bouton « Ignorer ce
+  pattern » de chaque incident. Pré-remplit le CEL depuis
+  l'incident, preview automatique à l'ouverture, warning rouge si
+  des incidents confirmés auraient été supprimés (pattern
+  CrowdStrike Falcon « affected threats preview »), validation
+  front-end stricte (reason ≥ 10, predicate non-vide).
 
-### Planned — Suppression rules v1 (ADR-047)
+### Added — CISA KEV time-to-alert telemetry (feature-roadmap §3.5)
 
-- **Migration V44** — `suppression_rules` with **mandatory 90-day TTL**,
-  required justification (≥10 chars), full audit trail in
-  `suppression_audit`.
-- CEL-based predicates via `cel-interpreter` crate.
-- Wizard UI from any incident card: click → pre-filled predicate →
-  **14-day dry-run preview** → create. Pattern inspired by CrowdStrike
-  Falcon "affected threats preview".
+- **Migration V45** — `cve_exposure_alerts` avec colonnes `GENERATED
+  ALWAYS AS … STORED` pour `tta_ingest_sec` (publication CISA →
+  ingestion TC) et `tta_alert_sec` (publication CISA → premier
+  match asset). Unique sur `cve_id` = idempotence garantie.
+- Vue `kev_tta_metrics_30d` : P50, P95, max, matched_count,
+  observed_count sur les 30 derniers jours.
+- Instrumentation `sync_kev` : `record_kev_observation` sur chaque
+  nouvelle entrée catalog. `record_kev_first_match` appelé dès
+  qu'une CVE KEV matche un de nos scanned assets (hook après
+  `cisa_kev::is_exploited`).
+- Endpoint `GET /api/tc/metrics/kev-tta` + widget home `KevTtaCard`
+  (P50 vert / P95 orange / nb matched bleu).
 
-### Planned — KEV time-to-alert telemetry
+### Added — Rapport mensuel RSSI (feature-roadmap §3.4)
 
-- **Migration V45** — `cve_exposure_alerts` with `GENERATED` columns
-  `tta_ingest_sec` and `tta_alert_sec`.
-- Dashboard widget exposing P50/P95 time from CISA KEV publication to
-  ThreatClaw alert on affected assets.
+- **Migration V46** — materialized view `monthly_rssi_summary`
+  agrégée sur tous les incidents par mois : volumes
+  (total/confirmed/fp/resolved/open), distribution severity,
+  KPIs blast radius (count/avg/max), MTTR P50/P95. Unique index
+  sur `month` → `REFRESH MATERIALIZED VIEW CONCURRENTLY` supporté.
+- Fonction `top_incidents_by_blast(month_start, n)` pour la
+  section « Top 3 risques du mois » du rapport.
+- Template Typst `templates/monthly-rssi.typ` — 1 page A4 :
+  header, 8 KPI cards, MTTR, blast radius, tableau top incidents,
+  footer brandé client (via `company_profile`).
+- API REST :
+  - `GET  /api/tc/reports/monthly/{yyyy-mm}` (JSON)
+  - `GET  /api/tc/reports/monthly/{yyyy-mm}/pdf` (PDF)
+  - `POST /api/tc/reports/monthly/refresh` (refresh matview)
+- Composant home `MonthlyRssiCard` avec téléchargement direct
+  du PDF.
 
-### Planned — Rapport mensuel RSSI
+### Changed
 
-- **Migration V46** — `monthly_rssi_summary` materialized view refreshed
-  hourly via `pg_cron`.
-- Single-page A4 PDF via `skill-report-gen` (Typst). NIS2 Article 21 §2
-  control coverage mapping. LLM-generated narrative (grounded per
-  v1.0.7 citations layer).
-- `GET /api/tc/reports/monthly/:yyyy-mm.pdf` + dashboard home widget.
+- `get_incident()` retourne désormais les champs `evidence_citations`
+  (V39, manquant), `blast_radius_snapshot`, `blast_radius_score`,
+  `blast_radius_computed_at`.
+- Database init loop (`src/db/mod.rs`) warm-up le cache graph et le
+  moteur de suppression au boot Postgres.
+- `SuppressionDecision` ajoute une variante `Downgrade { cap }` qui
+  préserve l'event mais plafonne sa sévérité.
 
-### Planned — Infrastructure
+### Infrastructure
 
-- **ADR-045** — Graph storage normalisé
-- **ADR-046** — Rules engine (Cedar authz + CEL predicates)
-- **ADR-047** — Suppression rules TTL + audit
-- **ADR-048** — Blast radius auto-trigger
+- **ADR-045** — Graph storage normalisé (Postgres + petgraph vs Neo4j/AGE)
+- **ADR-046** — Rules engine (Cedar authz + CEL predicates vs Rego/DSL)
+- **ADR-047** — Suppression rules TTL + audit + anti-overfit
+- **ADR-048** — Blast radius auto-trigger + score déterministe
+
+### Tests
+
+- 45+ nouveaux tests unit (graph, suppression engine CEL, blast
+  radius trigger, KEV TTA, CEL compile/eval errors, panic safety).
+- 8 tests d'intégration live contre PostgreSQL réel : `#[ignore]`
+  pour ne pas ralentir `cargo test`, à lancer avec
+  `DATABASE_URL=… cargo test --features postgres --tests -- --ignored`.
+- Fixtures reproductibles (préfixe de données `it-*` + cleanup
+  systématique) pour tests idempotents et parallelizables.
 
 ---
 
