@@ -5,6 +5,7 @@ import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
+import BlastRadiusCard from "@/components/incidents/BlastRadiusCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
@@ -40,6 +41,21 @@ export interface EvidenceCitation {
   excerpt?: string;
 }
 
+export interface ReachableAsset {
+  id: string;
+  hops: number;
+  total_weight: number;
+  criticality: number;
+}
+
+export interface BlastRadiusSnapshot {
+  origin: string;
+  score: number;
+  max_hops: number;
+  reachable_count: number;
+  reachable: ReachableAsset[];
+}
+
 interface Incident {
   id: number;
   asset: string;
@@ -58,6 +74,10 @@ interface Incident {
   notes: IncidentNote[] | null;
   /** Phase 4: evidence citations. Empty array / undefined for legacy incidents. */
   evidence_citations?: EvidenceCitation[];
+  /** v1.0.8: auto-computed blast radius snapshot. See ADR-048. */
+  blast_radius_snapshot?: BlastRadiusSnapshot | null;
+  blast_radius_score?: number | null;
+  blast_radius_computed_at?: string | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -286,6 +306,29 @@ function IncidentsTab({ locale }: { locale: string }) {
               const isOpen = inc.status !== "resolved" && inc.status !== "closed" && inc.status !== "archived";
               return (
               <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
+                {/* See ADR-048 */}
+                <BlastRadiusCard
+                  incidentId={inc.id}
+                  snapshot={inc.blast_radius_snapshot}
+                  score={inc.blast_radius_score}
+                  computedAt={inc.blast_radius_computed_at}
+                  locale={locale}
+                  onRecomputed={(fresh) => {
+                    setIncidents((prev) =>
+                      prev.map((p) =>
+                        p.id === inc.id
+                          ? {
+                              ...p,
+                              blast_radius_snapshot: fresh,
+                              blast_radius_score: fresh.score,
+                              blast_radius_computed_at: new Date().toISOString(),
+                            }
+                          : p,
+                      ),
+                    );
+                  }}
+                />
+
                 {/* Summary */}
                 {inc.summary && (
                   <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 16, whiteSpace: "pre-wrap" }}>
