@@ -78,6 +78,7 @@ pub mod sigma_engine;
 pub mod skill_scheduler;
 pub mod soul;
 pub mod submission;
+pub mod suppression;
 pub mod task;
 pub mod test_scenarios;
 mod thread_ops;
