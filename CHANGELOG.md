@@ -6,6 +6,196 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.7-beta] — 2026-04-20
+
+### Added — Shadow AI detection (Zeek-based, passive, 0 MITM)
+
+ThreatClaw detects unauthorized usage of commercial LLM APIs (ChatGPT,
+Claude, Gemini, Mistral, Copilot, Perplexity, DeepSeek, Cursor, GitHub
+Copilot, Codeium, Tabnine…) and of self-hosted LLM runtimes (Ollama,
+vLLM, LM Studio, Jan.ai, GPT4All, Text Generation WebUI) from the
+network traffic already observed by Zeek — **no TLS decryption, no
+endpoint agent**.
+
+- **Migration `V40__shadow_ai_detection.sql`** — new `llm_endpoint_feed`
+  table (fqdn / port / url_pattern) with 70+ seeded entries across
+  7 tiers (commercial mainstream, aggregators, hubs, gateways,
+  hyperscalers, self-hosted ports & paths, coding assistants).
+- **4 Sigma rules** `shadow-ai-001..004` over Zeek `ssl.log` /
+  `dns.log` / `conn.log` / `http.log`.
+- **`skill-shadow-ai-monitor`** — native Rust pipeline in
+  `src/agent/shadow_ai.rs`. Parses matched fields, classifies
+  provider + category, creates findings with `category=AI_USAGE_POLICY`
+  and rich metadata (provider, endpoint, policy_decision,
+  regulatory_flags), upserts the `ai_systems` inventory, marks the
+  alert `investigating` to avoid double-qualification.
+- **5-minute cron** — `spawn_qualify_cron(db, DEFAULT_QUALIFY_INTERVAL)`
+  launched from `app.rs` right after DB init. Fire-and-forget
+  `tokio::spawn` with `tokio::time::interval(300s)` + first tick
+  skipped. `tracing::info!` on cycles with activity, `tracing::debug!`
+  on empty cycles.
+
+### Added — AI governance dashboard (new tab `/governance`)
+
+New top-nav entry between `Intelligence` and `Reports`, with 4 live
+cards consuming real API endpoints:
+
+- **Shadow AI live** — open `AI_USAGE_POLICY` findings count + 8
+  latest violations with severity + policy decision badges.
+- **AI System Inventory** — by-status breakdown (detected / declared /
+  assessed / retired / total) + per-system row with one-click
+  "declare" button (PATCH `/ai-systems/{id}`).
+- **Compliance posture** — radar for 4 frameworks (NIS2 / ISO 27001 /
+  ISO 42001 / NIST AI RMF) with expand-collapse per article + score
+  bar + critical/high/medium hits + top recommendation.
+- **Evidence & audit** — critical/high findings counters + direct link
+  to the immutable V16 audit trail (hash-chained via plpgsql trigger).
+
+### Added — Compliance native Rust evaluators (`src/compliance/`)
+
+Four frameworks evaluated live from findings/alerts/assets, no Python
+runtime, no skills-dependent:
+
+- **NIS2 Art.21 §2 (a→j)** — 10 mandatory security measures, keyword
+  mapping extracted from the legacy Python skill.
+- **ISO/IEC 27001:2022** — 4 Annex A themes (A.5 Organizational /
+  A.6 People / A.7 Physical / A.8 Technological).
+- **ISO/IEC 42001:2023** — 8 Annex A controls (A.2, A.4–A.10). AI
+  policy, life cycle, data, transparency, usage, third-party.
+- **NIST AI RMF 1.0 (2025 revision)** — 4 functions (Govern / Map /
+  Measure / Manage). The 2025 update explicitly names *shadow AI* in
+  the inventory control (MAP) — cited verbatim in the generated PDF.
+
+Each article / control → score 0..=100 (`100 - 15*crit - 8*high -
+3*med`, clamp [0, 100]). No evidence → score = 50 (neutral, flagged
+for review). 11 unit tests covering empty input, targeted hits, shadow
+AI → supply-chain / organizational mapping.
+
+### Added — 4 AI governance report templates (Typst)
+
+- **`templates/eu-ai-act-report.typ`** (5-6 p) — EU AI Act (UE 2024/1689)
+  compliance: high-risk inventory + Art.12 logging + gaps + priority
+  actions + reminder on 2026-08-02 deadline + up to 35 M€ / 7% penalty.
+- **`templates/iso42001-assessment.typ`** (6-8 p) — ISO 42001 AI
+  Management System: control-by-control score + hits breakdown +
+  evidence index section pointing to the audit trail V16 + citations
+  V39.
+- **`templates/nist-ai-rmf-governance.typ`** (5-6 p) — NIST AI RMF 4
+  functions with dedicated shadow-AI block citing the 2025 revision
+  verbatim.
+- **`templates/whitepaper-ai-governance.typ`** (12-15 p) — corporate
+  whitepaper aggregating shadow AI + AI inventory + 4-framework
+  compliance posture + 3-6-12 month remediation roadmap. Ready for
+  procurement bids or ISO 42001 pre-certification.
+
+### Added — API surface
+
+New endpoints under `/api/tc/`:
+
+- `GET  /governance/summary` — single-shot payload for the /governance
+  page (compliance reports + ai_systems counts + shadow-ai findings
+  count).
+- `GET  /governance/ai-systems?status=&limit=` — inventory listing.
+- `POST /governance/ai-systems` — upsert (CISO declares or adds).
+- `PATCH /governance/ai-systems/{id}` — status promotion with
+  risk_level + declared_by.
+- `GET  /governance/shadow-ai-findings` — findings filtered to
+  `category LIKE 'AI_%'`.
+- `POST /governance/qualify-shadow-ai` — manual trigger (in addition
+  to the 5-minute cron).
+- `POST /exports/eu-ai-act` — PDF / JSON.
+- `POST /exports/iso42001` — PDF / JSON.
+- `POST /exports/nist-ai-rmf` — PDF / JSON.
+- `POST /exports/whitepaper-ai-governance` — PDF / JSON.
+
+### Added — Exports page refactor (dashboard)
+
+- 4 usage-oriented sections instead of the previous 3 tier-based
+  (Incident & Breach Response / Compliance & Audit / Threat Intel &
+  CTI / Operations & Inventory).
+- **`ExportModal`** — contextual parameters per export: date range
+  picker with presets (today / 7d / 30d / 90d / this-month / last-
+  month), incident selector (dropdown + auto-generate fallback),
+  GDPR override (auto / force-yes / force-no), max records slider.
+- **Visible legal badges** — `LEGAL 24h / 72h / 30d` (red) on NIS2 /
+  GDPR, `MONTHLY` / `ANNUAL` / `REAL-TIME` on others, `INCIDENT REQ.`
+  on the 3 NIS2 reports.
+- The 4 new AI governance reports show up in the Compliance & Audit
+  section, filtered by region (EU / US / intl).
+
+### Added — Exports backend parameters
+
+`export_report_handler` now accepts four optional body fields
+(backward-compatible):
+
+- `incident_id` — chains the early → intermediate → final NIS2
+  reports on the same incident (replaces the synthetic
+  `TC-INC-YYYYMMDD-001` that collided across same-day incidents).
+- `date_range.{start,end}` — RFC3339 or `YYYY-MM-DD`, filters
+  `alerts` and `findings` in-memory (period-bound reports).
+- `gdpr_override: bool` — CISO forces `gdpr_required = yes/no` on
+  Article 33 report when the auto-detection is wrong.
+- `max_records: 100..=10000` — cap for raw-data exports.
+
+### Added — Real immutable audit trail export
+
+`export_report_handler` for `audit-trail` now returns actual entries
+from `agent_audit_log` (V16, plpgsql-triggered append-only table)
+instead of the previous `entries: []` stub. Respects `date_range`,
+exposes `row_hash` + `previous_hash` for the hash-chain integrity,
+emits `journal_hash = sha256:<latest-row-hash>`.
+
+### Added — AI System Inventory table (V41)
+
+New migration `V41__governance_ai_systems.sql`:
+
+- `ai_systems` table — unified inventory (declared + shadow-detected
+  AI) with lifecycle status (`detected` → `declared` → `assessed` →
+  `retired`), risk level (`high` / `medium` / `low` per EU AI Act
+  Annex III), assessment status, metadata JSONB. `UNIQUE(category,
+  provider, endpoint)` + expression + GIN indexes.
+- `findings.compliance_metadata` JSONB column — schema-documented
+  in `internal/governance-roadmap.md §7.2` (regulatory_framework +
+  regulatory_reference + evidence_ids + compliance_status + risk_level
+  + remediation_action).
+- `ai_systems_stats` view for the governance dashboard counters.
+
+### Added — Documentation
+
+- `internal/shadow-ai-detection-v1.md` — design spec for the shadow
+  AI layer (gitignored, local-only per project convention).
+- `internal/governance-roadmap.md` — export taxonomy, 4-axes model,
+  scenarios, v1.2 / v1.3 / v2.0 plan (gitignored).
+
+### Changed — Installer UX (carried over from mid-April work)
+
+- `installer/get-threatclaw.{sh,ps1}` — detects existing installations
+  and auto-restarts the systemd unit / LaunchAgent / Windows process
+  on update. Preserves `.env`, `docker-compose.core.yml` and the
+  systemd unit. Message differentiates between "Update complete" and
+  "Installation complete".
+
+### Changed — Skills manifests audit
+
+- `docs(skills)` — UX + security refresh across the 25 skill manifests
+  flagged as problematic by the April audit.
+
+### Fixed — Docker build
+
+- `fix(docker)` — `wasm-tools` pinned to `1.240.0` in the root
+  Dockerfile too (and not only the builder sub-image) for Rust 1.94
+  compatibility.
+
+### Regulatory alignment
+
+This release materializes ThreatClaw's posture for **EU AI Act Art.12
+(logging)**, **NIS2 Art.21 §2(d-e) (supply chain + secure
+development)**, **ISO/IEC 42001:2023 A.5.2 / A.6.2.2 / A.10**, and
+**NIST AI RMF 2025** (which now explicitly covers shadow AI in the
+inventory control). The 2026-08-02 EU AI Act high-risk obligations
+are the rationale for shipping now — customers gain 3 months of lead
+time before audit pressure.
+
 ## [1.0.6-beta] — 2026-04-19
 
 ### Added — Grounding layer (infrastructure, **off by default**)
