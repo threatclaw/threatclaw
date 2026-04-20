@@ -778,17 +778,21 @@ pub async fn start_server(
             "/api/tc/metrics/kev-tta",
             get(super::handlers::threatclaw_api::kev_tta_metrics_handler),
         )
+        // Literal `refresh` route must be declared before the `{yyyy_mm}`
+        // capture so it doesn't get shadowed.
+        .route(
+            "/api/tc/reports/monthly/refresh",
+            post(super::handlers::threatclaw_api::refresh_monthly_summary_handler),
+        )
         .route(
             "/api/tc/reports/monthly/{yyyy_mm}",
             get(super::handlers::threatclaw_api::monthly_rssi_report_handler),
         )
+        // Axum rejects a literal suffix on a param segment, so PDF lives
+        // on a sub-path rather than `.pdf`.
         .route(
-            "/api/tc/reports/monthly/{yyyy_mm}.pdf",
+            "/api/tc/reports/monthly/{yyyy_mm}/pdf",
             get(super::handlers::threatclaw_api::monthly_rssi_report_pdf_handler),
-        )
-        .route(
-            "/api/tc/reports/monthly/refresh",
-            post(super::handlers::threatclaw_api::refresh_monthly_summary_handler),
         )
         .route(
             "/api/tc/suppression-rules",
