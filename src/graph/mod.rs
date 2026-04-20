@@ -14,6 +14,8 @@ pub mod executor;
 pub mod identity_graph;
 pub mod investigation;
 pub mod lateral;
+#[cfg(feature = "postgres")]
+pub mod normalized;
 pub mod notes;
 pub mod supply_chain;
 pub mod threat_actor;
