@@ -368,6 +368,138 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn list_ai_systems(
+        &self,
+        status: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<super::threatclaw_store::AiSystemRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let q = r#"
+            SELECT id,
+                   name,
+                   category,
+                   provider,
+                   endpoint,
+                   status,
+                   risk_level,
+                   assessment_status,
+                   declared_by,
+                   declared_at::text,
+                   first_seen::text,
+                   last_seen::text,
+                   remediation,
+                   metadata
+            FROM ai_systems
+            WHERE ($1::text IS NULL OR status = $1)
+            ORDER BY last_seen DESC
+            LIMIT $2
+        "#;
+        let rows = conn
+            .query(q, &[&status, &limit])
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| super::threatclaw_store::AiSystemRecord {
+                id: r.get(0),
+                name: r.get(1),
+                category: r.get(2),
+                provider: r.get(3),
+                endpoint: r.get(4),
+                status: r.get(5),
+                risk_level: r.get(6),
+                assessment_status: r.get(7),
+                declared_by: r.get(8),
+                declared_at: r.get(9),
+                first_seen: r.get(10),
+                last_seen: r.get(11),
+                remediation: r.get(12),
+                metadata: r.get(13),
+            })
+            .collect())
+    }
+
+    async fn upsert_ai_system(
+        &self,
+        system: &super::threatclaw_store::NewAiSystem,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Status promotion rule: keep the more "advanced" one on conflict
+        //   detected < declared < assessed < retired
+        // Handled by a CASE expression below. last_seen refreshed either way.
+        let q = r#"
+            INSERT INTO ai_systems (name, category, provider, endpoint, status, risk_level, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, '{}'::jsonb))
+            ON CONFLICT (category, provider, endpoint) DO UPDATE SET
+                name       = EXCLUDED.name,
+                last_seen  = NOW(),
+                status     = CASE
+                    WHEN ai_systems.status = 'retired' THEN 'retired'
+                    WHEN ai_systems.status = 'assessed' AND EXCLUDED.status IN ('detected','declared') THEN 'assessed'
+                    WHEN ai_systems.status = 'declared' AND EXCLUDED.status = 'detected' THEN 'declared'
+                    ELSE EXCLUDED.status
+                END,
+                risk_level = COALESCE(EXCLUDED.risk_level, ai_systems.risk_level),
+                metadata   = ai_systems.metadata || EXCLUDED.metadata
+            RETURNING id
+        "#;
+        let metadata = system.metadata.as_ref();
+        let row = conn
+            .query_one(
+                q,
+                &[
+                    &system.name,
+                    &system.category,
+                    &system.provider,
+                    &system.endpoint,
+                    &system.status,
+                    &system.risk_level,
+                    &metadata,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn update_ai_system_status(
+        &self,
+        id: i64,
+        status: &str,
+        risk_level: Option<&str>,
+        declared_by: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let q = r#"
+            UPDATE ai_systems SET
+                status      = $2,
+                risk_level  = COALESCE($3, risk_level),
+                declared_by = COALESCE($4, declared_by),
+                declared_at = CASE WHEN $2 = 'declared' AND declared_at IS NULL THEN NOW() ELSE declared_at END,
+                last_seen   = NOW()
+            WHERE id = $1
+        "#;
+        conn.execute(q, &[&id, &status, &risk_level, &declared_by])
+            .await
+            .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn count_ai_systems_by_status(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT status, COUNT(*) FROM ai_systems GROUP BY status",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1)))
+            .collect())
+    }
+
     async fn auto_close_stale_findings(
         &self,
         skill_id: &str,
