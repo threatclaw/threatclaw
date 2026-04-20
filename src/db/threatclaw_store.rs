@@ -59,6 +59,23 @@ pub struct SkillConfigRecord {
     pub value: String,
 }
 
+/// Read-only view of an agent_audit_log row (V16 immutable log).
+/// Used by exports/audit-trail and the governance dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntryRecord {
+    pub id: String,
+    pub timestamp: String,
+    pub event_type: String,
+    pub agent_mode: String,
+    pub cmd_id: Option<String>,
+    pub approved_by: Option<String>,
+    pub success: Option<bool>,
+    pub error_message: Option<String>,
+    pub skill_id: Option<String>,
+    pub row_hash: String,
+    pub previous_hash: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricRecord {
     pub metric_name: String,
@@ -290,6 +307,19 @@ pub trait ThreatClawStore: Send + Sync {
         _threshold: f64,
         _limit: i64,
     ) -> Result<Vec<String>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// List entries from the immutable agent_audit_log (V16).
+    /// Used by the audit-trail export and the governance dashboard. Default
+    /// implementation returns an empty list for backends that don't support
+    /// the append-only plpgsql-triggered table (only PostgreSQL does).
+    async fn list_audit_entries_between(
+        &self,
+        _since: Option<chrono::DateTime<chrono::Utc>>,
+        _until: Option<chrono::DateTime<chrono::Utc>>,
+        _limit: i64,
+    ) -> Result<Vec<AuditEntryRecord>, DatabaseError> {
         Ok(vec![])
     }
 

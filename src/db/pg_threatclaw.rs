@@ -321,6 +321,53 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn list_audit_entries_between(
+        &self,
+        since: Option<chrono::DateTime<chrono::Utc>>,
+        until: Option<chrono::DateTime<chrono::Utc>>,
+        limit: i64,
+    ) -> Result<Vec<super::threatclaw_store::AuditEntryRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let q = r#"
+            SELECT id::text,
+                   timestamp::text,
+                   event_type,
+                   agent_mode,
+                   cmd_id,
+                   approved_by,
+                   success,
+                   error_message,
+                   skill_id,
+                   row_hash,
+                   previous_hash
+            FROM agent_audit_log
+            WHERE ($1::timestamptz IS NULL OR timestamp >= $1)
+              AND ($2::timestamptz IS NULL OR timestamp <= $2)
+            ORDER BY timestamp DESC
+            LIMIT $3
+        "#;
+        let rows = conn
+            .query(q, &[&since, &until, &limit])
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| super::threatclaw_store::AuditEntryRecord {
+                id: r.get(0),
+                timestamp: r.get(1),
+                event_type: r.get(2),
+                agent_mode: r.get(3),
+                cmd_id: r.get(4),
+                approved_by: r.get(5),
+                success: r.get(6),
+                error_message: r.get(7),
+                skill_id: r.get(8),
+                row_hash: r.get(9),
+                previous_hash: r.get(10),
+            })
+            .collect())
+    }
+
     async fn auto_close_stale_findings(
         &self,
         skill_id: &str,
