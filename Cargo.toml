@@ -56,6 +56,10 @@ jsonschema = { version = "0.46", default-features = false }
 # Repairs malformed JSON from LLM outputs (truncation, trailing comma, unescaped quotes, ...)
 llm_json = "1.0"
 
+# Graph algorithms — in-memory cache for BFS / Dijkstra / PageRank
+# See ADR-045 for the trade-off vs Neo4j / Apache AGE.
+petgraph = "0.6"
+
 # Database - PostgreSQL (default, feature-gated)
 deadpool-postgres = { version = "0.14", optional = true }
 tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"], optional = true }
