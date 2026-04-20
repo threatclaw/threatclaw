@@ -36,6 +36,20 @@ Write-Host "  |   Autonomous Cybersecurity Agent        |" -ForegroundColor Cyan
 Write-Host "  +========================================+" -ForegroundColor Cyan
 Write-Host ""
 
+# ── Detect existing install (for update flow) ──
+$IsUpdate = $false
+$PreviousVersion = ""
+$TargetBinPath = Join-Path $InstallDir "threatclaw.exe"
+if (Test-Path $TargetBinPath) {
+    $IsUpdate = $true
+    try {
+        $PreviousVersion = (& $TargetBinPath --version 2>$null).Trim()
+    } catch {
+        $PreviousVersion = "unknown"
+    }
+    Write-TC "Existing installation detected (version: $PreviousVersion)"
+}
+
 # ── Get latest version ──
 Write-TC "Checking latest version..."
 try {
@@ -92,7 +106,34 @@ Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
 
 Write-TC "Installed to $TargetBin"
 
-# ── Add to PATH ──
+# ── Update flow: preserve config, restart running instance ──
+if ($IsUpdate) {
+    # Try to detect a running threatclaw.exe and restart it
+    $Running = Get-Process -Name "threatclaw" -ErrorAction SilentlyContinue
+    if ($Running) {
+        Write-TC "Restarting running threatclaw process to apply update (migrations will run at boot)..."
+        $Running | Stop-Process -Force
+        Start-Sleep -Seconds 2
+        # Re-launch detached
+        Start-Process -FilePath $TargetBin -ArgumentList "run" -WorkingDirectory $ConfigDir -WindowStyle Hidden
+        Write-TC "Restarted (now on $((& $TargetBin --version 2>$null).Trim()))"
+    } else {
+        Write-TC "No running threatclaw process detected — start it manually after this install" -Color Yellow
+    }
+
+    Write-Host ""
+    Write-TC "Update complete!"
+    if ($PreviousVersion -ne "" -and $PreviousVersion -ne $Version) {
+        Write-TC "  Updated: $PreviousVersion -> $Version"
+    }
+    Write-Host ""
+    Write-Host "  DB migrations : appliquees automatiquement au demarrage."
+    Write-Host "  Dashboard     : http://localhost:3001"
+    Write-Host ""
+    exit 0
+}
+
+# ── Fresh install: add to PATH ──
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$InstallDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
@@ -102,7 +143,7 @@ if ($UserPath -notlike "*$InstallDir*") {
     Write-TC "Already in PATH"
 }
 
-# ── Create default config ──
+# ── Fresh install: create default config ──
 $EnvFile = Join-Path $ConfigDir ".env"
 if (-not (Test-Path $EnvFile)) {
     $DbPassword = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
