@@ -7,7 +7,7 @@ import { NeuCard } from "@/components/chrome/NeuCard";
 import {
   FileText, Shield, Download, Clock, Globe, Database,
   AlertTriangle, Server, Loader2, CheckCircle2, Lock,
-  BarChart3, Users, Eye, Star, Siren, Gavel, Radio, Archive, X,
+  BarChart3, Users, Eye, Star, Siren, Gavel, Radio, Archive, X, Brain,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────
@@ -117,6 +117,34 @@ const EXPORTS: ExportItem[] = [
     icon: Archive, formats: ["PDF", "JSON"], color: "#3080d0", category: "compliance-audit",
     endpoint: "/api/tc/exports/audit-trail", regions: ["eu", "us", "intl"],
     temporality: "period-bound", frequency: "on-demand" },
+
+  // ── AI Governance (v1.3) — compliance-audit sub-family ──
+  { id: "eu-ai-act", titleKey: "export_eu_ai_act", titleFallback: "EU AI Act — Compliance Report",
+    descKey: "export_eu_ai_act_desc", descFallback: "Règlement UE 2024/1689. High-risk AI inventory + Art.12 logging posture + gaps + priority actions.",
+    icon: Brain, formats: ["PDF", "JSON"], color: "#3080d0", category: "compliance-audit",
+    endpoint: "/api/tc/exports/eu-ai-act", regions: ["eu"],
+    temporality: "snapshot-now", frequency: "annual",
+    legal: { region: "eu", standard: "EU AI Act (UE 2024/1689) Art.12", mandatory: true } },
+
+  { id: "iso42001", titleKey: "export_iso42001", titleFallback: "ISO/IEC 42001:2023 Assessment",
+    descKey: "export_iso42001_desc", descFallback: "AI Management System — 8 Annex A controls (A.2, A.4-A.10) with score, gaps and recommendations.",
+    icon: Brain, formats: ["PDF", "JSON"], color: "#3080d0", category: "compliance-audit",
+    endpoint: "/api/tc/exports/iso42001", regions: ["eu", "us", "intl"],
+    temporality: "snapshot-now", frequency: "annual",
+    legal: { region: "intl", standard: "ISO/IEC 42001:2023", mandatory: false } },
+
+  { id: "nist-ai-rmf", titleKey: "export_nist_ai_rmf", titleFallback: "NIST AI RMF Governance",
+    descKey: "export_nist_ai_rmf_desc", descFallback: "4 functions (Govern/Map/Measure/Manage). 2025 revision explicitly names shadow AI in MAP.",
+    icon: Brain, formats: ["PDF", "JSON"], color: "#3080d0", category: "compliance-audit",
+    endpoint: "/api/tc/exports/nist-ai-rmf", regions: ["us", "intl"],
+    temporality: "snapshot-now", frequency: "annual",
+    legal: { region: "us", standard: "NIST AI RMF 1.0 (2025)", mandatory: false } },
+
+  { id: "whitepaper-ai-governance", titleKey: "export_whitepaper_ai", titleFallback: "AI Governance Whitepaper",
+    descKey: "export_whitepaper_ai_desc", descFallback: "Corporate whitepaper 12-15p aggregating shadow AI + AI inventory + multi-framework compliance + 3-6-12m roadmap.",
+    icon: FileText, formats: ["PDF", "JSON"], color: "#3080d0", category: "compliance-audit",
+    endpoint: "/api/tc/exports/whitepaper-ai-governance", regions: ["eu", "us", "intl"],
+    temporality: "snapshot-now", frequency: "annual" },
 
   // ── THREAT INTELLIGENCE & CTI ────────────────────────────
   { id: "stix2", titleKey: "export_stix", titleFallback: "STIX 2.1 Bundle",
