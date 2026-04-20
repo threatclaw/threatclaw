@@ -5944,6 +5944,34 @@ pub async fn export_report_handler(
         .and_then(|f| f.as_str())
         .unwrap_or("json");
     let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
+
+    // Governance v1.2 — contextual parameters (all optional, back-compat):
+    //   incident_id     → réutilise le même ID pour early/intermediate/final (chaînage)
+    //   date_range.{start,end} → filtre alerts/findings (period-bound reports)
+    //   gdpr_override   → force le flag RGPD required sur Art.33
+    //   max_records     → cap pour exports raw-data (fallback : 5000)
+    let incident_id_override = body
+        .get("incident_id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let (date_start, date_end) = body
+        .get("date_range")
+        .and_then(|v| v.as_object())
+        .map(|o| {
+            (
+                o.get("start").and_then(|s| s.as_str()).map(String::from),
+                o.get("end").and_then(|e| e.as_str()).map(String::from),
+            )
+        })
+        .unwrap_or((None, None));
+    let gdpr_override = body.get("gdpr_override").and_then(|v| v.as_bool());
+    let max_records = body
+        .get("max_records")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(5000)
+        .clamp(100, 10_000);
+
     let store = match state.store.as_ref() {
         Some(s) => s,
         None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
@@ -5952,18 +5980,76 @@ pub async fn export_report_handler(
     let path = uri.path();
     let now = chrono::Utc::now();
 
-    let alerts = store
-        .list_alerts(None, None, 1000, 0)
+    // Load raw lists (cap at max_records for data-heavy reports)
+    let list_cap = max_records.max(1000);
+    let alerts_all = store
+        .list_alerts(None, None, list_cap, 0)
         .await
         .unwrap_or_default();
-    let findings = store
-        .list_findings(None, None, None, 1000, 0)
+    let findings_all = store
+        .list_findings(None, None, None, list_cap, 0)
         .await
         .unwrap_or_default();
     let assets = store
         .list_assets(None, None, 1000, 0)
         .await
         .unwrap_or_default();
+
+    // Period filter applied in-memory (date_range from body).
+    // Accepts RFC3339 or YYYY-MM-DD. Unparseable → ignored, full list used.
+    let parse_bound = |s: &str, end: bool| -> Option<chrono::DateTime<chrono::Utc>> {
+        if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+            return Some(dt.with_timezone(&chrono::Utc));
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            let time = if end {
+                chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap()
+            } else {
+                chrono::NaiveTime::MIN
+            };
+            return Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                d.and_time(time),
+                chrono::Utc,
+            ));
+        }
+        None
+    };
+    let range_start = date_start.as_deref().and_then(|s| parse_bound(s, false));
+    let range_end = date_end.as_deref().and_then(|s| parse_bound(s, true));
+
+    let in_range = |ts: &str| -> bool {
+        if range_start.is_none() && range_end.is_none() {
+            return true;
+        }
+        let parsed = chrono::DateTime::parse_from_rfc3339(ts)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc));
+        match parsed {
+            Some(dt) => {
+                if let Some(s) = range_start {
+                    if dt < s {
+                        return false;
+                    }
+                }
+                if let Some(e) = range_end {
+                    if dt > e {
+                        return false;
+                    }
+                }
+                true
+            }
+            None => true, // keep if timestamp unparseable, avoid silent data loss
+        }
+    };
+
+    let alerts: Vec<_> = alerts_all
+        .into_iter()
+        .filter(|a| in_range(&a.matched_at))
+        .collect();
+    let findings: Vec<_> = findings_all
+        .into_iter()
+        .filter(|f| in_range(&f.detected_at))
+        .collect();
 
     let situation = store
         .get_setting("_system", "security_situation")
@@ -6025,7 +6111,11 @@ pub async fn export_report_handler(
     };
 
     let notification_id = format!("TC-{}-{:03}", now.format("%Y-%m%d"), 1);
-    let incident_id = format!("TC-INC-{}-001", now.format("%Y%m%d"));
+    // Governance v1.2 — honor incident_id from body to chain early/intermediate/final
+    // reports against the same incident. Falls back to the synthetic ID when absent.
+    let incident_id = incident_id_override
+        .clone()
+        .unwrap_or_else(|| format!("TC-INC-{}-001", now.format("%Y%m%d")));
     let generated_display = now.format("%d/%m/%Y %H:%M").to_string();
     let critical_alerts: Vec<_> = alerts.iter().filter(|a| a.level == "critical").collect();
 
@@ -6098,8 +6188,12 @@ pub async fn export_report_handler(
     };
 
     // ── RGPD Art.33 auto-detection ──
-    // Determine if personal data is likely involved → triggers CNIL notification
-    let gdpr_required = {
+    // Determine if personal data is likely involved → triggers CNIL notification.
+    // Governance v1.2 — the RSSI can force the flag to "yes"/"no" via body.gdpr_override
+    // (auto-detection sometimes misses edge cases where the RSSI has better context).
+    let gdpr_required = if let Some(forced) = gdpr_override {
+        if forced { "yes" } else { "no" }
+    } else {
         // Criterion 1: incident type is data leak
         let is_data_leak = incident_type == "data_leak";
         // Criterion 2: database assets are affected
@@ -6310,15 +6404,55 @@ pub async fn export_report_handler(
             }),
         )
     } else if path.contains("audit-trail") {
+        // Governance v1.2 — pull real entries from agent_audit_log (V16 immutable log).
+        // Uses the date_range bounds when provided, otherwise dumps the latest window
+        // capped by max_records. The period label reflects the actual bounds used.
+        let audit_entries = store
+            .list_audit_entries_between(range_start, range_end, max_records)
+            .await
+            .unwrap_or_default();
+
+        let entries_json: Vec<serde_json::Value> = audit_entries
+            .iter()
+            .map(|e| {
+                serde_json::json!({
+                    "id": e.id,
+                    "timestamp": e.timestamp,
+                    "event_type": e.event_type,
+                    "agent_mode": e.agent_mode,
+                    "cmd_id": e.cmd_id,
+                    "approved_by": e.approved_by,
+                    "success": e.success,
+                    "error_message": e.error_message,
+                    "skill_id": e.skill_id,
+                    "row_hash": e.row_hash,
+                    "previous_hash": e.previous_hash,
+                })
+            })
+            .collect();
+
+        let journal_hash = audit_entries
+            .first()
+            .map(|e| format!("sha256:{}", e.row_hash))
+            .unwrap_or_else(|| "sha256:empty".to_string());
+
+        let period_start_display = range_start
+            .map(|d| d.format("%d/%m/%Y").to_string())
+            .unwrap_or_else(|| "—".to_string());
+        let period_end_display = range_end
+            .map(|d| d.format("%d/%m/%Y").to_string())
+            .unwrap_or_else(|| now.format("%d/%m/%Y").to_string());
+
         (
             "audit-trail",
             serde_json::json!({
                 "company_name": company_name,
-                "period": format!("{}", now.format("%B %Y")),
-                "period_start": now.format("%d/%m/%Y").to_string(),
-                "period_end": now.format("%d/%m/%Y").to_string(),
-                "entries": [],
-                "journal_hash": "sha256:pending",
+                "period": format!("{} → {}", period_start_display, period_end_display),
+                "period_start": period_start_display,
+                "period_end": period_end_display,
+                "entries_count": entries_json.len(),
+                "entries": entries_json,
+                "journal_hash": journal_hash,
             }),
         )
     } else if path.contains("gdpr") {
@@ -7484,4 +7618,550 @@ pub async fn settings_read_handler(
         )),
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e))),
     }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Governance endpoints (v1.2) — AI governance posture + compliance scores.
+// Backed by src/compliance/ (NIS2 + ISO 27001 native evaluators) and the
+// ai_systems table (migration V41). Feeds the /governance page.
+// ─────────────────────────────────────────────────────────────
+
+/// GET /api/tc/governance/summary
+///
+/// Returns everything the Governance dashboard needs in one shot :
+///   - compliance scores per framework (NIS2 + ISO 27001)
+///   - AI systems inventory counts by status
+///   - Shadow AI findings count (category AI_USAGE_POLICY)
+///   - critical/high findings totals
+pub async fn governance_summary_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let findings = store
+        .list_findings(None, None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 10000, 0)
+        .await
+        .unwrap_or_default();
+
+    let input = crate::compliance::ComplianceInput {
+        findings: &findings,
+        alerts: &alerts,
+        assets: &assets,
+    };
+    let reports = crate::compliance::evaluate_all(&input);
+
+    let ai_counts = store.count_ai_systems_by_status().await.unwrap_or_default();
+    let ai_counts_map: serde_json::Map<String, serde_json::Value> = ai_counts
+        .into_iter()
+        .map(|(status, count)| (status, serde_json::Value::from(count)))
+        .collect();
+
+    let shadow_ai_count = findings
+        .iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.eq_ignore_ascii_case("AI_USAGE_POLICY"))
+                .unwrap_or(false)
+        })
+        .count();
+
+    let critical = findings
+        .iter()
+        .filter(|f| f.severity.eq_ignore_ascii_case("critical"))
+        .count();
+    let high = findings
+        .iter()
+        .filter(|f| f.severity.eq_ignore_ascii_case("high"))
+        .count();
+
+    Ok(Json(serde_json::json!({
+        "generated_at": chrono::Utc::now().to_rfc3339(),
+        "compliance": reports,
+        "ai_systems": {
+            "by_status": ai_counts_map,
+            "total": ai_counts_map.values().filter_map(|v| v.as_i64()).sum::<i64>(),
+        },
+        "shadow_ai": {
+            "findings_count": shadow_ai_count,
+        },
+        "findings_summary": {
+            "total": findings.len(),
+            "critical": critical,
+            "high": high,
+        },
+    })))
+}
+
+/// GET /api/tc/governance/ai-systems
+///
+/// Lists AI systems (inventory). Optional query param `status` to filter.
+pub async fn governance_ai_systems_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = params.get("status").map(|s| s.as_str());
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+    let systems = store
+        .list_ai_systems(status, limit)
+        .await
+        .unwrap_or_default();
+    Ok(Json(serde_json::json!({
+        "count": systems.len(),
+        "data": systems,
+    })))
+}
+
+/// POST /api/tc/governance/ai-systems
+///
+/// Upserts a declared AI system. Body : NewAiSystem JSON.
+/// Used by the RSSI to "claim" a shadow-detected system or add a known one.
+pub async fn governance_ai_system_upsert_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let system = crate::db::threatclaw_store::NewAiSystem {
+        name: body
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Unnamed AI system")
+            .to_string(),
+        category: body
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("llm-commercial")
+            .to_string(),
+        provider: body
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        endpoint: body
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        status: body
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("declared")
+            .to_string(),
+        risk_level: body
+            .get("risk_level")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        metadata: body.get("metadata").cloned(),
+    };
+    let id = store.upsert_ai_system(&system).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "status": "ok", "id": id })))
+}
+
+/// PATCH /api/tc/governance/ai-systems/{id}
+///
+/// Status promotion (detected → declared → assessed) + optional risk_level.
+/// Body : { status, risk_level?, declared_by? }
+pub async fn governance_ai_system_status_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let status = body
+        .get("status")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "status is required".to_string()))?;
+    let risk_level = body.get("risk_level").and_then(|v| v.as_str());
+    let declared_by = body.get("declared_by").and_then(|v| v.as_str());
+    store
+        .update_ai_system_status(id, status, risk_level, declared_by)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(
+        serde_json::json!({ "status": "ok", "id": id, "new_status": status }),
+    ))
+}
+
+/// GET /api/tc/governance/shadow-ai-findings
+///
+/// Lists findings with category starting with AI_ (governance-tagged).
+/// Lighter payload than /findings : just fields the Governance card needs.
+pub async fn governance_shadow_ai_findings_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit: i64 = params
+        .get("limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let all = store
+        .list_findings(None, Some("open"), None, limit * 3, 0)
+        .await
+        .unwrap_or_default();
+    let ai: Vec<_> = all
+        .into_iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.to_uppercase().starts_with("AI_"))
+                .unwrap_or(false)
+        })
+        .take(limit as usize)
+        .collect();
+    Ok(Json(serde_json::json!({
+        "count": ai.len(),
+        "data": ai,
+    })))
+}
+
+/// POST /api/tc/governance/qualify-shadow-ai
+///
+/// Trigger the shadow-ai-monitor qualification pipeline.
+/// Scans open sigma_alerts with rule_id `shadow-ai-*`, creates a finding with
+/// category = AI_USAGE_POLICY per hit + upserts an ai_systems row, then marks
+/// the alert as `investigating` to avoid double-qualify.
+pub async fn governance_qualify_shadow_ai_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::agent::shadow_ai::qualify_shadow_ai_alerts(store.as_ref()).await {
+        Ok(result) => Ok(Json(serde_json::json!({
+            "status": "ok",
+            "alerts_scanned": result.alerts_scanned,
+            "findings_created": result.findings_created,
+            "ai_systems_upserted": result.ai_systems_upserted,
+            "skipped_existing": result.skipped_existing,
+        }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// AI Governance PDF exports (v1.3) — EU AI Act, ISO 42001,
+// NIST AI RMF, corporate whitepaper. All go through Typst via
+// compile_typst_pdf() with dedicated templates in /app/templates.
+// ─────────────────────────────────────────────────────────────
+
+/// POST /api/tc/exports/{eu-ai-act,iso42001,nist-ai-rmf,whitepaper-ai-governance}
+///
+/// Unified handler for the 4 AI governance reports. Routes by URI path,
+/// builds a JSON payload from compliance evaluators + ai_systems + shadow
+/// findings, then renders via Typst (PDF) or returns raw JSON.
+pub async fn governance_export_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let format = body
+        .get("format")
+        .and_then(|f| f.as_str())
+        .unwrap_or("json");
+    let report_locale = body.get("locale").and_then(|l| l.as_str()).unwrap_or("fr");
+
+    let store = match state.store.as_ref() {
+        Some(s) => s,
+        None => return (StatusCode::SERVICE_UNAVAILABLE, "Database not available").into_response(),
+    };
+    let path = uri.path();
+    let company = store.get_company_profile().await.unwrap_or_default();
+    let company_name = company.company_name.as_deref().unwrap_or("Organisation");
+
+    // Gather all the inputs once
+    let findings = store
+        .list_findings(None, None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let alerts = store
+        .list_alerts(None, None, 5000, 0)
+        .await
+        .unwrap_or_default();
+    let assets = store
+        .list_assets(None, None, 10000, 0)
+        .await
+        .unwrap_or_default();
+    let ai_systems = store.list_ai_systems(None, 500).await.unwrap_or_default();
+    let ai_counts = store.count_ai_systems_by_status().await.unwrap_or_default();
+
+    let compliance_input = crate::compliance::ComplianceInput {
+        findings: &findings,
+        alerts: &alerts,
+        assets: &assets,
+    };
+    let reports = crate::compliance::evaluate_all(&compliance_input);
+
+    // Derive helpers shared across templates
+    let count_status = |s: &str| -> i64 {
+        ai_counts
+            .iter()
+            .find(|(st, _)| st == s)
+            .map(|(_, n)| *n)
+            .unwrap_or(0)
+    };
+    let shadow_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.category
+                .as_deref()
+                .map(|c| c.to_uppercase().starts_with("AI_"))
+                .unwrap_or(false)
+        })
+        .collect();
+    let shadow_providers: std::collections::HashSet<String> = shadow_findings
+        .iter()
+        .filter_map(|f| {
+            f.metadata
+                .get("llm_provider")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+    let shadow_assets: std::collections::HashSet<String> = shadow_findings
+        .iter()
+        .filter_map(|f| f.asset.clone())
+        .collect();
+
+    // Report-specific data shaping
+    let (template_name, payload) = if path.contains("eu-ai-act") {
+        let eu_report = reports
+            .iter()
+            .find(|r| r.framework == "eu_ai_act")
+            .or_else(|| reports.iter().find(|r| r.framework == "iso42001")); // fallback
+        let selected = eu_report.unwrap_or_else(|| &reports[0]);
+
+        let articles_json: Vec<_> = selected
+            .articles
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "id": a.id,
+                    "title": a.title,
+                    "description": a.description,
+                    "score": a.score,
+                    "relevant_findings": a.relevant_findings,
+                    "critical_hits": a.critical_hits,
+                    "high_hits": a.high_hits,
+                    "medium_hits": a.medium_hits,
+                    "top_recommendation": a.top_recommendation,
+                })
+            })
+            .collect();
+
+        let high_risk = ai_systems
+            .iter()
+            .filter(|s| s.risk_level.as_deref() == Some("high"))
+            .count() as i64;
+
+        (
+            "eu-ai-act-report",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": selected.overall_score,
+                "maturity_label": selected.maturity_label,
+                "gaps": selected.gaps,
+                "articles": articles_json,
+                "ai_systems_total": ai_systems.len(),
+                "ai_systems_declared": count_status("declared"),
+                "ai_systems_detected": count_status("detected"),
+                "ai_systems_high_risk": high_risk,
+                "priority_actions": top_actions_from_reports(&reports, 5),
+            }),
+        )
+    } else if path.contains("iso42001") && !path.contains("incident") {
+        let r = reports
+            .iter()
+            .find(|r| r.framework == "iso42001")
+            .unwrap_or(&reports[0]);
+        let articles_json = report_articles_to_json(r);
+        (
+            "iso42001-assessment",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": r.overall_score,
+                "maturity_label": r.maturity_label,
+                "gaps": r.gaps,
+                "articles": articles_json,
+            }),
+        )
+    } else if path.contains("nist-ai-rmf") {
+        let r = reports
+            .iter()
+            .find(|r| r.framework == "nist_ai_rmf")
+            .unwrap_or(&reports[0]);
+        let articles_json = report_articles_to_json(r);
+        (
+            "nist-ai-rmf-governance",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "overall_score": r.overall_score,
+                "maturity_label": r.maturity_label,
+                "gaps": r.gaps,
+                "articles": articles_json,
+            }),
+        )
+    } else {
+        // Whitepaper — aggregates everything
+        let compliance_avg = if reports.is_empty() {
+            50.0
+        } else {
+            reports.iter().map(|r| r.overall_score as f64).sum::<f64>() / reports.len() as f64
+        };
+
+        let systems_json: Vec<_> = ai_systems
+            .iter()
+            .take(30)
+            .map(|s| {
+                serde_json::json!({
+                    "provider": s.provider,
+                    "endpoint": s.endpoint,
+                    "category": s.category,
+                    "status": s.status,
+                    "risk_level": s.risk_level,
+                })
+            })
+            .collect();
+
+        let shadow_latest: Vec<_> = shadow_findings
+            .iter()
+            .take(15)
+            .map(|f| {
+                serde_json::json!({
+                    "detected_at": f.detected_at,
+                    "title": f.title,
+                    "asset": f.asset,
+                    "severity": f.severity,
+                })
+            })
+            .collect();
+
+        let reports_json: Vec<_> = reports
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "framework": r.framework,
+                    "framework_label": r.framework_label,
+                    "overall_score": r.overall_score,
+                    "maturity_label": r.maturity_label,
+                    "total_findings": r.total_findings,
+                    "critical_findings": r.critical_findings,
+                    "gaps": r.gaps,
+                    "articles": report_articles_to_json(r),
+                })
+            })
+            .collect();
+
+        let critical = findings
+            .iter()
+            .filter(|f| f.severity.eq_ignore_ascii_case("critical"))
+            .count() as i64;
+
+        (
+            "whitepaper-ai-governance",
+            serde_json::json!({
+                "locale": report_locale,
+                "company_name": company_name,
+                "shadow_ai_findings": shadow_findings.len(),
+                "shadow_ai_providers": shadow_providers.len(),
+                "shadow_ai_assets": shadow_assets.len(),
+                "shadow_ai_latest": shadow_latest,
+                "ai_systems_total": ai_systems.len(),
+                "ai_systems_detected": count_status("detected"),
+                "ai_systems_declared": count_status("declared"),
+                "ai_systems_assessed": count_status("assessed"),
+                "ai_systems": systems_json,
+                "compliance_reports": reports_json,
+                "compliance_avg": compliance_avg,
+                "critical_findings": critical,
+                "top_recommendations": top_actions_from_reports(&reports, 5),
+            }),
+        )
+    };
+
+    if format == "pdf" {
+        match compile_typst_pdf(template_name, &payload) {
+            Ok(pdf_bytes) => {
+                let filename = format!(
+                    "threatclaw_{}_{}.pdf",
+                    template_name,
+                    chrono::Utc::now().format("%Y%m%d")
+                );
+                return (
+                    StatusCode::OK,
+                    [
+                        ("Content-Type", "application/pdf"),
+                        (
+                            "Content-Disposition",
+                            Box::leak(
+                                format!("attachment; filename=\"{}\"", filename).into_boxed_str(),
+                            ),
+                        ),
+                    ],
+                    pdf_bytes,
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Typst compile error: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    Json(payload).into_response()
+}
+
+/// Collect the top N non-null recommendations across all reports.
+fn top_actions_from_reports(
+    reports: &[crate::compliance::ComplianceReport],
+    n: usize,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for r in reports {
+        for a in &r.articles {
+            if let Some(reco) = &a.top_recommendation {
+                if !out.contains(reco) {
+                    out.push(reco.clone());
+                    if out.len() >= n {
+                        return out;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde_json::Value> {
+    r.articles
+        .iter()
+        .map(|a| {
+            serde_json::json!({
+                "id": a.id,
+                "title": a.title,
+                "description": a.description,
+                "score": a.score,
+                "relevant_findings": a.relevant_findings,
+                "critical_hits": a.critical_hits,
+                "high_hits": a.high_hits,
+                "medium_hits": a.medium_hits,
+                "top_recommendation": a.top_recommendation,
+            })
+        })
+        .collect()
 }

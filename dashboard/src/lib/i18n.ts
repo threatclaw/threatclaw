@@ -342,6 +342,7 @@ const T: Record<string, Record<Locale, string>> = {
   findings: { fr: "Findings", en: "Findings" },
   alerts: { fr: "Alertes", en: "Alerts" },
   intelligence: { fr: "Intelligence", en: "Intelligence" },
+  governance: { fr: "Gouvernance", en: "Governance" },
   config: { fr: "Config", en: "Config" },
   lightMode: { fr: "Mode clair", en: "Light mode" },
   darkMode: { fr: "Mode sombre", en: "Dark mode" },

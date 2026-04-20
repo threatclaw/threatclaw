@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Pause, Network, BrainCircuit, Sun, Moon, LogOut, Radio } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Pause, Network, BrainCircuit, Sun, Moon, LogOut, Radio, Gavel } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
@@ -12,6 +12,7 @@ const NAV_KEYS = [
   { href: "/incidents", key: "incidents", icon: Bell },
   { href: "/sources", key: "sources", icon: Radio },
   { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
+  { href: "/governance", key: "governance", icon: Gavel },
   { href: "/exports", key: "exports", icon: Activity },
   { href: "/setup", key: "config", icon: Settings },
 ];

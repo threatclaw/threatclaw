@@ -172,6 +172,15 @@ impl AppBuilder {
             }
         });
 
+        // Shadow-AI qualification cron (every 5 minutes by default).
+        // Qualifies open sigma_alerts with rule_id LIKE 'shadow-ai-%' into
+        // findings + ai_systems rows. Non-blocking — if DB is unavailable the
+        // task just logs and waits for the next tick.
+        crate::agent::shadow_ai::spawn_qualify_cron(
+            db.clone(),
+            crate::agent::shadow_ai::DEFAULT_QUALIFY_INTERVAL,
+        );
+
         self.db = Some(db);
         Ok(())
     }

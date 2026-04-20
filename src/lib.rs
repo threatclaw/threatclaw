@@ -46,6 +46,7 @@ pub mod bootstrap;
 pub mod branding;
 pub mod channels;
 pub mod cli;
+pub mod compliance;
 pub mod config;
 pub mod connectors;
 pub mod context;
