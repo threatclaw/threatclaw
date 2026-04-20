@@ -70,6 +70,7 @@ pub(crate) mod scheduler;
 mod self_repair;
 pub mod session;
 mod session_manager;
+pub mod shadow_ai;
 pub mod shift_report;
 pub mod sigma_engine;
 pub mod skill_scheduler;
