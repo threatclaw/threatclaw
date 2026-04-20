@@ -1,16 +1,75 @@
 {
   "id": "skill-elastic-siem",
   "name": "Elastic Security",
-  "description": "Import detection alerts from Elastic Security (Kibana)",
+  "version": "1.0.0",
+  "description": "Importe les signals de détection Elastic Security (Kibana Detection Engine) comme findings. Ne touche pas directement Elasticsearch.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "siem",
   "icon": "shield",
-  "config_fields": {
-    "url": {"type": "string", "label": "Kibana URL", "placeholder": "https://kibana:5601", "required": true, "help": "URL du serveur Kibana (pas Elasticsearch directement)"},
-    "api_key_id": {"type": "string", "label": "API Key ID", "placeholder": "xxxxxxxx", "help": "ID de la clé API Kibana (Security > API keys)"},
-    "api_key_secret": {"type": "password", "label": "API Key Secret", "help": "Secret de la clé API"},
-    "username": {"type": "string", "label": "Username (alt)", "placeholder": "elastic", "help": "Alternative à l'API key : authentification basique"},
-    "password": {"type": "password", "label": "Password (alt)", "help": "Mot de passe si authentification basique"},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "Elastic Security (anciennement SIEM) est le module de détection de la stack Elastic. ThreatClaw consomme les alertes générées par le Detection Engine via l'API Kibana.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à KIBANA en PULL toutes les 10 minutes (pas directement à Elasticsearch) :\n\n• Endpoint : POST /api/detection_engine/signals/search\n• Filtre : signals « open » des dernières 24h\n• Limite : 100 alertes par cycle (configurable)\n\nFlux : ThreatClaw ──HTTPS PULL──> Kibana ──interne──> Elasticsearch\n\n⚠️ IMPORTANT — CONNECTEZ-VOUS À KIBANA, PAS À ELASTICSEARCH\n\nC'est bien l'URL de Kibana (port 5601 par défaut) qu'il faut indiquer, PAS celle d'Elasticsearch (9200). L'API Detection Engine est hébergée par Kibana, qui interroge ES en arrière-plan.\n\n🎯 CE QUE THREATCLAW RÉCUPÈRE\n\n• Chaque signal avec severity CRITICAL ou HIGH → finding de même sévérité\n• Tous les signals (toutes sévérités) → alertes Sigma pour corrélation\n• Severity Medium/Low → alertes Sigma uniquement (pas de finding pour éviter le bruit)\n\nSi aucune règle de détection n'est activée côté Kibana, ce connecteur ne remontera rien. Activez au minimum les règles Elastic pré-packagées (Elastic prebuilt rules) dans Security > Rules.\n\n🔑 AUTHENTIFICATION — API KEY RECOMMANDÉE\n\n① API Key (recommandé)\n   1. Kibana > Stack Management > API Keys > Create API key\n   2. Name : « ThreatClaw »\n   3. Role privileges : « siem » (built-in role avec read on signals) ou custom avec read_alerts\n   4. Copier l'ID et le Secret affichés (secret visible une seule fois)\n\n② Username + password (fallback)\n   Utilisez un compte Kibana dédié avec rôle « siem_reader » ou équivalent. Déconseillé car transmet le mot de passe à chaque appel.\n\n📋 PRÉ-REQUIS\n\n• Elastic Stack 7.15+ (Detection Engine disponible)\n• Licence Basic suffit pour les prebuilt rules communautaires\n• Au moins 1 règle Detection activée côté Kibana\n• Port 5601/TCP (Kibana HTTPS) accessible depuis ThreatClaw",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 10,
+    "protocol": "https",
+    "default_port": 5601
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL Kibana (pas Elasticsearch)",
+      "placeholder": "https://kibana.monentreprise.local:5601",
+      "hint": "L'URL de KIBANA, pas d'Elasticsearch. Port 5601 par défaut. Si exposé via reverse-proxy TLS sur 443, utilisez l'URL publique.",
+      "required": true
+    },
+    "api_key_id": {
+      "type": "string",
+      "description": "API Key ID (recommandé)",
+      "placeholder": "VuaCfGcBCdbkQm-e5aOx",
+      "hint": "L'ID de la clé API, généré dans Kibana > Stack Management > API Keys. Si renseigné, username/password sont ignorés.",
+      "required": false
+    },
+    "api_key_secret": {
+      "type": "password",
+      "description": "API Key Secret",
+      "hint": "Le secret associé à l'ID, affiché une seule fois à la création. Si perdu, supprimez et recréez la clé.",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "description": "Username (alternative)",
+      "placeholder": "tc-siem-reader",
+      "hint": "Utilisé uniquement si aucune API Key n'est fournie. Compte Kibana dédié avec rôle siem_reader ou équivalent.",
+      "required": false
+    },
+    "password": {
+      "type": "password",
+      "description": "Password (alternative)",
+      "hint": "Mot de passe du compte Kibana. Non requis si API Key utilisée.",
+      "required": false
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Activer si Kibana a un certificat auto-signé. Désactivez en production avec PKI reconnue.",
+      "default": true
+    },
+    "max_alerts": {
+      "type": "number",
+      "description": "Nombre max d'alertes par cycle",
+      "hint": "Par défaut 100. Augmentez à 500 ou 1000 si vous avez beaucoup de signals/jour.",
+      "default": 100,
+      "required": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 10,
+  "outputs": {
+    "findings": "db",
+    "sigma_alerts": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

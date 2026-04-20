@@ -3,7 +3,7 @@
   "name": "Subfinder",
   "version": "1.0.0",
   "description": "Enumeration de sous-domaines — decouvre les sous-domaines d'un domaine cible via sources passives (DNS, certificats, archives web).",
-  "help": "Subfinder decouvre tous les sous-domaines associes a votre domaine en interrogeant des sources passives : enregistrements DNS, certificats TLS (Certificate Transparency), archives web, moteurs de recherche. Aucun trafic n'est envoye directement vers la cible. Permet d'identifier les sous-domaines oublies, les services exposes non inventories, ou les anciennes applications encore accessibles. Les resultats peuvent ensuite etre analyses par httpx pour verifier quels sous-domaines hebergent des services actifs.",
+  "help": "Subfinder decouvre tous les sous-domaines associes a votre domaine en interrogeant des sources passives : enregistrements DNS, certificats TLS (Certificate Transparency), archives web, moteurs de recherche. Aucun trafic n'est envoye directement vers la cible. Permet d'identifier les sous-domaines oublies, les services exposes non inventories, ou les anciennes applications encore accessibles. Les resultats peuvent ensuite etre analyses par httpx pour verifier quels sous-domaines hebergent des services actifs.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > Subfinder > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-subfinder (pour cron externe, ex: hebdomadaire)\n\nAucun trafic n'atteint votre domaine (sources passives uniquement). Vous pouvez scanner n'importe quel domaine dont vous etes proprietaire sans impact.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",

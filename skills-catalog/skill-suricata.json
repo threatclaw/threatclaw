@@ -7,7 +7,7 @@
   "trust": "official",
   "type": "connector",
   "category": "network",
-  "help": "Suricata est un IDS/IPS réseau open-source qui analyse le trafic en temps réel via plus de 40 000 règles de signatures (Emerging Threats).\n\nThreatClaw lit le fichier eve.json pour importer les alertes IDS comme findings, les flows dans le graphe réseau, et les métadonnées TLS/DNS pour l'analyse comportementale.\n\n📡 Deux modes de connexion :\n\n1. Même serveur — Suricata tourne sur la même machine que ThreatClaw.\n   Indiquez le chemin vers eve.json.\n\n2. Serveur distant — Suricata tourne sur votre firewall ou une sonde réseau.\n   Installez Fluent-Bit et envoyez les logs via webhook.\n\nPour le mode distant, configurez Fluent-Bit sur le serveur Suricata :\n\n[INPUT]\n    Name   tail\n    Path   /var/log/suricata/eve.json\n    Tag    suricata.alert\n    Parser json\n\n[OUTPUT]\n    Name   http\n    Match  suricata.*\n    Host   IP_THREATCLAW\n    Port   8445\n    URI    /api/tc/webhook/ingest/suricata?token=VOTRE_TOKEN\n    Format json\n    tls    On",
+  "help": "Suricata est un IDS/IPS réseau open-source qui analyse le trafic en temps réel via plus de 40 000 règles de signatures (Emerging Threats).\n\nThreatClaw importe les alertes IDS comme findings, les flows dans le graphe réseau, et les métadonnées TLS/DNS pour l'analyse comportementale.\n\n🔄 COMMENT ÇA MARCHE ?\n\n⚠️ ThreatClaw ne se connecte PAS à Suricata.\nC'est Suricata qui POUSSE ses logs vers ThreatClaw (via Fluent-Bit).\nC'est pour cela qu'aucune IP de votre serveur Suricata n'est demandée.\n\nFlux : Suricata + Fluent-Bit ──POST HTTPS──> ThreatClaw (webhook + token)\n\nAvantages de cette architecture :\n• Traverse NAT / firewall sans ouvrir de port entrant côté Suricata\n• Multi-sources : N serveurs Suricata peuvent pousser vers le même TC\n• Token régénérable à tout moment sans toucher au réseau\n\n📡 DEUX MODES DE CONNEXION\n\n① LOCAL — Suricata tourne sur la même machine que ThreatClaw.\n   → Indiquez le chemin vers eve.json.\n   → ThreatClaw lit le fichier directement (tail -f).\n\n② REMOTE (recommandé) — Suricata est sur votre firewall / une sonde.\n   → Un token est auto-généré ci-dessous.\n   → Installez Fluent-Bit sur le serveur Suricata pour pousser les logs.\n\n⚙️ CONFIGURATION FLUENT-BIT (mode distant)\n\nÀ installer sur le serveur Suricata (pas sur ThreatClaw) :\n\n[INPUT]\n  Name   tail\n  Path   /var/log/suricata/eve.json\n  Tag    suricata.alert\n  Parser json\n\n[OUTPUT]\n  Name   http\n  Match  suricata.*\n  Host   <IP_OU_FQDN_THREATCLAW>\n  Port   8445\n  URI    /api/tc/webhook/ingest/suricata?token=<TOKEN>\n  Format json\n  tls    On\n\nRemplacez <IP_OU_FQDN_THREATCLAW> par l'adresse de ce serveur ThreatClaw,\net <TOKEN> par le token affiché dans le champ ci-dessous.",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
@@ -18,7 +18,7 @@
       "type": "string",
       "description": "Mode de connexion",
       "placeholder": "remote",
-      "hint": "\"local\" si Suricata tourne sur ce serveur. \"remote\" si Suricata est sur un autre serveur. Le mode distant est recommandé.",
+      "hint": "\"local\" si Suricata tourne sur ce serveur (TC lit eve.json). \"remote\" si Suricata est sur un autre serveur (Fluent-Bit pousse les logs vers TC — aucune IP Suricata n'est requise ici, c'est Suricata qui se connecte à TC). Le mode distant est recommandé.",
       "required": true,
       "default": "remote",
       "enum": ["local", "remote"]
@@ -33,7 +33,7 @@
     "webhook_token": {
       "type": "password",
       "description": "Token webhook (mode distant)",
-      "hint": "En mode distant, ce token sécurise la réception des logs. Il sera généré automatiquement. Configurez ce même token dans Fluent-Bit sur votre serveur Suricata.",
+      "hint": "Généré automatiquement. À copier dans Fluent-Bit sur votre serveur Suricata. URL complète : POST https://<votre-threatclaw>/api/tc/webhook/ingest/suricata?token=<ce-token>. Régénérable à tout moment (il faudra mettre à jour Fluent-Bit).",
       "required": false,
       "auto_generate": true
     }

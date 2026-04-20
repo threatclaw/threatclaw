@@ -3,7 +3,7 @@
   "name": "Checkov IaC Scanner",
   "version": "1.0.0",
   "description": "Analyse de securite Infrastructure-as-Code. Terraform, CloudFormation, Kubernetes, Docker, Ansible.",
-  "help": "Checkov analyse vos fichiers d'Infrastructure-as-Code pour detecter les mauvaises configurations de securite avant le deploiement. Supporte Terraform, CloudFormation, Kubernetes manifests, Dockerfiles, Ansible playbooks, et Helm charts. Detecte les buckets S3 publics, les ports ouverts au monde, les secrets en clair, les images non signees, les privileges excessifs. Essentiel pour la conformite NIS2 et la securisation du pipeline CI/CD.",
+  "help": "Checkov analyse vos fichiers d'Infrastructure-as-Code pour detecter les mauvaises configurations de securite avant le deploiement. Supporte Terraform, CloudFormation, Kubernetes manifests, Dockerfiles, Ansible playbooks, et Helm charts. Detecte les buckets S3 publics, les ports ouverts au monde, les secrets en clair, les images non signees, les privileges excessifs. Essentiel pour la conformite NIS2 et la securisation du pipeline CI/CD.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > Checkov > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-checkov (pour cron externe)\n\nThreatClaw monte le chemin TARGET dans un conteneur Docker ephemere, execute checkov, puis supprime le conteneur. Le chemin doit exister sur le serveur ThreatClaw (pas sur votre poste).",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",

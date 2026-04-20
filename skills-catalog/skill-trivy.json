@@ -3,7 +3,7 @@
   "name": "Trivy Container Scanner",
   "version": "1.0.0",
   "description": "Scan de vulnerabilites dans les images Docker, fichiers de config, et repositories.",
-  "help": "Trivy est un scanner polyvalent qui detecte les vulnerabilites (CVE) dans les images Docker, les mauvaises configurations dans les fichiers IaC, et les secrets exposes. Il couvre les paquets OS (Alpine, Debian, Ubuntu, RHEL...) et les dependances applicatives (npm, pip, maven, go modules...). Les resultats sont filtres par severite pour se concentrer sur les vulnerabilites critiques et hautes en priorite. Alternative ou complement a Grype pour la securite conteneur.",
+  "help": "Trivy est un scanner polyvalent qui detecte les vulnerabilites (CVE) dans les images Docker, les mauvaises configurations dans les fichiers IaC, et les secrets exposes. Il couvre les paquets OS (Alpine, Debian, Ubuntu, RHEL...) et les dependances applicatives (npm, pip, maven, go modules...). Les resultats sont filtres par severite pour se concentrer sur les vulnerabilites critiques et hautes en priorite. Alternative ou complement a Grype pour la securite conteneur.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > Trivy > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-trivy (pour cron externe)\n\nTC pulle l'image cible via Docker si elle n'est pas deja presente sur le serveur. Pour une image de registre prive, faites docker login + docker pull sur le serveur TC avant de lancer le scan.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",

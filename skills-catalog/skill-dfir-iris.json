@@ -1,13 +1,55 @@
 {
   "id": "skill-dfir-iris",
   "name": "DFIR-IRIS",
-  "description": "Import cases and IOCs from DFIR-IRIS incident response platform",
+  "version": "1.0.0",
+  "description": "Importe les cases ouverts de DFIR-IRIS et leurs IOCs comme findings. Lecture seule — ThreatClaw ne crée jamais de case dans IRIS.",
+  "author": "ThreatClaw",
+  "trust": "official",
   "type": "connector",
   "category": "soar",
   "icon": "eye",
-  "config_fields": {
-    "url": {"type": "string", "label": "IRIS URL", "placeholder": "https://iris:8443", "required": true},
-    "api_key": {"type": "password", "label": "API Key", "required": true, "help": "Clé API IRIS (My Settings > API Key)"},
-    "no_tls_verify": {"type": "boolean", "label": "Ignorer les erreurs TLS", "default": true}
-  }
+  "help": "DFIR-IRIS est une plateforme open-source de gestion d'incidents pour équipes CERT/CSIRT. ThreatClaw corrèle vos cases IRIS (et leurs IOCs) avec les findings de votre supervision quotidienne.\n\n🔄 COMMENT ÇA MARCHE ?\n\nThreatClaw se connecte à IRIS en PULL via l'API REST toutes les 15 minutes :\n\n• GET /manage/cases/list — récupère les cases ouverts (state_id < 3)\n• GET /case/ioc/list?cid=X — récupère les IOCs de chaque case ouvert\n\nFlux : ThreatClaw ──HTTPS PULL──> DFIR-IRIS (API REST)\n\n⚠️ LECTURE SEULE — PAS DE PUSH\n\nThreatClaw NE CRÉE PAS et NE MODIFIE PAS de case dans IRIS. Ce connecteur est à sens unique : IRIS → TC.\n\nSi vous voulez l'inverse (TC pousse ses findings dans IRIS comme cases), ce n'est pas encore supporté — parlez-en à CyberConsulting si c'est un besoin.\n\n🎯 CE QUE THREATCLAW RÉCUPÈRE\n\n• Chaque case ouvert devient un finding HIGH « incident-response »\n• Chaque IOC rattaché à un case ouvert devient un finding MEDIUM « ioc »\n• Les cases fermés ou résolus (state_id ≥ 3) sont ignorés\n• Le tag TLP de l'IOC est préservé dans les metadata\n\nIntérêt : vos IOCs IRIS deviennent exploitables pour corrélation automatique avec les logs firewall, DNS, etc. traités par TC.\n\n🔑 CRÉER UNE CLÉ API DÉDIÉE\n\n1. Créer un utilisateur IRIS dédié (ex: tc-reader)\n   • Advanced > Access control > Users > Add\n   • Rôle : « Standard user » (lecture seule sur les cases partagés avec lui)\n2. Se connecter en tant que tc-reader\n3. User menu (en haut à droite) > My settings > API Key\n4. Copier la clé (format « eyJ... » type JWT)\n\nL'utilisateur doit avoir accès aux cases que vous voulez synchroniser — dans IRIS, les cases sont privés par défaut. Partagez-les avec tc-reader via Case > Access Control.\n\n📋 PRÉ-REQUIS\n\n• DFIR-IRIS v2.3 ou plus récent\n• Port 8443/TCP (HTTPS) accessible depuis ThreatClaw\n• Au moins un case ouvert dans IRIS (sinon rien à synchroniser)",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 15,
+    "protocol": "https",
+    "default_port": 8443
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL DFIR-IRIS",
+      "placeholder": "https://iris.monentreprise.local:8443",
+      "hint": "Adresse complète de votre serveur IRIS avec le port. 8443 par défaut. Utilisez https://.",
+      "required": true
+    },
+    "api_key": {
+      "type": "password",
+      "description": "Clé API IRIS",
+      "placeholder": "eyJxxxxxxxxxxxxxxxxxxx...",
+      "hint": "Clé API du compte tc-reader dédié. À récupérer dans User menu > My settings > API Key. Stockée chiffrée par ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "Laissez activé si IRIS utilise un certificat auto-signé (cas par défaut). Désactivez en production avec Let's Encrypt.",
+      "default": true
+    },
+    "max_cases": {
+      "type": "number",
+      "description": "Nombre max de cases à traiter par cycle",
+      "hint": "Par défaut 50. Augmentez si vous avez beaucoup d'incidents ouverts (ex: 200).",
+      "default": 50,
+      "required": false
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 15,
+  "outputs": {
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false
 }

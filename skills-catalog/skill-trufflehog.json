@@ -3,7 +3,7 @@
   "name": "TruffleHog Secrets Scanner",
   "version": "1.0.0",
   "description": "Detection de secrets, cles API, tokens dans le code source et les repositories Git.",
-  "help": "TruffleHog parcourt vos depots Git et repertoires pour detecter les secrets exposes : cles API AWS/GCP/Azure, tokens GitHub/GitLab, mots de passe en dur, cles privees SSH/TLS, credentials de bases de donnees. Analyse tout l'historique Git pour retrouver les secrets meme supprimes. Chaque secret detecte est verifie automatiquement (quand possible) pour confirmer s'il est encore actif. Indispensable pour eviter les fuites de credentials.",
+  "help": "TruffleHog parcourt vos depots Git et repertoires pour detecter les secrets exposes : cles API AWS/GCP/Azure, tokens GitHub/GitLab, mots de passe en dur, cles privees SSH/TLS, credentials de bases de donnees. Analyse tout l'historique Git pour retrouver les secrets meme supprimes. Chaque secret detecte est verifie automatiquement (quand possible) pour confirmer s'il est encore actif. Indispensable pour eviter les fuites de credentials.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > TruffleHog > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-trufflehog (pour cron externe)\n\nThreatClaw monte le chemin TARGET dans un conteneur Docker ephemere. Le depot Git (avec son .git/ pour l'historique) doit etre cloné sur le serveur ThreatClaw au prealable. Pour scanner GitHub/GitLab directement, clonez le repo sur le serveur TC avant.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",

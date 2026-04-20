@@ -3,7 +3,7 @@
   "name": "Semgrep SAST",
   "version": "1.0.0",
   "description": "Analyse statique de code source (SAST). Detecte les vulnerabilites, injections SQL, XSS, secrets hardcodes.",
-  "help": "Semgrep analyse le code source de vos applications sans les executer (analyse statique). Il detecte les vulnerabilites courantes : injections SQL, XSS, deserialisation non securisee, secrets en dur dans le code, mauvaises pratiques cryptographiques. Supporte Python, JavaScript, TypeScript, Java, Go, Ruby, PHP et bien d'autres. Les resultats sont classes par severite et alimentent le tableau de bord ThreatClaw. Ideal pour integrer la securite dans votre cycle de developpement.",
+  "help": "Semgrep analyse le code source de vos applications sans les executer (analyse statique). Il detecte les vulnerabilites courantes : injections SQL, XSS, deserialisation non securisee, secrets en dur dans le code, mauvaises pratiques cryptographiques. Supporte Python, JavaScript, TypeScript, Java, Go, Ruby, PHP et bien d'autres. Les resultats sont classes par severite et alimentent le tableau de bord ThreatClaw. Ideal pour integrer la securite dans votre cycle de developpement.\n\n⚡ DECLENCHEMENT MANUEL\n\nScan on-demand, pas de planification automatique :\n• Dashboard > Skills > Semgrep > bouton « Lancer »\n• API : POST /api/tc/skills/run/skill-semgrep (pour cron externe, ideal en post-build CI/CD)\n\nThreatClaw monte le chemin TARGET dans un conteneur Docker ephemere. Le code doit etre accessible sur le serveur ThreatClaw (clone git prealable ou volume partage). Pour un scan apres push, integrez l'appel API dans votre pipeline CI.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",
