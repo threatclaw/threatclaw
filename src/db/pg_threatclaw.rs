@@ -394,10 +394,7 @@ impl ThreatClawStore for PgBackend {
             ORDER BY last_seen DESC
             LIMIT $2
         "#;
-        let rows = conn
-            .query(q, &[&status, &limit])
-            .await
-            .map_err(query_err)?;
+        let rows = conn.query(q, &[&status, &limit]).await.map_err(query_err)?;
         Ok(rows
             .iter()
             .map(|r| super::threatclaw_store::AiSystemRecord {

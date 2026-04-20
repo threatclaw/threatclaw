@@ -104,11 +104,7 @@ pub async fn qualify_shadow_ai_alerts(
         // 2) Upsert into ai_systems (inventory) if the endpoint is identifiable
         if let Some(ep) = endpoint.as_ref() {
             let new_system = NewAiSystem {
-                name: format!(
-                    "{} ({})",
-                    provider.as_deref().unwrap_or("Unknown LLM"),
-                    ep
-                ),
+                name: format!("{} ({})", provider.as_deref().unwrap_or("Unknown LLM"), ep),
                 category: category.to_string(),
                 provider: provider.clone(),
                 endpoint: Some(ep.clone()),
@@ -131,7 +127,11 @@ pub async fn qualify_shadow_ai_alerts(
 
         // 3) Mark alert as processed (status=investigating to avoid double-qualify).
         let _ = store
-            .update_alert_status(alert.id, "investigating", Some("qualified by shadow-ai-monitor"))
+            .update_alert_status(
+                alert.id,
+                "investigating",
+                Some("qualified by shadow-ai-monitor"),
+            )
             .await;
     }
 
@@ -261,7 +261,10 @@ mod tests {
     #[test]
     fn extract_endpoint_from_server_name() {
         let matched = Some(json!({"server_name": "api.anthropic.com"}));
-        assert_eq!(extract_endpoint(&matched).as_deref(), Some("api.anthropic.com"));
+        assert_eq!(
+            extract_endpoint(&matched).as_deref(),
+            Some("api.anthropic.com")
+        );
     }
 
     #[test]
@@ -273,7 +276,10 @@ mod tests {
     #[test]
     fn extract_endpoint_from_array() {
         let matched = Some(json!({"uri": ["/v1/chat/completions"]}));
-        assert_eq!(extract_endpoint(&matched).as_deref(), Some("/v1/chat/completions"));
+        assert_eq!(
+            extract_endpoint(&matched).as_deref(),
+            Some("/v1/chat/completions")
+        );
     }
 
     #[test]
