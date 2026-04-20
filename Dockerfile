@@ -13,7 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev cmake gcc g++ \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-wasip2 \
-    && cargo install wasm-tools
+    && cargo install --locked wasm-tools@1.240.0
+# wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
+# which requires rustc 1.95+; our base image is rust:1.94. Bump this pin
+# (and the rust:X base tag) together.
 
 WORKDIR /app
 
