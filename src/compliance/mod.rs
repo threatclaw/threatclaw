@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use crate::db::threatclaw_store::{AlertRecord, AssetRecord, FindingRecord};
 
 pub mod iso27001;
+pub mod iso42001;
 pub mod nis2;
+pub mod nist_ai_rmf;
 
 /// Score structure reused across frameworks — one instance per article/control.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,5 +93,10 @@ pub struct ComplianceInput<'a> {
 
 /// Dispatch table — evaluate all registered frameworks at once.
 pub fn evaluate_all(input: &ComplianceInput<'_>) -> Vec<ComplianceReport> {
-    vec![nis2::evaluate(input), iso27001::evaluate(input)]
+    vec![
+        nis2::evaluate(input),
+        iso27001::evaluate(input),
+        iso42001::evaluate(input),
+        nist_ai_rmf::evaluate(input),
+    ]
 }
