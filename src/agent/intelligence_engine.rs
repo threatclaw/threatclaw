@@ -1020,6 +1020,8 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
                     entry.has_known_exploit = true;
                     entry.score = (entry.score + 25.0).min(100.0);
                 }
+                // See ADR (roadmap §3.5).
+                let _ = store.record_kev_first_match(cve, None).await;
             }
         }
     }
