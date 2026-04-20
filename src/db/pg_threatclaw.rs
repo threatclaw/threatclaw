@@ -2001,6 +2001,89 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn monthly_rssi_summary(
+        &self,
+        month: chrono::NaiveDate,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_opt(
+                "SELECT month, incidents_total, incidents_confirmed, incidents_fp,
+                        incidents_inconclusive, incidents_resolved, incidents_open,
+                        sev_critical, sev_high, sev_medium, sev_low,
+                        incidents_with_blast, blast_score_avg, blast_score_max,
+                        mttr_p50_sec, mttr_p95_sec,
+                        first_incident_at, last_incident_at
+                   FROM monthly_rssi_summary
+                  WHERE month = $1",
+                &[&month],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(|r| {
+            serde_json::json!({
+                "month": r.get::<_, chrono::NaiveDate>("month").to_string(),
+                "incidents_total": r.get::<_, i64>("incidents_total"),
+                "incidents_confirmed": r.get::<_, i64>("incidents_confirmed"),
+                "incidents_fp": r.get::<_, i64>("incidents_fp"),
+                "incidents_inconclusive": r.get::<_, i64>("incidents_inconclusive"),
+                "incidents_resolved": r.get::<_, i64>("incidents_resolved"),
+                "incidents_open": r.get::<_, i64>("incidents_open"),
+                "sev_critical": r.get::<_, i64>("sev_critical"),
+                "sev_high": r.get::<_, i64>("sev_high"),
+                "sev_medium": r.get::<_, i64>("sev_medium"),
+                "sev_low": r.get::<_, i64>("sev_low"),
+                "incidents_with_blast": r.get::<_, i64>("incidents_with_blast"),
+                "blast_score_avg": r.try_get::<_, Option<rust_decimal::Decimal>>("blast_score_avg").ok().flatten().map(|d| d.to_string()),
+                "blast_score_max": r.get::<_, Option<i16>>("blast_score_max"),
+                "mttr_p50_sec": r.try_get::<_, Option<f64>>("mttr_p50_sec").ok().flatten(),
+                "mttr_p95_sec": r.try_get::<_, Option<f64>>("mttr_p95_sec").ok().flatten(),
+                "first_incident_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("first_incident_at").map(|t| t.to_rfc3339()),
+                "last_incident_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("last_incident_at").map(|t| t.to_rfc3339()),
+            })
+        }))
+    }
+
+    async fn top_incidents_by_blast(
+        &self,
+        month: chrono::NaiveDate,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, title, asset, severity, blast_radius_score, created_at
+                   FROM top_incidents_by_blast($1, $2)",
+                &[&month, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, i32>("id"),
+                    "title": r.get::<_, String>("title"),
+                    "asset": r.get::<_, String>("asset"),
+                    "severity": r.get::<_, Option<String>>("severity"),
+                    "blast_radius_score": r.get::<_, Option<i16>>("blast_radius_score"),
+                    "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+                })
+            })
+            .collect())
+    }
+
+    async fn refresh_monthly_rssi_summary(&self) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY monthly_rssi_summary",
+            &[],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn kev_tta_metrics(&self) -> Result<serde_json::Value, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn

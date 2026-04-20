@@ -8190,6 +8190,110 @@ fn top_actions_from_reports(
     out
 }
 
+// ── Monthly RSSI report (See roadmap §3.4) ──
+
+/// Parse a "YYYY-MM" path segment into the first day of that month (UTC).
+fn parse_month(s: &str) -> Option<chrono::NaiveDate> {
+    let mut parts = s.splitn(2, '-');
+    let y: i32 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    chrono::NaiveDate::from_ymd_opt(y, m, 1)
+}
+
+pub async fn monthly_rssi_report_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(yyyy_mm): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let month = parse_month(&yyyy_mm)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "expected YYYY-MM".to_string()))?;
+
+    let summary = store
+        .monthly_rssi_summary(month)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let top = store
+        .top_incidents_by_blast(month, 5)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+
+    let company = store
+        .get_company_profile()
+        .await
+        .ok()
+        .and_then(|p| p.company_name)
+        .unwrap_or_else(|| "Organisation".into());
+
+    Ok(Json(serde_json::json!({
+        "period": format!("{}", month.format("%B %Y")),
+        "company_name": company,
+        "summary": summary,
+        "top_incidents": top,
+    })))
+}
+
+pub async fn monthly_rssi_report_pdf_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(yyyy_mm): Path<String>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
+    use axum::http::header;
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let month = parse_month(&yyyy_mm)
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "expected YYYY-MM".to_string()))?;
+
+    let summary = store
+        .monthly_rssi_summary(month)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?
+        .unwrap_or_else(|| serde_json::json!({}));
+    let top = store
+        .top_incidents_by_blast(month, 5)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+    let company = store
+        .get_company_profile()
+        .await
+        .ok()
+        .and_then(|p| p.company_name)
+        .unwrap_or_else(|| "Organisation".into());
+
+    let report_data = serde_json::json!({
+        "period": format!("{}", month.format("%B %Y")),
+        "company_name": company,
+        "summary": summary,
+        "top_incidents": top,
+    });
+
+    let pdf = compile_typst_pdf("monthly-rssi", &report_data)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("typst: {e}")))?;
+
+    Ok(axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!(
+                "attachment; filename=\"threatclaw-rssi-{}.pdf\"",
+                month.format("%Y-%m")
+            ),
+        )
+        .body(pdf.into())
+        .unwrap())
+}
+
+pub async fn refresh_monthly_summary_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store
+        .refresh_monthly_rssi_summary()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("db: {e}")))?;
+    Ok(Json(serde_json::json!({ "refreshed": true })))
+}
+
 // ── CISA KEV time-to-alert metric (See roadmap §3.5) ──
 
 pub async fn kev_tta_metrics_handler(

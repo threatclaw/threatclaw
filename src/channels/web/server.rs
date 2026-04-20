@@ -779,6 +779,18 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::kev_tta_metrics_handler),
         )
         .route(
+            "/api/tc/reports/monthly/{yyyy_mm}",
+            get(super::handlers::threatclaw_api::monthly_rssi_report_handler),
+        )
+        .route(
+            "/api/tc/reports/monthly/{yyyy_mm}.pdf",
+            get(super::handlers::threatclaw_api::monthly_rssi_report_pdf_handler),
+        )
+        .route(
+            "/api/tc/reports/monthly/refresh",
+            post(super::handlers::threatclaw_api::refresh_monthly_summary_handler),
+        )
+        .route(
             "/api/tc/suppression-rules",
             get(super::handlers::threatclaw_api::list_suppression_rules_handler)
                 .post(super::handlers::threatclaw_api::create_suppression_rule_handler),

@@ -743,6 +743,25 @@ pub trait ThreatClawStore: Send + Sync {
     /// Dashboard metric — from the kev_tta_metrics_30d materialized view.
     async fn kev_tta_metrics(&self) -> Result<serde_json::Value, DatabaseError>;
 
+    // ── Monthly RSSI summary (See roadmap §3.4) ──
+
+    /// Full row for one month (from the materialized view). `month` must
+    /// be the first of the month, UTC.
+    async fn monthly_rssi_summary(
+        &self,
+        month: chrono::NaiveDate,
+    ) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    /// Top N incidents by blast-radius score for the month.
+    async fn top_incidents_by_blast(
+        &self,
+        month: chrono::NaiveDate,
+        limit: i32,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Refresh the matview. Uses `CONCURRENTLY` so queries stay fast.
+    async fn refresh_monthly_rssi_summary(&self) -> Result<(), DatabaseError>;
+
     async fn list_incidents(
         &self,
         status: Option<&str>,
