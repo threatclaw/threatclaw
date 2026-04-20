@@ -6,6 +6,7 @@ import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import BlastRadiusCard from "@/components/incidents/BlastRadiusCard";
+import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
@@ -101,6 +102,7 @@ function IncidentsTab({ locale }: { locale: string }) {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ incident: Incident; action: IncidentAction } | null>(null);
+  const [suppressingIncident, setSuppressingIncident] = useState<Incident | null>(null);
   const [executing, setExecuting] = useState(false);
   const [noteInput, setNoteInput] = useState<Record<number, string>>({});
 
@@ -236,6 +238,17 @@ function IncidentsTab({ locale }: { locale: string }) {
 
   return (
     <div>
+      {suppressingIncident && (
+        <SuppressionWizard
+          incident={suppressingIncident}
+          locale={locale}
+          onClose={() => setSuppressingIncident(null)}
+          onCreated={() => {
+            setSuppressingIncident(null);
+            load();
+          }}
+        />
+      )}
       <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         {filters.map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)} style={{
@@ -413,6 +426,15 @@ function IncidentsTab({ locale }: { locale: string }) {
                       }}>
                         <Brain size={12} />
                         {locale === "fr" ? "Relancer l'investigation" : "Re-investigate"}
+                      </button>
+                      <button onClick={() => setSuppressingIncident(inc)} style={{
+                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                        display: "flex", alignItems: "center", gap: 6,
+                      }} title={locale === "fr" ? "Créer une règle de suppression pour ce pattern récurrent" : "Create a suppression rule for this recurring pattern"}>
+                        ⚙️
+                        {locale === "fr" ? "Ignorer ce pattern" : "Ignore this pattern"}
                       </button>
                     </div>
                   </div>
