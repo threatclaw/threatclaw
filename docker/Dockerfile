@@ -23,9 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install WASM target and tools (needed for tool sandbox compilation)
+# Install WASM target and tools (needed for tool sandbox compilation).
+# wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
+# which requires rustc 1.95+; our base image is rust:1.94. Bump the image
+# tag (and remove this pin) once the base is updated.
 RUN rustup target add wasm32-wasip2 \
-    && cargo install wasm-tools
+    && cargo install --locked wasm-tools@1.240.0
 
 WORKDIR /app
 
