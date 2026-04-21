@@ -38,7 +38,7 @@ Contact us for pricing tailored to your organization size and use case.
 
 - Email: commercial@threatclaw.io
 - Web: https://threatclaw.io/commercial
-- Security: security@cyberconsulting.fr
+- Security: security@threatclaw.io
 
 ---
 

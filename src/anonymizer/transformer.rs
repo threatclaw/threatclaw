@@ -364,8 +364,8 @@ mod tests {
     #[test]
     fn test_basic_email_anonymization() {
         let anon = default_anonymizer();
-        let result = anon.anonymize("Contact admin@cyberconsulting.fr for access");
-        assert!(!result.text.contains("admin@cyberconsulting.fr"));
+        let result = anon.anonymize("Contact admin@threatclaw.io for access");
+        assert!(!result.text.contains("admin@threatclaw.io"));
         assert!(result.text.contains("[EMAIL_"));
         assert_eq!(result.stats.emails_redacted, 1);
     }

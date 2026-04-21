@@ -104,7 +104,7 @@ Not every conflict represents a Code of Conduct violation. When an
 incident does occur, it is important to report it promptly.
 
 **To report a possible violation, email
-[`conduct@cyberconsulting.fr`](mailto:conduct@cyberconsulting.fr).**
+[`conduct@threatclaw.io`](mailto:conduct@threatclaw.io).**
 
 All reports are reviewed confidentially by the Community Moderators
 (CyberConsulting.fr maintainer team). Please include:
