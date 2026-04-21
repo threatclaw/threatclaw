@@ -1,14 +1,14 @@
 name: Deploy to Staging
 
-# Push to main → build staging images locally on the DEV forgejo-runner →
-# push them to the Forgejo container registry on localhost:3100 (reachable
-# from CASE through the 10.10.10.0/24 WireGuard tunnel) → SCP the payload
-# to CASE → snapshot DB → pull + retag + compose up → smoke → rollback
-# on failure.
+# Push to main → build images locally on the DEV forgejo-runner → save
+# them as tar.gz → SCP to CASE → docker load → snapshot DB → compose up
+# → smoke → rollback on failure.
 #
-# The workflow runs on the Forgejo Actions runner installed on DEV. It does
-# NOT target GitHub — the companion file in .github/workflows/ is removed
-# so GitHub never tries to run this locally-only pipeline.
+# We use docker save/load rather than a registry push/pull because
+# Forgejo's Docker registry rewrites auth realm URLs using ROOT_URL
+# (http://localhost:3100/), which is unreachable from CASE. Changing
+# ROOT_URL would break the human-facing Forgejo UI over SSH tunnels,
+# so we skip the registry altogether. Cost: ~2 min of scp per image.
 
 on:
   push:
@@ -24,14 +24,9 @@ concurrency:
   group: staging-deploy
   cancel-in-progress: false
 
-env:
-  REGISTRY: 10.10.10.5:3100
-  CORE_IMAGE: 10.10.10.5:3100/threatclaw/core
-  DASHBOARD_IMAGE: 10.10.10.5:3100/threatclaw/dashboard
-
 jobs:
   build:
-    name: Build + push to Forgejo registry
+    name: Build staging images on DEV
     runs-on: ubuntu-latest
     outputs:
       short_sha: ${{ steps.vars.outputs.SHORT_SHA }}
@@ -42,36 +37,38 @@ jobs:
         id: vars
         run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to Forgejo registry
-        env:
-          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USER }}
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
-        run: |
-          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
-
-      - name: Build + push core
+      - name: Build core + dashboard images (ghcr.io tags for compose compat)
         env:
           SHA: ${{ steps.vars.outputs.SHORT_SHA }}
         run: |
+          # docker-compose.yml on CASE references ghcr.io/threatclaw/core:latest,
+          # so we tag locally with that exact name. The image never touches
+          # ghcr.io — the -staging-<sha> tag is for local traceability.
           docker build \
-            -t "${CORE_IMAGE}:staging" \
-            -t "${CORE_IMAGE}:main-${SHA}" \
+            -t "ghcr.io/threatclaw/core:latest" \
+            -t "tc-staging/core:${SHA}" \
             -f Dockerfile \
             .
-          docker push "${CORE_IMAGE}:staging"
-          docker push "${CORE_IMAGE}:main-${SHA}"
-
-      - name: Build + push dashboard
-        env:
-          SHA: ${{ steps.vars.outputs.SHORT_SHA }}
-        run: |
           docker build \
-            -t "${DASHBOARD_IMAGE}:staging" \
-            -t "${DASHBOARD_IMAGE}:main-${SHA}" \
+            -t "ghcr.io/threatclaw/dashboard:latest" \
+            -t "tc-staging/dashboard:${SHA}" \
             -f dashboard/Dockerfile \
             ./dashboard
-          docker push "${DASHBOARD_IMAGE}:staging"
-          docker push "${DASHBOARD_IMAGE}:main-${SHA}"
+
+      - name: Export images to tarball
+        run: |
+          docker save \
+            ghcr.io/threatclaw/core:latest \
+            ghcr.io/threatclaw/dashboard:latest \
+            | gzip > images.tar.gz
+          ls -lh images.tar.gz
+
+      - name: Upload images artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: staging-images
+          path: images.tar.gz
+          retention-days: 1
 
   deploy:
     name: Deploy + smoke test
@@ -83,6 +80,11 @@ jobs:
       STAGING_USER: ${{ secrets.STAGING_USER }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download images artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: staging-images
 
       - name: Install SSH key
         env:
@@ -109,26 +111,26 @@ jobs:
           cp scripts/ci/smoke-test.sh             payload/
           chmod +x payload/*.sh
           tar czf payload.tar.gz -C payload .
-          ls -lh payload.tar.gz
+          ls -lh payload.tar.gz images.tar.gz
 
-      - name: Copy payload to staging
+      - name: Copy payload + images to staging
         run: |
           ssh "${STAGING_USER}@${STAGING_HOST}" 'rm -rf /tmp/tc-deploy && mkdir -p /tmp/tc-deploy'
-          scp payload.tar.gz "${STAGING_USER}@${STAGING_HOST}:/tmp/tc-deploy/"
+          scp payload.tar.gz images.tar.gz "${STAGING_USER}@${STAGING_HOST}:/tmp/tc-deploy/"
           ssh "${STAGING_USER}@${STAGING_HOST}" 'tar xzf /tmp/tc-deploy/payload.tar.gz -C /tmp/tc-deploy && rm /tmp/tc-deploy/payload.tar.gz'
+
+      - name: Load images on staging
+        run: |
+          ssh "${STAGING_USER}@${STAGING_HOST}" 'gunzip -c /tmp/tc-deploy/images.tar.gz | docker load && rm /tmp/tc-deploy/images.tar.gz'
 
       - name: Snapshot DB
         run: ssh "${STAGING_USER}@${STAGING_HOST}" 'bash /tmp/tc-deploy/snapshot-db.sh'
 
       - name: Deploy new images
         id: deploy
-        env:
-          REGISTRY_URL: ${{ env.REGISTRY }}
-          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USER }}
-          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
         run: |
           ssh "${STAGING_USER}@${STAGING_HOST}" \
-            "SHA='${SHA}' IMAGE_TAG=staging REGISTRY='${REGISTRY_URL}' REGISTRY_USER='${REGISTRY_USER}' REGISTRY_TOKEN='${REGISTRY_TOKEN}' bash /tmp/tc-deploy/deploy-remote.sh"
+            "SHA='${SHA}' IMAGE_TAG=loaded bash /tmp/tc-deploy/deploy-remote.sh"
 
       - name: Smoke test
         id: smoke
