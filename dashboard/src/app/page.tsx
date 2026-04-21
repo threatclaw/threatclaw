@@ -12,6 +12,7 @@ import OnboardingTour from "@/components/chrome/OnboardingTour";
 import { useOnboarding } from "@/lib/useOnboarding";
 import KevTtaCard from "@/components/metrics/KevTtaCard";
 import MonthlyRssiCard from "@/components/metrics/MonthlyRssiCard";
+import HomeKpiStrip from "@/components/metrics/HomeKpiStrip";
 import {
   CheckCircle2, Loader2, Settings, Puzzle, Activity,
   Cpu, MessageSquare, Shield, Server, ArrowRight,
@@ -205,6 +206,9 @@ export default function HomePage() {
           ]}
         />
       )}
+
+      {/* ══ KPI strip — Today at a glance ══ */}
+      <HomeKpiStrip locale={locale} />
 
       {/* ══ Central Processor ══ */}
       <NeuCard accent="red" style={{ marginBottom: "20px", padding: "10px 16px" }}>
