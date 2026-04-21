@@ -21,28 +21,8 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libssl-dev libpq-dev protobuf-compiler
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry and target
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
-
-      - name: Build release binary
-        run: cargo build --release --bin threatclaw
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -55,6 +35,9 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
+          # Core image — the only Rust build in the whole workflow. The release
+          # binary below is extracted from this image so it always matches what
+          # ghcr publishes, bit for bit.
           docker build -t "ghcr.io/threatclaw/core:${VERSION}" \
                        -t ghcr.io/threatclaw/core:latest \
                        -f Dockerfile .
@@ -65,6 +48,19 @@ jobs:
           docker push ghcr.io/threatclaw/core:latest
           docker push "ghcr.io/threatclaw/dashboard:${VERSION}"
           docker push ghcr.io/threatclaw/dashboard:latest
+
+      - name: Extract release binary from core image
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          cid=$(docker create "ghcr.io/threatclaw/core:${VERSION}")
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/usr/local/bin/threatclaw" ./threatclaw-linux-amd64
+          # Fail hard if the image layout changed and we extracted nothing useful.
+          test -s ./threatclaw-linux-amd64
+          file ./threatclaw-linux-amd64 | grep -q "ELF 64-bit"
+          chmod +x ./threatclaw-linux-amd64
 
       - name: Generate changelog
         id: changelog
@@ -90,12 +86,12 @@ jobs:
           fi
           printf '%s\n' "$CHANGELOG" > /tmp/release-notes.md
 
-      - name: Prepare release asset
+      - name: Package release asset
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          cp target/release/threatclaw threatclaw-linux-amd64
-          chmod +x threatclaw-linux-amd64
+          # Binary was already extracted from the published image in the
+          # Extract step — just archive it for the GitHub Release attachment.
           tar czf "threatclaw-${VERSION}-linux-amd64.tar.gz" \
             threatclaw-linux-amd64
 
