@@ -93,7 +93,7 @@ patch_file() {
 # README badge — version-X.Y.Z--beta-red / version-X.Y.Z-red
 # The -- encoding is used by shields.io for hyphens inside the value field.
 readme_val=$(printf '%s' "$VERSION" | sed 's/-/--/g')
-patch_file README.md "s|badge/version-[^-]*\(--\|-\)\?[A-Za-z0-9.]*\?-red|badge/version-${readme_val}-red|"
+patch_file README.md "s|badge/version-[0-9A-Za-z.-]\{1,\}-red|badge/version-${readme_val}-red|"
 
 # CHANGELOG is intentionally NOT auto-patched: a version bump needs a new
 # section with real release notes, not a rename of the previous header.

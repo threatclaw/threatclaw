@@ -83,6 +83,16 @@ jobs:
           echo "Version: $VERSION" >> $GITHUB_STEP_SUMMARY
           echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
 
+  consistency:
+    name: Cross-file Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run consistency checks
+        run: bash scripts/check-consistency.sh
+
   dashboard:
     name: Dashboard Build
     runs-on: ubuntu-latest
