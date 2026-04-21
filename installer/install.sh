@@ -214,10 +214,11 @@ cmd_update() {
 
   # Re-download compose + config files (picks up new services, DNS fixes, etc.)
   log_info "Downloading latest configuration..."
-  curl -fsSL "${REPO_RAW}/docker/docker-compose.yml" -o docker-compose.yml
-  curl -fsSL "${REPO_RAW}/docker/.env.example" -o .env.example
-  curl -fsSL "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" -o fluent-bit/fluent-bit.conf 2>/dev/null || true
-  curl -fsSL "${REPO_RAW}/docker/fluent-bit/parsers.conf" -o fluent-bit/parsers.conf 2>/dev/null || true
+  ensure_http_fetcher || exit 1
+  http_fetch "${REPO_RAW}/docker/docker-compose.yml" docker-compose.yml
+  http_fetch "${REPO_RAW}/docker/.env.example" .env.example
+  http_fetch "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" fluent-bit/fluent-bit.conf 2>/dev/null || true
+  http_fetch "${REPO_RAW}/docker/fluent-bit/parsers.conf" fluent-bit/parsers.conf 2>/dev/null || true
 
   # Pull latest images + force-recreate containers with new config
   log_info "Pulling latest images..."
@@ -274,6 +275,47 @@ with open('$daemon_json', 'w') as f: json.dump(cfg, f, indent=2)
   log_info "Docker storage relocated to $new_root"
 }
 
+# ── HTTP fetcher — curl preferred, wget fallback ─────────────────────────────
+# Minimal Debian/Ubuntu images ship neither curl nor wget by default when the
+# --no-install-recommends path is taken (e.g. cloud-init, container templates).
+# We probe both and expose a single `http_fetch URL OUTPUT` helper so the rest
+# of the script doesn't have to care.
+TC_FETCH_CMD=""
+ensure_http_fetcher() {
+  if command -v curl &>/dev/null; then
+    TC_FETCH_CMD="curl"
+    return 0
+  fi
+  if command -v wget &>/dev/null; then
+    TC_FETCH_CMD="wget"
+    return 0
+  fi
+  # Try to install curl through the distro package manager. We prefer curl
+  # because downstream steps (get.docker.com, get.threatclaw.io) already
+  # document curl in their one-liners.
+  if command -v apt-get &>/dev/null; then
+    log_warn "Neither curl nor wget found — attempting apt-get install curl..."
+    apt-get update -qq && apt-get install -y --no-install-recommends curl \
+      && { TC_FETCH_CMD="curl"; return 0; }
+  elif command -v dnf &>/dev/null; then
+    log_warn "Neither curl nor wget found — attempting dnf install curl..."
+    dnf install -y curl && { TC_FETCH_CMD="curl"; return 0; }
+  elif command -v yum &>/dev/null; then
+    log_warn "Neither curl nor wget found — attempting yum install curl..."
+    yum install -y curl && { TC_FETCH_CMD="curl"; return 0; }
+  fi
+  log_error "curl or wget is required. Install one manually and retry."
+  return 1
+}
+http_fetch() {
+  local url="$1" out="$2"
+  case "$TC_FETCH_CMD" in
+    curl) curl -fsSL "$url" -o "$out" ;;
+    wget) wget -q "$url" -O "$out" ;;
+    *)    log_error "http_fetch called before ensure_http_fetcher"; return 1 ;;
+  esac
+}
+
 # ── Preflight ────────────────────────────────────────────────────────────────
 check_requirements() {
   log_step "Checking requirements..."
@@ -290,10 +332,22 @@ check_requirements() {
     log_info "OS: ${PRETTY_NAME:-$ID}"
   fi
 
+  # HTTP fetcher — must succeed before Docker install (get.docker.com pipeline)
+  ensure_http_fetcher || exit 1
+  log_info "HTTP fetcher: $TC_FETCH_CMD"
+
   # Docker
   if ! command -v docker &>/dev/null; then
     log_warn "Docker not found — installing..."
-    curl -fsSL https://get.docker.com | sh
+    # get.docker.com explicitly expects curl, but we can pipe through the wrapper
+    if [ "$TC_FETCH_CMD" = "curl" ]; then
+      curl -fsSL https://get.docker.com | sh
+    else
+      local tmp_docker_installer
+      tmp_docker_installer=$(mktemp)
+      http_fetch https://get.docker.com "$tmp_docker_installer" && sh "$tmp_docker_installer"
+      rm -f "$tmp_docker_installer"
+    fi
     systemctl enable docker
     systemctl start docker
     log_info "Docker installed"
@@ -466,12 +520,12 @@ download_configs() {
   cd "$TC_DIR"
 
   # Docker compose
-  curl -fsSL "${REPO_RAW}/docker/docker-compose.yml" -o docker-compose.yml
+  http_fetch "${REPO_RAW}/docker/docker-compose.yml" docker-compose.yml
   log_info "docker-compose.yml downloaded"
 
   # Environment file
   if [ ! -f .env ]; then
-    curl -fsSL "${REPO_RAW}/docker/.env.example" -o .env
+    http_fetch "${REPO_RAW}/docker/.env.example" .env
     local db_pass=$(generate_password 24)
     local auth_token=$(generate_password 64)
     sed -i "s/^TC_DASHBOARD_PORT=.*/TC_DASHBOARD_PORT=${TC_PORT}/" .env
@@ -532,24 +586,24 @@ download_configs() {
   fi
 
   # Entrypoint (Modelfiles removed — models are created via Ollama API in entrypoint.sh)
-  curl -fsSL "${REPO_RAW}/docker/entrypoint.sh" -o entrypoint.sh && chmod +x entrypoint.sh
+  http_fetch "${REPO_RAW}/docker/entrypoint.sh" entrypoint.sh && chmod +x entrypoint.sh
 
   # Fluent Bit
   mkdir -p fluent-bit
-  curl -fsSL "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" -o fluent-bit/fluent-bit.conf
-  curl -fsSL "${REPO_RAW}/docker/fluent-bit/parsers.conf" -o fluent-bit/parsers.conf
+  http_fetch "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" fluent-bit/fluent-bit.conf
+  http_fetch "${REPO_RAW}/docker/fluent-bit/parsers.conf" fluent-bit/parsers.conf
 
   # Config files
-  curl -fsSL "${REPO_RAW}/AGENT_SOUL.toml" -o AGENT_SOUL.toml
-  curl -fsSL "${REPO_RAW}/threatclaw.toml" -o threatclaw.toml
+  http_fetch "${REPO_RAW}/AGENT_SOUL.toml" AGENT_SOUL.toml
+  http_fetch "${REPO_RAW}/threatclaw.toml" threatclaw.toml
 
   # DB Dockerfile (PostgreSQL + pgvector + AGE)
-  curl -fsSL "${REPO_RAW}/docker/Dockerfile.db" -o Dockerfile.db
+  http_fetch "${REPO_RAW}/docker/Dockerfile.db" Dockerfile.db
 
   # HTTPS reverse proxy (nginx + cert generation)
   if [ "$TC_DEPLOY_MODE" != "external-proxy" ]; then
-    curl -fsSL "${REPO_RAW}/docker/nginx.conf" -o nginx.conf
-    curl -fsSL "${REPO_RAW}/docker/generate-certs.sh" -o generate-certs.sh && chmod +x generate-certs.sh
+    http_fetch "${REPO_RAW}/docker/nginx.conf" nginx.conf
+    http_fetch "${REPO_RAW}/docker/generate-certs.sh" generate-certs.sh && chmod +x generate-certs.sh
     log_info "Nginx reverse proxy config downloaded"
   fi
 
