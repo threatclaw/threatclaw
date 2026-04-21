@@ -1314,6 +1314,7 @@ pub async fn config_get_handler(
         "enrichment_enabled",
         "enrichment_keys",
         "shift_report",
+        "llm_validation_mode",
     ] {
         let setting_key = format!("tc_config_{}", key);
         if let Ok(Some(val)) = store.get_setting("_system", &setting_key).await {
@@ -1368,8 +1369,23 @@ pub async fn config_set_handler(
         "enrichment_enabled",
         "enrichment_keys",
         "shift_report",
+        "llm_validation_mode",
     ] {
         if let Some(val) = body.get(*key) {
+            // Validate grounding mode — refuse arbitrary values to keep the
+            // setting aligned with the ValidationMode enum in the core.
+            if *key == "llm_validation_mode" {
+                let ok = val
+                    .as_str()
+                    .map(|s| matches!(s, "off" | "lenient" | "strict"))
+                    .unwrap_or(false);
+                if !ok {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "llm_validation_mode must be one of: off, lenient, strict".to_string(),
+                    ));
+                }
+            }
             let setting_key = format!("tc_config_{}", key);
             store
                 .set_setting("_system", &setting_key, val)

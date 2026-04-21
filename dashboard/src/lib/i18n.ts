@@ -343,6 +343,28 @@ const T: Record<string, Record<Locale, string>> = {
   chatEmpty: { fr: "Posez une question pour démarrer.", en: "Start by asking a question." },
   chatDelete: { fr: "Supprimer", en: "Delete" },
   chatFailed: { fr: "Échec de l'envoi. Réessayez.", en: "Send failed. Retry." },
+
+  // ── Grounding / anti-hallucination ──
+  groundingTitle: { fr: "Ancrage anti-hallucination LLM", en: "LLM anti-hallucination grounding" },
+  groundingDesc: {
+    fr: "Contrôle si les réponses du LLM doivent être ancrées sur des sources vérifiables en DB. Recommandé : Strict pour une piste d'audit NIS2.",
+    en: "Controls whether LLM answers must be grounded on verifiable DB sources. Recommended: Strict for an NIS2 audit trail.",
+  },
+  grounding_off: { fr: "Désactivé", en: "Off" },
+  grounding_off_desc: {
+    fr: "Aucune vérification. Le LLM peut halluciner.",
+    en: "No checks. The LLM may hallucinate.",
+  },
+  grounding_lenient: { fr: "Souple", en: "Lenient" },
+  grounding_lenient_desc: {
+    fr: "Valide et journalise les écarts, mais n'altère pas la réponse.",
+    en: "Validate and log drift but do not alter the answer.",
+  },
+  grounding_strict: { fr: "Strict", en: "Strict" },
+  grounding_strict_desc: {
+    fr: "Rejette toute affirmation sans citation DB vérifiable. Recommandé.",
+    en: "Rejects any claim without a verifiable DB citation. Recommended.",
+  },
   detections: { fr: "Détections", en: "Detections" },
   detectionsSubtitle: { fr: "Vulnérabilités, alertes de sécurité et anomalies comportementales", en: "Vulnerabilities, security alerts and behavioral anomalies" },
   vulnerabilities: { fr: "Vulnérabilités", en: "Vulnerabilities" },

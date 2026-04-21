@@ -70,6 +70,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
   const [shiftReport, setShiftReport] = useState({ enabled: false, interval_minutes: 240, notify_threshold: 20, daily_summary_hour: 8 });
+  const [groundingMode, setGroundingMode] = useState<"off" | "lenient" | "strict">("strict");
   const [channels, setChannels] = useState<Record<string, { enabled: boolean; [k: string]: string | boolean }>>({
     slack: { enabled: false, botToken: "", signingSecret: "" },
     telegram: { enabled: false, botToken: "", botUsername: "", chatId: "" },
@@ -115,6 +116,9 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         if (cfg.permissions) setPermLevel(cfg.permissions);
         if (cfg.general) setGeneral(p => ({ ...p, ...cfg.general }));
         if (cfg.shift_report) setShiftReport(p => ({ ...p, ...cfg.shift_report }));
+        if (cfg.llm_validation_mode && ["off", "lenient", "strict"].includes(cfg.llm_validation_mode)) {
+          setGroundingMode(cfg.llm_validation_mode as "off" | "lenient" | "strict");
+        }
       } catch {
         try {
           const raw = localStorage.getItem("threatclaw_config");
@@ -191,6 +195,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
       config.cloud = { backend: cloud.backend, model: cloud.model, apiKey: cloud.apiKey, escalation: cloud.escalation };
     }
     config.shift_report = shiftReport;
+    config.llm_validation_mode = groundingMode;
     try {
       const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
       const data = await res.json();
@@ -348,6 +353,41 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
             cloud={cloud} setCloud={setCloud} llmModels={llmModels} setLlmModels={setLlmModels}
             testOllama={testOllama} inputStyle={inputStyle} labelStyle={labelStyle}
           />
+          <ChromeInsetCard style={{ marginTop: "16px" }}>
+            <h3 style={{ marginBottom: "4px" }}>{tr("groundingTitle", locale)}</h3>
+            <p style={{ fontSize: "13px", opacity: 0.7, marginBottom: "12px" }}>{tr("groundingDesc", locale)}</p>
+            <div style={{ display: "flex", gap: "8px" }}>
+              {(["off", "lenient", "strict"] as const).map((mode) => {
+                const active = groundingMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setGroundingMode(mode)}
+                    style={{
+                      flex: 1,
+                      padding: "10px 12px",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      border: active ? "0.5px solid var(--tc-red-border)" : "0.5px solid var(--tc-border)",
+                      background: active ? "var(--tc-red-soft)" : "var(--tc-input)",
+                      color: active ? "var(--tc-red)" : "var(--tc-text)",
+                      fontWeight: active ? 700 : 500,
+                      fontSize: "12px",
+                      letterSpacing: "0.03em",
+                      textTransform: "uppercase",
+                      transition: "all 150ms",
+                    }}
+                  >
+                    <div style={{ marginBottom: "4px" }}>{tr(`grounding_${mode}` as const, locale)}</div>
+                    <div style={{ fontSize: "10px", fontWeight: 400, opacity: 0.75, textTransform: "none", letterSpacing: 0 }}>
+                      {tr(`grounding_${mode}_desc` as const, locale)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </ChromeInsetCard>
           <ChromeInsetCard style={{ marginTop: "16px" }}>
             <h3 style={{ marginBottom: "4px" }}>{tr("shiftReportTitle", locale)}</h3>
             <p style={{ fontSize: "13px", opacity: 0.7, marginBottom: "12px" }}>{tr("shiftReportDesc", locale)}</p>
