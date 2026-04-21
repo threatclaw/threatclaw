@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     channel TEXT NOT NULL,
     user_id TEXT NOT NULL,
     thread_id TEXT,
+    title TEXT,
     started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     last_activity TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     metadata TEXT NOT NULL DEFAULT '{}'
@@ -59,11 +60,20 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    status TEXT NOT NULL DEFAULT 'complete'
+        CHECK (status IN ('streaming', 'complete', 'failed', 'orphaned')),
+    tool_calls TEXT,
+    citations TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation
     ON conversation_messages(conversation_id);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_streaming
+    ON conversation_messages(updated_at)
+    WHERE status = 'streaming';
 
 -- ==================== Agent Jobs ====================
 
