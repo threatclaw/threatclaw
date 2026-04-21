@@ -1,8 +1,14 @@
 name: Deploy to Staging
 
-# Push to main → build staging images → sync payload to CASE → snapshot
-# DB → pull + restart → run smoke suite → rollback on failure. Runs
-# serialised (one deploy at a time) via a concurrency group.
+# Push to main → build staging images locally on the DEV forgejo-runner →
+# push them to the Forgejo container registry on localhost:3100 (reachable
+# from CASE through the 10.10.10.0/24 WireGuard tunnel) → SCP the payload
+# to CASE → snapshot DB → pull + retag + compose up → smoke → rollback
+# on failure.
+#
+# The workflow runs on the Forgejo Actions runner installed on DEV. It does
+# NOT target GitHub — the companion file in .github/workflows/ is removed
+# so GitHub never tries to run this locally-only pipeline.
 
 on:
   push:
@@ -18,71 +24,65 @@ concurrency:
   group: staging-deploy
   cancel-in-progress: false
 
-permissions:
-  contents: read
-  packages: write
-
 env:
-  REGISTRY: ghcr.io
-  CORE_IMAGE: ghcr.io/threatclaw/core
-  DASHBOARD_IMAGE: ghcr.io/threatclaw/dashboard
+  REGISTRY: 10.10.10.5:3100
+  CORE_IMAGE: 10.10.10.5:3100/threatclaw/core
+  DASHBOARD_IMAGE: 10.10.10.5:3100/threatclaw/dashboard
 
 jobs:
   build:
-    name: Build staging images
+    name: Build + push to Forgejo registry
     runs-on: ubuntu-latest
     outputs:
       short_sha: ${{ steps.vars.outputs.SHORT_SHA }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Compute short SHA
         id: vars
         run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Log in to Forgejo registry
+        env:
+          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push core
+      - name: Build + push core
         env:
           SHA: ${{ steps.vars.outputs.SHORT_SHA }}
         run: |
-          docker buildx build \
+          docker build \
             -t "${CORE_IMAGE}:staging" \
             -t "${CORE_IMAGE}:main-${SHA}" \
             -f Dockerfile \
-            --push \
             .
+          docker push "${CORE_IMAGE}:staging"
+          docker push "${CORE_IMAGE}:main-${SHA}"
 
-      - name: Build and push dashboard
+      - name: Build + push dashboard
         env:
           SHA: ${{ steps.vars.outputs.SHORT_SHA }}
         run: |
-          docker buildx build \
+          docker build \
             -t "${DASHBOARD_IMAGE}:staging" \
             -t "${DASHBOARD_IMAGE}:main-${SHA}" \
             -f dashboard/Dockerfile \
-            --push \
             ./dashboard
+          docker push "${DASHBOARD_IMAGE}:staging"
+          docker push "${DASHBOARD_IMAGE}:main-${SHA}"
 
   deploy:
     name: Deploy + smoke test
     needs: build
     runs-on: ubuntu-latest
-    environment: staging
     env:
       SHA: ${{ needs.build.outputs.short_sha }}
       STAGING_HOST: ${{ secrets.STAGING_HOST }}
       STAGING_USER: ${{ secrets.STAGING_USER }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Install SSH key
         env:
@@ -122,7 +122,13 @@ jobs:
 
       - name: Deploy new images
         id: deploy
-        run: ssh "${STAGING_USER}@${STAGING_HOST}" "SHA=${SHA} IMAGE_TAG=staging bash /tmp/tc-deploy/deploy-remote.sh"
+        env:
+          REGISTRY_URL: ${{ env.REGISTRY }}
+          REGISTRY_USER: ${{ secrets.FORGEJO_REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.FORGEJO_REGISTRY_TOKEN }}
+        run: |
+          ssh "${STAGING_USER}@${STAGING_HOST}" \
+            "SHA='${SHA}' IMAGE_TAG=staging REGISTRY='${REGISTRY_URL}' REGISTRY_USER='${REGISTRY_USER}' REGISTRY_TOKEN='${REGISTRY_TOKEN}' bash /tmp/tc-deploy/deploy-remote.sh"
 
       - name: Smoke test
         id: smoke
@@ -147,7 +153,7 @@ jobs:
             echo "- Smoke: ${SMOKE_OUTCOME}"
             echo ""
             if [ "${SMOKE_OUTCOME}" = "success" ]; then
-              echo "🟢 Staging is on \`main-${SHA}\` — OK to cut the tag."
+              echo "🟢 Staging is on \`main-${SHA}\`"
             else
               echo "🔴 Staging rolled back. Fix forward on \`main\`."
             fi

@@ -18,8 +18,17 @@ TC_DIR="/opt/threatclaw"
 PAYLOAD="/tmp/tc-deploy"
 IMAGE_TAG="${IMAGE_TAG:-staging}"
 SHA="${SHA:-unknown}"
+# Forgejo staging registry — defaults to the DEV WG address when unset so
+# the script is runnable standalone for debugging. The CI workflow passes
+# REGISTRY explicitly.
+REGISTRY="${REGISTRY:-10.10.10.5:3100}"
+# docker-compose.yml references the public ghcr.io tags. On staging we pull
+# from the Forgejo registry and retag locally so compose picks them up
+# without any change to the compose file.
+COMPOSE_CORE_IMAGE="ghcr.io/threatclaw/core:latest"
+COMPOSE_DASHBOARD_IMAGE="ghcr.io/threatclaw/dashboard:latest"
 
-echo "[deploy] tag=${IMAGE_TAG} sha=${SHA}"
+echo "[deploy] tag=${IMAGE_TAG} sha=${SHA} registry=${REGISTRY}"
 
 if [ ! -d "$PAYLOAD" ]; then
     echo "[deploy] ERROR: ${PAYLOAD} missing — did scp step run?"; exit 1
@@ -74,10 +83,30 @@ if [ ! -s "$TC_DIR/secrets/tc_db_password.txt" ]; then
     sudo chmod 644 "$TC_DIR/secrets/"*.txt 2>/dev/null || true
 fi
 
-# ── Pull images + restart ────────────────────────────────────────────────
+# ── Docker login to Forgejo registry (ephemeral) ─────────────────────────
+# Credentials land via env from the CI workflow. We prefer this over a
+# persistent ~tc-deploy/.docker/config.json so a leaked token is short-lived
+# and bound to the current deploy session only.
+if [ -n "${REGISTRY_USER:-}" ] && [ -n "${REGISTRY_TOKEN:-}" ]; then
+    echo "[deploy] docker login ${REGISTRY}"
+    echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+fi
+
+# ── Pull + retag images ──────────────────────────────────────────────────
+# docker-compose.yml references ghcr.io/threatclaw/core:latest; we pull
+# the Forgejo staging image and retag it locally so compose picks it up
+# without needing a per-environment compose override.
 cd "$TC_DIR"
-echo "[deploy] docker compose pull"
-docker compose pull
+echo "[deploy] pull + retag"
+docker pull "${REGISTRY}/threatclaw/core:${IMAGE_TAG}"
+docker tag "${REGISTRY}/threatclaw/core:${IMAGE_TAG}" "${COMPOSE_CORE_IMAGE}"
+docker pull "${REGISTRY}/threatclaw/dashboard:${IMAGE_TAG}"
+docker tag "${REGISTRY}/threatclaw/dashboard:${IMAGE_TAG}" "${COMPOSE_DASHBOARD_IMAGE}"
+
+# Clean up the docker auth so no long-lived credential stays on CASE.
+if [ -n "${REGISTRY_USER:-}" ]; then
+    docker logout "$REGISTRY" >/dev/null 2>&1 || true
+fi
 
 echo "[deploy] docker compose up -d --force-recreate"
 # TC_HTTPS_PORT / TC_HTTP_PORT stay constant; exporting here keeps the env
@@ -105,7 +134,7 @@ done
 
 # ── Record current image tag for rollback traceability ───────────────────
 CURRENT_DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' \
-    "ghcr.io/threatclaw/core:${IMAGE_TAG}" 2>/dev/null || echo "unknown")
+    "${REGISTRY}/threatclaw/core:${IMAGE_TAG}" 2>/dev/null || echo "unknown")
 echo "$CURRENT_DIGEST" | sudo tee "$TC_DIR/backups/last-deployed-digest.txt" > /dev/null || true
 
 # ── Cleanup payload ──────────────────────────────────────────────────────
