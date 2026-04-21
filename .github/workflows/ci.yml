@@ -77,11 +77,13 @@ jobs:
           grep -q "AGPL-3.0-or-later" Cargo.toml && echo "License field OK" || echo "WARNING: license field missing"
 
       - name: Build ID
+        env:
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           echo "## Build" >> $GITHUB_STEP_SUMMARY
           VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
           echo "Version: $VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "Commit: $COMMIT_SHA" >> $GITHUB_STEP_SUMMARY
 
   consistency:
     name: Cross-file Consistency

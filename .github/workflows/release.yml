@@ -52,23 +52,33 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker images
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          docker build -t ghcr.io/threatclaw/core:${{ steps.version.outputs.VERSION }} \
+          docker build -t "ghcr.io/threatclaw/core:${VERSION}" \
                        -t ghcr.io/threatclaw/core:latest \
                        -f Dockerfile .
-          docker build -t ghcr.io/threatclaw/dashboard:${{ steps.version.outputs.VERSION }} \
+          docker build -t "ghcr.io/threatclaw/dashboard:${VERSION}" \
                        -t ghcr.io/threatclaw/dashboard:latest \
                        -f dashboard/Dockerfile ./dashboard
-          docker push ghcr.io/threatclaw/core:${{ steps.version.outputs.VERSION }}
+          docker push "ghcr.io/threatclaw/core:${VERSION}"
           docker push ghcr.io/threatclaw/core:latest
-          docker push ghcr.io/threatclaw/dashboard:${{ steps.version.outputs.VERSION }}
+          docker push "ghcr.io/threatclaw/dashboard:${VERSION}"
           docker push ghcr.io/threatclaw/dashboard:latest
 
       - name: Generate changelog
         id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
+          CHANGELOG=""
           if [ -f CHANGELOG.md ]; then
-            CHANGELOG=$(sed -n "/^## .*${{ steps.version.outputs.VERSION }}/,/^## /p" CHANGELOG.md | head -n -1)
+            # awk with variable binding keeps VERSION out of any regex parser
+            CHANGELOG=$(awk -v ver="$VERSION" '
+              $0 ~ "^## .*" ver { p=1; print; next }
+              p && /^## / { exit }
+              p { print }
+            ' CHANGELOG.md)
           fi
           if [ -z "$CHANGELOG" ]; then
             PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
@@ -78,20 +88,23 @@ jobs:
               CHANGELOG=$(git log --pretty=format:"- %s (%h)" -20)
             fi
           fi
-          echo "$CHANGELOG" > /tmp/release-notes.md
+          printf '%s\n' "$CHANGELOG" > /tmp/release-notes.md
 
       - name: Prepare release asset
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           cp target/release/threatclaw threatclaw-linux-amd64
           chmod +x threatclaw-linux-amd64
-          tar czf threatclaw-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz \
+          tar czf "threatclaw-${VERSION}-linux-amd64.tar.gz" \
             threatclaw-linux-amd64
 
       - name: Delete existing Release if present
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          gh release delete "${{ github.ref_name }}" -R "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          gh release delete "$REF_NAME" -R "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
