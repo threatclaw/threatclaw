@@ -1363,6 +1363,23 @@ pub async fn start_server(
             "/api/tc/channel/{name}/incoming",
             post(super::handlers::channel_incoming::generic_incoming_handler),
         )
+        // Web chat pane (dashboard) — See roadmap §3.6, Option A (non-streaming)
+        .route(
+            "/api/tc/chat",
+            post(super::handlers::web_chat::chat_send_handler),
+        )
+        .route(
+            "/api/tc/conversations",
+            get(super::handlers::web_chat::conversations_list_handler),
+        )
+        .route(
+            "/api/tc/conversations/{id}/messages",
+            get(super::handlers::web_chat::conversation_messages_handler),
+        )
+        .route(
+            "/api/tc/conversations/{id}",
+            axum::routing::delete(super::handlers::web_chat::conversation_delete_handler),
+        )
         // Settings read (for config tabs)
         .route(
             "/api/tc/settings/{user_id}/{key}",
