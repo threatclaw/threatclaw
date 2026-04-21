@@ -50,10 +50,14 @@ if [ -d "$PAYLOAD/migrations" ]; then
     sudo cp -f "$PAYLOAD/migrations/"* "$TC_DIR/migrations/"
 fi
 
-# ── PostgreSQL TLS certs — generate once, never on every deploy ──────────
-if [ ! -f "$TC_DIR/certs/pg-server.crt" ] && [ -x "$TC_DIR/generate-certs.sh" ]; then
-    echo "[deploy] generating PostgreSQL TLS certs (first run)"
-    sudo CERT_DIR="$TC_DIR/certs" bash "$TC_DIR/generate-certs.sh" "$(hostname -f)"
+# ── PostgreSQL TLS certs — MUST be generated manually on first install ──
+# The CI user (tc-deploy) does not have sudo bash in its sudoers, so it
+# cannot run generate-certs.sh which needs root to write /var/lib/postgresql.
+# Abort early with a clear message rather than silently skipping.
+if [ ! -f "$TC_DIR/certs/pg-server.crt" ]; then
+    echo "[deploy] ERROR: PostgreSQL TLS certs missing at $TC_DIR/certs/"
+    echo "[deploy] Run 'sudo bash $TC_DIR/generate-certs.sh \$(hostname -f)' manually as a full admin."
+    exit 1
 fi
 
 # ── Docker secrets — migrate from .env if secrets/ is empty ──────────────
@@ -73,12 +77,15 @@ fi
 # ── Pull images + restart ────────────────────────────────────────────────
 cd "$TC_DIR"
 echo "[deploy] docker compose pull"
-sudo docker compose pull
+docker compose pull
 
 echo "[deploy] docker compose up -d --force-recreate"
 # TC_HTTPS_PORT / TC_HTTP_PORT stay constant; exporting here keeps the env
 # stable even if the shell session didn't source /etc/environment.
-sudo TC_HTTPS_PORT=8445 TC_HTTP_PORT=8880 docker compose up -d --force-recreate
+# No sudo — tc-deploy is in the docker group.
+export TC_HTTPS_PORT=8445
+export TC_HTTP_PORT=8880
+docker compose up -d --force-recreate
 
 # ── Wait for core to be healthy ──────────────────────────────────────────
 echo "[deploy] waiting for core health (max 120 s)"
@@ -89,15 +96,15 @@ for i in $(seq 1 60); do
     fi
     if [ "$i" -eq 60 ]; then
         echo "[deploy] ERROR: core did not become healthy in 120 s"
-        sudo docker compose ps
-        sudo docker compose logs --tail=50 threatclaw-core
+        docker compose ps
+        docker compose logs --tail=50 threatclaw-core
         exit 1
     fi
     sleep 2
 done
 
 # ── Record current image tag for rollback traceability ───────────────────
-CURRENT_DIGEST=$(sudo docker inspect --format '{{index .RepoDigests 0}}' \
+CURRENT_DIGEST=$(docker inspect --format '{{index .RepoDigests 0}}' \
     "ghcr.io/threatclaw/core:${IMAGE_TAG}" 2>/dev/null || echo "unknown")
 echo "$CURRENT_DIGEST" | sudo tee "$TC_DIR/backups/last-deployed-digest.txt" > /dev/null || true
 

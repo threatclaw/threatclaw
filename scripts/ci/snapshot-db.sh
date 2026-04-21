@@ -22,13 +22,13 @@ OUT="${BACKUP_DIR}/snapshot-${STAMP}.sql.gz"
 
 sudo mkdir -p "$BACKUP_DIR"
 
-if ! sudo docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+if ! docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
     echo "[snapshot] WARN: ${DB_CONTAINER} not running — skipping (first deploy?)"
     exit 0
 fi
 
 echo "[snapshot] writing ${OUT}"
-sudo docker exec "${DB_CONTAINER}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" \
+docker exec "${DB_CONTAINER}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" \
     | gzip -9 \
     | sudo tee "$OUT" > /dev/null
 
