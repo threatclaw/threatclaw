@@ -29,7 +29,19 @@ echo "[rollback] restoring ${SNAPSHOT} (${SIZE})"
 # Stop app services so no writes land during the restore. The DB
 # container stays up — we restore into it with DROP / CREATE wrapping.
 cd "$TC_DIR"
-docker compose stop threatclaw-core threatclaw-dashboard fluent-bit 2>/dev/null || true
+# Stop only the services we manage from CI. fluent-bit is deliberately
+# excluded — on CASE the syslog port 514 is owned by Wazuh, so fluent-bit
+# would never bind and a force-start here would mask the real rollback
+# failure under a port-in-use error.
+STAGING_SERVICES=(
+    threatclaw-core
+    threatclaw-dashboard
+    threatclaw-db
+    ollama
+    ml-engine
+    nginx
+)
+docker compose stop "${STAGING_SERVICES[@]}" 2>/dev/null || true
 
 # Drop + recreate schema to avoid conflicts on restore. Any connection
 # lingering from core/dashboard (we just stopped them but the DB may
@@ -49,7 +61,7 @@ SQL
 sudo zcat "$SNAPSHOT" | docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME"
 
 echo "[rollback] DB restored — restarting app services"
-docker compose up -d --force-recreate threatclaw-core threatclaw-dashboard fluent-bit
+docker compose up -d --force-recreate "${STAGING_SERVICES[@]}"
 
 # Give it a moment so the workflow log shows it came back
 sleep 8
