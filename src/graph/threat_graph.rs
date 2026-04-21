@@ -15,6 +15,17 @@ fn sanitize_cypher_value(s: &str) -> String {
         .collect()
 }
 
+/// Strip CIDR suffix and reject empty/placeholder values. Returns `None` when
+/// the input should not be treated as an attacker IP. Callers must never fall
+/// back to hostname — hostnames are victim identifiers, not network origins.
+fn parse_attacker_ip(raw: Option<&str>) -> Option<String> {
+    let t = raw?.split('/').next()?.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+    Some(t.to_string())
+}
+
 /// Validate that a string looks like an IP address (v4 or v6).
 fn validate_ip(ip: &str) -> bool {
     std::net::IpAddr::from_str(ip).is_ok()
@@ -383,59 +394,36 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
             .collect()
     };
     for a in &alerts {
-        // Extract IP from source_ip OR hostname (test scenarios put IP in hostname)
-        let raw_ip = a
-            .source_ip
-            .as_deref()
-            .or(a.hostname.as_deref())
-            .unwrap_or("");
-        let clean_ip = raw_ip.split('/').next().unwrap_or("").trim();
-        // Wrap in Option to match existing code flow
-        let ip_opt = if clean_ip.is_empty() {
-            None
-        } else {
-            Some(clean_ip.to_string())
-        };
-        if let Some(ref ip) = ip_opt {
-            let clean_ip = ip.as_str();
-            if clean_ip.is_empty() {
-                continue;
+        let victim_id = a.hostname.as_deref().and_then(|h| {
+            let trimmed = h.trim();
+            if trimmed.is_empty() {
+                return None;
             }
+            asset_ip_map
+                .get(trimmed)
+                .cloned()
+                .or_else(|| asset_ip_map.get(&trimmed.to_lowercase()).cloned())
+        });
 
+        let source_ip_clean = parse_attacker_ip(a.source_ip.as_deref());
+
+        if let Some(clean_ip) = source_ip_clean.as_deref() {
             let classification = ip_classifier::classify(clean_ip, &networks, &known_ips);
 
             match classification {
                 ip_classifier::IpClass::External => {
-                    // External IP = attacker → upsert as IP node
                     upsert_ip(store, clean_ip, None, None, Some("suspicious")).await;
-
-                    // Find the target asset (from hostname or dest IP)
-                    if let Some(ref hostname) = a.hostname {
-                        if let Some(asset_id) = asset_ip_map
-                            .get(hostname.as_str())
-                            .or_else(|| asset_ip_map.get(hostname))
-                        {
-                            record_attack(store, clean_ip, asset_id, &a.title).await;
-                        }
+                    if let Some(ref victim_id) = victim_id {
+                        record_attack(store, clean_ip, victim_id, &a.title).await;
                     }
                 }
                 ip_classifier::IpClass::InternalKnown(ref asset_id) => {
-                    // Internal known = this asset is the SOURCE of suspicious activity
-                    // (e.g., compromised server doing lateral movement)
-                    if let Some(ref hostname) = a.hostname {
-                        if let Some(target_id) = asset_ip_map.get(hostname.as_str()) {
-                            if target_id != asset_id {
-                                // Internal → internal = lateral movement
-                                upsert_ip(store, clean_ip, None, None, Some("lateral")).await;
-                                record_attack(
-                                    store,
-                                    clean_ip,
-                                    target_id,
-                                    &format!("lateral: {}", a.title),
-                                )
-                                .await;
-                            }
-                        }
+                    if let Some(ref victim_id) = victim_id
+                        && victim_id != asset_id
+                    {
+                        upsert_ip(store, clean_ip, None, None, Some("lateral")).await;
+                        record_attack(store, clean_ip, victim_id, &format!("lateral: {}", a.title))
+                            .await;
                     }
                 }
                 ip_classifier::IpClass::InternalUnknown => {
@@ -478,28 +466,17 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
             }
         }
 
-        // Also process the hostname/dest as an asset target
-        if let Some(ref hostname) = a.hostname {
-            let host_clean = hostname.trim();
-            if !host_clean.is_empty() {
-                if let Some(asset_id) = asset_ip_map.get(host_clean) {
-                    upsert_asset(
-                        store,
-                        asset_id,
-                        host_clean,
-                        &assets
-                            .iter()
-                            .find(|aa| aa.id == *asset_id)
-                            .map(|aa| aa.category.as_str())
-                            .unwrap_or("server"),
-                        &assets
-                            .iter()
-                            .find(|aa| aa.id == *asset_id)
-                            .map(|aa| aa.criticality.as_str())
-                            .unwrap_or("medium"),
-                    )
-                    .await;
-                }
+        if let Some(ref victim_id) = victim_id {
+            let host_display = a.hostname.as_deref().unwrap_or("").trim();
+            if let Some(asset) = assets.iter().find(|aa| aa.id == *victim_id) {
+                upsert_asset(
+                    store,
+                    victim_id,
+                    host_display,
+                    &asset.category,
+                    &asset.criticality,
+                )
+                .await;
             }
         }
     }
@@ -550,4 +527,58 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         alerts.len(),
         findings.len()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_ip_rejects_hostname() {
+        // Regression: Wazuh alerts with empty source_ip and hostname="TARS-HOST"
+        // used to fall back to hostname, reach upsert_ip, and spam the logs with
+        // "Invalid IP address, skipping upsert: TARS-HOST" on every cycle.
+        assert!(!validate_ip("TARS-HOST"));
+        assert!(!validate_ip("case"));
+        assert!(!validate_ip("pc-compta.lan"));
+        assert!(validate_ip("192.168.1.1"));
+        assert!(validate_ip("10.10.10.2"));
+        assert!(validate_ip("2001:db8::1"));
+    }
+
+    #[test]
+    fn parse_attacker_ip_strips_cidr_and_rejects_empty() {
+        assert_eq!(
+            parse_attacker_ip(Some("192.168.1.1")),
+            Some("192.168.1.1".into())
+        );
+        assert_eq!(
+            parse_attacker_ip(Some("10.0.0.1/24")),
+            Some("10.0.0.1".into())
+        );
+        assert_eq!(
+            parse_attacker_ip(Some("  10.0.0.1  ")),
+            Some("10.0.0.1".into())
+        );
+        assert_eq!(parse_attacker_ip(Some("")), None);
+        assert_eq!(parse_attacker_ip(Some("   ")), None);
+        assert_eq!(parse_attacker_ip(Some("unknown")), None);
+        assert_eq!(parse_attacker_ip(Some("UNKNOWN")), None);
+        assert_eq!(parse_attacker_ip(None), None);
+    }
+
+    #[test]
+    fn parse_attacker_ip_does_not_accept_hostname_shaped_inputs() {
+        // The function itself does not validate IP syntax (that's validate_ip's job
+        // downstream). But it must preserve the contract: an explicit hostname value
+        // passed here is out of contract — callers must never pass a hostname.
+        // We assert that whatever non-empty non-"unknown" string goes in, the downstream
+        // validate_ip gatekeeps it correctly.
+        let accidental = parse_attacker_ip(Some("TARS-HOST"));
+        assert!(accidental.is_some(), "parser is permissive by design");
+        assert!(
+            !validate_ip(&accidental.unwrap()),
+            "validate_ip must reject hostnames reaching upsert_ip"
+        );
+    }
 }
