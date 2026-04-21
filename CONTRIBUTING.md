@@ -3,6 +3,14 @@
 ThreatClaw is an open-source cybersecurity agent for SMBs, built in Rust.
 Contributions from the community make this project better for everyone.
 
+## Code of Conduct
+
+Participation in this project is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md) (adapted from the
+[Contributor Covenant v3.0](https://www.contributor-covenant.org/version/3/0/)).
+By contributing, you agree to abide by it. Report violations to
+**conduct@cyberconsulting.fr**.
+
 ## License Model
 
 ThreatClaw uses a **dual-license model**:
