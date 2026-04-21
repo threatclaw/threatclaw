@@ -1,0 +1,154 @@
+name: Deploy to Staging
+
+# Push to main → build staging images → sync payload to CASE → snapshot
+# DB → pull + restart → run smoke suite → rollback on failure. Runs
+# serialised (one deploy at a time) via a concurrency group.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'CHANGELOG.md'
+      - 'internal/**'
+      - 'docs/**'
+  workflow_dispatch: {}
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  CORE_IMAGE: ghcr.io/threatclaw/core
+  DASHBOARD_IMAGE: ghcr.io/threatclaw/dashboard
+
+jobs:
+  build:
+    name: Build staging images
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.vars.outputs.SHORT_SHA }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute short SHA
+        id: vars
+        run: echo "SHORT_SHA=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push core
+        env:
+          SHA: ${{ steps.vars.outputs.SHORT_SHA }}
+        run: |
+          docker buildx build \
+            -t "${CORE_IMAGE}:staging" \
+            -t "${CORE_IMAGE}:main-${SHA}" \
+            -f Dockerfile \
+            --push \
+            .
+
+      - name: Build and push dashboard
+        env:
+          SHA: ${{ steps.vars.outputs.SHORT_SHA }}
+        run: |
+          docker buildx build \
+            -t "${DASHBOARD_IMAGE}:staging" \
+            -t "${DASHBOARD_IMAGE}:main-${SHA}" \
+            -f dashboard/Dockerfile \
+            --push \
+            ./dashboard
+
+  deploy:
+    name: Deploy + smoke test
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      SHA: ${{ needs.build.outputs.short_sha }}
+      STAGING_HOST: ${{ secrets.STAGING_HOST }}
+      STAGING_USER: ${{ secrets.STAGING_USER }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install SSH key
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts
+
+      - name: Package deploy payload
+        run: |
+          mkdir -p payload/fluent-bit payload/migrations
+          cp docker/docker-compose.yml            payload/
+          cp docker/entrypoint.sh                 payload/
+          cp docker/dashboard-entrypoint.sh       payload/ 2>/dev/null || true
+          cp docker/nginx.conf                    payload/ 2>/dev/null || true
+          cp docker/generate-certs.sh             payload/ 2>/dev/null || true
+          cp docker/fluent-bit/*                  payload/fluent-bit/ 2>/dev/null || true
+          cp migrations/V*.sql                    payload/migrations/
+          cp scripts/ci/deploy-remote.sh          payload/
+          cp scripts/ci/snapshot-db.sh            payload/
+          cp scripts/ci/rollback.sh               payload/
+          cp scripts/ci/smoke-test.sh             payload/
+          chmod +x payload/*.sh
+          tar czf payload.tar.gz -C payload .
+          ls -lh payload.tar.gz
+
+      - name: Copy payload to staging
+        run: |
+          ssh "${STAGING_USER}@${STAGING_HOST}" 'rm -rf /tmp/tc-deploy && mkdir -p /tmp/tc-deploy'
+          scp payload.tar.gz "${STAGING_USER}@${STAGING_HOST}:/tmp/tc-deploy/"
+          ssh "${STAGING_USER}@${STAGING_HOST}" 'tar xzf /tmp/tc-deploy/payload.tar.gz -C /tmp/tc-deploy && rm /tmp/tc-deploy/payload.tar.gz'
+
+      - name: Snapshot DB
+        run: ssh "${STAGING_USER}@${STAGING_HOST}" 'bash /tmp/tc-deploy/snapshot-db.sh'
+
+      - name: Deploy new images
+        id: deploy
+        run: ssh "${STAGING_USER}@${STAGING_HOST}" "SHA=${SHA} IMAGE_TAG=staging bash /tmp/tc-deploy/deploy-remote.sh"
+
+      - name: Smoke test
+        id: smoke
+        run: ssh "${STAGING_USER}@${STAGING_HOST}" 'bash /tmp/tc-deploy/smoke-test.sh'
+
+      - name: Rollback (DB only) on smoke failure
+        if: failure() && (steps.smoke.outcome == 'failure' || steps.deploy.outcome == 'failure')
+        run: ssh "${STAGING_USER}@${STAGING_HOST}" 'bash /tmp/tc-deploy/rollback.sh'
+
+      - name: Summary
+        if: always()
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "## Staging deploy — ${SHA}"
+            echo ""
+            echo "- Build: ${BUILD_RESULT}"
+            echo "- Deploy: ${DEPLOY_OUTCOME}"
+            echo "- Smoke: ${SMOKE_OUTCOME}"
+            echo ""
+            if [ "${SMOKE_OUTCOME}" = "success" ]; then
+              echo "🟢 Staging is on \`main-${SHA}\` — OK to cut the tag."
+            else
+              echo "🔴 Staging rolled back. Fix forward on \`main\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
