@@ -6,6 +6,171 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [Unreleased] — 1.0.9-beta
+
+> ThreatClaw v1.0.9 is the "conversational + day-0 detection" release.
+> A synchronous web chat pane lands in the dashboard (same L0 bot as
+> Slack / Telegram, nothing to rewire), grounding flips to Strict mode
+> by default so every LLM answer is cited against a DB source, a first
+> batch of 12 MITRE-tagged Sigma rules ships out of the box so a fresh
+> install starts detecting within the first hour, and the home page
+> gains a glance-view KPI strip. Plus a round of infrastructure
+> hardening: release pipeline cut in half, installer survives curl-less
+> Debian 12, CI now catches cross-file drift before merge.
+
+### Added — Web chat pane (roadmap §3.6, Option A — non-streaming)
+
+- **Migration V47** — extends `conversations` and `conversation_messages`
+  with a `title` column, streaming columns (`status` with CHECK on
+  `streaming|complete|failed|orphaned`, `tool_calls JSONB`,
+  `citations JSONB`, `updated_at TIMESTAMPTZ`) and a partial index on
+  `(updated_at) WHERE status = 'streaming'` for the orphan sweeper.
+- SQL function `sweep_orphan_streaming_messages(INTERVAL)` is idempotent
+  and returns the affected row count. Scheduled every 2 minutes via
+  `pg_cron` when the extension is available; the Rust backend falls
+  back to a tokio task otherwise.
+- Backend `POST /api/tc/chat` persists the user turn, runs the existing
+  `command_interpreter::parse_command → execute_command` pipeline (same
+  code path as the Slack / Mattermost / Discord handlers), persists the
+  assistant reply, and returns both message IDs plus `tool_calls`.
+  Input validation: empty → 400, > 4000 chars → 413.
+- `GET /api/tc/conversations?user_id=X` lists with preview, filtered on
+  `channel='web'`. `GET /api/tc/conversations/{id}/messages` paginates
+  history oldest-first. `DELETE /api/tc/conversations/{id}` soft-deletes
+  by stamping `metadata.deleted_at` (no destructive writes, audit trail
+  preserved).
+- Dashboard `/chat` page — two-column layout with sidebar thread list
+  and message pane, optimistic user bubble, spinner while the bot runs,
+  failed-send banner, Enter-to-send, Shift+Enter newline, auto-scroll.
+  Nav entry added to TopNav between Incidents and Sources.
+- libSQL migration mirrored so fresh libSQL installs ship the same
+  columns and streaming index.
+
+### Added — Grounding Strict mode by default (roadmap §4.2)
+
+- **Migration V48** — seeds `tc_config_llm_validation_mode='strict'` on
+  fresh deploys via `INSERT … ON CONFLICT DO NOTHING`. Non-destructive:
+  installations that explicitly picked `off` or `lenient` keep their
+  choice.
+- `/api/tc/config` GET/POST surface the setting. Server-side validation
+  refuses any value outside `{off, lenient, strict}` with a 400.
+- Dashboard *Config → LLM* tab adds a three-button selector with FR/EN
+  descriptions. Strict is recommended for the NIS2 audit trail; Lenient
+  only logs drift; Off is for development.
+- Rationale: a silent Off lets the LLM slip a hallucinated CVE into an
+  incident note — hard failure beats soft when an RSSI makes SOC
+  decisions on that output. `verdict_reconciler` already handled the
+  three modes; only the default and the toggle were missing.
+
+### Added — Linux / Wazuh starter Sigma pack (roadmap §4.2)
+
+- **Migration V49** — 12 MITRE-tagged Sigma rules shipped in-repo so a
+  fresh Wazuh + TC install detects something within the first hour
+  instead of waiting on operator tuning.
+- Coverage: SSH brute force, SSH root-login attempt, sudo auth failure,
+  sudo user-not-in-sudoers, local user creation, UID-0 promotion,
+  `/etc/passwd·shadow·sudoers` modification, cron job added, host
+  firewall disabled, SELinux/AppArmor disabled, `curl|wget` piped to
+  shell, audit/system log cleared.
+- All use `full_log|contains` patterns so matching works against Wazuh
+  alerts, osquery events, journald and plain syslog without field
+  mapping assumptions. Severities tuned for the RSSI dashboard —
+  brute-force and audit tampering at HIGH/CRITICAL, config drift at
+  MEDIUM.
+- Idempotent — `ON CONFLICT (id) DO UPDATE` refreshes `detection_json`
+  in place without clobbering operator-set `enabled` flags.
+
+### Added — Home KPI strip (roadmap §4.2)
+
+- Four tiles above the CPU card, each clickable into the relevant
+  page: open incidents (total + C/H/M/L chips), findings by severity,
+  top-risk asset (name + colour-coded score), alerts last 24 h.
+- All data sourced from existing endpoints (`/api/tc/incidents`,
+  `/findings/counts`, `/alerts/counts`, `/intelligence/situation`) —
+  zero new backend work. Each tile is failure-tolerant: a failed fetch
+  renders an empty/zero state so a partially-up backend does not
+  cascade into a broken page.
+
+### Fixed — Graph layer hostname-as-IP collapse
+
+- `sync_graph_from_db` was falling back from an empty `source_ip` to
+  the sigma alert's hostname when building the attacker IP node. On a
+  Wazuh feed that always produces empty `source_ip`, this spammed
+  every cycle with `GRAPH: Invalid IP address, skipping upsert:
+  <HOSTNAME>` and silently created zero `ATTACKS` edges — killing kill
+  chain correlation and blast radius downstream.
+- New `parse_attacker_ip` helper gates only `source_ip`; hostname is
+  the victim label and is never coerced into an IP slot. Victim
+  lookup is case-insensitive on the asset map (Wazuh casing drifts
+  between `TARS-HOST` and `tars-host` between agent re-enrollments).
+- Same pattern removed from `ip_classifier::extract_ips_from_alert`
+  so the regression cannot resurface through that helper.
+- Regression tests lock `validate_ip` against hostname-shaped inputs
+  and cover `parse_attacker_ip` edge cases (empty, CIDR, `"unknown"`,
+  `None`).
+
+### Infrastructure
+
+- **CI drift gate** — new `consistency` job runs
+  `scripts/check-consistency.sh` on every push / PR. Catches version
+  drift, i18n FR/EN key divergence, dashboard-specific endpoints
+  declared but unused, migrations adding columns with no matching
+  Rust struct field, connector skills not registered in
+  `sync_scheduler`, and missing `COPY` in the Dockerfile for
+  runtime-loaded directories.
+- **Version sync** — `scripts/sync-version.sh` now matches the README
+  badge correctly (prior `sed` pattern missed values containing extra
+  hyphens, so the v1.0.8 bump left five files on `1.0.8-dev`). Now
+  all of `README.md`, `installer/install.sh`, `docker-compose.yml`,
+  `dashboard/src/app/test-ui/page.tsx` and
+  `.github/ISSUE_TEMPLATE/bug_report.yml` stay in lock-step with
+  `Cargo.toml`.
+- **Release workflow** — dropped the duplicate Rust build. The core
+  binary used to be compiled twice (once on the runner for the tarball,
+  once inside the Dockerfile builder stage for the ghcr image); the
+  workflow now only builds the Docker image and extracts the binary
+  via `docker create` + `docker cp`. Net effect: ~55 min → ~30 min per
+  release. Side-benefit: the binary is now linked against Debian
+  bookworm glibc 2.36 instead of ubuntu-latest glibc 2.39, widening
+  the compatible OS range for tarball users.
+- **Installer resilience** — `ensure_http_fetcher` probes `curl` then
+  `wget`, and attempts `apt-get` / `dnf` / `yum install curl` as a
+  last resort. Minimal Debian 12 / Ubuntu cloud-init images no longer
+  die on the first config download. All 14 config downloads in the
+  installer were migrated to the new `http_fetch` wrapper.
+- **Webhook server fallback** — the built-in webhook listener for
+  WASM channels used to bind 0.0.0.0:8080 unconditionally when no
+  HttpChannel config was loaded, ignoring the documented
+  `HTTP_HOST` / `HTTP_PORT` escape hatch. Those env vars are now read
+  as a fallback before the hardcoded default, so a dev box already
+  using 8080 can move the server out of the way without disabling
+  channels.
+
+### Security
+
+- **GitHub Actions injection hardening** — every `${{ … }}` expression
+  that `release.yml` and `ci.yml` inlined into a `run:` block is now
+  routed through `env:` and referenced as a shell variable, following
+  the GitHub security guidance. The changelog extraction also moved
+  from `sed` with an interpolated regex to `awk -v ver="$VERSION"` so
+  sed metacharacters in a tag name cannot escape.
+
+### Deferred to v1.1.0
+
+- **Free-form CEL editor** for suppression rules — the v1.0.8 wizard
+  already covers about 80 % of real-world cases and no beta tester has
+  hit a blocker. We will ship the raw-CEL editor + live validator
+  when a power user's request justifies the risk of malformed-rule
+  handling.
+- **Chat streaming (SSE, Option B)** — the schema already carries
+  `status='streaming'`, `tool_calls`, `citations` and `updated_at`, so
+  the switch from synchronous round-trip to token-by-token SSE is an
+  endpoint swap. We keep Option A in v1.0.9 to avoid touching the L0
+  bot's output path before we have real production feedback on the
+  simpler variant.
+
+---
+
 ## [1.0.8-beta] — 2026-04-21
 
 > ThreatClaw v1.0.8 livre 5 features qui consolident la plateforme en
