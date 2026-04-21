@@ -137,7 +137,8 @@ done
 CURRENT_ID=$(docker inspect --format '{{.Id}}' "${COMPOSE_CORE_IMAGE}" 2>/dev/null || echo "unknown")
 echo "${CURRENT_ID} sha=${SHA}" | sudo tee "$TC_DIR/backups/last-deployed-digest.txt" > /dev/null || true
 
-# ── Cleanup payload ──────────────────────────────────────────────────────
-rm -rf "$PAYLOAD"
-
+# NOTE: the payload directory at $PAYLOAD is intentionally NOT deleted
+# here — the smoke + rollback steps that run AFTER this script on the
+# same SSH session still read from it. The workflow cleans up the
+# directory at the end via a dedicated step.
 echo "[deploy] done — commit ${SHA}, tag ${IMAGE_TAG}"

@@ -140,6 +140,10 @@ jobs:
         if: failure() && (steps.smoke.outcome == 'failure' || steps.deploy.outcome == 'failure')
         run: ssh "${STAGING_USER}@${STAGING_HOST}" 'bash /tmp/tc-deploy/rollback.sh'
 
+      - name: Cleanup payload on staging
+        if: always()
+        run: ssh "${STAGING_USER}@${STAGING_HOST}" 'rm -rf /tmp/tc-deploy' || true
+
       - name: Summary
         if: always()
         env:
