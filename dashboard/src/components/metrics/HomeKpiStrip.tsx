@@ -25,6 +25,10 @@ interface AssetScore {
 
 interface Situation {
   global_score?: number;
+  // Rust `SecuritySituation` serializes the per-asset list under the key
+  // `assets` (see src/agent/intelligence_engine.rs). Some legacy responses
+  // used `asset_situations`; we accept both for forward compatibility.
+  assets?: AssetScore[];
   asset_situations?: AssetScore[];
 }
 
@@ -102,7 +106,11 @@ export default function HomeKpiStrip({ locale }: { locale: Locale }) {
       try {
         const res = await fetch("/api/tc/intelligence/situation");
         const data: Situation = await res.json();
-        const assets = (data.asset_situations ?? []).slice();
+        const raw = data.assets ?? data.asset_situations ?? [];
+        const assets = raw.slice();
+        // Highest score = most at risk (IE inverts raw risk into score later,
+        // but the per-asset score here is a risk number 0-100 where higher
+        // means worse — matches what the Status page shows).
         assets.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
         const top = assets[0];
         if (mounted && top) setTopAsset(top);
@@ -251,11 +259,17 @@ function TileAsset({
   asset: AssetScore | null;
   locale: Locale;
 }) {
-  const scoreColor = !asset
+  // IE's per-asset `score` is a *risk* number 0-100 where higher = worse.
+  // Every other tile on this strip and the CpuCard speak in *health* 0-100
+  // where higher = better. Invert here so the RSSI doesn't have to flip
+  // the mental model mid-scan.
+  const risk = asset?.score ?? 0;
+  const health = Math.max(0, 100 - Math.round(risk));
+  const color = !asset
     ? "var(--tc-text-muted)"
-    : asset.score >= 70
+    : risk >= 70
       ? "#d03020"
-      : asset.score >= 40
+      : risk >= 40
         ? "#d09020"
         : "#30a050";
   return (
@@ -282,8 +296,8 @@ function TileAsset({
           <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {asset.asset}
           </div>
-          <div style={{ fontSize: "18px", fontWeight: 800, color: scoreColor, marginTop: "2px" }}>
-            {Math.round(asset.score)}/100
+          <div style={{ fontSize: "18px", fontWeight: 800, color, marginTop: "2px" }}>
+            {health}/100
           </div>
         </div>
       ) : (
