@@ -18,7 +18,9 @@
 
 set -euo pipefail
 
-BASE="${BASE:-http://127.0.0.1:3000}"
+# Nginx fronts core on 8445 HTTPS with a self-signed cert — curl -k skips
+# the verification, fine inside the trusted staging network.
+BASE="${BASE:-https://127.0.0.1:8445}"
 DB_CONTAINER="${DB_CONTAINER:-threatclaw-threatclaw-db-1}"
 
 # Read the gateway token from the Docker secret file (preferred) or .env
@@ -36,7 +38,7 @@ fail() { echo "[smoke FAIL] $*"; exit 1; }
 pass() { echo "[smoke OK  ] $*"; }
 
 H() {
-    curl -sS --max-time 30 -H "Authorization: Bearer $TOKEN" "$@"
+    curl -sSk --max-time 30 -H "Authorization: Bearer $TOKEN" "$@"
 }
 
 # ── 1. gateway health ────────────────────────────────────────────────────

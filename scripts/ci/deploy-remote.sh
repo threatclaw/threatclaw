@@ -116,9 +116,11 @@ STAGING_SERVICES=(
 docker compose up -d --force-recreate "${STAGING_SERVICES[@]}"
 
 # ── Wait for core to be healthy ──────────────────────────────────────────
+# Core's port 3000 is only exposed inside the docker network — we go
+# through nginx on localhost:8445 (HTTPS, self-signed).
 echo "[deploy] waiting for core health (max 120 s)"
 for i in $(seq 1 60); do
-    if curl -sf --max-time 3 http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+    if curl -skf --max-time 3 https://127.0.0.1:8445/api/tc/health >/dev/null 2>&1; then
         echo "[deploy] core healthy after $((i * 2)) s"
         break
     fi
