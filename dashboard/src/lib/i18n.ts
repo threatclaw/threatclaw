@@ -365,6 +365,12 @@ const T: Record<string, Record<Locale, string>> = {
     fr: "Rejette toute affirmation sans citation DB vérifiable. Recommandé.",
     en: "Rejects any claim without a verifiable DB citation. Recommended.",
   },
+
+  // ── Home KPI strip ──
+  kpiOpenIncidents: { fr: "Incidents ouverts", en: "Open incidents" },
+  kpiFindings: { fr: "Vulnérabilités", en: "Findings" },
+  kpiTopRiskAsset: { fr: "Asset le plus à risque", en: "Top risk asset" },
+  kpiAlerts24h: { fr: "Alertes 24h", en: "Alerts 24h" },
   detections: { fr: "Détections", en: "Detections" },
   detectionsSubtitle: { fr: "Vulnérabilités, alertes de sécurité et anomalies comportementales", en: "Vulnerabilities, security alerts and behavioral anomalies" },
   vulnerabilities: { fr: "Vulnérabilités", en: "Vulnerabilities" },
