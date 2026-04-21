@@ -400,8 +400,19 @@ async fn async_main() -> anyhow::Result<()> {
     let webhook_server: Option<Arc<tokio::sync::Mutex<WebhookServer>>> = if !webhook_routes
         .is_empty()
     {
-        let addr =
-            webhook_server_addr.unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], 8080)));
+        // When no HttpChannel config set the address explicitly, fall through to
+        // HTTP_HOST / HTTP_PORT before the hardcoded 0.0.0.0:8080 default so
+        // dev boxes can escape the port collision with the documented knobs.
+        let addr = webhook_server_addr.unwrap_or_else(|| {
+            let host = std::env::var("HTTP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+            let port: u16 = std::env::var("HTTP_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(8080);
+            format!("{}:{}", host, port)
+                .parse()
+                .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], 8080)))
+        });
         if addr.ip().is_unspecified() {
             tracing::warn!(
                 "Webhook server is binding to {} — it will be reachable from all network interfaces. \
