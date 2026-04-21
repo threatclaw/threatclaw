@@ -148,6 +148,8 @@ pub fn classify(ip: &str, networks: &[NetworkRange], known_asset_ips: &[String])
 }
 
 /// Extract source and destination IPs from a sigma alert or log entry.
+/// Never falls back to `hostname` — hostname is a victim label, not an IP,
+/// and coercing it into an IP slot produces invalid graph/classifier inputs.
 pub fn extract_ips_from_alert(alert: &serde_json::Value) -> (Option<String>, Option<String>) {
     let source_ip = alert["source_ip"]
         .as_str()
@@ -158,7 +160,7 @@ pub fn extract_ips_from_alert(alert: &serde_json::Value) -> (Option<String>, Opt
     let dest_ip = alert["dest_ip"]
         .as_str()
         .or_else(|| alert["dst_ip"].as_str())
-        .or_else(|| alert["hostname"].as_str())
+        .or_else(|| alert["data"]["dest_ip"].as_str())
         .map(|s| s.split('/').next().unwrap_or(s).to_string());
 
     (source_ip, dest_ip)
