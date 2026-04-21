@@ -17,15 +17,26 @@ Click the **"Report a vulnerability"** button in the
 of this repository. This gives us a private, auditable channel and
 lets us invite you to the fix validation.
 
-### Alternative — Email
+### Alternative — Email (PGP-encrypted)
 
-Send your report to **security@cyberconsulting.fr**.
+Send your report to **security@threatclaw.io**.
 
-For sensitive details, encrypt your email with our PGP key (fingerprint
-published at https://threatclaw.io/.well-known/security.txt when
-available). If the key is not yet published at the time of your report,
-send a short heads-up email first and we will share the current key out
-of band.
+For sensitive details, **encrypt your email with our PGP key**:
+
+- **Fingerprint** — `6A72 8106 4019 33B5 F772  9C64 9A23 EDB9 3FA6 F355`
+- **Download** — https://threatclaw.io/.well-known/pgp-key.asc
+- **Keyservers** — `keys.openpgp.org` and `keyserver.ubuntu.com`
+
+```bash
+# Import our key before sending your encrypted report
+curl -sSL https://threatclaw.io/.well-known/pgp-key.asc | gpg --import
+# or:
+gpg --keyserver hkps://keys.openpgp.org --recv-keys 6A728106401933B5F7729C649A23EDB93FA6F355
+```
+
+Machine-readable policy at
+[https://threatclaw.io/.well-known/security.txt](https://threatclaw.io/.well-known/security.txt)
+(signed with the same key, RFC 9116).
 
 ---
 

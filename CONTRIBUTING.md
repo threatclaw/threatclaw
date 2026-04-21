@@ -9,7 +9,7 @@ Participation in this project is governed by our
 [Code of Conduct](CODE_OF_CONDUCT.md) (adapted from the
 [Contributor Covenant v3.0](https://www.contributor-covenant.org/version/3/0/)).
 By contributing, you agree to abide by it. Report violations to
-**conduct@cyberconsulting.fr**.
+**conduct@threatclaw.io**.
 
 ## License Model
 
@@ -107,7 +107,7 @@ cd dashboard && npm install && npm run dev
 ## Security
 
 **DO NOT** open public issues for security vulnerabilities.
-Use the ["Report a vulnerability"](https://github.com/threatclaw/threatclaw/security/advisories) button in the Security tab, or email security@cyberconsulting.fr.
+Use the ["Report a vulnerability"](https://github.com/threatclaw/threatclaw/security/advisories) button in the Security tab, or email security@threatclaw.io.
 See [SECURITY.md](SECURITY.md) for details.
 
 ## Contributor Recognition
@@ -124,5 +124,5 @@ Active contributors (3+ merged PRs) receive:
 ## Questions
 
 - General: https://github.com/threatclaw/threatclaw/discussions
-- Security: security@cyberconsulting.fr
+- Security: security@threatclaw.io
 - Commercial: commercial@threatclaw.io
