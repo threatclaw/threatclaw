@@ -29,13 +29,13 @@ echo "[rollback] restoring ${SNAPSHOT} (${SIZE})"
 # Stop app services so no writes land during the restore. The DB
 # container stays up — we restore into it with DROP / CREATE wrapping.
 cd "$TC_DIR"
-sudo docker compose stop threatclaw-core threatclaw-dashboard fluent-bit 2>/dev/null || true
+docker compose stop threatclaw-core threatclaw-dashboard fluent-bit 2>/dev/null || true
 
 # Drop + recreate schema to avoid conflicts on restore. Any connection
 # lingering from core/dashboard (we just stopped them but the DB may
 # still hold idle connections for up to statement_timeout) will block
 # DROP DATABASE — terminate them explicitly first.
-sudo docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres <<SQL
+docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d postgres <<SQL
 REVOKE CONNECT ON DATABASE ${DB_NAME} FROM PUBLIC;
 SELECT pg_terminate_backend(pid)
   FROM pg_stat_activity
@@ -46,14 +46,14 @@ GRANT CONNECT ON DATABASE ${DB_NAME} TO PUBLIC;
 SQL
 
 # Restore
-sudo zcat "$SNAPSHOT" | sudo docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME"
+sudo zcat "$SNAPSHOT" | docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME"
 
 echo "[rollback] DB restored — restarting app services"
-sudo docker compose up -d --force-recreate threatclaw-core threatclaw-dashboard fluent-bit
+docker compose up -d --force-recreate threatclaw-core threatclaw-dashboard fluent-bit
 
 # Give it a moment so the workflow log shows it came back
 sleep 8
-sudo docker compose ps
+docker compose ps
 
 echo "[rollback] done — DB is at pre-deploy state. Images were not touched."
 echo "[rollback] If the bad image is still tagged staging, the next deploy will attempt the same change."

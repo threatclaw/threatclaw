@@ -78,7 +78,7 @@ fi
 pass "conversation persisted ($MSG_COUNT messages)"
 
 # ── 6. V49 Sigma pack ────────────────────────────────────────────────────
-SIG_COUNT=$(sudo docker exec "$DB_CONTAINER" psql -U threatclaw -d threatclaw -tAc \
+SIG_COUNT=$(docker exec "$DB_CONTAINER" psql -U threatclaw -d threatclaw -tAc \
     "SELECT COUNT(*) FROM sigma_rules WHERE id LIKE 'lnx-%'" 2>/dev/null | tr -d '[:space:]' || echo 0)
 if [ "${SIG_COUNT:-0}" -lt 12 ]; then
     fail "V49 Sigma pack has $SIG_COUNT rules (expected >= 12)"
