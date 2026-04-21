@@ -8,9 +8,16 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.0.8--dev-red" alt="Version">
-  <img src="https://img.shields.io/badge/license-AGPL_v3-blue" alt="License">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3_%2B_Commercial-blue" alt="License"></a>
   <img src="https://img.shields.io/badge/status-BETA-orange" alt="Status">
-  <img src="https://img.shields.io/badge/pricing-Free_&_Unlimited-brightgreen" alt="Free">
+  <img src="https://img.shields.io/badge/pricing-Free_%26_Unlimited-brightgreen" alt="Free">
+</p>
+
+<p align="center">
+  <a href="https://cla-assistant.io/threatclaw/threatclaw"><img src="https://cla-assistant.io/readme/badge/threatclaw/threatclaw" alt="CLA assistant"></a>
+  <a href="CODE_OF_CONDUCT.md"><img src="https://img.shields.io/badge/Contributor_Covenant-3.0-5e35b1" alt="Contributor Covenant 3.0"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-policy-red" alt="Security Policy"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-success" alt="PRs welcome"></a>
 </p>
 
 > **BETA** — ThreatClaw is in active development. Core features are functional and tested, but the product is not yet production-hardened.
