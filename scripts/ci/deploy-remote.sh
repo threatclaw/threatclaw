@@ -108,13 +108,26 @@ if [ -n "${REGISTRY_USER:-}" ]; then
     docker logout "$REGISTRY" >/dev/null 2>&1 || true
 fi
 
-echo "[deploy] docker compose up -d --force-recreate"
+echo "[deploy] docker compose up -d --force-recreate (staging scope)"
 # TC_HTTPS_PORT / TC_HTTP_PORT stay constant; exporting here keeps the env
 # stable even if the shell session didn't source /etc/environment.
 # No sudo — tc-deploy is in the docker group.
 export TC_HTTPS_PORT=8445
 export TC_HTTP_PORT=8880
-docker compose up -d --force-recreate
+# fluent-bit is intentionally excluded — staging runs alongside Wazuh
+# which already binds UDP 514 as the syslog endpoint. On bare-metal prod
+# (no Wazuh) the full compose still covers fluent-bit because the manual
+# installer runs `docker compose up -d` without a service filter.
+STAGING_SERVICES=(
+    threatclaw-core
+    threatclaw-dashboard
+    threatclaw-db
+    ollama
+    ml-engine
+    nginx
+    docker-proxy
+)
+docker compose up -d --force-recreate "${STAGING_SERVICES[@]}"
 
 # ── Wait for core to be healthy ──────────────────────────────────────────
 echo "[deploy] waiting for core health (max 120 s)"
