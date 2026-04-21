@@ -137,6 +137,16 @@ done
 CURRENT_ID=$(docker inspect --format '{{.Id}}' "${COMPOSE_CORE_IMAGE}" 2>/dev/null || echo "unknown")
 echo "${CURRENT_ID} sha=${SHA}" | sudo tee "$TC_DIR/backups/last-deployed-digest.txt" > /dev/null || true
 
+# ── Staging-only: force grounding mode to strict ──────────────────────────
+# V48 is ON CONFLICT DO NOTHING on purpose (production respects operator
+# choice). Staging inherits any stale value from the legacy v0.2.1 DB on
+# CASE — here we explicitly set strict so the smoke assertion passes and
+# the pipeline exercises the actual strict-mode code path end-to-end.
+echo "[deploy] forcing grounding mode = strict on staging"
+docker exec -i threatclaw-threatclaw-db-1 psql -U threatclaw -d threatclaw -c \
+    "UPDATE settings SET value = '\"strict\"'::jsonb WHERE user_id = '_system' AND key = 'tc_config_llm_validation_mode';" \
+    >/dev/null 2>&1 || true
+
 # NOTE: the payload directory at $PAYLOAD is intentionally NOT deleted
 # here — the smoke + rollback steps that run AFTER this script on the
 # same SSH session still read from it. The workflow cleans up the
