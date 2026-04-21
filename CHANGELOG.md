@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
-## [1.0.8-dev] — Unreleased
+## [1.0.8-beta] — 2026-04-21
 
 > ThreatClaw v1.0.8 livre 5 features qui consolident la plateforme en
 > SOC-in-a-box de niveau production : blast radius automatique sur
@@ -147,6 +147,47 @@ Earlier `v0.x` entries below reflect pre-public internal development and are kep
   `DATABASE_URL=… cargo test --features postgres --tests -- --ignored`.
 - Fixtures reproductibles (préfixe de données `it-*` + cleanup
   systématique) pour tests idempotents et parallelizables.
+
+### Community & Governance
+
+Sprint de durcissement gouvernance open source pour hisser le projet
+au niveau Django / HashiCorp / GitLab côté accueil des contributeurs
+et des chercheurs en sécurité.
+
+- **`CLA.md` v1.1** — Patent grant + retaliation (Apache 2.0 §3),
+  moral rights clause compatible droit français (*droits moraux
+  inaliénables*, art. L121-1 CPI), governing law France + Paris
+  jurisdiction + exclusion UN CISG, versioning (protège les
+  signataires des versions antérieures). Inspiré de Harmony
+  Agreements outbound option 5 + Apache ICLA v2.2.
+- **CLA Assistant bot** activé au niveau org `threatclaw` sur GitHub
+  (gist public maintenu). Toute PR non-signée est bloquée avant merge.
+- **`CODE_OF_CONDUCT.md`** — Contributor Covenant v3.0 (standard
+  2026 adopté par Django, Linux, Swift, Go) avec 3 sections
+  ThreatClaw-specific : weaponised disclosure, credential/PII
+  leakage, offensive-security showcasing. Ladder enforcement 4
+  niveaux.
+- **`SECURITY.md`** refresh complet : versions supportées (1.0.x),
+  scope in/out explicite, **safe harbor clause** pour good-faith
+  security research, SLA chiffrés (ack 48h / triage 7j / patch
+  critical 14j / high 30j), PGP workflow documenté.
+- **PGP key ed25519** (`6A72 8106 4019 33B5 F772 9C64 9A23 EDB9 3FA6
+  F355`, expire 2030-04-20) pour `security@threatclaw.io`. Publiée
+  sur keys.openpgp.org et keyserver.ubuntu.com + téléchargeable
+  depuis `https://threatclaw.io/.well-known/pgp-key.asc`.
+- **`security.txt` RFC 9116 signé** disponible sur
+  `https://threatclaw.io/.well-known/security.txt`. Pointe vers
+  GitHub Private Vulnerability Reporting + email chiffré en
+  alternative.
+- **Migration emails produit vers `@threatclaw.io`** (cohérence
+  domaine) : `security@`, `conduct@`, `admin@` — 11 occurrences
+  mises à jour dans le repo. `contact@cyberconsulting.fr` reste le
+  canal corporate.
+- **`CONTRIBUTORS.md`** étendu avec 3 recognition levels
+  (Contributor / Core Contributor / Core Team) et path clair
+  Contributing → CoC → CLA → PR.
+- **README badges** gouvernance : license dual, CLA assistant
+  dynamique, Contributor Covenant 3.0, security policy, PRs welcome.
 
 ---
 
