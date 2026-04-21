@@ -7,3 +7,4 @@ pub mod jobs;
 pub mod routines;
 pub mod skills;
 pub mod threatclaw_api;
+pub mod web_chat;
