@@ -1019,16 +1019,27 @@ impl ThreatClawStore for PgBackend {
         time: &str,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // Async commit for logs only — absorb bursts without disk bottleneck
-        // Max loss: 200ms of raw logs on crash. Critical tables stay synchronous.
-        let _ = conn
-            .execute("SET LOCAL synchronous_commit = off", &[])
-            .await;
-        let data_str = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
-        let row = conn.query_one(
-            "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3::jsonb, $4::timestamptz) RETURNING id",
-            &[&tag, &hostname, &data_str, &time],
-        ).await.map_err(query_err)?;
+        // Why pass `data` as `&Value` instead of a serialised string with a
+        // `::jsonb` cast: tokio-postgres's `with-serde_json-1` feature binds
+        // `serde_json::Value` natively with the right jsonb OID. Sending a
+        // String + `::jsonb` cast looked fine in simple test cases but made
+        // the prepared-statement type inference reject the param with
+        // `error serializing parameter N` on production payloads (observed
+        // on every Wazuh OpenCanary alert). insert_finding already used the
+        // native-type pattern without issue — mirroring it here.
+        //
+        // Same reasoning for `time`: parse to DateTime<Utc> client-side so
+        // tokio-postgres binds it as timestamptz without a cast.
+        let parsed_time = chrono::DateTime::parse_from_rfc3339(time)
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .map_err(|e| DatabaseError::Query(format!("invalid timestamp: {}", e)))?;
+        let row = conn
+            .query_one(
+                "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) RETURNING id",
+                &[&tag, &hostname, data, &parsed_time],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(row.get(0))
     }
 
@@ -1054,11 +1065,17 @@ impl ThreatClawStore for PgBackend {
         ).await.map_err(query_err)?;
 
         let user_str = username.unwrap_or("");
-        let ip_filtered: Option<&str> = source_ip.filter(|ip| !ip.is_empty());
+        // Parse the IP client-side so tokio-postgres binds it as a native
+        // inet param instead of routing through an `$N::inet` SQL cast —
+        // the cast path was failing with `error serializing parameter N` on
+        // production payloads for the same reason insert_log failed above.
+        let parsed_ip: Option<std::net::IpAddr> = source_ip
+            .filter(|ip| !ip.is_empty())
+            .and_then(|ip| ip.parse().ok());
 
-        let row = if let Some(ip) = ip_filtered {
+        let row = if let Some(ip) = parsed_ip {
             conn.query_one(
-                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip) VALUES ($1, $2, $3, $4, $5, 'new', $6::inet) RETURNING id",
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip) VALUES ($1, $2, $3, $4, $5, 'new', $6) RETURNING id",
                 &[&rule_id, &level, &title, &hostname, &user_str, &ip],
             ).await.map_err(query_err)?
         } else {
