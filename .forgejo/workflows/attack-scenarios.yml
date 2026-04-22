@@ -28,9 +28,8 @@ jobs:
 
       - name: Install attack prerequisites
         run: |
-          # hydra is the heavyweight — skip if not needed
           sudo apt-get update
-          sudo apt-get install -y -qq curl nmap smbclient openssh-client hydra
+          sudo apt-get install -y -qq curl openssh-client
 
       - name: Run harness
         env:

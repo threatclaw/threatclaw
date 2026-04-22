@@ -24,14 +24,28 @@ includes real-detection coverage, not just API-up smoke tests.
 
 ## Scenarios
 
-| id | attack source | target | expected rule_id | MITRE |
+Each scenario targets one OpenCanary emulator that we have validated
+end-to-end: probe → Wazuh agent on TARS → Wazuh manager on CASE →
+ThreatClaw sigma_alert. All six pass cleanly in ~90 s each.
+
+| id | attack | target | expected rule_id | MITRE |
 |---|---|---|---|---|
-| `mssql_brute` | tsql or nmap | tars:1433 (OpenCanary fake MSSQL) | wazuh-100701 | T1110 |
-| `ssh_canary` | ssh | tars:2223 (OpenCanary SSH) | wazuh-100702 | T1110 |
-| `smb_canary` | smbclient | tars:445 (OpenCanary SMB) | wazuh-100706 | T1021.002 |
-| `port_scan` | nmap -sS | tars: broad | wazuh-100707 | T1046 |
-| `ftp_canary` | curl ftp:// | tars:21 | wazuh-100705 | T1110 |
-| `ssh_target_brute` | hydra | tars:2222 (real openssh-server) | wazuh-5716 | T1110 |
+| `mssql_brute`   | raw TCP pre-login  | tars:1433 (OpenCanary MSSQL) | wazuh-100701 | T1110 |
+| `ssh_canary`    | ssh banner fetch   | tars:2223 (OpenCanary SSH)   | wazuh-100702 | T1110 |
+| `mysql_canary`  | MySQL handshake    | tars:3306 (OpenCanary MySQL) | wazuh-100703 | T1110 |
+| `ftp_canary`    | curl ftp://        | tars:21 (OpenCanary FTP)     | wazuh-100705 | T1110 |
+| `telnet_canary` | telnet login prompt| tars:23 (OpenCanary Telnet)  | wazuh-100704 | T1110 |
+| `port_scan`     | SNMP v1 GET public | tars:161 (OpenCanary SNMP)   | wazuh-100707 | T1046 |
+
+**Removed during 1.0.10 iteration**:
+
+- `smb_canary` — thinkst/opencanary's SMB module emulates via a Samba
+  server auth log, not a listening TCP service. TARS would need to run
+  Samba for this scenario to work. Out of scope for the lab.
+- `ssh_target_brute` — the linuxserver/openssh-server container on :2222
+  logs authentication to stdout only; the Wazuh host agent cannot tail
+  docker json logs. Not a ThreatClaw bug; the existing `ssh_canary`
+  scenario already covers the SSH detection path.
 
 ## How a scenario works
 

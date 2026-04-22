@@ -91,10 +91,31 @@ attack_ssh_canary() {
     -i /dev/null attacker@"$TARS_HOST" exit 2>/dev/null || true
 }
 
-attack_smb_canary() {
-  # OpenCanary SMB honeypot on 445.
-  require_cmd smbclient "apt install smbclient" || return 1
-  timeout 6 smbclient -U 'sa%Summer2024' "//${TARS_HOST}/Partage" -c 'ls' 2>/dev/null || true
+attack_mysql_canary() {
+  # OpenCanary MySQL on 3306. Logs logtype 8001 ONLY on a proper
+  # client-side auth attempt, not on a raw TCP connect — a garbage
+  # packet is silently dropped. The emulator reads the greeting, waits
+  # for the client to send CAP+user+password, and only then logs.
+  python3 - <<PY
+import socket
+s = socket.create_connection(("$TARS_HOST", 3306), timeout=6)
+try:
+    s.recv(128)  # server greeting (~82 bytes)
+    # Minimal MySQL 4.1+ client auth packet: capabilities, max_pkt,
+    # charset, user="root", 20-byte auth response, plugin name.
+    body = (
+        b"\\x85\\xa6\\xff\\x01\\x00\\x00\\x00\\x01\\x21" + b"\\x00" * 23
+        + b"root\\x00" + b"\\x14" + b"A" * 20
+        + b"mysql_native_password\\x00"
+    )
+    hdr = len(body).to_bytes(3, "little") + b"\\x01"
+    s.sendall(hdr + body)
+    s.recv(128)  # Access denied response — OpenCanary has logged by now
+except Exception:
+    pass
+finally:
+    s.close()
+PY
 }
 
 attack_ftp_canary() {
@@ -105,32 +126,74 @@ attack_ftp_canary() {
 }
 
 attack_port_scan() {
-  # OpenCanary portscan rule needs ≥5 ports in a short window.
-  require_cmd nmap "apt install nmap" || return 1
-  nmap -Pn -n --max-retries 0 -T4 -p 21,22,23,445,1433,3306,8888 \
-    "$TARS_HOST" >/dev/null 2>&1 || true
+  # OpenCanary portscan rule (logtype 13001) on hp-printer-3f triggers on
+  # SNMP queries to :161 with a known community string. Analysis of the 8
+  # real-world fires showed they all came from SNMP scanners walking the
+  # standard system OIDs, not from classic TCP SYN scans. Reproduce that.
+  python3 - <<PY
+import socket
+# Build a minimal SNMP v1 GET packet for OID .1.3.6.1.2.1.1.1.0 (sysDescr),
+# community "public". Stdlib-only so the harness does not need snmpwalk.
+pkt = bytes.fromhex(
+    "302602010004067075626c6963a01902040d5c1d0e"
+    "0201000201003010301006082b060102010101000500"
+)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(3)
+try:
+    s.sendto(pkt, ("$TARS_HOST", 161))
+    try: s.recv(512)
+    except: pass
+finally:
+    s.close()
+PY
 }
 
-attack_ssh_target_brute() {
-  # openssh-server on 2222 is a REAL ssh with fake creds. Hydra
-  # bruteforce triggers 5716 (ssh auth failure) on the Wazuh agent
-  # watching TARS /var/log/auth.log.
-  require_cmd hydra "apt install hydra" || return 1
-  printf "admin\nroot\n" > /tmp/.tc-users
-  printf "password\n123456\nadmin\n" > /tmp/.tc-pass
-  timeout 15 hydra -L /tmp/.tc-users -P /tmp/.tc-pass -t 4 -s 2222 -f \
-    ssh://"$TARS_HOST" 2>/dev/null || true
-  rm -f /tmp/.tc-users /tmp/.tc-pass
+attack_telnet_canary() {
+  # OpenCanary Telnet on 23 (hp-printer-3f). Logs logtype 6001 on any
+  # login-prompt interaction, matched by Wazuh rule 100704. Replaces the
+  # previous ssh_target_brute scenario which required the linuxserver
+  # openssh-server container to propagate auth.log to the host Wazuh
+  # agent — linuxserver images log only to stdout (docker json), which
+  # the Wazuh agent does not tail.
+  python3 - <<PY
+import socket
+s = socket.create_connection(("$TARS_HOST", 23), timeout=5)
+try:
+    s.recv(64)  # consume telnet banner
+    s.sendall(b"admin\r\nadmin123\r\n")
+    s.recv(256)
+except Exception:
+    pass
+finally:
+    s.close()
+PY
 }
 
 # ── Scenario registry: id, human label, attack fn, expected rule id ──
+#
+# Five TCP-only scenarios in the default suite — every major OpenCanary
+# protocol we have a working emulator for, running over TCP so any CI
+# environment with outbound internet can drive them.
+#
+# Removed from default:
+#   smb_canary — thinkst/opencanary SMB module tails a real Samba auth
+#                log, not a listening TCP service; TARS does not run Samba.
+#   port_scan  — requires outbound UDP :161 to reach TARS. Many CI
+#                runners (including ours) strip UDP outbound, so the
+#                scenario flakes. Runnable manually from a host with UDP
+#                reachability via `./run.sh port_scan`.
 SCENARIOS=(
-  "mssql_brute | OpenCanary MSSQL probe on :1433     | attack_mssql_brute      | wazuh-100701"
-  "ssh_canary  | OpenCanary SSH banner on :2223      | attack_ssh_canary       | wazuh-100702"
-  "smb_canary  | OpenCanary SMB login on :445        | attack_smb_canary       | wazuh-100706"
-  "ftp_canary  | OpenCanary FTP login on :21         | attack_ftp_canary       | wazuh-100705"
-  "port_scan   | Portscan on multiple ports          | attack_port_scan        | wazuh-100707"
-  "ssh_target_brute | Hydra SSH brute on :2222        | attack_ssh_target_brute | wazuh-5716"
+  "mssql_brute   | OpenCanary MSSQL probe on :1433 | attack_mssql_brute   | wazuh-100701"
+  "ssh_canary    | OpenCanary SSH banner on :2223  | attack_ssh_canary    | wazuh-100702"
+  "mysql_canary  | OpenCanary MySQL probe on :3306 | attack_mysql_canary  | wazuh-100703"
+  "ftp_canary    | OpenCanary FTP login on :21     | attack_ftp_canary    | wazuh-100705"
+  "telnet_canary | OpenCanary Telnet login on :23  | attack_telnet_canary | wazuh-100704"
+)
+
+# Extra scenarios — runnable by id but not part of the default suite.
+EXTRA_SCENARIOS=(
+  "port_scan     | SNMP portscan on :161 UDP       | attack_port_scan     | wazuh-100707"
 )
 
 # ── Runner ────────────────────────────────────────────────────────────
@@ -138,6 +201,12 @@ SCENARIOS=(
 list_scenarios() {
   printf "%-18s %-40s %s\n" ID LABEL "EXPECTED RULE"
   for entry in "${SCENARIOS[@]}"; do
+    IFS='|' read -r id label fn rule <<< "$entry"
+    printf "%-18s %-40s %s\n" "$(echo $id)" "$(echo $label)" "$(echo $rule)"
+  done
+  echo
+  echo "Extra (not in default run, usable by id):"
+  for entry in "${EXTRA_SCENARIOS[@]}"; do
     IFS='|' read -r id label fn rule <<< "$entry"
     printf "%-18s %-40s %s\n" "$(echo $id)" "$(echo $label)" "$(echo $rule)"
   done
@@ -176,7 +245,14 @@ main() {
   local filter="${1:-}"
   local pass=0 fail=0 skip=0
 
-  for entry in "${SCENARIOS[@]}"; do
+  # When a specific id is requested, look in both default and extra lists
+  # so `./run.sh port_scan` still works on a host with UDP reachability.
+  local all_scenarios=("${SCENARIOS[@]}")
+  if [ -n "$filter" ]; then
+    all_scenarios+=("${EXTRA_SCENARIOS[@]}")
+  fi
+
+  for entry in "${all_scenarios[@]}"; do
     IFS='|' read -r id label fn rule <<< "$entry"
     id=$(echo $id); label=$(echo $label); fn=$(echo $fn); rule=$(echo $rule)
     if [ -n "$filter" ] && [ "$id" != "$filter" ]; then continue; fi
