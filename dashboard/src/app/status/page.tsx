@@ -154,74 +154,85 @@ export default function StatusPage() {
         }
       />
 
-      <NeuCard accent="red" style={{ marginBottom: "24px", padding: "12px 16px" }}>
-        <CpuCard
-          score={score}
-          scoreLabel={
-            score == null
-              ? "En attente du premier cycle"
-              : score >= 80
-                ? "Situation saine"
-                : score >= 50
-                  ? "Points d'attention"
-                  : "Situation dégradée"
-          }
-          version={health?.version ? `v${health.version}` : ""}
-          services={[
-            { name: "PostgreSQL", connected: dbOk === "ok", color: "#3080d0", detail: "pg16 · pgvector · AGE" },
-            { name: "AI", connected: ollamaOk === "ok", color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
-            { name: "Intel. Engine", connected: engineOk === "ok", color: "#d03020", detail: "Corrélation & scoring" },
-            { name: "Sigma Engine", connected: engineOk === "ok", color: "#d09020", detail: "Règles de détection" },
-            { name: "Graph", connected: engineOk === "ok", color: "#30a050", detail: "STIX 2.1 corrélation" },
-            { name: "ML Engine", connected: ml?.model_trained ?? false, color: "#06b6d4", detail: ml?.model_trained ? "Modèle entraîné" : "Apprentissage", restartable: true },
-          ]}
-        />
-      </NeuCard>
-
+      {/* ─── 3-column: services | CpuCard centered | engines ─── */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "20px",
+          gridTemplateColumns: "1fr auto 1fr",
+          gap: "24px",
+          alignItems: "start",
           marginBottom: "24px",
         }}
       >
-        <Section title="Services conteneurs">
-          <ServiceRow icon={Shield} name="threatclaw-core" detail={health?.version ? `v${health.version}` : "—"} state={engineOk} />
-          <ServiceRow icon={Database} name="threatclaw-db" detail="postgres 16 · tls=required" state={dbOk} />
-          <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} modèles chargés`} state={ollamaOk} />
-          <ServiceRow icon={Network} name="threatclaw-dashboard" detail="next 14 · ssr" state={engineOk} />
-          <ServiceRow
-            icon={FileText}
-            name="ml-engine"
-            detail={ml ? `last run ${formatLastRun(ml.last_run)}` : "idle"}
-            state={ml?.last_run ? "ok" : "checking"}
-          />
-          <ServiceRow
-            icon={Radio}
-            name="fluent-bit"
-            detail="syslog collector · désactivé sur staging (port 514 = wazuh)"
-            state="checking"
-            muted
-          />
-        </Section>
+        {/* LEFT — Services conteneurs */}
+        <div>
+          <Section title="Services conteneurs">
+            <ServiceRow icon={Shield} name="threatclaw-core" detail={health?.version ? `v${health.version}` : "—"} state={engineOk} />
+            <ServiceRow icon={Database} name="threatclaw-db" detail="postgres 16 · tls=required" state={dbOk} />
+            <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} modèles chargés`} state={ollamaOk} />
+            <ServiceRow icon={Network} name="threatclaw-dashboard" detail="next 14 · ssr" state={engineOk} />
+            <ServiceRow
+              icon={FileText}
+              name="ml-engine"
+              detail={ml ? `last run ${formatLastRun(ml.last_run)}` : "idle"}
+              state={ml?.last_run ? "ok" : "checking"}
+            />
+            <ServiceRow
+              icon={Radio}
+              name="fluent-bit"
+              detail="syslog · désactivé (Wazuh tient 514)"
+              state="checking"
+              muted
+            />
+          </Section>
+        </div>
 
-        <Section title="Moteurs internes">
-          <EngineRow name="Intelligence Engine" detail="cycle 5 min · corrélation + scoring" ok={engineOk === "ok"} />
-          <EngineRow name="Sigma Engine" detail="84 règles compilées · pack V49 chargé" ok={engineOk === "ok"} />
-          <EngineRow name="Bloom Filter" detail="IoC temps réel · 18k entries" ok={engineOk === "ok"} />
-          <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} />
-          <EngineRow
-            name="ML Anomaly Detection"
-            detail={ml?.model_trained ? "Isolation Forest · actif" : ml ? `apprentissage (${ml.data_days ?? 0}/14j)` : "inactif"}
-            ok={ml?.anomaly_active ?? false}
-          />
-          <EngineRow
-            name="ML DNS Classifier"
-            detail={ml?.dns_active ? "Random Forest · DGA detection" : "inactif"}
-            ok={ml?.dns_active ?? false}
-          />
-        </Section>
+        {/* CENTER — compact CpuCard */}
+        <div style={{ width: "380px", alignSelf: "start" }}>
+          <NeuCard accent="red" style={{ padding: "10px 12px" }}>
+            <CpuCard
+              score={score}
+              scoreLabel={
+                score == null
+                  ? "En attente du premier cycle"
+                  : score >= 80
+                    ? "Situation saine"
+                    : score >= 50
+                      ? "Points d'attention"
+                      : "Situation dégradée"
+              }
+              version={health?.version ? `v${health.version}` : ""}
+              services={[
+                { name: "PostgreSQL", connected: dbOk === "ok", color: "#3080d0", detail: "pg16 · pgvector" },
+                { name: "AI", connected: ollamaOk === "ok", color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
+                { name: "Intel.", connected: engineOk === "ok", color: "#d03020", detail: "Corrélation" },
+                { name: "Sigma", connected: engineOk === "ok", color: "#d09020", detail: "Règles" },
+                { name: "Graph", connected: engineOk === "ok", color: "#30a050", detail: "STIX 2.1" },
+                { name: "ML", connected: ml?.model_trained ?? false, color: "#06b6d4", detail: ml?.model_trained ? "Trained" : "Learning", restartable: true },
+              ]}
+            />
+          </NeuCard>
+        </div>
+
+        {/* RIGHT — Moteurs internes */}
+        <div>
+          <Section title="Moteurs internes">
+            <EngineRow name="Intelligence Engine" detail="cycle 5 min · scoring" ok={engineOk === "ok"} />
+            <EngineRow name="Sigma Engine" detail="84 règles · pack V49" ok={engineOk === "ok"} />
+            <EngineRow name="Bloom Filter" detail="IoC live · 18k entries" ok={engineOk === "ok"} />
+            <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} />
+            <EngineRow
+              name="ML Anomaly Detection"
+              detail={ml?.model_trained ? "Isolation Forest" : ml ? `apprentissage (${ml.data_days ?? 0}/14j)` : "inactif"}
+              ok={ml?.anomaly_active ?? false}
+            />
+            <EngineRow
+              name="ML DNS Classifier"
+              detail={ml?.dns_active ? "Random Forest · DGA" : "inactif"}
+              ok={ml?.dns_active ?? false}
+            />
+          </Section>
+        </div>
       </div>
 
       <Section title="Modèles IA locaux (Ollama)">
