@@ -193,6 +193,32 @@ if [ -d skills-catalog ] && [ -f src/connectors/sync_scheduler.rs ]; then
   fi
 fi
 
+# ── 7. Silent DB writes in connectors ─────────────────────────────────────────
+
+section "7. Silent 'let _ = store.*' pattern in connectors"
+
+# We had a production bug where insert_log and insert_sigma_alert failed
+# serialization for weeks without anybody noticing because every caller did
+# `let _ = store.insert_X(...).await;`. The fix added `log_db_write()` in
+# connectors/mod.rs — this check catches regressions that reintroduce the
+# silent pattern.
+
+silent_count=0
+for f in src/connectors/*.rs; do
+  base=$(basename "$f")
+  if [ "$base" = "mod.rs" ]; then continue; fi
+  if grep -qE '^[[:space:]]*let _ = store' "$f"; then
+    n=$(grep -cE '^[[:space:]]*let _ = store' "$f")
+    silent_count=$((silent_count + n))
+    warn "connectors/$base — $n silent 'let _ = store' write(s) — replace with crate::connectors::log_db_write(\"ctx\", ...)"
+  fi
+done
+if [ "$silent_count" -eq 0 ]; then
+  ok "no silent 'let _ = store' patterns in connectors"
+else
+  warn "total silent store writes across connectors: $silent_count (tracked for follow-up sweep)"
+fi
+
 # ── 6. Dockerfile COPY coverage ───────────────────────────────────────────────
 
 section "6. Dockerfile COPY coverage for runtime-loaded directories"

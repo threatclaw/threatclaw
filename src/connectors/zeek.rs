@@ -90,8 +90,9 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let orig_bytes = entry["orig_bytes"].as_i64().unwrap_or(0);
                     let _resp_bytes = entry["resp_bytes"].as_i64().unwrap_or(0);
 
-                    let _ = store
-                        .insert_log(
+                    crate::connectors::log_db_write(
+                        "zeek:insert_log",
+                        store.insert_log(
                             "zeek.conn",
                             dst,
                             entry,
@@ -103,8 +104,9 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                                         .unwrap_or_default()
                                 })
                                 .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
 
                     // Long connections (>1h) to external IPs = suspicious
                     if duration > 3600.0 && !crate::agent::ip_classifier::is_private(dst) {
@@ -116,16 +118,18 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                             duration / 60.0,
                             orig_bytes
                         );
-                        let _ = store
-                            .insert_sigma_alert(
+                        crate::connectors::log_db_write(
+                            "zeek:insert_sigma_alert",
+                            store.insert_sigma_alert(
                                 "zeek-long-conn",
                                 "medium",
                                 &title,
                                 src,
                                 Some(dst),
                                 None,
-                            )
-                            .await;
+                            ),
+                        )
+                        .await;
                         result.alerts_created += 1;
                     }
 
@@ -137,16 +141,18 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                             dst,
                             orig_bytes as f64 / 1_000_000.0
                         );
-                        let _ = store
-                            .insert_sigma_alert(
+                        crate::connectors::log_db_write(
+                            "zeek:insert_sigma_alert",
+                            store.insert_sigma_alert(
                                 "zeek-large-upload",
                                 "high",
                                 &title,
                                 src,
                                 Some(dst),
                                 None,
-                            )
-                            .await;
+                            ),
+                        )
+                        .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -165,9 +171,11 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let _query = entry["query"].as_str().unwrap_or("");
                     let src = entry["id.orig_h"].as_str().unwrap_or("");
 
-                    let _ = store
-                        .insert_log("zeek.dns", src, entry, &chrono::Utc::now().to_rfc3339())
-                        .await;
+                    crate::connectors::log_db_write(
+                        "zeek:insert_log",
+                        store.insert_log("zeek.dns", src, entry, &chrono::Utc::now().to_rfc3339()),
+                    )
+                    .await;
                 }
             }
             Err(e) => result.errors.push(format!("dns.log: {}", e)),
@@ -181,30 +189,34 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssl_entries += 1;
-                    let _ = store
-                        .insert_log(
+                    crate::connectors::log_db_write(
+                        "zeek:insert_log",
+                        store.insert_log(
                             "zeek.ssl",
                             entry["id.orig_h"].as_str().unwrap_or(""),
                             entry,
                             &chrono::Utc::now().to_rfc3339(),
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
 
                     // Expired or self-signed certs
                     let validation = entry["validation_status"].as_str().unwrap_or("");
                     if validation.contains("expired") || validation.contains("self signed") {
                         let server = entry["server_name"].as_str().unwrap_or("unknown");
                         let title = format!("Zeek: SSL issue on {} — {}", server, validation);
-                        let _ = store
-                            .insert_sigma_alert(
+                        crate::connectors::log_db_write(
+                            "zeek:insert_sigma_alert",
+                            store.insert_sigma_alert(
                                 "zeek-ssl-issue",
                                 "medium",
                                 &title,
                                 entry["id.resp_h"].as_str().unwrap_or(""),
                                 None,
                                 None,
-                            )
-                            .await;
+                            ),
+                        )
+                        .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -220,14 +232,16 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssh_entries += 1;
-                    let _ = store
-                        .insert_log(
+                    crate::connectors::log_db_write(
+                        "zeek:insert_log",
+                        store.insert_log(
                             "zeek.ssh",
                             entry["id.resp_h"].as_str().unwrap_or(""),
                             entry,
                             &chrono::Utc::now().to_rfc3339(),
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
 
                     // Failed SSH auth from external
                     let auth_success = entry["auth_success"].as_bool().unwrap_or(true);
@@ -235,16 +249,18 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     if !auth_success && !crate::agent::ip_classifier::is_private(src) {
                         let dst = entry["id.resp_h"].as_str().unwrap_or("");
                         let title = format!("Zeek: SSH auth failure {} → {}", src, dst);
-                        let _ = store
-                            .insert_sigma_alert(
+                        crate::connectors::log_db_write(
+                            "zeek:insert_sigma_alert",
+                            store.insert_sigma_alert(
                                 "zeek-ssh-fail",
                                 "medium",
                                 &title,
                                 dst,
                                 Some(src),
                                 None,
-                            )
-                            .await;
+                            ),
+                        )
+                        .await;
                         result.alerts_created += 1;
                     }
                 }
@@ -260,14 +276,16 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.http_entries += 1;
-                    let _ = store
-                        .insert_log(
+                    crate::connectors::log_db_write(
+                        "zeek:insert_log",
+                        store.insert_log(
                             "zeek.http",
                             entry["id.orig_h"].as_str().unwrap_or(""),
                             entry,
                             &chrono::Utc::now().to_rfc3339(),
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
                 }
             }
             Err(e) => result.errors.push(format!("http.log: {}", e)),

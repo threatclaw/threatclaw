@@ -254,17 +254,33 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
 
                         // Create finding if agent is disconnected
                         if status == "disconnected" || status == "never_connected" {
-                            let _ = store.insert_finding(&NewFinding {
+                            let finding = NewFinding {
                                 skill_id: "skill-wazuh".into(),
                                 title: format!("Wazuh agent {} is {}", name, status),
-                                description: Some(format!("Agent {} (IP: {}) status: {}. Last keepalive: {}", name, ip, status, agent["lastKeepAlive"].as_str().unwrap_or("?"))),
+                                description: Some(format!(
+                                    "Agent {} (IP: {}) status: {}. Last keepalive: {}",
+                                    name,
+                                    ip,
+                                    status,
+                                    agent["lastKeepAlive"].as_str().unwrap_or("?")
+                                )),
                                 severity: "MEDIUM".into(),
                                 category: Some("monitoring".into()),
                                 asset: Some(ip.to_string()),
                                 source: Some("Wazuh SIEM".into()),
-                                metadata: Some(serde_json::json!({"agent_id": agent["id"], "status": status})),
-                            }).await;
-                            result.findings_created += 1;
+                                metadata: Some(serde_json::json!({
+                                    "agent_id": agent["id"], "status": status
+                                })),
+                            };
+                            if crate::connectors::log_db_write(
+                                "wazuh:agent_disconnected",
+                                store.insert_finding(&finding),
+                            )
+                            .await
+                            .is_some()
+                            {
+                                result.findings_created += 1;
+                            }
                         }
                     }
                 }

@@ -47,8 +47,9 @@ pub async fn verify_or_register_agent(
         true
     } else {
         // Nouvel agent — enregistrer
-        let _ = store
-            .set_setting(
+        crate::connectors::log_db_write(
+            "osquery:set_setting",
+            store.set_setting(
                 "_osquery_agents",
                 &key,
                 &serde_json::json!({
@@ -56,8 +57,9 @@ pub async fn verify_or_register_agent(
                     "registered_at": chrono::Utc::now().to_rfc3339(),
                     "last_seen": chrono::Utc::now().to_rfc3339(),
                 }),
-            )
-            .await;
+            ),
+        )
+        .await;
         tracing::info!("OSQUERY: New agent registered: {} ({})", agent_id, hostname);
         true
     }
@@ -107,9 +109,11 @@ pub async fn ingest_software_inventory(
 
     if !software.is_empty() {
         if let Ok(Some(asset)) = store.find_asset_by_hostname(hostname).await {
-            let _ = store
-                .update_asset_software(&asset.id, &serde_json::Value::Array(software))
-                .await;
+            crate::connectors::log_db_write(
+                "osquery:update_asset_software",
+                store.update_asset_software(&asset.id, &serde_json::Value::Array(software)),
+            )
+            .await;
         }
     }
 
@@ -160,16 +164,18 @@ pub async fn check_process_connections(
                 "Connexion suspecte: {} ({}) → {}:{}",
                 process_name, hostname, remote_addr, remote_port
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-ioc-conn",
                     "critical",
                     &title,
                     hostname,
                     Some(remote_addr),
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
 
             tracing::warn!(
@@ -187,16 +193,18 @@ pub async fn check_process_connections(
                 "Process suspect: {} ({}) depuis {}",
                 process_name, hostname, process_path
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-process",
                     "high",
                     &title,
                     hostname,
                     Some(remote_addr),
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -241,16 +249,18 @@ pub async fn check_dns_cache(
         // Check domain against Bloom filter (known malicious domains)
         if bloom.maybe_contains(&domain) {
             let title = format!("DNS résolution suspecte: {} sur {}", domain, hostname);
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-malicious-dns",
                     "high",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -264,14 +274,16 @@ pub async fn check_dns_cache(
                 .filter_map(|e| e["name"].as_str().or(e["domain"].as_str()))
                 .collect::<Vec<_>>(),
         });
-        let _ = store
-            .insert_log(
+        crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log(
                 "osquery.dns",
                 hostname,
                 &batch,
                 &chrono::Utc::now().to_rfc3339(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     (checked, alerts)
@@ -302,16 +314,18 @@ pub async fn check_process_events(
                 path.rsplit('/').next().unwrap_or(path),
                 hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-office-shell",
                     "critical",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
 
@@ -323,32 +337,36 @@ pub async fn check_process_events(
                 parent.rsplit('/').next().unwrap_or(parent),
                 hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-download",
                     "high",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
 
         // Detect execution from suspicious paths
         if is_suspicious_path(path) && !cmdline.is_empty() {
             let title = format!("Exécution depuis path suspect: {} sur {}", path, hostname);
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-exec-suspicious-path",
                     "high",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -428,9 +446,11 @@ pub async fn check_file_events(
             } else {
                 "high"
             };
-            let _ = store
-                .insert_sigma_alert("osquery-fim", severity, &title, hostname, None, None)
-                .await;
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert("osquery-fim", severity, &title, hostname, None, None),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -498,30 +518,34 @@ pub async fn check_listening_ports(
                 "Port suspect en écoute: {}:{} ({}) sur {}",
                 address, port, process, hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-port",
                     "high",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
 
     // Store all ports as log for baseline tracking (ML)
     if !ports.is_empty() {
-        let _ = store
-            .insert_log(
+        crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log(
                 "osquery.ports",
                 hostname,
                 &serde_json::json!({"ports": ports}),
                 &chrono::Utc::now().to_rfc3339(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     alerts
@@ -562,30 +586,34 @@ pub async fn check_logged_in_users(
                 "Connexion distante hors horaires: {} depuis {} sur {} ({}h UTC)",
                 user, host, hostname, hour
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-offhours-login",
                     "high",
                     &title,
                     hostname,
                     Some(host),
                     Some(user),
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
 
     // Store for ML baseline (login patterns)
     if !users.is_empty() {
-        let _ = store
-            .insert_log(
+        crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log(
                 "osquery.logins",
                 hostname,
                 &serde_json::json!({"users": users, "hour": hour}),
                 &chrono::Utc::now().to_rfc3339(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     alerts
@@ -619,16 +647,18 @@ pub async fn check_scheduled_tasks(
                 "Tâche planifiée suspecte: {} → {} sur {}",
                 name, path, hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-task",
                     "critical",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -642,14 +672,16 @@ pub async fn ingest_patches(store: &dyn Database, hostname: &str, patches: &[ser
     if patches.is_empty() {
         return;
     }
-    let _ = store
-        .insert_log(
+    crate::connectors::log_db_write(
+        "osquery:insert_log",
+        store.insert_log(
             "osquery.patches",
             hostname,
             &serde_json::json!({"patches": patches, "count": patches.len()}),
             &chrono::Utc::now().to_rfc3339(),
-        )
-        .await;
+        ),
+    )
+    .await;
 }
 
 // ── Windows security products → AV disabled detection ──
@@ -676,24 +708,28 @@ pub async fn check_security_products(
     if has_any_av && all_disabled {
         let names: Vec<&str> = products.iter().filter_map(|p| p["name"].as_str()).collect();
         let title = format!("Antivirus désactivé sur {}: {}", hostname, names.join(", "));
-        let _ = store
-            .insert_sigma_alert(
+        crate::connectors::log_db_write(
+            "osquery:insert_sigma_alert",
+            store.insert_sigma_alert(
                 "osquery-av-disabled",
                 "critical",
                 &title,
                 hostname,
                 None,
                 None,
-            )
-            .await;
+            ),
+        )
+        .await;
         alerts += 1;
     }
 
     if !has_any_av {
         let title = format!("Aucun antivirus détecté sur {}", hostname);
-        let _ = store
-            .insert_sigma_alert("osquery-no-av", "high", &title, hostname, None, None)
-            .await;
+        crate::connectors::log_db_write(
+            "osquery:insert_sigma_alert",
+            store.insert_sigma_alert("osquery-no-av", "high", &title, hostname, None, None),
+        )
+        .await;
         alerts += 1;
     }
 
@@ -710,14 +746,16 @@ pub async fn ingest_docker_containers(
     if containers.is_empty() {
         return;
     }
-    let _ = store
-        .insert_log(
+    crate::connectors::log_db_write(
+        "osquery:insert_log",
+        store.insert_log(
             "osquery.docker",
             hostname,
             &serde_json::json!({"containers": containers, "count": containers.len()}),
             &chrono::Utc::now().to_rfc3339(),
-        )
-        .await;
+        ),
+    )
+    .await;
 }
 
 // ���─ Interface details → enrich asset MAC/IP ──
@@ -783,16 +821,18 @@ pub async fn check_startup_items(
                 "Startup suspect: {} → {} ({}) sur {}",
                 name, path, source, hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-startup",
                     "critical",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -811,14 +851,16 @@ pub async fn check_authorized_keys(
 
     // Store for delta detection (new key added since last check)
     if !keys.is_empty() {
-        let _ = store
-            .insert_log(
+        crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log(
                 "osquery.ssh_keys",
                 hostname,
                 &serde_json::json!({"keys_count": keys.len(), "keys": keys}),
                 &chrono::Utc::now().to_rfc3339(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     for key in keys {
@@ -830,16 +872,18 @@ pub async fn check_authorized_keys(
         if key_file.contains("/root/") {
             let comment = key["comment"].as_str().unwrap_or("unknown");
             let title = format!("Clé SSH root détectée sur {}: {}", hostname, comment);
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-root-ssh-key",
                     "medium",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -870,16 +914,18 @@ pub async fn check_browser_extensions(
                 "Extension navigateur sideloaded: {} ({}) sur {}",
                 name, identifier, hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-sideloaded-ext",
                     "medium",
                     &title,
                     hostname,
                     None,
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -927,16 +973,18 @@ pub async fn check_users_groups(
         // User with UID 0 that isn't root = suspicious
         if uid == "0" && username != "root" {
             let title = format!("User non-root avec UID 0: {} sur {}", username, hostname);
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-uid0-nonroot",
                     "critical",
                     &title,
                     hostname,
                     None,
                     Some(username),
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
 
@@ -946,30 +994,34 @@ pub async fn check_users_groups(
                 "User avec shell suspect: {} ({}) sur {}",
                 username, shell, hostname
             );
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
                     "osquery-suspicious-shell",
                     "high",
                     &title,
                     hostname,
                     None,
                     Some(username),
-                )
-                .await;
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
 
     // Store full user list for delta detection
     if !users.is_empty() {
-        let _ = store
-            .insert_log(
+        crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log(
                 "osquery.users",
                 hostname,
                 &serde_json::json!({"users": users}),
                 &chrono::Utc::now().to_rfc3339(),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     alerts
@@ -986,14 +1038,16 @@ pub async fn check_shared_folders(
         return;
     }
     // Store for inventory (not alerting by default — shares are normal in a PME)
-    let _ = store
-        .insert_log(
+    crate::connectors::log_db_write(
+        "osquery:insert_log",
+        store.insert_log(
             "osquery.shares",
             hostname,
             &serde_json::json!({"shares": shares, "count": shares.len()}),
             &chrono::Utc::now().to_rfc3339(),
-        )
-        .await;
+        ),
+    )
+    .await;
 }
 
 // ── Webhook endpoint: process bulk osquery results ──
@@ -1024,16 +1078,18 @@ pub async fn process_osquery_webhook(
     // Update last_seen for this agent
     if !agent_id.is_empty() {
         let key = format!("agent_{}", agent_id);
-        let _ = store
-            .set_setting(
+        crate::connectors::log_db_write(
+            "osquery:set_setting",
+            store.set_setting(
                 "_osquery_agents",
                 &key,
                 &serde_json::json!({
                     "hostname": hostname,
                     "last_seen": chrono::Utc::now().to_rfc3339(),
                 }),
-            )
-            .await;
+            ),
+        )
+        .await;
     }
 
     // Process each query type from the batch
@@ -1074,9 +1130,11 @@ pub async fn process_osquery_webhook(
         // This enables PowerShell obfuscation rules and other process-based detections
         let now = chrono::Utc::now().to_rfc3339();
         for event in proc_events {
-            let _ = store
-                .insert_log("osquery.process", hostname, event, &now)
-                .await;
+            crate::connectors::log_db_write(
+                "osquery:insert_log",
+                store.insert_log("osquery.process", hostname, event, &now),
+            )
+            .await;
             result.logs_processed += 1;
         }
     }
