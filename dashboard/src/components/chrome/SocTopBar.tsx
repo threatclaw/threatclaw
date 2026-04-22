@@ -53,6 +53,7 @@ export default function SocTopBar() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [paused, setPaused] = useState(false);
   const [criticalCount, setCriticalCount] = useState(0);
+  const [version, setVersion] = useState<string>("");
 
   // Wall clock tick
   useEffect(() => {
@@ -72,6 +73,16 @@ export default function SocTopBar() {
     load();
     const iv = setInterval(load, 15_000);
     return () => clearInterval(iv);
+  }, []);
+
+  // Version (one-shot) — shown under the brand
+  useEffect(() => {
+    fetch("/api/tc/health")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.version) setVersion(`v${d.version}`);
+      })
+      .catch(() => {});
   }, []);
 
   // Critical incident poll — drives the red pill at the right
@@ -169,13 +180,12 @@ export default function SocTopBar() {
       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
         <img src="/logo.png" alt="" width={22} height={22} style={{ borderRadius: "4px" }} />
         <div style={{ lineHeight: 1.15 }}>
-          <div style={{ fontSize: "11px", letterSpacing: "0.18em", fontWeight: 700, textTransform: "uppercase" }}>
-            threat
-            <span style={{ color: "var(--tc-red)", margin: "0 4px" }}>/</span>
-            claw
+          <div style={{ fontSize: "12px", letterSpacing: "0.16em", fontWeight: 700, textTransform: "uppercase" }}>
+            <span style={{ color: "var(--tc-text)" }}>threat</span>
+            <span style={{ color: "var(--tc-red)" }}>claw</span>
           </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.12em" }}>
-            {process.env.NEXT_PUBLIC_TC_TENANT || "staging"}
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.12em", fontVariantNumeric: "tabular-nums" }}>
+            {version || "—"}
           </div>
         </div>
       </div>
