@@ -33,6 +33,14 @@ type HealthResp = {
   version?: string;
   database?: boolean;
   llm?: string;
+  disk_free?: string;
+  ml?: {
+    alive?: boolean;
+    data_days?: number;
+    first_data_day?: string | null;
+    model_trained?: boolean;
+    timestamp?: string;
+  };
 };
 
 type Situation = {
@@ -43,14 +51,29 @@ type Situation = {
   assets?: Array<{ asset: string; score: number }>;
 };
 
+// Backend exposes ML state embedded in /api/tc/health.ml (no separate endpoint).
+// `alive=true, model_trained=false, data_days<14` means the engine is running
+// and accumulating data — "En apprentissage" in the UI.
 type MlHeartbeat = {
-  last_run?: string;
-  model_trained?: boolean;
-  data_days?: number;
-  dns_active?: boolean;
-  anomaly_active?: boolean;
   alive?: boolean;
+  data_days?: number;
+  first_data_day?: string | null;
+  model_trained?: boolean;
+  timestamp?: string;
 };
+
+const MIN_TRAINING_DAYS = 14;
+
+function mlPhase(ml: MlHeartbeat | null): {
+  label: string;
+  connected: boolean;
+  state: ConnState;
+} {
+  if (!ml || ml.alive === false) return { label: "hors ligne", connected: false, state: "down" };
+  if (ml.model_trained) return { label: "opérationnel", connected: true, state: "ok" };
+  const d = ml.data_days ?? 0;
+  return { label: `en apprentissage · ${d}/${MIN_TRAINING_DAYS}j`, connected: true, state: "ok" };
+}
 
 export default function StatusPage() {
   const [health, setHealth] = useState<HealthResp | null>(null);
@@ -75,10 +98,13 @@ export default function StatusPage() {
         if (!mounted) return;
         setHealth(d);
         setDbOk(d.database ? "ok" : "down");
+        // Backend embeds ml state here — there is no /api/tc/ml/heartbeat route.
+        setMl(d.ml ?? null);
       } catch {
         if (mounted) {
           setHealth(null);
           setDbOk("down");
+          setMl(null);
         }
       }
 
@@ -97,14 +123,6 @@ export default function StatusPage() {
         const r = await fetch("/api/tc/intelligence/situation");
         const d = await r.json();
         if (mounted) setSituation(d);
-      } catch {
-        /* */
-      }
-
-      try {
-        const r = await fetch("/api/tc/ml/heartbeat");
-        const d = await r.json();
-        if (mounted) setMl(d);
       } catch {
         /* */
       }
@@ -209,12 +227,17 @@ export default function StatusPage() {
             <ServiceRow icon={Database} name="threatclaw-db" detail="postgres 16 · tls=required" state={dbOk} />
             <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} modèles chargés`} state={ollamaOk} />
             <ServiceRow icon={Network} name="threatclaw-dashboard" detail="next 14 · ssr" state={engineOk} />
-            <ServiceRow
-              icon={FileText}
-              name="ml-engine"
-              detail={ml ? `last run ${formatLastRun(ml.last_run)}` : "idle"}
-              state={ml?.last_run ? "ok" : "checking"}
-            />
+            {(() => {
+              const p = mlPhase(ml);
+              return (
+                <ServiceRow
+                  icon={FileText}
+                  name="ml-engine"
+                  detail={p.label}
+                  state={p.state}
+                />
+              );
+            })()}
             <ServiceRow
               icon={Radio}
               name="fluent-bit"
@@ -251,7 +274,7 @@ export default function StatusPage() {
                 { name: "Logs",          connected: sourcesActive > 0,     color: "#f97316", detail: `${sourcesActive} sources actives` },
                 // Right column
                 { name: "AI",            connected: ollamaOk === "ok",     color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
-                { name: "ML Engine",     connected: (ml?.alive ?? false) || (ml?.model_trained ?? false), color: "#d09020", detail: ml?.model_trained ? "Trained" : ml?.alive ? "Learning" : "idle", restartable: true },
+                { name: "ML Engine",     connected: mlPhase(ml).connected, color: "#d09020", detail: mlPhase(ml).label, restartable: true },
                 { name: "Skills",        connected: (skillCount ?? 0) > 0, color: "#06b6d4", detail: skillCount != null ? `${skillCount} skills` : "—" },
                 { name: "Dashboard",     connected: true,                  color: "#b0a8a0", detail: "Next.js 16 · SSR" },
               ]}
@@ -268,13 +291,13 @@ export default function StatusPage() {
             <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} />
             <EngineRow
               name="ML Anomaly Detection"
-              detail={ml?.model_trained ? "Isolation Forest" : ml ? `apprentissage (${ml.data_days ?? 0}/14j)` : "inactif"}
-              ok={ml?.anomaly_active ?? false}
+              detail={ml?.model_trained ? "Isolation Forest" : ml?.alive ? `en apprentissage · ${ml.data_days ?? 0}/${MIN_TRAINING_DAYS}j` : "inactif"}
+              ok={(ml?.alive ?? false) && (ml?.model_trained ?? false)}
             />
             <EngineRow
               name="ML DNS Classifier"
-              detail={ml?.dns_active ? "Random Forest · DGA" : "inactif"}
-              ok={ml?.dns_active ?? false}
+              detail={ml?.alive ? "Random Forest · DGA" : "inactif"}
+              ok={ml?.alive ?? false}
             />
           </Section>
         </div>
@@ -337,16 +360,6 @@ export default function StatusPage() {
       </div>
     </div>
   );
-}
-
-function formatLastRun(iso?: string) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  const diff = (Date.now() - d.getTime()) / 1000;
-  if (diff < 60) return `il y a ${Math.round(diff)}s`;
-  if (diff < 3600) return `il y a ${Math.round(diff / 60)}m`;
-  if (diff < 86400) return `il y a ${Math.round(diff / 3600)}h`;
-  return d.toLocaleDateString("fr-FR");
 }
 
 function formatRelativeShort(iso: string) {
