@@ -1,0 +1,40 @@
+name: Attack scenarios (live detection test)
+
+# Runs the attack harness against the TARS lab and asserts ThreatClaw
+# on CASE detected every scenario. Manual trigger only — TARS has a
+# rate limit friendly capacity but we don't want nightly port-scan
+# noise bleeding into the actual threat metrics of the dashboard.
+#
+# Manual trigger: Forgejo UI → Actions → Attack scenarios → Run workflow.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Scenario id (blank = all)"
+        required: false
+        default: ""
+      timeout_min:
+        description: "Per-scenario wait ceiling (minutes)"
+        required: false
+        default: "5"
+
+jobs:
+  attack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install attack prerequisites
+        run: |
+          # hydra is the heavyweight — skip if not needed
+          sudo apt-get update
+          sudo apt-get install -y -qq curl nmap smbclient openssh-client hydra
+
+      - name: Run harness
+        env:
+          TIMEOUT_MIN: ${{ github.event.inputs.timeout_min }}
+        run: |
+          chmod +x scripts/test-attacks/run.sh
+          scripts/test-attacks/run.sh "${{ github.event.inputs.scenario }}"
