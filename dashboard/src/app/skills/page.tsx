@@ -721,6 +721,26 @@ export default function SkillsPage() {
                 })}
               </div>
             )}
+            {modalSkill.id === "skill-wazuh-connector" && (
+              <WazuhExtraPanel
+                cursor={configValues["skill-wazuh-connector"]?.cursor_last_timestamp || ""}
+                onCursorReset={() => {
+                  fetch(`/api/tc/config/skill-wazuh-connector`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ key: "cursor_last_timestamp", value: "" }),
+                  }).then(() => {
+                    setConfigValues((v) => ({
+                      ...v,
+                      "skill-wazuh-connector": {
+                        ...(v["skill-wazuh-connector"] || {}),
+                        cursor_last_timestamp: "",
+                      },
+                    }));
+                  }).catch(() => {});
+                }}
+              />
+            )}
             {modalSkill.id === "skill-freebox" && <FreeboxPairingFlow url={configValues["skill-freebox"]?.freebox_url || "http://mafreebox.freebox.fr"} />}
 
             {runResult && (
@@ -843,6 +863,172 @@ function FreeboxPairingFlow({ url }: { url: string }) {
           {message}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Wazuh-specific config addendum ──
+// Surfaces two things the generic skill form can't: (1) the built-in noise
+// filter defaults so the operator knows what's already silenced without
+// having to read source code, (2) the cursor state + a reset button for
+// the rare case the operator needs to replay the last hour (e.g. after
+// fixing an indexer corruption, or during a training exercise).
+function WazuhExtraPanel({
+  cursor,
+  onCursorReset,
+}: {
+  cursor: string;
+  onCursorReset: () => void;
+}) {
+  const locale = useLocale();
+  const [confirmReset, setConfirmReset] = useState(false);
+  return (
+    <div
+      style={{
+        marginTop: "16px",
+        marginBottom: "16px",
+        padding: "12px 14px",
+        background: "var(--tc-surface-alt)",
+        border: "1px solid var(--tc-border)",
+        borderRadius: "var(--tc-radius-sm)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          color: "var(--tc-text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          marginBottom: "10px",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+        }}
+      >
+        <Shield size={11} /> {locale === "fr" ? "Filtre de bruit intégré" : "Built-in noise filter"}
+      </div>
+      <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.55, marginBottom: "10px" }}>
+        {locale === "fr" ? (
+          <>
+            Les règles suivantes sont silencieuses par défaut — elles génèrent
+            ~40-80 événements/minute sur tout hôte Docker et noieraient le
+            signal. Ajoute tes propres règles bruit via les champs{" "}
+            <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>skip_rule_ids</code> et{" "}
+            <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>skip_if_log_contains</code> ci-dessus.
+          </>
+        ) : (
+          <>
+            The rules below are silenced by default — they emit ~40-80 events/min
+            on any Docker host and would drown the real signal. Add your own
+            noise rules via the <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>skip_rule_ids</code> and{" "}
+            <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>skip_if_log_contains</code> fields above.
+          </>
+        )}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "14px", fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: "10px" }}>
+        <div style={{ color: "var(--tc-text-muted)" }}>
+          <span style={{ color: "var(--tc-red)", marginRight: "8px" }}>skip</span>
+          rule 5104 when full_log contains <code style={{ color: "var(--tc-text)" }}>veth</code>
+          <span style={{ color: "var(--tc-text-muted)", marginLeft: "6px" }}>— Docker veth promiscuous noise</span>
+        </div>
+        <div style={{ color: "var(--tc-text-muted)" }}>
+          <span style={{ color: "var(--tc-red)", marginRight: "8px" }}>skip</span>
+          rule 80710 when full_log contains <code style={{ color: "var(--tc-text)" }}>dev=veth</code>
+          <span style={{ color: "var(--tc-text-muted)", marginLeft: "6px" }}>— auditd veth promiscuous noise</span>
+        </div>
+        <div style={{ color: "var(--tc-text-muted)" }}>
+          <span style={{ color: "var(--tc-red)", marginRight: "8px" }}>skip</span>
+          all rules 80700-80799
+          <span style={{ color: "var(--tc-text-muted)", marginLeft: "6px" }}>— Linux audit inventory events</span>
+        </div>
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--tc-border)", paddingTop: "10px" }}>
+        <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+          <Clock size={11} /> {locale === "fr" ? "Curseur de synchronisation" : "Sync cursor"}
+        </div>
+        <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", marginBottom: "8px" }}>
+          {cursor ? (
+            <>
+              {locale === "fr" ? "Dernier événement ingéré :" : "Last ingested event:"}{" "}
+              <code style={{ color: "var(--tc-text)", fontFamily: "'JetBrains Mono', monospace" }}>{cursor}</code>
+            </>
+          ) : (
+            <span style={{ color: "var(--tc-text-muted)" }}>
+              {locale === "fr"
+                ? "Pas encore de curseur — le prochain cycle récupérera la dernière heure."
+                : "No cursor yet — next cycle will fetch the last hour."}
+            </span>
+          )}
+        </div>
+        {cursor && !confirmReset && (
+          <button
+            type="button"
+            onClick={() => setConfirmReset(true)}
+            style={{
+              padding: "5px 10px",
+              fontSize: "10px",
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              background: "transparent",
+              color: "var(--tc-text-sec)",
+              border: "1px solid var(--tc-border)",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+            }}
+          >
+            <RefreshCw size={10} /> {locale === "fr" ? "Réinitialiser" : "Reset cursor"}
+          </button>
+        )}
+        {confirmReset && (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <span style={{ fontSize: "10px", color: "var(--tc-amber)" }}>
+              {locale === "fr" ? "Re-ingérer la dernière heure ?" : "Replay the last hour?"}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                onCursorReset();
+                setConfirmReset(false);
+              }}
+              style={{
+                padding: "4px 10px",
+                fontSize: "10px",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                background: "var(--tc-red)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {locale === "fr" ? "Confirmer" : "Confirm"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmReset(false)}
+              style={{
+                padding: "4px 10px",
+                fontSize: "10px",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                background: "transparent",
+                color: "var(--tc-text-muted)",
+                border: "1px solid var(--tc-border)",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >
+              {locale === "fr" ? "Annuler" : "Cancel"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
