@@ -122,6 +122,28 @@ async fn run_connector_sync(
                 return Err("url not configured".into());
             }
 
+            // Cursor + user-supplied noise filters live in the same skill_configs
+            // table as the connection credentials. Parsing is best-effort so a
+            // malformed config field degrades to "ignore it" rather than failing
+            // the whole sync.
+            let cursor_last_timestamp = config
+                .get("cursor_last_timestamp")
+                .cloned()
+                .filter(|s| !s.is_empty());
+            let skip_rule_ids: Vec<String> = config
+                .get("skip_rule_ids")
+                .map(|s| {
+                    s.split(|c: char| c == ',' || c.is_whitespace())
+                        .filter(|p| !p.is_empty())
+                        .map(String::from)
+                        .collect()
+                })
+                .unwrap_or_default();
+            let skip_if_log_contains: std::collections::HashMap<String, String> = config
+                .get("skip_if_log_contains")
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default();
+
             let wc = crate::connectors::wazuh::WazuhConfig {
                 url,
                 username,
@@ -137,12 +159,36 @@ async fn run_connector_sync(
                 indexer_url,
                 indexer_username,
                 indexer_password,
+                min_level: config
+                    .get("min_level")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(7),
+                skip_rule_ids,
+                skip_if_log_contains,
+                cursor_last_timestamp,
             };
             let r = crate::connectors::wazuh::sync_wazuh(store, &wc).await;
+
+            // Persist the advanced cursor so the next cycle resumes from the
+            // right spot. Ignore persistence errors — they would only cause a
+            // duplicate re-ingest on the next cycle (dedup is handled by the
+            // insert being idempotent in practice via the cursor windowing).
+            if let Some(new_cursor) = &r.cursor {
+                if let Err(e) = store
+                    .set_skill_config(skill_id, "cursor_last_timestamp", new_cursor)
+                    .await
+                {
+                    tracing::warn!("SYNC SCHEDULER: failed to persist wazuh cursor: {}", e);
+                }
+            }
+
             Ok(format!(
-                "{} alerts, {} findings, {} errors",
+                "fetched={} imported={} findings={} noise={} insert_errors={} errors={}",
+                r.alerts_fetched,
                 r.alerts_imported,
                 r.findings_created,
+                r.dropped_noise,
+                r.insert_errors,
                 r.errors.len()
             ))
         }
