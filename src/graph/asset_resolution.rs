@@ -207,14 +207,18 @@ struct ExistingAsset {
     last_seen: Option<String>,
 }
 
-/// Find an asset by a specific field.
+/// Find an asset by a specific field. If duplicates exist (historically
+/// possible before the hostname-based dedup landed), return the most
+/// recently seen one — deterministic across cycles so both the merge and
+/// any downstream reference converge on a single canonical asset.
 async fn find_asset_by_field(
     store: &dyn Database,
     field: &str,
     value: &str,
 ) -> Option<ExistingAsset> {
     let results = query(store, &format!(
-        "MATCH (a:Asset {{{}: '{}'}}) RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen LIMIT 1",
+        "MATCH (a:Asset {{{}: '{}'}}) RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen \
+         ORDER BY a.last_seen DESC LIMIT 1",
         field, esc(value)
     )).await;
 
@@ -237,12 +241,13 @@ async fn find_asset_by_hostname(store: &dyn Database, hostname: &str) -> Option<
     if let Some(found) = find_asset_by_field(store, "hostname", hostname).await {
         return Some(found);
     }
-    // Try FQDN that starts with hostname
+    // Try FQDN that starts with hostname. Most-recent-first for determinism.
     let results = query(
         store,
         &format!(
             "MATCH (a:Asset) WHERE a.fqdn STARTS WITH '{}' \
-         RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen LIMIT 1",
+         RETURN a.id, a.mac, a.hostname, a.ip, a.sources, a.last_seen \
+         ORDER BY a.last_seen DESC LIMIT 1",
             esc(hostname)
         ),
     )
