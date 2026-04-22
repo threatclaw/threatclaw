@@ -291,7 +291,12 @@ async fn import_wazuh_alert(
     let rule_id = alert["rule"]["id"].as_str().unwrap_or("");
     let agent_name = alert["agent"]["name"].as_str().unwrap_or("");
     let agent_ip = alert["agent"]["ip"].as_str().unwrap_or("");
-    let src_ip = alert["data"]["srcip"].as_str();
+    // Standard Wazuh decoders populate data.srcip. Some connectors (OpenCanary,
+    // custom JSON decoders) use data.src_host or data.src_ip instead.
+    let src_ip = alert["data"]["srcip"]
+        .as_str()
+        .or_else(|| alert["data"]["src_host"].as_str())
+        .or_else(|| alert["data"]["src_ip"].as_str());
     let username = alert["data"]["dstuser"]
         .as_str()
         .or_else(|| alert["data"]["srcuser"].as_str());
