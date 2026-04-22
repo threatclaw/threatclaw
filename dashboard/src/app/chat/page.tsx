@@ -4,9 +4,6 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Send, Loader2, Trash2, MessageSquarePlus, User, Bot, AlertTriangle } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
-import { ChromeEmbossedText } from "@/components/chrome/ChromeCard";
-import { NeuCard } from "@/components/chrome/NeuCard";
-import { ChromeButton } from "@/components/chrome/ChromeButton";
 import {
   sendChatMessage,
   listConversations,
@@ -153,50 +150,52 @@ export default function ChatPage() {
       style={{
         display: "grid",
         gridTemplateColumns: "240px 1fr",
-        gap: "12px",
         height: "calc(100vh - 140px)",
         minHeight: "500px",
+        borderRadius: "12px",
+        overflow: "hidden",
+        border: "1px solid var(--tc-border)",
+        background: "var(--tc-surface)",
       }}
     >
-      {/* Sidebar — unified: header with + button, then scrollable conv list */}
-      <NeuCard
+      {/* ═══ LEFT : conversation list ═══ */}
+      <aside
         style={{
-          padding: "0",
           display: "flex",
           flexDirection: "column",
+          borderRight: "1px solid var(--tc-border)",
+          background: "var(--tc-surface-alt, var(--tc-surface))",
           overflow: "hidden",
         }}
       >
         <button
           onClick={handleNewConversation}
           style={{
-            padding: "14px 16px",
-            borderBottom: "0.5px solid var(--tc-border)",
-            background: "transparent",
+            margin: "12px",
+            padding: "10px 12px",
+            background: "var(--tc-red)",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
-            gap: "8px",
-            color: "var(--tc-text)",
-            fontSize: "11px",
-            fontWeight: 700,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            textAlign: "left",
-            transition: "background 120ms",
+            justifyContent: "center",
+            gap: "6px",
+            fontSize: "12px",
+            fontWeight: 600,
+            transition: "opacity 120ms",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--tc-input)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
         >
-          <MessageSquarePlus size={14} color="var(--tc-red)" />
+          <MessageSquarePlus size={14} />
           {tr("chatNewConversation", locale)}
         </button>
-        <div style={{ flex: 1, overflowY: "auto", padding: "6px" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 12px" }}>
           {conversations.length === 0 ? (
-            <div style={{ padding: "20px 10px", textAlign: "center" }}>
-              <ChromeEmbossedText style={{ fontSize: "10px", opacity: 0.5 }}>
-                {tr("chatNoConversations", locale)}
-              </ChromeEmbossedText>
+            <div style={{ padding: "20px 10px", textAlign: "center", fontSize: "11px", color: "var(--tc-text-muted)" }}>
+              {tr("chatNoConversations", locale)}
             </div>
           ) : (
             conversations.map((c) => (
@@ -204,22 +203,18 @@ export default function ChatPage() {
                 key={c.id}
                 onClick={() => loadConversation(c.id)}
                 style={{
-                  padding: "8px 10px",
-                  borderRadius: "6px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
                   cursor: "pointer",
                   marginBottom: "2px",
-                  background: activeId === c.id ? "var(--tc-red-soft)" : "transparent",
-                  borderLeft:
-                    activeId === c.id
-                      ? "2px solid var(--tc-red)"
-                      : "2px solid transparent",
+                  background: activeId === c.id ? "var(--tc-input)" : "transparent",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
                   transition: "background 120ms",
                 }}
                 onMouseEnter={(e) => {
-                  if (activeId !== c.id) e.currentTarget.style.background = "var(--tc-input)";
+                  if (activeId !== c.id) e.currentTarget.style.background = "rgba(255,255,255,0.03)";
                 }}
                 onMouseLeave={(e) => {
                   if (activeId !== c.id) e.currentTarget.style.background = "transparent";
@@ -228,19 +223,15 @@ export default function ChatPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
-                      fontSize: "11px",
-                      fontWeight: activeId === c.id ? 700 : 500,
-                      color: activeId === c.id ? "var(--tc-red)" : "var(--tc-text)",
+                      fontSize: "12px",
+                      fontWeight: activeId === c.id ? 600 : 500,
+                      color: "var(--tc-text)",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                     }}
                   >
                     {c.title || (locale === "fr" ? "Sans titre" : "Untitled")}
-                  </div>
-                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-                    {c.message_count}{" "}
-                    {locale === "fr" ? (c.message_count > 1 ? "échanges" : "échange") : c.message_count > 1 ? "turns" : "turn"}
                   </div>
                 </div>
                 <button
@@ -251,48 +242,26 @@ export default function ChatPage() {
                     border: "none",
                     cursor: "pointer",
                     padding: "3px",
-                    color: "var(--tc-text-sec)",
-                    opacity: 0.4,
+                    color: "var(--tc-text-muted)",
+                    opacity: 0,
+                    transition: "opacity 120ms",
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.4")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0")}
+                  onFocus={(e) => (e.currentTarget.style.opacity = "1")}
+                  onBlur={(e) => (e.currentTarget.style.opacity = "0")}
                 >
-                  <Trash2 size={11} />
+                  <Trash2 size={12} />
                 </button>
               </div>
             ))
           )}
         </div>
-      </NeuCard>
+      </aside>
 
-      {/* Main pane — unified: header with conv title, scroll messages, bottom input */}
-      <NeuCard style={{ padding: "0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* Header: current conversation title or "New conversation" */}
-        <div
-          style={{
-            padding: "12px 18px",
-            borderBottom: "0.5px solid var(--tc-border)",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            fontSize: "12px",
-            fontWeight: 600,
-            color: "var(--tc-text)",
-            minHeight: "44px",
-          }}
-        >
-          <Bot size={14} color="var(--tc-red)" />
-          {activeConv ? (
-            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {activeConv.title || (locale === "fr" ? "Sans titre" : "Untitled")}
-            </span>
-          ) : (
-            <span style={{ color: "var(--tc-text-sec)", fontWeight: 500 }}>
-              {locale === "fr" ? "Nouvelle conversation" : "New conversation"}
-            </span>
-          )}
-        </div>
-        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+      {/* ═══ RIGHT : the chat itself ═══ */}
+      <section style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "24px 10% 24px 10%" }}>
           {loadingConv ? (
             <div style={{ textAlign: "center", padding: "40px" }}>
               <Loader2 size={18} className="animate-spin" style={{ color: "var(--tc-red)" }} />
@@ -301,54 +270,84 @@ export default function ChatPage() {
             <div
               style={{
                 textAlign: "center",
-                marginTop: "80px",
-                color: "var(--tc-text-sec)",
+                marginTop: "25vh",
+                color: "var(--tc-text-muted)",
               }}
             >
-              <MessageSquarePlus size={36} style={{ opacity: 0.3, marginBottom: "12px" }} />
-              <ChromeEmbossedText style={{ fontSize: "11px", opacity: 0.6 }}>
+              <Bot size={40} style={{ opacity: 0.3, marginBottom: "14px" }} />
+              <div style={{ fontSize: "16px", fontWeight: 500, color: "var(--tc-text-sec)" }}>
                 {tr("chatEmpty", locale)}
-              </ChromeEmbossedText>
+              </div>
             </div>
           ) : (
-            messages.map((m) => <MessageRow key={m.id} message={m} />)
-          )}
-          {sending && (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 4px", color: "var(--tc-text-sec)" }}>
-              <Loader2 size={12} className="animate-spin" />
-              <span style={{ fontSize: "10px" }}>{tr("chatThinking", locale)}</span>
-            </div>
-          )}
-          {error && (
-            <div
-              style={{
-                padding: "10px 12px",
-                background: "rgba(208,48,32,0.08)",
-                border: "0.5px solid var(--tc-red-border)",
-                borderRadius: "8px",
-                color: "var(--tc-red)",
-                fontSize: "10px",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                marginTop: "8px",
-              }}
-            >
-              <AlertTriangle size={11} />
-              {error}
-            </div>
+            <>
+              {activeConv?.title && (
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 600,
+                    color: "var(--tc-text)",
+                    marginBottom: "24px",
+                    paddingBottom: "12px",
+                    borderBottom: "1px solid var(--tc-border)",
+                  }}
+                >
+                  {activeConv.title}
+                </div>
+              )}
+              {messages.map((m) => (
+                <MessageRow key={m.id} message={m} />
+              ))}
+              {sending && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 4px", color: "var(--tc-text-muted)" }}>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span style={{ fontSize: "12px" }}>{tr("chatThinking", locale)}</span>
+                </div>
+              )}
+              {error && (
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    background: "rgba(208,48,32,0.08)",
+                    border: "0.5px solid var(--tc-red-border)",
+                    borderRadius: "8px",
+                    color: "var(--tc-red)",
+                    fontSize: "11px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    marginTop: "8px",
+                  }}
+                >
+                  <AlertTriangle size={11} />
+                  {error}
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* Input area */}
+        {/* Input stuck at the bottom — no visible frame, just a subtle top border */}
         <div
           style={{
-            borderTop: "0.5px solid var(--tc-border)",
-            padding: "12px 16px",
-            background: "var(--tc-card-inset)",
+            borderTop: "1px solid var(--tc-border)",
+            padding: "14px 10%",
+            background: "var(--tc-surface)",
           }}
         >
-          <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "flex-end",
+              background: "var(--tc-input)",
+              border: "1px solid var(--tc-border)",
+              borderRadius: "12px",
+              padding: "6px",
+              maxWidth: "900px",
+              margin: "0 auto",
+            }}
+          >
             <textarea
               ref={inputRef}
               value={input}
@@ -359,28 +358,39 @@ export default function ChatPage() {
               disabled={sending}
               style={{
                 flex: 1,
-                padding: "9px 12px",
-                background: "var(--tc-input)",
-                border: "0.5px solid var(--tc-border)",
-                borderRadius: "10px",
+                padding: "8px 10px",
+                background: "transparent",
+                border: "none",
                 color: "var(--tc-text)",
-                fontSize: "12px",
+                fontSize: "13px",
                 fontFamily: "inherit",
                 resize: "none",
-                maxHeight: "120px",
+                maxHeight: "160px",
                 outline: "none",
               }}
             />
-            <ChromeButton
+            <button
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              style={{ alignSelf: "stretch" }}
+              style={{
+                background: input.trim() && !sending ? "var(--tc-red)" : "var(--tc-input)",
+                color: input.trim() && !sending ? "#fff" : "var(--tc-text-muted)",
+                border: "none",
+                borderRadius: "8px",
+                padding: "8px 12px",
+                cursor: input.trim() && !sending ? "pointer" : "not-allowed",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 120ms",
+              }}
+              aria-label={tr("chatSend", locale)}
             >
-              {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            </ChromeButton>
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            </button>
           </div>
         </div>
-      </NeuCard>
+      </section>
     </div>
   );
 }
