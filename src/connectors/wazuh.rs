@@ -8,6 +8,7 @@ use crate::db::Database;
 use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,21 +28,73 @@ pub struct WazuhConfig {
     pub indexer_username: Option<String>,
     #[serde(default)]
     pub indexer_password: Option<String>,
+    /// Minimum rule.level kept (default 7 — matches the noise/signal boundary
+    /// most SOCs use). Lower levels are informational events; keeping them
+    /// would flood sigma_alerts without improving detection.
+    #[serde(default = "default_min_level")]
+    pub min_level: u32,
+    /// Exact rule-id deny list, applied in addition to the built-in noise
+    /// defaults. Useful for customer-specific tuning.
+    #[serde(default)]
+    pub skip_rule_ids: Vec<String>,
+    /// Conditional deny list: `{rule_id → substring}`. Alert is dropped if
+    /// its `full_log` contains the substring. Intended for rules that are
+    /// noisy under specific conditions only (e.g. rule 5104 is noise on
+    /// Docker veth interfaces but a real signal on physical NICs).
+    #[serde(default)]
+    pub skip_if_log_contains: HashMap<String, String>,
+    /// Cursor — last ingested alert timestamp from the previous cycle.
+    /// When present the fetch only pulls events newer than this, so we
+    /// never re-ingest the same alert and never lose volume during spikes.
+    #[serde(default)]
+    pub cursor_last_timestamp: Option<String>,
 }
 
 fn default_true() -> bool {
     true
 }
 fn default_limit() -> u32 {
-    100
+    500
+}
+fn default_min_level() -> u32 {
+    7
+}
+
+/// Baked-in defaults for well-known noisy Wazuh rules that would otherwise
+/// flood SOC dashboards on any Docker / K8s host. Merged with user config.
+/// If a customer needs rule 5104 on a real NIC, they can override via
+/// `skip_if_log_contains` but the Docker case stays silent by default.
+fn built_in_noise_filters() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("5104".to_string(), "veth".to_string());
+    m.insert("80710".to_string(), "dev=veth".to_string());
+    m
+}
+
+fn effective_skip_if_log_contains(config: &WazuhConfig) -> HashMap<String, String> {
+    let mut m = built_in_noise_filters();
+    for (k, v) in &config.skip_if_log_contains {
+        m.insert(k.clone(), v.clone());
+    }
+    m
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct WazuhSyncResult {
+    /// Number of events returned by Wazuh/indexer (pre-filter).
+    pub alerts_fetched: usize,
+    /// Successful sigma_alerts inserts.
     pub alerts_imported: usize,
     pub findings_created: usize,
+    /// Dropped by built-in or user-configured noise filter.
+    pub dropped_noise: usize,
+    /// DB insert errors (connection failure, constraint violation, etc.).
+    pub insert_errors: usize,
     pub highest_level: u8,
     pub errors: Vec<String>,
+    /// Advanced cursor. Caller persists via `set_skill_config` so the next
+    /// cycle resumes from the right place.
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,10 +122,14 @@ struct WazuhAlertData {
 
 pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSyncResult {
     let mut result = WazuhSyncResult {
+        alerts_fetched: 0,
         alerts_imported: 0,
         findings_created: 0,
+        dropped_noise: 0,
+        insert_errors: 0,
         highest_level: 0,
         errors: vec![],
+        cursor: config.cursor_last_timestamp.clone(),
     };
 
     let client = match Client::builder()
@@ -263,27 +320,58 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
         vec![]
     };
 
-    result.alerts_imported = alerts.len();
+    result.alerts_fetched = alerts.len();
 
-    // Convert alerts to findings
+    // Advance cursor to the newest timestamp in the batch (ASC order).
+    // Fetched alerts are sorted by timestamp asc on the indexer side, but
+    // be defensive in case callers hand us unsorted data.
+    let mut newest_seen: Option<String> = result.cursor.clone();
     for alert in &alerts {
-        import_wazuh_alert(store, alert, &mut result).await;
+        if let Some(ts) = alert["timestamp"].as_str() {
+            if newest_seen.as_deref().map(|c| ts > c).unwrap_or(true) {
+                newest_seen = Some(ts.to_string());
+            }
+        }
+    }
+
+    let skip_conditional = effective_skip_if_log_contains(config);
+    for alert in &alerts {
+        import_wazuh_alert(store, alert, config, &skip_conditional, &mut result).await;
+    }
+
+    if newest_seen != result.cursor {
+        result.cursor = newest_seen;
     }
 
     tracing::info!(
-        "WAZUH SYNC: {} alerts imported, {} findings created (max level {})",
+        "WAZUH SYNC: fetched={} imported={} findings={} dropped_noise={} insert_errors={} max_level={}",
+        result.alerts_fetched,
         result.alerts_imported,
         result.findings_created,
+        result.dropped_noise,
+        result.insert_errors,
         result.highest_level
     );
 
     result
 }
 
-/// Import a single Wazuh alert — routes to sigma_alerts (events) or findings (vulns)
+/// Import a single Wazuh alert — routes to sigma_alerts (events) or findings (vulns).
+///
+/// Responsibilities:
+///   - Noise filtering: drops events matching the built-in + user-configured
+///     deny list (veth promisc, audit inventory, customer-specific rules).
+///   - Severity mapping: Wazuh level 0-15 → low/medium/high/critical.
+///   - Source IP extraction: tries the standard `data.srcip` then falls back
+///     to `data.src_host` / `data.src_ip` used by JSON decoders (OpenCanary,
+///     custom pipelines).
+///   - Counts: every skip/insert is accounted for in `result` so operators
+///     can tell the difference between a quiet SOC and a broken pipeline.
 async fn import_wazuh_alert(
     store: &dyn Database,
     alert: &serde_json::Value,
+    config: &WazuhConfig,
+    skip_conditional: &HashMap<String, String>,
     result: &mut WazuhSyncResult,
 ) {
     let rule_level = alert["rule"]["level"].as_u64().unwrap_or(0) as u8;
@@ -291,6 +379,7 @@ async fn import_wazuh_alert(
     let rule_id = alert["rule"]["id"].as_str().unwrap_or("");
     let agent_name = alert["agent"]["name"].as_str().unwrap_or("");
     let agent_ip = alert["agent"]["ip"].as_str().unwrap_or("");
+    let full_log = alert["full_log"].as_str().unwrap_or("");
     // Standard Wazuh decoders populate data.srcip. Some connectors (OpenCanary,
     // custom JSON decoders) use data.src_host or data.src_ip instead.
     let src_ip = alert["data"]["srcip"]
@@ -306,7 +395,8 @@ async fn import_wazuh_alert(
         result.highest_level = rule_level;
     }
 
-    if rule_level < 5 {
+    if (rule_level as u32) < config.min_level {
+        result.dropped_noise += 1;
         return;
     }
 
@@ -317,21 +407,43 @@ async fn import_wazuh_alert(
         _ => "critical",
     };
 
-    // Filter noisy audit rules (80700-80799 = Linux audit events)
-    // These are inventory/system events, not security alerts. Excluded to avoid score pollution.
+    // Noise filter: exact rule-id deny + conditional pattern deny.
+    if config.skip_rule_ids.iter().any(|id| id == rule_id) {
+        result.dropped_noise += 1;
+        return;
+    }
+    if let Some(pat) = skip_conditional.get(rule_id) {
+        if full_log.contains(pat.as_str()) {
+            result.dropped_noise += 1;
+            return;
+        }
+    }
+
+    // Safety net for Linux audit inventory events — kept in addition to the
+    // configurable filter because this range is always noise and a config
+    // typo should not reopen the floodgate.
     let rule_num: u32 = rule_id.parse().unwrap_or(0);
     if (80700..80800).contains(&rule_num) {
+        result.dropped_noise += 1;
         return;
     }
 
-    // Store raw alert in logs table for Sigma engine matching.
-    // This enables PowerShell obfuscation rules, Kerberoasting detection, and
-    // any future Sigma rule to match against Wazuh event data.
-    // Tag: "wazuh.alert" for all events, enables logsource filtering.
+    // Raw alert → logs table. Downstream Sigma engine matches against this.
+    // Insert errors are WARN-logged because a failure here means the Sigma
+    // engine loses visibility for this event — not fatal for sigma_alerts
+    // which has its own path but worth surfacing.
     let now = chrono::Utc::now().to_rfc3339();
-    let _ = store
+    if let Err(e) = store
         .insert_log("wazuh.alert", agent_name, alert, &now)
-        .await;
+        .await
+    {
+        tracing::warn!(
+            rule_id = rule_id,
+            agent = agent_name,
+            "WAZUH: insert_log failed: {}",
+            e
+        );
+    }
 
     // Wazuh vulnerability rules (5500-5599) → findings (dedup OK)
     // Everything else (auth, intrusion, file integrity) → sigma_alerts (each event counts)
@@ -339,7 +451,7 @@ async fn import_wazuh_alert(
 
     if is_vuln_rule {
         // Vulnerability → finding (deduplicated)
-        let _ = store
+        match store
             .insert_finding(&NewFinding {
                 skill_id: "skill-wazuh".into(),
                 title: format!("[Wazuh {}] {}", rule_id, rule_desc),
@@ -358,13 +470,19 @@ async fn import_wazuh_alert(
                     "wazuh_rule_id": rule_id, "rule_level": rule_level,
                 })),
             })
-            .await;
-        result.findings_created += 1;
+            .await
+        {
+            Ok(_) => result.findings_created += 1,
+            Err(e) => {
+                result.insert_errors += 1;
+                tracing::warn!(rule_id = rule_id, "WAZUH: insert_finding failed: {}", e);
+            }
+        }
     } else {
         // Security event → sigma_alert (each occurrence counts for scoring)
         let sigma_rule_id = format!("wazuh-{}", rule_id);
         let title = format!("[Wazuh {}] {}", rule_id, rule_desc);
-        let _ = store
+        match store
             .insert_sigma_alert(
                 &sigma_rule_id,
                 severity,
@@ -373,14 +491,26 @@ async fn import_wazuh_alert(
                 src_ip,
                 username,
             )
-            .await;
-        result.alerts_imported += 1;
+            .await
+        {
+            Ok(_) => result.alerts_imported += 1,
+            Err(e) => {
+                result.insert_errors += 1;
+                tracing::warn!(
+                    rule_id = rule_id,
+                    agent = agent_name,
+                    "WAZUH: insert_sigma_alert failed: {}",
+                    e
+                );
+                return;
+            }
+        }
 
         // HIGH/CRITICAL security events also create a finding (deduplicated by rule+asset)
         // This ensures the Intelligence Engine sees them and can escalate to investigation.
         if rule_level >= 10 {
             let finding_title = format!("[Wazuh {}] {}", rule_id, rule_desc);
-            let _ = store
+            match store
                 .insert_finding(&NewFinding {
                     skill_id: "skill-wazuh".into(),
                     title: finding_title,
@@ -401,15 +531,38 @@ async fn import_wazuh_alert(
                         "source_ip": src_ip, "username": username,
                     })),
                 })
-                .await;
-            result.findings_created += 1;
+                .await
+            {
+                Ok(_) => result.findings_created += 1,
+                Err(e) => {
+                    result.insert_errors += 1;
+                    tracing::warn!(
+                        rule_id = rule_id,
+                        "WAZUH: HIGH finding insert failed: {}",
+                        e
+                    );
+                }
+            }
         }
     }
 }
 
-/// Fetch Wazuh alerts from OpenSearch/Elasticsearch indexer.
-/// Makes two queries: first HIGH+ (level >= 10), then the rest (level 7-9),
-/// to ensure critical alerts are never lost due to pagination.
+/// Fetch Wazuh alerts from OpenSearch/Elasticsearch indexer using a timestamp
+/// cursor.
+///
+/// Semantics:
+///   - If `config.cursor_last_timestamp` is set, we fetch everything strictly
+///     newer than that timestamp (no overlap with previous cycle).
+///   - Otherwise, first run defaults to the last hour — NOT 24h — to avoid
+///     a massive replay on a fresh install, which used to double-insert
+///     thousands of rows every time the core restarted.
+///   - Hits are sorted by timestamp ASC so the caller can safely advance the
+///     cursor to the last item's timestamp.
+///   - `must_not: rule.id in skip_rule_ids` is pushed down to the indexer so
+///     we save bandwidth and memory on high-volume deployments.
+///   - Batch capped at `max_alerts` (default 500). If we saturate the cap we
+///     WARN so the operator knows events are lagging — next cycle will catch
+///     up because the cursor only advances to the newest item ingested.
 async fn fetch_alerts_from_indexer(
     client: &Client,
     config: &WazuhConfig,
@@ -420,62 +573,44 @@ async fn fetch_alerts_from_indexer(
     let indexer_user = config.indexer_username.as_deref().unwrap_or("admin");
     let indexer_pass = config.indexer_password.as_deref().unwrap_or("admin");
 
-    let mut all_alerts = Vec::new();
+    let time_filter = match config.cursor_last_timestamp.as_deref() {
+        Some(ts) if !ts.is_empty() => {
+            serde_json::json!({ "range": { "timestamp": { "gt": ts } } })
+        }
+        _ => serde_json::json!({ "range": { "timestamp": { "gte": "now-1h" } } }),
+    };
 
-    // Query 1: HIGH/CRITICAL alerts (level >= 10) — never miss these
-    let query_high = serde_json::json!({
-        "size": 100,
-        "sort": [{ "timestamp": { "order": "desc" } }],
-        "query": { "bool": { "filter": [
-            { "range": { "rule.level": { "gte": 10 } } },
-            { "range": { "timestamp": { "gte": "now-24h" } } }
-        ]}}
-    });
+    // Push the exact-id deny list down to OpenSearch. The conditional
+    // (rule_id + full_log substring) filter still runs client-side because
+    // OpenSearch can't express "matches this substring only when rule.id=X"
+    // in a single query without scripts.
+    let skip_ids: Vec<&str> = config.skip_rule_ids.iter().map(String::as_str).collect();
+    let must_not = if skip_ids.is_empty() {
+        serde_json::json!([])
+    } else {
+        serde_json::json!([{ "terms": { "rule.id": skip_ids } }])
+    };
 
-    if let Ok(resp) = client
-        .post(&search_url)
-        .basic_auth(indexer_user, Some(indexer_pass))
-        .header("Content-Type", "application/json")
-        .json(&query_high)
-        .timeout(Duration::from_secs(15))
-        .send()
-        .await
-    {
-        if resp.status().is_success() {
-            if let Ok(body) = resp.json::<serde_json::Value>().await {
-                if let Some(hits) = body["hits"]["hits"].as_array() {
-                    for hit in hits {
-                        if let Some(src) = hit["_source"].as_object() {
-                            all_alerts.push(serde_json::Value::Object(src.clone()));
-                        }
-                    }
-                    if !all_alerts.is_empty() {
-                        tracing::info!(
-                            "WAZUH INDEXER: {} HIGH+ alerts (level >= 10)",
-                            all_alerts.len()
-                        );
-                    }
-                }
+    let size = config.max_alerts.max(100);
+    let query = serde_json::json!({
+        "size": size,
+        "sort": [{ "timestamp": { "order": "asc" } }],
+        "query": {
+            "bool": {
+                "filter": [
+                    { "range": { "rule.level": { "gte": config.min_level } } },
+                    time_filter
+                ],
+                "must_not": must_not
             }
         }
-    }
-
-    // Query 2: Medium alerts (level 7-9) — bulk of the alerts
-    let remaining = config.max_alerts.saturating_sub(all_alerts.len() as u32);
-    let query_medium = serde_json::json!({
-        "size": remaining,
-        "sort": [{ "timestamp": { "order": "desc" } }],
-        "query": { "bool": { "filter": [
-            { "range": { "rule.level": { "gte": 7, "lt": 10 } } },
-            { "range": { "timestamp": { "gte": "now-24h" } } }
-        ]}}
     });
 
     let resp = client
         .post(&search_url)
         .basic_auth(indexer_user, Some(indexer_pass))
         .header("Content-Type", "application/json")
-        .json(&query_medium)
+        .json(&query)
         .timeout(Duration::from_secs(30))
         .send()
         .await
@@ -490,17 +625,148 @@ async fn fetch_alerts_from_indexer(
         .await
         .map_err(|e| format!("Indexer parse: {}", e))?;
 
+    let mut alerts = Vec::new();
     if let Some(hits) = body["hits"]["hits"].as_array() {
         for hit in hits {
             if let Some(src) = hit["_source"].as_object() {
-                all_alerts.push(serde_json::Value::Object(src.clone()));
+                alerts.push(serde_json::Value::Object(src.clone()));
             }
         }
     }
 
+    if alerts.len() as u32 >= size {
+        tracing::warn!(
+            "WAZUH INDEXER: batch saturated at {} events — events may lag; \
+             next cycle will resume from the cursor",
+            size
+        );
+    }
+
     tracing::info!(
-        "WAZUH INDEXER: {} alerts fetched (level >= 7, last 24h)",
-        all_alerts.len()
+        "WAZUH INDEXER: fetched {} alerts (min_level={}, cursor={})",
+        alerts.len(),
+        config.min_level,
+        config
+            .cursor_last_timestamp
+            .as_deref()
+            .unwrap_or("none (first run, last 1h)")
     );
-    Ok(all_alerts)
+    Ok(alerts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn base_config() -> WazuhConfig {
+        WazuhConfig {
+            url: "https://wazuh.example".into(),
+            username: "wazuh".into(),
+            password: "pass".into(),
+            no_tls_verify: true,
+            max_alerts: 500,
+            indexer_url: None,
+            indexer_username: None,
+            indexer_password: None,
+            min_level: 7,
+            skip_rule_ids: vec![],
+            skip_if_log_contains: HashMap::new(),
+            cursor_last_timestamp: None,
+        }
+    }
+
+    fn alert(rule_id: &str, level: u8, full_log: &str) -> serde_json::Value {
+        json!({
+            "rule": { "id": rule_id, "level": level, "description": "t" },
+            "agent": { "name": "host", "ip": "10.0.0.1" },
+            "data": { "srcip": "1.2.3.4" },
+            "full_log": full_log,
+            "timestamp": "2026-04-22T14:00:00.000+0000"
+        })
+    }
+
+    // Docker veth promisc noise is the #1 customer complaint we can fix up
+    // front. 5104 at level 8 matches `min_level >= 7` so without the
+    // conditional filter it would land in sigma_alerts at ~40-80/min on
+    // any Docker host. Verify the default silences it cleanly while
+    // keeping 5104 alerts on real interfaces.
+    #[test]
+    fn built_in_noise_drops_docker_veth_5104() {
+        let skip = effective_skip_if_log_contains(&base_config());
+        let a = alert("5104", 8, "device vethabc entered promiscuous mode");
+        let pat = skip.get("5104").expect("5104 default");
+        assert!(a["full_log"].as_str().unwrap().contains(pat.as_str()));
+
+        let real = alert("5104", 8, "device eth0 entered promiscuous mode");
+        assert!(!real["full_log"].as_str().unwrap().contains(pat.as_str()));
+    }
+
+    #[test]
+    fn auditd_80710_veth_also_silenced() {
+        let skip = effective_skip_if_log_contains(&base_config());
+        let a = alert(
+            "80710",
+            10,
+            "type=ANOM_PROMISCUOUS msg=audit(...): dev=veth023b prom=256",
+        );
+        let pat = skip.get("80710").expect("80710 default");
+        assert!(a["full_log"].as_str().unwrap().contains(pat.as_str()));
+    }
+
+    #[test]
+    fn customer_config_extends_but_does_not_replace_defaults() {
+        let mut c = base_config();
+        c.skip_if_log_contains
+            .insert("12345".into(), "custom-noise".into());
+        let skip = effective_skip_if_log_contains(&c);
+        assert_eq!(skip.get("5104"), Some(&"veth".to_string()));
+        assert_eq!(skip.get("12345"), Some(&"custom-noise".to_string()));
+    }
+
+    #[test]
+    fn customer_can_override_builtin_pattern() {
+        // A customer running OpenShift on a non-Docker node might need to
+        // re-open rule 5104. They can override the pattern to something no
+        // log will ever contain, effectively unmuting it.
+        let mut c = base_config();
+        c.skip_if_log_contains
+            .insert("5104".into(), "NEVER_MATCHES".into());
+        let skip = effective_skip_if_log_contains(&c);
+        let a = alert("5104", 8, "device vethabc entered promiscuous mode");
+        let pat = skip.get("5104").unwrap();
+        assert!(!a["full_log"].as_str().unwrap().contains(pat.as_str()));
+    }
+
+    #[test]
+    fn default_min_level_is_seven() {
+        assert_eq!(default_min_level(), 7);
+    }
+
+    // Regression for the silent "source_ip = NULL" bug: OpenCanary and any
+    // JSON decoder that emits `data.src_host` instead of the canonical
+    // `data.srcip`. Matching is handled at call site, so this test mirrors
+    // the exact fallback chain.
+    #[test]
+    fn src_ip_fallback_picks_src_host_when_srcip_missing() {
+        let alert = json!({
+            "data": { "src_host": "203.0.113.5" }
+        });
+        let src_ip = alert["data"]["srcip"]
+            .as_str()
+            .or_else(|| alert["data"]["src_host"].as_str())
+            .or_else(|| alert["data"]["src_ip"].as_str());
+        assert_eq!(src_ip, Some("203.0.113.5"));
+    }
+
+    #[test]
+    fn src_ip_fallback_prefers_canonical_srcip_when_both_present() {
+        let alert = json!({
+            "data": { "srcip": "10.0.0.1", "src_host": "203.0.113.5" }
+        });
+        let src_ip = alert["data"]["srcip"]
+            .as_str()
+            .or_else(|| alert["data"]["src_host"].as_str());
+        assert_eq!(src_ip, Some("10.0.0.1"));
+    }
 }

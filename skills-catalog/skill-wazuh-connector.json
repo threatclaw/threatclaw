@@ -65,9 +65,29 @@
     },
     "max_alerts": {
       "type": "number",
-      "description": "Nombre max d'alertes par sync",
-      "hint": "Limite le nombre d'alertes récupérées à chaque synchronisation. 100 par défaut, augmentez si vous avez beaucoup d'alertes.",
-      "default": 100
+      "description": "Taille maximum du batch par cycle",
+      "hint": "Limite le nombre d'alertes récupérées à chaque cycle de synchronisation. 500 par défaut. Si votre déploiement génère plus de 500 alertes en 5 minutes, le curseur reprendra automatiquement au cycle suivant (rien n'est perdu).",
+      "default": 500
+    },
+    "min_level": {
+      "type": "number",
+      "description": "Niveau Wazuh minimum ingéré",
+      "hint": "Wazuh attribue un niveau 0-15 à chaque alerte. 7 par défaut filtre les événements informationnels (sessions ouvertes/fermées normales, etc.) tout en gardant les intrusions, brute force et anomalies. Baissez à 3-5 pour plus de verbosité, montez à 10 pour ne voir que HIGH+.",
+      "default": 7
+    },
+    "skip_rule_ids": {
+      "type": "string",
+      "description": "IDs de règles à ignorer (CSV)",
+      "placeholder": "1234,5678",
+      "hint": "Liste d'identifiants de règles Wazuh à ignorer complètement, séparés par virgules. Utilisez pour couper le bruit spécifique à votre environnement.",
+      "required": false
+    },
+    "skip_if_log_contains": {
+      "type": "string",
+      "description": "Filtre conditionnel (JSON)",
+      "placeholder": "{\"5104\": \"veth\"}",
+      "hint": "Skip une règle SI son full_log contient un motif. Format JSON: {\"rule_id\": \"motif\"}. Par défaut ThreatClaw silence déjà 5104 (veth Docker) et 80710 (auditd veth) — ajoutez ici vos règles custom.",
+      "required": false
     }
   },
   "outputs": {
