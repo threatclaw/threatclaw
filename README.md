@@ -73,7 +73,7 @@ cargo build --release
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/dash-2.heic" alt="Dashboard — Real-time SOC Center" width="800">
+  <img src="docs/screenshots/console.png" alt="Dashboard — Real-time SOC Center" width="800">
   <br><em>Dashboard — Real-time SOC Center</em>
 </p>
 
@@ -83,7 +83,7 @@ cargo build --release
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/export.png" alt="Reports & Exports — NIS2, RGPD, ISO 27001, STIX/MISP" width="800">
+  <img src="docs/screenshots/export-v2.png" alt="Reports & Exports — NIS2, RGPD, ISO 27001, STIX/MISP" width="800">
   <br><em>Reports & Exports — NIS2, RGPD/CNIL, ISO 27001, NIST, STIX 2.1, MISP (PDF + JSON)</em>
 </p>
 
