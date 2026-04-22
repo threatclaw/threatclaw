@@ -215,11 +215,15 @@ services:
       - ollama-data:/root/.ollama
     environment:
       OLLAMA_HOST: "0.0.0.0"
-      # Two slots so L0 (conversation) and L1 (triage) can stay resident
-      # simultaneously. L2/L2.5 evict the LRU slot when they run, then unload
-      # after their own keep_alive (30s, set per-request in call_ollama).
-      OLLAMA_MAX_LOADED_MODELS: "2"
-      OLLAMA_NUM_PARALLEL: "2"
+      # One slot by default — keeping two resident needs 16 GB+ of RAM
+      # just for the models (L1 = 6 GB, L2 = 10 GB) and pushed CASE into
+      # swap thrashing during real-incident investigations (observed 2026-04-22:
+      # /api/chat timeouts at 30 s, 500 errors). With "1" Ollama swaps on
+      # demand — a 10-15 s load cost per level change, but no RAM pressure
+      # on a 32 GB host. Operators with a dedicated LLM host (64 GB+) can
+      # raise this back to 2 or 3 without touching ThreatClaw.
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
       # NOTE: OLLAMA_FLASH_ATTENTION + OLLAMA_KV_CACHE_TYPE are intentionally
       # NOT set. Flash attention on CPU with Gemma 4 causes severe slowdowns
       # (Ollama issue #15395), and q8_0 KV cache requires flash attention.
