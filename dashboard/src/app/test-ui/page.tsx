@@ -924,7 +924,7 @@ export default function TestUI() {
         accentGlow="rgba(208,48,32,0.03)"
       >
         <CpuCard
-          version={health?.version ? `v${health.version}` : "v1.0.8-beta"}
+          version={health?.version ? `v${health.version}` : "v1.0.9-beta"}
           services={[
             { name: "PostgreSQL", connected: dbConnected, color: "#3080d0" },
             { name: "AI / Ollama", connected: aiConnected, color: "#9060d0" },
