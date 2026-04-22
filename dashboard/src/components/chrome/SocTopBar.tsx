@@ -19,27 +19,17 @@ type NavLeaf = { href: string; label: (l: Locale) => string };
 type NavGroup = { key: string; label: (l: Locale) => string; items: NavLeaf[] };
 type NavEntry = NavLeaf | NavGroup;
 
+// Flat nav — no dropdowns. Chat is intentionally absent: it's reachable
+// from the Console right panel. Keep the list short; don't add a tab here
+// unless an operator actually navigates to it several times a day.
 const NAV: NavEntry[] = [
   { href: "/", label: () => "Console" },
   { href: "/status", label: () => "Status" },
-  {
-    key: "detections",
-    label: (l) => (l === "fr" ? "Détections" : "Detections"),
-    items: [
-      { href: "/incidents", label: () => "Incidents" },
-      { href: "/chat", label: () => "Chat" },
-      { href: "/sources", label: () => "Sources" },
-    ],
-  },
-  {
-    key: "analytics",
-    label: () => "Analytics",
-    items: [
-      { href: "/intelligence", label: () => "Intelligence" },
-      { href: "/governance", label: () => "Governance" },
-      { href: "/exports", label: (l) => (l === "fr" ? "Rapports" : "Reports") },
-    ],
-  },
+  { href: "/incidents", label: () => "Incidents" },
+  { href: "/sources", label: () => "Sources" },
+  { href: "/intelligence", label: () => "Intelligence" },
+  { href: "/governance", label: () => "Governance" },
+  { href: "/exports", label: (l) => (l === "fr" ? "Rapports" : "Reports") },
   { href: "/setup", label: () => "Config" },
 ];
 

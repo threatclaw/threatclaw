@@ -311,9 +311,11 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
           padding: "20px 0",
           position: "sticky",
           top: 0,
-          alignSelf: "start",
-          maxHeight: "calc(100vh - 60px)",
+          alignSelf: "stretch",
+          minHeight: "calc(100vh - 72px)",
           overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         <div
@@ -619,21 +621,66 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "sources" && (<LogSourcesTab />)}
       </div>
 
-      {/* Actions bar */}
-      <div style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "16px 20px", borderRadius: "14px",
-        background: "rgba(18,18,26,0.5)", border: "1px solid var(--tc-border-light)",
-        position: "sticky", bottom: "20px",
-        backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
-      }}>
-        <ChromeButton onClick={onResetWizard} variant="glass">
-          <RotateCcw size={14} /> {tr("restartWizard", locale)}
-        </ChromeButton>
-        <ChromeButton onClick={handleSave} disabled={saving} variant="primary" style={{ minWidth: "220px" }}>
-          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-          {saved ? tr("save", locale) + " ✓" : tr("save", locale)}
-        </ChromeButton>
+      {/* Actions bar — compact, sticky to the bottom of the content column */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "10px 14px",
+          marginTop: "18px",
+          borderTop: "1px solid var(--tc-border)",
+          background: "var(--tc-surface)",
+          position: "sticky",
+          bottom: "0",
+          gap: "12px",
+        }}
+      >
+        <button
+          onClick={onResetWizard}
+          style={{
+            padding: "7px 12px",
+            fontSize: "10px",
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            background: "transparent",
+            color: "var(--tc-text-muted)",
+            border: "1px solid var(--tc-border)",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+          title={locale === "fr" ? "Relance le wizard d'installation initial" : "Re-run the initial setup wizard"}
+        >
+          <RotateCcw size={12} /> {tr("restartWizard", locale)}
+        </button>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            padding: "8px 18px",
+            fontSize: "11px",
+            fontWeight: 700,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            background: saved ? "#30a050" : "var(--tc-red)",
+            color: "#fff",
+            border: "none",
+            cursor: saving ? "default" : "pointer",
+            fontFamily: "inherit",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: "180px",
+            justifyContent: "center",
+            opacity: saving ? 0.7 : 1,
+          }}
+        >
+          {saving ? <Loader2 size={13} className="animate-spin" /> : saved ? <CheckCircle2 size={13} /> : <Save size={13} />}
+          {saved ? `${tr("save", locale)} ✓` : tr("save", locale)}
+        </button>
       </div>
     </div>
   );
