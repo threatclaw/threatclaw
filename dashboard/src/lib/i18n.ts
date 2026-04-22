@@ -334,6 +334,7 @@ const T: Record<string, Record<Locale, string>> = {
   // ── Nav ──
   status: { fr: "Status", en: "Status" },
   incidents: { fr: "Incidents", en: "Incidents" },
+  analytics: { fr: "Analytics", en: "Analytics" },
   chat: { fr: "Chat", en: "Chat" },
   chatAsk: { fr: "Poser une question à ThreatClaw…", en: "Ask ThreatClaw…" },
   chatNewConversation: { fr: "Nouvelle conversation", en: "New conversation" },
@@ -371,6 +372,9 @@ const T: Record<string, Record<Locale, string>> = {
   kpiFindings: { fr: "Vulnérabilités", en: "Findings" },
   kpiTopRiskAsset: { fr: "Asset le plus à risque", en: "Top risk asset" },
   kpiAlerts24h: { fr: "Alertes 24h", en: "Alerts 24h" },
+  kpiPendingTriage: { fr: "À trier", en: "To triage" },
+  kpiConfirmedThreats: { fr: "Menaces confirmées HIGH+", en: "Confirmed HIGH+ threats" },
+  kpiTriageRatio: { fr: "Bruit écarté", en: "Noise filtered" },
   detections: { fr: "Détections", en: "Detections" },
   detectionsSubtitle: { fr: "Vulnérabilités, alertes de sécurité et anomalies comportementales", en: "Vulnerabilities, security alerts and behavioral anomalies" },
   vulnerabilities: { fr: "Vulnérabilités", en: "Vulnerabilities" },

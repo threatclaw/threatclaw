@@ -3,33 +3,64 @@
 import React, { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Pause, Network, BrainCircuit, Sun, Moon, LogOut, Radio, Gavel, MessageSquare } from "lucide-react";
+import { Shield, Puzzle, Settings, Activity, Server, Wifi, WifiOff, Cpu, AlertTriangle, Bell, Play, Pause, Network, BrainCircuit, Sun, Moon, LogOut, Radio, Gavel, MessageSquare, ChevronDown } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
-const NAV_KEYS = [
+type NavLeaf = { href: string; key: string; icon: typeof Shield };
+type NavGroup = { key: string; icon: typeof Shield; items: NavLeaf[] };
+type NavEntry = NavLeaf | NavGroup;
+
+const NAV_ENTRIES: NavEntry[] = [
   { href: "/", key: "status", icon: Shield },
-  { href: "/incidents", key: "incidents", icon: Bell },
-  { href: "/chat", key: "chat", icon: MessageSquare },
-  { href: "/sources", key: "sources", icon: Radio },
-  { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
-  { href: "/governance", key: "governance", icon: Gavel },
-  { href: "/exports", key: "exports", icon: Activity },
+  {
+    key: "detections",
+    icon: Bell,
+    items: [
+      { href: "/incidents", key: "incidents", icon: Bell },
+      { href: "/chat", key: "chat", icon: MessageSquare },
+      { href: "/sources", key: "sources", icon: Radio },
+    ],
+  },
+  {
+    key: "analytics",
+    icon: BrainCircuit,
+    items: [
+      { href: "/intelligence", key: "intelligence", icon: BrainCircuit },
+      { href: "/governance", key: "governance", icon: Gavel },
+      { href: "/exports", key: "exports", icon: Activity },
+    ],
+  },
   { href: "/setup", key: "config", icon: Settings },
 ];
+
+function isGroup(e: NavEntry): e is NavGroup {
+  return (e as NavGroup).items !== undefined;
+}
+
+function hrefMatches(pathname: string, href: string): boolean {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+
+function entryIsActive(entry: NavEntry, pathname: string): boolean {
+  if (isGroup(entry)) return entry.items.some((i) => hrefMatches(pathname, i.href));
+  return hrefMatches(pathname, entry.href);
+}
 
 type ConnStatus = "full" | "degraded" | "offline";
 
 function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = React.useState({ left: 0, width: 0 });
+  const [openGroup, setOpenGroup] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!containerRef.current) return;
-    const activeIdx = NAV_KEYS.findIndex(item =>
-      item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
-    );
-    if (activeIdx < 0) return;
+    const activeIdx = NAV_ENTRIES.findIndex((e) => entryIsActive(e, pathname));
+    if (activeIdx < 0) {
+      setIndicator({ left: 0, width: 0 });
+      return;
+    }
     const buttons = containerRef.current.querySelectorAll<HTMLElement>("[data-nav-btn]");
     if (buttons[activeIdx]) {
       const btn = buttons[activeIdx];
@@ -37,13 +68,28 @@ function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }
     }
   }, [pathname]);
 
+  // Close the dropdown when clicking elsewhere or hitting escape
+  React.useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) setOpenGroup(null);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenGroup(null);
+    }
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("click", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, []);
+
   return (
     <div ref={containerRef} style={{
       position: "relative", display: "flex", padding: "3px",
       borderRadius: "11px", background: "var(--tc-input)",
       border: "1px solid var(--tc-border)",
     }}>
-      {/* Sliding red indicator — measured from actual button positions */}
       {indicator.width > 0 && (
         <div style={{
           position: "absolute", top: "3px", height: "calc(100% - 6px)",
@@ -57,25 +103,100 @@ function NavTabs({ pathname, locale }: { pathname: string; locale: "fr" | "en" }
           zIndex: 0,
         }} />
       )}
-      {NAV_KEYS.map((item) => {
-        const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-        const Icon = item.icon;
+      {NAV_ENTRIES.map((entry) => {
+        const active = entryIsActive(entry, pathname);
+        const Icon = entry.icon;
+        const itemStyle: React.CSSProperties = {
+          display: "flex", alignItems: "center", gap: "5px",
+          padding: "6px 10px",
+          fontSize: "10px", fontWeight: 600,
+          letterSpacing: "0.03em", textTransform: "uppercase",
+          color: active ? "var(--tc-red)" : "var(--tc-text-sec)",
+          transition: "color 200ms, opacity 200ms",
+          cursor: "pointer", whiteSpace: "nowrap",
+          opacity: active ? 1 : 0.75,
+        };
+        if (!isGroup(entry)) {
+          return (
+            <Link key={entry.href} href={entry.href} data-nav-btn style={{ textDecoration: "none", position: "relative", zIndex: 1 }}>
+              <div style={itemStyle}>
+                <Icon size={12} />
+                {tr(entry.key, locale)}
+              </div>
+            </Link>
+          );
+        }
+        const isOpen = openGroup === entry.key;
         return (
-          <Link key={item.href} href={item.href} data-nav-btn style={{ textDecoration: "none", position: "relative", zIndex: 1 }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: "5px",
-              padding: "6px 10px",
-              fontSize: "10px", fontWeight: 600,
-              letterSpacing: "0.03em", textTransform: "uppercase",
-              color: isActive ? "var(--tc-red)" : "var(--tc-text-sec)",
-              transition: "color 200ms, opacity 200ms",
-              cursor: "pointer", whiteSpace: "nowrap",
-              opacity: isActive ? 1 : 0.75,
-            }}>
+          <div key={entry.key} data-nav-btn style={{ position: "relative", zIndex: 1 }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenGroup(isOpen ? null : entry.key);
+              }}
+              style={{ ...itemStyle, background: "transparent", border: "none" }}
+            >
               <Icon size={12} />
-              {tr(item.key, locale)}
-            </div>
-          </Link>
+              {tr(entry.key, locale)}
+              <ChevronDown size={10} style={{ marginLeft: "2px", transform: isOpen ? "rotate(180deg)" : undefined, transition: "transform 150ms" }} />
+            </button>
+            {isOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  minWidth: "180px",
+                  background: "var(--tc-surface)",
+                  border: "1px solid var(--tc-border)",
+                  borderRadius: "10px",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.12)",
+                  padding: "4px",
+                  zIndex: 20,
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {entry.items.map((leaf) => {
+                  const leafActive = hrefMatches(pathname, leaf.href);
+                  const LeafIcon = leaf.icon;
+                  return (
+                    <Link
+                      key={leaf.href}
+                      href={leaf.href}
+                      onClick={() => setOpenGroup(null)}
+                      style={{ textDecoration: "none" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          fontSize: "11px",
+                          fontWeight: leafActive ? 700 : 500,
+                          color: leafActive ? "var(--tc-red)" : "var(--tc-text)",
+                          background: leafActive ? "var(--tc-red-soft)" : "transparent",
+                          transition: "background 120ms",
+                          cursor: "pointer",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!leafActive) e.currentTarget.style.background = "var(--tc-input)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!leafActive) e.currentTarget.style.background = "transparent";
+                        }}
+                      >
+                        <LeafIcon size={12} />
+                        {tr(leaf.key, locale)}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>
