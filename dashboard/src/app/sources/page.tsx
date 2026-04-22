@@ -6,6 +6,7 @@ import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 import {
   Radio, Shield, Server, Wifi, Eye, Globe, FileSearch, Bug, Puzzle,
   CheckCircle2, AlertTriangle, XCircle, Clock, Copy, Check,
@@ -299,19 +300,14 @@ export default function SourcesPage() {
   const syslogAddr = summary?.syslog_address || "0.0.0.0:514";
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-          {locale === "fr" ? "Sources de donnees" : "Data Sources"}
-        </h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          {locale === "fr"
-            ? "Connectez vos sources pour activer les detections. Plus de sources = plus de visibilite."
-            : "Connect your sources to activate detections. More sources = more visibility."}
-        </p>
-      </div>
-
+    <PageShell
+      title={locale === "fr" ? "Sources de données" : "Data Sources"}
+      subtitle={
+        locale === "fr"
+          ? "Connectez vos sources pour activer les détections. Plus de sources = plus de visibilité."
+          : "Connect your sources to activate detections. More sources = more visibility."
+      }
+    >
       {error && <ErrorBanner message={error} onRetry={load} />}
 
       {/* Summary cards */}
@@ -570,6 +566,6 @@ export default function SourcesPage() {
           {locale === "fr" ? "Actualiser" : "Refresh"}
         </ChromeButton>
       </div>
-    </div>
+    </PageShell>
   );
 }

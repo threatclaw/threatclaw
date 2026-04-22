@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { PageShell } from "@/components/chrome/PageShell";
 import {
   FileText, Shield, Download, Clock, Globe, Database,
   AlertTriangle, Server, Loader2, CheckCircle2, Lock,
@@ -658,34 +659,40 @@ export default function ExportsPage() {
   }, [region]);
 
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-            {locale === "fr" ? "Rapports & Exports" : "Reports & Exports"}
-          </h1>
-          <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-            {locale === "fr"
-              ? "4 familles : réponse à incident · conformité & audit · threat intel · opérations"
-              : "4 families: incident response · compliance & audit · threat intel · operations"}
-          </p>
-        </div>
-
+    <PageShell
+      title={locale === "fr" ? "Rapports & Exports" : "Reports & Exports"}
+      subtitle={
+        locale === "fr"
+          ? "4 familles : réponse à incident · conformité & audit · threat intel · opérations"
+          : "4 families: incident response · compliance & audit · threat intel · operations"
+      }
+      right={
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           {(Object.entries(REGION_LABELS) as [Region, typeof REGION_LABELS["eu"]][]).map(([key, val]) => (
-            <button key={key} onClick={() => setRegion(key)} style={{
-              padding: "6px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
-              background: region === key ? "var(--tc-surface-alt)" : "transparent",
-              border: region === key ? "1px solid var(--tc-border)" : "1px solid transparent",
-              color: region === key ? "var(--tc-text)" : "var(--tc-text-muted)",
-              display: "flex", alignItems: "center", gap: "4px",
-            }}>
+            <button
+              key={key}
+              onClick={() => setRegion(key)}
+              style={{
+                padding: "6px 10px",
+                fontSize: "10px",
+                fontWeight: 600,
+                borderRadius: "6px",
+                cursor: "pointer",
+                background: region === key ? "var(--tc-surface-alt)" : "transparent",
+                border: region === key ? "1px solid var(--tc-border)" : "1px solid transparent",
+                color: region === key ? "var(--tc-text)" : "var(--tc-text-muted)",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
               <span>{val.flag}</span>
               {locale === "fr" ? val.fr.split(" (")[0] : val.en.split(" (")[0]}
             </button>
           ))}
         </div>
-      </div>
+      }
+    >
 
       {SECTIONS.map(section => {
         const items = sectionItems[section.id];
@@ -775,6 +782,6 @@ export default function ExportsPage() {
           onSubmit={params => runExport(modalItem.item, params)}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

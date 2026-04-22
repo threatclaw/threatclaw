@@ -841,36 +841,63 @@ export default function IncidentsPage() {
   ];
 
   return (
-    <div>
-      <div style={{ marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-          {locale === "fr" ? "Incidents & Detections" : "Incidents & Detections"}
-        </h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
+    <div
+      style={{
+        padding: "24px 28px 40px",
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        color: "var(--tc-text)",
+        maxWidth: "1600px",
+        margin: "0 auto",
+      }}
+    >
+      <div style={{ marginBottom: "24px" }}>
+        <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>
+          {locale === "fr" ? "Incidents & Détections" : "Incidents & Detections"}
+        </div>
+        <div style={{ fontSize: "13px", color: "var(--tc-text-sec)", marginTop: "6px", maxWidth: "700px", lineHeight: 1.5 }}>
           {locale === "fr"
-            ? "Incidents confirmes, vulnerabilites detectees et alertes de securite"
-            : "Confirmed incidents, detected vulnerabilities and security alerts"}
-        </p>
+            ? "Incidents confirmés par l'IE, vulnérabilités détectées et alertes Sigma brutes. Le triage RSSI se fait sur les incidents, les deux autres sont pour forensic."
+            : "IE-confirmed incidents, detected vulnerabilities and raw Sigma alerts. RSSI triage happens on incidents; the other two are for forensic review."}
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "20px" }}>
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-            padding: "10px 18px", borderRadius: "var(--tc-radius-sm)", fontSize: "12px", fontWeight: 700,
-            cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px",
-            background: activeTab === tab.id ? "var(--tc-red-soft, rgba(208,48,32,0.15))" : "var(--tc-input)",
-            color: activeTab === tab.id ? "var(--tc-red, #d03020)" : "var(--tc-text-muted)",
-            border: activeTab === tab.id ? "1px solid var(--tc-red-border, rgba(208,48,32,0.3))" : "1px solid var(--tc-border)",
-            transition: "all 0.2s",
-          }}>
-            {tab.icon} {tab.label}
-            <span style={{ fontSize: "9px", fontWeight: 500, opacity: 0.7 }}>({tab.desc})</span>
-          </button>
-        ))}
+      {/* Tabs — same sober style as the rest of the SOC console */}
+      <div style={{ display: "flex", borderBottom: "1px solid var(--tc-border)", marginBottom: "20px" }}>
+        {tabs.map((tab) => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: "10px 18px",
+                fontSize: "10px",
+                fontWeight: active ? 700 : 600,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "transparent",
+                color: active ? "var(--tc-text)" : "var(--tc-text-sec)",
+                border: "none",
+                borderBottom: active ? "2px solid var(--tc-red)" : "2px solid transparent",
+                marginBottom: "-1px",
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                transition: "color 120ms",
+              }}
+            >
+              {tab.icon}
+              {tab.label}
+              <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.04em", textTransform: "none", fontWeight: 400 }}>
+                {tab.desc}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* Active tab content */}
       {activeTab === "incidents" && <IncidentsTab locale={locale} />}
       {activeTab === "findings" && <FindingsTab locale={locale} />}
       {activeTab === "alerts" && <AlertsTab locale={locale} />}

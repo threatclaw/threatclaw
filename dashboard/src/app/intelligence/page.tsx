@@ -11,6 +11,7 @@ import { useLocale } from "@/lib/useLocale";
 import GraphVisualization from "@/components/chrome/GraphVisualization";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 
 // ── Types ──
 
@@ -199,23 +200,15 @@ export default function IntelligencePage() {
   useEffect(() => { loadBlast(); }, [loadBlast]);
 
   return (
-    <div style={{ padding: "0 24px 40px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-        <div>
-          <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>
-            Graph Intelligence
-          </h1>
-          <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-            Analyse en temps reel depuis Apache AGE + STIX 2.1
-            {lastRefresh && <span> &middot; {lastRefresh}</span>}
-          </p>
-        </div>
+    <PageShell
+      title="Graph Intelligence"
+      subtitle={`Analyse en temps réel depuis Apache AGE + STIX 2.1${lastRefresh ? ` · dernière actualisation ${lastRefresh}` : ""}`}
+      right={
         <EmbossedButton onClick={refresh} disabled={loading}>
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualiser
         </EmbossedButton>
-      </div>
-
+      }
+    >
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       {/* Top stats row */}
@@ -485,6 +478,6 @@ export default function IntelligencePage() {
           <Shield size={14} /> Charger playbooks MITRE
         </EmbossedButton>
       </div>
-    </div>
+    </PageShell>
   );
 }

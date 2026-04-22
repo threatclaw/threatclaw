@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { PageShell } from "@/components/chrome/PageShell";
 import {
   Shield, Brain, Gavel, FileCheck, AlertTriangle, RefreshCw, Loader2,
   CheckCircle2, XCircle, ChevronRight, Bot, Server, Globe,
@@ -480,29 +481,36 @@ export default function GovernancePage() {
   };
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>
-            {locale === "fr" ? "Gouvernance IA & conformité" : "AI Governance & Compliance"}
-          </h1>
-          <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-            {locale === "fr"
-              ? "Posture continue : shadow AI live · inventaire IA · score NIS2 / ISO 27001 · traçabilité"
-              : "Continuous posture: shadow AI live · AI inventory · NIS2 / ISO 27001 score · audit trail"}
-          </p>
-        </div>
-        <button onClick={load} disabled={loading} style={{
-          padding: "6px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px",
-          cursor: loading ? "default" : "pointer",
-          background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-          color: "var(--tc-text-sec)", display: "flex", alignItems: "center", gap: "4px",
-        }}>
+    <PageShell
+      title={locale === "fr" ? "Gouvernance IA & conformité" : "AI Governance & Compliance"}
+      subtitle={
+        locale === "fr"
+          ? "Posture continue : shadow AI live · inventaire IA · score NIS2 / ISO 27001 · traçabilité"
+          : "Continuous posture: shadow AI live · AI inventory · NIS2 / ISO 27001 score · audit trail"
+      }
+      right={
+        <button
+          onClick={load}
+          disabled={loading}
+          style={{
+            padding: "6px 10px",
+            fontSize: "10px",
+            fontWeight: 600,
+            borderRadius: "6px",
+            cursor: loading ? "default" : "pointer",
+            background: "var(--tc-surface-alt)",
+            border: "1px solid var(--tc-border)",
+            color: "var(--tc-text-sec)",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+          }}
+        >
           {loading ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
           {locale === "fr" ? "Actualiser" : "Refresh"}
         </button>
-      </div>
-
+      }
+    >
       {error && (
         <div style={{
           padding: "10px 14px", background: "rgba(224,64,64,0.08)", borderLeft: "3px solid #e04040",
@@ -545,6 +553,6 @@ export default function GovernancePage() {
           )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
