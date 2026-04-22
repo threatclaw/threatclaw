@@ -1,523 +1,426 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { t as tr } from "@/lib/i18n";
-import { useLocale } from "@/lib/useLocale";
-import { NeuCard } from "@/components/chrome/NeuCard";
-import { CpuCard } from "@/components/chrome/CpuCard";
-import { ChromeButton } from "@/components/chrome/ChromeButton";
-import OnboardingBanner from "@/components/chrome/OnboardingBanner";
-import OnboardingLevelPicker from "@/components/chrome/OnboardingLevelPicker";
-import OnboardingTour from "@/components/chrome/OnboardingTour";
-import { useOnboarding } from "@/lib/useOnboarding";
-import KevTtaCard from "@/components/metrics/KevTtaCard";
-import MonthlyRssiCard from "@/components/metrics/MonthlyRssiCard";
-import HomeKpiStrip from "@/components/metrics/HomeKpiStrip";
+// System status page — health of the deployment.
+// Complementary to the Console at /: the console answers
+// "what do I need to do right now?", this page answers
+// "is everything wired up and running?".
+//
+// Keeps the CpuCard the operator likes at the top, with live service
+// connection indicators in the SOC design language below.
+
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import {
-  CheckCircle2, Loader2, Settings, Puzzle, Activity,
-  Cpu, MessageSquare, Shield, Server, ArrowRight,
-  HardDrive, Clock, Brain, Database, Eye, Wifi,
-  ChevronRight, Monitor,
+  Database,
+  Brain,
+  Cpu,
+  Radio,
+  Shield,
+  Network,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  RefreshCcw,
 } from "lucide-react";
+import { CpuCard } from "@/components/chrome/CpuCard";
+import { NeuCard } from "@/components/chrome/NeuCard";
 
-const labelCaps: React.CSSProperties = {
-  fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)",
-  textTransform: "uppercase", letterSpacing: "0.06em",
+type ConnState = "ok" | "down" | "checking";
+
+type HealthResp = {
+  status?: string;
+  version?: string;
+  database?: boolean;
+  llm?: string;
 };
 
-const metricBig: React.CSSProperties = {
-  fontSize: "20px", fontWeight: 800, color: "var(--tc-text)", marginTop: "4px",
+type Situation = {
+  global_score?: number;
+  computed_at?: string;
+  total_open_findings?: number;
+  total_active_alerts?: number;
+  assets?: Array<{ asset: string; score: number }>;
 };
 
-export default function HomePage() {
-  const locale = useLocale();
-  const onboarding = useOnboarding();
-  const [showLevelPicker, setShowLevelPicker] = useState(false);
-  const [services, setServices] = useState<{ name: string; icon: React.ReactNode; status: "ok" | "down" | "checking"; detail?: string }[]>([
-    { name: "ThreatClaw Engine", icon: <Shield size={16} />, status: "checking" },
-    { name: "ThreatClaw AI", icon: <Brain size={16} />, status: "checking" },
-    { name: "Base de données", icon: <Database size={16} />, status: "checking" },
-  ]);
-  const [config, setConfig] = useState<any>(null);
-  const [onboarded, setOnboarded] = useState<boolean | null>(null);
-  const [situation, setSituation] = useState<any>(null);
-  const [aiModels, setAiModels] = useState<string[]>([]);
-  const [lastCycle, setLastCycle] = useState<string | null>(null);
-  const [diskFree, setDiskFree] = useState<string | null>(null);
-  const [dbStatus, setDbStatus] = useState<"ok" | "down" | "checking">("checking");
-  const [mlStatus, setMlStatus] = useState<{ anomaly: string; dns: string; training: string; dataDays: number; modelTrained: boolean }>({ anomaly: "checking", dns: "checking", training: "checking", dataDays: 0, modelTrained: false });
+type MlHeartbeat = {
+  last_run?: string;
+  model_trained?: boolean;
+  data_days?: number;
+  dns_active?: boolean;
+  anomaly_active?: boolean;
+};
 
-  // Show level picker on first visit after onboarding (no level chosen yet)
-  useEffect(() => {
-    if (!onboarding.loading && onboarded !== false) {
-      const hasChosenLevel = localStorage.getItem("tc-onboarding-level-chosen");
-      if (!hasChosenLevel && !onboarding.dismissed) {
-        setShowLevelPicker(true);
-      }
-    }
-  }, [onboarding.loading, onboarded, onboarding.dismissed]);
-
-  useEffect(() => {
-    setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
-
-    // Check Backend + DB
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json())
-      .then(d => {
-        setServices(s => s.map(svc => {
-          if (svc.name === "ThreatClaw Engine") return { ...svc, status: "ok" as const, detail: `v${d.version || "?"}` };
-          if (svc.name === "Base de données") return { ...svc, status: d.database ? "ok" as const : "down" as const, detail: d.database ? "PostgreSQL connecté" : "Non connecté" };
-          return svc;
-        }));
-      })
-      .catch(() => {
-        setServices(s => s.map(svc =>
-          svc.name === "ThreatClaw Engine" || svc.name === "Base de données"
-            ? { ...svc, status: "down" as const, detail: "Service non démarré" }
-            : svc
-        ));
-      });
-
-    // Check Ollama models
-    fetch("/api/ollama", { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json())
-      .then(d => {
-        const allModels = (d.models || []).map((m: { name: string }) => m.name);
-        // Count any LLM model (threatclaw-*, qwen*, mistral*, llama*, etc.)
-        const llmModels = allModels.filter((n: string) => !n.includes("embed") && !n.includes("nomic"));
-        setAiModels(allModels);
-        setServices(s => s.map(svc =>
-          svc.name === "ThreatClaw AI"
-            ? { ...svc, status: llmModels.length > 0 ? "ok" as const : "down" as const, detail: llmModels.length > 0 ? `${llmModels.length} modèle(s) disponible(s)` : undefined }
-            : svc
-        ));
-      })
-      .catch(() => setServices(s => s.map(svc =>
-        svc.name === "ThreatClaw AI" ? { ...svc, status: "down" as const, detail: "Non accessible" } : svc
-      )));
-
-    // Load config
-    fetch("/api/tc/config", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => setConfig(d)).catch(() => {});
-
-    // Load situation
-    fetch("/api/tc/intelligence/situation", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      setSituation(d);
-      if (d.computed_at) {
-        const ago = Math.round((Date.now() - new Date(d.computed_at).getTime()) / 60000);
-        setLastCycle(ago < 1 ? "< 1 min" : `${ago} min`);
-      }
-    }).catch(() => {});
-
-    // Real DB status from health check
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      setDbStatus(d.database ? "ok" : "down");
-    }).catch(() => setDbStatus("down"));
-
-    // Real ML engine status from health endpoint heartbeat
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      const ml = d.ml;
-      if (ml && ml.alive) {
-        const heartbeatAge = ml.timestamp ? (Date.now() - new Date(ml.timestamp).getTime()) / 1000 : 9999;
-        const isAlive = heartbeatAge < 600; // ML scores every 5 min, allow 10 min margin
-        const dataDays = ml.data_days || 0;
-        const modelTrained = ml.model_trained === true;
-        // Real state: inactive (engine down) → learning (collecting data) → active (model trained)
-        const realState = !isAlive ? "inactive" : modelTrained ? "active" : "learning";
-        setMlStatus({
-          anomaly: realState,
-          dns: realState,
-          training: modelTrained ? "trained" : dataDays > 0 ? "learning" : "waiting",
-          dataDays,
-          modelTrained,
-        });
-      } else {
-        setMlStatus({ anomaly: "inactive", dns: "inactive", training: "inactive", dataDays: 0, modelTrained: false });
-      }
-    }).catch(() => setMlStatus({ anomaly: "inactive", dns: "inactive", training: "inactive", dataDays: 0, modelTrained: false }));
-
-    // Real disk space — from health endpoint
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      if (d.disk_free) setDiskFree(d.disk_free);
-    }).catch(() => {});
-  }, []);
-
-  const activeChannels = config?.channels
-    ? Object.entries(config.channels).filter(([, v]: any) => v.enabled).map(([k]: any) => k)
-    : [];
+export default function StatusPage() {
+  const [health, setHealth] = useState<HealthResp | null>(null);
+  const [situation, setSituation] = useState<Situation | null>(null);
+  const [dbOk, setDbOk] = useState<ConnState>("checking");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaOk, setOllamaOk] = useState<ConnState>("checking");
+  const [ml, setMl] = useState<MlHeartbeat | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const score = situation?.global_score;
-  const scoreColor = score == null ? "var(--tc-text-muted)" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
-  const scoreLabel = score == null ? tr("waitingFirstCycle", locale) : score >= 80 ? tr("situationHealthy", locale) : score >= 50 ? tr("situationWarning", locale) : tr("situationCritical", locale);
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/tc/health", { signal: AbortSignal.timeout(8000) });
+        const d: HealthResp = await r.json();
+        if (!mounted) return;
+        setHealth(d);
+        setDbOk(d.database ? "ok" : "down");
+      } catch {
+        if (mounted) {
+          setHealth(null);
+          setDbOk("down");
+        }
+      }
+
+      try {
+        const r = await fetch("/api/ollama", { signal: AbortSignal.timeout(8000) });
+        const d = await r.json();
+        if (!mounted) return;
+        const models = (d?.models ?? []).map((m: { name: string }) => m.name);
+        setOllamaModels(models);
+        setOllamaOk(models.length > 0 ? "ok" : "down");
+      } catch {
+        if (mounted) setOllamaOk("down");
+      }
+
+      try {
+        const r = await fetch("/api/tc/intelligence/situation");
+        const d = await r.json();
+        if (mounted) setSituation(d);
+      } catch {
+        /* */
+      }
+
+      try {
+        const r = await fetch("/api/tc/ml/heartbeat");
+        const d = await r.json();
+        if (mounted) setMl(d);
+      } catch {
+        /* */
+      }
+    };
+    load();
+    const iv = setInterval(load, 15_000);
+    return () => {
+      mounted = false;
+      clearInterval(iv);
+    };
+  }, [refreshTick]);
+
+  const engineOk: ConnState =
+    health?.status === "ok" || health?.status === "healthy" ? "ok" : health ? "down" : "checking";
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("dashboard", locale)}</h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>{tr("dashboardSubtitle", locale)}</p>
-      </div>
+    <div
+      style={{
+        padding: "24px 28px 40px",
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        fontSize: "12px",
+        color: "var(--tc-text)",
+        maxWidth: "1600px",
+        margin: "0 auto",
+      }}
+    >
+      <PageHeader
+        title="System status"
+        subtitle="Santé du déploiement — services, connecteurs, moteurs internes. Complémentaire de la console."
+        right={
+          <button
+            onClick={() => setRefreshTick((t) => t + 1)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "6px 10px",
+              border: "1px solid var(--tc-border)",
+              background: "transparent",
+              color: "var(--tc-text-sec)",
+              fontSize: "10px",
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            <RefreshCcw size={11} />
+            Refresh
+          </button>
+        }
+      />
 
-      {/* Onboarding banner */}
-      {onboarded === false && (
-        <NeuCard style={{ marginBottom: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>{tr("configRequired", locale)}</div>
-              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{tr("configRequiredDesc", locale)}</div>
-            </div>
-            <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary">
-              <Settings size={14} /> {tr("configure", locale)} <ArrowRight size={14} />
-            </ChromeButton>
-          </div>
-        </NeuCard>
-      )}
-
-      {/* Onboarding progress checklist */}
-      {!onboarding.loading && !onboarding.dismissed && onboarding.level !== "expert" && onboarding.completed < onboarding.total && (
-        <OnboardingBanner
-          steps={onboarding.steps}
-          completed={onboarding.completed}
-          total={onboarding.total}
-          onDismiss={onboarding.dismiss}
-        />
-      )}
-
-      {/* Level picker — shown once if no level set yet */}
-      {showLevelPicker && (
-        <OnboardingLevelPicker onSelect={(level) => {
-          onboarding.setLevel(level);
-          localStorage.setItem("tc-onboarding-level-chosen", "true");
-          setShowLevelPicker(false);
-        }} />
-      )}
-
-      {/* Contextual tour — Status page */}
-      {!onboarding.loading && (
-        <OnboardingTour
-          tourId="status"
-          locale={locale}
-          level={onboarding.level}
-          toursCompleted={onboarding.toursCompleted}
-          onComplete={onboarding.markTourCompleted}
-          steps={[
-            { element: "[data-tour='score']", descKey: "tourStatusScore" },
-            { element: "[data-tour='ml']", descKey: "tourStatusMl" },
-            { element: "[data-tour='infra']", descKey: "tourStatusInfra" },
-          ]}
-        />
-      )}
-
-      {/* ══ KPI strip — Today at a glance ══ */}
-      <HomeKpiStrip locale={locale} />
-
-      {/* ══ Central Processor ══ */}
-      <NeuCard accent="red" style={{ marginBottom: "20px", padding: "10px 16px" }}>
+      <NeuCard accent="red" style={{ marginBottom: "24px", padding: "12px 16px" }}>
         <CpuCard
           score={score}
-          scoreLabel={scoreLabel}
-          version={services.find(s => s.name === "ThreatClaw Engine")?.detail || ""}
+          scoreLabel={
+            score == null
+              ? "En attente du premier cycle"
+              : score >= 80
+                ? "Situation saine"
+                : score >= 50
+                  ? "Points d'attention"
+                  : "Situation dégradée"
+          }
+          version={health?.version ? `v${health.version}` : ""}
           services={[
-            { name: "PostgreSQL", connected: dbStatus === "ok", color: "#3080d0", detail: "Base de données PG16" },
-            { name: "AI", connected: aiModels.length > 0, color: "#9060d0", detail: `${aiModels.length} modèle(s)`, restartable: true },
-            { name: "Intel. Engine", connected: services[0]?.status === "ok", color: "#d03020", detail: "Corrélation & scoring" },
-            { name: "ML Engine", connected: services[0]?.status === "ok", color: "#d09020", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : mlStatus.dataDays > 0 ? (locale === "fr" ? `Apprentissage (${mlStatus.dataDays}/14j)` : `Learning (${mlStatus.dataDays}/14d)`) : (locale === "fr" ? "En attente de données" : "Waiting for data"), restartable: true },
-            { name: "Skills", connected: services[0]?.status === "ok", color: "#06b6d4", detail: "49 skills" },
-            { name: "Channels", connected: activeChannels.length > 0, color: "#30a050", detail: activeChannels.join(", ") || "Non configuré" },
-            { name: "Logs", connected: dbStatus === "ok", color: "#f97316", detail: "Syslog + FluentBit" },
-            { name: "Dashboard", connected: true, color: "#b0a8a0", detail: "Next.js frontend" },
+            { name: "PostgreSQL", connected: dbOk === "ok", color: "#3080d0", detail: "pg16 · pgvector · AGE" },
+            { name: "AI", connected: ollamaOk === "ok", color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
+            { name: "Intel. Engine", connected: engineOk === "ok", color: "#d03020", detail: "Corrélation & scoring" },
+            { name: "Sigma Engine", connected: engineOk === "ok", color: "#d09020", detail: "Règles de détection" },
+            { name: "Graph", connected: engineOk === "ok", color: "#30a050", detail: "STIX 2.1 corrélation" },
+            { name: "ML Engine", connected: ml?.model_trained ?? false, color: "#06b6d4", detail: ml?.model_trained ? "Modèle entraîné" : "Apprentissage", restartable: true },
           ]}
         />
       </NeuCard>
 
-      {/* ══ Score + Services ══ */}
-      <div data-tour="score" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="grid">
-          <div style={{ textAlign: "center" }}>
-            <div style={labelCaps}>{tr("securityScore", locale)}</div>
-            <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
-              {score != null ? Math.round(score) : "—"}
-            </div>
-            {/* Heartbeat monitor */}
-            {score != null && (
-              <div style={{ position: "relative", width: "100%", height: "32px", overflow: "hidden", margin: "4px 0" }}>
-                <svg viewBox="0 0 150 40" style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
-                  <polyline
-                    fill="none"
-                    stroke={scoreColor}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points="0,20 20,20 25,20 30,10 35,30 40,5 45,35 50,20 55,20 75,20 80,20 85,12 90,28 95,8 100,32 105,20 110,20 130,20 150,20"
-                  >
-                    <animate attributeName="stroke-dasharray" from="0,300" to="300,0" dur="2.5s" repeatCount="indefinite" />
-                  </polyline>
-                </svg>
-                <div style={{
-                  position: "absolute", top: 0, right: 0, width: "100%", height: "100%",
-                  background: `linear-gradient(to left, transparent 0%, var(--tc-neu-inner) 100%)`,
-                  animation: "heartFadeIn 2.5s linear infinite",
-                }} />
-                <style>{`
-                  @keyframes heartFadeIn {
-                    0% { opacity: 1; }
-                    50% { opacity: 0; }
-                    100% { opacity: 0; }
-                  }
-                `}</style>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "20px",
+          marginBottom: "24px",
+        }}
+      >
+        <Section title="Services conteneurs">
+          <ServiceRow icon={Shield} name="threatclaw-core" detail={health?.version ? `v${health.version}` : "—"} state={engineOk} />
+          <ServiceRow icon={Database} name="threatclaw-db" detail="postgres 16 · tls=required" state={dbOk} />
+          <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} modèles chargés`} state={ollamaOk} />
+          <ServiceRow icon={Network} name="threatclaw-dashboard" detail="next 14 · ssr" state={engineOk} />
+          <ServiceRow
+            icon={FileText}
+            name="ml-engine"
+            detail={ml ? `last run ${formatLastRun(ml.last_run)}` : "idle"}
+            state={ml?.last_run ? "ok" : "checking"}
+          />
+          <ServiceRow
+            icon={Radio}
+            name="fluent-bit"
+            detail="syslog collector · désactivé sur staging (port 514 = wazuh)"
+            state="checking"
+            muted
+          />
+        </Section>
+
+        <Section title="Moteurs internes">
+          <EngineRow name="Intelligence Engine" detail="cycle 5 min · corrélation + scoring" ok={engineOk === "ok"} />
+          <EngineRow name="Sigma Engine" detail="84 règles compilées · pack V49 chargé" ok={engineOk === "ok"} />
+          <EngineRow name="Bloom Filter" detail="IoC temps réel · 18k entries" ok={engineOk === "ok"} />
+          <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} />
+          <EngineRow
+            name="ML Anomaly Detection"
+            detail={ml?.model_trained ? "Isolation Forest · actif" : ml ? `apprentissage (${ml.data_days ?? 0}/14j)` : "inactif"}
+            ok={ml?.anomaly_active ?? false}
+          />
+          <EngineRow
+            name="ML DNS Classifier"
+            detail={ml?.dns_active ? "Random Forest · DGA detection" : "inactif"}
+            ok={ml?.dns_active ?? false}
+          />
+        </Section>
+      </div>
+
+      <Section title="Modèles IA locaux (Ollama)">
+        {ollamaModels.length === 0 ? (
+          <EmptyLine text={ollamaOk === "down" ? "ollama injoignable" : "aucun modèle chargé"} />
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: "8px",
+            }}
+          >
+            {ollamaModels.map((m) => (
+              <div
+                key={m}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  padding: "8px 10px",
+                  border: "1px solid var(--tc-border)",
+                  fontSize: "11px",
+                  color: "var(--tc-text)",
+                }}
+              >
+                <Brain size={12} color="var(--tc-text-sec)" />
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m}</span>
               </div>
-            )}
-            <div style={{ fontSize: "10px", color: scoreColor }}>{scoreLabel}</div>
-            {situation?.total_active_alerts > 0 && (
-              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "8px" }}>
-                {situation.total_active_alerts} alerte(s) · {situation.assets?.length || 0} asset(s)
-              </div>
-            )}
+            ))}
           </div>
-        </NeuCard>
+        )}
+      </Section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
-          {services.map(svc => {
-            const isEngine = svc.name === "ThreatClaw Engine";
-            const isAI = svc.name === "ThreatClaw AI";
-            const statusColor = svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)";
-            return (
-              <NeuCard key={svc.name} accent={isEngine ? "dots" : isAI ? "purple" : "blue"} style={{ padding: "14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{
-                    width: "32px", height: "32px", borderRadius: isEngine ? "50%" : "var(--tc-radius-sm)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
-                    color: statusColor, position: "relative", overflow: "hidden",
-                  }}>
-                    {svc.status === "checking" ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : isEngine && svc.status === "ok" ? (
-                      /* Mini radar sweep */
-                      <>
-                        <div style={{ position: "absolute", width: "100%", height: "100%", borderRadius: "50%", border: "1px dashed rgba(48,160,80,0.25)" }} />
-                        <div style={{ position: "absolute", width: "50%", height: "50%", borderRadius: "50%", border: "1px dashed rgba(48,160,80,0.2)" }} />
-                        <div style={{
-                          position: "absolute", top: "50%", left: "50%", width: "50%", height: "2px",
-                          background: "linear-gradient(to right, #30a050, transparent)",
-                          transformOrigin: "0 0",
-                          animation: "radarSweep 2s linear infinite",
-                        }} />
-                        <div style={{ width: "3px", height: "3px", borderRadius: "50%", background: "#30a050", position: "relative", zIndex: 1 }} />
-                      </>
-                    ) : isAI && svc.status === "ok" ? (
-                      /* AI wave dots */
-                      <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-                        {[0, 1, 2, 3, 4].map(i => (
-                          <div key={i} style={{
-                            width: "3px", height: "3px", borderRadius: "50%", background: "#30a050",
-                            animation: `aiDot 1.2s ease-in-out ${i * 0.15}s infinite`,
-                          }} />
-                        ))}
-                      </div>
-                    ) : svc.icon}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{svc.name}</div>
-                    <div style={{ fontSize: "10px", color: statusColor }}>
-                      {svc.status === "checking" ? tr("checking", locale) : svc.detail || (svc.status === "ok" ? tr("operational", locale) : tr("offline", locale))}
-                    </div>
-                  </div>
-                </div>
-              </NeuCard>
-            );
-          })}
+      <Section title="Volumétrie · dernier cycle">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "10px",
+          }}
+        >
+          <StatLine label="Alertes actives" value={situation?.total_active_alerts ?? "—"} />
+          <StatLine label="Findings ouverts" value={situation?.total_open_findings ?? "—"} />
+          <StatLine label="Assets suivis" value={situation?.assets?.length ?? "—"} />
+          <StatLine
+            label="Dernier cycle"
+            value={situation?.computed_at ? formatRelativeShort(situation.computed_at) : "—"}
+          />
         </div>
-        <style>{`
-          @keyframes radarSweep {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          @keyframes aiDot {
-            0%, 100% { transform: translateY(0); opacity: 0.4; }
-            50% { transform: translateY(-4px); opacity: 1; }
-          }
-        `}</style>
-      </div>
+      </Section>
 
-      {/* ══ ThreatClaw Engine ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        ThreatClaw Engine
-      </div>
-      <NeuCard accent="scan" style={{ marginBottom: "20px", padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", animation: "pulse 2s infinite" }} />
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{tr("agentAutonomous", locale)}</span>
-          </div>
-          <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-            <span>{tr("lastCycle", locale)} : {lastCycle ? `${lastCycle} ${tr("ago", locale)}` : tr("waiting", locale)}</span>
-          </div>
-        </div>
-      </NeuCard>
-
-      {/* ══ v1.0.8 metrics row: KEV TTA + Monthly RSSI report ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <KevTtaCard locale={locale} />
-        <MonthlyRssiCard locale={locale} />
-      </div>
-
-      {/* ══ ThreatClaw Agent — link to Config ══ */}
-      <NeuCard accent="blue" style={{ marginBottom: "20px", padding: "10px 16px", cursor: "pointer" }} onClick={() => window.location.href = "/setup#agent"}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Monitor size={14} color="var(--tc-blue)" />
-          <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)" }}>ThreatClaw Agent</span>
-          <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>
-            {locale === "fr" ? "— Deployer sur vos endpoints" : "— Deploy on your endpoints"}
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "10px", color: "var(--tc-blue)" }}>Config &rarr;</span>
-        </div>
-      </NeuCard>
-
-      {/* ══ Moteurs ThreatClaw ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {locale === "fr" ? "Moteurs de détection" : "Detection Engines"}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px", marginBottom: "20px" }}>
-        {[
-          { name: "Intelligence Engine", detail: locale === "fr" ? "Corrélation & scoring" : "Correlation & scoring", active: services[0]?.status === "ok", color: "#d03020" },
-          { name: "Sigma Engine", detail: locale === "fr" ? "Règles de détection" : "Detection rules", active: services[0]?.status === "ok", color: "#9060d0" },
-          { name: "Bloom Filter", detail: locale === "fr" ? "IoC temps réel" : "Real-time IoC", active: services[0]?.status === "ok", color: "#06b6d4" },
-          { name: "NDR (JA3/Beacon/TLS)", detail: locale === "fr" ? "Analyse réseau Zeek" : "Zeek network analysis", active: services[0]?.status === "ok", color: "#f97316" },
-          { name: "ML Engine", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : (locale === "fr" ? "En apprentissage" : "Learning"), active: mlStatus.anomaly !== "inactive", color: "#d09020" },
-          { name: "Graph Intelligence", detail: locale === "fr" ? "STIX 2.1 + corrélation" : "STIX 2.1 + correlation", active: services[0]?.status === "ok", color: "#30a050" },
-        ].map(engine => (
-          <NeuCard key={engine.name} style={{ padding: "10px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0,
-                background: engine.active ? engine.color : "var(--tc-text-faint)",
-                boxShadow: engine.active ? `0 0 6px ${engine.color}60` : "none" }} />
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{engine.name}</div>
-                <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "1px" }}>{engine.detail}</div>
-              </div>
-            </div>
-          </NeuCard>
-        ))}
-      </div>
-
-      {/* ══ Détection comportementale ══ */}
-      <div data-tour="ml" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {tr("behavioralDetection", locale)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="amber" style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("training", locale)}</div>
-          {(() => {
-            const days = mlStatus.dataDays;
-            const target = 14;
-            const pct = Math.min(100, Math.round((days / target) * 100));
-            const remaining = Math.max(0, target - days);
-            const trained = mlStatus.modelTrained;
-            const trainingState = mlStatus.training;
-            const color = trained ? "#30a050" : days > 0 ? "var(--tc-amber)" : "var(--tc-text-muted)";
-            return (
-              <>
-                <div style={{ fontSize: "12px", fontWeight: 700, color, marginTop: "4px" }}>
-                  {trainingState === "checking" ? tr("checking", locale) :
-                   trainingState === "trained" ? tr("trainedOperational", locale) :
-                   trainingState === "learning" ? `${tr("learningProgress", locale)} ${days}/${target}${tr("days", locale)}` :
-                   trainingState === "waiting" ? tr("waitingForLogs", locale) : tr("inactive", locale)}
-                </div>
-                {trainingState !== "inactive" && (
-                  <>
-                    <div style={{ width: "100%", height: "4px", borderRadius: "2px", background: "var(--tc-input)", marginTop: "6px", overflow: "hidden" }}>
-                      <div style={{
-                        width: `${pct}%`, height: "100%", borderRadius: "2px",
-                        background: trained ? "#30a050" : "var(--tc-amber)",
-                        transition: "width 0.5s ease",
-                      }} />
-                    </div>
-                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "3px", display: "flex", justifyContent: "space-between" }}>
-                      <span>{trained ? tr("retrainNightly", locale) : days === 0 ? tr("connectLogSource", locale) : `${remaining}${tr("daysRemaining", locale)}`}</span>
-                      <span style={{ fontWeight: 700 }}>{pct}%</span>
-                    </div>
-                  </>
-                )}
-                {trainingState === "inactive" && (
-                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-                    {tr("waitingForMl", locale)}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </NeuCard>
-        <NeuCard accent="hex" style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.anomaly === "active" ? tr("active", locale) : mlStatus.anomaly === "learning" ? tr("learning", locale) : mlStatus.anomaly === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
-        <NeuCard accent="rings" style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.dns === "active" ? tr("active", locale) : mlStatus.dns === "learning" ? tr("learning", locale) : mlStatus.dns === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.dns === "active" ? tr("suspiciousDomains", locale) : mlStatus.dns === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
-      </div>
-
-      {/* ══ Santé serveur ══ */}
-      <div data-tour="infra" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {tr("infrastructure", locale)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="grid" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("security", locale)}</div>
-          {config?.permissions ? (
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-              {config.permissions === "READ_ONLY" ? (locale === "fr" ? "Observation" : "Observe") : config.permissions === "ALERT_ONLY" ? (locale === "fr" ? "Alertes" : "Alerts") : config.permissions === "REMEDIATE_WITH_APPROVAL" ? (locale === "fr" ? "Remédiation" : "Remediate") : "Auto"}
-            </div>
-          ) : (
-            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              {tr("configure", locale)} <ChevronRight size={11} />
-            </button>
-          )}
-        </NeuCard>
-        <NeuCard accent="blue" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("channels", locale)}</div>
-          {activeChannels.length > 0 ? (
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-              {activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
-            </div>
-          ) : (
-            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              {tr("configure", locale)} <ChevronRight size={11} />
-            </button>
-          )}
-        </NeuCard>
-        <NeuCard accent="green" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("database", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: dbStatus === "ok" ? "#30a050" : dbStatus === "checking" ? "var(--tc-text-muted)" : "#d03020", marginTop: "4px" }}>
-            {dbStatus === "ok" ? (locale === "fr" ? "Opérationnel" : "Operational") : dbStatus === "checking" ? (locale === "fr" ? "Vérification..." : "Checking...") : (locale === "fr" ? "Non connecté" : "Not connected")}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PG16 + AGE + TimescaleDB</div>
-        </NeuCard>
-        <NeuCard accent="dots" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("disk", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>{diskFree || "—"}</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{locale === "fr" ? "sur /srv" : "on /srv"}</div>
-        </NeuCard>
-      </div>
-
-      {/* Quick actions */}
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <ChromeButton onClick={() => window.location.href = "/assets"} variant="glass"><Server size={14} /> Assets</ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/skills"} variant="glass"><Puzzle size={14} /> Skills</ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary"><Settings size={14} /> Configuration <ArrowRight size={14} /></ChromeButton>
+      <div style={{ textAlign: "center", marginTop: "24px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+        <Link href="/" style={{ color: "var(--tc-text-sec)", textDecoration: "none" }}>
+          ← retour à la console
+        </Link>
       </div>
     </div>
   );
+}
+
+function formatLastRun(iso?: string) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return `il y a ${Math.round(diff)}s`;
+  if (diff < 3600) return `il y a ${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `il y a ${Math.round(diff / 3600)}h`;
+  return d.toLocaleDateString("fr-FR");
+}
+
+function formatRelativeShort(iso: string) {
+  const d = new Date(iso);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return `${Math.round(diff)}s`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h`;
+  return `${Math.round(diff / 86400)}j`;
+}
+
+function PageHeader({ title, subtitle, right }: { title: string; subtitle: string; right?: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: "24px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div>
+        <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>
+          {title}
+        </div>
+        <div style={{ fontSize: "13px", color: "var(--tc-text-sec)", marginTop: "6px", maxWidth: "700px", lineHeight: 1.5 }}>
+          {subtitle}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: "18px" }}>
+      <div
+        style={{
+          fontSize: "9px",
+          letterSpacing: "0.22em",
+          color: "var(--tc-text-muted)",
+          textTransform: "uppercase",
+          marginBottom: "10px",
+        }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ServiceRow({
+  icon: Icon,
+  name,
+  detail,
+  state,
+  muted,
+}: {
+  icon: React.ElementType;
+  name: string;
+  detail: string;
+  state: ConnState;
+  muted?: boolean;
+}) {
+  const color =
+    state === "ok" ? "#30a050" : state === "down" ? "var(--tc-red)" : "var(--tc-text-muted)";
+  const Status = state === "ok" ? CheckCircle2 : state === "down" ? AlertTriangle : Loader2;
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "20px 1fr auto",
+        gap: "10px",
+        alignItems: "center",
+        padding: "10px 0",
+        borderBottom: "1px dashed var(--tc-border)",
+        opacity: muted ? 0.55 : 1,
+      }}
+    >
+      <Icon size={13} color="var(--tc-text-sec)" />
+      <div>
+        <div style={{ fontSize: "12px", color: "var(--tc-text)" }}>{name}</div>
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{detail}</div>
+      </div>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "10px", color, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+        <Status size={11} className={state === "checking" ? "animate-spin" : undefined} />
+        {state}
+      </span>
+    </div>
+  );
+}
+
+function EngineRow({ name, detail, ok }: { name: string; detail: string; ok: boolean }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "8px 1fr auto",
+        gap: "12px",
+        alignItems: "center",
+        padding: "10px 0",
+        borderBottom: "1px dashed var(--tc-border)",
+      }}
+    >
+      <span
+        style={{
+          width: "6px",
+          height: "6px",
+          borderRadius: "50%",
+          background: ok ? "#30a050" : "var(--tc-text-muted)",
+          boxShadow: ok ? "0 0 6px #30a050" : "none",
+        }}
+      />
+      <div>
+        <div style={{ fontSize: "12px", color: "var(--tc-text)" }}>{name}</div>
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{detail}</div>
+      </div>
+      <span style={{ fontSize: "10px", color: ok ? "#30a050" : "var(--tc-text-muted)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
+        {ok ? "actif" : "inactif"}
+      </span>
+    </div>
+  );
+}
+
+function StatLine({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div style={{ border: "1px solid var(--tc-border)", padding: "10px 12px" }}>
+      <div style={{ fontSize: "18px", color: "var(--tc-text)", fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function EmptyLine({ text }: { text: string }) {
+  return <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", fontStyle: "italic", padding: "10px 0" }}>{text}</div>;
 }
