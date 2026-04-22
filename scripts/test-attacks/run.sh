@@ -32,11 +32,13 @@ require_cmd() {
   fi
 }
 
-# ── Fetch latest N alerts from the TC API and count those matching the rule.
-# The /api/tc/alerts endpoint filters on level/status only; rule_id is
-# filtered here to keep the harness self-contained (no backend change
-# required, same deploy cadence as the core).
-count_for_rule() {
+# ── Read the max(matched_at) for a given rule_id from the latest 500 alerts.
+# Using a watermark instead of a count avoids a sliding-window race: when
+# the internet is noisy (real scanners hitting the honeypots at 20+/min),
+# older alerts for the scenario's rule_id can drop off the latest-500 page
+# during the wait, making a naive count drift downward even though our
+# attack DID fire. Comparing timestamps is monotonic.
+latest_ts_for_rule() {
   local rule_id="$1"
   curl -skS "${TC_URL}/api/tc/alerts?limit=500" 2>/dev/null \
     | RULE_ID="$rule_id" python3 -c "
@@ -44,24 +46,27 @@ import sys, json, os
 rid = os.environ['RULE_ID']
 try:
     d = json.load(sys.stdin)
-    print(sum(1 for a in d.get('alerts', []) if a.get('rule_id') == rid))
+    ts = [a.get('matched_at') for a in d.get('alerts', []) if a.get('rule_id') == rid and a.get('matched_at')]
+    print(max(ts) if ts else '')
 except Exception:
-    print(0)
+    print('')
 "
 }
 
-# ── Wait until count for rule grows, up to TIMEOUT_MIN ──
+# ── Wait until latest_ts for rule advances, up to TIMEOUT_MIN ──
 wait_for_fire() {
   local rule_id="$1"; local baseline="$2"
   local deadline=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 30
-    local cur; cur=$(count_for_rule "$rule_id")
-    if [ "$cur" -gt "$baseline" ]; then
+    local cur; cur=$(latest_ts_for_rule "$rule_id")
+    # Any new (non-empty) timestamp strictly greater than baseline proves
+    # the attack fired AFTER the baseline snapshot.
+    if [ -n "$cur" ] && [ "$cur" \> "$baseline" ]; then
       echo "$cur"
       return 0
     fi
-    printf "${D}  … still waiting (rule %s: %s → %s)${N}\n" "$rule_id" "$baseline" "$cur" >&2
+    printf "${D}  … still waiting (rule %s: latest_ts %s → %s)${N}\n" "$rule_id" "${baseline:-none}" "${cur:-none}" >&2
   done
   return 1
 }
@@ -216,8 +221,8 @@ run_scenario() {
   local id="$1" label="$2" fn="$3" expected="$4"
   printf "${Y}▶${N} %-18s %s\n" "$id" "$label"
 
-  local baseline; baseline=$(count_for_rule "$expected")
-  printf "  baseline count for %s: %s\n" "$expected" "$baseline"
+  local baseline; baseline=$(latest_ts_for_rule "$expected")
+  printf "  baseline latest_ts for %s: %s\n" "$expected" "${baseline:-<none>}"
 
   printf "  launching attack...\n"
   if ! "$fn"; then
@@ -227,10 +232,10 @@ run_scenario() {
   printf "  attack sent, waiting up to %s min for detection...\n" "$TIMEOUT_MIN"
 
   if final=$(wait_for_fire "$expected" "$baseline"); then
-    printf "  ${G}PASS${N} %s → count %s → %s (+%s)\n" "$expected" "$baseline" "$final" "$((final - baseline))"
+    printf "  ${G}PASS${N} %s → latest_ts %s → %s\n" "$expected" "${baseline:-none}" "$final"
     return 0
   fi
-  printf "  ${R}FAIL${N} %s never fired within %s min\n" "$expected" "$TIMEOUT_MIN"
+  printf "  ${R}FAIL${N} %s never fired within %s min (baseline=%s)\n" "$expected" "$TIMEOUT_MIN" "${baseline:-none}"
   return 1
 }
 
