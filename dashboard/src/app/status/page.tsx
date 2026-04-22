@@ -49,6 +49,7 @@ type MlHeartbeat = {
   data_days?: number;
   dns_active?: boolean;
   anomaly_active?: boolean;
+  alive?: boolean;
 };
 
 export default function StatusPage() {
@@ -59,6 +60,9 @@ export default function StatusPage() {
   const [ollamaOk, setOllamaOk] = useState<ConnState>("checking");
   const [ml, setMl] = useState<MlHeartbeat | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [channelCount, setChannelCount] = useState<number | null>(null);
+  const [skillCount, setSkillCount] = useState<number | null>(null);
+  const [sourcesActive, setSourcesActive] = useState(0);
 
   const score = situation?.global_score;
 
@@ -101,6 +105,40 @@ export default function StatusPage() {
         const r = await fetch("/api/tc/ml/heartbeat");
         const d = await r.json();
         if (mounted) setMl(d);
+      } catch {
+        /* */
+      }
+
+      try {
+        const r = await fetch("/api/tc/config", { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        if (mounted) {
+          const chans = d?.channels ?? {};
+          const enabled = Object.values(chans).filter((c: unknown) => (c as { enabled?: boolean })?.enabled).length;
+          setChannelCount(enabled);
+        }
+      } catch {
+        /* */
+      }
+
+      try {
+        const r = await fetch("/api/tc/catalog", { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        if (mounted) {
+          const list = Array.isArray(d) ? d : (d?.skills ?? []);
+          setSkillCount(Array.isArray(list) ? list.length : null);
+        }
+      } catch {
+        /* */
+      }
+
+      try {
+        const r = await fetch("/api/tc/sources/status", { signal: AbortSignal.timeout(6000) });
+        const d = await r.json();
+        if (mounted) {
+          const list = (d?.sources ?? []) as Array<{ status: string }>;
+          setSourcesActive(list.filter((s) => s.status === "active" || s.status === "listening" || s.status === "ok").length);
+        }
       } catch {
         /* */
       }
@@ -202,13 +240,20 @@ export default function StatusPage() {
                       : "Situation dégradée"
               }
               version={health?.version ? `v${health.version}` : ""}
+              // 8 slots (4 left + 4 right) matching the original SVG wiring.
+              // Order is preserved on purpose — each index maps to a specific
+              // cable exit on the chip.
               services={[
-                { name: "PostgreSQL", connected: dbOk === "ok", color: "#3080d0", detail: "pg16 · pgvector" },
-                { name: "AI", connected: ollamaOk === "ok", color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
-                { name: "Intel.", connected: engineOk === "ok", color: "#d03020", detail: "Corrélation" },
-                { name: "Sigma", connected: engineOk === "ok", color: "#d09020", detail: "Règles" },
-                { name: "Graph", connected: engineOk === "ok", color: "#30a050", detail: "STIX 2.1" },
-                { name: "ML", connected: ml?.model_trained ?? false, color: "#06b6d4", detail: ml?.model_trained ? "Trained" : "Learning", restartable: true },
+                // Left column
+                { name: "PostgreSQL",    connected: dbOk === "ok",         color: "#3080d0", detail: "pg16 · pgvector" },
+                { name: "Intel. Engine", connected: engineOk === "ok",     color: "#d03020", detail: "Corrélation · Sigma · Graph" },
+                { name: "Channels",      connected: (channelCount ?? 0) > 0, color: "#30a050", detail: channelCount != null ? `${channelCount} actif(s)` : "aucun" },
+                { name: "Logs",          connected: sourcesActive > 0,     color: "#f97316", detail: `${sourcesActive} sources actives` },
+                // Right column
+                { name: "AI",            connected: ollamaOk === "ok",     color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
+                { name: "ML Engine",     connected: (ml?.alive ?? false) || (ml?.model_trained ?? false), color: "#d09020", detail: ml?.model_trained ? "Trained" : ml?.alive ? "Learning" : "idle", restartable: true },
+                { name: "Skills",        connected: (skillCount ?? 0) > 0, color: "#06b6d4", detail: skillCount != null ? `${skillCount} skills` : "—" },
+                { name: "Dashboard",     connected: true,                  color: "#b0a8a0", detail: "Next.js 16 · SSR" },
               ]}
             />
           </NeuCard>

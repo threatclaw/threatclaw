@@ -135,7 +135,7 @@ function ShadowAiCard({ locale, summary, findings, loading, onRefresh }: {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <Brain size={16} color="#e04040" />
+            <Brain size={16} color="var(--tc-red)" />
             <h2 style={{ fontSize: "13px", fontWeight: 800, color: "var(--tc-text)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
               {locale === "fr" ? "Shadow AI en direct" : "Shadow AI live"}
             </h2>
@@ -213,7 +213,7 @@ function AiInventoryCard({ locale, summary, systems, onDeclare }: {
   return (
     <NeuCard accent="purple" style={{ padding: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <Server size={16} color="#9060d0" />
+        <Server size={16} color="var(--tc-text-sec)" />
         <h2 style={{ fontSize: "13px", fontWeight: 800, color: "var(--tc-text)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {locale === "fr" ? "Inventaire IA" : "AI Inventory"}
         </h2>
@@ -277,7 +277,7 @@ function ComplianceCard({ locale, summary }: {
   return (
     <NeuCard accent="blue" style={{ padding: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <Gavel size={16} color="#3080d0" />
+        <Gavel size={16} color="var(--tc-text-sec)" />
         <h2 style={{ fontSize: "13px", fontWeight: 800, color: "var(--tc-text)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {locale === "fr" ? "Conformité" : "Compliance posture"}
         </h2>
@@ -368,7 +368,7 @@ function EvidenceCard({ locale, summary }: { locale: string; summary: Governance
   return (
     <NeuCard accent="green" style={{ padding: "18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-        <FileCheck size={16} color="#30a050" />
+        <FileCheck size={16} color="var(--tc-green)" />
         <h2 style={{ fontSize: "13px", fontWeight: 800, color: "var(--tc-text)", margin: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {locale === "fr" ? "Traçabilité & audit" : "Evidence & audit"}
         </h2>
@@ -403,25 +403,39 @@ function EvidenceCard({ locale, summary }: { locale: string; summary: Governance
 
 // ── Tiny components ───────────────────────────────────────
 
+// Flattens any inbound hex to the semantic palette — the whole page used to
+// have purple / blue / cyan accents that broke SOC coherence.
+function flattenColor(c: string): string {
+  const red = /#(e0|d0)[0-9a-f]*|var\(--tc-red\)/i;
+  const green = /#(30|20)[abc][0-9a-f]*|var\(--tc-green\)/i;
+  const amber = /#(d|c)[0-9a][0-9a-f]*|var\(--tc-amber\)/i;
+  if (red.test(c)) return "var(--tc-red)";
+  if (green.test(c)) return "var(--tc-green)";
+  if (amber.test(c)) return "var(--tc-amber)";
+  return "var(--tc-text)";
+}
+
 function Badge({ label, color }: { label: string; color: string }) {
+  const c = flattenColor(color);
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", padding: "1px 5px",
-      fontSize: "8px", fontWeight: 700, borderRadius: "3px",
-      background: `${color}18`, color, border: `1px solid ${color}30`,
-      textTransform: "uppercase", letterSpacing: "0.05em",
+      display: "inline-flex", alignItems: "center", padding: "1px 6px",
+      fontSize: "8px", fontWeight: 700, letterSpacing: "0.14em",
+      background: "transparent", color: c, border: `1px solid ${c}`,
+      textTransform: "uppercase",
     }}>{label}</span>
   );
 }
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  const c = flattenColor(color);
   return (
     <div style={{
-      padding: "8px 10px", borderRadius: "var(--tc-radius-sm)",
+      padding: "8px 10px",
       background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
     }}>
-      <div style={{ fontSize: "18px", fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+      <div style={{ fontSize: "18px", fontWeight: 800, color: c, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "3px", textTransform: "uppercase", letterSpacing: "0.14em" }}>{label}</div>
     </div>
   );
 }
@@ -432,7 +446,7 @@ const refreshBtn: React.CSSProperties = {
 };
 const miniBtn: React.CSSProperties = {
   padding: "3px 5px", background: "var(--tc-surface)", border: "1px solid var(--tc-border)",
-  borderRadius: "3px", cursor: "pointer", color: "#30a050", display: "flex", alignItems: "center",
+  borderRadius: "3px", cursor: "pointer", color: "var(--tc-green)", display: "flex", alignItems: "center",
 };
 const evidenceLinkStyle: React.CSSProperties = {
   display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -513,8 +527,8 @@ export default function GovernancePage() {
     >
       {error && (
         <div style={{
-          padding: "10px 14px", background: "rgba(224,64,64,0.08)", borderLeft: "3px solid #e04040",
-          borderRadius: "3px", fontSize: "11px", color: "#e04040", fontWeight: 600, marginBottom: "14px",
+          padding: "10px 14px", background: "transparent", borderLeft: "3px solid var(--tc-red)",
+          fontSize: "11px", color: "var(--tc-red)", fontWeight: 600, marginBottom: "14px",
           display: "flex", gap: "6px", alignItems: "center",
         }}>
           <XCircle size={12} />
@@ -534,7 +548,7 @@ export default function GovernancePage() {
         background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
         display: "flex", alignItems: "flex-start", gap: "10px",
       }}>
-        <AlertTriangle size={14} color="#d0a820" style={{ flexShrink: 0, marginTop: "2px" }} />
+        <AlertTriangle size={14} color="var(--tc-amber)" style={{ flexShrink: 0, marginTop: "2px" }} />
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", lineHeight: "1.5" }}>
           {locale === "fr" ? (
             <>

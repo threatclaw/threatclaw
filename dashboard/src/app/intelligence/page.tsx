@@ -95,19 +95,18 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 
 // ── Components ──
 
-function Card({ title, icon: Icon, children, color = "#d03020" }: {
+function Card({ title, icon: Icon, children, color }: {
   title: string; icon: React.ElementType; children: React.ReactNode; color?: string;
 }) {
+  // Icons on this page are all neutral — color indicates urgency only
+  // when the parent passes a red. Anything else becomes muted to fit
+  // the SOC palette (red = urgency, green = ok, amber = warning).
+  const iconColor = color === "#d03020" || color === "var(--tc-red)" ? "var(--tc-red)" : "var(--tc-text-sec)";
   return (
     <NeuCard style={{ padding: "20px", minHeight: "180px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px" }}>
-        <div style={{
-          width: "32px", height: "32px", borderRadius: "var(--tc-radius-input)",
-          background: `${color}15`, display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <Icon size={16} color={color} />
-        </div>
-        <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+        <Icon size={14} color={iconColor} />
+        <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-sec)", textTransform: "uppercase", letterSpacing: "0.14em" }}>
           {title}
         </span>
       </div>
@@ -116,35 +115,45 @@ function Card({ title, icon: Icon, children, color = "#d03020" }: {
   );
 }
 
-function StatBadge({ value, label, color = "#d03020" }: { value: string | number; label: string; color?: string }) {
+function StatBadge({ value, label, color }: { value: string | number; label: string; color?: string }) {
+  // Only reds and greens survive — anything fancier is flattened to text.
+  const isRed = color === "#d03020" || color === "var(--tc-red)";
+  const isGreen = color === "#30a050" || color === "var(--tc-green)";
+  const isAmber = color === "#d09020" || color === "#d06020" || color === "var(--tc-amber)";
+  const textColor = isRed ? "var(--tc-red)" : isGreen ? "var(--tc-green)" : isAmber ? "var(--tc-amber)" : "var(--tc-text)";
   return (
-    <div style={{ textAlign: "center", padding: "8px" }}>
-      <div style={{ fontSize: "24px", fontWeight: 800, color }}>{value}</div>
-      <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+    <div style={{ textAlign: "center", padding: "4px" }}>
+      <div style={{ fontSize: "22px", fontWeight: 800, color: textColor, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em" }}>{label}</div>
     </div>
   );
 }
 
 function ConfidenceBar({ score, level }: { score: number; level: string }) {
-  const color = score >= 80 ? "#d03020" : score >= 50 ? "#d09020" : score >= 30 ? "#c0a030" : "#30a050";
+  const color = score >= 80 ? "var(--tc-red)" : score >= 50 ? "var(--tc-amber)" : score >= 30 ? "var(--tc-text-sec)" : "var(--tc-green)";
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-      <div style={{ flex: 1, height: "8px", borderRadius: "4px", background: "var(--tc-input)" }}>
-        <div style={{ width: `${score}%`, height: "100%", borderRadius: "4px", background: color, transition: "width 500ms" }} />
+      <div style={{ flex: 1, height: "4px", background: "var(--tc-input)" }}>
+        <div style={{ width: `${score}%`, height: "100%", background: color, transition: "width 500ms" }} />
       </div>
-      <span style={{ fontSize: "13px", fontWeight: 700, color, minWidth: "50px" }}>{score}/100</span>
-      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>{level}</span>
+      <span style={{ fontSize: "12px", fontWeight: 700, color, minWidth: "46px", fontVariantNumeric: "tabular-nums" }}>{score}/100</span>
+      <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em" }}>{level}</span>
     </div>
   );
 }
 
 function RiskBadge({ risk }: { risk: string }) {
-  const colors: Record<string, string> = { critical: "#d03020", high: "#d06020", medium: "#d09020", low: "#30a050" };
+  const colors: Record<string, string> = {
+    critical: "var(--tc-red)",
+    high: "var(--tc-red)",
+    medium: "var(--tc-amber)",
+    low: "var(--tc-green)",
+  };
   const c = colors[risk] || "var(--tc-text-muted)";
   return (
     <span style={{
-      fontSize: "9px", fontWeight: 700, textTransform: "uppercase", padding: "2px 8px",
-      borderRadius: "4px", background: `${c}20`, color: c, border: `1px solid ${c}30`,
+      fontSize: "9px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em",
+      padding: "2px 8px", color: c, border: `1px solid ${c}`, background: "transparent",
     }}>{risk}</span>
   );
 }
@@ -329,8 +338,8 @@ export default function IntelligencePage() {
             />
             <button onClick={loadBlast} style={{
               padding: "6px 12px", borderRadius: "var(--tc-radius-sm)", fontSize: "10px", fontWeight: 600,
-              background: "rgba(208,96,32,0.1)", border: "1px solid rgba(208,96,32,0.3)",
-              color: "#d06020", cursor: "pointer",
+              background: "transparent", border: "1px solid var(--tc-red)",
+              color: "var(--tc-red)", cursor: "pointer",
             }}>{tr("calculate", locale)}</button>
           </div>
           {blast && (
@@ -343,8 +352,8 @@ export default function IntelligencePage() {
               {blast.hops.filter(h => h.count > 0).map((h, i) => (
                 <div key={i} style={{
                   padding: "6px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
-                  background: `rgba(208,96,32,${0.05 + i * 0.03})`,
-                  border: "1px solid rgba(208,96,32,0.1)",
+                  background: "var(--tc-surface-alt)",
+                  border: "1px solid var(--tc-border)",
                   fontSize: "11px", color: "var(--tc-text)",
                 }}>
                   <strong>Hop {h.hop}</strong> &mdash; {h.count} asset(s)
@@ -353,7 +362,7 @@ export default function IntelligencePage() {
                   )}
                 </div>
               ))}
-              <div style={{ fontSize: "10px", color: "#d06020", marginTop: "8px", fontStyle: "italic" }}>
+              <div style={{ fontSize: "10px", color: "var(--tc-red)", marginTop: "8px", fontStyle: "italic" }}>
                 {blast.recommendation}
               </div>
             </div>

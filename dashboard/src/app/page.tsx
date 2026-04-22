@@ -504,8 +504,10 @@ function Center({
     <section
       style={{
         display: "grid",
-        // auto (incident bar) / auto (compact timeline ≤ 38 vh) / 1fr (log tail fills)
-        gridTemplateRows: "auto auto 1fr",
+        // Incident bar + incidents list together take ~60% of the centre.
+        // Log tail is capped at ~40% (minmax) so it doesn't dominate and the
+        // STIX graph (coming soon) can sit between the list and the log.
+        gridTemplateRows: "auto 1fr minmax(220px, 42%)",
         minHeight: 0,
         overflow: "hidden",
       }}
@@ -618,15 +620,17 @@ function Meta({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) {
-  // Compact — stays short when empty and caps at ~5 rows when not so the log
-  // tail below gets the room it needs.
+  // Fills the 1fr row — STIX graph placeholder will land in the bottom half
+  // of this row later. For now the list scrolls inside it.
   return (
     <div
       style={{
-        maxHeight: incidents.length === 0 ? "90px" : "220px",
         overflow: "auto",
-        padding: "10px 18px 12px",
+        padding: "12px 18px 14px",
         borderBottom: "1px solid var(--tc-border)",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
       }}
     >
       <div
