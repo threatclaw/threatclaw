@@ -211,6 +211,55 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
     setSaving(false);
   };
 
+  // Compact per-section save bar. All tabs write through the same
+  // handleSave (full config push), so every button saves the whole
+  // form — but the user stays visually on the section they just edited.
+  const SectionSave = ({ hint }: { hint?: string }) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        gap: "12px",
+        marginTop: "16px",
+        padding: "10px 0 0",
+        borderTop: "1px solid var(--tc-border)",
+      }}
+    >
+      {hint && (
+        <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginRight: "auto" }}>
+          {hint}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          padding: "8px 16px",
+          fontSize: "11px",
+          fontWeight: 700,
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          background: saved ? "#30a050" : "var(--tc-red)",
+          color: "#fff",
+          border: "none",
+          cursor: saving ? "default" : "pointer",
+          fontFamily: "inherit",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          minWidth: "140px",
+          justifyContent: "center",
+          opacity: saving ? 0.7 : 1,
+        }}
+      >
+        {saving ? <Loader2 size={12} className="animate-spin" /> : saved ? <CheckCircle2 size={12} /> : <Save size={12} />}
+        {saved ? `${tr("save", locale)} ✓` : tr("save", locale)}
+      </button>
+    </div>
+  );
+
   const testOllama = async () => {
     setLlm(p => ({ ...p, testing: true, connected: false, models: [] }));
     try {
@@ -398,6 +447,44 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               </div>
               {/* NVD API key moved to Config > Enrichissement */}
             </div>
+            <SectionSave />
+            <div
+              style={{
+                marginTop: "18px",
+                paddingTop: "14px",
+                borderTop: "1px solid var(--tc-border)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
+                {locale === "fr"
+                  ? "Relancer l'assistant de configuration initial (wizard)"
+                  : "Re-run the initial setup wizard"}
+              </div>
+              <button
+                type="button"
+                onClick={onResetWizard}
+                style={{
+                  padding: "6px 12px",
+                  fontSize: "10px",
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  background: "transparent",
+                  color: "var(--tc-text-muted)",
+                  border: "1px solid var(--tc-border)",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                <RotateCcw size={11} /> {tr("restartWizard", locale)}
+              </button>
+            </div>
           </ChromeInsetCard>
         )}
 
@@ -473,6 +560,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               </div>
             )}
           </ChromeInsetCard>
+          <SectionSave hint={locale === "fr" ? "Sauvegarde LLM + grounding + shift report" : "Saves LLM + grounding + shift report"} />
         </>)}
 
         {/* ═══ CHANNELS ═══ */}
@@ -547,6 +635,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
               </ChromeInsetCard>
             );
           })}
+          <SectionSave hint={locale === "fr" ? "Sauvegarde les canaux activés et leurs identifiants" : "Saves enabled channels and their credentials"} />
         </>)}
 
         {/* ═══ SECURITY ═══ */}
@@ -582,6 +671,7 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
                 );
               })}
             </div>
+            <SectionSave />
           </ChromeInsetCard>
         )}
 
@@ -619,68 +709,6 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
         {activeTab === "backup" && (<BackupTab />)}
         {activeTab === "logs" && (<LiveLogsTab />)}
         {activeTab === "sources" && (<LogSourcesTab />)}
-      </div>
-
-      {/* Actions bar — compact, sticky to the bottom of the content column */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "10px 14px",
-          marginTop: "18px",
-          borderTop: "1px solid var(--tc-border)",
-          background: "var(--tc-surface)",
-          position: "sticky",
-          bottom: "0",
-          gap: "12px",
-        }}
-      >
-        <button
-          onClick={onResetWizard}
-          style={{
-            padding: "7px 12px",
-            fontSize: "10px",
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            background: "transparent",
-            color: "var(--tc-text-muted)",
-            border: "1px solid var(--tc-border)",
-            cursor: "pointer",
-            fontFamily: "inherit",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-          }}
-          title={locale === "fr" ? "Relance le wizard d'installation initial" : "Re-run the initial setup wizard"}
-        >
-          <RotateCcw size={12} /> {tr("restartWizard", locale)}
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          style={{
-            padding: "8px 18px",
-            fontSize: "11px",
-            fontWeight: 700,
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            background: saved ? "#30a050" : "var(--tc-red)",
-            color: "#fff",
-            border: "none",
-            cursor: saving ? "default" : "pointer",
-            fontFamily: "inherit",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            minWidth: "180px",
-            justifyContent: "center",
-            opacity: saving ? 0.7 : 1,
-          }}
-        >
-          {saving ? <Loader2 size={13} className="animate-spin" /> : saved ? <CheckCircle2 size={13} /> : <Save size={13} />}
-          {saved ? `${tr("save", locale)} ✓` : tr("save", locale)}
-        </button>
       </div>
     </div>
   );
