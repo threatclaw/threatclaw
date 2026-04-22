@@ -2,7 +2,7 @@
 
 import { Inter } from "next/font/google";
 import "./globals.css";
-import TopNav from "@/components/chrome/TopNav";
+import SocTopBar from "@/components/chrome/SocTopBar";
 import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -46,7 +46,7 @@ export default function RootLayout({
             background: "linear-gradient(to top, var(--tc-bg) 0%, transparent 100%)",
           }} />
         </div>
-        <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", maxWidth: "1100px", margin: "0 auto" }}>
+        <div style={{ position: "relative", zIndex: 2, minHeight: "100vh" }}>
           {/* Environment banner — DEV (yellow), STAGING (orange), BETA (red), PROD (hidden) */}
           {(() => {
             const env = process.env.TC_ENV || process.env.NEXT_PUBLIC_TC_ENV || "";
@@ -80,15 +80,15 @@ export default function RootLayout({
               <div style={{
                 background: c.bg,
                 borderBottom: c.border,
-                padding: "6px 16px", textAlign: "center",
+                padding: "4px 16px", textAlign: "center",
                 fontSize: "10px", color: "rgba(255,255,255,0.6)", letterSpacing: "0.03em",
               }}>
                 <span style={{ fontWeight: 700, color: c.color }}>{c.label}</span> — {c.text}
               </div>
             );
           })()}
-          {!isSetupWizard && !isLoginPage && <TopNav />}
-          <main style={{ padding: "0 24px 48px" }}>
+          {!isSetupWizard && !isLoginPage && <SocTopBar />}
+          <main style={{ padding: 0, minHeight: "calc(100vh - 72px)" }}>
             {children}
           </main>
         </div>

@@ -1,523 +1,905 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { t as tr } from "@/lib/i18n";
-import { useLocale } from "@/lib/useLocale";
-import { NeuCard } from "@/components/chrome/NeuCard";
-import { CpuCard } from "@/components/chrome/CpuCard";
-import { ChromeButton } from "@/components/chrome/ChromeButton";
-import OnboardingBanner from "@/components/chrome/OnboardingBanner";
-import OnboardingLevelPicker from "@/components/chrome/OnboardingLevelPicker";
-import OnboardingTour from "@/components/chrome/OnboardingTour";
-import { useOnboarding } from "@/lib/useOnboarding";
-import KevTtaCard from "@/components/metrics/KevTtaCard";
-import MonthlyRssiCard from "@/components/metrics/MonthlyRssiCard";
-import HomeKpiStrip from "@/components/metrics/HomeKpiStrip";
+// Experimental frontend playground — SOC operator console.
+// Full viewport, 3-column layout, collapsible left rail, sober palette.
+// Data comes from the real /api/tc/* endpoints; nothing is mocked.
+//
+// Red is only used for things that are actually urgent — the rest stays
+// in greys and tabular numbers. No purple, no multicolour, no floating
+// "AI-slop" tile cards.
+
+import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
-  CheckCircle2, Loader2, Settings, Puzzle, Activity,
-  Cpu, MessageSquare, Shield, Server, ArrowRight,
-  HardDrive, Clock, Brain, Database, Eye, Wifi,
-  ChevronRight, Monitor,
+  Shield,
+  Activity,
+  Radio,
+  Bell,
+  MessageSquare,
+  BrainCircuit,
+  Gavel,
+  Settings,
+  FileText,
+  Cpu,
+  ChevronsLeft,
+  ChevronsRight,
+  Check,
 } from "lucide-react";
 
-const labelCaps: React.CSSProperties = {
-  fontSize: "10px", fontWeight: 600, color: "var(--tc-text-muted)",
-  textTransform: "uppercase", letterSpacing: "0.06em",
+type Incident = {
+  id: number;
+  severity: string | null;
+  verdict: string;
+  status: string;
+  asset?: string;
+  title?: string;
+  summary?: string;
+  mitre_techniques?: string[];
+  created_at?: string;
 };
 
-const metricBig: React.CSSProperties = {
-  fontSize: "20px", fontWeight: 800, color: "var(--tc-text)", marginTop: "4px",
+type AssetScore = { asset: string; score: number };
+type Situation = {
+  global_score?: number;
+  assets?: AssetScore[];
+  computed_at?: string;
+  total_open_findings?: number;
+  total_active_alerts?: number;
+  new_alerts_count?: number;
 };
 
-export default function HomePage() {
-  const locale = useLocale();
-  const onboarding = useOnboarding();
-  const [showLevelPicker, setShowLevelPicker] = useState(false);
-  const [services, setServices] = useState<{ name: string; icon: React.ReactNode; status: "ok" | "down" | "checking"; detail?: string }[]>([
-    { name: "ThreatClaw Engine", icon: <Shield size={16} />, status: "checking" },
-    { name: "ThreatClaw AI", icon: <Brain size={16} />, status: "checking" },
-    { name: "Base de données", icon: <Database size={16} />, status: "checking" },
-  ]);
-  const [config, setConfig] = useState<any>(null);
-  const [onboarded, setOnboarded] = useState<boolean | null>(null);
-  const [situation, setSituation] = useState<any>(null);
-  const [aiModels, setAiModels] = useState<string[]>([]);
-  const [lastCycle, setLastCycle] = useState<string | null>(null);
-  const [diskFree, setDiskFree] = useState<string | null>(null);
-  const [dbStatus, setDbStatus] = useState<"ok" | "down" | "checking">("checking");
-  const [mlStatus, setMlStatus] = useState<{ anomaly: string; dns: string; training: string; dataDays: number; modelTrained: boolean }>({ anomaly: "checking", dns: "checking", training: "checking", dataDays: 0, modelTrained: false });
+function isSevere(s: string | null | undefined) {
+  const x = (s ?? "").toUpperCase();
+  return x === "HIGH" || x === "CRITICAL";
+}
 
-  // Show level picker on first visit after onboarding (no level chosen yet)
+function formatRelative(iso: string | undefined, now: Date) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const diff = Math.max(0, now.getTime() - d.getTime()) / 1000;
+  if (diff < 60) return `il y a ${Math.round(diff)}s`;
+  if (diff < 3600) return `il y a ${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `il y a ${Math.round(diff / 3600)}h`;
+  return `il y a ${Math.round(diff / 86400)}j`;
+}
+
+export default function DashTest() {
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [situation, setSituation] = useState<Situation | null>(null);
+  const [alertsTotal, setAlertsTotal] = useState<number>(0);
+  const [now, setNow] = useState(new Date());
+
+  // Wall clock tick for relative timestamps + cycle countdown
   useEffect(() => {
-    if (!onboarding.loading && onboarded !== false) {
-      const hasChosenLevel = localStorage.getItem("tc-onboarding-level-chosen");
-      if (!hasChosenLevel && !onboarding.dismissed) {
-        setShowLevelPicker(true);
-      }
-    }
-  }, [onboarding.loading, onboarded, onboarding.dismissed]);
-
-  useEffect(() => {
-    setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
-
-    // Check Backend + DB
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json())
-      .then(d => {
-        setServices(s => s.map(svc => {
-          if (svc.name === "ThreatClaw Engine") return { ...svc, status: "ok" as const, detail: `v${d.version || "?"}` };
-          if (svc.name === "Base de données") return { ...svc, status: d.database ? "ok" as const : "down" as const, detail: d.database ? "PostgreSQL connecté" : "Non connecté" };
-          return svc;
-        }));
-      })
-      .catch(() => {
-        setServices(s => s.map(svc =>
-          svc.name === "ThreatClaw Engine" || svc.name === "Base de données"
-            ? { ...svc, status: "down" as const, detail: "Service non démarré" }
-            : svc
-        ));
-      });
-
-    // Check Ollama models
-    fetch("/api/ollama", { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json())
-      .then(d => {
-        const allModels = (d.models || []).map((m: { name: string }) => m.name);
-        // Count any LLM model (threatclaw-*, qwen*, mistral*, llama*, etc.)
-        const llmModels = allModels.filter((n: string) => !n.includes("embed") && !n.includes("nomic"));
-        setAiModels(allModels);
-        setServices(s => s.map(svc =>
-          svc.name === "ThreatClaw AI"
-            ? { ...svc, status: llmModels.length > 0 ? "ok" as const : "down" as const, detail: llmModels.length > 0 ? `${llmModels.length} modèle(s) disponible(s)` : undefined }
-            : svc
-        ));
-      })
-      .catch(() => setServices(s => s.map(svc =>
-        svc.name === "ThreatClaw AI" ? { ...svc, status: "down" as const, detail: "Non accessible" } : svc
-      )));
-
-    // Load config
-    fetch("/api/tc/config", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => setConfig(d)).catch(() => {});
-
-    // Load situation
-    fetch("/api/tc/intelligence/situation", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      setSituation(d);
-      if (d.computed_at) {
-        const ago = Math.round((Date.now() - new Date(d.computed_at).getTime()) / 60000);
-        setLastCycle(ago < 1 ? "< 1 min" : `${ago} min`);
-      }
-    }).catch(() => {});
-
-    // Real DB status from health check
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      setDbStatus(d.database ? "ok" : "down");
-    }).catch(() => setDbStatus("down"));
-
-    // Real ML engine status from health endpoint heartbeat
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      const ml = d.ml;
-      if (ml && ml.alive) {
-        const heartbeatAge = ml.timestamp ? (Date.now() - new Date(ml.timestamp).getTime()) / 1000 : 9999;
-        const isAlive = heartbeatAge < 600; // ML scores every 5 min, allow 10 min margin
-        const dataDays = ml.data_days || 0;
-        const modelTrained = ml.model_trained === true;
-        // Real state: inactive (engine down) → learning (collecting data) → active (model trained)
-        const realState = !isAlive ? "inactive" : modelTrained ? "active" : "learning";
-        setMlStatus({
-          anomaly: realState,
-          dns: realState,
-          training: modelTrained ? "trained" : dataDays > 0 ? "learning" : "waiting",
-          dataDays,
-          modelTrained,
-        });
-      } else {
-        setMlStatus({ anomaly: "inactive", dns: "inactive", training: "inactive", dataDays: 0, modelTrained: false });
-      }
-    }).catch(() => setMlStatus({ anomaly: "inactive", dns: "inactive", training: "inactive", dataDays: 0, modelTrained: false }));
-
-    // Real disk space — from health endpoint
-    fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) }).then(r => r.json()).then(d => {
-      if (d.disk_free) setDiskFree(d.disk_free);
-    }).catch(() => {});
+    const iv = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(iv);
   }, []);
 
-  const activeChannels = config?.channels
-    ? Object.entries(config.channels).filter(([, v]: any) => v.enabled).map(([k]: any) => k)
-    : [];
+  // Poll real API every 15 s
+  useEffect(() => {
+    let mounted = true;
+    async function load() {
+      const [incR, sitR, alC] = await Promise.allSettled([
+        fetch("/api/tc/incidents?limit=500").then((r) => r.json()),
+        fetch("/api/tc/intelligence/situation").then((r) => r.json()),
+        fetch("/api/tc/alerts/counts").then((r) => r.json()),
+      ]);
+      if (!mounted) return;
+      if (incR.status === "fulfilled") setIncidents(incR.value?.incidents ?? []);
+      if (sitR.status === "fulfilled") setSituation(sitR.value ?? null);
+      if (alC.status === "fulfilled") {
+        const counts = alC.value?.counts ?? [];
+        setAlertsTotal(counts.reduce((a: number, c: { count: number }) => a + c.count, 0));
+      }
+    }
+    load();
+    const iv = setInterval(load, 15_000);
+    return () => {
+      mounted = false;
+      clearInterval(iv);
+    };
+  }, []);
 
-  const score = situation?.global_score;
-  const scoreColor = score == null ? "var(--tc-text-muted)" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
-  const scoreLabel = score == null ? tr("waitingFirstCycle", locale) : score >= 80 ? tr("situationHealthy", locale) : score >= 50 ? tr("situationWarning", locale) : tr("situationCritical", locale);
+  const pending = incidents.filter((i) => i.verdict === "pending");
+  const confirmed = incidents.filter((i) => i.verdict === "confirmed");
+  const confirmedHigh = confirmed.filter((i) => isSevere(i.severity));
+  const openCritical = incidents
+    .filter((i) => (i.severity ?? "").toUpperCase() === "CRITICAL" && i.status !== "closed")
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+  const activeIncident =
+    openCritical ||
+    pending.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0] ||
+    null;
+
+  const triaged = pending.length + confirmed.length;
+  const noisePct = alertsTotal > 0 ? (1 - triaged / alertsTotal) * 100 : null;
+  const topAssets = (situation?.assets ?? [])
+    .slice()
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 5);
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("dashboard", locale)}</h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>{tr("dashboardSubtitle", locale)}</p>
-      </div>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateRows: "1fr 28px",
+        height: "calc(100vh - 72px)", /* - layout banner (16px) - top bar (44px) - status bar (28px) */
+        background: "var(--tc-bg)",
+        color: "var(--tc-text)",
+        fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: "12px",
+        overflow: "hidden",
+      }}
+    >
+      {/* ═══════ MAIN 3-COL ═══════ */}
+      <main
+        style={{
+          display: "grid",
+          gridTemplateColumns: `${railCollapsed ? "52px" : "260px"} 1fr 340px`,
+          overflow: "hidden",
+          minHeight: 0,
+          transition: "grid-template-columns 180ms",
+        }}
+      >
+        {/* ─── LEFT RAIL ─── */}
+        <LeftRail
+          collapsed={railCollapsed}
+          onToggle={() => setRailCollapsed((v) => !v)}
+          pending={pending.length}
+          confirmed={confirmed.length}
+          alertsTotal={alertsTotal}
+          situation={situation}
+          topAssets={topAssets}
+        />
 
-      {/* Onboarding banner */}
-      {onboarded === false && (
-        <NeuCard style={{ marginBottom: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)" }}>{tr("configRequired", locale)}</div>
-              <div style={{ fontSize: "12px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{tr("configRequiredDesc", locale)}</div>
+        {/* ─── CENTER ─── */}
+        <Center activeIncident={activeIncident} incidents={incidents} now={now} />
+
+        {/* ─── RIGHT AXIS (HITL) ─── */}
+        <RightAxis
+          pending={pending.length}
+          confirmed={confirmed.length}
+          confirmedHigh={confirmedHigh.length}
+          noisePct={noisePct}
+          activeIncident={activeIncident}
+          now={now}
+        />
+      </main>
+
+      {/* ═══════ STATUS BAR ═══════ */}
+      <StatusBar pending={pending.length} confirmed={confirmed.length} alertsTotal={alertsTotal} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LEFT RAIL — collapsible, holds live posture + sources
+// ═══════════════════════════════════════════════════════════════
+function LeftRail({
+  collapsed,
+  onToggle,
+  pending,
+  confirmed,
+  alertsTotal,
+  situation,
+  topAssets,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  pending: number;
+  confirmed: number;
+  alertsTotal: number;
+  situation: Situation | null;
+  topAssets: AssetScore[];
+}) {
+  const globalScore = situation?.global_score !== undefined ? Math.round(situation.global_score) : null;
+  return (
+    <aside
+      style={{
+        borderRight: "1px solid var(--tc-border)",
+        background: "var(--tc-surface)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Toggle */}
+      <button
+        onClick={onToggle}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: collapsed ? "center" : "flex-end",
+          padding: "8px 12px",
+          background: "transparent",
+          border: "none",
+          borderBottom: "1px solid var(--tc-border)",
+          color: "var(--tc-text-muted)",
+          cursor: "pointer",
+        }}
+        title={collapsed ? "Étendre" : "Réduire"}
+      >
+        {collapsed ? <ChevronsRight size={13} /> : <ChevronsLeft size={13} />}
+      </button>
+
+      {collapsed ? (
+        <CollapsedRailIcons />
+      ) : (
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {/* Posture live */}
+          <Section title="Posture · live">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <RailStat value={globalScore ?? "—"} label="score" accent={globalScore !== null && globalScore < 50 ? "var(--tc-red)" : undefined} />
+              <RailStat value={pending} label="à trier" accent={pending > 0 ? "var(--tc-red)" : undefined} />
+              <RailStat value={confirmed} label="confirmés" />
+              <RailStat value={alertsTotal.toLocaleString("fr")} label="alertes brutes" mono />
             </div>
-            <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary">
-              <Settings size={14} /> {tr("configure", locale)} <ArrowRight size={14} />
-            </ChromeButton>
-          </div>
-        </NeuCard>
-      )}
+          </Section>
 
-      {/* Onboarding progress checklist */}
-      {!onboarding.loading && !onboarding.dismissed && onboarding.level !== "expert" && onboarding.completed < onboarding.total && (
-        <OnboardingBanner
-          steps={onboarding.steps}
-          completed={onboarding.completed}
-          total={onboarding.total}
-          onDismiss={onboarding.dismiss}
-        />
-      )}
+          {/* Cycle agent */}
+          <Section title="Cycle agent">
+            <CycleSteps />
+          </Section>
 
-      {/* Level picker — shown once if no level set yet */}
-      {showLevelPicker && (
-        <OnboardingLevelPicker onSelect={(level) => {
-          onboarding.setLevel(level);
-          localStorage.setItem("tc-onboarding-level-chosen", "true");
-          setShowLevelPicker(false);
-        }} />
-      )}
-
-      {/* Contextual tour — Status page */}
-      {!onboarding.loading && (
-        <OnboardingTour
-          tourId="status"
-          locale={locale}
-          level={onboarding.level}
-          toursCompleted={onboarding.toursCompleted}
-          onComplete={onboarding.markTourCompleted}
-          steps={[
-            { element: "[data-tour='score']", descKey: "tourStatusScore" },
-            { element: "[data-tour='ml']", descKey: "tourStatusMl" },
-            { element: "[data-tour='infra']", descKey: "tourStatusInfra" },
-          ]}
-        />
-      )}
-
-      {/* ══ KPI strip — Today at a glance ══ */}
-      <HomeKpiStrip locale={locale} />
-
-      {/* ══ Central Processor ══ */}
-      <NeuCard accent="red" style={{ marginBottom: "20px", padding: "10px 16px" }}>
-        <CpuCard
-          score={score}
-          scoreLabel={scoreLabel}
-          version={services.find(s => s.name === "ThreatClaw Engine")?.detail || ""}
-          services={[
-            { name: "PostgreSQL", connected: dbStatus === "ok", color: "#3080d0", detail: "Base de données PG16" },
-            { name: "AI", connected: aiModels.length > 0, color: "#9060d0", detail: `${aiModels.length} modèle(s)`, restartable: true },
-            { name: "Intel. Engine", connected: services[0]?.status === "ok", color: "#d03020", detail: "Corrélation & scoring" },
-            { name: "ML Engine", connected: services[0]?.status === "ok", color: "#d09020", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : mlStatus.dataDays > 0 ? (locale === "fr" ? `Apprentissage (${mlStatus.dataDays}/14j)` : `Learning (${mlStatus.dataDays}/14d)`) : (locale === "fr" ? "En attente de données" : "Waiting for data"), restartable: true },
-            { name: "Skills", connected: services[0]?.status === "ok", color: "#06b6d4", detail: "49 skills" },
-            { name: "Channels", connected: activeChannels.length > 0, color: "#30a050", detail: activeChannels.join(", ") || "Non configuré" },
-            { name: "Logs", connected: dbStatus === "ok", color: "#f97316", detail: "Syslog + FluentBit" },
-            { name: "Dashboard", connected: true, color: "#b0a8a0", detail: "Next.js frontend" },
-          ]}
-        />
-      </NeuCard>
-
-      {/* ══ Score + Services ══ */}
-      <div data-tour="score" style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="grid">
-          <div style={{ textAlign: "center" }}>
-            <div style={labelCaps}>{tr("securityScore", locale)}</div>
-            <div style={{ fontSize: "42px", fontWeight: 900, color: scoreColor, margin: "8px 0 4px" }}>
-              {score != null ? Math.round(score) : "—"}
-            </div>
-            {/* Heartbeat monitor */}
-            {score != null && (
-              <div style={{ position: "relative", width: "100%", height: "32px", overflow: "hidden", margin: "4px 0" }}>
-                <svg viewBox="0 0 150 40" style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
-                  <polyline
-                    fill="none"
-                    stroke={scoreColor}
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points="0,20 20,20 25,20 30,10 35,30 40,5 45,35 50,20 55,20 75,20 80,20 85,12 90,28 95,8 100,32 105,20 110,20 130,20 150,20"
-                  >
-                    <animate attributeName="stroke-dasharray" from="0,300" to="300,0" dur="2.5s" repeatCount="indefinite" />
-                  </polyline>
-                </svg>
-                <div style={{
-                  position: "absolute", top: 0, right: 0, width: "100%", height: "100%",
-                  background: `linear-gradient(to left, transparent 0%, var(--tc-neu-inner) 100%)`,
-                  animation: "heartFadeIn 2.5s linear infinite",
-                }} />
-                <style>{`
-                  @keyframes heartFadeIn {
-                    0% { opacity: 1; }
-                    50% { opacity: 0; }
-                    100% { opacity: 0; }
-                  }
-                `}</style>
+          {/* Top risk assets */}
+          <Section title="Assets à risque">
+            {topAssets.length === 0 ? (
+              <EmptyLine text="aucun asset flaggé" />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                {topAssets.map((a) => {
+                  const risk = a.score ?? 0;
+                  const health = Math.max(0, 100 - Math.round(risk));
+                  return (
+                    <div
+                      key={a.asset}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr auto",
+                        padding: "4px 0",
+                        borderBottom: "1px dashed var(--tc-border)",
+                        fontSize: "11px",
+                      }}
+                    >
+                      <span style={{ color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {a.asset}
+                      </span>
+                      <span
+                        style={{
+                          color: risk >= 70 ? "var(--tc-red)" : risk >= 40 ? "#d09020" : "var(--tc-text-muted)",
+                          fontVariantNumeric: "tabular-nums",
+                          marginLeft: "8px",
+                        }}
+                      >
+                        {health}/100
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
-            <div style={{ fontSize: "10px", color: scoreColor }}>{scoreLabel}</div>
-            {situation?.total_active_alerts > 0 && (
-              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "8px" }}>
-                {situation.total_active_alerts} alerte(s) · {situation.assets?.length || 0} asset(s)
-              </div>
-            )}
-          </div>
-        </NeuCard>
+          </Section>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
-          {services.map(svc => {
-            const isEngine = svc.name === "ThreatClaw Engine";
-            const isAI = svc.name === "ThreatClaw AI";
-            const statusColor = svc.status === "ok" ? "#30a050" : svc.status === "down" ? "#d03020" : "var(--tc-text-muted)";
-            return (
-              <NeuCard key={svc.name} accent={isEngine ? "dots" : isAI ? "purple" : "blue"} style={{ padding: "14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{
-                    width: "32px", height: "32px", borderRadius: isEngine ? "50%" : "var(--tc-radius-sm)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: svc.status === "ok" ? "rgba(48,160,80,0.08)" : svc.status === "down" ? "rgba(208,48,32,0.08)" : "var(--tc-input)",
-                    color: statusColor, position: "relative", overflow: "hidden",
-                  }}>
-                    {svc.status === "checking" ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : isEngine && svc.status === "ok" ? (
-                      /* Mini radar sweep */
-                      <>
-                        <div style={{ position: "absolute", width: "100%", height: "100%", borderRadius: "50%", border: "1px dashed rgba(48,160,80,0.25)" }} />
-                        <div style={{ position: "absolute", width: "50%", height: "50%", borderRadius: "50%", border: "1px dashed rgba(48,160,80,0.2)" }} />
-                        <div style={{
-                          position: "absolute", top: "50%", left: "50%", width: "50%", height: "2px",
-                          background: "linear-gradient(to right, #30a050, transparent)",
-                          transformOrigin: "0 0",
-                          animation: "radarSweep 2s linear infinite",
-                        }} />
-                        <div style={{ width: "3px", height: "3px", borderRadius: "50%", background: "#30a050", position: "relative", zIndex: 1 }} />
-                      </>
-                    ) : isAI && svc.status === "ok" ? (
-                      /* AI wave dots */
-                      <div style={{ display: "flex", gap: "2px", alignItems: "center" }}>
-                        {[0, 1, 2, 3, 4].map(i => (
-                          <div key={i} style={{
-                            width: "3px", height: "3px", borderRadius: "50%", background: "#30a050",
-                            animation: `aiDot 1.2s ease-in-out ${i * 0.15}s infinite`,
-                          }} />
-                        ))}
-                      </div>
-                    ) : svc.icon}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{svc.name}</div>
-                    <div style={{ fontSize: "10px", color: statusColor }}>
-                      {svc.status === "checking" ? tr("checking", locale) : svc.detail || (svc.status === "ok" ? tr("operational", locale) : tr("offline", locale))}
-                    </div>
-                  </div>
-                </div>
-              </NeuCard>
-            );
-          })}
+          {/* Collectors / sources live */}
+          <Section title="Collecteurs">
+            <CollectorsList />
+          </Section>
         </div>
-        <style>{`
-          @keyframes radarSweep {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          @keyframes aiDot {
-            0%, 100% { transform: translateY(0); opacity: 0.4; }
-            50% { transform: translateY(-4px); opacity: 1; }
-          }
-        `}</style>
-      </div>
+      )}
+    </aside>
+  );
+}
 
-      {/* ══ ThreatClaw Engine ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        ThreatClaw Engine
-      </div>
-      <NeuCard accent="scan" style={{ marginBottom: "20px", padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#30a050", animation: "pulse 2s infinite" }} />
-            <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{tr("agentAutonomous", locale)}</span>
-          </div>
-          <div style={{ display: "flex", gap: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-            <span>{tr("lastCycle", locale)} : {lastCycle ? `${lastCycle} ${tr("ago", locale)}` : tr("waiting", locale)}</span>
-          </div>
-        </div>
-      </NeuCard>
+function CollapsedRailIcons() {
+  const icons = [
+    { icon: Shield, href: "/dash-test", label: "Console" },
+    { icon: Activity, href: "/intelligence", label: "Intelligence" },
+    { icon: Radio, href: "/sources", label: "Sources" },
+    { icon: Bell, href: "/incidents", label: "Incidents" },
+    { icon: MessageSquare, href: "/chat", label: "Chat" },
+    { icon: BrainCircuit, href: "/governance", label: "Governance" },
+    { icon: FileText, href: "/exports", label: "Reports" },
+    { icon: Settings, href: "/setup", label: "Config" },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column", padding: "8px 0" }}>
+      {icons.map((i) => {
+        const Ic = i.icon;
+        return (
+          <Link
+            key={i.href}
+            href={i.href}
+            title={i.label}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "10px 0",
+              color: "var(--tc-text-sec)",
+              textDecoration: "none",
+            }}
+          >
+            <Ic size={14} />
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
-      {/* ══ v1.0.8 metrics row: KEV TTA + Monthly RSSI report ══ */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-        <KevTtaCard locale={locale} />
-        <MonthlyRssiCard locale={locale} />
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ padding: "14px 14px 16px", borderBottom: "1px solid var(--tc-border)" }}>
+      <div
+        style={{
+          fontSize: "9px",
+          letterSpacing: "0.22em",
+          textTransform: "uppercase",
+          color: "var(--tc-text-muted)",
+          marginBottom: "10px",
+        }}
+      >
+        {title}
       </div>
+      {children}
+    </div>
+  );
+}
 
-      {/* ══ ThreatClaw Agent — link to Config ══ */}
-      <NeuCard accent="blue" style={{ marginBottom: "20px", padding: "10px 16px", cursor: "pointer" }} onClick={() => window.location.href = "/setup#agent"}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Monitor size={14} color="var(--tc-blue)" />
-          <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)" }}>ThreatClaw Agent</span>
-          <span style={{ fontSize: "9px", color: "var(--tc-text-muted)" }}>
-            {locale === "fr" ? "— Deployer sur vos endpoints" : "— Deploy on your endpoints"}
-          </span>
-          <span style={{ marginLeft: "auto", fontSize: "10px", color: "var(--tc-blue)" }}>Config &rarr;</span>
-        </div>
-      </NeuCard>
-
-      {/* ══ Moteurs ThreatClaw ══ */}
-      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {locale === "fr" ? "Moteurs de détection" : "Detection Engines"}
+function RailStat({
+  value,
+  label,
+  accent,
+  mono,
+}: {
+  value: string | number;
+  label: string;
+  accent?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div style={{ border: "1px solid var(--tc-border)", padding: "8px 10px" }}>
+      <div
+        style={{
+          fontSize: mono ? "14px" : "20px",
+          color: accent ?? "var(--tc-text)",
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {value}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px", marginBottom: "20px" }}>
-        {[
-          { name: "Intelligence Engine", detail: locale === "fr" ? "Corrélation & scoring" : "Correlation & scoring", active: services[0]?.status === "ok", color: "#d03020" },
-          { name: "Sigma Engine", detail: locale === "fr" ? "Règles de détection" : "Detection rules", active: services[0]?.status === "ok", color: "#9060d0" },
-          { name: "Bloom Filter", detail: locale === "fr" ? "IoC temps réel" : "Real-time IoC", active: services[0]?.status === "ok", color: "#06b6d4" },
-          { name: "NDR (JA3/Beacon/TLS)", detail: locale === "fr" ? "Analyse réseau Zeek" : "Zeek network analysis", active: services[0]?.status === "ok", color: "#f97316" },
-          { name: "ML Engine", detail: mlStatus.modelTrained ? (locale === "fr" ? "Modèle entraîné" : "Model trained") : (locale === "fr" ? "En apprentissage" : "Learning"), active: mlStatus.anomaly !== "inactive", color: "#d09020" },
-          { name: "Graph Intelligence", detail: locale === "fr" ? "STIX 2.1 + corrélation" : "STIX 2.1 + correlation", active: services[0]?.status === "ok", color: "#30a050" },
-        ].map(engine => (
-          <NeuCard key={engine.name} style={{ padding: "10px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <div style={{ width: "6px", height: "6px", borderRadius: "50%", flexShrink: 0,
-                background: engine.active ? engine.color : "var(--tc-text-faint)",
-                boxShadow: engine.active ? `0 0 6px ${engine.color}60` : "none" }} />
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text)" }}>{engine.name}</div>
-                <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "1px" }}>{engine.detail}</div>
-              </div>
-            </div>
-          </NeuCard>
-        ))}
-      </div>
-
-      {/* ══ Détection comportementale ══ */}
-      <div data-tour="ml" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {tr("behavioralDetection", locale)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="amber" style={{ padding: "14px", opacity: mlStatus.training === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("training", locale)}</div>
-          {(() => {
-            const days = mlStatus.dataDays;
-            const target = 14;
-            const pct = Math.min(100, Math.round((days / target) * 100));
-            const remaining = Math.max(0, target - days);
-            const trained = mlStatus.modelTrained;
-            const trainingState = mlStatus.training;
-            const color = trained ? "#30a050" : days > 0 ? "var(--tc-amber)" : "var(--tc-text-muted)";
-            return (
-              <>
-                <div style={{ fontSize: "12px", fontWeight: 700, color, marginTop: "4px" }}>
-                  {trainingState === "checking" ? tr("checking", locale) :
-                   trainingState === "trained" ? tr("trainedOperational", locale) :
-                   trainingState === "learning" ? `${tr("learningProgress", locale)} ${days}/${target}${tr("days", locale)}` :
-                   trainingState === "waiting" ? tr("waitingForLogs", locale) : tr("inactive", locale)}
-                </div>
-                {trainingState !== "inactive" && (
-                  <>
-                    <div style={{ width: "100%", height: "4px", borderRadius: "2px", background: "var(--tc-input)", marginTop: "6px", overflow: "hidden" }}>
-                      <div style={{
-                        width: `${pct}%`, height: "100%", borderRadius: "2px",
-                        background: trained ? "#30a050" : "var(--tc-amber)",
-                        transition: "width 0.5s ease",
-                      }} />
-                    </div>
-                    <div style={{ fontSize: "8px", color: "var(--tc-text-muted)", marginTop: "3px", display: "flex", justifyContent: "space-between" }}>
-                      <span>{trained ? tr("retrainNightly", locale) : days === 0 ? tr("connectLogSource", locale) : `${remaining}${tr("daysRemaining", locale)}`}</span>
-                      <span style={{ fontWeight: 700 }}>{pct}%</span>
-                    </div>
-                  </>
-                )}
-                {trainingState === "inactive" && (
-                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "4px" }}>
-                    {tr("waitingForMl", locale)}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </NeuCard>
-        <NeuCard accent="hex" style={{ padding: "14px", opacity: mlStatus.anomaly === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("behavioralAnalysis", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.anomaly === "active" ? "#30a050" : mlStatus.anomaly === "learning" ? "var(--tc-amber)" : mlStatus.anomaly === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.anomaly === "active" ? tr("active", locale) : mlStatus.anomaly === "learning" ? tr("learning", locale) : mlStatus.anomaly === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.anomaly === "active" ? tr("scoreEvery5min", locale) : mlStatus.anomaly === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
-        <NeuCard accent="rings" style={{ padding: "14px", opacity: mlStatus.dns === "inactive" ? 0.5 : 1, transition: "opacity 0.3s" }}>
-          <div style={labelCaps}>{tr("dnsDetection", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, marginTop: "4px",
-            color: mlStatus.dns === "active" ? "#30a050" : mlStatus.dns === "learning" ? "var(--tc-amber)" : mlStatus.dns === "checking" ? "var(--tc-text-muted)" : "var(--tc-text-faint)" }}>
-            {mlStatus.dns === "active" ? tr("active", locale) : mlStatus.dns === "learning" ? tr("learning", locale) : mlStatus.dns === "checking" ? tr("checking", locale) : tr("inactive", locale)}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
-            {mlStatus.dns === "active" ? tr("suspiciousDomains", locale) : mlStatus.dns === "learning" ? `${tr("activeIn", locale)} ${Math.max(0, 14 - mlStatus.dataDays)}${tr("days", locale)}` : mlStatus.training !== "trained" ? tr("waitingForTraining", locale) : tr("waitingForMl", locale)}
-          </div>
-        </NeuCard>
-      </div>
-
-      {/* ══ Santé serveur ══ */}
-      <div data-tour="infra" style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-        {tr("infrastructure", locale)}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard accent="grid" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("security", locale)}</div>
-          {config?.permissions ? (
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-              {config.permissions === "READ_ONLY" ? (locale === "fr" ? "Observation" : "Observe") : config.permissions === "ALERT_ONLY" ? (locale === "fr" ? "Alertes" : "Alerts") : config.permissions === "REMEDIATE_WITH_APPROVAL" ? (locale === "fr" ? "Remédiation" : "Remediate") : "Auto"}
-            </div>
-          ) : (
-            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              {tr("configure", locale)} <ChevronRight size={11} />
-            </button>
-          )}
-        </NeuCard>
-        <NeuCard accent="blue" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("channels", locale)}</div>
-          {activeChannels.length > 0 ? (
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>
-              {activeChannels.map(c => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
-            </div>
-          ) : (
-            <button onClick={() => window.location.href = "/setup"} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", marginTop: "4px", fontSize: "12px", fontWeight: 700, color: "var(--tc-red)", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px" }}>
-              {tr("configure", locale)} <ChevronRight size={11} />
-            </button>
-          )}
-        </NeuCard>
-        <NeuCard accent="green" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("database", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: dbStatus === "ok" ? "#30a050" : dbStatus === "checking" ? "var(--tc-text-muted)" : "#d03020", marginTop: "4px" }}>
-            {dbStatus === "ok" ? (locale === "fr" ? "Opérationnel" : "Operational") : dbStatus === "checking" ? (locale === "fr" ? "Vérification..." : "Checking...") : (locale === "fr" ? "Non connecté" : "Not connected")}
-          </div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>PG16 + AGE + TimescaleDB</div>
-        </NeuCard>
-        <NeuCard accent="dots" style={{ padding: "14px" }}>
-          <div style={labelCaps}>{tr("disk", locale)}</div>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginTop: "4px" }}>{diskFree || "—"}</div>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{locale === "fr" ? "sur /srv" : "on /srv"}</div>
-        </NeuCard>
-      </div>
-
-      {/* Quick actions */}
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <ChromeButton onClick={() => window.location.href = "/assets"} variant="glass"><Server size={14} /> Assets</ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/skills"} variant="glass"><Puzzle size={14} /> Skills</ChromeButton>
-        <ChromeButton onClick={() => window.location.href = "/setup"} variant="primary"><Settings size={14} /> Configuration <ArrowRight size={14} /></ChromeButton>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: "2px" }}>
+        {label}
       </div>
     </div>
+  );
+}
+
+function CycleSteps() {
+  // Static for now — TODO wire to real IE cycle state via an endpoint.
+  const steps = [
+    { n: "01", label: "Observe", desc: "syslog · sigma · wazuh" },
+    { n: "02", label: "Correlate", desc: "graph STIX 2.1" },
+    { n: "03", label: "Enrich", desc: "KEV · EPSS · CTI" },
+    { n: "04", label: "Decide", desc: "L2 forensique → HITL" },
+  ];
+  const activeIdx = 2; // placeholder
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {steps.map((s, i) => {
+        const active = i === activeIdx;
+        return (
+          <div
+            key={s.n}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "22px 1fr",
+              gap: "10px",
+              padding: "8px 0",
+              borderBottom: i < steps.length - 1 ? "1px dashed var(--tc-border)" : "none",
+              position: "relative",
+            }}
+          >
+            <div style={{ fontSize: "9px", color: active ? "var(--tc-red)" : "var(--tc-text-muted)", letterSpacing: "0.15em", paddingTop: "2px" }}>
+              {s.n}
+            </div>
+            <div>
+              <div style={{ fontSize: "10px", color: active ? "var(--tc-red)" : "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.15em" }}>
+                {s.label}
+              </div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "1px" }}>{s.desc}</div>
+            </div>
+            {active && (
+              <span
+                style={{
+                  position: "absolute",
+                  left: "-14px",
+                  top: "14px",
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--tc-red)",
+                  boxShadow: "0 0 8px var(--tc-red)",
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CollectorsList() {
+  // Placeholder — should be wired to /api/tc/sources status later.
+  const items = [
+    { name: "wazuh.siem", rate: "live", ok: true },
+    { name: "crowdsec.cti", rate: "sync 3m", ok: true },
+    { name: "mitre.attack", rate: "static", ok: true },
+    { name: "cisa.kev", rate: "sync 14m", ok: true },
+    { name: "threatfox.abuse", rate: "sync 5m", ok: true },
+  ];
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {items.map((s) => (
+        <div
+          key={s.name}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto auto",
+            gap: "8px",
+            alignItems: "center",
+            padding: "6px 0",
+            borderBottom: "1px dashed var(--tc-border)",
+            fontSize: "10.5px",
+          }}
+        >
+          <span style={{ color: "var(--tc-text)" }}>{s.name}</span>
+          <span style={{ color: "var(--tc-text-muted)", fontSize: "10px" }}>{s.rate}</span>
+          <span
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: s.ok ? "#30a050" : "var(--tc-red)",
+              boxShadow: `0 0 6px ${s.ok ? "#30a050" : "var(--tc-red)"}`,
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyLine({ text }: { text: string }) {
+  return <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>{text}</div>;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CENTER — active incident + recent timeline + log tail
+// ═══════════════════════════════════════════════════════════════
+function Center({
+  activeIncident,
+  incidents,
+  now,
+}: {
+  activeIncident: Incident | null;
+  incidents: Incident[];
+  now: Date;
+}) {
+  return (
+    <section style={{ display: "grid", gridTemplateRows: "auto 1fr auto", minHeight: 0, overflow: "hidden" }}>
+      {activeIncident ? (
+        <IncidentBar incident={activeIncident} now={now} />
+      ) : (
+        <div
+          style={{
+            borderBottom: "1px solid var(--tc-border)",
+            padding: "18px 20px",
+            color: "var(--tc-text-muted)",
+            fontSize: "11px",
+            letterSpacing: "0.04em",
+          }}
+        >
+          Aucun incident actif. Le cycle IE ré-évalue toutes les 5 minutes — dès qu'un asset flippe, il apparaîtra ici.
+        </div>
+      )}
+
+      {/* Incidents list / timeline */}
+      <IncidentList incidents={incidents} now={now} />
+
+      {/* Log tail */}
+      <LogTail />
+    </section>
+  );
+}
+
+function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
+  const sev = (incident.severity ?? "").toUpperCase();
+  const isCrit = sev === "CRITICAL" || sev === "HIGH";
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        borderBottom: "1px solid var(--tc-border)",
+        background: isCrit ? "linear-gradient(180deg, rgba(208,48,32,0.06), transparent)" : "transparent",
+      }}
+    >
+      <div
+        style={{
+          padding: "14px 18px",
+          borderRight: "1px solid var(--tc-border)",
+          borderLeft: `3px solid ${isCrit ? "var(--tc-red)" : "var(--tc-border)"}`,
+        }}
+      >
+        <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: isCrit ? "var(--tc-red)" : "var(--tc-text-muted)", textTransform: "uppercase" }}>
+          Incident · {incident.verdict}
+        </div>
+        <div style={{ fontSize: "16px", color: "var(--tc-text)", marginTop: "2px" }}>
+          INC-{String(incident.id).padStart(6, "0")}
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", letterSpacing: "0.08em" }}>
+          {formatRelative(incident.created_at, now)}
+        </div>
+      </div>
+
+      <div
+        style={{
+          padding: "12px 18px",
+          display: "grid",
+          gridTemplateColumns: "repeat(4, auto)",
+          gap: "24px",
+          alignItems: "center",
+        }}
+      >
+        <Meta label="Asset" value={incident.asset ?? "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
+        <Meta label="Sévérité" value={sev || "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
+        <Meta label="Status" value={incident.status} />
+        <Meta
+          label="MITRE"
+          value={
+            incident.mitre_techniques && incident.mitre_techniques.length > 0
+              ? incident.mitre_techniques.join(" · ")
+              : "—"
+          }
+        />
+      </div>
+
+      <div style={{ padding: "10px 14px", display: "flex", gap: "8px", alignItems: "center", borderLeft: "1px solid var(--tc-border)" }}>
+        <Link
+          href={`/incidents?id=${incident.id}`}
+          style={{
+            padding: "7px 12px",
+            border: "1px solid var(--tc-red)",
+            fontSize: "10px",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: "var(--tc-red)",
+            textDecoration: "none",
+          }}
+        >
+          ouvrir
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function Meta({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: "12px", color: accent ?? "var(--tc-text)", marginTop: "2px" }}>{value}</div>
+    </div>
+  );
+}
+
+function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) {
+  return (
+    <div style={{ overflow: "auto", padding: "14px 18px" }}>
+      <div
+        style={{
+          fontSize: "9px",
+          letterSpacing: "0.22em",
+          color: "var(--tc-text-muted)",
+          textTransform: "uppercase",
+          marginBottom: "12px",
+        }}
+      >
+        Timeline · incidents récents
+      </div>
+      {incidents.length === 0 ? (
+        <div
+          style={{
+            padding: "40px 0",
+            textAlign: "center",
+            color: "var(--tc-text-muted)",
+            fontSize: "11px",
+            letterSpacing: "0.05em",
+          }}
+        >
+          aucun incident — le prochain cycle IE arrive dans &lt; 5 min
+        </div>
+      ) : (
+        incidents.slice(0, 20).map((i) => {
+          const sev = (i.severity ?? "").toUpperCase();
+          const isCrit = sev === "CRITICAL" || sev === "HIGH";
+          return (
+            <div
+              key={i.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "80px 1fr 100px 90px",
+                gap: "14px",
+                padding: "10px 0",
+                borderBottom: "1px dashed var(--tc-border)",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", letterSpacing: "0.08em" }}>
+                {formatRelative(i.created_at, now)}
+              </div>
+              <div style={{ fontSize: "11.5px", color: "var(--tc-text)" }}>
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "6px",
+                    height: "6px",
+                    borderRadius: "50%",
+                    background: isCrit ? "var(--tc-red)" : sev === "MEDIUM" ? "#d09020" : "#30a050",
+                    marginRight: "10px",
+                  }}
+                />
+                {i.asset ?? "—"} <span style={{ color: "var(--tc-text-muted)" }}>· {i.title ?? ""}</span>
+              </div>
+              <span style={{ fontSize: "10px", color: isCrit ? "var(--tc-red)" : "var(--tc-text-muted)", letterSpacing: "0.08em" }}>
+                {sev}
+              </span>
+              <Link
+                href={`/incidents?id=${i.id}`}
+                style={{ fontSize: "10px", color: "var(--tc-red)", textDecoration: "none", textAlign: "right", letterSpacing: "0.1em" }}
+              >
+                ouvrir →
+              </Link>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+function LogTail() {
+  // Placeholder log tail — wire to SSE /api/logs/events later.
+  const lines = [
+    { t: "cycle", msg: "intelligence engine tick · 0 new incidents · findings=0" },
+    { t: "sync", msg: "cisa.kev · 1 577 entries · delta=0" },
+    { t: "sync", msg: "mitre.attack · 691 techniques · cached" },
+    { t: "sigma", msg: "84 rules compiled · starter pack lnx-* loaded (12)" },
+  ];
+  return (
+    <div style={{ borderTop: "1px solid var(--tc-border)", background: "var(--tc-surface)", maxHeight: "160px", overflow: "hidden" }}>
+      <div
+        style={{
+          padding: "8px 18px",
+          borderBottom: "1px solid var(--tc-border)",
+          fontSize: "9px",
+          letterSpacing: "0.22em",
+          color: "var(--tc-text-muted)",
+          textTransform: "uppercase",
+          display: "flex",
+          justifyContent: "space-between",
+        }}
+      >
+        <span>engine log · tail -f</span>
+        <span>dernières minutes</span>
+      </div>
+      <div style={{ padding: "8px 18px", fontSize: "10.5px", color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "58px 1fr", gap: "10px" }}>
+            <span style={{ color: "var(--tc-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{l.t}</span>
+            <span>{l.msg}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RIGHT AXIS — triage ratio + HITL summary
+// ═══════════════════════════════════════════════════════════════
+function RightAxis({
+  pending,
+  confirmed,
+  confirmedHigh,
+  noisePct,
+  activeIncident,
+  now,
+}: {
+  pending: number;
+  confirmed: number;
+  confirmedHigh: number;
+  noisePct: number | null;
+  activeIncident: Incident | null;
+  now: Date;
+}) {
+  return (
+    <aside
+      style={{
+        borderLeft: "1px solid var(--tc-border)",
+        background: "var(--tc-surface)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: "12px 16px",
+          borderBottom: "1px solid var(--tc-border)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>
+          Validation humaine
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--tc-red)", letterSpacing: "0.08em" }}>HITL actif</div>
+      </div>
+
+      <div style={{ overflowY: "auto", flex: 1 }}>
+        {/* Triage ratio */}
+        <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--tc-border)" }}>
+          <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>
+            Triage
+          </div>
+          <div style={{ fontSize: "24px", color: "var(--tc-text)", fontVariantNumeric: "tabular-nums" }}>
+            {noisePct === null ? "—" : noisePct >= 99.99 ? ">99.99%" : `${noisePct.toFixed(2)}%`}
+          </div>
+          <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px", letterSpacing: "0.05em" }}>
+            bruit filtré · {pending + confirmed} incidents remontés
+          </div>
+
+          {/* horizontal inline stats */}
+          <div
+            style={{
+              marginTop: "14px",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "10px",
+              paddingTop: "14px",
+              borderTop: "1px dashed var(--tc-border)",
+              fontSize: "11px",
+            }}
+          >
+            <div>
+              <div style={{ color: pending > 0 ? "var(--tc-red)" : "var(--tc-text)", fontSize: "16px", fontVariantNumeric: "tabular-nums" }}>
+                {pending}
+              </div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
+                à trier
+              </div>
+            </div>
+            <div>
+              <div style={{ color: confirmedHigh > 0 ? "var(--tc-red)" : "var(--tc-text)", fontSize: "16px", fontVariantNumeric: "tabular-nums" }}>
+                {confirmedHigh}
+              </div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
+                high+ conf.
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "var(--tc-text)", fontSize: "16px", fontVariantNumeric: "tabular-nums" }}>
+                {confirmed}
+              </div>
+              <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
+                confirmés
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Active incident HITL block */}
+        {activeIncident ? (
+          <ActiveIncidentHitl incident={activeIncident} now={now} />
+        ) : (
+          <div style={{ padding: "28px 18px", textAlign: "center", fontSize: "11px", color: "var(--tc-text-muted)" }}>
+            <Check size={20} style={{ opacity: 0.3, marginBottom: "10px" }} />
+            <div>aucune décision en attente</div>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function ActiveIncidentHitl({ incident, now }: { incident: Incident; now: Date }) {
+  return (
+    <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--tc-border)" }}>
+      <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>
+        Incident en attente
+      </div>
+      <div style={{ fontSize: "13px", color: "var(--tc-text)", marginBottom: "6px" }}>
+        {incident.asset ?? "—"}
+      </div>
+      <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "14px", lineHeight: 1.5 }}>
+        {incident.title ?? incident.summary ?? "—"}
+      </div>
+
+      <div style={{ display: "flex", gap: "8px" }}>
+        <Link
+          href={`/incidents?id=${incident.id}`}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            border: "1px solid var(--tc-red)",
+            color: "var(--tc-red)",
+            textAlign: "center",
+            fontSize: "10px",
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            textDecoration: "none",
+          }}
+        >
+          trier →
+        </Link>
+      </div>
+
+      <div style={{ marginTop: "14px", fontSize: "10px", color: "var(--tc-text-muted)", letterSpacing: "0.04em", lineHeight: 1.5 }}>
+        Signé ed25519 · chaîne de hash Postgres · rapport NIS2 auto après décision.
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STATUS BAR
+// ═══════════════════════════════════════════════════════════════
+function StatusBar({
+  pending,
+  confirmed,
+  alertsTotal,
+}: {
+  pending: number;
+  confirmed: number;
+  alertsTotal: number;
+}) {
+  return (
+    <footer
+      style={{
+        display: "grid",
+        gridTemplateColumns: "auto auto auto 1fr auto",
+        gap: "22px",
+        alignItems: "center",
+        borderTop: "1px solid var(--tc-border)",
+        padding: "0 16px",
+        fontSize: "10px",
+        letterSpacing: "0.1em",
+        color: "var(--tc-text-muted)",
+        background: "var(--tc-surface)",
+      }}
+    >
+      <span>
+        engine · <span style={{ color: "#30a050" }}>running</span>
+      </span>
+      <span>
+        ai · <span style={{ color: "var(--tc-text)" }}>L0 L1 L2 L2.5</span>
+      </span>
+      <span>
+        anonymiseur · <span style={{ color: "#30a050" }}>on</span>
+      </span>
+      <span />
+      <span>
+        {pending + confirmed} inc. · {alertsTotal.toLocaleString("fr")} alertes
+      </span>
+    </footer>
   );
 }
