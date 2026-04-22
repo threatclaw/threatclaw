@@ -170,16 +170,18 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                 if validation.contains("expired") || validation.contains("self signed") {
                     let server = entry["server_name"].as_str().unwrap_or("unknown");
                     let title = format!("Zeek: SSL issue on {} — {}", server, validation);
-                    let _ = store
-                        .insert_sigma_alert(
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_sigma_alert",
+                        store.insert_sigma_alert(
                             "zeek-ssl-issue",
                             "medium",
                             &title,
                             entry["id.resp_h"].as_str().unwrap_or(""),
                             None,
                             None,
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
                 }
             }
             "zeek.conn" => {
@@ -192,16 +194,18 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                         dst,
                         duration / 60.0
                     );
-                    let _ = store
-                        .insert_sigma_alert(
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_sigma_alert",
+                        store.insert_sigma_alert(
                             "zeek-long-conn",
                             "medium",
                             &title,
                             hostname,
                             Some(dst),
                             None,
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
                 }
                 // Large upload (> 50 MB) — aligned with zeek.rs native connector
                 let orig_bytes = entry["orig_bytes"].as_u64().unwrap_or(0);
@@ -211,16 +215,18 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                         dst,
                         orig_bytes as f64 / 1_000_000.0
                     );
-                    let _ = store
-                        .insert_sigma_alert(
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_sigma_alert",
+                        store.insert_sigma_alert(
                             "zeek-large-upload",
                             "high",
                             &title,
                             hostname,
                             Some(dst),
                             None,
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
                 }
             }
             "zeek.ssh" => {
@@ -228,16 +234,18 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                 let src = entry["id.orig_h"].as_str().unwrap_or("");
                 if !auth_success && !crate::agent::ip_classifier::is_non_routable(src) {
                     let title = format!("Zeek: SSH auth failure from {}", src);
-                    let _ = store
-                        .insert_sigma_alert(
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_sigma_alert",
+                        store.insert_sigma_alert(
                             "zeek-ssh-fail",
                             "medium",
                             &title,
                             entry["id.resp_h"].as_str().unwrap_or(""),
                             Some(src),
                             None,
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
                 }
             }
             "zeek.files" => {
@@ -282,8 +290,9 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                          Hash {}: {}\nSource: {} → {}",
                         filename, mime, total_bytes, source_proto, matched_type, hash_val, src, dst
                     );
-                    let _ = store
-                        .insert_finding(&NewFinding {
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_finding",
+                        store.insert_finding(&NewFinding {
                             skill_id: "ndr-file-hash".into(),
                             title: title.clone(),
                             description: Some(description),
@@ -305,8 +314,9 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                                 "detection": "file-hash-bloom-filter",
                                 "mitre": ["T1105"]
                             })),
-                        })
-                        .await;
+                        }),
+                    )
+                    .await;
                     tracing::warn!(
                         "NDR-FILE: Malware hash match! {} ({}) {} → {} via {}",
                         filename,
@@ -319,16 +329,18 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                         "Zeek: Malware file detected — {} ({})",
                         filename, matched_type
                     );
-                    let _ = store
-                        .insert_sigma_alert(
+                    crate::connectors::log_db_write(
+                        "webhook_ingest:insert_sigma_alert",
+                        store.insert_sigma_alert(
                             "zeek-malware-file",
                             "critical",
                             &alert_title,
                             src,
                             Some(dst),
                             None,
-                        )
-                        .await;
+                        ),
+                    )
+                    .await;
 
                     // P0: VirusTotal conditional lookup — fire-and-forget enrichment
                     // Non-blocking: spawns async task, VT result logged for IE enrichment
@@ -443,9 +455,11 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
                     format!("[{}] {} — {}", note_type, msg, sub_msg)
                 };
 
-                let _ = store
-                    .insert_sigma_alert(rule_id, level, &title, src, Some(dst), None)
-                    .await;
+                crate::connectors::log_db_write(
+                    "webhook_ingest:insert_sigma_alert",
+                    store.insert_sigma_alert(rule_id, level, &title, src, Some(dst), None),
+                )
+                .await;
             }
             _ => {}
         }
@@ -550,16 +564,18 @@ async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
             };
 
             let title = format!("[Suricata {}] {}", sig_id, signature);
-            let _ = store
-                .insert_sigma_alert(
+            crate::connectors::log_db_write(
+                "webhook_ingest:insert_sigma_alert",
+                store.insert_sigma_alert(
                     &format!("suricata-{}", sig_id),
                     level,
                     &title,
                     dest_ip,
                     Some(src_ip),
                     None,
-                )
-                .await;
+                ),
+            )
+            .await;
         }
 
         // Detect large flows (> 50 MB exfiltration)
@@ -571,16 +587,18 @@ async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
                     dest_ip,
                     bytes_out as f64 / 1_000_000.0
                 );
-                let _ = store
-                    .insert_sigma_alert(
+                crate::connectors::log_db_write(
+                    "webhook_ingest:insert_sigma_alert",
+                    store.insert_sigma_alert(
                         "suricata-exfil",
                         "high",
                         &title,
                         src_ip,
                         Some(dest_ip),
                         None,
-                    )
-                    .await;
+                    ),
+                )
+                .await;
             }
         }
     }
@@ -1000,8 +1018,9 @@ async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
             scanners_triggered.join(", "),
         );
 
-        let _ = store
-            .insert_finding(&NewFinding {
+        crate::connectors::log_db_write(
+            "webhook_ingest:insert_finding",
+            store.insert_finding(&NewFinding {
                 skill_id: "skill-strelka-scanner".into(),
                 title,
                 description: Some(description),
@@ -1020,13 +1039,18 @@ async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
                     "detection": "strelka-file-scan",
                     "mitre": ["T1059", "T1204.002"]
                 })),
-            })
-            .await;
+            }),
+        )
+        .await;
         findings += 1;
 
         // Also store as log for IE correlation
         let now = chrono::Utc::now().to_rfc3339();
-        let _ = store.insert_log("strelka.scan", "", result, &now).await;
+        crate::connectors::log_db_write(
+            "webhook_ingest:insert_log",
+            store.insert_log("strelka.scan", "", result, &now),
+        )
+        .await;
     }
 
     if findings > 0 {
