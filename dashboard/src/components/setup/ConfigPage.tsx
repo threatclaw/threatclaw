@@ -294,31 +294,88 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   ];
 
   return (
-    <div>
-      {/* Tab nav */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "20px", flexWrap: "wrap" }}>
-        {tabs.map(tab => {
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "220px 1fr",
+        gap: "0",
+        minHeight: "calc(100vh - 120px)",
+        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      }}
+    >
+      {/* ═══ LEFT RAIL — vertical tab sidebar ═══ */}
+      <nav
+        style={{
+          borderRight: "1px solid var(--tc-border)",
+          background: "var(--tc-surface)",
+          padding: "20px 0",
+          position: "sticky",
+          top: 0,
+          alignSelf: "start",
+          maxHeight: "calc(100vh - 60px)",
+          overflowY: "auto",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "9px",
+            letterSpacing: "0.22em",
+            color: "var(--tc-text-muted)",
+            textTransform: "uppercase",
+            padding: "0 18px 14px",
+          }}
+        >
+          Config
+        </div>
+        {tabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
           return (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-              display: "flex", alignItems: "center", gap: "6px",
-              padding: "8px 16px", borderRadius: "var(--tc-radius-md)", border: "none",
-              fontSize: "12px", fontWeight: 600, fontFamily: "inherit",
-              cursor: "pointer", transition: "all 0.2s ease",
-              background: active ? "rgba(208,48,32,0.08)" : "var(--tc-surface-alt)",
-              color: active ? "#d03020" : "var(--tc-text-sec)",
-              borderColor: active ? "rgba(208,48,32,0.15)" : "var(--tc-border)",
-              borderWidth: "1px", borderStyle: "solid",
-            }}>
-              <Icon size={14} /> {tab.label}
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                width: "100%",
+                padding: "9px 18px",
+                border: "none",
+                background: active ? "var(--tc-red-soft)" : "transparent",
+                color: active ? "var(--tc-red)" : "var(--tc-text-sec)",
+                fontSize: "11px",
+                fontWeight: active ? 700 : 500,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+                textAlign: "left",
+                borderLeft: active ? "2px solid var(--tc-red)" : "2px solid transparent",
+                transition: "background 120ms",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.background = "var(--tc-input)";
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <Icon size={13} />
+              {tab.label}
             </button>
           );
         })}
-      </div>
+      </nav>
 
-      {/* Tab content */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "24px" }}>
+      {/* ═══ RIGHT PANEL — active tab content ═══ */}
+      <div
+        style={{
+          padding: "24px 32px 40px",
+          overflow: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
+        }}
+      >
 
         {/* ═══ GENERAL ═══ */}
         {activeTab === "general" && (
