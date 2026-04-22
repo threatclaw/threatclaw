@@ -211,13 +211,22 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
                         .to_string();
                         let status = agent["status"].as_str().unwrap_or("unknown");
 
-                        // Import agent as asset via resolution pipeline (dedup with other sources)
-                        if !ip.is_empty() && ip != "any" {
+                        // Import agent as asset via resolution pipeline (dedup with other sources).
+                        // We used to guard on `ip != "any"`, but Wazuh agents with auto-IP
+                        // configuration always report "any" — and skipping them meant a
+                        // re-enrolled agent created a duplicate asset every time it got a
+                        // new `agent_id`. Hostname is enough for the resolver to dedup.
+                        if !name.is_empty() && name != "unknown" {
+                            let valid_ip = if !ip.is_empty() && ip != "any" {
+                                Some(ip.to_string())
+                            } else {
+                                None
+                            };
                             let discovered = crate::graph::asset_resolution::DiscoveredAsset {
                                 mac: None,
                                 hostname: Some(name.to_string()),
                                 fqdn: None,
-                                ip: Some(ip.to_string()),
+                                ip: valid_ip,
                                 os: if os.is_empty() {
                                     None
                                 } else {
