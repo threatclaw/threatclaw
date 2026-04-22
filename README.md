@@ -73,8 +73,8 @@ cargo build --release
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/dash.png" alt="Dashboard — Security score, ML detection, infrastructure status" width="800">
-  <br><em>Dashboard — Real-time security score, ML behavioral detection, infrastructure health</em>
+  <img src="docs/screenshots/dash-2.png" alt="Dashboard — Security score, ML detection, infrastructure status" width="800">
+  <br><em>Dashboard — Real-time SOC Center</em>
 </p>
 
 <p align="center">
