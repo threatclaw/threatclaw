@@ -192,10 +192,10 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
 // ── Status badge component ──
 
 const STATUS_CONFIG = {
-  connected: { color: "#30a050", bg: "rgba(48,160,80,0.1)", border: "rgba(48,160,80,0.25)", icon: <CheckCircle2 size={14} /> },
-  listening: { color: "#6090d0", bg: "rgba(96,144,208,0.1)", border: "rgba(96,144,208,0.25)", icon: <Clock size={14} /> },
-  configured: { color: "var(--tc-amber)", bg: "rgba(208,160,32,0.1)", border: "rgba(208,160,32,0.25)", icon: <AlertTriangle size={14} /> },
-  not_configured: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-border)", icon: <XCircle size={14} /> },
+  connected: { color: "var(--tc-green)", bg: "transparent", border: "var(--tc-green)", icon: <CheckCircle2 size={12} /> },
+  listening: { color: "var(--tc-text-sec)", bg: "transparent", border: "var(--tc-border)", icon: <Clock size={12} /> },
+  configured: { color: "var(--tc-amber)", bg: "transparent", border: "var(--tc-amber)", icon: <AlertTriangle size={12} /> },
+  not_configured: { color: "var(--tc-text-muted)", bg: "transparent", border: "var(--tc-border)", icon: <XCircle size={12} /> },
 } as const;
 
 const STATUS_LABELS: Record<string, { fr: string; en: string }> = {
@@ -211,8 +211,8 @@ function StatusBadge({ status, locale }: { status: string; locale: string }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: "5px",
-      padding: "4px 10px", borderRadius: "var(--tc-radius-sm)",
-      fontSize: "11px", fontWeight: 700,
+      padding: "3px 8px",
+      fontSize: "9px", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase",
       color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`,
     }}>
       {cfg.icon} {locale === "fr" ? label.fr : label.en}
@@ -333,7 +333,7 @@ export default function SourcesPage() {
           </div>
         </NeuCard>
         <NeuCard style={{ padding: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <Radio size={16} color="var(--tc-blue)" />
+          <Radio size={16} color="var(--tc-text-sec)" />
           <div>
             <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", fontFamily: "monospace" }}>{syslogAddr}</div>
             <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>Syslog UDP+TCP</div>
@@ -361,12 +361,13 @@ export default function SourcesPage() {
                   cursor: "pointer", userSelect: "none",
                 }}
               >
-                {/* Icon */}
+                {/* Icon — neutral square, red only when configured/active */}
                 <div style={{
-                  width: "40px", height: "40px", borderRadius: "var(--tc-radius-md)",
-                  background: `${def.color}15`, border: `1px solid ${def.color}30`,
+                  width: "38px", height: "38px", borderRadius: "2px",
+                  background: "var(--tc-surface-alt)",
+                  border: `1px solid ${hasData ? "var(--tc-red)" : "var(--tc-border)"}`,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  color: def.color, flexShrink: 0,
+                  color: hasData ? "var(--tc-red)" : "var(--tc-text-sec)", flexShrink: 0,
                 }}>
                   {def.icon}
                 </div>

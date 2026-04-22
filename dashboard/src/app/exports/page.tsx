@@ -348,8 +348,8 @@ function ExportModal({
         {/* Legal banner */}
         {item.legal?.mandatory && (
           <div style={{
-            padding: "8px 10px", background: "rgba(224,64,64,0.08)", borderLeft: "3px solid #e04040",
-            borderRadius: "3px", fontSize: "10px", color: "#e04040", fontWeight: 700, marginBottom: "14px",
+            padding: "8px 10px", background: "transparent", borderLeft: "3px solid var(--tc-red)",
+            fontSize: "10px", color: "var(--tc-red)", fontWeight: 700, marginBottom: "14px",
             display: "flex", gap: "6px", alignItems: "center",
           }}>
             <AlertTriangle size={12} />
@@ -364,7 +364,7 @@ function ExportModal({
           <div style={{ marginBottom: "14px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-sec)", display: "block", marginBottom: "4px" }}>
               {locale === "fr" ? "Incident associé" : "Linked incident"}
-              {needsIncident && <span style={{ color: "#e04040" }}> *</span>}
+              {needsIncident && <span style={{ color: "var(--tc-red)" }}> *</span>}
             </label>
             <select value={incidentId} onChange={e => setIncidentId(e.target.value)} style={{
               width: "100%", padding: "7px 9px", fontSize: "11px", borderRadius: "var(--tc-radius-sm)",
@@ -394,7 +394,7 @@ function ExportModal({
           <div style={{ marginBottom: "14px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text-sec)", display: "block", marginBottom: "4px" }}>
               {locale === "fr" ? "Période" : "Period"}
-              <span style={{ color: "#e04040" }}> *</span>
+              <span style={{ color: "var(--tc-red)" }}> *</span>
             </label>
             <div style={{ display: "flex", gap: "4px", marginBottom: "6px", flexWrap: "wrap" }}>
               {["today", "7d", "30d", "90d", "this-month", "last-month"].map(p => (
@@ -494,12 +494,19 @@ function gdprLabel(v: string, locale: string): string {
 // ─────────────────────────────────────────────────────────
 
 function Badge({ label, color, icon: Icon }: { label: string; color: string; icon?: React.ElementType }) {
+  // Flatten inbound hex to the SOC palette — red=mandatory, amber=warn-ish,
+  // green=ok, muted for everything else (including purple/blue decorative).
+  const low = color.toLowerCase();
+  const c = /^#(e0|d0)[0-9a-f]*|var\(--tc-red\)/.test(low) ? "var(--tc-red)"
+    : /^#(d[6-c]|c[0-9a-f])[0-9a-f]*|var\(--tc-amber\)/.test(low) ? "var(--tc-amber)"
+    : /^#(30a|20b|1f6)[0-9a-f]*|var\(--tc-green\)/.test(low) ? "var(--tc-green)"
+    : "var(--tc-text-muted)";
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: "3px",
-      padding: "1px 6px", fontSize: "8px", fontWeight: 700,
-      borderRadius: "3px", background: `${color}18`, color,
-      border: `1px solid ${color}30`, textTransform: "uppercase", letterSpacing: "0.05em",
+      display: "inline-flex", alignItems: "center", gap: "4px",
+      padding: "1px 6px", fontSize: "8px", fontWeight: 700, letterSpacing: "0.14em",
+      background: "transparent", color: c, border: `1px solid ${c}`,
+      textTransform: "uppercase",
     }}>
       {Icon && <Icon size={8} />}
       {label}
@@ -701,7 +708,7 @@ export default function ExportsPage() {
         return (
           <div key={section.id} style={{ marginBottom: "28px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-              <SectionIcon size={16} color={section.color} />
+              <SectionIcon size={14} color="var(--tc-text-sec)" />
               <div style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {locale === "fr" ? section.titleFr : section.titleEn}
               </div>
@@ -722,16 +729,16 @@ export default function ExportsPage() {
                   <NeuCard key={item.id} style={{ padding: "14px", opacity: rec ? 1 : 0.55, transition: "opacity 0.2s" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
                       <div style={{
-                        width: "32px", height: "32px", borderRadius: "var(--tc-radius-sm)", flexShrink: 0,
+                        width: "32px", height: "32px", flexShrink: 0,
                         display: "flex", alignItems: "center", justifyContent: "center",
-                        background: `${item.color}12`, border: `1px solid ${item.color}25`,
+                        background: "var(--tc-surface-alt)", border: `1px solid ${rec ? "var(--tc-red)" : "var(--tc-border)"}`,
                       }}>
-                        <Icon size={15} color={item.color} />
+                        <Icon size={14} color={rec ? "var(--tc-red)" : "var(--tc-text-sec)"} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px", flexWrap: "wrap" }}>
                           <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{getTitle(item)}</span>
-                          {rec && <Star size={10} color="#d0a820" fill="#d0a820" />}
+                          {rec && <Star size={10} color="var(--tc-amber)" fill="var(--tc-amber)" />}
                         </div>
 
                         {badges.length > 0 && (
