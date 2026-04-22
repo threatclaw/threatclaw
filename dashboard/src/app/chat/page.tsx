@@ -146,28 +146,54 @@ export default function ChatPage() {
     }
   };
 
+  const activeConv = conversations.find((c) => c.id === activeId) ?? null;
+
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "260px 1fr",
-        gap: "16px",
-        height: "calc(100vh - 120px)",
+        gridTemplateColumns: "240px 1fr",
+        gap: "12px",
+        height: "calc(100vh - 140px)",
         minHeight: "500px",
       }}
     >
-      {/* Sidebar — conversation list */}
-      <NeuCard style={{ padding: "12px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <ChromeButton
+      {/* Sidebar — unified: header with + button, then scrollable conv list */}
+      <NeuCard
+        style={{
+          padding: "0",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <button
           onClick={handleNewConversation}
-          style={{ width: "100%", marginBottom: "10px", justifyContent: "center" }}
+          style={{
+            padding: "14px 16px",
+            borderBottom: "0.5px solid var(--tc-border)",
+            background: "transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            color: "var(--tc-text)",
+            fontSize: "11px",
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            textAlign: "left",
+            transition: "background 120ms",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--tc-input)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
-          <MessageSquarePlus size={13} />
-          <span style={{ marginLeft: "6px" }}>{tr("chatNewConversation", locale)}</span>
-        </ChromeButton>
-        <div style={{ flex: 1, overflowY: "auto", margin: "-4px", padding: "4px" }}>
+          <MessageSquarePlus size={14} color="var(--tc-red)" />
+          {tr("chatNewConversation", locale)}
+        </button>
+        <div style={{ flex: 1, overflowY: "auto", padding: "6px" }}>
           {conversations.length === 0 ? (
-            <div style={{ padding: "16px 8px", textAlign: "center" }}>
+            <div style={{ padding: "20px 10px", textAlign: "center" }}>
               <ChromeEmbossedText style={{ fontSize: "10px", opacity: 0.5 }}>
                 {tr("chatNoConversations", locale)}
               </ChromeEmbossedText>
@@ -179,11 +205,14 @@ export default function ChatPage() {
                 onClick={() => loadConversation(c.id)}
                 style={{
                   padding: "8px 10px",
-                  borderRadius: "8px",
+                  borderRadius: "6px",
                   cursor: "pointer",
-                  marginBottom: "4px",
+                  marginBottom: "2px",
                   background: activeId === c.id ? "var(--tc-red-soft)" : "transparent",
-                  border: activeId === c.id ? "0.5px solid var(--tc-red-border)" : "0.5px solid transparent",
+                  borderLeft:
+                    activeId === c.id
+                      ? "2px solid var(--tc-red)"
+                      : "2px solid transparent",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
@@ -200,17 +229,18 @@ export default function ChatPage() {
                   <div
                     style={{
                       fontSize: "11px",
-                      fontWeight: 600,
+                      fontWeight: activeId === c.id ? 700 : 500,
                       color: activeId === c.id ? "var(--tc-red)" : "var(--tc-text)",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                     }}
                   >
-                    {c.title || "—"}
+                    {c.title || (locale === "fr" ? "Sans titre" : "Untitled")}
                   </div>
-                  <div style={{ fontSize: "9px", color: "var(--tc-text-sec)", marginTop: "2px" }}>
-                    {c.message_count} msg · {new Date(c.last_activity).toLocaleDateString(locale)}
+                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>
+                    {c.message_count}{" "}
+                    {locale === "fr" ? (c.message_count > 1 ? "échanges" : "échange") : c.message_count > 1 ? "turns" : "turn"}
                   </div>
                 </div>
                 <button
@@ -222,10 +252,10 @@ export default function ChatPage() {
                     cursor: "pointer",
                     padding: "3px",
                     color: "var(--tc-text-sec)",
-                    opacity: 0.5,
+                    opacity: 0.4,
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.5")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.4")}
                 >
                   <Trash2 size={11} />
                 </button>
@@ -235,8 +265,33 @@ export default function ChatPage() {
         </div>
       </NeuCard>
 
-      {/* Main pane — messages + input */}
+      {/* Main pane — unified: header with conv title, scroll messages, bottom input */}
       <NeuCard style={{ padding: "0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Header: current conversation title or "New conversation" */}
+        <div
+          style={{
+            padding: "12px 18px",
+            borderBottom: "0.5px solid var(--tc-border)",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            fontSize: "12px",
+            fontWeight: 600,
+            color: "var(--tc-text)",
+            minHeight: "44px",
+          }}
+        >
+          <Bot size={14} color="var(--tc-red)" />
+          {activeConv ? (
+            <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {activeConv.title || (locale === "fr" ? "Sans titre" : "Untitled")}
+            </span>
+          ) : (
+            <span style={{ color: "var(--tc-text-sec)", fontWeight: 500 }}>
+              {locale === "fr" ? "Nouvelle conversation" : "New conversation"}
+            </span>
+          )}
+        </div>
         <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
           {loadingConv ? (
             <div style={{ textAlign: "center", padding: "40px" }}>
