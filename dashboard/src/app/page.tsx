@@ -154,7 +154,13 @@ export default function DashTest() {
         />
 
         {/* ─── CENTER ─── */}
-        <Center activeIncident={activeIncident} incidents={incidents} now={now} />
+        <Center
+          activeIncident={activeIncident}
+          incidents={incidents}
+          situation={situation}
+          alertsTotal={alertsTotal}
+          now={now}
+        />
 
         {/* ─── RIGHT AXIS (HITL) ─── */}
         <RightAxis
@@ -483,35 +489,45 @@ function EmptyLine({ text }: { text: string }) {
 function Center({
   activeIncident,
   incidents,
+  situation,
+  alertsTotal,
   now,
 }: {
   activeIncident: Incident | null;
   incidents: Incident[];
+  situation: Situation | null;
+  alertsTotal: number;
   now: Date;
 }) {
   return (
-    <section style={{ display: "grid", gridTemplateRows: "auto 1fr auto", minHeight: 0, overflow: "hidden" }}>
+    <section
+      style={{
+        display: "grid",
+        // auto (incident bar) / auto (compact timeline ≤ 38 vh) / 1fr (log tail fills)
+        gridTemplateRows: "auto auto 1fr",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       {activeIncident ? (
         <IncidentBar incident={activeIncident} now={now} />
       ) : (
         <div
           style={{
             borderBottom: "1px solid var(--tc-border)",
-            padding: "18px 20px",
+            padding: "14px 18px",
             color: "var(--tc-text-muted)",
             fontSize: "11px",
             letterSpacing: "0.04em",
           }}
         >
-          Aucun incident actif. Le cycle IE ré-évalue toutes les 5 minutes — dès qu'un asset flippe, il apparaîtra ici.
+          Aucun incident actif · cycle IE toutes les 5 min — un asset qui flippe remonte ici automatiquement.
         </div>
       )}
 
-      {/* Incidents list / timeline */}
       <IncidentList incidents={incidents} now={now} />
 
-      {/* Log tail */}
-      <LogTail />
+      <LogTail incidents={incidents} situation={situation} alertsTotal={alertsTotal} />
     </section>
   );
 }
@@ -600,33 +616,43 @@ function Meta({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) {
+  // Compact — stays short when empty and caps at ~5 rows when not so the log
+  // tail below gets the room it needs.
   return (
-    <div style={{ overflow: "auto", padding: "14px 18px" }}>
+    <div
+      style={{
+        maxHeight: incidents.length === 0 ? "90px" : "220px",
+        overflow: "auto",
+        padding: "10px 18px 12px",
+        borderBottom: "1px solid var(--tc-border)",
+      }}
+    >
       <div
         style={{
           fontSize: "9px",
           letterSpacing: "0.22em",
           color: "var(--tc-text-muted)",
           textTransform: "uppercase",
-          marginBottom: "12px",
+          marginBottom: "8px",
+          display: "flex",
+          justifyContent: "space-between",
         }}
       >
-        Timeline · incidents récents
+        <span>Incidents récents</span>
+        <span>{incidents.length > 0 ? `${incidents.length} total` : "—"}</span>
       </div>
       {incidents.length === 0 ? (
         <div
           style={{
-            padding: "40px 0",
-            textAlign: "center",
             color: "var(--tc-text-muted)",
-            fontSize: "11px",
-            letterSpacing: "0.05em",
+            fontSize: "10.5px",
+            letterSpacing: "0.04em",
           }}
         >
-          aucun incident — le prochain cycle IE arrive dans &lt; 5 min
+          aucun incident — prochain cycle IE dans &lt; 5 min
         </div>
       ) : (
-        incidents.slice(0, 20).map((i) => {
+        incidents.slice(0, 8).map((i) => {
           const sev = (i.severity ?? "").toUpperCase();
           const isCrit = sev === "CRITICAL" || sev === "HIGH";
           return (
@@ -634,35 +660,36 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
               key={i.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "80px 1fr 100px 90px",
-                gap: "14px",
-                padding: "10px 0",
+                gridTemplateColumns: "62px 1fr 70px 60px",
+                gap: "12px",
+                padding: "6px 0",
                 borderBottom: "1px dashed var(--tc-border)",
                 alignItems: "center",
               }}
             >
-              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", letterSpacing: "0.06em" }}>
                 {formatRelative(i.created_at, now)}
               </div>
-              <div style={{ fontSize: "11.5px", color: "var(--tc-text)" }}>
+              <div style={{ fontSize: "11px", color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span
                   style={{
                     display: "inline-block",
-                    width: "6px",
-                    height: "6px",
+                    width: "5px",
+                    height: "5px",
                     borderRadius: "50%",
                     background: isCrit ? "var(--tc-red)" : sev === "MEDIUM" ? "#d09020" : "#30a050",
-                    marginRight: "10px",
+                    marginRight: "8px",
+                    verticalAlign: "middle",
                   }}
                 />
                 {i.asset ?? "—"} <span style={{ color: "var(--tc-text-muted)" }}>· {i.title ?? ""}</span>
               </div>
-              <span style={{ fontSize: "10px", color: isCrit ? "var(--tc-red)" : "var(--tc-text-muted)", letterSpacing: "0.08em" }}>
+              <span style={{ fontSize: "9px", color: isCrit ? "var(--tc-red)" : "var(--tc-text-muted)", letterSpacing: "0.08em" }}>
                 {sev}
               </span>
               <Link
                 href={`/incidents?id=${i.id}`}
-                style={{ fontSize: "10px", color: "var(--tc-red)", textDecoration: "none", textAlign: "right", letterSpacing: "0.1em" }}
+                style={{ fontSize: "9px", color: "var(--tc-red)", textDecoration: "none", textAlign: "right", letterSpacing: "0.1em" }}
               >
                 ouvrir →
               </Link>
@@ -674,16 +701,133 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
   );
 }
 
-function LogTail() {
-  // Placeholder log tail — wire to SSE /api/logs/events later.
-  const lines = [
-    { t: "cycle", msg: "intelligence engine tick · 0 new incidents · findings=0" },
-    { t: "sync", msg: "cisa.kev · 1 577 entries · delta=0" },
-    { t: "sync", msg: "mitre.attack · 691 techniques · cached" },
-    { t: "sigma", msg: "84 rules compiled · starter pack lnx-* loaded (12)" },
-  ];
+type LogLine = {
+  at: Date;
+  tag: "cycle" | "incident" | "alert" | "findings" | "init" | "wait";
+  color: string;
+  msg: string;
+};
+
+function LogTail({
+  incidents,
+  situation,
+  alertsTotal,
+}: {
+  incidents: Incident[];
+  situation: Situation | null;
+  alertsTotal: number;
+}) {
+  // Synthesize a live event feed by watching the state that the parent
+  // poller keeps refreshing. Each time a meaningful value changes we
+  // push a line into the feed. The operator sees the console *moving*
+  // even when Wazuh is quiet.
+  const [lines, setLines] = useState<LogLine[]>([
+    {
+      at: new Date(),
+      tag: "init",
+      color: "var(--tc-text-muted)",
+      msg: "console mounted · poll=15s · endpoints=3 · source=/api/tc",
+    },
+  ]);
+  const prev = useRef<{
+    incidentsCount: number;
+    maxIncidentId: number;
+    alertsTotal: number;
+    computedAt: string;
+  }>({ incidentsCount: -1, maxIncidentId: -1, alertsTotal: -1, computedAt: "" });
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const nowDate = new Date();
+    const newLines: LogLine[] = [];
+    const ic = incidents.length;
+    const maxId = incidents.reduce((m, i) => (i.id > m ? i.id : m), 0);
+    const cAt = situation?.computed_at ?? "";
+
+    // New incident(s)
+    if (prev.current.maxIncidentId >= 0 && maxId > prev.current.maxIncidentId) {
+      const latest = incidents.find((i) => i.id === maxId);
+      if (latest) {
+        const sev = (latest.severity ?? "").toUpperCase() || "UNKNOWN";
+        const red = sev === "CRITICAL" || sev === "HIGH";
+        newLines.push({
+          at: nowDate,
+          tag: "incident",
+          color: red ? "var(--tc-red)" : "var(--tc-text)",
+          msg: `INC-${String(latest.id).padStart(6, "0")} · ${sev} · asset=${latest.asset ?? "—"} · verdict=${latest.verdict}`,
+        });
+      }
+    }
+
+    // Alerts delta
+    if (prev.current.alertsTotal >= 0 && alertsTotal !== prev.current.alertsTotal) {
+      const delta = alertsTotal - prev.current.alertsTotal;
+      newLines.push({
+        at: nowDate,
+        tag: "alert",
+        color: delta > 0 ? "#d09020" : "var(--tc-text-sec)",
+        msg: `sigma_alerts ${delta > 0 ? "+" : ""}${delta} · total=${alertsTotal.toLocaleString("fr")}`,
+      });
+    }
+
+    // IE cycle ran (computed_at changed)
+    if (prev.current.computedAt && cAt && cAt !== prev.current.computedAt) {
+      newLines.push({
+        at: nowDate,
+        tag: "cycle",
+        color: "#30a050",
+        msg: `intelligence engine tick · incidents=${ic} · findings=${situation?.total_open_findings ?? "?"}`,
+      });
+    }
+
+    prev.current = {
+      incidentsCount: ic,
+      maxIncidentId: maxId,
+      alertsTotal,
+      computedAt: cAt,
+    };
+
+    if (newLines.length > 0) {
+      setLines((l) => [...l, ...newLines].slice(-200));
+    }
+  }, [incidents, situation, alertsTotal]);
+
+  // Heartbeat — adds a "waiting" line every 60s if nothing else happened.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setLines((l) => {
+        const last = l[l.length - 1];
+        const since = last ? (Date.now() - last.at.getTime()) / 1000 : Infinity;
+        if (since < 55) return l;
+        const line: LogLine = {
+          at: new Date(),
+          tag: "wait",
+          color: "var(--tc-text-muted)",
+          msg: "quiet · no new events in the last minute · polling continues",
+        };
+        return [...l, line].slice(-200);
+      });
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Auto-scroll to bottom on new lines
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [lines]);
+
   return (
-    <div style={{ borderTop: "1px solid var(--tc-border)", background: "var(--tc-surface)", maxHeight: "160px", overflow: "hidden" }}>
+    <div
+      style={{
+        borderTop: "1px solid var(--tc-border)",
+        background: "var(--tc-surface)",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       <div
         style={{
           padding: "8px 18px",
@@ -694,20 +838,61 @@ function LogTail() {
           textTransform: "uppercase",
           display: "flex",
           justifyContent: "space-between",
+          alignItems: "center",
+          flexShrink: 0,
         }}
       >
-        <span>engine log · tail -f</span>
-        <span>dernières minutes</span>
+        <span>
+          <Pulse color="#30a050" /> engine log · live
+        </span>
+        <span>{lines.length} events</span>
       </div>
-      <div style={{ padding: "8px 18px", fontSize: "10.5px", color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
+      <div
+        ref={scrollRef}
+        style={{
+          padding: "8px 18px 12px",
+          fontSize: "11px",
+          color: "var(--tc-text-sec)",
+          lineHeight: 1.65,
+          overflow: "auto",
+          flex: 1,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
         {lines.map((l, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "58px 1fr", gap: "10px" }}>
-            <span style={{ color: "var(--tc-text-muted)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{l.t}</span>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "68px 52px 1fr", gap: "10px" }}>
+            <span style={{ color: "var(--tc-text-muted)", letterSpacing: "0.04em" }}>
+              {l.at.toLocaleTimeString("fr-FR", { hour12: false })}
+            </span>
+            <span style={{ color: l.color, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
+              {l.tag}
+            </span>
             <span>{l.msg}</span>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+// Small inline helper reused from the top bar pulse style.
+function Pulse({ color }: { color: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        width: "6px",
+        height: "6px",
+        borderRadius: "50%",
+        background: color,
+        boxShadow: `0 0 6px ${color}`,
+        marginRight: "6px",
+        verticalAlign: "middle",
+        animation: "pulse 1.6s ease-in-out infinite",
+      }}
+    >
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
+    </span>
   );
 }
 
