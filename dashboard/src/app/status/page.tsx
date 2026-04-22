@@ -154,12 +154,12 @@ export default function StatusPage() {
         }
       />
 
-      {/* ─── 3-column: services | CpuCard centered | engines ─── */}
+      {/* ─── 3-column: services | CpuCard centered (dominant) | engines ─── */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr auto 1fr",
-          gap: "24px",
+          gridTemplateColumns: "260px minmax(0,1fr) 260px",
+          gap: "20px",
           alignItems: "start",
           marginBottom: "24px",
         }}
@@ -187,9 +187,9 @@ export default function StatusPage() {
           </Section>
         </div>
 
-        {/* CENTER — compact CpuCard */}
-        <div style={{ width: "380px", alignSelf: "start" }}>
-          <NeuCard accent="red" style={{ padding: "10px 12px" }}>
+        {/* CENTER — CpuCard fills the column */}
+        <div style={{ alignSelf: "start", minWidth: 0 }}>
+          <NeuCard accent="red" style={{ padding: "14px 16px" }}>
             <CpuCard
               score={score}
               scoreLabel={

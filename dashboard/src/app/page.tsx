@@ -8,7 +8,7 @@
 // in greys and tabular numbers. No purple, no multicolour, no floating
 // "AI-slop" tile cards.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Shield,
@@ -36,6 +36,7 @@ type Incident = {
   summary?: string;
   mitre_techniques?: string[];
   created_at?: string;
+  alert_count?: number;
 };
 
 type AssetScore = { asset: string; score: number };
@@ -564,16 +565,17 @@ function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
 
       <div
         style={{
-          padding: "12px 18px",
+          padding: "14px 18px",
           display: "grid",
-          gridTemplateColumns: "repeat(4, auto)",
-          gap: "24px",
+          gridTemplateColumns: "repeat(5, auto)",
+          gap: "28px",
           alignItems: "center",
         }}
       >
         <Meta label="Asset" value={incident.asset ?? "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
         <Meta label="Sévérité" value={sev || "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
         <Meta label="Status" value={incident.status} />
+        <Meta label="Alerts" value={String(incident.alert_count ?? "—")} />
         <Meta
           label="MITRE"
           value={
@@ -701,11 +703,22 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
   );
 }
 
+type LogTag = "cycle" | "incident" | "alert" | "findings" | "init" | "poll" | "source" | "health";
+
 type LogLine = {
   at: Date;
-  tag: "cycle" | "incident" | "alert" | "findings" | "init" | "wait";
+  tag: LogTag;
   color: string;
   msg: string;
+};
+
+type SourceStatus = {
+  id: string;
+  name: string;
+  status: string;
+  hosts?: number;
+  logs_24h?: number;
+  last_seen?: string | null;
 };
 
 function LogTail({
@@ -717,49 +730,63 @@ function LogTail({
   situation: Situation | null;
   alertsTotal: number;
 }) {
-  // Synthesize a live event feed by watching the state that the parent
-  // poller keeps refreshing. Each time a meaningful value changes we
-  // push a line into the feed. The operator sees the console *moving*
-  // even when Wazuh is quiet.
+  // The log is driven by three real signals:
+  //   (1) state deltas from parent polling (incidents, alerts, IE cycle)
+  //   (2) /api/tc/sources/status polled every 12s — connector liveness
+  //   (3) /api/tc/health polled every 20s — db / ml / llm heartbeat
+  // Plus a periodic "poll" summary so the log is never idle for more than ~90s.
   const [lines, setLines] = useState<LogLine[]>([
     {
       at: new Date(),
       tag: "init",
       color: "var(--tc-text-muted)",
-      msg: "console mounted · poll=15s · endpoints=3 · source=/api/tc",
+      msg: "console mounted · polling /api/tc · sources=/health=/incidents=/situation",
     },
   ]);
-  const prev = useRef<{
-    incidentsCount: number;
-    maxIncidentId: number;
-    alertsTotal: number;
-    computedAt: string;
-  }>({ incidentsCount: -1, maxIncidentId: -1, alertsTotal: -1, computedAt: "" });
+  const prev = useRef({
+    maxIncidentId: -1,
+    alertsTotal: -1,
+    computedAt: "",
+    sources: new Map<string, SourceStatus>(),
+    healthKey: "",
+    healthInit: false,
+    sourcesInit: false,
+  });
+  // Latest numbers for the periodic poll-summary (closure would be stale otherwise).
+  const latest = useRef({
+    incidents: incidents.length,
+    alerts: alertsTotal,
+    score: situation?.global_score,
+    sourcesActive: 0,
+    sourcesTotal: 0,
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const push = useCallback((line: LogLine) => {
+    setLines((l) => [...l, line].slice(-250));
+  }, []);
+
+  // (1) state deltas from parent polling
   useEffect(() => {
     const nowDate = new Date();
     const newLines: LogLine[] = [];
-    const ic = incidents.length;
     const maxId = incidents.reduce((m, i) => (i.id > m ? i.id : m), 0);
     const cAt = situation?.computed_at ?? "";
 
-    // New incident(s)
     if (prev.current.maxIncidentId >= 0 && maxId > prev.current.maxIncidentId) {
-      const latest = incidents.find((i) => i.id === maxId);
-      if (latest) {
-        const sev = (latest.severity ?? "").toUpperCase() || "UNKNOWN";
+      const latestInc = incidents.find((i) => i.id === maxId);
+      if (latestInc) {
+        const sev = (latestInc.severity ?? "").toUpperCase() || "UNKNOWN";
         const red = sev === "CRITICAL" || sev === "HIGH";
         newLines.push({
           at: nowDate,
           tag: "incident",
           color: red ? "var(--tc-red)" : "var(--tc-text)",
-          msg: `INC-${String(latest.id).padStart(6, "0")} · ${sev} · asset=${latest.asset ?? "—"} · verdict=${latest.verdict}`,
+          msg: `INC-${String(latestInc.id).padStart(6, "0")} · ${sev} · asset=${latestInc.asset ?? "—"} · verdict=${latestInc.verdict}`,
         });
       }
     }
 
-    // Alerts delta
     if (prev.current.alertsTotal >= 0 && alertsTotal !== prev.current.alertsTotal) {
       const delta = alertsTotal - prev.current.alertsTotal;
       newLines.push({
@@ -770,48 +797,159 @@ function LogTail({
       });
     }
 
-    // IE cycle ran (computed_at changed)
     if (prev.current.computedAt && cAt && cAt !== prev.current.computedAt) {
       newLines.push({
         at: nowDate,
         tag: "cycle",
         color: "#30a050",
-        msg: `intelligence engine tick · incidents=${ic} · findings=${situation?.total_open_findings ?? "?"}`,
+        msg: `intelligence engine tick · incidents=${incidents.length} · findings=${situation?.total_open_findings ?? "?"} · score=${situation?.global_score ?? "—"}`,
       });
     }
 
-    prev.current = {
-      incidentsCount: ic,
-      maxIncidentId: maxId,
-      alertsTotal,
-      computedAt: cAt,
-    };
+    prev.current.maxIncidentId = maxId;
+    prev.current.alertsTotal = alertsTotal;
+    prev.current.computedAt = cAt;
+    latest.current.incidents = incidents.length;
+    latest.current.alerts = alertsTotal;
+    latest.current.score = situation?.global_score;
 
-    if (newLines.length > 0) {
-      setLines((l) => [...l, ...newLines].slice(-200));
-    }
+    if (newLines.length > 0) setLines((l) => [...l, ...newLines].slice(-250));
   }, [incidents, situation, alertsTotal]);
 
-  // Heartbeat — adds a "waiting" line every 60s if nothing else happened.
+  // (2) connector liveness
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/tc/sources/status", { signal: AbortSignal.timeout(6000) });
+        if (!r.ok) throw new Error("status " + r.status);
+        const d = await r.json();
+        if (cancelled) return;
+        const list = (d.sources || []) as SourceStatus[];
+        const nowDate = new Date();
+        const next = new Map<string, SourceStatus>();
+        for (const s of list) next.set(s.id, s);
+        latest.current.sourcesTotal = list.length;
+        latest.current.sourcesActive = list.filter(
+          (s) => s.status === "active" || s.status === "listening" || s.status === "ok",
+        ).length;
+
+        if (!prev.current.sourcesInit) {
+          prev.current.sourcesInit = true;
+          prev.current.sources = next;
+          push({
+            at: nowDate,
+            tag: "source",
+            color: "var(--tc-text-sec)",
+            msg: `sources · ${latest.current.sourcesActive}/${list.length} configurées · ${list.map((s) => `${s.id}=${s.status}`).join(" ")}`,
+          });
+          return;
+        }
+        for (const s of list) {
+          const prior = prev.current.sources.get(s.id);
+          if (!prior) continue;
+          if (prior.status !== s.status) {
+            push({
+              at: nowDate,
+              tag: "source",
+              color: s.status === "active" ? "#30a050" : s.status === "down" ? "var(--tc-red)" : "var(--tc-text-sec)",
+              msg: `source ${s.id} · ${prior.status} → ${s.status}`,
+            });
+          }
+          const prevLogs = prior.logs_24h ?? 0;
+          const curLogs = s.logs_24h ?? 0;
+          if (curLogs > prevLogs) {
+            push({
+              at: nowDate,
+              tag: "source",
+              color: "#d09020",
+              msg: `source ${s.id} · +${(curLogs - prevLogs).toLocaleString("fr")} logs · last_seen=${s.last_seen ? "live" : "—"}`,
+            });
+          }
+          if (prior.last_seen !== s.last_seen && s.last_seen) {
+            push({
+              at: nowDate,
+              tag: "source",
+              color: "#30a050",
+              msg: `source ${s.id} · last_seen updated · hosts=${s.hosts ?? 0}`,
+            });
+          }
+        }
+        prev.current.sources = next;
+      } catch {
+        /* silent */
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 12_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [push]);
+
+  // (3) health heartbeat
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch("/api/tc/health", { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) throw new Error("status " + r.status);
+        const d = await r.json();
+        if (cancelled) return;
+        const key = `${d.database ? "db" : "!db"}|${d.ml?.alive ? "ml" : "!ml"}|${d.llm ?? "?"}|${d.disk_free ?? ""}`;
+        if (!prev.current.healthInit) {
+          prev.current.healthInit = true;
+          prev.current.healthKey = key;
+          push({
+            at: new Date(),
+            tag: "health",
+            color: "#30a050",
+            msg: `health · db=${d.database ? "ok" : "down"} · ml=${d.ml?.alive ? "alive" : "idle"} · llm=${d.llm ?? "—"} · disk=${d.disk_free ?? "?"}`,
+          });
+          return;
+        }
+        if (key !== prev.current.healthKey) {
+          prev.current.healthKey = key;
+          push({
+            at: new Date(),
+            tag: "health",
+            color: d.database && d.ml?.alive ? "#30a050" : "var(--tc-red)",
+            msg: `health change · db=${d.database ? "ok" : "down"} · ml=${d.ml?.alive ? "alive" : "idle"} · llm=${d.llm ?? "—"}`,
+          });
+        }
+      } catch {
+        /* silent */
+      }
+    };
+    tick();
+    const iv = setInterval(tick, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [push]);
+
+  // (4) periodic poll summary — never let the log go quiet for more than ~90s
   useEffect(() => {
     const iv = setInterval(() => {
       setLines((l) => {
         const last = l[l.length - 1];
         const since = last ? (Date.now() - last.at.getTime()) / 1000 : Infinity;
-        if (since < 55) return l;
+        if (since < 80) return l;
+        const L = latest.current;
         const line: LogLine = {
           at: new Date(),
-          tag: "wait",
+          tag: "poll",
           color: "var(--tc-text-muted)",
-          msg: "quiet · no new events in the last minute · polling continues",
+          msg: `poll · incidents=${L.incidents} · alerts=${L.alerts.toLocaleString("fr")} · score=${L.score ?? "—"} · sources=${L.sourcesActive}/${L.sourcesTotal}`,
         };
-        return [...l, line].slice(-200);
+        return [...l, line].slice(-250);
       });
-    }, 30_000);
+    }, 15_000);
     return () => clearInterval(iv);
   }, []);
 
-  // Auto-scroll to bottom on new lines
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
