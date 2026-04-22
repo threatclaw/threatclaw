@@ -6,6 +6,42 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.10-beta] — 2026-04-22
+
+Wazuh connector hardened for real customer traffic — noise filter,
+cursor-based pagination, native-type database binding, hostname dedup.
+Every install now picks up real detections out of the box instead of
+drowning in Docker veth noise.
+
+### Added
+- Wazuh connector noise filter — Docker veth and auditd promisc events
+  silenced by default, extendable via skill config.
+- Cursor-based pagination on the Wazuh connector — no event loss when
+  the source fires faster than a sync cycle.
+- `log_db_write` helper across the connector layer: every DB error
+  logged with context instead of silently dropped.
+- Attack scenario harness (`scripts/test-attacks/run.sh`) + Forgejo
+  workflow — real probes against the TARS lab, verified detection.
+
+### Changed
+- Dashboard Wazuh modal surfaces the built-in noise filter and adds a
+  sync-cursor reset button.
+- Ollama default capacity dropped to 1 loaded model — fits a 32 GB SMB
+  host without swap thrash.
+
+### Fixed
+- `insert_log` and `insert_sigma_alert` silently failed serialisation
+  for weeks on OpenCanary-shaped payloads; bound now as native JSONB
+  `Value` / `IpAddr` instead of `::jsonb` / `::inet` casts.
+- Wazuh agent re-enrollment no longer creates a duplicate asset
+  (hostname-based match + migration V50 purges historical duplicates).
+
+### Infrastructure
+- New consistency check flags any reintroduction of the silent
+  `let _ = store.*` pattern in connectors.
+
+---
+
 ## [1.0.9-beta] — 2026-04-22
 
 Conversational chat lands in the dashboard, grounded LLM by default, and
