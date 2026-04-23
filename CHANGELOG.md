@@ -6,6 +6,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.11-beta] — 2026-04-24
+
+Two new connectors land: **Velociraptor** for endpoint DFIR and
+**Microsoft 365 / Entra ID** for the SaaS side. Together they cover
+the two vectors that dominate SMB incidents — compromised endpoints
+and compromised M365 accounts.
+
+### Added
+- **skill-velociraptor** — ingestion of Velociraptor hunt results
+  into ThreatClaw's graph, plus four read-only tools exposed to the
+  L2 forensic assistant (list clients, run VQL query with read-only
+  enforcement, list hunts, collect a single client). mTLS against
+  Velociraptor's gRPC gateway. Cursor-based sync keeps last hunt
+  completion across restarts.
+- **skill-microsoft-graph** — full M365 / Entra ID tenant ingestion
+  via OAuth app-only (certificate or secret). Pulls sign-ins,
+  directory audits, users (delta), devices (delta), Intune managed
+  devices, Conditional Access policies, Defender unified alerts,
+  Identity Protection risky users, and risk detections. Detects the
+  five top SMB compromise signals: mail auto-forward rule, illicit
+  OAuth consent, impossible travel / high-risk sign-in, MFA fatigue,
+  and Global Admin role assignment. Degrades silently per endpoint
+  when a licence is missing, so a Business Premium tenant still
+  benefits from what it covers.
+- Feature probe matrix on the M365 skill — one probe per endpoint
+  reports `ok` / `unlicensed` / `consent_missing` so the dashboard
+  can tell the operator exactly which licence tier their tenant
+  needs for the remaining detections.
+- Identity graph bridging — every successful M365 sign-in now emits
+  a `LOGGED_IN` edge (User → Asset(m365:tenant)), and `/users/delta`
+  upserts `Identity` nodes with department + UPN so on-prem / SaaS
+  UBA can correlate across sources.
+
+### Changed
+- Connector sync scheduler gains cursor persistence for both new
+  skills — restarts never replay already-ingested events.
+
+---
+
 ## [1.0.10-beta] — 2026-04-22
 
 Wazuh connector hardened for real customer traffic — noise filter,
