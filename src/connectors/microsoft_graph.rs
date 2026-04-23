@@ -1014,12 +1014,17 @@ impl SignInEvent {
     }
 }
 
-/// Generic Graph collection response — `value` plus optional nextLink.
+/// Generic Graph collection response — `value` plus optional next/delta
+/// link. Delta endpoints return `@odata.deltaLink` on the final page
+/// instead of `@odata.nextLink`; we capture both so `fetch_delta`
+/// can persist the cursor cleanly.
 #[derive(Debug, Deserialize)]
 struct GraphPage<T> {
     value: Vec<T>,
     #[serde(default, rename = "@odata.nextLink")]
     next_link: Option<String>,
+    #[serde(default, rename = "@odata.deltaLink")]
+    delta_link: Option<String>,
 }
 
 /// Paginated GET over a Graph collection. Follows `@odata.nextLink` until
@@ -1093,6 +1098,309 @@ pub async fn pull_sign_ins(
         _ => String::new(),
     };
     let path = format!("/auditLogs/signIns?$top={PAGE_SIZE}&$orderby=createdDateTime asc{filter}");
+    fetch_collection(client, &path, MAX_PAGES).await
+}
+
+/// Paginated GET following `@odata.nextLink` that ALSO captures the final
+/// `@odata.deltaLink` so the caller can persist it as a cursor. Used for
+/// the delta-capable endpoints (users, groups, devices). If `first_path`
+/// is an absolute URL (e.g. a deltaLink from a prior cycle), we use it
+/// unchanged; otherwise it is treated as a path relative to the Graph
+/// v1.0 base.
+async fn fetch_delta<T: for<'de> Deserialize<'de>>(
+    client: &GraphClient,
+    first_path_or_url: &str,
+    max_pages: usize,
+) -> Result<(Vec<T>, Option<String>), GraphError> {
+    let mut out: Vec<T> = Vec::new();
+    let mut url = first_path_or_url.to_string();
+    let mut delta_link = None;
+    // `get_json` delegates to `get_raw`, which already normalises `http://`
+    // prefixes to be used verbatim — so we can pass either a relative path
+    // or an absolute deltaLink without branching here.
+    for _ in 0..max_pages {
+        let page: GraphPage<T> = client.get_json(&url).await?;
+        out.extend(page.value);
+        if let Some(d) = page.delta_link {
+            delta_link = Some(d);
+            return Ok((out, delta_link));
+        }
+        match page.next_link {
+            Some(next) => url = next,
+            None => return Ok((out, delta_link)),
+        }
+    }
+    Ok((out, delta_link))
+}
+
+// ---------------------------------------------------------------------------
+// Phase C: users, devices, managedDevices, conditional access
+// ---------------------------------------------------------------------------
+
+/// Distilled view of a `/users` row. Graph returns 30+ fields by default
+/// — we read only what the identity_graph cares about.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserRow {
+    pub id: String,
+    #[serde(default, rename = "userPrincipalName")]
+    pub user_principal_name: Option<String>,
+    #[serde(default, rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub department: Option<String>,
+    #[serde(default, rename = "jobTitle")]
+    pub job_title: Option<String>,
+    /// Entra's deletion marker. Present only on delta payloads when a
+    /// user has been removed since the last cursor — we downgrade them
+    /// to `accountEnabled=false` in the identity graph.
+    #[serde(default, rename = "@removed")]
+    pub removed: Option<serde_json::Value>,
+    #[serde(default, rename = "accountEnabled")]
+    pub account_enabled: Option<bool>,
+}
+
+/// Entra-joined device (Azure AD device, not Intune-managed per se).
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeviceRow {
+    pub id: String,
+    #[serde(default, rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default, rename = "deviceId")]
+    pub device_id: Option<String>,
+    #[serde(default, rename = "operatingSystem")]
+    pub operating_system: Option<String>,
+    #[serde(default, rename = "operatingSystemVersion")]
+    pub operating_system_version: Option<String>,
+    #[serde(default, rename = "accountEnabled")]
+    pub account_enabled: Option<bool>,
+    #[serde(default, rename = "approximateLastSignInDateTime")]
+    pub approximate_last_signin: Option<String>,
+    #[serde(default, rename = "@removed")]
+    pub removed: Option<serde_json::Value>,
+}
+
+/// Intune-managed device — carries more ops-relevant fields (compliance,
+/// serial number) than the plain Entra device row.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManagedDeviceRow {
+    pub id: String,
+    #[serde(default, rename = "deviceName")]
+    pub device_name: Option<String>,
+    #[serde(default, rename = "operatingSystem")]
+    pub operating_system: Option<String>,
+    #[serde(default, rename = "osVersion")]
+    pub os_version: Option<String>,
+    #[serde(default, rename = "serialNumber")]
+    pub serial_number: Option<String>,
+    #[serde(default)]
+    pub manufacturer: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default, rename = "userPrincipalName")]
+    pub user_principal_name: Option<String>,
+    #[serde(default, rename = "complianceState")]
+    pub compliance_state: Option<String>,
+    #[serde(default, rename = "jailBroken")]
+    pub jail_broken: Option<String>,
+    #[serde(default, rename = "lastSyncDateTime")]
+    pub last_sync_date_time: Option<String>,
+    #[serde(default, rename = "emailAddress")]
+    pub email_address: Option<String>,
+}
+
+/// Conditional Access policy summary. Stored as a finding when the
+/// policy is disabled or in report-only — both are compliance gaps.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ConditionalAccessPolicy {
+    pub id: String,
+    #[serde(default, rename = "displayName")]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+}
+
+/// Pull users via `/users/delta`. Accepts either an absolute deltaLink
+/// from a prior cycle or falls back to a fresh `/users/delta` with the
+/// `$select` we actually need.
+pub async fn pull_users_delta(
+    client: &GraphClient,
+    delta_link: Option<&str>,
+) -> Result<(Vec<UserRow>, Option<String>), GraphError> {
+    let path = match delta_link {
+        Some(d) if !d.is_empty() => d.to_string(),
+        _ => "/users/delta?$select=id,userPrincipalName,displayName,department,jobTitle,accountEnabled"
+            .to_string(),
+    };
+    fetch_delta(client, &path, MAX_PAGES).await
+}
+
+/// Pull Entra-joined devices via `/devices/delta`.
+pub async fn pull_devices_delta(
+    client: &GraphClient,
+    delta_link: Option<&str>,
+) -> Result<(Vec<DeviceRow>, Option<String>), GraphError> {
+    let path = match delta_link {
+        Some(d) if !d.is_empty() => d.to_string(),
+        _ => "/devices/delta?$select=id,deviceId,displayName,operatingSystem,\
+              operatingSystemVersion,accountEnabled,approximateLastSignInDateTime"
+            .to_string(),
+    };
+    fetch_delta(client, &path, MAX_PAGES).await
+}
+
+/// Pull Intune managed devices. No delta support — timestamp filter on
+/// `lastSyncDateTime` cursor.
+pub async fn pull_managed_devices(
+    client: &GraphClient,
+    cursor: Option<&str>,
+) -> Result<Vec<ManagedDeviceRow>, GraphError> {
+    let filter = match cursor {
+        Some(c) if !c.is_empty() => {
+            format!("&$filter=lastSyncDateTime gt {}", enc_iso(c))
+        }
+        _ => String::new(),
+    };
+    let path = format!(
+        "/deviceManagement/managedDevices?$top={PAGE_SIZE}\
+         &$orderby=lastSyncDateTime asc{filter}"
+    );
+    fetch_collection(client, &path, MAX_PAGES).await
+}
+
+/// Pull conditional access policies. Small list, full refresh every cycle.
+pub async fn pull_conditional_access_policies(
+    client: &GraphClient,
+) -> Result<Vec<ConditionalAccessPolicy>, GraphError> {
+    fetch_collection(
+        client,
+        "/identity/conditionalAccess/policies?$select=id,displayName,state",
+        MAX_PAGES,
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// Phase D: security/alerts_v2 + identityProtection
+// ---------------------------------------------------------------------------
+
+/// Defender-unified alert from `/security/alerts_v2`. We retain only
+/// what we put in the finding — the full Graph schema is ~40 fields.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AlertV2 {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default, rename = "createdDateTime")]
+    pub created_date_time: Option<String>,
+    #[serde(default, rename = "lastUpdateDateTime")]
+    pub last_update_date_time: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub classification: Option<String>,
+    #[serde(default)]
+    pub determination: Option<String>,
+    #[serde(default, rename = "incidentId")]
+    pub incident_id: Option<String>,
+    #[serde(default, rename = "alertWebUrl")]
+    pub alert_web_url: Option<String>,
+    #[serde(default, rename = "providerAlertId")]
+    pub provider_alert_id: Option<String>,
+}
+
+/// Entra ID Identity Protection — the P2-gated "this user is risky" view.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RiskyUser {
+    pub id: String,
+    #[serde(default, rename = "userPrincipalName")]
+    pub user_principal_name: Option<String>,
+    #[serde(default, rename = "riskLevel")]
+    pub risk_level: Option<String>,
+    #[serde(default, rename = "riskState")]
+    pub risk_state: Option<String>,
+    #[serde(default, rename = "riskDetail")]
+    pub risk_detail: Option<String>,
+    #[serde(default, rename = "riskLastUpdatedDateTime")]
+    pub risk_last_updated: Option<String>,
+}
+
+/// Single risk detection event — impossible travel, anonymous IP,
+/// unfamiliar sign-in features, etc.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RiskDetection {
+    pub id: String,
+    #[serde(default, rename = "userPrincipalName")]
+    pub user_principal_name: Option<String>,
+    #[serde(default, rename = "riskEventType")]
+    pub risk_event_type: Option<String>,
+    #[serde(default, rename = "riskLevel")]
+    pub risk_level: Option<String>,
+    #[serde(default, rename = "ipAddress")]
+    pub ip_address: Option<String>,
+    #[serde(default)]
+    pub location: Option<serde_json::Value>,
+    #[serde(default)]
+    pub activity: Option<String>,
+    #[serde(default, rename = "detectedDateTime")]
+    pub detected_date_time: Option<String>,
+}
+
+/// Pull Defender unified alerts. Requires E5 / Defender standalone.
+pub async fn pull_security_alerts_v2(
+    client: &GraphClient,
+    cursor: Option<&str>,
+) -> Result<Vec<AlertV2>, GraphError> {
+    let filter = match cursor {
+        Some(c) if !c.is_empty() => {
+            format!("&$filter=createdDateTime gt {}", enc_iso(c))
+        }
+        _ => String::new(),
+    };
+    let path = format!("/security/alerts_v2?$top={PAGE_SIZE}&$orderby=createdDateTime asc{filter}");
+    fetch_collection(client, &path, MAX_PAGES).await
+}
+
+/// Pull Entra ID Identity Protection risky users (P2 only). Risk state
+/// changes push the `riskLastUpdatedDateTime` forward, so we cursor on
+/// that — dedup is then by (user_id, risk_level) at finding level.
+pub async fn pull_risky_users(
+    client: &GraphClient,
+    cursor: Option<&str>,
+) -> Result<Vec<RiskyUser>, GraphError> {
+    let filter = match cursor {
+        Some(c) if !c.is_empty() => {
+            format!("&$filter=riskLastUpdatedDateTime gt {}", enc_iso(c))
+        }
+        _ => String::new(),
+    };
+    let path = format!(
+        "/identityProtection/riskyUsers?$top={PAGE_SIZE}\
+         &$orderby=riskLastUpdatedDateTime asc{filter}"
+    );
+    fetch_collection(client, &path, MAX_PAGES).await
+}
+
+/// Pull individual risk-detection events — impossible travel and friends.
+pub async fn pull_risk_detections(
+    client: &GraphClient,
+    cursor: Option<&str>,
+) -> Result<Vec<RiskDetection>, GraphError> {
+    let filter = match cursor {
+        Some(c) if !c.is_empty() => {
+            format!("&$filter=detectedDateTime gt {}", enc_iso(c))
+        }
+        _ => String::new(),
+    };
+    let path = format!(
+        "/identityProtection/riskDetections?$top={PAGE_SIZE}\
+         &$orderby=detectedDateTime asc{filter}"
+    );
     fetch_collection(client, &path, MAX_PAGES).await
 }
 
@@ -1295,6 +1603,19 @@ pub fn detect_from_signin(event: &SignInEvent) -> Option<Detection> {
 pub struct SyncCursors {
     pub signins_created_datetime: Option<String>,
     pub audit_activity_datetime: Option<String>,
+
+    /// Graph deltaLink for `/users/delta`. Opaque URL, not a timestamp.
+    pub users_delta_link: Option<String>,
+    /// Graph deltaLink for `/devices/delta`.
+    pub devices_delta_link: Option<String>,
+    /// `lastSyncDateTime` of the newest managedDevice we have seen.
+    pub managed_devices_last_sync: Option<String>,
+    /// `createdDateTime` of the newest alerts_v2 we have emitted.
+    pub alerts_v2_created_datetime: Option<String>,
+    /// `riskLastUpdatedDateTime` of the newest riskyUser we have seen.
+    pub risky_users_last_updated: Option<String>,
+    /// `detectedDateTime` of the newest riskDetection we have seen.
+    pub risk_detections_detected_datetime: Option<String>,
 }
 
 /// Per-cycle counters + advanced cursors. Returned to the scheduler.
@@ -1306,6 +1627,13 @@ pub struct MicrosoftGraphSyncResult {
 
     pub audits_fetched: usize,
     pub signins_fetched: usize,
+    pub users_upserted: usize,
+    pub devices_upserted: usize,
+    pub managed_devices_upserted: usize,
+    pub ca_policies_checked: usize,
+    pub alerts_v2_fetched: usize,
+    pub risky_users_fetched: usize,
+    pub risk_detections_fetched: usize,
     pub alerts_inserted: usize,
     pub insert_errors: usize,
 
@@ -1315,6 +1643,45 @@ pub struct MicrosoftGraphSyncResult {
     /// succeeded, so a transient 403 (licence drop) doesn't lose the old
     /// cursor for unrelated resources.
     pub new_cursors: SyncCursors,
+}
+
+/// Normalise a Graph `alerts_v2.severity` string ("informational", "low",
+/// "medium", "high") to the sigma level vocabulary the dashboard uses.
+/// Unknown values degrade to `"medium"` so we still surface them.
+pub fn map_alert_v2_severity(s: Option<&str>) -> &'static str {
+    match s.unwrap_or("").to_ascii_lowercase().as_str() {
+        "high" => "high",
+        "medium" => "medium",
+        "low" => "low",
+        "informational" | "info" => "low",
+        _ => "medium",
+    }
+}
+
+/// Normalise a Graph `riskLevel` value ("low", "medium", "high", "hidden",
+/// "none", "unknownFutureValue") to sigma level. `high` maps to `critical`
+/// for riskyUsers because Identity Protection only flags `high` when the
+/// user is near-certainly compromised — that warrants waking the RSSI up.
+pub fn map_risk_level_user(s: Option<&str>) -> Option<&'static str> {
+    match s.unwrap_or("").to_ascii_lowercase().as_str() {
+        "high" => Some("critical"),
+        "medium" => Some("high"),
+        "low" => Some("medium"),
+        // `none`, `hidden`, `unknownFutureValue` — don't emit.
+        _ => None,
+    }
+}
+
+/// Same mapping as [`map_risk_level_user`] but for single `riskDetection`
+/// events. One level lower because detections are candidates, not
+/// confirmed compromises — false-positive rate is higher.
+pub fn map_risk_level_detection(s: Option<&str>) -> Option<&'static str> {
+    match s.unwrap_or("").to_ascii_lowercase().as_str() {
+        "high" => Some("high"),
+        "medium" => Some("medium"),
+        "low" => Some("low"),
+        _ => None,
+    }
 }
 
 /// One sync cycle — connection check, audit pull, signIn pull, detection
@@ -1414,6 +1781,23 @@ pub async fn sync_microsoft_graph(
                         Some(ev.created_date_time.clone());
                 }
 
+                // Record the login edge in the identity graph so UBA
+                // (fan-out, impossible travel cross-source) can see it.
+                // Only record successful sign-ins with a valid UPN —
+                // failures pollute the LOGGED_IN edge count and we don't
+                // want to MATCH on missing users.
+                if !ev.user_principal_name.is_empty() && ev.error_code() == Some(0) {
+                    crate::graph::identity_graph::record_login(
+                        store,
+                        &ev.user_principal_name,
+                        &hostname,
+                        &ev.ip_address,
+                        "entra",
+                        true,
+                    )
+                    .await;
+                }
+
                 if let Some(det) = detect_from_signin(ev) {
                     match store
                         .insert_sigma_alert(
@@ -1446,11 +1830,444 @@ pub async fn sync_microsoft_graph(
         }
     }
 
+    // ── users (delta) ──────────────────────────────────────────────────
+    // Feeds the identity graph so downstream UBA (fan-out, escalation
+    // chains) can bind Entra accounts to on-prem events.
+    match pull_users_delta(&client, cursors.users_delta_link.as_deref()).await {
+        Ok((users, delta)) => {
+            for u in &users {
+                // Skip @removed markers — accountEnabled=false + tombstone
+                // is more useful written as one op than two.
+                if u.removed.is_some() {
+                    if let Some(upn) = u.user_principal_name.as_deref() {
+                        if !upn.is_empty() {
+                            crate::graph::identity_graph::upsert_user(
+                                store, upn, false, false, None,
+                            )
+                            .await;
+                        }
+                    }
+                    continue;
+                }
+                let upn = match u.user_principal_name.as_deref() {
+                    Some(s) if !s.is_empty() => s,
+                    _ => continue,
+                };
+                // `is_admin` on /users is not directly exposed — we flip
+                // it elsewhere via the role-assignment audit path. Here
+                // we only seed the node with the UPN + department.
+                crate::graph::identity_graph::upsert_user(
+                    store,
+                    upn,
+                    false,
+                    false,
+                    u.department.as_deref(),
+                )
+                .await;
+                result.users_upserted += 1;
+            }
+            if delta.is_some() {
+                result.new_cursors.users_delta_link = delta;
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: users/delta skipped (consent missing or licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: users/delta pull failed: {}", e);
+            result.errors.push(format!("users/delta: {e}"));
+        }
+    }
+
+    // ── devices (delta) ────────────────────────────────────────────────
+    // Entra-joined devices become Asset nodes. MAC is not exposed by
+    // /devices so resolution falls back to hostname+source, which is
+    // exactly what asset_resolution does when MAC is None.
+    match pull_devices_delta(&client, cursors.devices_delta_link.as_deref()).await {
+        Ok((devices, delta)) => {
+            for d in &devices {
+                if d.removed.is_some() {
+                    continue;
+                }
+                let hostname_dev = match d.display_name.as_deref() {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => continue,
+                };
+                let os_string = match (&d.operating_system, &d.operating_system_version) {
+                    (Some(os), Some(v)) => Some(format!("{os} {v}")),
+                    (Some(os), None) => Some(os.clone()),
+                    _ => None,
+                };
+                let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                    mac: None,
+                    hostname: Some(hostname_dev),
+                    fqdn: None,
+                    ip: None,
+                    os: os_string,
+                    ports: None,
+                    services: serde_json::Value::Null,
+                    ou: None,
+                    vlan: None,
+                    vm_id: None,
+                    criticality: None,
+                    source: "m365-entra".into(),
+                };
+                let _ = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+                result.devices_upserted += 1;
+            }
+            if delta.is_some() {
+                result.new_cursors.devices_delta_link = delta;
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: devices/delta skipped (consent missing or licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: devices/delta pull failed: {}", e);
+            result.errors.push(format!("devices/delta: {e}"));
+        }
+    }
+
+    // ── managed devices (Intune) ───────────────────────────────────────
+    // Carries richer ops fields — serial number, compliance state,
+    // manufacturer/model. Emit a finding when a device falls out of
+    // compliance: that's the signal the RSSI needs.
+    match pull_managed_devices(&client, cursors.managed_devices_last_sync.as_deref()).await {
+        Ok(devices) => {
+            for d in &devices {
+                // Advance cursor on every row, detection or not.
+                if let Some(ts) = &d.last_sync_date_time {
+                    if result
+                        .new_cursors
+                        .managed_devices_last_sync
+                        .as_deref()
+                        .map(|c| c < ts.as_str())
+                        .unwrap_or(true)
+                    {
+                        result.new_cursors.managed_devices_last_sync = Some(ts.clone());
+                    }
+                }
+
+                let hostname_dev = match d.device_name.as_deref() {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => continue,
+                };
+                let os_string = match (&d.operating_system, &d.os_version) {
+                    (Some(os), Some(v)) => Some(format!("{os} {v}")),
+                    (Some(os), None) => Some(os.clone()),
+                    _ => None,
+                };
+                let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                    mac: None,
+                    hostname: Some(hostname_dev.clone()),
+                    fqdn: None,
+                    ip: None,
+                    os: os_string,
+                    ports: None,
+                    services: serde_json::Value::Null,
+                    ou: None,
+                    vlan: None,
+                    vm_id: None,
+                    criticality: None,
+                    source: "m365-intune".into(),
+                };
+                let _ = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+                result.managed_devices_upserted += 1;
+
+                // Compliance states per MS docs: unknown, compliant,
+                // noncompliant, conflict, error, inGracePeriod, configManager.
+                // `noncompliant` + `error` are worth a sigma_alert; the
+                // others are either transient or OK.
+                let compliance = d.compliance_state.as_deref().unwrap_or("").to_lowercase();
+                if compliance == "noncompliant" || compliance == "error" {
+                    let level = if compliance == "noncompliant" {
+                        "medium"
+                    } else {
+                        "low"
+                    };
+                    let title = format!(
+                        "Intune: device '{}' is {} (Intune compliance gap)",
+                        hostname_dev, compliance
+                    );
+                    match store
+                        .insert_sigma_alert(
+                            "tc-m365-intune-noncompliant",
+                            level,
+                            &title,
+                            &hostname_dev,
+                            None,
+                            d.user_principal_name.as_deref(),
+                        )
+                        .await
+                    {
+                        Ok(_) => result.alerts_inserted += 1,
+                        Err(e) => {
+                            result.insert_errors += 1;
+                            tracing::warn!("MS-GRAPH: insert_sigma_alert (intune) failed: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: managedDevices skipped (no Intune licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: managedDevices pull failed: {}", e);
+            result.errors.push(format!("managedDevices: {e}"));
+        }
+    }
+
+    // ── conditional access policies ────────────────────────────────────
+    // Small list, full refresh. Policies in "disabled" or "enabledForReportingButNotEnforced"
+    // are compliance gaps (CA in report-only is not protecting anyone).
+    match pull_conditional_access_policies(&client).await {
+        Ok(policies) => {
+            result.ca_policies_checked = policies.len();
+            for p in &policies {
+                let state = p.state.as_deref().unwrap_or("").to_lowercase();
+                let (should_alert, level) = match state.as_str() {
+                    "disabled" => (true, "medium"),
+                    "enabledforreportingbutnotenforced" => (true, "low"),
+                    _ => (false, ""),
+                };
+                if !should_alert {
+                    continue;
+                }
+                let name = p.display_name.as_deref().unwrap_or(&p.id);
+                let title =
+                    format!("Conditional Access policy '{name}' is {state} — not enforcing");
+                match store
+                    .insert_sigma_alert(
+                        "tc-m365-ca-policy-inactive",
+                        level,
+                        &title,
+                        &hostname,
+                        None,
+                        None,
+                    )
+                    .await
+                {
+                    Ok(_) => result.alerts_inserted += 1,
+                    Err(e) => {
+                        result.insert_errors += 1;
+                        tracing::warn!("MS-GRAPH: insert_sigma_alert (CA) failed: {}", e);
+                    }
+                }
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: conditionalAccess skipped (consent missing or licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: conditionalAccess pull failed: {}", e);
+            result.errors.push(format!("conditionalAccess: {e}"));
+        }
+    }
+
+    // ── Phase D: security/alerts_v2 (Defender unified) ─────────────────
+    match pull_security_alerts_v2(&client, cursors.alerts_v2_created_datetime.as_deref()).await {
+        Ok(alerts) => {
+            result.alerts_v2_fetched = alerts.len();
+            for a in &alerts {
+                if let Some(ts) = &a.created_date_time {
+                    if result
+                        .new_cursors
+                        .alerts_v2_created_datetime
+                        .as_deref()
+                        .map(|c| c < ts.as_str())
+                        .unwrap_or(true)
+                    {
+                        result.new_cursors.alerts_v2_created_datetime = Some(ts.clone());
+                    }
+                }
+
+                // Only emit for non-resolved alerts — resolved / FP
+                // should not re-page the RSSI.
+                let status = a.status.as_deref().unwrap_or("").to_lowercase();
+                if status == "resolved" {
+                    continue;
+                }
+
+                let level = map_alert_v2_severity(a.severity.as_deref());
+                let title = format!(
+                    "Defender: {} ({})",
+                    a.title.as_deref().unwrap_or("Unnamed alert"),
+                    a.category.as_deref().unwrap_or("uncategorised"),
+                );
+                let rule_id = format!(
+                    "tc-m365-defender-{}",
+                    a.category
+                        .as_deref()
+                        .unwrap_or("alert")
+                        .to_lowercase()
+                        .replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+                );
+                match store
+                    .insert_sigma_alert(&rule_id, level, &title, &hostname, None, None)
+                    .await
+                {
+                    Ok(_) => result.alerts_inserted += 1,
+                    Err(e) => {
+                        result.insert_errors += 1;
+                        tracing::warn!("MS-GRAPH: insert_sigma_alert (alerts_v2) failed: {}", e);
+                    }
+                }
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: alerts_v2 skipped (no Defender licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: alerts_v2 pull failed: {}", e);
+            result.errors.push(format!("alerts_v2: {e}"));
+        }
+    }
+
+    // ── Phase D: identityProtection/riskyUsers (P2) ────────────────────
+    match pull_risky_users(&client, cursors.risky_users_last_updated.as_deref()).await {
+        Ok(users) => {
+            result.risky_users_fetched = users.len();
+            for u in &users {
+                if let Some(ts) = &u.risk_last_updated {
+                    if result
+                        .new_cursors
+                        .risky_users_last_updated
+                        .as_deref()
+                        .map(|c| c < ts.as_str())
+                        .unwrap_or(true)
+                    {
+                        result.new_cursors.risky_users_last_updated = Some(ts.clone());
+                    }
+                }
+
+                // Only alert on active risk states — "remediated",
+                // "dismissed", "confirmedSafe" are historical.
+                let state = u.risk_state.as_deref().unwrap_or("").to_lowercase();
+                if !matches!(state.as_str(), "atrisk" | "confirmedcompromised") {
+                    continue;
+                }
+
+                let level = match map_risk_level_user(u.risk_level.as_deref()) {
+                    Some(l) => l,
+                    None => continue,
+                };
+                let title = format!(
+                    "Entra ID: risky user {} — riskLevel={} state={}",
+                    u.user_principal_name.as_deref().unwrap_or("?"),
+                    u.risk_level.as_deref().unwrap_or("?"),
+                    state
+                );
+                match store
+                    .insert_sigma_alert(
+                        "tc-m365-risky-user",
+                        level,
+                        &title,
+                        &hostname,
+                        None,
+                        u.user_principal_name.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(_) => result.alerts_inserted += 1,
+                    Err(e) => {
+                        result.insert_errors += 1;
+                        tracing::warn!("MS-GRAPH: insert_sigma_alert (risky_user) failed: {}", e);
+                    }
+                }
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: riskyUsers skipped (no P2 licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: riskyUsers pull failed: {}", e);
+            result.errors.push(format!("riskyUsers: {e}"));
+        }
+    }
+
+    // ── Phase D: identityProtection/riskDetections ─────────────────────
+    match pull_risk_detections(
+        &client,
+        cursors.risk_detections_detected_datetime.as_deref(),
+    )
+    .await
+    {
+        Ok(detections) => {
+            result.risk_detections_fetched = detections.len();
+            for d in &detections {
+                if let Some(ts) = &d.detected_date_time {
+                    if result
+                        .new_cursors
+                        .risk_detections_detected_datetime
+                        .as_deref()
+                        .map(|c| c < ts.as_str())
+                        .unwrap_or(true)
+                    {
+                        result.new_cursors.risk_detections_detected_datetime = Some(ts.clone());
+                    }
+                }
+
+                let level = match map_risk_level_detection(d.risk_level.as_deref()) {
+                    Some(l) => l,
+                    None => continue,
+                };
+                let event_type = d.risk_event_type.as_deref().unwrap_or("unknown");
+                let title = format!(
+                    "Entra ID risk detection: {} (user={})",
+                    event_type,
+                    d.user_principal_name.as_deref().unwrap_or("?"),
+                );
+                let rule_id = format!(
+                    "tc-m365-risk-{}",
+                    event_type
+                        .to_lowercase()
+                        .replace(|c: char| !c.is_ascii_alphanumeric(), "-")
+                );
+                match store
+                    .insert_sigma_alert(
+                        &rule_id,
+                        level,
+                        &title,
+                        &hostname,
+                        d.ip_address.as_deref(),
+                        d.user_principal_name.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(_) => result.alerts_inserted += 1,
+                    Err(e) => {
+                        result.insert_errors += 1;
+                        tracing::warn!(
+                            "MS-GRAPH: insert_sigma_alert (risk_detection) failed: {}",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
+            tracing::info!("MS-GRAPH: riskDetections skipped (no P2 licence)");
+        }
+        Err(e) => {
+            tracing::warn!("MS-GRAPH: riskDetections pull failed: {}", e);
+            result.errors.push(format!("riskDetections: {e}"));
+        }
+    }
+
     tracing::info!(
-        "MS-GRAPH: cycle done — tenant='{}' audits={} signIns={} alerts={} errors={}",
+        "MS-GRAPH: cycle done — tenant='{}' audits={} signIns={} users={} devices={} managed={} \
+         ca_policies={} alerts_v2={} risky_users={} risk_det={} alerts_out={} errors={}",
         result.tenant_display_name.as_deref().unwrap_or("?"),
         result.audits_fetched,
         result.signins_fetched,
+        result.users_upserted,
+        result.devices_upserted,
+        result.managed_devices_upserted,
+        result.ca_policies_checked,
+        result.alerts_v2_fetched,
+        result.risky_users_fetched,
+        result.risk_detections_fetched,
         result.alerts_inserted,
         result.errors.len()
     );
@@ -1793,6 +2610,166 @@ mod tests {
     fn parse_graph_error_code_returns_none_on_garbage() {
         assert_eq!(parse_graph_error_code("not json at all"), None);
         assert_eq!(parse_graph_error_code("{}"), None);
+    }
+
+    #[test]
+    fn map_alert_v2_severity_all_cases() {
+        assert_eq!(map_alert_v2_severity(Some("high")), "high");
+        assert_eq!(map_alert_v2_severity(Some("HIGH")), "high");
+        assert_eq!(map_alert_v2_severity(Some("medium")), "medium");
+        assert_eq!(map_alert_v2_severity(Some("low")), "low");
+        assert_eq!(map_alert_v2_severity(Some("informational")), "low");
+        assert_eq!(map_alert_v2_severity(Some("info")), "low");
+        assert_eq!(map_alert_v2_severity(None), "medium");
+        assert_eq!(map_alert_v2_severity(Some("")), "medium");
+        assert_eq!(
+            map_alert_v2_severity(Some("something-new-ms-added")),
+            "medium"
+        );
+    }
+
+    #[test]
+    fn map_risk_level_user_escalates_high_to_critical() {
+        assert_eq!(map_risk_level_user(Some("high")), Some("critical"));
+        assert_eq!(map_risk_level_user(Some("HIGH")), Some("critical"));
+        assert_eq!(map_risk_level_user(Some("medium")), Some("high"));
+        assert_eq!(map_risk_level_user(Some("low")), Some("medium"));
+        assert_eq!(map_risk_level_user(Some("none")), None);
+        assert_eq!(map_risk_level_user(Some("hidden")), None);
+        assert_eq!(map_risk_level_user(Some("unknownFutureValue")), None);
+        assert_eq!(map_risk_level_user(None), None);
+    }
+
+    #[test]
+    fn map_risk_level_detection_is_one_notch_lower() {
+        assert_eq!(map_risk_level_detection(Some("high")), Some("high"));
+        assert_eq!(map_risk_level_detection(Some("medium")), Some("medium"));
+        assert_eq!(map_risk_level_detection(Some("low")), Some("low"));
+        assert_eq!(map_risk_level_detection(Some("none")), None);
+    }
+
+    #[test]
+    fn graph_page_parses_delta_and_next_links() {
+        let payload = serde_json::json!({
+            "value": [{"id": "u1"}, {"id": "u2"}],
+            "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=xyz"
+        });
+        let page: GraphPage<serde_json::Value> = serde_json::from_value(payload).unwrap();
+        assert_eq!(page.value.len(), 2);
+        assert!(page.delta_link.is_some());
+        assert!(page.next_link.is_none());
+    }
+
+    #[test]
+    fn graph_page_parses_next_link_without_delta() {
+        let payload = serde_json::json!({
+            "value": [],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/users/delta?$skiptoken=abc"
+        });
+        let page: GraphPage<serde_json::Value> = serde_json::from_value(payload).unwrap();
+        assert!(page.next_link.is_some());
+        assert!(page.delta_link.is_none());
+    }
+
+    #[test]
+    fn user_row_parses_removed_marker() {
+        let ur: UserRow = serde_json::from_value(serde_json::json!({
+            "id": "abc",
+            "@removed": { "reason": "changed" }
+        }))
+        .unwrap();
+        assert!(ur.removed.is_some());
+    }
+
+    #[test]
+    fn device_row_parses_full_shape() {
+        let d: DeviceRow = serde_json::from_value(serde_json::json!({
+            "id": "d1",
+            "displayName": "PC-COMPTA-01",
+            "deviceId": "dev-guid",
+            "operatingSystem": "Windows",
+            "operatingSystemVersion": "10.0.19045",
+            "accountEnabled": true
+        }))
+        .unwrap();
+        assert_eq!(d.display_name.as_deref(), Some("PC-COMPTA-01"));
+        assert_eq!(d.operating_system.as_deref(), Some("Windows"));
+    }
+
+    #[test]
+    fn managed_device_compliance_states_are_deserialisable() {
+        for state in &[
+            "unknown",
+            "compliant",
+            "noncompliant",
+            "conflict",
+            "error",
+            "inGracePeriod",
+        ] {
+            let md: ManagedDeviceRow = serde_json::from_value(serde_json::json!({
+                "id": "x",
+                "complianceState": state
+            }))
+            .unwrap();
+            assert_eq!(md.compliance_state.as_deref(), Some(*state));
+        }
+    }
+
+    #[test]
+    fn alert_v2_parses_minimal() {
+        let a: AlertV2 = serde_json::from_value(serde_json::json!({
+            "id": "a1",
+            "title": "Suspicious sign-in",
+            "severity": "high",
+            "status": "new",
+            "createdDateTime": "2026-04-23T10:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(a.title.as_deref(), Some("Suspicious sign-in"));
+        assert_eq!(map_alert_v2_severity(a.severity.as_deref()), "high");
+    }
+
+    #[test]
+    fn risky_user_parses_graph_shape() {
+        let r: RiskyUser = serde_json::from_value(serde_json::json!({
+            "id": "u1",
+            "userPrincipalName": "jean@contoso.com",
+            "riskLevel": "high",
+            "riskState": "atRisk",
+            "riskLastUpdatedDateTime": "2026-04-23T10:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(r.user_principal_name.as_deref(), Some("jean@contoso.com"));
+        assert_eq!(
+            map_risk_level_user(r.risk_level.as_deref()),
+            Some("critical")
+        );
+    }
+
+    #[test]
+    fn risk_detection_parses_graph_shape() {
+        let r: RiskDetection = serde_json::from_value(serde_json::json!({
+            "id": "rd1",
+            "userPrincipalName": "jean@contoso.com",
+            "riskEventType": "impossibleTravel",
+            "riskLevel": "high",
+            "ipAddress": "185.220.101.42",
+            "detectedDateTime": "2026-04-23T10:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(r.risk_event_type.as_deref(), Some("impossibleTravel"));
+        assert_eq!(r.ip_address.as_deref(), Some("185.220.101.42"));
+    }
+
+    #[test]
+    fn conditional_access_policy_parses() {
+        let p: ConditionalAccessPolicy = serde_json::from_value(serde_json::json!({
+            "id": "p1",
+            "displayName": "Require MFA for admins",
+            "state": "enabled"
+        }))
+        .unwrap();
+        assert_eq!(p.state.as_deref(), Some("enabled"));
     }
 
     /// Full round-trip: generate an ephemeral RSA key, build the

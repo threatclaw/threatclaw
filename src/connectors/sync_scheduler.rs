@@ -598,40 +598,94 @@ async fn run_connector_sync(
                     .get("cursor_audit_activity_datetime")
                     .cloned()
                     .filter(|s| !s.is_empty()),
+                users_delta_link: config
+                    .get("cursor_users_delta_link")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                devices_delta_link: config
+                    .get("cursor_devices_delta_link")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                managed_devices_last_sync: config
+                    .get("cursor_managed_devices_last_sync")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                alerts_v2_created_datetime: config
+                    .get("cursor_alerts_v2_created_datetime")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                risky_users_last_updated: config
+                    .get("cursor_risky_users_last_updated")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                risk_detections_detected_datetime: config
+                    .get("cursor_risk_detections_detected_datetime")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
             };
 
             let r =
                 crate::connectors::microsoft_graph::sync_microsoft_graph(store, &mc, cursors).await;
 
             // Persist cursors — same pattern as wazuh/velociraptor. We
-            // write both unconditionally because the sync fills
-            // new_cursors from the input when a puller failed, so a
-            // successful cursor is never overwritten by a later failure.
-            if let Some(v) = &r.new_cursors.signins_created_datetime {
-                if let Err(e) = store
-                    .set_skill_config(skill_id, "cursor_signins_created_datetime", v)
-                    .await
-                {
-                    tracing::warn!(
-                        "SYNC SCHEDULER: failed to persist m365 signIns cursor: {}",
-                        e
-                    );
-                }
-            }
-            if let Some(v) = &r.new_cursors.audit_activity_datetime {
-                if let Err(e) = store
-                    .set_skill_config(skill_id, "cursor_audit_activity_datetime", v)
-                    .await
-                {
-                    tracing::warn!("SYNC SCHEDULER: failed to persist m365 audit cursor: {}", e);
+            // write unconditionally because the sync fills new_cursors
+            // from the input when a puller failed, so a successful cursor
+            // is never overwritten by a later failure.
+            let to_persist: [(&str, Option<&String>); 8] = [
+                (
+                    "cursor_signins_created_datetime",
+                    r.new_cursors.signins_created_datetime.as_ref(),
+                ),
+                (
+                    "cursor_audit_activity_datetime",
+                    r.new_cursors.audit_activity_datetime.as_ref(),
+                ),
+                (
+                    "cursor_users_delta_link",
+                    r.new_cursors.users_delta_link.as_ref(),
+                ),
+                (
+                    "cursor_devices_delta_link",
+                    r.new_cursors.devices_delta_link.as_ref(),
+                ),
+                (
+                    "cursor_managed_devices_last_sync",
+                    r.new_cursors.managed_devices_last_sync.as_ref(),
+                ),
+                (
+                    "cursor_alerts_v2_created_datetime",
+                    r.new_cursors.alerts_v2_created_datetime.as_ref(),
+                ),
+                (
+                    "cursor_risky_users_last_updated",
+                    r.new_cursors.risky_users_last_updated.as_ref(),
+                ),
+                (
+                    "cursor_risk_detections_detected_datetime",
+                    r.new_cursors.risk_detections_detected_datetime.as_ref(),
+                ),
+            ];
+            for (key, val) in to_persist {
+                if let Some(v) = val {
+                    if let Err(e) = store.set_skill_config(skill_id, key, v).await {
+                        tracing::warn!("SYNC SCHEDULER: failed to persist m365 {}: {}", key, e);
+                    }
                 }
             }
 
             Ok(format!(
-                "tenant='{}' audits={} signIns={} alerts={} insert_errors={} errors={}",
+                "tenant='{}' audits={} signIns={} users={} devices={} managed={} ca={} \
+                 alerts_v2={} risky_users={} risk_det={} alerts_out={} insert_errors={} errors={}",
                 r.tenant_display_name.as_deref().unwrap_or("?"),
                 r.audits_fetched,
                 r.signins_fetched,
+                r.users_upserted,
+                r.devices_upserted,
+                r.managed_devices_upserted,
+                r.ca_policies_checked,
+                r.alerts_v2_fetched,
+                r.risky_users_fetched,
+                r.risk_detections_fetched,
                 r.alerts_inserted,
                 r.insert_errors,
                 r.errors.len()
