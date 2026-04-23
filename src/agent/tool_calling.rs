@@ -129,6 +129,72 @@ pub fn available_tools() -> Vec<ToolDefinition> {
                 "required": []
             }),
         },
+        // ── Velociraptor: active endpoint investigation ──
+        // Four read-only tools for the L2 forensic LLM. The Velociraptor
+        // API user is provisioned with the `investigator` role which
+        // already blocks write/exec plugins server-side — these tools
+        // rely on that ACL as their primary safety gate, plus a
+        // client-side VQL lint for defence-in-depth.
+        ToolDefinition {
+            name: "velociraptor_list_clients".into(),
+            description: "Liste les endpoints (clients) connus du serveur Velociraptor avec hostname, OS, dernière connexion. Utile avant d'investiguer — commencer par savoir quels assets sont couverts.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        },
+        ToolDefinition {
+            name: "velociraptor_query".into(),
+            description: "Exécute une requête VQL lecture-seule sur le serveur Velociraptor (pas sur un endpoint spécifique). Pour des questions globales : lister les hunts récents, compter les clients par OS, chercher un flow qui a échoué. Refuse les plugins write/exec côté serveur et client.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vql": {
+                        "type": "string",
+                        "description": "La requête VQL. Ex: 'SELECT client_id, os_info.hostname FROM clients() LIMIT 20'"
+                    }
+                },
+                "required": ["vql"]
+            }),
+        },
+        ToolDefinition {
+            name: "velociraptor_hunt".into(),
+            description: "Lance un hunt (collecte d'artifact) fleet-wide. Utiliser pour chercher un IOC ou un pattern sur tout le parc. Retourne un hunt_id que l'opérateur peut suivre dans l'UI Velociraptor.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Description courte du hunt (apparaît dans l'UI Velociraptor + ThreatClaw findings)"
+                    },
+                    "artifacts": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Noms d'artifacts à collecter. Ex: ['Windows.Detection.PsExec', 'Generic.Client.Info']"
+                    }
+                },
+                "required": ["description", "artifacts"]
+            }),
+        },
+        ToolDefinition {
+            name: "velociraptor_collect".into(),
+            description: "Collecte un artifact sur UN endpoint spécifique. Utiliser pendant une investigation incident pour aller chercher l'évidence sur la machine suspecte. Ex: grab Amcache sur C.xxx pour confirmer l'exécution d'un binaire.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "client_id": {
+                        "type": "string",
+                        "description": "ID Velociraptor du client (format 'C.' + 16 hex). Utiliser velociraptor_list_clients pour le trouver."
+                    },
+                    "artifact": {
+                        "type": "string",
+                        "description": "Nom de l'artifact. Ex: 'Windows.System.Amcache', 'Generic.Client.Info', 'Linux.Sys.SSHAuthKeys'"
+                    }
+                },
+                "required": ["client_id", "artifact"]
+            }),
+        },
     ]
 }
 
@@ -256,10 +322,114 @@ pub async fn execute_tool(tool_call: &ToolCall, store: &Arc<dyn Database>) -> To
         "get_asset_info" => execute_asset_info(&tool_call.arguments, store).await,
         "get_ml_anomalies" => execute_ml_anomalies(&tool_call.arguments, store).await,
         "get_threat_profile" => execute_threat_profile(store).await,
+        "velociraptor_list_clients" => execute_vr_list_clients(store).await,
+        "velociraptor_query" => execute_vr_query(&tool_call.arguments, store).await,
+        "velociraptor_hunt" => execute_vr_hunt(&tool_call.arguments, store).await,
+        "velociraptor_collect" => execute_vr_collect(&tool_call.arguments, store).await,
         _ => ToolResult {
             name: tool_call.name.clone(),
             success: false,
             data: json!({"error": "Outil inconnu"}),
+        },
+    }
+}
+
+// ── Velociraptor tool executors ──
+// Each wraps the corresponding connector function and adapts its
+// `Result<Value, String>` into a `ToolResult`. The LLM sees the exact
+// error message on failure so it can explain what went wrong to the
+// RSSI instead of swallowing it.
+
+async fn execute_vr_list_clients(store: &Arc<dyn Database>) -> ToolResult {
+    match crate::connectors::velociraptor::tool_list_clients(store.as_ref()).await {
+        Ok(data) => ToolResult {
+            name: "velociraptor_list_clients".into(),
+            success: true,
+            data,
+        },
+        Err(e) => ToolResult {
+            name: "velociraptor_list_clients".into(),
+            success: false,
+            data: json!({ "error": e }),
+        },
+    }
+}
+
+async fn execute_vr_query(args: &Value, store: &Arc<dyn Database>) -> ToolResult {
+    let vql = args["vql"].as_str().unwrap_or("").trim();
+    if vql.is_empty() {
+        return ToolResult {
+            name: "velociraptor_query".into(),
+            success: false,
+            data: json!({ "error": "argument 'vql' required" }),
+        };
+    }
+    match crate::connectors::velociraptor::tool_query(store.as_ref(), vql).await {
+        Ok(data) => ToolResult {
+            name: "velociraptor_query".into(),
+            success: true,
+            data,
+        },
+        Err(e) => ToolResult {
+            name: "velociraptor_query".into(),
+            success: false,
+            data: json!({ "error": e, "vql": vql }),
+        },
+    }
+}
+
+async fn execute_vr_hunt(args: &Value, store: &Arc<dyn Database>) -> ToolResult {
+    let description = args["description"].as_str().unwrap_or("").trim();
+    let artifacts: Vec<String> = args["artifacts"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    if description.is_empty() || artifacts.is_empty() {
+        return ToolResult {
+            name: "velociraptor_hunt".into(),
+            success: false,
+            data: json!({ "error": "'description' and 'artifacts' both required" }),
+        };
+    }
+    match crate::connectors::velociraptor::tool_hunt(store.as_ref(), description, &artifacts).await
+    {
+        Ok(data) => ToolResult {
+            name: "velociraptor_hunt".into(),
+            success: true,
+            data,
+        },
+        Err(e) => ToolResult {
+            name: "velociraptor_hunt".into(),
+            success: false,
+            data: json!({ "error": e }),
+        },
+    }
+}
+
+async fn execute_vr_collect(args: &Value, store: &Arc<dyn Database>) -> ToolResult {
+    let client_id = args["client_id"].as_str().unwrap_or("").trim();
+    let artifact = args["artifact"].as_str().unwrap_or("").trim();
+    if client_id.is_empty() || artifact.is_empty() {
+        return ToolResult {
+            name: "velociraptor_collect".into(),
+            success: false,
+            data: json!({ "error": "'client_id' and 'artifact' both required" }),
+        };
+    }
+    match crate::connectors::velociraptor::tool_collect(store.as_ref(), client_id, artifact).await {
+        Ok(data) => ToolResult {
+            name: "velociraptor_collect".into(),
+            success: true,
+            data,
+        },
+        Err(e) => ToolResult {
+            name: "velociraptor_collect".into(),
+            success: false,
+            data: json!({ "error": e }),
         },
     }
 }
@@ -558,6 +728,53 @@ mod tests {
             );
         }
         assert!(prompt.contains("tool_call"));
+    }
+
+    // The 4 Velociraptor tools must be registered AND each parameter
+    // schema must declare the fields their executor reads. If any of
+    // them drops out of `available_tools()` the LLM loses the capability
+    // silently — the regression test catches that.
+    #[test]
+    fn test_velociraptor_tools_registered_with_params() {
+        let tools = available_tools();
+        let names: std::collections::HashSet<&str> =
+            tools.iter().map(|t| t.name.as_str()).collect();
+        for name in [
+            "velociraptor_list_clients",
+            "velociraptor_query",
+            "velociraptor_hunt",
+            "velociraptor_collect",
+        ] {
+            assert!(names.contains(name), "missing tool: {}", name);
+        }
+        let by_name: std::collections::HashMap<&str, &ToolDefinition> =
+            tools.iter().map(|t| (t.name.as_str(), t)).collect();
+
+        // Parameter contract: each tool's required fields match exactly
+        // what the executor pulls out of tool_call.arguments.
+        assert_eq!(
+            by_name["velociraptor_query"].parameters["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["vql"]
+        );
+        let hunt_required: Vec<&str> = by_name["velociraptor_hunt"].parameters["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(hunt_required.contains(&"description") && hunt_required.contains(&"artifacts"));
+        let collect_required: Vec<&str> = by_name["velociraptor_collect"].parameters["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert!(collect_required.contains(&"client_id") && collect_required.contains(&"artifact"));
     }
 
     #[test]

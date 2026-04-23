@@ -30,6 +30,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-proxmox-backup", "proxmox_backup"),
     ("skill-veeam", "veeam"),
     ("skill-mikrotik", "mikrotik"),
+    ("skill-velociraptor", "velociraptor"),
 ];
 
 /// Spawn the connector sync scheduler.
@@ -188,6 +189,65 @@ async fn run_connector_sync(
                 r.alerts_imported,
                 r.findings_created,
                 r.dropped_noise,
+                r.insert_errors,
+                r.errors.len()
+            ))
+        }
+        "velociraptor" => {
+            let api_url = config.get("api_url").cloned().unwrap_or_default();
+            let ca_pem = config.get("ca_pem").cloned().unwrap_or_default();
+            let client_cert_pem = config.get("client_cert_pem").cloned().unwrap_or_default();
+            let client_key_pem = config.get("client_key_pem").cloned().unwrap_or_default();
+            let username = config.get("username").cloned().unwrap_or_default();
+            if api_url.is_empty()
+                || ca_pem.is_empty()
+                || client_cert_pem.is_empty()
+                || client_key_pem.is_empty()
+                || username.is_empty()
+            {
+                return Err(
+                    "velociraptor needs api_url + ca_pem + client_cert_pem + client_key_pem + username".into()
+                );
+            }
+            let cursor_last_hunt_completion = config
+                .get("cursor_last_hunt_completion")
+                .cloned()
+                .filter(|s| !s.is_empty());
+            let max_findings_per_cycle = config
+                .get("max_findings_per_cycle")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(500);
+
+            let vc = crate::connectors::velociraptor::VelociraptorConfig {
+                api_url,
+                ca_pem,
+                client_cert_pem,
+                client_key_pem,
+                username,
+                cursor_last_hunt_completion,
+                max_findings_per_cycle,
+            };
+            let r = crate::connectors::velociraptor::sync_velociraptor(store, &vc).await;
+
+            // Persist cursor like the Wazuh connector does — next cycle
+            // resumes from the newest hunt we have already emitted.
+            if let Some(new_cursor) = &r.cursor {
+                if let Err(e) = store
+                    .set_skill_config(skill_id, "cursor_last_hunt_completion", new_cursor)
+                    .await
+                {
+                    tracing::warn!(
+                        "SYNC SCHEDULER: failed to persist velociraptor cursor: {}",
+                        e
+                    );
+                }
+            }
+
+            Ok(format!(
+                "clients={} hunts={} findings={} insert_errors={} errors={}",
+                r.clients_imported,
+                r.hunts_fetched,
+                r.findings_created,
                 r.insert_errors,
                 r.errors.len()
             ))

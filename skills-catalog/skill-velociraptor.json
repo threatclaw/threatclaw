@@ -1,0 +1,67 @@
+{
+  "id": "skill-velociraptor",
+  "name": "Velociraptor DFIR",
+  "version": "0.1.0",
+  "description": "Importe les clients et résultats de hunts Velociraptor dans ThreatClaw, et expose des requêtes VQL lecture seule à l'investigator L2 — transforme l'agent en SOC qui va chercher l'évidence sur l'endpoint au lieu de recommander une investigation manuelle.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "endpoints",
+  "help": "Velociraptor est un outil DFIR/EDR open-source (Rapid7 OSS) avec agents légers (Windows/Linux/macOS) qui répondent à des requêtes VQL en temps réel. ThreatClaw s'y connecte en tant qu'utilisateur API dédié et :\n\n• Importe tes clients Velociraptor comme assets\n• Remonte les hunts terminés comme findings\n• Donne au L2 forensic la capacité d'interroger un endpoint pendant un incident (liste processus, events, fichiers) sans logger dessus manuellement\n\nPrérequis :\n• Serveur Velociraptor accessible depuis ThreatClaw (par défaut port 8001)\n• Un utilisateur API dédié créé via `velociraptor --config server.config.yaml config api_client --name threatclaw --role investigator,api threatclaw.config.yaml` (rôle investigator + api uniquement — jamais administrator)\n• Le fichier threatclaw.config.yaml généré contient les 4 champs à coller ci-dessous\n\nSécurité : le rôle `investigator` refuse déjà côté serveur les plugins VQL dangereux (execve, powershell, cmd, copy, upload, rm). ThreatClaw double le garde avec un lint côté Rust.",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https",
+    "default_port": 8001
+  },
+  "config": {
+    "api_url": {
+      "type": "string",
+      "description": "URL de l'API Velociraptor",
+      "placeholder": "https://velociraptor.internal:8001",
+      "hint": "L'URL du frontend API Velociraptor. Par défaut 127.0.0.1:8001 dans la conf serveur — à binder sur 0.0.0.0 dans server.config.yaml (section `API.bind_address`) pour autoriser ThreatClaw à se connecter depuis une autre VM.",
+      "required": true
+    },
+    "username": {
+      "type": "string",
+      "description": "Utilisateur API",
+      "placeholder": "threatclaw",
+      "hint": "Le nom passé à `--name` lors du `velociraptor config api_client`. Identifie ThreatClaw côté audit log Velociraptor.",
+      "required": true
+    },
+    "ca_pem": {
+      "type": "string",
+      "description": "CA cert (PEM)",
+      "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+      "hint": "Contenu du champ `ca_certificate` du fichier threatclaw.config.yaml généré. Signe à la fois le cert serveur et le cert client.",
+      "required": true
+    },
+    "client_cert_pem": {
+      "type": "string",
+      "description": "Certificat client (PEM)",
+      "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+      "hint": "Contenu du champ `client_cert` du fichier threatclaw.config.yaml. Identifie ThreatClaw auprès du serveur — valide 1 an par défaut.",
+      "required": true
+    },
+    "client_key_pem": {
+      "type": "password",
+      "description": "Clé privée client (PEM)",
+      "hint": "Contenu du champ `client_private_key` du fichier threatclaw.config.yaml. Stockée chiffrée dans skill_configs.",
+      "required": true
+    },
+    "max_findings_per_cycle": {
+      "type": "number",
+      "description": "Limite de hunts par cycle",
+      "hint": "Soft cap pour éviter qu'un backlog de hunts terminés ne bloque le scheduler. 500 par défaut. Les hunts non ingérés dans un cycle seront repris au suivant (curseur persiste).",
+      "default": 500
+    }
+  },
+  "outputs": {
+    "assets": "db",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}
