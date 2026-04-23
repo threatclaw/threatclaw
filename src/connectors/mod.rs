@@ -92,6 +92,7 @@ pub mod thehive;
 pub mod unifi;
 pub mod uptimerobot;
 pub mod veeam;
+pub mod velociraptor;
 pub mod wazuh;
 pub mod webhook_ingest;
 pub mod zeek;
