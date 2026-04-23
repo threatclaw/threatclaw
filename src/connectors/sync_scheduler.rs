@@ -31,6 +31,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-veeam", "veeam"),
     ("skill-mikrotik", "mikrotik"),
     ("skill-velociraptor", "velociraptor"),
+    ("skill-microsoft-graph", "microsoft_graph"),
 ];
 
 /// Spawn the connector sync scheduler.
@@ -553,6 +554,87 @@ async fn run_connector_sync(
             Ok(format!(
                 "{} logs, {} leases, {} findings",
                 r.log_entries, r.dhcp_leases, r.findings_created
+            ))
+        }
+        "microsoft_graph" => {
+            let tenant_id = config.get("tenant_id").cloned().unwrap_or_default();
+            let client_id = config.get("client_id").cloned().unwrap_or_default();
+            if tenant_id.is_empty() || client_id.is_empty() {
+                return Err("tenant_id or client_id not configured".into());
+            }
+            let auth_method = crate::connectors::microsoft_graph::AuthMethod::parse(
+                config
+                    .get("auth_method")
+                    .map(|s| s.as_str())
+                    .unwrap_or("certificate"),
+            );
+            let mc = crate::connectors::microsoft_graph::MicrosoftGraphConfig {
+                tenant_id,
+                client_id,
+                auth_method,
+                client_secret: config
+                    .get("client_secret")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                client_cert_pem: config
+                    .get("client_cert_pem")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                client_key_pem: config
+                    .get("client_key_pem")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+            };
+            if let Err(e) = mc.validate() {
+                return Err(e);
+            }
+
+            let cursors = crate::connectors::microsoft_graph::SyncCursors {
+                signins_created_datetime: config
+                    .get("cursor_signins_created_datetime")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                audit_activity_datetime: config
+                    .get("cursor_audit_activity_datetime")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+            };
+
+            let r =
+                crate::connectors::microsoft_graph::sync_microsoft_graph(store, &mc, cursors).await;
+
+            // Persist cursors — same pattern as wazuh/velociraptor. We
+            // write both unconditionally because the sync fills
+            // new_cursors from the input when a puller failed, so a
+            // successful cursor is never overwritten by a later failure.
+            if let Some(v) = &r.new_cursors.signins_created_datetime {
+                if let Err(e) = store
+                    .set_skill_config(skill_id, "cursor_signins_created_datetime", v)
+                    .await
+                {
+                    tracing::warn!(
+                        "SYNC SCHEDULER: failed to persist m365 signIns cursor: {}",
+                        e
+                    );
+                }
+            }
+            if let Some(v) = &r.new_cursors.audit_activity_datetime {
+                if let Err(e) = store
+                    .set_skill_config(skill_id, "cursor_audit_activity_datetime", v)
+                    .await
+                {
+                    tracing::warn!("SYNC SCHEDULER: failed to persist m365 audit cursor: {}", e);
+                }
+            }
+
+            Ok(format!(
+                "tenant='{}' audits={} signIns={} alerts={} insert_errors={} errors={}",
+                r.tenant_display_name.as_deref().unwrap_or("?"),
+                r.audits_fetched,
+                r.signins_fetched,
+                r.alerts_inserted,
+                r.insert_errors,
+                r.errors.len()
             ))
         }
         "unifi" | "ad" => Err(format!("{} auto-sync not yet implemented", connector_type)),

@@ -1255,6 +1255,78 @@ pub async fn skill_test_handler(
                 Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
             }
         }
+        "skill-microsoft-graph" => {
+            let tenant_id = cfg.get("tenant_id").cloned().unwrap_or_default();
+            let client_id = cfg.get("client_id").cloned().unwrap_or_default();
+            if tenant_id.is_empty() || client_id.is_empty() {
+                return Ok(Json(serde_json::json!({
+                    "ok": false,
+                    "error": "tenant_id et client_id requis"
+                })));
+            }
+            let auth_method = crate::connectors::microsoft_graph::AuthMethod::parse(
+                cfg.get("auth_method")
+                    .map(|s| s.as_str())
+                    .unwrap_or("certificate"),
+            );
+            let mg_cfg = crate::connectors::microsoft_graph::MicrosoftGraphConfig {
+                tenant_id,
+                client_id,
+                auth_method,
+                client_secret: cfg.get("client_secret").cloned().filter(|s| !s.is_empty()),
+                client_cert_pem: cfg
+                    .get("client_cert_pem")
+                    .cloned()
+                    .filter(|s| !s.is_empty()),
+                client_key_pem: cfg.get("client_key_pem").cloned().filter(|s| !s.is_empty()),
+            };
+
+            let graph_client =
+                match crate::connectors::microsoft_graph::GraphClient::new(mg_cfg.clone()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Ok(Json(serde_json::json!({
+                            "ok": false,
+                            "error": e.to_string()
+                        })));
+                    }
+                };
+
+            match crate::connectors::microsoft_graph::test_connection(&graph_client).await {
+                Ok(tc) => {
+                    // Also probe features so the UI can show the exact matrix
+                    // of what's actually reachable — one extra round-trip per
+                    // feature but the whole thing finishes under 10s on a
+                    // healthy tenant.
+                    let probe =
+                        crate::connectors::microsoft_graph::probe_features(&graph_client).await;
+                    serde_json::json!({
+                        "ok": true,
+                        "detail": tc.message,
+                        "tenant_display_name": tc.tenant_display_name,
+                        "tenant_id": tc.tenant_id,
+                        "plans": tc.plans,
+                        "has_p1": tc.has_p1,
+                        "has_p2": tc.has_p2,
+                        "has_defender": tc.has_defender,
+                        "probes": probe.probes,
+                    })
+                }
+                Err(crate::connectors::microsoft_graph::GraphError::AuthRejected(m)) => {
+                    serde_json::json!({
+                        "ok": false,
+                        "error": format!("Credentials invalides — {}", m)
+                    })
+                }
+                Err(crate::connectors::microsoft_graph::GraphError::ConsentMissing) => {
+                    serde_json::json!({
+                        "ok": false,
+                        "error": "Admin consent manquant — Grant admin consent for <tenant> dans Entra Portal"
+                    })
+                }
+                Err(e) => serde_json::json!({ "ok": false, "error": e.to_string() }),
+            }
+        }
         "skill-compliance-nis2" | "skill-compliance-iso27001" => {
             serde_json::json!({ "ok": true, "detail": "Analyse locale — aucune API externe requise" })
         }
@@ -2952,6 +3024,76 @@ pub async fn connector_proxmox_sync_handler(
             )
         })?;
     let result = crate::connectors::proxmox::sync_proxmox(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/microsoft-graph/sync — pull audits + signIns from M365.
+///
+/// The request body carries the connection config (tenant_id, client_id,
+/// auth_method, secret or cert pair). Cursors are read from and written
+/// back to `skill_configs` exactly like the auto-sync scheduler arm, so
+/// a manual Run from the dashboard resumes from where the scheduler
+/// stopped instead of replaying events from epoch.
+pub async fn connector_microsoft_graph_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config =
+        serde_json::from_value::<crate::connectors::microsoft_graph::MicrosoftGraphConfig>(body)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid microsoft-graph config: {e}"),
+                )
+            })?;
+    if let Err(e) = config.validate() {
+        return Err((StatusCode::BAD_REQUEST, e));
+    }
+
+    // Read persisted cursors.
+    let existing = store
+        .get_skill_config("skill-microsoft-graph")
+        .await
+        .unwrap_or_default();
+    let mut signins_cur = None;
+    let mut audit_cur = None;
+    for row in &existing {
+        match row.key.as_str() {
+            "cursor_signins_created_datetime" if !row.value.is_empty() => {
+                signins_cur = Some(row.value.clone())
+            }
+            "cursor_audit_activity_datetime" if !row.value.is_empty() => {
+                audit_cur = Some(row.value.clone())
+            }
+            _ => {}
+        }
+    }
+    let cursors = crate::connectors::microsoft_graph::SyncCursors {
+        signins_created_datetime: signins_cur,
+        audit_activity_datetime: audit_cur,
+    };
+
+    let result =
+        crate::connectors::microsoft_graph::sync_microsoft_graph(store.as_ref(), &config, cursors)
+            .await;
+
+    // Persist advanced cursors — same policy as the scheduler.
+    if let Some(v) = &result.new_cursors.signins_created_datetime {
+        let _ = store
+            .set_skill_config(
+                "skill-microsoft-graph",
+                "cursor_signins_created_datetime",
+                v,
+            )
+            .await;
+    }
+    if let Some(v) = &result.new_cursors.audit_activity_datetime {
+        let _ = store
+            .set_skill_config("skill-microsoft-graph", "cursor_audit_activity_datetime", v)
+            .await;
+    }
+
     Ok(Json(serde_json::json!(result)))
 }
 
