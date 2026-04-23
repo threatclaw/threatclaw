@@ -1,0 +1,75 @@
+{
+  "id": "skill-microsoft-graph",
+  "name": "Microsoft 365 / Entra ID",
+  "version": "0.1.0",
+  "description": "Connecteur Microsoft Graph lecture seule — ingère signIns + audit logs + users + devices du tenant M365 du client et détecte les 5 signaux top de compromission : règle mail auto-forward, consent OAuth illicite, impossible travel, MFA fatigue, Global Admin ajouté.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "identity",
+  "help": "Microsoft 365 est la source n°1 de compromission en PME. Ce connecteur se branche au tenant Entra ID du client via OAuth app-only et remonte :\n\n• Sign-ins (P1+) → risky logins, impossible travel, MFA fatigue\n• Directory audits → création de règles mail, consent OAuth, role Global Admin\n• Users + devices → identities et assets dans le graph\n• Defender alerts (E5) → findings HIGH directs\n\nPrérequis :\n• Tenant M365 Business Premium minimum (Entra ID P1 pour signIns détaillés)\n• Global Admin pour registrer l'app + granted admin consent\n• 9 Application permissions (pas Delegated) cochées — voir hint par champ\n\nSetup côté client (≈10 min, procédure dans internal/M365_PLAN.md) :\n1. Entra Portal → App registrations → New registration → Single tenant → name 'ThreatClaw SIEM'\n2. Certificates & secrets → New client secret OU upload certificate\n3. API permissions → Microsoft Graph → Application permissions : AuditLog.Read.All, Directory.Read.All, Device.Read.All, DeviceManagementManagedDevices.Read.All, MailboxSettings.Read, Policy.Read.All, SecurityAlert.Read.All, IdentityRiskyUser.Read.All, IdentityRiskEvent.Read.All\n4. Grant admin consent for <tenant>\n5. Copier tenant_id + client_id + secret/cert dans le dashboard",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 15,
+    "protocol": "https",
+    "default_port": 443
+  },
+  "config": {
+    "tenant_id": {
+      "type": "string",
+      "description": "Directory (tenant) ID",
+      "placeholder": "11111111-2222-3333-4444-555555555555",
+      "hint": "GUID affiché dans Entra Portal > App registrations > ton app > Overview. Identifie le tenant Azure AD du client.",
+      "required": true
+    },
+    "client_id": {
+      "type": "string",
+      "description": "Application (client) ID",
+      "placeholder": "00000000-1111-2222-3333-444444444444",
+      "hint": "GUID de l'app enregistrée. Identifie ThreatClaw auprès d'Entra. Pas sensible — le cert/secret est ce qui authentifie.",
+      "required": true
+    },
+    "auth_method": {
+      "type": "string",
+      "description": "Méthode d'authentification",
+      "placeholder": "certificate",
+      "hint": "'certificate' (recommandé en production — pas de rotation de secret, support HSM) ou 'secret' (simple, 24 mois max, pour test rapide). Défaut: certificate.",
+      "default": "certificate",
+      "required": false
+    },
+    "client_secret": {
+      "type": "password",
+      "description": "Client secret (si auth_method=secret)",
+      "hint": "Le champ 'Value' copié depuis Certificates & secrets après création. Entra ne le reaffiche jamais après. Max 24 mois, à renouveler.",
+      "required": false
+    },
+    "client_cert_pem": {
+      "type": "password",
+      "description": "Certificat client PEM (si auth_method=certificate)",
+      "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+      "hint": "Certificat X.509 public signé par la CA de ton choix (auto-signé OK en dev). Uploadé en .cer dans Entra + collé ici pour que ThreatClaw puisse signer le JWT client assertion.",
+      "required": false
+    },
+    "client_key_pem": {
+      "type": "password",
+      "description": "Clé privée PEM (si auth_method=certificate)",
+      "placeholder": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+      "hint": "Clé privée RSA correspondant au certificat. PKCS#1 ou PKCS#8 acceptés. Chiffrée au repos dans skill_configs.",
+      "required": false
+    },
+    "max_findings_per_cycle": {
+      "type": "number",
+      "description": "Limite d'events par cycle",
+      "hint": "Soft cap pour éviter qu'un backlog (ex. historique signIns 7j au premier branchement) ne bloque le scheduler. 1000 par défaut. Les events non ingérés sont repris au cycle suivant via curseur.",
+      "default": 1000
+    }
+  },
+  "outputs": {
+    "assets": "db",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "cloud"
+}

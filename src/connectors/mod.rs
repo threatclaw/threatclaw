@@ -76,6 +76,7 @@ pub mod freebox;
 pub mod glpi;
 pub mod graylog;
 pub mod keycloak;
+pub mod microsoft_graph;
 pub mod mikrotik;
 pub mod nmap_discovery;
 pub mod olvid;

@@ -73,6 +73,7 @@ const RUNNABLE: Record<string, string> = {
   "skill-fortinet": "/api/tc/connectors/fortinet/sync",
   "skill-wazuh": "/api/tc/connectors/wazuh/sync",
   "skill-wazuh-connector": "/api/tc/connectors/wazuh/sync",
+  "skill-microsoft-graph": "/api/tc/connectors/microsoft-graph/sync",
   "skill-glpi": "/api/tc/connectors/glpi/sync",
   "skill-freebox": "/api/tc/connectors/freebox/sync",
   "skill-nuclei": "/api/tc/skills/run/skill-nuclei",
@@ -107,6 +108,7 @@ const BETA_SKILLS: Set<string> = new Set([
   "skill-syft", "skill-docker-bench", "skill-lynis",
   "skill-darkweb-monitor", "skill-email-audit", "skill-report-gen",
   "skill-compliance-nis2", "skill-compliance-iso27001",
+  "skill-microsoft-graph",
 ]);
 
 function TrustBadge({ trust, locale }: { trust: string; locale: "fr" | "en" }) {
