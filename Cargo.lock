@@ -6876,7 +6876,7 @@ dependencies = [
 
 [[package]]
 name = "threatclaw"
-version = "1.0.10-beta"
+version = "1.0.11-beta"
 dependencies = [
  "aes-gcm",
  "aho-corasick",
