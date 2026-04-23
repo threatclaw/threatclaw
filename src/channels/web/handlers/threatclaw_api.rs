@@ -3051,27 +3051,27 @@ pub async fn connector_microsoft_graph_sync_handler(
         return Err((StatusCode::BAD_REQUEST, e));
     }
 
-    // Read persisted cursors.
+    // Read persisted cursors — same keys as the scheduler so the two
+    // code paths stay in sync.
     let existing = store
         .get_skill_config("skill-microsoft-graph")
         .await
         .unwrap_or_default();
-    let mut signins_cur = None;
-    let mut audit_cur = None;
-    for row in &existing {
-        match row.key.as_str() {
-            "cursor_signins_created_datetime" if !row.value.is_empty() => {
-                signins_cur = Some(row.value.clone())
-            }
-            "cursor_audit_activity_datetime" if !row.value.is_empty() => {
-                audit_cur = Some(row.value.clone())
-            }
-            _ => {}
-        }
-    }
+    let lookup: std::collections::HashMap<&str, String> = existing
+        .iter()
+        .filter(|r| !r.value.is_empty())
+        .map(|r| (r.key.as_str(), r.value.clone()))
+        .collect();
+    let get = |k: &str| lookup.get(k).cloned();
     let cursors = crate::connectors::microsoft_graph::SyncCursors {
-        signins_created_datetime: signins_cur,
-        audit_activity_datetime: audit_cur,
+        signins_created_datetime: get("cursor_signins_created_datetime"),
+        audit_activity_datetime: get("cursor_audit_activity_datetime"),
+        users_delta_link: get("cursor_users_delta_link"),
+        devices_delta_link: get("cursor_devices_delta_link"),
+        managed_devices_last_sync: get("cursor_managed_devices_last_sync"),
+        alerts_v2_created_datetime: get("cursor_alerts_v2_created_datetime"),
+        risky_users_last_updated: get("cursor_risky_users_last_updated"),
+        risk_detections_detected_datetime: get("cursor_risk_detections_detected_datetime"),
     };
 
     let result =
@@ -3079,19 +3079,49 @@ pub async fn connector_microsoft_graph_sync_handler(
             .await;
 
     // Persist advanced cursors — same policy as the scheduler.
-    if let Some(v) = &result.new_cursors.signins_created_datetime {
-        let _ = store
-            .set_skill_config(
-                "skill-microsoft-graph",
-                "cursor_signins_created_datetime",
-                v,
-            )
-            .await;
-    }
-    if let Some(v) = &result.new_cursors.audit_activity_datetime {
-        let _ = store
-            .set_skill_config("skill-microsoft-graph", "cursor_audit_activity_datetime", v)
-            .await;
+    let to_persist: [(&str, Option<&String>); 8] = [
+        (
+            "cursor_signins_created_datetime",
+            result.new_cursors.signins_created_datetime.as_ref(),
+        ),
+        (
+            "cursor_audit_activity_datetime",
+            result.new_cursors.audit_activity_datetime.as_ref(),
+        ),
+        (
+            "cursor_users_delta_link",
+            result.new_cursors.users_delta_link.as_ref(),
+        ),
+        (
+            "cursor_devices_delta_link",
+            result.new_cursors.devices_delta_link.as_ref(),
+        ),
+        (
+            "cursor_managed_devices_last_sync",
+            result.new_cursors.managed_devices_last_sync.as_ref(),
+        ),
+        (
+            "cursor_alerts_v2_created_datetime",
+            result.new_cursors.alerts_v2_created_datetime.as_ref(),
+        ),
+        (
+            "cursor_risky_users_last_updated",
+            result.new_cursors.risky_users_last_updated.as_ref(),
+        ),
+        (
+            "cursor_risk_detections_detected_datetime",
+            result
+                .new_cursors
+                .risk_detections_detected_datetime
+                .as_ref(),
+        ),
+    ];
+    for (key, val) in to_persist {
+        if let Some(v) = val {
+            let _ = store
+                .set_skill_config("skill-microsoft-graph", key, v)
+                .await;
+        }
     }
 
     Ok(Json(serde_json::json!(result)))
