@@ -50,17 +50,28 @@ const PERM_LEVELS = [
   { id: "FULL_AUTO", icon: Zap, labelKey: "autoMode", descKey: "fullAutoDesc", color: "var(--tc-red)", warning: true },
 ];
 
-interface ConfigPageProps { onResetWizard: () => void; }
+interface ConfigPageProps {
+  onResetWizard: () => void;
+  /// When provided, overrides the internal tab state — used by the new
+  /// unified left sidebar (see components/chrome/SectionSidebar.tsx)
+  /// which drives navigation through `?tab=` on the parent /setup route.
+  /// The legacy `?configTab=` fallback stays for pre-existing bookmarks.
+  currentTab?: string;
+}
 
-export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
+export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProps) {
   const locale = useLocale();
-  const [activeTab, setActiveTab] = useState(() => {
+  const [internalTab, setInternalTab] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      return params.get("configTab") || "general";
+      return params.get("configTab") || params.get("tab") || "general";
     }
     return "general";
   });
+  const activeTab = currentTab ?? internalTab;
+  // Kept for the legacy internal nav callers; safe to remove once the
+  // inner nav is fully retired in a follow-up.
+  const setActiveTab = setInternalTab;
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -345,79 +356,16 @@ export default function ConfigPage({ onResetWizard }: ConfigPageProps) {
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "220px 1fr",
-        gap: "0",
-        minHeight: "calc(100vh - 120px)",
         fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        minHeight: "calc(100vh - 120px)",
       }}
     >
-      {/* ═══ LEFT RAIL — vertical tab sidebar ═══ */}
-      <nav
-        style={{
-          borderRight: "1px solid var(--tc-border)",
-          background: "var(--tc-surface)",
-          padding: "20px 0",
-          position: "sticky",
-          top: 0,
-          alignSelf: "stretch",
-          minHeight: "calc(100vh - 72px)",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "9px",
-            letterSpacing: "0.22em",
-            color: "var(--tc-text-muted)",
-            textTransform: "uppercase",
-            padding: "0 18px 14px",
-          }}
-        >
-          Config
-        </div>
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                width: "100%",
-                padding: "9px 18px",
-                border: "none",
-                background: active ? "var(--tc-red-soft)" : "transparent",
-                color: active ? "var(--tc-red)" : "var(--tc-text-sec)",
-                fontSize: "11px",
-                fontWeight: active ? 700 : 500,
-                fontFamily: "inherit",
-                cursor: "pointer",
-                letterSpacing: "0.02em",
-                textAlign: "left",
-                borderLeft: active ? "2px solid var(--tc-red)" : "2px solid transparent",
-                transition: "background 120ms",
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "var(--tc-input)";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <Icon size={13} />
-              {tab.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* ═══ RIGHT PANEL — active tab content ═══ */}
+      {/* The old internal left rail was here; removed because the root
+          layout's SectionSidebar (components/chrome/SectionSidebar.tsx)
+          now owns the sidebar for every sectioned page, including this
+          one. `tabs` is still used elsewhere (channel save bars refer
+          to the tab id) so we keep the array.
+          See sections.ts → setup.items for the full left nav. */}
       <div
         style={{
           padding: "24px 32px 40px",
