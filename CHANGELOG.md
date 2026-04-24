@@ -6,6 +6,57 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.12-beta] — 2026-04-25
+
+Iteration focused on three things: making the Velociraptor connector
+actually work end-to-end, wiring Wazuh agent telemetry into the user
+behaviour graph, and giving the dashboard one consistent navigation
+shell across every page.
+
+### Added
+- **Users page** (`/users`) — list and detail view of every identity
+  the agent has observed, with asset × user cross-reference, login
+  history per asset, escalation edges, and UBA anomalies. Surfaces
+  honeypot account hits as critical incidents.
+- **Wazuh → identity graph bridge** — Windows logon events
+  (4624/4625/4634/4648/4768/4769/4771/4776) decoded from the
+  eventchannel payload and emitted as `LOGGED_IN` edges so the user
+  page actually fills with real activity instead of just AD profiles.
+- **Premium-skill licensing foundation** — Ed25519 offline cert
+  verification, 90-day grace, optional site-fingerprint pinning,
+  three-tier `SkillTier` (Free / Premium / BetaPremium) defaulting
+  to Free. Inert until a public key is provisioned; ships only the
+  plumbing for the future `hub.threatclaw.io` marketplace.
+
+### Changed
+- **skill-velociraptor rewritten on tonic gRPC + mTLS** — the
+  previous REST path was a dead end (Velociraptor's port 8001 is
+  pure gRPC, not a grpc-gateway). Vendored proto tree compiled at
+  build time, identity pinned to the Velociraptor CA, server SAN
+  forced to `VelociraptorServer`. All four read-only L2 tools and
+  the periodic sync now talk to a real server.
+- **Dashboard navigation unified** — single left sidebar rendered by
+  the root layout for every sectioned page (Inventaire, Investigation,
+  Skills, Rapports, Incidents, Config). Sources tab removed in favour
+  of the unified Skills catalogue. Reports gain dedicated routes per
+  category instead of an URL filter.
+- **AD connector** — service-account detection (svc-/srv- prefix or
+  trailing `$`) and French admin-group recognition (Admins du domaine,
+  Administrateurs de l'entreprise, ...) so a freshly-installed FR DC
+  classifies users correctly without waiting for SDProp.
+
+### Fixed
+- Asset sources list no longer collapses to the last writer — every
+  resolution path (AD + Wazuh + osquery + Velociraptor) now
+  accumulates into the asset's `sources` array, restoring the
+  confidence-by-source-count signal used by /assets.
+- Identity graph events stop overwriting authoritative `is_admin`
+  and `is_service_account` flags set by the AD/M365 connectors.
+- Webhook ingest accepts 16 MB payloads on the osquery path so a
+  domain controller's full snapshot stops getting rejected.
+
+---
+
 ## [1.0.11-beta] — 2026-04-24
 
 Two new connectors land: **Velociraptor** for endpoint DFIR and
