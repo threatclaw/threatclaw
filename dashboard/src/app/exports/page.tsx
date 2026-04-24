@@ -548,6 +548,19 @@ export default function ExportsPage() {
   const [generated, setGenerated] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>("eu");
   const [modalItem, setModalItem] = useState<{ item: ExportItem; format: string } | null>(null);
+  // PageShell's left sub-menu points at `/exports?category=<slug>`; when
+  // the query is set we scope the page to that one category so the RSSI
+  // sees only the reports they came here for. Empty query = all categories.
+  const [categoryFilter, setCategoryFilter] = useState<ExportCategory | null>(null);
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const cat = qs.get("category");
+    if (cat === "incident-response" || cat === "compliance-audit" || cat === "threat-intel" || cat === "operations") {
+      setCategoryFilter(cat);
+    } else {
+      setCategoryFilter(null);
+    }
+  }, []);
 
   useEffect(() => {
     fetch("/api/tc/config?key=tc_config_company").then(r => r.json()).then(d => {
@@ -701,7 +714,7 @@ export default function ExportsPage() {
       }
     >
 
-      {SECTIONS.map(section => {
+      {SECTIONS.filter(section => !categoryFilter || section.id === categoryFilter).map(section => {
         const items = sectionItems[section.id];
         if (items.length === 0) return null;
         const SectionIcon = section.icon;

@@ -157,12 +157,15 @@ export default function UsersPage() {
 
         {error && <ErrorBanner message={error} />}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
-          <StatCard label="Total" value={stats.total} />
-          <StatCard label="Admins" value={stats.admins} color="var(--tc-red)" />
-          <StatCard label="Comptes de service" value={stats.service} />
-          <StatCard label="Anomalies UBA" value={stats.withAnomaly} color={stats.withAnomaly ? "var(--tc-red)" : undefined} />
-        </div>
+        <NeuCard style={{ padding: "14px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "28px", flexWrap: "wrap" }}>
+            <StatInline label="Total" value={stats.total} />
+            <StatInline label="Admins" value={stats.admins} color="var(--tc-red)" />
+            <StatInline label="Services" value={stats.service} />
+            <StatInline label="Anomalies UBA" value={stats.withAnomaly}
+              color={stats.withAnomaly ? "var(--tc-red)" : undefined} />
+          </div>
+        </NeuCard>
 
         <NeuCard style={{ padding: "12px" }}>
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
@@ -305,16 +308,17 @@ function Td({ children, align }: { children?: React.ReactNode; align?: "left" | 
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number | string; color?: string }) {
+function StatInline({ label, value, color }: { label: string; value: number | string; color?: string }) {
   return (
-    <NeuCard style={{ padding: "14px" }}>
-      <div style={{ fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em", marginBottom: "6px" }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: "22px", fontWeight: 800, color: color ?? "var(--tc-text)",
+    <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+      <span style={{
+        fontSize: "20px", fontWeight: 800, color: color ?? "var(--tc-text)",
         fontVariantNumeric: "tabular-nums",
-      }}>{value}</div>
-    </NeuCard>
+      }}>{value}</span>
+      <span style={{
+        fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)",
+        textTransform: "uppercase", letterSpacing: "0.14em",
+      }}>{label}</span>
+    </div>
   );
 }

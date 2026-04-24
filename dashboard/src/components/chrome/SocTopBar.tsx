@@ -20,16 +20,17 @@ type NavGroup = { key: string; label: (l: Locale) => string; items: NavLeaf[] };
 type NavEntry = NavLeaf | NavGroup;
 
 // Flat nav — no dropdowns. Chat is intentionally absent: it's reachable
-// from the Console right panel. Keep the list short; don't add a tab here
-// unless an operator actually navigates to it several times a day.
+// from the Console right panel. Each entry opens a section whose left
+// sub-menu lives in PageShell (see sections.ts). "Sources" was removed
+// in favour of a unified Skills catalogue — every source listed there
+// now has a matching manifest under skills-catalog/.
 const NAV: NavEntry[] = [
   { href: "/", label: () => "Console" },
   { href: "/status", label: () => "Status" },
   { href: "/incidents", label: () => "Incidents" },
-  { href: "/sources", label: () => "Sources" },
-  { href: "/users", label: (l) => (l === "fr" ? "Utilisateurs" : "Users") },
-  { href: "/intelligence", label: () => "Intelligence" },
-  { href: "/governance", label: () => "Governance" },
+  { href: "/assets", label: (l) => (l === "fr" ? "Inventaire" : "Inventory") },
+  { href: "/intelligence", label: () => "Investigation" },
+  { href: "/skills", label: () => "Skills" },
   { href: "/exports", label: (l) => (l === "fr" ? "Rapports" : "Reports") },
   { href: "/setup", label: () => "Config" },
 ];
@@ -38,8 +39,25 @@ function isGroup(e: NavEntry): e is NavGroup {
   return (e as NavGroup).items !== undefined;
 }
 
+// When an entry represents a section (its href is the section's default
+// page), we want the top-nav item to stay highlighted while the user
+// clicks around the section's left sub-menu. Reach into the section
+// registry to match any of its sibling paths, not just the default one.
+import { SECTIONS, type Section } from "./sections";
+
+const SECTION_BY_DEFAULT_HREF: Map<string, Section> = new Map(
+  Object.values(SECTIONS).map((s) => [s.items[0]?.href.split("?")[0] ?? "", s]),
+);
+
 function pathMatches(pathname: string, href: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+  if (href === "/") return pathname === "/";
+  const section = SECTION_BY_DEFAULT_HREF.get(href);
+  if (section) {
+    return section.matches.some(
+      (p) => pathname === p || pathname.startsWith(p + "/"),
+    );
+  }
+  return pathname.startsWith(href);
 }
 
 function entryActive(e: NavEntry, pathname: string) {

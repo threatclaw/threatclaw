@@ -144,6 +144,9 @@ export default function SkillsPage() {
   const [tab, setTab] = useState<"installed" | "catalog">(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
+      // PageShell's left sub-menu drives ?tab= directly.
+      const t = params.get("tab");
+      if (t === "installed" || t === "catalog") return t;
       if (params.get("search")) return "catalog";
     }
     return "installed";
