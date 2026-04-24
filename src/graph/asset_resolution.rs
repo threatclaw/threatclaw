@@ -209,15 +209,17 @@ struct ExistingAsset {
 
 /// Decode the `a.sources` column out of an AGE Cypher row.
 ///
-/// The graph stores sources as a JSON-encoded array string
-/// (e.g. `'["ad","wazuh"]'`). When read back, the strip_agtype_quotes
-/// layer in pg_threatclaw.rs attempts to json-parse the inner payload,
-/// so we may receive it as either:
-///   - a `serde_json::Array` (already decoded by strip_agtype_quotes), or
-///   - a plain JSON string containing the encoded array (fallback path).
+/// The graph stores sources as a JSON-encoded string like `'["ad","wazuh"]'`
+/// and AGE round-trips it through agtype + row_to_json, which can produce
+/// any of these shapes in the serde_json::Value we see:
+///   - Array: already unwrapped by strip_agtype_quotes when the value was
+///     short enough to successfully json-parse.
+///   - Clean JSON string: `["ad","wazuh"]` — parse with from_str.
+///   - Backslash-escaped string: `[\"ad\",\"wazuh\"]` — the outer quote-strip
+///     in strip_agtype_quotes didn't json-parse successfully because the
+///     inner `\"` are literal and from_str rejects them. Unescape first.
 ///
-/// Handling both shapes is required — before this unification, only the
-/// string path was tried and every call to merge_asset saw an empty
+/// Without handling all three, every merge_asset call saw an empty
 /// `existing.sources`, which silently replaced the accumulated list with
 /// `[new_source]` and made asset dedup tracking useless.
 fn read_sources(v: &serde_json::Value) -> Vec<String> {
@@ -227,9 +229,60 @@ fn read_sources(v: &serde_json::Value) -> Vec<String> {
             .filter_map(|x| x.as_str().map(String::from))
             .collect();
     }
-    v.as_str()
-        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
-        .unwrap_or_default()
+    let Some(s) = v.as_str() else {
+        return vec![];
+    };
+    if let Ok(parsed) = serde_json::from_str::<Vec<String>>(s) {
+        return parsed;
+    }
+    // Fallback: the string carries literal `\"` escapes. Unescape once
+    // and retry. We can't blindly json-parse the unescaped form because
+    // that would let an attacker smuggle control characters; bound the
+    // replacement to just `\"` and `\\` which are the only escapes the
+    // graph layer ever writes.
+    let unescaped = s.replace("\\\"", "\"").replace("\\\\", "\\");
+    serde_json::from_str::<Vec<String>>(&unescaped).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod read_sources_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_already_decoded_array() {
+        assert_eq!(
+            read_sources(&json!(["ad", "wazuh"])),
+            vec!["ad".to_string(), "wazuh".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_clean_json_string() {
+        assert_eq!(
+            read_sources(&json!("[\"ad\",\"wazuh\"]")),
+            vec!["ad".to_string(), "wazuh".to_string()]
+        );
+    }
+
+    #[test]
+    fn parses_backslash_escaped_agtype_round_trip() {
+        // This is the shape AGE + row_to_json produces after the
+        // strip_agtype_quotes outer-layer unwrap: the inner content still
+        // has the `\"` escapes that json::from_str rejects.
+        let v = serde_json::Value::String("[\\\"ad\\\",\\\"wazuh\\\"]".into());
+        assert_eq!(
+            read_sources(&v),
+            vec!["ad".to_string(), "wazuh".to_string()]
+        );
+    }
+
+    #[test]
+    fn empty_on_garbage() {
+        assert_eq!(read_sources(&json!("not json")), Vec::<String>::new());
+        assert_eq!(read_sources(&json!(null)), Vec::<String>::new());
+        assert_eq!(read_sources(&json!(42)), Vec::<String>::new());
+    }
 }
 
 /// Find an asset by a specific field. If duplicates exist (historically
