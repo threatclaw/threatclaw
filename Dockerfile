@@ -11,12 +11,17 @@ FROM rust:1.94-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev cmake gcc g++ \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-wasip2 \
     && cargo install --locked wasm-tools@1.240.0
 # wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
 # which requires rustc 1.95+; our base image is rust:1.94. Bump this pin
 # (and the rust:X base tag) together.
+#
+# protobuf-compiler (protoc) is required by tonic-build to compile the
+# Velociraptor .proto tree into Rust stubs for skill-velociraptor. Removing
+# it breaks `cargo build` on the velociraptor connector path.
 
 WORKDIR /app
 
@@ -26,6 +31,8 @@ COPY crates/ crates/
 
 # Copy source, build script, tests, and supporting directories
 COPY build.rs build.rs
+# Velociraptor v0.76 proto tree — compiled by build.rs via tonic-build
+COPY proto/ proto/
 COPY src/ src/
 COPY tests/ tests/
 COPY migrations/ migrations/

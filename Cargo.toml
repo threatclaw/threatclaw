@@ -48,6 +48,14 @@ eventsource-stream = "0.2"
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls-native-roots", "stream", "blocking", "cookies"] }
 
+# gRPC client — used exclusively by skill-velociraptor. Velociraptor's API
+# server on port 8001 is pure gRPC (HTTP/2 + protobuf), no REST/grpc-gateway
+# on that port, so reqwest cannot be used. tls feature enables rustls for
+# mTLS with client identity certificates.
+tonic = { version = "0.12", default-features = false, features = ["channel", "codegen", "prost", "tls"] }
+prost = "0.13"
+prost-types = "0.13"
+
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -213,6 +221,8 @@ argon2 = "0.5"
 
 [build-dependencies]
 sha2 = "0.10"
+# Compile Velociraptor v0.76 .proto files into Rust stubs at build time.
+tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

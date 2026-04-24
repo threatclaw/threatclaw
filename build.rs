@@ -26,6 +26,9 @@ fn main() {
     // ── Embed registry manifests ────────────────────────────────────────
     embed_registry_catalog(&root);
 
+    // ── Compile Velociraptor v0.76 gRPC proto tree ──────────────────────
+    compile_velociraptor_protos(&root);
+
     // ── Build Telegram channel WASM ─────────────────────────────────────
     let channel_dir = root.join("channels-src/telegram");
     let wasm_out = channel_dir.join("telegram.wasm");
@@ -269,4 +272,59 @@ fn generate_build_id(_root: &Path) {
     // Rerun on git changes
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs");
+}
+
+/// Compile Velociraptor v0.76 .proto tree using tonic-build.
+///
+/// The proto tree preserves the Velociraptor repository's directory layout
+/// because the .proto files use relative imports (e.g.
+/// `import "artifacts/proto/artifact.proto";`). tonic-build needs every
+/// import path rooted at one of the `include_paths` we pass it.
+///
+/// Output: stubs land in OUT_DIR and are re-exported by
+/// `src/connectors/velociraptor_proto.rs` via `tonic::include_proto!`.
+fn compile_velociraptor_protos(root: &Path) {
+    let proto_root = root.join("proto/velociraptor");
+    if !proto_root.is_dir() {
+        println!(
+            "cargo:warning=Velociraptor proto tree missing at {:?}, skipping",
+            proto_root
+        );
+        return;
+    }
+
+    // Include paths — the Velociraptor protos import both relative to their
+    // own directory AND relative to the Go module root. Adding every
+    // package dir as an include root covers both patterns.
+    let includes = vec![
+        proto_root.clone(),
+        proto_root.join("api/proto"),
+        proto_root.join("third_party/googleapis"),
+    ];
+
+    // Files to compile — only the API service + its transitive deps. Filter
+    // to the files we actually need so a bad proto in a Velociraptor subtree
+    // we don't use can't break the build.
+    let files = vec![proto_root.join("api/proto/api.proto")];
+
+    // Tell cargo to rerun when any proto changes
+    println!("cargo:rerun-if-changed=proto/velociraptor");
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let result = tonic_build::configure()
+        .build_server(false)
+        .build_client(true)
+        .out_dir(&out_dir)
+        // All Velociraptor protos declare `package proto;` — the generated
+        // Rust namespace collapses to a single `proto` module. We import it
+        // from velociraptor_proto.rs with `tonic::include_proto!("proto")`.
+        .compile_protos(&files, &includes);
+
+    if let Err(e) = result {
+        panic!(
+            "Velociraptor proto compilation failed: {e}\n\
+             Ensure protoc is installed (`apt install protobuf-compiler` or equivalent) \
+             and that the proto tree under proto/velociraptor/ is complete."
+        );
+    }
 }
