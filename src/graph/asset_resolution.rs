@@ -207,6 +207,31 @@ struct ExistingAsset {
     last_seen: Option<String>,
 }
 
+/// Decode the `a.sources` column out of an AGE Cypher row.
+///
+/// The graph stores sources as a JSON-encoded array string
+/// (e.g. `'["ad","wazuh"]'`). When read back, the strip_agtype_quotes
+/// layer in pg_threatclaw.rs attempts to json-parse the inner payload,
+/// so we may receive it as either:
+///   - a `serde_json::Array` (already decoded by strip_agtype_quotes), or
+///   - a plain JSON string containing the encoded array (fallback path).
+///
+/// Handling both shapes is required — before this unification, only the
+/// string path was tried and every call to merge_asset saw an empty
+/// `existing.sources`, which silently replaced the accumulated list with
+/// `[new_source]` and made asset dedup tracking useless.
+fn read_sources(v: &serde_json::Value) -> Vec<String> {
+    if let Some(arr) = v.as_array() {
+        return arr
+            .iter()
+            .filter_map(|x| x.as_str().map(String::from))
+            .collect();
+    }
+    v.as_str()
+        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+        .unwrap_or_default()
+}
+
 /// Find an asset by a specific field. If duplicates exist (historically
 /// possible before the hostname-based dedup landed), return the most
 /// recently seen one — deterministic across cycles so both the merge and
@@ -227,10 +252,7 @@ async fn find_asset_by_field(
         mac: r["a.mac"].as_str().map(String::from),
         hostname: r["a.hostname"].as_str().map(String::from),
         ip: r["a.ip"].as_str().map(String::from),
-        sources: r["a.sources"]
-            .as_str()
-            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
-            .unwrap_or_default(),
+        sources: read_sources(&r["a.sources"]),
         last_seen: r["a.last_seen"].as_str().map(String::from),
     })
 }
@@ -258,10 +280,7 @@ async fn find_asset_by_hostname(store: &dyn Database, hostname: &str) -> Option<
         mac: r["a.mac"].as_str().map(String::from),
         hostname: r["a.hostname"].as_str().map(String::from),
         ip: r["a.ip"].as_str().map(String::from),
-        sources: r["a.sources"]
-            .as_str()
-            .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
-            .unwrap_or_default(),
+        sources: read_sources(&r["a.sources"]),
         last_seen: r["a.last_seen"].as_str().map(String::from),
     })
 }

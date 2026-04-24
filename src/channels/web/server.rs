@@ -904,6 +904,10 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::connector_wazuh_sync_handler),
         )
         .route(
+            "/api/tc/connectors/velociraptor/sync",
+            post(super::handlers::threatclaw_api::connector_velociraptor_sync_handler),
+        )
+        .route(
             "/api/tc/connectors/microsoft-graph/sync",
             post(super::handlers::threatclaw_api::connector_microsoft_graph_sync_handler),
         )
