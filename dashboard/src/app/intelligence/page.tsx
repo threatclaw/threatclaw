@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   Shield, AlertTriangle, Target, Users, Network, TrendingUp,
   RefreshCw, Eye, Crosshair, Brain, FileText, Activity,
@@ -440,27 +441,32 @@ export default function IntelligencePage() {
         <Card title="Anomalies utilisateurs" icon={Brain} color="#3080d0">
           {identity && identity.anomalies.length > 0 ? (
             <div>
-              <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
-                {identity.users_tracked} utilisateurs suivis
-              </div>
+              <Link href="/users" style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px", display: "block", textDecoration: "none" }}>
+                {identity.users_tracked} utilisateurs suivis →
+              </Link>
               {identity.anomalies.slice(0, 5).map((a, i) => (
-                <div key={i} style={{
-                  padding: "8px 10px", marginBottom: "4px", borderRadius: "var(--tc-radius-sm)",
-                  background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
-                  fontSize: "11px",
-                }}>
+                <Link
+                  key={i}
+                  href={`/users/${encodeURIComponent(a.username)}`}
+                  style={{
+                    display: "block", padding: "8px 10px", marginBottom: "4px",
+                    borderRadius: "var(--tc-radius-sm)", background: "var(--tc-surface-alt)",
+                    border: "1px solid var(--tc-border-light)", fontSize: "11px",
+                    textDecoration: "none",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <RiskBadge risk={a.severity} />
                     <span style={{ color: "var(--tc-text)", fontWeight: 600 }}>{a.username}</span>
                   </div>
                   <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{a.detail}</div>
-                </div>
+                </Link>
               ))}
             </div>
           ) : (
-            <div style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0" }}>
-              {identity?.users_tracked ?? 0} utilisateurs &middot; aucune anomalie
-            </div>
+            <Link href="/users" style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0", display: "block", textDecoration: "none" }}>
+              {identity?.users_tracked ?? 0} utilisateurs &middot; aucune anomalie →
+            </Link>
           )}
         </Card>
 

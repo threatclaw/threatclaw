@@ -37,6 +37,62 @@ pub struct IdentityAnomaly {
     pub confidence: u8,
 }
 
+/// Summary of a user for the /users list view.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserSummary {
+    pub username: String,
+    pub is_admin: bool,
+    pub is_service_account: bool,
+    pub department: Option<String>,
+    pub last_seen: Option<String>,
+    pub login_count: i64,
+    pub failed_login_count: i64,
+    pub linked_assets: i64,
+}
+
+/// A single login event for the user detail view.
+#[derive(Debug, Clone, Serialize)]
+pub struct LoginEvent {
+    pub asset_id: String,
+    pub asset_hostname: Option<String>,
+    pub source_ip: String,
+    pub protocol: String,
+    pub success: bool,
+    pub timestamp: String,
+}
+
+/// An asset the user has logged into at least once.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkedAsset {
+    pub asset_id: String,
+    pub hostname: Option<String>,
+    pub criticality: Option<String>,
+    pub login_count: i64,
+    pub failed_login_count: i64,
+    pub last_login: Option<String>,
+}
+
+/// Escalation edge (in/out of a user).
+#[derive(Debug, Clone, Serialize)]
+pub struct EscalationEdge {
+    pub from_user: String,
+    pub to_user: String,
+    pub method: String,
+    pub asset: String,
+    pub timestamp: String,
+}
+
+/// Full detail for a single user.
+#[derive(Debug, Clone, Serialize)]
+pub struct UserDetail {
+    pub summary: UserSummary,
+    pub linked_assets: Vec<LinkedAsset>,
+    pub recent_logins: Vec<LoginEvent>,
+    pub anomalies: Vec<IdentityAnomaly>,
+    pub escalations_out: Vec<EscalationEdge>,
+    pub escalations_in: Vec<EscalationEdge>,
+}
+
 /// Identity analysis result.
 #[derive(Debug, Clone, Serialize)]
 pub struct IdentityAnalysis {
@@ -256,6 +312,198 @@ async fn count_users(store: &dyn Database) -> usize {
         .first()
         .and_then(|r| r["count(u)"].as_i64())
         .unwrap_or(0) as usize
+}
+
+/// List all users with aggregated stats for the /users overview page.
+pub async fn list_users(store: &dyn Database, limit: u64) -> Vec<UserSummary> {
+    let rows = query(
+        store,
+        &format!(
+            "MATCH (u:User) \
+             OPTIONAL MATCH (u)-[l:LOGGED_IN]->(:Asset) \
+             WITH u, count(l) AS total_logins, \
+                  sum(CASE WHEN l.success = false THEN 1 ELSE 0 END) AS failed_logins \
+             OPTIONAL MATCH (u)-[:LOGGED_IN]->(a:Asset) \
+             WITH u, total_logins, failed_logins, count(DISTINCT a) AS asset_count \
+             RETURN u.username, u.is_admin, u.is_service_account, u.department, u.last_seen, \
+                    total_logins, failed_logins, asset_count \
+             ORDER BY total_logins DESC, u.username ASC LIMIT {limit}"
+        ),
+    )
+    .await;
+
+    rows.into_iter()
+        .filter_map(|r| {
+            let username = r["u.username"].as_str()?.to_string();
+            let dept = r["u.department"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(String::from);
+            Some(UserSummary {
+                username,
+                is_admin: r["u.is_admin"].as_bool().unwrap_or(false),
+                is_service_account: r["u.is_service_account"].as_bool().unwrap_or(false),
+                department: dept,
+                last_seen: r["u.last_seen"].as_str().map(String::from),
+                login_count: r["total_logins"].as_i64().unwrap_or(0),
+                failed_login_count: r["failed_logins"].as_i64().unwrap_or(0),
+                linked_assets: r["asset_count"].as_i64().unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// Detailed view of a single user: profile, linked assets, recent logins,
+/// escalations both directions, anomalies.
+pub async fn get_user_detail(store: &dyn Database, username: &str) -> Option<UserDetail> {
+    let u = esc(username);
+
+    // Profile + aggregated counts
+    let profile_rows = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{u}'}}) \
+             OPTIONAL MATCH (u)-[l:LOGGED_IN]->(:Asset) \
+             WITH u, count(l) AS total_logins, \
+                  sum(CASE WHEN l.success = false THEN 1 ELSE 0 END) AS failed_logins \
+             OPTIONAL MATCH (u)-[:LOGGED_IN]->(a:Asset) \
+             WITH u, total_logins, failed_logins, count(DISTINCT a) AS asset_count \
+             RETURN u.username, u.is_admin, u.is_service_account, u.department, u.last_seen, \
+                    total_logins, failed_logins, asset_count LIMIT 1"
+        ),
+    )
+    .await;
+    let r = profile_rows.into_iter().next()?;
+    let uname = r["u.username"].as_str()?.to_string();
+    let summary = UserSummary {
+        username: uname.clone(),
+        is_admin: r["u.is_admin"].as_bool().unwrap_or(false),
+        is_service_account: r["u.is_service_account"].as_bool().unwrap_or(false),
+        department: r["u.department"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(String::from),
+        last_seen: r["u.last_seen"].as_str().map(String::from),
+        login_count: r["total_logins"].as_i64().unwrap_or(0),
+        failed_login_count: r["failed_logins"].as_i64().unwrap_or(0),
+        linked_assets: r["asset_count"].as_i64().unwrap_or(0),
+    };
+
+    // Linked assets with per-asset login stats
+    let asset_rows = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{u}'}})-[l:LOGGED_IN]->(a:Asset) \
+             WITH a, count(l) AS logins, \
+                  sum(CASE WHEN l.success = false THEN 1 ELSE 0 END) AS fails, \
+                  max(l.timestamp) AS last_login \
+             RETURN a.id, a.hostname, a.criticality, logins, fails, last_login \
+             ORDER BY logins DESC LIMIT 50"
+        ),
+    )
+    .await;
+    let linked_assets: Vec<LinkedAsset> = asset_rows
+        .into_iter()
+        .filter_map(|r| {
+            let asset_id = r["a.id"].as_str()?.to_string();
+            Some(LinkedAsset {
+                asset_id,
+                hostname: r["a.hostname"].as_str().map(String::from),
+                criticality: r["a.criticality"].as_str().map(String::from),
+                login_count: r["logins"].as_i64().unwrap_or(0),
+                failed_login_count: r["fails"].as_i64().unwrap_or(0),
+                last_login: r["last_login"].as_str().map(String::from),
+            })
+        })
+        .collect();
+
+    // Recent login events
+    let login_rows = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{u}'}})-[l:LOGGED_IN]->(a:Asset) \
+             RETURN a.id, a.hostname, l.source_ip, l.protocol, l.success, l.timestamp \
+             ORDER BY l.timestamp DESC LIMIT 100"
+        ),
+    )
+    .await;
+    let recent_logins: Vec<LoginEvent> = login_rows
+        .into_iter()
+        .filter_map(|r| {
+            let asset_id = r["a.id"].as_str()?.to_string();
+            Some(LoginEvent {
+                asset_id,
+                asset_hostname: r["a.hostname"].as_str().map(String::from),
+                source_ip: r["l.source_ip"].as_str().unwrap_or("").to_string(),
+                protocol: r["l.protocol"].as_str().unwrap_or("").to_string(),
+                success: r["l.success"].as_bool().unwrap_or(false),
+                timestamp: r["l.timestamp"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+
+    // Escalations out (user → someone)
+    let esc_out_rows = query(
+        store,
+        &format!(
+            "MATCH (u:User {{username: '{u}'}})-[e:ESCALATED]->(t:User) \
+             RETURN u.username, t.username, e.method, e.asset, e.timestamp \
+             ORDER BY e.timestamp DESC LIMIT 50"
+        ),
+    )
+    .await;
+    let escalations_out: Vec<EscalationEdge> = esc_out_rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(EscalationEdge {
+                from_user: r["u.username"].as_str()?.to_string(),
+                to_user: r["t.username"].as_str()?.to_string(),
+                method: r["e.method"].as_str().unwrap_or("").to_string(),
+                asset: r["e.asset"].as_str().unwrap_or("").to_string(),
+                timestamp: r["e.timestamp"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+
+    // Escalations in (someone → user)
+    let esc_in_rows = query(
+        store,
+        &format!(
+            "MATCH (s:User)-[e:ESCALATED]->(u:User {{username: '{u}'}}) \
+             RETURN s.username, u.username, e.method, e.asset, e.timestamp \
+             ORDER BY e.timestamp DESC LIMIT 50"
+        ),
+    )
+    .await;
+    let escalations_in: Vec<EscalationEdge> = esc_in_rows
+        .into_iter()
+        .filter_map(|r| {
+            Some(EscalationEdge {
+                from_user: r["s.username"].as_str()?.to_string(),
+                to_user: r["u.username"].as_str()?.to_string(),
+                method: r["e.method"].as_str().unwrap_or("").to_string(),
+                asset: r["e.asset"].as_str().unwrap_or("").to_string(),
+                timestamp: r["e.timestamp"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+
+    // Anomalies filtered for this user
+    let all_anomalies = detect_identity_anomalies(store).await;
+    let anomalies: Vec<IdentityAnomaly> = all_anomalies
+        .anomalies
+        .into_iter()
+        .filter(|a| a.username == uname)
+        .collect();
+
+    Some(UserDetail {
+        summary,
+        linked_assets,
+        recent_logins,
+        anomalies,
+        escalations_out,
+        escalations_in,
+    })
 }
 
 /// Sync users from auth logs into the identity graph.
