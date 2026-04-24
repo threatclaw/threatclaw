@@ -12,9 +12,9 @@
 // The console home (/) has its own full-viewport layout and bypasses this
 // shell on purpose.
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useLocale } from "@/lib/useLocale";
 import { sectionForPath, subNavLabel, type SubNavItem } from "./sections";
 
@@ -30,9 +30,20 @@ export function PageShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() ?? "/";
-  const searchParams = useSearchParams();
   const locale = useLocale();
   const section = sectionForPath(pathname);
+  // We read the query string directly off window instead of via
+  // useSearchParams() — the hook forces the route into a Suspense
+  // boundary for static prerender, which /exports and /skills would
+  // otherwise hit at build time. Setting state on mount is enough for
+  // our use case (highlighting the active sub-nav item).
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const update = () => setQuery(window.location.search.replace(/^\?/, ""));
+    update();
+    window.addEventListener("popstate", update);
+    return () => window.removeEventListener("popstate", update);
+  }, [pathname]);
 
   return (
     <div
@@ -93,7 +104,7 @@ export function PageShell({
           <SectionSideNav
             items={section.items}
             pathname={pathname}
-            query={searchParams?.toString() ?? ""}
+            query={query}
             locale={locale}
           />
           <div style={{ minWidth: 0 }}>{children}</div>
