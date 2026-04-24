@@ -441,13 +441,27 @@ fn extract_windows_logon(alert: &serde_json::Value) -> Option<WindowsLogonEvent>
     // Kerberos events sometimes use `targetUserName` on the TGS side and
     // `subjectUserName` on the initiating side — prefer target as the canonical
     // user for the login edge.
-    let username = eventdata["targetUserName"]
+    let raw = eventdata["targetUserName"]
         .as_str()
         .or_else(|| eventdata["TargetUserName"].as_str())
         .or_else(|| eventdata["subjectUserName"].as_str())
         .or_else(|| eventdata["SubjectUserName"].as_str())
-        .map(|s| s.trim().trim_end_matches('$')) // strip $ on machine accounts
+        .map(|s| s.trim())
         .filter(|s| !s.is_empty() && *s != "-")?;
+
+    // Normalize to sAMAccountName-style identity so Kerberos UPN
+    // (user@REALM), machine accounts (host$), and case variations collapse to
+    // the same User node in the identity graph. The AD connector stores the
+    // short form, so we align Wazuh here.
+    let username_owned = raw
+        .split_once('@')
+        .map(|(u, _realm)| u)
+        .unwrap_or(raw)
+        .trim_end_matches('$')
+        .to_ascii_lowercase();
+    if username_owned.is_empty() {
+        return None;
+    }
 
     // ipAddress is populated by Windows for network logons. Falls back to the
     // workstation name (which may be a NetBIOS name, not routable) only when no
@@ -477,7 +491,7 @@ fn extract_windows_logon(alert: &serde_json::Value) -> Option<WindowsLogonEvent>
     };
 
     Some(WindowsLogonEvent {
-        username: username.to_string(),
+        username: username_owned,
         source_ip,
         success,
         protocol,
@@ -925,8 +939,24 @@ mod tests {
             }}
         });
         let w = extract_windows_logon(&a).expect("should match 4624");
-        assert_eq!(w.username, "SRV-01-DOM");
+        assert_eq!(w.username, "srv-01-dom");
         assert_eq!(w.protocol, "service");
+    }
+
+    #[test]
+    fn windows_logon_kerberos_upn_normalized_to_samaccountname() {
+        // Kerberos events (4768/4769) may publish the UPN "user@REALM.TLD".
+        // Identity graph stores sAMAccountName so we strip the realm and
+        // lowercase to collapse 'Claude@INTERSTELLAR.LOCAL' and 'claude' onto
+        // the same User node.
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4768" },
+                "eventdata": { "targetUserName": "Claude@INTERSTELLAR.LOCAL" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4768");
+        assert_eq!(w.username, "claude");
     }
 
     #[test]
