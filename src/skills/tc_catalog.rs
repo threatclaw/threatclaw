@@ -5,6 +5,37 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Commercial tier of a skill. Controls whether it loads freely or requires
+/// a valid license certificate (see `crate::licensing`).
+///
+/// Defaults to [`SkillTier::Free`] so every existing skill manifest in the
+/// catalog remains free without needing an edit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SkillTier {
+    /// AGPL v3, part of the open-source distribution, no license check.
+    Free,
+    /// Commercial license required. Skill binary is distributed from the
+    /// marketplace and gated by the licensing module at load time.
+    Premium,
+    /// Free for early adopters during beta, planned to move to `Premium` in
+    /// a future release. Documented in CHANGELOG with a deprecation date.
+    BetaPremium,
+}
+
+impl Default for SkillTier {
+    fn default() -> Self {
+        SkillTier::Free
+    }
+}
+
+impl SkillTier {
+    /// True if this tier requires a valid license certificate to load.
+    pub fn requires_license(&self) -> bool {
+        matches!(self, SkillTier::Premium)
+    }
+}
+
 /// A ThreatClaw skill manifest (from skill.json in skills-catalog/).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TcSkillManifest {
@@ -38,6 +69,9 @@ pub struct TcSkillManifest {
     pub icon: String,
     #[serde(default)]
     pub help: Option<String>,
+    /// Commercial tier. Absent → `free` (see [`SkillTier::default`]).
+    #[serde(default)]
+    pub tier: SkillTier,
 }
 
 fn default_tool() -> String {
