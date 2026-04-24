@@ -13,16 +13,20 @@ import { useLocale } from "@/lib/useLocale";
 const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
 const LicenseContent = dynamic(() => Promise.resolve({ default: LicensePage }), { ssr: false });
 
-// Skills and Assets are first-class top-nav entries now (see
-// SocTopBar + sections.ts). What remains in Config is the actual
-// configuration surface: general settings, agent install, simulation
-// (tests), and the about/license screen.
-const TABS = [
-  { key: "config", i18n: "general", icon: Settings },
-  { key: "agent", i18n: "agent", icon: Monitor },
-  { key: "tests", i18n: "tests", icon: Play },
-  { key: "about", i18n: "about", icon: Key },
+// All tab keys are dispatched from `?tab=` in the URL. The first 13
+// live inside ConfigPage (which accepts `currentTab` and renders the
+// matching panel); `endpoints` renders the endpoint-agent installer,
+// `tests` the simulation harness, `about` the license screen.
+// Keep this list in sync with sections.ts → setup.items so the left
+// sidebar exposes every option.
+const CONFIG_TAB_KEYS = [
+  "general", "company", "llm", "channels", "security", "remediation",
+  "agent", "notifications", "retention", "anonymizer", "backup",
+  "logs", "sources",
 ] as const;
+const EXTRA_TAB_KEYS = ["endpoints", "tests", "about"] as const;
+const ALL_TAB_KEYS = [...CONFIG_TAB_KEYS, ...EXTRA_TAB_KEYS] as const;
+type TabKey = typeof ALL_TAB_KEYS[number];
 
 // ── Agent Endpoint Tab ──
 function AgentPage() {
@@ -369,27 +373,36 @@ function LicensePage() {
   );
 }
 
-type TabKey = typeof TABS[number]["key"];
-
 export default function SetupPage() {
   const locale = useLocale();
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>("config");
+  const [activeTab, setActiveTab] = useState<TabKey>("general");
 
   useEffect(() => {
     setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
-    // Respond to both legacy #hash and the new ?tab= query string used by
-    // PageShell's left sub-menu. Query string wins when both are present.
-    const params = new URLSearchParams(window.location.search);
-    const tabQs = params.get("tab");
-    if (tabQs && TABS.some(t => t.key === tabQs)) {
-      setActiveTab(tabQs as TabKey);
-      return;
-    }
-    const hash = window.location.hash.replace("#", "");
-    if (hash && TABS.some(t => t.key === hash)) {
-      setActiveTab(hash as TabKey);
-    }
+    // Read ?tab= on mount and whenever the URL changes (Link clicks in
+    // the sidebar patch history.pushState — see SectionSidebar which
+    // re-broadcasts via a custom tc:history event). Legacy #hash is a
+    // fallback for pre-existing bookmarks.
+    const sync = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tabQs = params.get("tab");
+      if (tabQs && (ALL_TAB_KEYS as readonly string[]).includes(tabQs)) {
+        setActiveTab(tabQs as TabKey);
+        return;
+      }
+      const hash = window.location.hash.replace("#", "");
+      if (hash && (ALL_TAB_KEYS as readonly string[]).includes(hash)) {
+        setActiveTab(hash as TabKey);
+      }
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    window.addEventListener("tc:history", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("tc:history", sync);
+    };
   }, []);
 
   if (onboarded === null) return null;
@@ -402,20 +415,23 @@ export default function SetupPage() {
     );
   }
 
-  // Navigation is driven by PageShell's left sub-menu (see sections.ts
-  // setup entry). We keep the tab state here so the correct content
-  // renders when ?tab= changes, but the horizontal tab bar that used to
-  // duplicate the nav was removed — it doubled as a second way to do
-  // the same thing and the operator kept hesitating between the two.
+  // Navigation is owned by the root layout's SectionSidebar. Everything
+  // the old horizontal tab bar + ConfigPage inner nav used to do is now
+  // driven by `?tab=`. The 13 ConfigPage tabs route through ConfigPage
+  // with a prop; the 3 extras render their own dedicated component.
+  const isConfigTab = (CONFIG_TAB_KEYS as readonly string[]).includes(activeTab);
   return (
     <div>
-      {activeTab === "config" && (
-        <ConfigPage onResetWizard={() => {
-          localStorage.removeItem("threatclaw_onboarded");
-          setOnboarded(false);
-        }} />
+      {isConfigTab && (
+        <ConfigPage
+          currentTab={activeTab}
+          onResetWizard={() => {
+            localStorage.removeItem("threatclaw_onboarded");
+            setOnboarded(false);
+          }}
+        />
       )}
-      {activeTab === "agent" && <AgentPage />}
+      {activeTab === "endpoints" && <AgentPage />}
       {activeTab === "tests" && <TestsContent />}
       {activeTab === "about" && <LicenseContent />}
     </div>
