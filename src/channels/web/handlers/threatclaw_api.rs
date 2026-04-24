@@ -2522,6 +2522,35 @@ pub async fn graph_identity_handler(
     Ok(Json(serde_json::json!(analysis)))
 }
 
+/// GET /api/tc/users — list of users with aggregated login stats.
+pub async fn users_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let users = crate::graph::identity_graph::list_users(store.as_ref(), 500).await;
+    let analysis = crate::graph::identity_graph::detect_identity_anomalies(store.as_ref()).await;
+    Ok(Json(serde_json::json!({
+        "users": users,
+        "total": users.len(),
+        "anomalies": analysis.anomalies,
+    })))
+}
+
+/// GET /api/tc/users/{username} — per-user detail view.
+pub async fn user_detail_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(username): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::graph::identity_graph::get_user_detail(store.as_ref(), &username).await {
+        Some(detail) => Ok(Json(serde_json::json!(detail))),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            format!("user '{username}' not found"),
+        )),
+    }
+}
+
 /// GET /api/tc/graph/blast-radius/{asset_id} — compute blast radius.
 pub async fn graph_blast_radius_handler(
     State(state): State<Arc<GatewayState>>,

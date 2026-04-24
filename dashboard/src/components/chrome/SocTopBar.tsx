@@ -27,6 +27,7 @@ const NAV: NavEntry[] = [
   { href: "/status", label: () => "Status" },
   { href: "/incidents", label: () => "Incidents" },
   { href: "/sources", label: () => "Sources" },
+  { href: "/users", label: (l) => (l === "fr" ? "Utilisateurs" : "Users") },
   { href: "/intelligence", label: () => "Intelligence" },
   { href: "/governance", label: () => "Governance" },
   { href: "/exports", label: (l) => (l === "fr" ? "Rapports" : "Reports") },

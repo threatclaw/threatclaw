@@ -767,6 +767,14 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::graph_identity_handler),
         )
         .route(
+            "/api/tc/users",
+            get(super::handlers::threatclaw_api::users_list_handler),
+        )
+        .route(
+            "/api/tc/users/{username}",
+            get(super::handlers::threatclaw_api::user_detail_handler),
+        )
+        .route(
             "/api/tc/graph/blast-radius/{asset_id}",
             get(super::handlers::threatclaw_api::graph_blast_radius_handler),
         )
