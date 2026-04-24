@@ -176,16 +176,23 @@ pub async fn sync_ad(store: &dyn Database, config: &AdConfig) -> AdSyncResult {
                 let groups = get_attr_multi(entry, "memberOf");
 
                 if !username.is_empty() && !disabled {
-                    let is_admin = admin_count > 0
-                        || groups
-                            .iter()
-                            .any(|g| g.contains("Domain Admins") || g.contains("Administrators"));
+                    let is_admin = admin_count > 0 || groups.iter().any(|g| is_admin_group(g));
+
+                    // Heuristic: service accounts typically have svc-/srv- prefix or
+                    // trailing $ (Windows machine / managed service account convention).
+                    let lower = username.to_ascii_lowercase();
+                    let is_service = lower.starts_with("svc-")
+                        || lower.starts_with("svc_")
+                        || lower.starts_with("srv-")
+                        || lower.starts_with("srv_")
+                        || lower.starts_with("svc.")
+                        || username.ends_with('$');
 
                     identity_graph::upsert_user(
                         store,
                         &username,
                         is_admin,
-                        false,
+                        is_service,
                         department.as_deref(),
                     )
                     .await;
@@ -317,6 +324,38 @@ fn is_account_disabled(entry: &SearchEntry) -> bool {
         .unwrap_or(false)
 }
 
+/// Privileged group DN matcher across common locales.
+/// We substring-match inside a full DN like `CN=Admins du domaine,CN=Users,DC=...`.
+fn is_admin_group(dn: &str) -> bool {
+    // Built-in privileged groups — English + French localized names covering
+    // Server 2012-2025 installs. Match is case-insensitive.
+    const PRIVILEGED: &[&str] = &[
+        // English (default on Server Core, any English install)
+        "Domain Admins",
+        "Enterprise Admins",
+        "Schema Admins",
+        "Administrators",
+        "Account Operators",
+        "Server Operators",
+        "Backup Operators",
+        "Print Operators",
+        "DnsAdmins",
+        // French
+        "Admins du domaine",
+        "Admins de l'entreprise",
+        "Administrateurs du schéma",
+        "Administrateurs",
+        "Opérateurs de compte",
+        "Opérateurs de serveur",
+        "Opérateurs de sauvegarde",
+        "Opérateurs d'impression",
+    ];
+    let dn_lower = dn.to_lowercase();
+    PRIVILEGED
+        .iter()
+        .any(|p| dn_lower.contains(&p.to_lowercase()))
+}
+
 /// Convert Windows FILETIME (100-ns intervals since 1601-01-01) to ISO timestamp.
 #[allow(dead_code)]
 fn filetime_to_iso(filetime_str: &str) -> Option<String> {
@@ -333,6 +372,27 @@ fn filetime_to_iso(filetime_str: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_is_admin_group() {
+        assert!(is_admin_group("CN=Domain Admins,CN=Users,DC=corp,DC=local"));
+        assert!(is_admin_group(
+            "CN=Admins du domaine,CN=Users,DC=interstellar,DC=local"
+        ));
+        assert!(is_admin_group(
+            "CN=Enterprise Admins,CN=Users,DC=corp,DC=local"
+        ));
+        assert!(is_admin_group(
+            "CN=Administrateurs,CN=Builtin,DC=interstellar,DC=local"
+        ));
+        // Case insensitive
+        assert!(is_admin_group("CN=DOMAIN ADMINS,CN=Users,DC=corp,DC=local"));
+        // Not an admin group
+        assert!(!is_admin_group(
+            "CN=G-Finance,OU=Corp,DC=interstellar,DC=local"
+        ));
+        assert!(!is_admin_group("CN=Domain Users,CN=Users,DC=corp,DC=local"));
+    }
 
     #[test]
     fn test_extract_ou() {
