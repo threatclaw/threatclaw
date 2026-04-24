@@ -205,6 +205,28 @@ const SECTIONS: { id: ExportCategory; titleFr: string; titleEn: string; subtitle
     icon: Database, color: "#30a050" },
 ];
 
+/// Title + subtitle per category for the per-route pages. Derived from
+/// SECTIONS so there's one source of truth — changing a label in
+/// SECTIONS propagates automatically.
+const CATEGORY_META: Record<
+  ExportCategory,
+  { titleFr: string; titleEn: string; subtitleFr: string; subtitleEn: string }
+> = SECTIONS.reduce(
+  (acc, s) => {
+    acc[s.id] = {
+      titleFr: s.titleFr,
+      titleEn: s.titleEn,
+      subtitleFr: s.subtitleFr,
+      subtitleEn: s.subtitleEn,
+    };
+    return acc;
+  },
+  {} as Record<
+    ExportCategory,
+    { titleFr: string; titleEn: string; subtitleFr: string; subtitleEn: string }
+  >,
+);
+
 type Region = "eu" | "us" | "intl";
 const REGION_LABELS: Record<Region, { fr: string; en: string; flag: string }> = {
   eu: { fr: "Europe (NIS2, RGPD)", en: "Europe (NIS2, GDPR)", flag: "🇪🇺" },
@@ -542,25 +564,17 @@ function exportBadges(item: ExportItem, locale: string): React.ReactNode[] {
 // Main page
 // ─────────────────────────────────────────────────────────
 
-export default function ExportsPage() {
+/// Rendered at `/exports` (no filter) and wrapped by the per-category
+/// route pages under /exports/<category>/page.tsx. When `category` is
+/// passed, the page narrows to that one family of reports so the title
+/// and content match what the left sidebar advertised.
+export function ExportsView({ category }: { category?: ExportCategory }) {
   const locale = useLocale();
   const [generating, setGenerating] = useState<string | null>(null);
   const [generated, setGenerated] = useState<string | null>(null);
   const [region, setRegion] = useState<Region>("eu");
   const [modalItem, setModalItem] = useState<{ item: ExportItem; format: string } | null>(null);
-  // PageShell's left sub-menu points at `/exports?category=<slug>`; when
-  // the query is set we scope the page to that one category so the RSSI
-  // sees only the reports they came here for. Empty query = all categories.
-  const [categoryFilter, setCategoryFilter] = useState<ExportCategory | null>(null);
-  useEffect(() => {
-    const qs = new URLSearchParams(window.location.search);
-    const cat = qs.get("category");
-    if (cat === "incident-response" || cat === "compliance-audit" || cat === "threat-intel" || cat === "operations") {
-      setCategoryFilter(cat);
-    } else {
-      setCategoryFilter(null);
-    }
-  }, []);
+  const categoryFilter = category ?? null;
 
   useEffect(() => {
     fetch("/api/tc/config?key=tc_config_company").then(r => r.json()).then(d => {
@@ -678,14 +692,20 @@ export default function ExportsPage() {
     return map;
   }, [region]);
 
+  // Title + subtitle shift when a single category is selected so the
+  // header matches the sidebar item the user clicked.
+  const pageMeta = categoryFilter
+    ? CATEGORY_META[categoryFilter]
+    : {
+        titleFr: "Rapports & Exports",
+        titleEn: "Reports & Exports",
+        subtitleFr: "4 familles : réponse à incident · conformité & audit · threat intel · opérations",
+        subtitleEn: "4 families: incident response · compliance & audit · threat intel · operations",
+      };
   return (
     <PageShell
-      title={locale === "fr" ? "Rapports & Exports" : "Reports & Exports"}
-      subtitle={
-        locale === "fr"
-          ? "4 familles : réponse à incident · conformité & audit · threat intel · opérations"
-          : "4 families: incident response · compliance & audit · threat intel · operations"
-      }
+      title={locale === "fr" ? pageMeta.titleFr : pageMeta.titleEn}
+      subtitle={locale === "fr" ? pageMeta.subtitleFr : pageMeta.subtitleEn}
       right={
         <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
           {(Object.entries(REGION_LABELS) as [Region, typeof REGION_LABELS["eu"]][]).map(([key, val]) => (
@@ -805,3 +825,13 @@ export default function ExportsPage() {
     </PageShell>
   );
 }
+
+/// Default /exports page — all categories.
+export default function ExportsPage() {
+  return <ExportsView />;
+}
+
+/// Re-export the ExportCategory type so per-category routes under
+/// app/exports/<slug>/page.tsx can type-check the hardcoded category
+/// they pass into ExportsView without duplicating the union.
+export type { ExportCategory };

@@ -3,6 +3,8 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import SocTopBar from "@/components/chrome/SocTopBar";
+import { SectionSidebar } from "@/components/chrome/SectionSidebar";
+import { sectionForPath } from "@/components/chrome/sections";
 import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -88,9 +90,28 @@ export default function RootLayout({
             );
           })()}
           {!isSetupWizard && !isLoginPage && <SocTopBar />}
-          <main style={{ padding: 0, minHeight: "calc(100vh - 72px)" }}>
-            {children}
-          </main>
+          {(() => {
+            const hasSection = pathname && sectionForPath(pathname) !== null;
+            if (hasSection && !isLoginPage && !isSetupWizard) {
+              return (
+                <div
+                  style={{
+                    display: "flex",
+                    minHeight: "calc(100vh - 72px)",
+                    alignItems: "stretch",
+                  }}
+                >
+                  <SectionSidebar />
+                  <main style={{ flex: 1, minWidth: 0 }}>{children}</main>
+                </div>
+              );
+            }
+            return (
+              <main style={{ padding: 0, minHeight: "calc(100vh - 72px)" }}>
+                {children}
+              </main>
+            );
+          })()}
         </div>
       </body>
     </html>

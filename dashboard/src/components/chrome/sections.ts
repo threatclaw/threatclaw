@@ -1,37 +1,50 @@
 // Central section registry — single source of truth for the top nav,
-// the per-section left sub-menu rendered by PageShell, and the reverse
-// lookup that turns a pathname into "which section am I in?".
+// the per-section left sub-menu rendered by the root layout, and the
+// reverse lookup that turns a pathname into "which section am I in?".
 //
 // Adding a page in an existing section: add a new item here, no edit to
-// PageShell or SocTopBar required. Adding a new top-level section: add
-// a new entry with a label + items, and optionally register it in
+// the root layout or SocTopBar required. Adding a new top-level section:
+// add a new entry with a label + items, and optionally register it in
 // SocTopBar's TOP_NAV.
-//
-// Visible labels come through i18n locale — "fr" / "en" decided by the
-// user preference loaded in useLocale().
 
 import type { Locale } from "@/lib/i18n";
+import type { LucideIcon } from "lucide-react";
+import {
+  Siren,
+  AlertTriangle,
+  Search,
+  Server,
+  Users,
+  Brain,
+  Shield,
+  Puzzle,
+  FileText,
+  Gavel,
+  Briefcase,
+  Wrench,
+  Settings,
+  Monitor,
+  Play,
+  Key,
+} from "lucide-react";
 
 export type SubNavItem = {
-  /// Target URL. Supports query strings for tab-based pages (e.g.
-  /// /setup?tab=agent) so we don't need a full route restructure to
-  /// expose sub-views in the left menu.
+  /// Target URL. For section pages that are tab-based (e.g. /setup and
+  /// /skills), we embed the tab in the URL so the left sub-menu drives
+  /// state without extra plumbing.
   href: string;
   labelFr: string;
   labelEn: string;
+  icon: LucideIcon;
 };
 
 export type Section = {
-  /// Stable key used by the URL-to-section reverse lookup and by each
-  /// page to declare its affiliation.
   key: SectionKey;
   /// Top nav label.
   label: (l: Locale) => string;
-  /// Left sub-menu shown by PageShell when a page belongs to this section.
+  /// Left sub-menu shown by the root layout when a page belongs here.
   items: SubNavItem[];
-  /// Pathname prefixes that map back to this section. Checked in order,
-  /// first match wins. Use the more specific path (/users) before the
-  /// less specific (/u).
+  /// Pathname prefixes that map back to this section. First match wins.
   matches: string[];
 };
 
@@ -49,9 +62,9 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Incidents",
     matches: ["/incidents", "/findings", "/alerts", "/alertes"],
     items: [
-      { href: "/incidents", labelFr: "Incidents", labelEn: "Incidents" },
-      { href: "/findings", labelFr: "Findings", labelEn: "Findings" },
-      { href: "/alerts", labelFr: "Alertes", labelEn: "Alerts" },
+      { href: "/incidents", labelFr: "Incidents", labelEn: "Incidents", icon: Siren },
+      { href: "/findings", labelFr: "Findings", labelEn: "Findings", icon: Search },
+      { href: "/alerts", labelFr: "Alertes", labelEn: "Alerts", icon: AlertTriangle },
     ],
   },
   inventaire: {
@@ -59,8 +72,8 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: (l) => (l === "fr" ? "Inventaire" : "Inventory"),
     matches: ["/assets", "/users"],
     items: [
-      { href: "/assets", labelFr: "Assets", labelEn: "Assets" },
-      { href: "/users", labelFr: "Utilisateurs", labelEn: "Users" },
+      { href: "/assets", labelFr: "Assets", labelEn: "Assets", icon: Server },
+      { href: "/users", labelFr: "Utilisateurs", labelEn: "Users", icon: Users },
     ],
   },
   investigation: {
@@ -68,8 +81,8 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Investigation",
     matches: ["/intelligence", "/governance"],
     items: [
-      { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence" },
-      { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance" },
+      { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
+      { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance", icon: Shield },
     ],
   },
   skills: {
@@ -77,42 +90,40 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Skills",
     matches: ["/skills"],
     items: [
-      { href: "/skills?tab=installed", labelFr: "Installés", labelEn: "Installed" },
-      { href: "/skills?tab=catalog", labelFr: "Catalogue", labelEn: "Catalog" },
+      { href: "/skills?tab=installed", labelFr: "Installés", labelEn: "Installed", icon: Puzzle },
+      { href: "/skills?tab=catalog", labelFr: "Catalogue", labelEn: "Catalog", icon: Search },
     ],
   },
   rapports: {
     key: "rapports",
     label: (l) => (l === "fr" ? "Rapports" : "Reports"),
+    // Dedicated page per category — cleaner than a ?category= filter.
     matches: ["/exports"],
-    // Categories map 1-1 to the ExportCategory enum declared in
-    // dashboard/src/app/exports/page.tsx — keep these in sync when new
-    // categories land.
     items: [
+      { href: "/exports", labelFr: "Tous les rapports", labelEn: "All reports", icon: FileText },
       {
-        href: "/exports",
-        labelFr: "Tous les rapports",
-        labelEn: "All reports",
-      },
-      {
-        href: "/exports?category=incident-response",
+        href: "/exports/incident-response",
         labelFr: "Réponse à incident",
         labelEn: "Incident Response",
+        icon: Siren,
       },
       {
-        href: "/exports?category=compliance-audit",
+        href: "/exports/compliance-audit",
         labelFr: "Compliance & audit",
         labelEn: "Compliance & Audit",
+        icon: Gavel,
       },
       {
-        href: "/exports?category=threat-intel",
+        href: "/exports/threat-intel",
         labelFr: "Threat Intelligence",
         labelEn: "Threat Intelligence",
+        icon: Brain,
       },
       {
-        href: "/exports?category=operations",
+        href: "/exports/operations",
         labelFr: "Opérations",
         labelEn: "Operations",
+        icon: Wrench,
       },
     ],
   },
@@ -121,17 +132,17 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Config",
     matches: ["/setup"],
     items: [
-      { href: "/setup?tab=config", labelFr: "Général", labelEn: "General" },
-      { href: "/setup?tab=agent", labelFr: "Agent", labelEn: "Agent" },
-      { href: "/setup?tab=tests", labelFr: "Simulation", labelEn: "Simulation" },
-      { href: "/setup?tab=about", labelFr: "À propos", labelEn: "About" },
+      { href: "/setup?tab=config", labelFr: "Général", labelEn: "General", icon: Settings },
+      { href: "/setup?tab=agent", labelFr: "Agent", labelEn: "Agent", icon: Monitor },
+      { href: "/setup?tab=tests", labelFr: "Simulation", labelEn: "Simulation", icon: Play },
+      { href: "/setup?tab=about", labelFr: "À propos", labelEn: "About", icon: Key },
     ],
   },
 };
 
 /// Reverse lookup: which section does a pathname belong to, if any?
-/// Returns null for /, /status, /login, /chat — these sit at the top
-/// level and have no left sub-menu.
+/// Returns null for /, /status, /login, /chat — top-level routes with
+/// no sub-menu.
 export function sectionForPath(pathname: string): Section | null {
   for (const section of Object.values(SECTIONS)) {
     for (const prefix of section.matches) {

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 
 // ── Types ──
 
@@ -423,65 +424,75 @@ export default function AssetsPage() {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const activeCat = categories.find(c => c.id === form.category);
 
-  return (
-    <div>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-        <div>
-          <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("assets", locale)}</h1>
-          <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-            {total} asset{total !== 1 ? "s" : ""} dans votre infrastructure
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> Ajouter</button>
-          <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title="Importer CSV">
-            <Upload size={12} />
-          </button>
-          <input id="csv-import" type="file" accept=".csv" style={{ display: "none" }} onChange={async (e) => {
-            const file = e.target.files?.[0]; if (!file) return;
-            const text = await file.text();
-            const lines = text.split("\n").filter(l => l.trim());
-            if (lines.length < 2) return;
-            const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-            let imported = 0;
-            for (let i = 1; i < lines.length; i++) {
-              const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ""));
-              const row: Record<string, string> = {};
-              headers.forEach((h, j) => { row[h] = vals[j] || ""; });
-              try {
-                await fetch("/api/tc/assets", {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    name: row.name || row.hostname || row.ip || `Asset-${i}`,
-                    category: row.category || "unknown",
-                    criticality: row.criticality || "medium",
-                    ip_addresses: row.ip ? [row.ip] : [],
-                    hostname: row.hostname || null,
-                    os: row.os || null,
-                    role: row.role || null,
-                  }),
-                });
-                imported++;
-              } catch {}
-            }
-            alert(`${imported} asset(s) importé(s)`);
-            loadData();
-            e.target.value = "";
-          }} />
-          <button onClick={() => {
-            const csv = ["name,category,criticality,ip,hostname,os,role",
-              ...assets.map(a => `"${a.name}","${a.category}","${a.criticality}","${a.ip_addresses?.join(";")||""}","${a.hostname||""}","${a.os||""}","${a.role||""}"`)
-            ].join("\n");
-            const blob = new Blob([csv], { type: "text/csv" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = "threatclaw-assets.csv"; a.click();
-            URL.revokeObjectURL(url);
-          }} style={btnSecondary} title="Exporter CSV"><Download size={12} /></button>
-          <button onClick={loadData} style={btnSecondary}><RefreshCw size={12} /></button>
-        </div>
-      </div>
+  // CSV import handler lifted out of the JSX so it's reusable across the
+  // hidden input and the PageShell right-action buttons. Keeps behaviour
+  // identical to the pre-PageShell version of the page.
+  const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const lines = text.split("\n").filter(l => l.trim());
+    if (lines.length < 2) return;
+    const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+    let imported = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const vals = lines[i].split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+      const row: Record<string, string> = {};
+      headers.forEach((h, j) => { row[h] = vals[j] || ""; });
+      try {
+        await fetch("/api/tc/assets", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: row.name || row.hostname || row.ip || `Asset-${i}`,
+            category: row.category || "unknown",
+            criticality: row.criticality || "medium",
+            ip_addresses: row.ip ? [row.ip] : [],
+            hostname: row.hostname || null,
+            os: row.os || null,
+            role: row.role || null,
+          }),
+        });
+        imported++;
+      } catch { /* swallow — best-effort import */ }
+    }
+    alert(`${imported} asset(s) importé(s)`);
+    loadData();
+    e.target.value = "";
+  };
 
+  const handleCsvExport = () => {
+    const csv = ["name,category,criticality,ip,hostname,os,role",
+      ...assets.map(a => `"${a.name}","${a.category}","${a.criticality}","${a.ip_addresses?.join(";") || ""}","${a.hostname || ""}","${a.os || ""}","${a.role || ""}"`)
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "threatclaw-assets.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const headerActions = (
+    <div style={{ display: "flex", gap: "8px" }}>
+      <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> {locale === "fr" ? "Ajouter" : "Add"}</button>
+      <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
+        <Upload size={12} />
+      </button>
+      <input id="csv-import" type="file" accept=".csv" style={{ display: "none" }} onChange={handleCsvImport} />
+      <button onClick={handleCsvExport} style={btnSecondary} title={locale === "fr" ? "Exporter CSV" : "Export CSV"}>
+        <Download size={12} />
+      </button>
+      <button onClick={loadData} style={btnSecondary} title={locale === "fr" ? "Rafraîchir" : "Refresh"}>
+        <RefreshCw size={12} />
+      </button>
+    </div>
+  );
+
+  return (
+    <PageShell
+      title={tr("assets", locale)}
+      subtitle={`${total} asset${total !== 1 ? "s" : ""} ${locale === "fr" ? "dans votre infrastructure" : "in your infrastructure"}`}
+      right={headerActions}
+    >
       {error && <ErrorBanner message={error} onRetry={loadData} />}
 
       {/* Category tabs */}
@@ -980,7 +991,7 @@ export default function AssetsPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 
