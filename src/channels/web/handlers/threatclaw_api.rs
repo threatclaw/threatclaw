@@ -2861,6 +2861,26 @@ pub async fn connector_ad_sync_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/connectors/velociraptor/sync — one-shot sync of clients + hunts
+/// into sigma_alerts + graph. Parity with /ad/sync and /wazuh/sync so the
+/// dashboard can trigger a manual refresh without going through the scheduler.
+pub async fn connector_velociraptor_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let config =
+        serde_json::from_value::<crate::connectors::velociraptor::VelociraptorConfig>(body)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Invalid Velociraptor config: {e}"),
+                )
+            })?;
+    let result = crate::connectors::velociraptor::sync_velociraptor(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/skills/run/{skill_id} — run a tool skill via Docker executor.
 pub async fn skill_run_handler(
     State(state): State<Arc<GatewayState>>,

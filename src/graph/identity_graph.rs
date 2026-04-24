@@ -206,6 +206,10 @@ pub async fn detect_identity_anomalies(store: &dyn Database) -> IdentityAnalysis
     let escalations = detect_escalation_chains(store).await;
     anomalies.extend(escalations);
 
+    // 4. Honeypot accounts — ANY authentication is an incident
+    let honeypot = detect_honeypot_logins(store).await;
+    anomalies.extend(honeypot);
+
     let users_tracked = count_users(store).await;
     let summary = if anomalies.is_empty() {
         "Aucune anomalie d'identité détectée".into()
@@ -292,6 +296,73 @@ async fn detect_failed_login_clusters(store: &dyn Database) -> Vec<IdentityAnoma
                     "high".into()
                 },
                 confidence: (40 + (fails as u8).min(50)).min(100),
+            })
+        })
+        .collect()
+}
+
+/// Honeypot accounts — any auth (success OR failure) is a red flag because
+/// these accounts exist only to be bait. Matched by name pattern for now;
+/// future iterations should read a `u.honeypot = true` flag populated by the
+/// AD connector via a tag/description convention.
+async fn detect_honeypot_logins(store: &dyn Database) -> Vec<IdentityAnomaly> {
+    // Conservative pattern list — matches real-world SOC naming conventions.
+    // Service accounts ending in `-adm`/`-admin` with a generic svc prefix
+    // are almost always honey admin accounts in mature SOC setups.
+    let patterns = [
+        "honeypot",
+        "canary",
+        "canarytoken",
+        "svc-backup-adm",
+        "svc-audit-adm",
+        "svc-break-glass",
+    ];
+    let conditions: Vec<String> = patterns
+        .iter()
+        .map(|p| format!("u.username CONTAINS '{}'", p))
+        .collect();
+    let where_clause = conditions.join(" OR ");
+
+    let results = query(
+        store,
+        &format!(
+            "MATCH (u:User)-[l:LOGGED_IN]->(a:Asset) WHERE {} \
+             WITH u, count(l) AS attempts, \
+                  sum(CASE WHEN l.success = true THEN 1 ELSE 0 END) AS successes, \
+                  collect(DISTINCT a.hostname) AS targets \
+             RETURN u.username, attempts, successes, targets \
+             ORDER BY attempts DESC LIMIT 10",
+            where_clause
+        ),
+    )
+    .await;
+
+    results
+        .iter()
+        .filter_map(|r| {
+            let username = r["u.username"].as_str()?.to_string();
+            let attempts = r["attempts"].as_i64().unwrap_or(0);
+            let successes = r["successes"].as_i64().unwrap_or(0);
+            if attempts == 0 {
+                return None;
+            }
+            let detail = if successes > 0 {
+                format!(
+                    "{} : compte honeypot — {} connexion(s) RÉUSSIE(S) détectée(s) (incident critique)",
+                    username, successes
+                )
+            } else {
+                format!(
+                    "{} : compte honeypot — {} tentative(s) de connexion (aucune réussie)",
+                    username, attempts
+                )
+            };
+            Some(IdentityAnomaly {
+                anomaly_type: "honeypot_account_touched".into(),
+                username,
+                detail,
+                severity: "critical".into(),
+                confidence: if successes > 0 { 99 } else { 90 },
             })
         })
         .collect()
