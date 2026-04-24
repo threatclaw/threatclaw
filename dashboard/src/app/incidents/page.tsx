@@ -8,6 +8,7 @@ import { ChromeButton } from "@/components/chrome/ChromeButton";
 import BlastRadiusCard from "@/components/incidents/BlastRadiusCard";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
   Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send, Brain,
@@ -832,76 +833,21 @@ function AlertsTab({ locale }: { locale: string }) {
 
 export default function IncidentsPage() {
   const locale = useLocale();
-  const [activeTab, setActiveTab] = useState<"incidents" | "findings" | "alerts">("incidents");
-
-  const tabs = [
-    { id: "incidents" as const, label: "Incidents", icon: <Bell size={14} />, desc: locale === "fr" ? "Confirmes par l'IA" : "AI-confirmed" },
-    { id: "findings" as const, label: "Findings", icon: <Shield size={14} />, desc: locale === "fr" ? "Vulnerabilites" : "Vulnerabilities" },
-    { id: "alerts" as const, label: locale === "fr" ? "Alertes" : "Alerts", icon: <AlertTriangle size={14} />, desc: locale === "fr" ? "Regles Sigma" : "Sigma rules" },
-  ];
-
+  // Navigation between Incidents / Findings / Alertes is handled by the
+  // root layout's left sidebar (see sections.ts → incidents). This page
+  // stays focused on the incident triage view; /findings and /alerts
+  // render their own content.
   return (
-    <div
-      style={{
-        padding: "24px 28px 40px",
-        fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-        color: "var(--tc-text)",
-        maxWidth: "1600px",
-        margin: "0 auto",
-      }}
+    <PageShell
+      title={locale === "fr" ? "Incidents" : "Incidents"}
+      subtitle={
+        locale === "fr"
+          ? "Incidents confirmés par l'Intelligence Engine, à trier par le RSSI."
+          : "IE-confirmed incidents awaiting RSSI triage."
+      }
     >
-      <div style={{ marginBottom: "24px" }}>
-        <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>
-          {locale === "fr" ? "Incidents & Détections" : "Incidents & Detections"}
-        </div>
-        <div style={{ fontSize: "13px", color: "var(--tc-text-sec)", marginTop: "6px", maxWidth: "700px", lineHeight: 1.5 }}>
-          {locale === "fr"
-            ? "Incidents confirmés par l'IE, vulnérabilités détectées et alertes Sigma brutes. Le triage RSSI se fait sur les incidents, les deux autres sont pour forensic."
-            : "IE-confirmed incidents, detected vulnerabilities and raw Sigma alerts. RSSI triage happens on incidents; the other two are for forensic review."}
-        </div>
-      </div>
-
-      {/* Tabs — same sober style as the rest of the SOC console */}
-      <div style={{ display: "flex", borderBottom: "1px solid var(--tc-border)", marginBottom: "20px" }}>
-        {tabs.map((tab) => {
-          const active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: "10px 18px",
-                fontSize: "10px",
-                fontWeight: active ? 700 : 600,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "8px",
-                background: "transparent",
-                color: active ? "var(--tc-text)" : "var(--tc-text-sec)",
-                border: "none",
-                borderBottom: active ? "2px solid var(--tc-red)" : "2px solid transparent",
-                marginBottom: "-1px",
-                letterSpacing: "0.14em",
-                textTransform: "uppercase",
-                transition: "color 120ms",
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-              <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.04em", textTransform: "none", fontWeight: 400 }}>
-                {tab.desc}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {activeTab === "incidents" && <IncidentsTab locale={locale} />}
-      {activeTab === "findings" && <FindingsTab locale={locale} />}
-      {activeTab === "alerts" && <AlertsTab locale={locale} />}
-    </div>
+      <IncidentsTab locale={locale} />
+    </PageShell>
   );
 }
 

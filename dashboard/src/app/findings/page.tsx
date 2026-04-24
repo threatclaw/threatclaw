@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 
 const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: string }> = {
   critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
@@ -68,39 +69,14 @@ export default function FindingsPage() {
 
   const total = counts.reduce((s, c) => s + c.count, 0);
 
-  const [activeTab, setActiveTab] = useState<"findings" | "alerts">("findings");
-
+  // Tabs between Findings / Alerts removed — the root layout's left
+  // sidebar handles navigation between /incidents, /findings and /alerts
+  // now (see sections.ts → incidents).
   return (
-    <div>
-      <div style={{ marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("detections", locale)}</h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          {tr("detectionsSubtitle", locale)}
-        </p>
-      </div>
-
-      {/* Tabs: Vulnérabilités | Alertes de sécurité */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
-        <button onClick={() => setActiveTab("findings")} style={{
-          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
-          background: activeTab === "findings" ? "var(--tc-red)" : "var(--tc-input)",
-          color: activeTab === "findings" ? "#fff" : "var(--tc-text-muted)",
-          border: activeTab === "findings" ? "none" : "1px solid var(--tc-border)",
-        }}>
-          {tr("vulnerabilities", locale)} ({total})
-        </button>
-        <button onClick={() => { setActiveTab("alerts"); window.location.href = "/alerts"; }} style={{
-          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
-          background: activeTab === "alerts" ? "var(--tc-red)" : "var(--tc-input)",
-          color: activeTab === "alerts" ? "#fff" : "var(--tc-text-muted)",
-          border: activeTab === "alerts" ? "none" : "1px solid var(--tc-border)",
-        }}>
-          Alertes de sécurité
-        </button>
-      </div>
-
+    <PageShell
+      title={tr("detections", locale)}
+      subtitle={tr("detectionsSubtitle", locale)}
+    >
       {error && <ErrorBanner message={error} onRetry={load} />}
 
       {/* Severity counts */}
@@ -262,6 +238,6 @@ export default function FindingsPage() {
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

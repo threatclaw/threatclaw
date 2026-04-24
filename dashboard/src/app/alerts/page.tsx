@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { fetchAlerts, fetchAlertsCounts, type Alert, type CountEntry } from "@/lib/tc-api";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { PageShell } from "@/components/chrome/PageShell";
 
 const LEVEL_COLORS: Record<string, { color: string; bg: string; border: string }> = {
   critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
@@ -61,33 +62,13 @@ export default function AlertsPage() {
     ? alerts.filter(a => a.title.toLowerCase().includes(search.toLowerCase()) || a.hostname?.toLowerCase().includes(search.toLowerCase()) || a.source_ip?.toLowerCase().includes(search.toLowerCase()))
     : alerts;
 
+  // Internal tabs between Findings/Alerts removed — see sections.ts
+  // incidents section. Left sidebar now drives the navigation.
   return (
-    <div>
-      <div style={{ marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "24px", fontWeight: 800, color: "var(--tc-text)", letterSpacing: "-0.02em", margin: 0 }}>{tr("detections", locale)}</h1>
-        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)", margin: "4px 0 0" }}>
-          {tr("detectionsSubtitle", locale)}
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px" }}>
-        <button onClick={() => window.location.href = "/findings"} style={{
-          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
-          background: "var(--tc-input)", color: "var(--tc-text-muted)", border: "1px solid var(--tc-border)",
-        }}>
-          {tr("vulnerabilities", locale)}
-        </button>
-        <button style={{
-          padding: "8px 16px", fontSize: "11px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.04em",
-          background: "var(--tc-red)", color: "#fff", border: "none",
-        }}>
-          {tr("securityAlerts", locale)} ({total})
-        </button>
-      </div>
-
+    <PageShell
+      title={tr("securityAlerts", locale)}
+      subtitle={tr("detectionsSubtitle", locale)}
+    >
       {error && <ErrorBanner message={error} onRetry={load} />}
 
       {/* Level counts */}
@@ -218,6 +199,6 @@ export default function AlertsPage() {
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
