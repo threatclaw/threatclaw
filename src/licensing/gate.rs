@@ -5,9 +5,9 @@
 //! site-fingerprint pinning into a single boolean decision with an
 //! attached reason (for audit logging and dashboard banners).
 
-use super::cert::{now_secs, LicenseCertError, SignedLicense};
-use super::grace::{assess, GraceState};
-use super::verify::{verify_license, VerifyError};
+use super::cert::{LicenseCertError, SignedLicense, now_secs};
+use super::grace::{GraceState, assess};
+use super::verify::{VerifyError, verify_license};
 
 /// Outcome of gating a premium skill load.
 #[derive(Debug, Clone)]
@@ -52,7 +52,10 @@ impl PremiumGate {
     /// Construct a gate from an encoded license string. Verifies the
     /// signature eagerly so a bogus cert fails at startup rather than at
     /// first skill load.
-    pub fn from_cert_str(encoded: &str, site_fingerprint: Option<String>) -> Result<Self, GateError> {
+    pub fn from_cert_str(
+        encoded: &str,
+        site_fingerprint: Option<String>,
+    ) -> Result<Self, GateError> {
         if encoded.trim().is_empty() {
             return Err(GateError::NoLicense);
         }
@@ -85,9 +88,10 @@ impl PremiumGate {
             };
         }
 
-        if let (Some(site), Some(expected)) =
-            (cert.site_fingerprint.as_deref(), self.site_fingerprint.as_deref())
-        {
+        if let (Some(site), Some(expected)) = (
+            cert.site_fingerprint.as_deref(),
+            self.site_fingerprint.as_deref(),
+        ) {
             if site != expected {
                 return GateDecision::Denied {
                     reason: "license is pinned to a different site fingerprint".into(),

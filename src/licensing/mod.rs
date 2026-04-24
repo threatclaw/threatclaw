@@ -39,7 +39,7 @@ pub mod verify;
 pub use cert::{LicenseCert, LicenseCertError, LicenseTier, SignedLicense};
 pub use gate::{GateDecision, GateError, PremiumGate};
 pub use grace::{GraceState, GraceTracker};
-pub use verify::{verify_license, VerifyError};
+pub use verify::{VerifyError, verify_license};
 
 /// Default grace period applied when a cert does not specify one.
 pub const DEFAULT_GRACE_DAYS: u32 = 90;
