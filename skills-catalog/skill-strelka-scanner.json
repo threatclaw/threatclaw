@@ -1,0 +1,53 @@
+{
+  "id": "skill-strelka-scanner",
+  "name": "Strelka File Scanner",
+  "name_en": "Strelka File Scanner",
+  "version": "1.0.0",
+  "description": "Analyse approfondie de fichiers via Strelka — 79 scanners (ClamAV, YARA, capa, PE/ELF, archives, macros, OCR, QR codes, stéganographie)",
+  "description_en": "Deep file analysis via Strelka — 79 scanners (ClamAV, YARA, capa, PE/ELF, archives, macros, OCR, QR codes, steganography)",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "category": "scanning",
+  "type": "tool",
+  "icon": "shield-check",
+  "premium": false,
+  "default_active": false,
+
+  "docker_deps": {
+    "strelka-backend": {
+      "image": "target/strelka-backend:latest",
+      "supports": ["docker"]
+    },
+    "strelka-frontend": {
+      "image": "target/strelka-frontend:latest",
+      "supports": ["docker"]
+    }
+  },
+
+  "requires_network": false,
+  "timeout_seconds": 600,
+  "memory_mb": 1024,
+  "api_key_required": false,
+
+  "webhook": {
+    "endpoint": "/api/tc/webhook/ingest/strelka",
+    "description": "Receives Strelka scan results as JSON",
+    "auth": "bearer_token"
+  },
+
+  "config_fields": [
+    {
+      "key": "extracted_files_dir",
+      "label": "Répertoire fichiers extraits Zeek",
+      "label_en": "Zeek extracted files directory",
+      "type": "text",
+      "default": "/opt/zeek/extracted",
+      "required": false
+    }
+  ],
+
+  "help": "Strelka scanne les fichiers extraits du réseau par Zeek. Activez l'extraction de fichiers dans la configuration Zeek (local.zeek) puis configurez Strelka pour surveiller le répertoire d'extraction.",
+  "help_en": "Strelka scans files extracted from network traffic by Zeek. Enable file extraction in Zeek configuration (local.zeek) then configure Strelka to watch the extraction directory.",
+  "hint": "Nécessite Zeek avec extraction de fichiers activée. Strelka analyse exécutables, documents Office, PDFs, archives, scripts et images.",
+  "hint_en": "Requires Zeek with file extraction enabled. Strelka analyzes executables, Office documents, PDFs, archives, scripts and images."
+}

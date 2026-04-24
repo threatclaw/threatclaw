@@ -5,20 +5,20 @@ import dynamic from "next/dynamic";
 import SetupWizard from "@/components/setup/SetupWizard";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
 import ConfigPage from "@/components/setup/ConfigPage";
-import { Settings, Puzzle, Network, Play, Key, Monitor, Copy, RefreshCw } from "lucide-react";
+import { Settings, Play, Key, Monitor, Copy, RefreshCw } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
 // Lazy load the sub-pages to avoid circular imports
-const SkillsContent = dynamic(() => import("../skills/page"), { ssr: false });
-const AssetsContent = dynamic(() => import("../assets/page"), { ssr: false });
 const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
 const LicenseContent = dynamic(() => Promise.resolve({ default: LicensePage }), { ssr: false });
 
+// Skills and Assets are first-class top-nav entries now (see
+// SocTopBar + sections.ts). What remains in Config is the actual
+// configuration surface: general settings, agent install, simulation
+// (tests), and the about/license screen.
 const TABS = [
   { key: "config", i18n: "general", icon: Settings },
-  { key: "skills", i18n: "skills", icon: Puzzle },
-  { key: "assets", i18n: "assets", icon: Network },
   { key: "agent", i18n: "agent", icon: Monitor },
   { key: "tests", i18n: "tests", icon: Play },
   { key: "about", i18n: "about", icon: Key },
@@ -378,7 +378,14 @@ export default function SetupPage() {
 
   useEffect(() => {
     setOnboarded(localStorage.getItem("threatclaw_onboarded") === "true");
-    // Check URL hash for direct tab navigation
+    // Respond to both legacy #hash and the new ?tab= query string used by
+    // PageShell's left sub-menu. Query string wins when both are present.
+    const params = new URLSearchParams(window.location.search);
+    const tabQs = params.get("tab");
+    if (tabQs && TABS.some(t => t.key === tabQs)) {
+      setActiveTab(tabQs as TabKey);
+      return;
+    }
     const hash = window.location.hash.replace("#", "");
     if (hash && TABS.some(t => t.key === hash)) {
       setActiveTab(hash as TabKey);
@@ -423,7 +430,15 @@ export default function SetupPage() {
               key={tab.key}
               onClick={() => {
                 setActiveTab(tab.key);
-                window.history.replaceState(null, "", `#${tab.key}`);
+                // Update ?tab= so PageShell's left sub-menu stays in sync
+                // and the URL is shareable. Kept #hash too as a fallback.
+                const qs = new URLSearchParams(window.location.search);
+                qs.set("tab", tab.key);
+                window.history.replaceState(
+                  null,
+                  "",
+                  `${window.location.pathname}?${qs.toString()}`,
+                );
               }}
               style={{
                 flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
@@ -449,8 +464,6 @@ export default function SetupPage() {
           setOnboarded(false);
         }} />
       )}
-      {activeTab === "skills" && <SkillsContent />}
-      {activeTab === "assets" && <AssetsContent />}
       {activeTab === "agent" && <AgentPage />}
       {activeTab === "tests" && <TestsContent />}
       {activeTab === "about" && <LicenseContent />}

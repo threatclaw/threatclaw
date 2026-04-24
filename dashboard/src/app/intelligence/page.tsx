@@ -117,15 +117,18 @@ function Card({ title, icon: Icon, children, color }: {
 }
 
 function StatBadge({ value, label, color }: { value: string | number; label: string; color?: string }) {
-  // Only reds and greens survive — anything fancier is flattened to text.
+  // Only reds, greens and ambers survive — anything fancier is flattened to text.
   const isRed = color === "#d03020" || color === "var(--tc-red)";
   const isGreen = color === "#30a050" || color === "var(--tc-green)";
   const isAmber = color === "#d09020" || color === "#d06020" || color === "var(--tc-amber)";
   const textColor = isRed ? "var(--tc-red)" : isGreen ? "var(--tc-green)" : isAmber ? "var(--tc-amber)" : "var(--tc-text)";
+  // Horizontal layout — value + label sit side-by-side so the condensed
+  // top-bar on /intelligence and the per-card layout on other pages stay
+  // readable without fighting over vertical space.
   return (
-    <div style={{ textAlign: "center", padding: "4px" }}>
-      <div style={{ fontSize: "22px", fontWeight: 800, color: textColor, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em" }}>{label}</div>
+    <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+      <span style={{ fontSize: "20px", fontWeight: 800, color: textColor, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.14em" }}>{label}</span>
     </div>
   );
 }
@@ -221,24 +224,21 @@ export default function IntelligencePage() {
     >
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      {/* Top stats row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "20px" }}>
-        <NeuCard style={{ padding: "16px" }}>
+      {/* Top stats — single condensed card instead of 5 separate cards so
+          the page breathes more and the graph below gets immediate visual
+          weight. Matches the /users consolidated bar. */}
+      <NeuCard style={{ padding: "14px 20px", marginBottom: "20px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "28px", flexWrap: "wrap" }}>
           <StatBadge value={assetStats?.total_assets ?? "—"} label="Assets" color="#30a0d0" />
-        </NeuCard>
-        <NeuCard style={{ padding: "16px" }}>
-          <StatBadge value={lateral?.total_detections ?? "—"} label="Lateral" color={lateral?.total_detections ? "#d03020" : "#30a050"} />
-        </NeuCard>
-        <NeuCard style={{ padding: "16px" }}>
-          <StatBadge value={campaigns?.total_campaigns ?? "—"} label="Campagnes" color={campaigns?.total_campaigns ? "#d06020" : "#30a050"} />
-        </NeuCard>
-        <NeuCard style={{ padding: "16px" }}>
+          <StatBadge value={lateral?.total_detections ?? "—"} label="Lateral"
+            color={lateral?.total_detections ? "#d03020" : "#30a050"} />
+          <StatBadge value={campaigns?.total_campaigns ?? "—"} label="Campagnes"
+            color={campaigns?.total_campaigns ? "#d06020" : "#30a050"} />
           <StatBadge value={actors?.total_actors ?? "—"} label="Acteurs" color="#9060d0" />
-        </NeuCard>
-        <NeuCard style={{ padding: "16px" }}>
-          <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID" color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
-        </NeuCard>
-      </div>
+          <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID"
+            color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
+        </div>
+      </NeuCard>
 
       {/* Attack graph */}
       <div style={{ marginBottom: "16px" }}>
