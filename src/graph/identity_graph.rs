@@ -101,7 +101,11 @@ pub struct IdentityAnalysis {
     pub summary: String,
 }
 
-/// Upsert a User node (STIX Identity).
+/// Upsert a User node (STIX Identity). Overwrites classification flags on
+/// every call — the caller is expected to be authoritative (AD connector,
+/// M365 connector). Non-authoritative callers (e.g. log-derived touches)
+/// should use `touch_user` instead to avoid clobbering AD/M365-managed
+/// is_admin / is_service_account / department.
 pub async fn upsert_user(
     store: &dyn Database,
     username: &str,
@@ -123,6 +127,23 @@ pub async fn upsert_user(
     mutate(store, &cypher).await;
 }
 
+/// Ensure a User node exists and bump last_seen, but do NOT overwrite flags
+/// set by authoritative sources. Used by event-derived paths (Wazuh logon
+/// events, auth log scrape) where we have the username but not the
+/// authoritative role.
+pub async fn touch_user(store: &dyn Database, username: &str) {
+    let cypher = format!(
+        "MERGE (u:User {{username: '{}'}}) \
+         ON CREATE SET u.is_admin = false, u.is_service_account = false, u.department = '', u.last_seen = '{}' \
+         ON MATCH SET u.last_seen = '{}' \
+         RETURN u",
+        esc(username),
+        chrono::Utc::now().to_rfc3339(),
+        chrono::Utc::now().to_rfc3339()
+    );
+    mutate(store, &cypher).await;
+}
+
 /// Record a login event: User -[:LOGGED_IN]-> Asset
 pub async fn record_login(
     store: &dyn Database,
@@ -132,8 +153,8 @@ pub async fn record_login(
     auth_protocol: &str,
     success: bool,
 ) {
-    // Ensure user exists
-    upsert_user(store, username, false, false, None).await;
+    // Ensure user exists without clobbering authoritative classification
+    touch_user(store, username).await;
 
     let cypher = format!(
         "MATCH (u:User {{username: '{}'}}), (a:Asset {{id: '{}'}}) \
@@ -523,10 +544,12 @@ pub async fn sync_users_from_logs(store: &dyn Database) {
             .map(|s| s.to_lowercase())
             .or_else(|| log.data["message"].as_str().map(|s| s.to_lowercase()))
             .unwrap_or_default();
-        // Extract username from common auth log patterns
+        // Extract username from common auth log patterns. We do NOT infer
+        // is_admin from log content here — heuristics on "root"/"sudo" are
+        // unreliable and would clobber the authoritative AD/M365 flag. The
+        // AD and M365 connectors own classification.
         if let Some(username) = extract_username_from_log(&msg) {
-            let is_admin = msg.contains("root") || msg.contains("admin") || msg.contains("sudo");
-            upsert_user(store, &username, is_admin, false, None).await;
+            touch_user(store, &username).await;
             synced += 1;
         }
     }
