@@ -14,6 +14,11 @@ static RATE_LIMITS: std::sync::LazyLock<
 const MAX_REQUESTS_PER_MINUTE: u32 = 60;
 const MAX_BODY_SIZE: usize = 65_536; // 64 KB
 const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log ingestion
+/// Osquery + endpoint agents ship the full system snapshot (software, patches,
+/// scheduled tasks, services, windows event logs, DNS cache, ...) in one POST.
+/// On a DC with full audit logging the payload routinely exceeds 1 MB; 16 MB
+/// accommodates that plus headroom for VDI / Citrix hosts.
+const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
 
 /// Verify the webhook token for a source.
 pub async fn verify_token(store: &dyn Database, source: &str, token: &str) -> bool {
@@ -63,9 +68,13 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
         return 0;
     }
 
-    // Body size check (Zeek/Suricata allow larger payloads for bulk log ingestion)
+    // Body size check. Zeek/Suricata push bulk logs; osquery/endpoint agents
+    // push a full system snapshot per cycle which on a busy server is several
+    // MB once software inventory + Windows event logs + scheduled tasks are
+    // folded in.
     let max_size = match source {
-        "zeek" | "suricata" | "osquery" => MAX_BODY_SIZE_LOGS,
+        "osquery" => MAX_BODY_SIZE_ENDPOINT,
+        "zeek" | "suricata" => MAX_BODY_SIZE_LOGS,
         _ => MAX_BODY_SIZE,
     };
     if body.len() > max_size {
