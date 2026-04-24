@@ -248,17 +248,35 @@ async fn fetch_clients(
     base: &str,
     username: &str,
 ) -> Result<Vec<ClientSummary>, String> {
-    // SearchClients with query "all" returns every known client. The
-    // REST gateway maps `ListClients` to `GET /api/v1/SearchClients`.
-    let url = format!("{}/api/v1/SearchClients?query=all&limit=2000", base);
+    // SearchClients returns every known client. Velociraptor v0.6+ requires
+    // POST with JSON body — the older GET-with-query-string form returns
+    // HTTP 415 on modern deployments (v0.72+ dropped query-string support in
+    // grpc-gateway).
+    let url = format!("{}/api/v1/SearchClients", base);
+    let payload = serde_json::json!({
+        "query": "all",
+        "limit": 2000,
+        "type": 0, // 0 = full client objects (vs 1 = names only)
+    });
     let resp = client
-        .get(&url)
+        .post(&url)
         .header("Grpc-Metadata-Username", username)
+        .json(&payload)
         .send()
         .await
         .map_err(|e| format!("http: {}", e))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "HTTP {}{}",
+            status,
+            if body.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", body.chars().take(200).collect::<String>())
+            }
+        ));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| format!("json: {}", e))?;
     let items = body["items"].as_array().cloned().unwrap_or_default();
@@ -330,18 +348,32 @@ async fn fetch_hunts(
     base: &str,
     username: &str,
 ) -> Result<Vec<HuntSummary>, String> {
-    let url = format!(
-        "{}/api/v1/ListHunts?count=500&offset=0&include_archived=false",
-        base
-    );
+    // v0.72+ REST gateway requires POST with JSON body (HTTP 415 otherwise).
+    let url = format!("{}/api/v1/ListHunts", base);
+    let payload = serde_json::json!({
+        "count": 500,
+        "offset": 0,
+        "include_archived": false,
+    });
     let resp = client
-        .get(&url)
+        .post(&url)
         .header("Grpc-Metadata-Username", username)
+        .json(&payload)
         .send()
         .await
         .map_err(|e| format!("http: {}", e))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "HTTP {}{}",
+            status,
+            if body.is_empty() {
+                String::new()
+            } else {
+                format!(" — {}", body.chars().take(200).collect::<String>())
+            }
+        ));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| format!("json: {}", e))?;
     let items = body["items"].as_array().cloned().unwrap_or_default();
