@@ -11,7 +11,7 @@ FROM rust:1.94-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev cmake gcc g++ \
-    protobuf-compiler \
+    protobuf-compiler libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-wasip2 \
     && cargo install --locked wasm-tools@1.240.0
