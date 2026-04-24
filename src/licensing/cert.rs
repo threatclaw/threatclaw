@@ -18,7 +18,7 @@
 //! keeps certs short enough to paste into a support email if needed
 //! (typically 600-900 bytes base64).
 
-use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 

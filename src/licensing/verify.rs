@@ -5,8 +5,8 @@
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 
-use super::cert::SignedLicense;
 use super::TRUSTED_PUBKEY;
+use super::cert::SignedLicense;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
@@ -40,15 +40,22 @@ mod tests {
     use super::*;
     use crate::licensing::cert::{LicenseCert, LicenseTier, Licensee, SignedLicense};
     use ed25519_dalek::{Signer, SigningKey};
-    use rand::rngs::OsRng;
 
     /// End-to-end signature round-trip using an ephemeral keypair. Does
     /// not exercise the compile-time trusted key (which is all-zeros in
     /// development builds) — that code path is covered by the
     /// `NotProvisioned` test below.
+    ///
+    /// Uses a deterministic 32-byte seed to avoid needing the
+    /// `rand_core` feature on `ed25519-dalek` just for one test.
     #[test]
     fn signature_roundtrip_with_ephemeral_key() {
-        let sk = SigningKey::generate(&mut OsRng);
+        let seed: [u8; 32] = [
+            0x42, 0x13, 0x37, 0xAB, 0xCD, 0xEF, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+            0x17, 0x18, 0x19, 0x1A,
+        ];
+        let sk = SigningKey::from_bytes(&seed);
         let vk = sk.verifying_key();
 
         let cert = LicenseCert {

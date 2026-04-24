@@ -192,10 +192,16 @@ mod tests {
         assert!(t.poll(&cert, 10 * DAY).is_some());
         // Same state again: no emission.
         assert!(t.poll(&cert, 20 * DAY).is_none());
-        // Transition to RenewalSoon: emits.
-        assert!(t.poll(&cert, 100 * DAY - 5 * DAY).is_some());
-        // Same window: no emission.
-        let s = t.poll(&cert, 100 * DAY - 5 * DAY + 60); // 1 minute later, still same "days_remaining"
+
+        // Transition to RenewalSoon. We pick a time that sits a few
+        // hundred seconds *inside* a day bucket so a 60-second later tick
+        // stays in the same bucket — `days_remaining` is integer-divided
+        // so a naive `T + 60` near a day boundary would roll over and
+        // look like a real transition.
+        let t1 = 100 * DAY - 5 * DAY - 500; // 5 days + 500s before expiry
+        assert!(t.poll(&cert, t1).is_some());
+        // 60s later, still 5 days + 440s before expiry -> same bucket.
+        let s = t.poll(&cert, t1 + 60);
         assert!(s.is_none());
     }
 
@@ -203,11 +209,13 @@ mod tests {
     fn permits_premium_until_lapsed() {
         assert!(GraceState::Valid.permits_premium());
         assert!(GraceState::RenewalSoon { days_remaining: 3 }.permits_premium());
-        assert!(GraceState::InGrace {
-            days_into_grace: 30,
-            days_left_in_grace: 60
-        }
-        .permits_premium());
+        assert!(
+            GraceState::InGrace {
+                days_into_grace: 30,
+                days_left_in_grace: 60
+            }
+            .permits_premium()
+        );
         assert!(!GraceState::Lapsed.permits_premium());
     }
 }
