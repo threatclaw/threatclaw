@@ -6,6 +6,7 @@
 
 use crate::db::Database;
 use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};
+use crate::graph::identity_graph;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,7 +80,7 @@ fn effective_skip_if_log_contains(config: &WazuhConfig) -> HashMap<String, Strin
     m
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct WazuhSyncResult {
     /// Number of events returned by Wazuh/indexer (pre-filter).
     pub alerts_fetched: usize,
@@ -90,11 +91,27 @@ pub struct WazuhSyncResult {
     pub dropped_noise: usize,
     /// DB insert errors (connection failure, constraint violation, etc.).
     pub insert_errors: usize,
+    /// LOGGED_IN / LOGGED_IN(failed) edges created in the identity graph from
+    /// Windows logon events (4624/4625/4648/4768/4769/4771/4776).
+    pub identity_edges_created: usize,
     pub highest_level: u8,
     pub errors: Vec<String>,
     /// Advanced cursor. Caller persists via `set_skill_config` so the next
     /// cycle resumes from the right place.
     pub cursor: Option<String>,
+}
+
+/// Mirror of `graph::asset_resolution::sanitize_id`: lowercase, replace
+/// anything outside `[a-z0-9._-]` with `-`. Kept local because the source
+/// function is private; if we ever unify the two, remove this copy.
+fn sanitize_asset_id(s: &str) -> String {
+    s.to_ascii_lowercase()
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | '0'..='9' | '-' | '_' | '.' => c,
+            _ => '-',
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -122,14 +139,8 @@ struct WazuhAlertData {
 
 pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSyncResult {
     let mut result = WazuhSyncResult {
-        alerts_fetched: 0,
-        alerts_imported: 0,
-        findings_created: 0,
-        dropped_noise: 0,
-        insert_errors: 0,
-        highest_level: 0,
-        errors: vec![],
         cursor: config.cursor_last_timestamp.clone(),
+        ..Default::default()
     };
 
     let client = match Client::builder()
@@ -381,6 +392,99 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
     result
 }
 
+/// Extracted representation of a Windows logon event from a Wazuh alert, used
+/// to bridge SIEM events into the identity graph (LOGGED_IN edges on /users).
+#[derive(Debug, Clone, PartialEq)]
+struct WindowsLogonEvent {
+    username: String,
+    source_ip: Option<String>,
+    /// true on success, false on failure, None for events where outcome is not
+    /// binary (e.g. 4634 logoff).
+    success: Option<bool>,
+    /// Kerberos / NTLM / Interactive — extracted from Windows logonType and
+    /// authentication package where available.
+    protocol: String,
+    /// Numeric Windows event ID (4624, 4625, 4634, ...) — useful for auditing.
+    event_id: String,
+}
+
+/// Detect + extract a Windows logon event from a Wazuh alert. Returns None if
+/// the alert is not a logon event (so the caller can skip the identity graph
+/// update for routine alerts like file integrity, CIS benchmarks, vuln scans).
+///
+/// The Wazuh Windows decoder publishes the interesting fields under
+/// `data.win.system.*` (Windows Event Log system envelope) and
+/// `data.win.eventdata.*` (event-specific payload). We rely on the numeric
+/// eventID rather than the Wazuh rule id to stay robust across rule set
+/// upgrades and community rule overrides.
+fn extract_windows_logon(alert: &serde_json::Value) -> Option<WindowsLogonEvent> {
+    let event_id = alert["data"]["win"]["system"]["eventID"].as_str()?;
+    let (success, protocol_hint) = match event_id {
+        "4624" => (Some(true), "windows-logon"),  // Successful logon
+        "4625" => (Some(false), "windows-logon"), // Failed logon
+        "4648" => (Some(true), "explicit-creds"), // Explicit credential logon
+        "4634" | "4647" => (None, "windows-logoff"),
+        "4768" => (Some(true), "kerberos-as"), // Kerberos TGT granted
+        "4769" => (Some(true), "kerberos-tgs"), // Kerberos service ticket granted
+        "4771" => (Some(false), "kerberos-as"), // Kerberos pre-auth failed
+        "4776" => {
+            // Credential validation — outcome is in the status code
+            let status = alert["data"]["win"]["eventdata"]["status"].as_str();
+            let ok = status == Some("0x0") || status == Some("0");
+            (Some(ok), "ntlm")
+        }
+        _ => return None,
+    };
+
+    let eventdata = &alert["data"]["win"]["eventdata"];
+    // targetUserName is the account being logged into / authenticated against.
+    // Kerberos events sometimes use `targetUserName` on the TGS side and
+    // `subjectUserName` on the initiating side — prefer target as the canonical
+    // user for the login edge.
+    let username = eventdata["targetUserName"]
+        .as_str()
+        .or_else(|| eventdata["TargetUserName"].as_str())
+        .or_else(|| eventdata["subjectUserName"].as_str())
+        .or_else(|| eventdata["SubjectUserName"].as_str())
+        .map(|s| s.trim().trim_end_matches('$')) // strip $ on machine accounts
+        .filter(|s| !s.is_empty() && *s != "-")?;
+
+    // ipAddress is populated by Windows for network logons. Falls back to the
+    // workstation name (which may be a NetBIOS name, not routable) only when no
+    // IP is available — better than nothing for asset correlation.
+    let source_ip = eventdata["ipAddress"]
+        .as_str()
+        .or_else(|| eventdata["IpAddress"].as_str())
+        .filter(|s| !s.is_empty() && *s != "-" && *s != "::1" && *s != "127.0.0.1")
+        .map(String::from);
+
+    // Refine protocol from logonType (2=Interactive, 3=Network, 4=Batch,
+    // 5=Service, 7=Unlock, 8=NetworkCleartext, 10=RemoteInteractive/RDP,
+    // 11=CachedInteractive).
+    let protocol = match eventdata["logonType"]
+        .as_str()
+        .or_else(|| eventdata["LogonType"].as_str())
+    {
+        Some("2") => "interactive".to_string(),
+        Some("3") => "network".to_string(),
+        Some("4") => "batch".to_string(),
+        Some("5") => "service".to_string(),
+        Some("7") => "unlock".to_string(),
+        Some("8") => "network-cleartext".to_string(),
+        Some("10") => "rdp".to_string(),
+        Some("11") => "cached-interactive".to_string(),
+        _ => protocol_hint.to_string(),
+    };
+
+    Some(WindowsLogonEvent {
+        username: username.to_string(),
+        source_ip,
+        success,
+        protocol,
+        event_id: event_id.to_string(),
+    })
+}
+
 /// Import a single Wazuh alert — routes to sigma_alerts (events) or findings (vulns).
 ///
 /// Responsibilities:
@@ -390,6 +494,8 @@ pub async fn sync_wazuh(store: &dyn Database, config: &WazuhConfig) -> WazuhSync
 ///   - Source IP extraction: tries the standard `data.srcip` then falls back
 ///     to `data.src_host` / `data.src_ip` used by JSON decoders (OpenCanary,
 ///     custom pipelines).
+///   - Identity graph bridge: Windows logon events (4624/4625/4634/4648/4768/
+///     4769/4771/4776) emit a LOGGED_IN edge so /users shows login history.
 ///   - Counts: every skip/insert is accounted for in `result` so operators
 ///     can tell the difference between a quiet SOC and a broken pipeline.
 async fn import_wazuh_alert(
@@ -405,19 +511,50 @@ async fn import_wazuh_alert(
     let agent_name = alert["agent"]["name"].as_str().unwrap_or("");
     let agent_ip = alert["agent"]["ip"].as_str().unwrap_or("");
     let full_log = alert["full_log"].as_str().unwrap_or("");
+
+    // Windows events from the eventchannel decoder don't populate the generic
+    // data.srcip / data.dstuser fields — they live under data.win.*. Extract
+    // the logon context up-front so both sigma_alerts and the identity graph
+    // see the same username and source IP.
+    let win_logon = extract_windows_logon(alert);
+
     // Standard Wazuh decoders populate data.srcip. Some connectors (OpenCanary,
     // custom JSON decoders) use data.src_host or data.src_ip instead.
+    let src_ip_win = win_logon.as_ref().and_then(|w| w.source_ip.as_deref());
     let src_ip = alert["data"]["srcip"]
         .as_str()
         .or_else(|| alert["data"]["src_host"].as_str())
-        .or_else(|| alert["data"]["src_ip"].as_str());
+        .or_else(|| alert["data"]["src_ip"].as_str())
+        .or(src_ip_win);
     let username = alert["data"]["dstuser"]
         .as_str()
-        .or_else(|| alert["data"]["srcuser"].as_str());
+        .or_else(|| alert["data"]["srcuser"].as_str())
+        .or(win_logon.as_ref().map(|w| w.username.as_str()));
     let timestamp = alert["timestamp"].as_str().unwrap_or("");
 
     if rule_level > result.highest_level {
         result.highest_level = rule_level;
+    }
+
+    // Identity graph bridge runs BEFORE the min_level gate. Windows logon
+    // events are typically level 3-5 (below the default min_level=7 that keeps
+    // sigma_alerts focused on security-relevant signals), but the identity
+    // data — who logged in from where, on which asset — is structural and
+    // should populate /users regardless of how the customer tunes noise.
+    if let Some(ref w) = win_logon {
+        if let Some(success) = w.success {
+            let asset_id = sanitize_asset_id(agent_name);
+            identity_graph::record_login(
+                store,
+                &w.username,
+                &asset_id,
+                w.source_ip.as_deref().unwrap_or(""),
+                &w.protocol,
+                success,
+            )
+            .await;
+            result.identity_edges_created += 1;
+        }
     }
 
     if (rule_level as u32) < config.min_level {
@@ -699,6 +836,141 @@ mod tests {
             skip_if_log_contains: HashMap::new(),
             cursor_last_timestamp: None,
         }
+    }
+
+    #[test]
+    fn windows_logon_success_event() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4624" },
+                "eventdata": {
+                    "targetUserName": "doyle",
+                    "ipAddress": "10.77.0.100",
+                    "logonType": "3"
+                }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4624");
+        assert_eq!(w.username, "doyle");
+        assert_eq!(w.success, Some(true));
+        assert_eq!(w.source_ip.as_deref(), Some("10.77.0.100"));
+        assert_eq!(w.protocol, "network");
+        assert_eq!(w.event_id, "4624");
+    }
+
+    #[test]
+    fn windows_logon_failure_event() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4625" },
+                "eventdata": {
+                    "targetUserName": "doyle",
+                    "ipAddress": "10.77.0.50",
+                    "logonType": "10"
+                }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4625");
+        assert_eq!(w.username, "doyle");
+        assert_eq!(w.success, Some(false));
+        assert_eq!(w.protocol, "rdp");
+    }
+
+    #[test]
+    fn windows_logon_kerberos_preauth_failure() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4771" },
+                "eventdata": { "targetUserName": "romilly" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4771");
+        assert_eq!(w.username, "romilly");
+        assert_eq!(w.success, Some(false));
+        assert_eq!(w.protocol, "kerberos-as");
+    }
+
+    #[test]
+    fn windows_logon_credential_validation_success() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4776" },
+                "eventdata": { "targetUserName": "murph", "status": "0x0" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4776");
+        assert_eq!(w.success, Some(true));
+    }
+
+    #[test]
+    fn windows_logon_credential_validation_failure() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4776" },
+                "eventdata": { "targetUserName": "mann", "status": "0xc000006a" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4776");
+        assert_eq!(w.success, Some(false));
+    }
+
+    #[test]
+    fn windows_logon_machine_account_dollar_stripped() {
+        // Windows sends "SRV-01-DOM$" for computer-account logons; the
+        // username we store should be the resolvable sAMAccountName without $.
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4624" },
+                "eventdata": { "targetUserName": "SRV-01-DOM$", "logonType": "5" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match 4624");
+        assert_eq!(w.username, "SRV-01-DOM");
+        assert_eq!(w.protocol, "service");
+    }
+
+    #[test]
+    fn windows_logon_ignores_missing_user() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4624" },
+                "eventdata": { "targetUserName": "-", "logonType": "2" }
+            }}
+        });
+        assert!(extract_windows_logon(&a).is_none());
+    }
+
+    #[test]
+    fn windows_logon_ignores_non_logon_events() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "5140" },
+                "eventdata": { "targetUserName": "x" }
+            }}
+        });
+        assert!(extract_windows_logon(&a).is_none());
+    }
+
+    #[test]
+    fn windows_logon_ignores_empty_and_loopback_ip() {
+        let a = json!({
+            "data": { "win": {
+                "system": { "eventID": "4624" },
+                "eventdata": { "targetUserName": "doyle", "ipAddress": "::1", "logonType": "2" }
+            }}
+        });
+        let w = extract_windows_logon(&a).expect("should match");
+        assert!(w.source_ip.is_none());
+    }
+
+    #[test]
+    fn sanitize_asset_id_matches_ad_pipeline() {
+        assert_eq!(sanitize_asset_id("SRV-01-DOM"), "srv-01-dom");
+        assert_eq!(sanitize_asset_id("My Server"), "my-server");
+        assert_eq!(
+            sanitize_asset_id("srv.interstellar.local"),
+            "srv.interstellar.local"
+        );
     }
 
     fn alert(rule_id: &str, level: u8, full_log: &str) -> serde_json::Value {
