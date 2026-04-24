@@ -144,13 +144,28 @@ export default function SkillsPage() {
   const [tab, setTab] = useState<"installed" | "catalog">(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      // PageShell's left sub-menu drives ?tab= directly.
       const t = params.get("tab");
       if (t === "installed" || t === "catalog") return t;
       if (params.get("search")) return "catalog";
     }
     return "installed";
   });
+  // Left sidebar (SectionSidebar) clicks patch history.pushState and
+  // broadcast a `tc:history` event. Listening lets the page switch tabs
+  // without a full reload when the user hits a sidebar entry.
+  useEffect(() => {
+    const sync = () => {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get("tab");
+      if (t === "installed" || t === "catalog") setTab(t);
+    };
+    window.addEventListener("popstate", sync);
+    window.addEventListener("tc:history", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("tc:history", sync);
+    };
+  }, []);
   const [search, setSearch] = useState(() => {
     if (typeof window !== "undefined") {
       return new URLSearchParams(window.location.search).get("search") || "";
@@ -359,25 +374,23 @@ export default function SkillsPage() {
 
   return (
     <div style={{ padding: "0 24px 40px" }}>
+      {/* The Installed / Catalog switch used to live in a horizontal
+          sliding tab bar here. The root layout's SectionSidebar owns
+          that navigation now (sections.ts → skills.items) so the tab
+          bar was retired to avoid the same double-nav problem we had
+          on /setup. Tab state still drives the render below — Link
+          clicks in the sidebar patch history and fire `tc:history`,
+          which the useEffect above turns back into setTab. */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{tr("skills", locale)}</h1>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>
+          {tr("skills", locale)}
+          <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--tc-text-muted)", marginLeft: "10px" }}>
+            {tab === "installed"
+              ? `${tr("installed2", locale)} (${mySkills.length})`
+              : `${tr("catalogue", locale)} (${catalogSkills.length})`}
+          </span>
+        </h1>
         <button className="tc-btn-embossed" onClick={refresh}><RefreshCw size={12} /> {tr("refresh", locale)}</button>
-      </div>
-
-      {/* ── Sliding tabs ── */}
-      <div style={{ position: "relative", display: "flex", padding: "3px", marginBottom: "16px", borderRadius: "11px", background: "var(--tc-input)" }}>
-        <div style={{ position: "absolute", top: "3px", height: "calc(100% - 6px)", width: "calc(50% - 2px)",
-          left: tab === "installed" ? "1px" : "calc(50% + 1px)",
-          background: "var(--tc-surface-alt)", borderRadius: "8px", border: "0.5px solid var(--tc-border)",
-          boxShadow: "0 3px 8px rgba(0,0,0,0.12)", transition: "left 0.25s ease-out", zIndex: 0 }} />
-        {([
-          ["installed", `${tr("installed2", locale)} (${mySkills.length})`],
-          ["catalog", `${tr("catalogue", locale)} (${catalogSkills.length})`],
-        ] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k as any)} style={{ flex: 1, padding: "8px 0", fontSize: "12px", fontWeight: 600,
-            color: tab === k ? "var(--tc-text)" : "var(--tc-text-muted)", background: "transparent", border: "none",
-            cursor: "pointer", position: "relative", zIndex: 1, opacity: tab === k ? 1 : 0.5, transition: "all 200ms" }}>{l}</button>
-        ))}
       </div>
 
       {/* ═══ INSTALLED — grouped by category ═══ */}
