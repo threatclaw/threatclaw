@@ -1,0 +1,26 @@
+{
+  "id": "skill-velociraptor-actions",
+  "name": "Velociraptor Actions",
+  "version": "0.1.0",
+  "description": "Skill premium — extension du connecteur Velociraptor avec les outils de remédiation Phase C : quarantaine endpoint, kill process, isolation host. Tous les outils d'action passent par le flow HITL avec approbation explicite avant exécution.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "tool",
+  "category": "endpoints",
+  "tier": "premium",
+  "icon": "shield",
+  "default_active": false,
+  "requires_config": false,
+  "api_key_required": false,
+  "depends_on": "skill-velociraptor",
+  "help": "Ce skill ajoute des outils d'action destructive sur les endpoints surveillés par Velociraptor :\n\n• velociraptor_quarantine_endpoint — isole un endpoint du réseau (Windows.Remediation.Quarantine)\n• velociraptor_kill_process — termine un processus suspect par PID ou nom\n• velociraptor_isolate_host — bloque tout traffic sortant sauf vers le serveur Velociraptor\n\nChaque action passe par le flow HITL ThreatClaw (approbation RSSI dans les 60 secondes, sinon abandon automatique).\n\nPrérequis :\n• skill-velociraptor (gratuit) installé et configuré\n• Licence ThreatClaw Premium (Individual ou Action Pack)\n\nCe skill est gouverné par LICENSE-PREMIUM.md — voir /licensing dans le dashboard pour activer un essai 60 jours gratuit ou coller votre clé d'abonnement.",
+  "execution": {
+    "mode": "hitl",
+    "requires_approval": true,
+    "approval_window_seconds": 60
+  },
+  "config": {},
+  "outputs": {
+    "actions": "log d'audit dans threatclaw-core + entry dans /incidents avec rationale L2"
+  }
+}

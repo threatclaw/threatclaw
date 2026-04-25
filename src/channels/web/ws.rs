@@ -524,6 +524,7 @@ mod tests {
             hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(
                 std::time::Duration::from_secs(3600),
             )),
+            license_manager: None,
         }
     }
 }

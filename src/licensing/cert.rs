@@ -27,6 +27,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LicenseTier {
+    /// 60-day free evaluation. One specific premium skill. No grace period
+    /// after expiry — the user is expected to subscribe before the deadline.
+    Trial,
     /// One specific premium skill, single site.
     Individual,
     /// All premium skills, single site.
@@ -35,6 +38,14 @@ pub enum LicenseTier {
     Msp,
     /// Custom enterprise terms (SLA, support, source escrow, ...).
     Enterprise,
+}
+
+impl LicenseTier {
+    /// True for the trial tier — surfaced separately in the dashboard
+    /// to nudge subscription before expiry.
+    pub fn is_trial(&self) -> bool {
+        matches!(self, LicenseTier::Trial)
+    }
 }
 
 /// Identity of the party holding the license. Email is the primary key for

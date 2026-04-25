@@ -5,6 +5,75 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::db::Database;
+use crate::licensing::LicenseManager;
+
+/// Maps a tool name to the premium skill it requires, or `None` for free
+/// tools. Tools listed here will refuse to execute unless the runtime
+/// license gate covers their skill.
+///
+/// Adding a new premium tool: register the tool's `name` here, then make
+/// sure callers wrap their `execute_tool` call with [`check_tool_license`]
+/// so the gate fires before the underlying VQL / API call is issued.
+///
+/// **Why a static map vs a manifest field**: tool definitions live in
+/// Rust code (see [`available_tools`]); the gate decision is also a
+/// Rust concern. Keeping the mapping next to the tool registration
+/// minimises drift between "I added a premium tool" and "I forgot to
+/// gate it".
+pub fn tool_required_skill(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        // ── Phase C Velociraptor (quarantine, kill_process) — premium ──
+        // Implementations land in a follow-up PR; the gate is wired now
+        // so the day they ship there is no risk of forgetting to mark
+        // them.
+        "velociraptor_quarantine_endpoint"
+        | "velociraptor_kill_process"
+        | "velociraptor_isolate_host" => Some("skill-velociraptor-actions"),
+
+        // ── Future premium skills (placeholders) ──
+        "opnsense_block_ip"
+        | "opnsense_kill_states"
+        | "opnsense_quarantine_mac" => Some("skill-opnsense-actions"),
+        "fortinet_block_ip" | "fortinet_block_url" => Some("skill-fortinet-actions"),
+        "ad_disable_account" | "ad_reset_password" => Some("skill-ad-remediation"),
+
+        _ => None,
+    }
+}
+
+/// Verify that a tool is allowed to execute under the current license.
+///
+/// - **Free tools** (no entry in [`tool_required_skill`]) always pass.
+/// - **Premium tools** require a `LicenseManager` and an active license
+///   covering the matching skill. Without those, returns `Err` with a
+///   user-facing reason that the caller should surface verbatim — the
+///   message points the operator to `/licensing` so they can activate.
+///
+/// Call **before** `execute_tool` at any site that may dispatch premium
+/// tools (HITL approval flow, dashboard buttons, L2 forensic agent).
+/// The conversational bot path does not call premium tools today, so
+/// it can keep using `execute_tool` directly.
+pub async fn check_tool_license(
+    tool_name: &str,
+    license_manager: Option<&Arc<LicenseManager>>,
+) -> Result<(), String> {
+    let Some(required_skill) = tool_required_skill(tool_name) else {
+        return Ok(());
+    };
+    let Some(mgr) = license_manager else {
+        return Err(format!(
+            "outil `{tool_name}` requiert le skill premium `{required_skill}` — \
+             aucune licence configurée. Activez via /licensing dans le dashboard."
+        ));
+    };
+    if !mgr.allows_skill(required_skill).await {
+        return Err(format!(
+            "outil `{tool_name}` requiert le skill premium `{required_skill}` — \
+             licence absente, expirée ou révoquée. Vérifiez /licensing."
+        ));
+    }
+    Ok(())
+}
 
 /// Definition of a tool that the LLM can call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -702,6 +771,72 @@ mod tests {
     fn test_available_tools_not_empty() {
         let tools = available_tools();
         assert!(tools.len() >= 5);
+    }
+
+    #[test]
+    fn test_tool_required_skill_free_tools() {
+        // Existing free tools must not be gated, otherwise the L0
+        // conversational bot regresses.
+        for free_tool in &[
+            "get_security_status",
+            "get_recent_alerts",
+            "get_recent_findings",
+            "velociraptor_list_clients",
+            "velociraptor_query",
+            "velociraptor_hunt",
+            "velociraptor_collect",
+        ] {
+            assert!(
+                tool_required_skill(free_tool).is_none(),
+                "free tool `{free_tool}` should not be gated"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tool_required_skill_premium_mappings() {
+        assert_eq!(
+            tool_required_skill("velociraptor_quarantine_endpoint"),
+            Some("skill-velociraptor-actions")
+        );
+        assert_eq!(
+            tool_required_skill("opnsense_block_ip"),
+            Some("skill-opnsense-actions")
+        );
+        assert_eq!(
+            tool_required_skill("ad_disable_account"),
+            Some("skill-ad-remediation")
+        );
+        assert_eq!(tool_required_skill("nonexistent_tool"), None);
+    }
+
+    #[tokio::test]
+    async fn test_check_tool_license_free_tools_pass_with_no_manager() {
+        // No license manager + free tool → must succeed.
+        assert!(check_tool_license("get_security_status", None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_check_tool_license_premium_fails_without_manager() {
+        let r = check_tool_license("velociraptor_quarantine_endpoint", None).await;
+        assert!(r.is_err());
+        let msg = r.unwrap_err();
+        assert!(msg.contains("skill-velociraptor-actions"));
+        assert!(msg.contains("/licensing"));
+    }
+
+    #[tokio::test]
+    async fn test_check_tool_license_premium_fails_with_no_cert() {
+        // Manager exists but no license activated → still denied.
+        let mgr = Arc::new(
+            crate::licensing::LicenseManager::bootstrap(
+                crate::licensing::LicenseClient::new("https://unused.invalid"),
+            )
+            .await,
+        );
+        let r = check_tool_license("opnsense_block_ip", Some(&mgr)).await;
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("skill-opnsense-actions"));
     }
 
     #[test]
