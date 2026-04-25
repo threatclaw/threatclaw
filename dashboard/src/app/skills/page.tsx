@@ -170,7 +170,7 @@ export default function SkillsPage() {
           case "connectors":   setTypeFilter("connector"); setCatFilter("all"); break;
           case "intelligence": setTypeFilter("enrichment"); setCatFilter("all"); break;
           case "tools":        setTypeFilter("tool"); setCatFilter("all"); break;
-          case "actions":      setTypeFilter("tool"); setCatFilter("premium"); break;
+          case "actions":      setTypeFilter("all"); setCatFilter("premium"); break;
           case "":
           case "all":          setTypeFilter("all"); setCatFilter("all"); break;
         }
@@ -292,11 +292,15 @@ export default function SkillsPage() {
   // Filter catalog. The "premium" pseudo-category matches skills marked
   // premium regardless of their declared category — surfaced from the
   // sidebar entry "Actions (premium)" so the user can see the paid
-  // marketplace at a glance.
+  // marketplace at a glance. Both `premium: true` (legacy) and
+  // `tier: 'premium'` (new tc_catalog field) are accepted so old and
+  // new manifests both light up.
+  const isPremium = (s: SkillManifest & { tier?: string }) =>
+    s.premium === true || (s as any).tier === "premium" || (s as any).tier === "beta-premium";
   const filteredCatalog = catalogSkills
     .filter(s => {
       if (catFilter === "all") return true;
-      if (catFilter === "premium") return s.premium === true;
+      if (catFilter === "premium") return isPremium(s as any);
       return s.category === catFilter;
     })
     .filter(s => typeFilter === "all" || s.type === typeFilter)

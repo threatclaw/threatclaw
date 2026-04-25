@@ -8,6 +8,7 @@
   "type": "tool",
   "category": "endpoints",
   "tier": "premium",
+  "premium": true,
   "icon": "shield",
   "default_active": false,
   "requires_config": false,
