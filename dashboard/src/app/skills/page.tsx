@@ -158,7 +158,25 @@ export default function SkillsPage() {
       const params = new URLSearchParams(window.location.search);
       const t = params.get("tab");
       if (t === "installed" || t === "catalog") setTab(t);
+      // The catalog sub-entries (Connectors / Intelligence / Tools /
+      // Actions) are encoded as `?cat=<key>` in the sidebar URLs. They
+      // map onto the existing typeFilter (or a synthetic "premium"
+      // filter for actions). Translation happens here so the page
+      // logic below stays in its existing typeFilter / catFilter
+      // vocabulary.
+      const cat = params.get("cat") ?? "";
+      if (t === "catalog") {
+        switch (cat) {
+          case "connectors":   setTypeFilter("connector"); setCatFilter("all"); break;
+          case "intelligence": setTypeFilter("enrichment"); setCatFilter("all"); break;
+          case "tools":        setTypeFilter("tool"); setCatFilter("all"); break;
+          case "actions":      setTypeFilter("tool"); setCatFilter("premium"); break;
+          case "":
+          case "all":          setTypeFilter("all"); setCatFilter("all"); break;
+        }
+      }
     };
+    sync();
     window.addEventListener("popstate", sync);
     window.addEventListener("tc:history", sync);
     return () => {
@@ -271,9 +289,16 @@ export default function SkillsPage() {
     return groups;
   };
 
-  // Filter catalog
+  // Filter catalog. The "premium" pseudo-category matches skills marked
+  // premium regardless of their declared category — surfaced from the
+  // sidebar entry "Actions (premium)" so the user can see the paid
+  // marketplace at a glance.
   const filteredCatalog = catalogSkills
-    .filter(s => catFilter === "all" || s.category === catFilter)
+    .filter(s => {
+      if (catFilter === "all") return true;
+      if (catFilter === "premium") return s.premium === true;
+      return s.category === catFilter;
+    })
     .filter(s => typeFilter === "all" || s.type === typeFilter)
     .filter(s => trustFilter === "all" || (s.trust || "official") === trustFilter)
     .filter(s => !search.trim() || s.name.toLowerCase().includes(search.toLowerCase()) || s.description.toLowerCase().includes(search.toLowerCase()));

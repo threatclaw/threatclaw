@@ -34,6 +34,11 @@ import {
   Monitor,
   Play,
   Key,
+  Info,
+  Plug,
+  Crosshair,
+  Zap,
+  Lock,
 } from "lucide-react";
 
 export type SubNavItem = {
@@ -98,8 +103,13 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Skills",
     matches: ["/skills"],
     items: [
-      { href: "/skills?tab=installed", labelFr: "Installés", labelEn: "Installed", icon: Puzzle },
-      { href: "/skills?tab=catalog", labelFr: "Catalogue", labelEn: "Catalog", icon: Search },
+      { href: "/skills?tab=installed", labelFr: "Mes skills installés", labelEn: "My installed skills", icon: Puzzle },
+      { href: "/skills?tab=catalog", labelFr: "Catalogue — tous", labelEn: "Catalog — all", icon: Search },
+      { href: "/skills?tab=catalog&cat=connectors", labelFr: "Connecteurs", labelEn: "Connectors", icon: Plug },
+      { href: "/skills?tab=catalog&cat=intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
+      { href: "/skills?tab=catalog&cat=tools", labelFr: "Outils & scan", labelEn: "Tools & scan", icon: Crosshair },
+      { href: "/skills?tab=catalog&cat=actions", labelFr: "Actions (premium)", labelEn: "Actions (premium)", icon: Zap },
+      { href: "/setup?tab=licenses", labelFr: "Mes licences", labelEn: "My licenses", icon: Lock },
     ],
   },
   rapports: {
@@ -161,7 +171,8 @@ export const SECTIONS: Record<SectionKey, Section> = {
       { href: "/setup?tab=sources", labelFr: "Sources de logs", labelEn: "Log Sources", icon: Radio },
       { href: "/setup?tab=endpoints", labelFr: "Agents endpoint", labelEn: "Endpoint Agents", icon: Monitor },
       { href: "/setup?tab=tests", labelFr: "Simulation", labelEn: "Simulation", icon: Play },
-      { href: "/setup?tab=about", labelFr: "À propos", labelEn: "About", icon: Key },
+      { href: "/setup?tab=licenses", labelFr: "Licences premium", labelEn: "Premium licenses", icon: Key },
+      { href: "/setup?tab=about", labelFr: "À propos", labelEn: "About", icon: Info },
     ],
   },
 };

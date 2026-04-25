@@ -5,18 +5,20 @@ import dynamic from "next/dynamic";
 import SetupWizard from "@/components/setup/SetupWizard";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
 import ConfigPage from "@/components/setup/ConfigPage";
-import { Settings, Play, Key, Monitor, Copy, RefreshCw } from "lucide-react";
+import { Settings, Play, Key, Monitor, Copy, RefreshCw, MessageSquare } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
 // Lazy load the sub-pages to avoid circular imports
 const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
-const LicenseContent = dynamic(() => Promise.resolve({ default: LicensePage }), { ssr: false });
+const AboutContent = dynamic(() => Promise.resolve({ default: AboutPage }), { ssr: false });
+const LicensesContent = dynamic(() => Promise.resolve({ default: LicensesPage }), { ssr: false });
 
 // All tab keys are dispatched from `?tab=` in the URL. The first 13
 // live inside ConfigPage (which accepts `currentTab` and renders the
 // matching panel); `endpoints` renders the endpoint-agent installer,
-// `tests` the simulation harness, `about` the license screen.
+// `tests` the simulation harness, `licenses` the premium license
+// manager, `about` the technical instance info.
 // Keep this list in sync with sections.ts → setup.items so the left
 // sidebar exposes every option.
 const CONFIG_TAB_KEYS = [
@@ -24,7 +26,7 @@ const CONFIG_TAB_KEYS = [
   "agent", "notifications", "retention", "anonymizer", "backup",
   "logs", "sources",
 ] as const;
-const EXTRA_TAB_KEYS = ["endpoints", "tests", "about"] as const;
+const EXTRA_TAB_KEYS = ["endpoints", "tests", "licenses", "about"] as const;
 const ALL_TAB_KEYS = [...CONFIG_TAB_KEYS, ...EXTRA_TAB_KEYS] as const;
 type TabKey = typeof ALL_TAB_KEYS[number];
 
@@ -266,19 +268,22 @@ function AgentPage() {
 }
 
 // ── About + Account Tab Component ──
-function LicensePage() {
+function AboutPage() {
   const locale = useLocale();
   const [info, setInfo] = React.useState<any>(null);
   const [user, setUser] = React.useState<any>(null);
+  const [licenseStatus, setLicenseStatus] = React.useState<any>(null);
   const [currentPwd, setCurrentPwd] = React.useState("");
   const [newPwd, setNewPwd] = React.useState("");
   const [pwdMsg, setPwdMsg] = React.useState("");
   const [pwdOk, setPwdOk] = React.useState(false);
   const [changingPwd, setChangingPwd] = React.useState(false);
+  const [copiedField, setCopiedField] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     fetch("/api/tc/license").then(r => r.json()).then(setInfo).catch(() => {});
     fetch("/api/auth/me").then(r => r.json()).then(d => { if (d.authenticated) setUser(d.user); }).catch(() => {});
+    fetch("/api/tc/licensing/status").then(r => r.ok ? r.json() : null).then(setLicenseStatus).catch(() => {});
   }, []);
 
   const changePassword = async () => {
@@ -299,31 +304,89 @@ function LicensePage() {
     setChangingPwd(false);
   };
 
+  const copyToClipboard = (value: string, field: string) => {
+    navigator.clipboard.writeText(value);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 1500);
+  };
+
+  // Pick a primary license_key for the support pre-fill, if any.
+  const primaryLicenseKey: string | undefined = licenseStatus?.licenses?.[0]?.license_key;
+
+  const openSupport = () => {
+    const params = new URLSearchParams();
+    if (primaryLicenseKey) params.set("license_key", primaryLicenseKey);
+    if (info?.instance_id) params.set("instance_id", info.instance_id);
+    params.set("version", info?.version || "1.0.x-beta");
+    window.open(`https://threatclaw.io/${locale}/support?${params.toString()}`, "_blank", "noopener");
+  };
+
   return (
     <div style={{ padding: "20px 24px" }}>
-      <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 16px" }}>ThreatClaw</h2>
+      <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--tc-text)", margin: "0 0 16px" }}>
+        {locale === "fr" ? "À propos de ThreatClaw" : "About ThreatClaw"}
+      </h2>
 
-      {/* Instance info */}
+      {/* Instance info — pure technique, sans rien de commercial. */}
       <div className="tc-card" style={{ padding: "20px", marginBottom: "16px" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("instance", locale)}</span>
-            <span style={{ fontSize: "13px", fontWeight: 700, fontFamily: "monospace", color: "var(--tc-text)" }}>
+        <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", margin: "0 0 12px" }}>
+          {locale === "fr" ? "Cette installation" : "This install"}
+        </h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+              Instance ID
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontFamily: "monospace", color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis" }}>
               {info?.instance_id || "..."}
+              {info?.instance_id && (
+                <button onClick={() => copyToClipboard(info.instance_id, "instance")} title={locale === "fr" ? "Copier" : "Copy"}
+                  style={{ padding: "2px 6px", fontSize: "10px", border: "1px solid var(--tc-border)", borderRadius: "3px", background: "var(--tc-bg-input)", color: "var(--tc-text-muted)", cursor: "pointer" }}>
+                  {copiedField === "instance" ? (locale === "fr" ? "Copié" : "Copied") : <Copy size={10} />}
+                </button>
+              )}
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{tr("assets", locale)}</span>
-            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)" }}>
-              {info?.asset_count || 0} <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontWeight: 400 }}>{tr("noLimit", locale)}</span>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              {locale === "fr" ? "Version" : "Version"}
+            </span>
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-text)", fontFamily: "monospace" }}>
+              {info?.version || "1.0.x-beta"}
             </span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>{locale === "fr" ? "Licence" : "License"}</span>
+            <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              {locale === "fr" ? "Licence cœur" : "Core license"}
+            </span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-green)" }}>
-              {tr("freeUnlimited", locale)}
+              AGPL v3 — {tr("freeUnlimited", locale)}
             </span>
           </div>
+          {licenseStatus?.licenses?.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                {locale === "fr" ? "Licences premium" : "Premium licenses"}
+              </span>
+              <a href="/setup?tab=licenses" style={{ fontSize: "13px", fontWeight: 700, color: "var(--tc-red)", textDecoration: "none" }}>
+                {licenseStatus.licenses.length} {locale === "fr" ? "active(s)" : "active"} →
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* Support button — pre-fills license_key + instance_id + version */}
+        <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid var(--tc-border)" }}>
+          <button onClick={openSupport} className="tc-btn-embossed"
+            style={{ fontSize: "12px", padding: "8px 14px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <MessageSquare size={12} />
+            {locale === "fr" ? "Contacter le support" : "Contact support"}
+          </button>
+          <p style={{ margin: "6px 0 0", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+            {locale === "fr"
+              ? `Ouvre threatclaw.io/support avec votre Instance ID${primaryLicenseKey ? " + License key" : ""} pré-remplis pour un traitement prioritaire.`
+              : `Opens threatclaw.io/support with your Instance ID${primaryLicenseKey ? " + License key" : ""} pre-filled for priority routing.`}
+          </p>
         </div>
       </div>
 
@@ -365,12 +428,21 @@ function LicensePage() {
       <div className="tc-card" style={{ padding: "20px" }}>
         <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: "1.6", margin: 0 }}>
           ThreatClaw est un agent cybersécurité autonome pour PME.
-          <br />Développé par <a href="https://cyberconsulting.fr" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>CyberConsulting.fr</a>
+          <br />Édité par <a href="https://cyberconsulting.fr" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>CyberConsulting.fr</a>
           <br />Licence AGPL v3 — <a href="https://threatclaw.io" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>threatclaw.io</a>
         </p>
       </div>
     </div>
   );
+}
+
+// Licences page rendered as Config > Licences. Reuses the standalone
+// /licensing page component so all the multi-license logic stays in
+// one place — when /licensing is enhanced (filters, sort, etc.) this
+// view inherits it for free.
+const LicensingStandalone = dynamic(() => import("../licensing/page"), { ssr: false });
+function LicensesPage() {
+  return <LicensingStandalone />;
 }
 
 export default function SetupPage() {
@@ -418,7 +490,7 @@ export default function SetupPage() {
   // Navigation is owned by the root layout's SectionSidebar. Everything
   // the old horizontal tab bar + ConfigPage inner nav used to do is now
   // driven by `?tab=`. The 13 ConfigPage tabs route through ConfigPage
-  // with a prop; the 3 extras render their own dedicated component.
+  // with a prop; the 4 extras render their own dedicated component.
   const isConfigTab = (CONFIG_TAB_KEYS as readonly string[]).includes(activeTab);
   return (
     <div>
@@ -433,7 +505,8 @@ export default function SetupPage() {
       )}
       {activeTab === "endpoints" && <AgentPage />}
       {activeTab === "tests" && <TestsContent />}
-      {activeTab === "about" && <LicenseContent />}
+      {activeTab === "licenses" && <LicensesContent />}
+      {activeTab === "about" && <AboutContent />}
     </div>
   );
 }
