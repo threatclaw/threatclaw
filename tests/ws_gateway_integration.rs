@@ -65,6 +65,7 @@ async fn start_test_server() -> (
         hitl_nonce_manager: Arc::new(threatclaw::agent::hitl_nonce::NonceManager::new(
             std::time::Duration::from_secs(3600),
         )),
+        license_manager: None,
     });
 
     let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
