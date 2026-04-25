@@ -220,7 +220,7 @@ export default function LicensingPage() {
           background: "rgba(208,144,32,0.10)", border: "1px solid rgba(208,144,32,0.25)",
           fontSize: 13, color: "var(--tc-text)",
         }}>
-          💡 Vous avez {totalSkills} skills Individual à 79 €/an = {totalSkills * 79} €/an.
+          Vous avez {totalSkills} skills Individual à 79 €/an = {totalSkills * 79} €/an.
           {' '}L'<a href="https://threatclaw.io/fr/pricing" target="_blank" rel="noreferrer" style={{ color: "var(--tc-red)", fontWeight: 600 }}>Action Pack à 590 €/an</a> débloque tous les skills premium et économise dès le 4e skill.
         </div>
       )}
