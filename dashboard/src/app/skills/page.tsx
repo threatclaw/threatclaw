@@ -604,9 +604,14 @@ export default function SkillsPage() {
                       ) : notReady ? (
                         <span style={{ fontSize: "8px", fontWeight: 700, padding: "2px 8px", borderRadius: "4px", background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("inDevelopment", locale)}</span>
                       ) : skill.premium ? (
-                        <button className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 16px" }}>
-                          Acheter {skill.price ? `${skill.price}€` : ""}
-                        </button>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                          <button onClick={() => install(skill)} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 16px" }}>
+                            <Download size={12} /> Installer
+                          </button>
+                          <a href="/licensing" style={{ fontSize: "10px", color: "var(--tc-red)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "3px" }}>
+                            <Lock size={10} /> Licence requise pour exécuter
+                          </a>
+                        </div>
                       ) : (
                         <button className="tc-btn-embossed" onClick={() => install(skill)} style={{ fontSize: "11px", padding: "6px 16px" }}>
                           <Download size={12} /> Installer
