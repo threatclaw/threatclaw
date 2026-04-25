@@ -62,6 +62,11 @@ services:
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       HTTP_WEBHOOK_SECRET: ${HTTP_WEBHOOK_SECRET:-}
       DOCKER_HOST: tcp://docker-proxy:2375
+      # Container root fs is read-only (security hardening). Pin the
+      # ThreatClaw base dir at the writable /app/data volume so the
+      # licensing module can persist install_id, cert.tcl, state.json
+      # across container restarts.
+      THREATCLAW_BASE_DIR: /app/data
     cap_add:
       - NET_BIND_SERVICE
     read_only: true
