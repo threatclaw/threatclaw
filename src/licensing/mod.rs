@@ -49,8 +49,8 @@ pub use cert::{LicenseCert, LicenseCertError, LicenseTier, SignedLicense};
 pub use fingerprint::{hash_install_id, site_fingerprint};
 pub use gate::{GateDecision, GateError, PremiumGate};
 pub use grace::{GraceState, GraceTracker};
-pub use manager::{LicenseManager, LicenseStatus, ManagerError};
-pub use storage::{LicensingState, licensing_dir, load_or_create_install_id};
+pub use manager::{ActiveLicense, LicenseManager, LicenseStatus, ManagerError};
+pub use storage::{LicenseEntry, LicensingState, licensing_dir, load_or_create_install_id};
 pub use verify::{VerifyError, verify_license};
 
 /// Default grace period applied when a cert does not specify one.
