@@ -46,6 +46,10 @@ fn manager_err(e: ManagerError) -> (StatusCode, String) {
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("local storage: {io}"),
         ),
+        ManagerError::UnknownLocalLicense(key) => (
+            StatusCode::NOT_FOUND,
+            format!("not_found:license `{key}` is not active on this install"),
+        ),
     }
 }
 
@@ -93,15 +97,7 @@ pub async fn status_handler(State(state): State<Arc<GatewayState>>) -> ApiResult
     }
     Ok(Json(LicenseStatus {
         provisioned: crate::licensing::is_provisioned(),
-        license_key: None,
-        licensee_email: None,
-        tier: None,
-        skills: vec![],
-        grace: None,
-        trial: false,
-        expires_at: None,
-        last_heartbeat: 0,
-        last_attempt: 0,
+        licenses: vec![],
         trial_consumed: false,
     }))
 }
@@ -165,6 +161,13 @@ pub async fn trial_start_handler(
 
 // ── Heartbeat (manual refresh button) ───────────────────────────────
 
+#[derive(Debug, Deserialize, Default)]
+pub struct HeartbeatRequest {
+    /// Optional — when omitted, heartbeats every active license at once.
+    #[serde(default)]
+    pub license_key: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct HeartbeatResponse {
     pub status: LicenseStatus,
@@ -173,29 +176,46 @@ pub struct HeartbeatResponse {
 
 pub async fn heartbeat_handler(
     State(state): State<Arc<GatewayState>>,
+    body: Option<Json<HeartbeatRequest>>,
 ) -> ApiResult<HeartbeatResponse> {
     let mgr = manager(&state)?;
-    mgr.heartbeat().await.map_err(manager_err)?;
+    let key_opt = body.and_then(|Json(b)| b.license_key);
+    mgr.heartbeat(key_opt.as_deref())
+        .await
+        .map_err(manager_err)?;
     Ok(Json(HeartbeatResponse {
         status: mgr.status().await,
         message: "license certificate refreshed".into(),
     }))
 }
 
-// ── Deactivate (release activation slot) ────────────────────────────
+// ── Deactivate (release activation slot for one license) ────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DeactivateRequest {
+    pub license_key: String,
+}
 
 #[derive(Debug, Serialize)]
 pub struct DeactivateResponse {
     pub message: String,
+    pub status: LicenseStatus,
 }
 
 pub async fn deactivate_handler(
     State(state): State<Arc<GatewayState>>,
+    Json(req): Json<DeactivateRequest>,
 ) -> ApiResult<DeactivateResponse> {
+    let key = req.license_key.trim();
+    if key.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "license_key is required".into()));
+    }
     let mgr = manager(&state)?;
-    mgr.deactivate().await.map_err(manager_err)?;
+    mgr.deactivate(key).await.map_err(manager_err)?;
     Ok(Json(DeactivateResponse {
-        message: "license deactivated locally — activation slot released on the license server"
-            .into(),
+        message: format!(
+            "license {key} deactivated locally — activation slot released on the license server"
+        ),
+        status: mgr.status().await,
     }))
 }

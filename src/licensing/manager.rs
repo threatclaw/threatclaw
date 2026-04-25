@@ -1,27 +1,32 @@
 //! `LicenseManager` — runtime owner of licensing state.
 //!
 //! One instance per process. Owns the [`super::api_client::LicenseClient`],
-//! the cached site fingerprint, and the in-memory [`super::PremiumGate`]
-//! that the skill registry consults when loading premium skills.
+//! the cached site fingerprint, and one [`super::PremiumGate`] per active
+//! license. The skill registry consults this manager when loading premium
+//! skills; a skill is allowed if **any** of the active gates covers it.
+//!
+//! Multi-license rationale: a customer can buy multiple skills over time
+//! through separate Stripe transactions (e.g. velociraptor today,
+//! opnsense in three months). Each purchase produces its own
+//! `license_key` + cert, so the manager has to OR-compose decisions
+//! across all of them rather than holding a single "current" license.
 //!
 //! Lifecycle:
 //!
 //! 1. [`LicenseManager::bootstrap`] is called once at process start. It
-//!    loads the persisted cert (if any) from `~/.threatclaw/licensing/`
-//!    and constructs an in-memory gate. Failure to load is non-fatal —
-//!    the process keeps running with no gate (premium skills refused).
+//!    loads every persisted cert (via [`storage::read_all_certs`]) and
+//!    constructs one gate per validated cert. Failure to load any single
+//!    cert is non-fatal — the others continue to work.
 //! 2. The dashboard / CLI calls [`LicenseManager::activate`],
 //!    [`LicenseManager::start_trial`], or [`LicenseManager::deactivate`]
-//!    in response to user actions.
+//!    in response to user actions. Activation appends a new license;
+//!    deactivation removes one specific license.
 //! 3. [`LicenseManager::spawn_heartbeat`] runs a background task that
-//!    refreshes the cert with the license server every 7 days, so the
-//!    rolling 30-day cert never lapses for an online deployment.
-//!
-//! Everything is **disabled if [`super::is_provisioned`] returns false**
-//! (compile-time pubkey is the all-zeros placeholder). This is the
-//! safety rail that lets us land the whole pipeline before the real
-//! Ed25519 keypair has been minted.
+//!    refreshes every active license's cert with the license server
+//!    every 7 days, so the rolling 30-day cert never lapses for an
+//!    online deployment.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -34,7 +39,7 @@ use super::cert::{LicenseTier, SignedLicense, now_secs};
 use super::fingerprint::site_fingerprint;
 use super::gate::PremiumGate;
 use super::grace::{GraceState, assess};
-use super::storage::{self, LicensingState};
+use super::storage::{self, LicenseEntry, LicensingState};
 use super::trial;
 use super::verify::verify_license;
 
@@ -47,33 +52,47 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(7 * 86_400);
 /// (e.g. after a coordinated upgrade) do not stampede the API.
 const HEARTBEAT_BOOT_DELAY: Duration = Duration::from_secs(60);
 
-/// Diagnostic snapshot for the dashboard.
+// ────────────────────────────────────────────────────────────────────
+// Status types — what the dashboard renders
+// ────────────────────────────────────────────────────────────────────
+
+/// Per-license snapshot for the dashboard.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ActiveLicense {
+    pub license_key: String,
+    pub licensee_email: String,
+    pub tier: LicenseTier,
+    pub skills: Vec<String>,
+    pub grace: GraceState,
+    pub trial: bool,
+    pub expires_at: u64,
+    pub last_heartbeat: u64,
+    pub last_attempt: u64,
+}
+
+/// Aggregate diagnostic snapshot. Composed of per-license entries plus
+/// install-wide flags.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct LicenseStatus {
     /// Whether the licensing pipeline is wired up (real pubkey embedded).
     pub provisioned: bool,
-    /// Master license key, if any.
-    pub license_key: Option<String>,
-    /// Email on the cert, for support diagnostics.
-    pub licensee_email: Option<String>,
-    /// Tier on the cert (Trial / Individual / ActionPack / Msp / Enterprise).
-    pub tier: Option<LicenseTier>,
-    /// Skills the cert covers.
-    pub skills: Vec<String>,
-    /// Where the cert sits in its lifecycle (valid / renewal-soon / grace / lapsed).
-    pub grace: Option<GraceState>,
-    /// True when the cert is a 60-day trial.
-    pub trial: bool,
-    /// UNIX seconds when the cert hard-expires (before grace).
-    pub expires_at: Option<u64>,
-    /// Last successful heartbeat against the server, UNIX seconds.
-    pub last_heartbeat: u64,
-    /// Last attempted heartbeat, UNIX seconds.
-    pub last_attempt: u64,
+    /// One entry per active license_key on this install.
+    pub licenses: Vec<ActiveLicense>,
     /// Whether this install has already consumed its free trial (per
     /// local state — server still authoritative).
     pub trial_consumed: bool,
 }
+
+impl LicenseStatus {
+    /// True when at least one active license is present.
+    pub fn has_any_license(&self) -> bool {
+        !self.licenses.is_empty()
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Errors
+// ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
 pub enum ManagerError {
@@ -85,7 +104,13 @@ pub enum ManagerError {
     Verify(String),
     #[error("storage I/O: {0}")]
     Storage(#[from] std::io::Error),
+    #[error("license `{0}` not found locally — paste it via /api/tc/licensing/activate first")]
+    UnknownLocalLicense(String),
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Manager
+// ────────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct LicenseManager {
@@ -99,12 +124,24 @@ pub struct LicenseManager {
 
 struct Inner {
     state: LicensingState,
-    gate: Option<PremiumGate>,
+    /// Per-license active gate. Keyed by `license_key` for O(1) lookup
+    /// when refreshing or deactivating one specific license.
+    gates: HashMap<String, PremiumGate>,
+}
+
+impl Inner {
+    fn allows_skill_now(&self, skill_id: &str) -> bool {
+        self.gates
+            .values()
+            .any(|g| matches!(g.check(skill_id), super::GateDecision::Allowed { .. }))
+    }
 }
 
 impl LicenseManager {
     /// Constructor + initial state load. Always succeeds; on disk errors
-    /// the manager comes up with empty state and logs a warning.
+    /// the manager comes up with empty state and logs a warning. Reads
+    /// every cert under `licensing/certs/` and rebuilds one gate per
+    /// successfully-verified file.
     pub async fn bootstrap(client: LicenseClient) -> Self {
         let install_id = match storage::load_or_create_install_id() {
             Ok(id) => id,
@@ -121,10 +158,10 @@ impl LicenseManager {
         let agent_version = env!("CARGO_PKG_VERSION").to_string();
 
         let state = storage::read_state().unwrap_or_default();
-        let gate = load_gate_from_disk(&site_fingerprint);
+        let gates = load_gates_from_disk(&site_fingerprint);
 
         Self {
-            inner: Arc::new(RwLock::new(Inner { state, gate })),
+            inner: Arc::new(RwLock::new(Inner { state, gates })),
             client,
             install_id,
             site_fingerprint,
@@ -133,61 +170,59 @@ impl LicenseManager {
         }
     }
 
-    /// True if the in-memory gate currently allows the given premium
-    /// skill. Returns `false` for unprovisioned builds, missing cert, or
-    /// any denial reason. Cheap, suitable for hot paths in skill loading.
+    /// True if at least one in-memory gate currently allows the given
+    /// premium skill. Returns `false` for unprovisioned builds, missing
+    /// certs, or any denial reason. Cheap, suitable for hot paths in
+    /// skill loading.
     pub async fn allows_skill(&self, skill_id: &str) -> bool {
         if !super::is_provisioned() {
             return false;
         }
         let inner = self.inner.read().await;
-        match &inner.gate {
-            Some(gate) => matches!(gate.check(skill_id), super::GateDecision::Allowed { .. }),
-            None => false,
-        }
+        inner.allows_skill_now(skill_id)
     }
 
     /// Diagnostic snapshot for the dashboard.
     pub async fn status(&self) -> LicenseStatus {
         let inner = self.inner.read().await;
-        let mut out = LicenseStatus {
-            provisioned: super::is_provisioned(),
-            license_key: if inner.state.license_key.is_empty() {
-                None
-            } else {
-                Some(inner.state.license_key.clone())
-            },
-            licensee_email: None,
-            tier: None,
-            skills: vec![],
-            grace: None,
-            trial: false,
-            expires_at: None,
-            last_heartbeat: inner.state.last_heartbeat,
-            last_attempt: inner.state.last_attempt,
-            trial_consumed: inner.state.trial_consumed,
-        };
+        let mut licenses = Vec::with_capacity(inner.state.licenses.len());
+        let now = now_secs();
 
-        if let Some(gate) = &inner.gate {
-            out.licensee_email = Some(gate.licensee_email().to_string());
-            out.tier = Some(gate.tier());
-        }
-
-        // Re-read the persisted cert to extract the cert-level fields the
-        // gate doesn't expose (skills, expires_at). Cheap (sub-kB file).
-        if let Ok(Some(encoded)) = storage::read_cert() {
-            if let Ok(signed) = SignedLicense::decode(&encoded) {
-                out.skills = signed.cert.skills.clone();
-                out.expires_at = Some(signed.cert.expires_at);
-                out.trial = trial::is_trial(&signed.cert);
-                out.grace = Some(assess(&signed.cert, now_secs()));
+        for entry in &inner.state.licenses {
+            let mut active = ActiveLicense {
+                license_key: entry.license_key.clone(),
+                licensee_email: String::new(),
+                tier: LicenseTier::Individual, // overwritten below if cert present
+                skills: vec![],
+                grace: GraceState::Lapsed,
+                trial: false,
+                expires_at: 0,
+                last_heartbeat: entry.last_heartbeat,
+                last_attempt: entry.last_attempt,
+            };
+            if let Ok(Some(encoded)) = storage::read_cert(&entry.license_key) {
+                if let Ok(signed) = SignedLicense::decode(&encoded) {
+                    active.licensee_email = signed.cert.licensee.email.clone();
+                    active.tier = signed.cert.tier;
+                    active.skills = signed.cert.skills.clone();
+                    active.expires_at = signed.cert.expires_at;
+                    active.trial = trial::is_trial(&signed.cert);
+                    active.grace = assess(&signed.cert, now);
+                }
             }
+            licenses.push(active);
         }
-        out
+
+        LicenseStatus {
+            provisioned: super::is_provisioned(),
+            licenses,
+            trial_consumed: inner.state.trial_consumed,
+        }
     }
 
-    /// Activate against an existing license key. Used both for first
-    /// activation and after re-installation.
+    /// Activate a new license_key on this install, **adding** it to any
+    /// pre-existing licenses. Re-activating a key already present
+    /// behaves as a heartbeat refresh (idempotent).
     pub async fn activate(
         &self,
         license_key: &str,
@@ -232,98 +267,128 @@ impl LicenseManager {
         };
         let resp = self.client.start_trial(&req).await?;
         self.persist_cert(&resp).await?;
-        // Record consumption locally too — defense in depth.
-        trial::mark_consumed().ok();
+        // Defense-in-depth: also flag the install as trial-consumed.
+        let mut inner = self.inner.write().await;
+        inner.state.trial_consumed = true;
+        storage::write_state(&inner.state).ok();
+        drop(inner);
         Ok(self.status().await)
     }
 
-    /// Refresh the cert against the server. Called by the background
-    /// heartbeat task and by the dashboard "Refresh now" button.
-    pub async fn heartbeat(&self) -> Result<(), ManagerError> {
+    /// Refresh **one** license's cert against the server. If
+    /// `license_key` is `None`, refresh **every** active license (used
+    /// by the background heartbeat task). Per-license errors are
+    /// swallowed in the broadcast variant so one stale license doesn't
+    /// block the others.
+    pub async fn heartbeat(&self, license_key: Option<&str>) -> Result<(), ManagerError> {
         if !super::is_provisioned() {
             return Err(ManagerError::NotProvisioned);
         }
-        let license_key = {
+
+        let targets: Vec<String> = {
             let inner = self.inner.read().await;
-            inner.state.license_key.clone()
+            match license_key {
+                Some(k) if inner.state.find(k).is_some() => vec![k.to_string()],
+                Some(k) => return Err(ManagerError::UnknownLocalLicense(k.to_string())),
+                None => inner
+                    .state
+                    .licenses
+                    .iter()
+                    .map(|l| l.license_key.clone())
+                    .collect(),
+            }
         };
-        if license_key.is_empty() {
-            // No license configured — heartbeat is a silent no-op.
+
+        if targets.is_empty() {
             return Ok(());
         }
 
-        // Stamp the attempt timestamp upfront so even a failure shows up
-        // in /licensing/status as "last attempt: just now".
-        {
-            let mut inner = self.inner.write().await;
-            inner.state.last_attempt = now_secs();
-            storage::write_state(&inner.state).ok();
-        }
+        let mut last_err: Option<ManagerError> = None;
+        for key in &targets {
+            // Stamp the attempt upfront, even before the call.
+            {
+                let mut inner = self.inner.write().await;
+                if let Some(entry) = inner.state.find_mut(key) {
+                    entry.last_attempt = now_secs();
+                }
+                storage::write_state(&inner.state).ok();
+            }
 
-        let req = HeartbeatRequest {
-            license_key: &license_key,
-            install_id: &self.install_id,
-            site_fingerprint: &self.site_fingerprint,
-            agent_version: &self.agent_version,
-        };
-        match self.client.heartbeat(&req).await {
-            Ok(resp) => {
-                self.persist_cert(&resp).await?;
-                Ok(())
-            }
-            Err(ApiError::Rejected {
-                kind: ApiRejection::Revoked,
-                ..
-            })
-            | Err(ApiError::Rejected {
-                kind: ApiRejection::SubscriptionInactive,
-                ..
-            }) => {
-                // Terminal state — drop the cert, but keep license_key in
-                // state so the dashboard can show "subscription inactive,
-                // please renew" instead of pretending nothing happened.
-                tracing::warn!(license_key = %license_key, "licensing: heartbeat refused, dropping cert");
-                self.drop_cert_keep_key().await.ok();
-                Err(ManagerError::Api(ApiError::Rejected {
+            let req = HeartbeatRequest {
+                license_key: key,
+                install_id: &self.install_id,
+                site_fingerprint: &self.site_fingerprint,
+                agent_version: &self.agent_version,
+            };
+            match self.client.heartbeat(&req).await {
+                Ok(resp) => {
+                    if let Err(e) = self.persist_cert(&resp).await {
+                        tracing::warn!(license_key = %key, error = ?e, "heartbeat persist failed");
+                        last_err = Some(e);
+                    }
+                }
+                Err(ApiError::Rejected {
+                    kind: ApiRejection::Revoked,
+                    ..
+                })
+                | Err(ApiError::Rejected {
                     kind: ApiRejection::SubscriptionInactive,
-                    message: "subscription no longer active".into(),
-                }))
-            }
-            Err(e) => {
-                // Transient failures (network, 5xx) leave the existing
-                // cert intact — its 30-day window plus 90-day grace mean
-                // a few hours of API outage are invisible to the user.
-                tracing::debug!(error = ?e, "licensing: heartbeat failed (will retry)");
-                Err(ManagerError::Api(e))
+                    ..
+                }) => {
+                    tracing::warn!(license_key = %key, "heartbeat refused, dropping cert");
+                    self.drop_cert_keep_entry(key).await.ok();
+                    last_err = Some(ManagerError::Api(ApiError::Rejected {
+                        kind: ApiRejection::SubscriptionInactive,
+                        message: format!("subscription no longer active for {key}"),
+                    }));
+                }
+                Err(e) => {
+                    tracing::debug!(license_key = %key, error = ?e, "heartbeat transient failure");
+                    if license_key.is_some() {
+                        // Caller asked for one specific license — surface
+                        // the error directly instead of swallowing.
+                        return Err(ManagerError::Api(e));
+                    }
+                    last_err = Some(ManagerError::Api(e));
+                }
             }
         }
+        // For batch (None) heartbeats, don't fail the whole call if one
+        // license errored — others may have succeeded.
+        if license_key.is_some() {
+            return last_err.map(Err).unwrap_or(Ok(()));
+        }
+        Ok(())
     }
 
-    /// Tell the server to release this install's activation slot, then
-    /// wipe the local cert. Best-effort: if the server is unreachable
-    /// we still wipe locally so the user can move the license to another
-    /// machine without waiting for the API.
-    pub async fn deactivate(&self) -> Result<(), ManagerError> {
+    /// Tell the server to release **one** install/license slot, then
+    /// remove that license from local state. Best-effort: if the server
+    /// is unreachable we still wipe locally so the user can move the
+    /// license to another machine without waiting for the API.
+    pub async fn deactivate(&self, license_key: &str) -> Result<(), ManagerError> {
         if !super::is_provisioned() {
             return Err(ManagerError::NotProvisioned);
         }
-        let license_key = {
+        {
             let inner = self.inner.read().await;
-            inner.state.license_key.clone()
-        };
-        if !license_key.is_empty() {
-            let req = DeactivateRequest {
-                license_key: &license_key,
-                install_id: &self.install_id,
-            };
-            if let Err(e) = self.client.deactivate(&req).await {
-                tracing::warn!(error = ?e, "licensing: server deactivate failed, wiping local anyway");
+            if inner.state.find(license_key).is_none() {
+                return Err(ManagerError::UnknownLocalLicense(license_key.to_string()));
             }
         }
+
+        let req = DeactivateRequest {
+            license_key,
+            install_id: &self.install_id,
+        };
+        if let Err(e) = self.client.deactivate(&req).await {
+            tracing::warn!(license_key = %license_key, error = ?e, "server deactivate failed, wiping local anyway");
+        }
+
         let mut inner = self.inner.write().await;
-        inner.state = LicensingState::default();
-        inner.gate = None;
-        storage::clear_all()?;
+        inner.state.remove(license_key);
+        inner.gates.remove(license_key);
+        storage::write_state(&inner.state)?;
+        storage::remove_cert(license_key)?;
         Ok(())
     }
 
@@ -337,15 +402,15 @@ impl LicenseManager {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
-                if let Err(e) = me.heartbeat().await {
+                if let Err(e) = me.heartbeat(None).await {
                     tracing::debug!(error = ?e, "licensing: heartbeat tick failed");
                 }
             }
         })
     }
 
-    /// Verify the response cert and persist it both on disk and in the
-    /// in-memory gate.
+    /// Verify the cert returned by the server, persist it on disk
+    /// (under its license_key), and update the in-memory gate map.
     async fn persist_cert(&self, resp: &CertResponse) -> Result<(), ManagerError> {
         let signed =
             SignedLicense::decode(&resp.cert).map_err(|e| ManagerError::Verify(e.to_string()))?;
@@ -357,33 +422,29 @@ impl LicenseManager {
         let gate = PremiumGate::from_cert_str(&resp.cert, Some(self.site_fingerprint.clone()))
             .map_err(|e| ManagerError::Verify(e.to_string()))?;
 
-        storage::write_cert(&resp.cert)?;
+        storage::write_cert(&resp.license_key, &resp.cert)?;
 
         let now = now_secs();
         let mut inner = self.inner.write().await;
-        inner.state.license_key = resp.license_key.clone();
-        inner.state.last_heartbeat = now;
-        inner.state.last_attempt = now;
+        let entry = inner.state.upsert(&resp.license_key, now);
+        entry.last_heartbeat = now;
+        entry.last_attempt = now;
         if resp.trial {
             inner.state.trial_consumed = true;
         }
         storage::write_state(&inner.state)?;
-        inner.gate = Some(gate);
+        inner.gates.insert(resp.license_key.clone(), gate);
         Ok(())
     }
 
-    async fn drop_cert_keep_key(&self) -> std::io::Result<()> {
+    /// Drop the in-memory gate + on-disk cert for one license, but keep
+    /// the entry in `state.licenses` so the dashboard can show
+    /// "subscription inactive, please renew" instead of pretending the
+    /// license never existed.
+    async fn drop_cert_keep_entry(&self, license_key: &str) -> std::io::Result<()> {
         let mut inner = self.inner.write().await;
-        inner.gate = None;
-        // Wipe just the cert file; the state.json keeps license_key for
-        // dashboard messaging.
-        let dir = storage::licensing_dir()?;
-        let p = dir.join("cert.tcl");
-        match std::fs::remove_file(&p) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e),
-        }
+        inner.gates.remove(license_key);
+        storage::remove_cert(license_key)
     }
 }
 
@@ -404,26 +465,38 @@ fn read_hostname() -> String {
     "unknown-host".to_string()
 }
 
-/// On boot, try to rebuild a [`PremiumGate`] from the persisted cert.
-/// Returns `None` on any failure (missing cert, parse error, signature
-/// mismatch) — safe default: premium skills will be refused.
-fn load_gate_from_disk(site_fp: &str) -> Option<PremiumGate> {
+/// On boot, scan `licensing/certs/` and rebuild one gate per cert that
+/// successfully verifies. Failures (corrupted file, signature mismatch,
+/// site-fingerprint mismatch) are logged and skipped — we do not want
+/// one bad cert to deny every other valid license on the machine.
+fn load_gates_from_disk(site_fp: &str) -> HashMap<String, PremiumGate> {
+    let mut out = HashMap::new();
     if !super::is_provisioned() {
-        return None;
+        return out;
     }
-    let encoded = storage::read_cert().ok().flatten()?;
     let site = if site_fp.is_empty() {
         None
     } else {
         Some(site_fp.to_string())
     };
-    match PremiumGate::from_cert_str(&encoded, site) {
-        Ok(g) => Some(g),
+    let certs = match storage::read_all_certs() {
+        Ok(v) => v,
         Err(e) => {
-            tracing::warn!(error = ?e, "licensing: persisted cert failed to load");
-            None
+            tracing::warn!(error = ?e, "licensing: failed to enumerate certs");
+            return out;
+        }
+    };
+    for (key, encoded) in certs {
+        match PremiumGate::from_cert_str(&encoded, site.clone()) {
+            Ok(g) => {
+                out.insert(key, g);
+            }
+            Err(e) => {
+                tracing::warn!(license_key = %key, error = ?e, "licensing: persisted cert failed to load");
+            }
         }
     }
+    out
 }
 
 #[cfg(test)]
@@ -440,9 +513,8 @@ mod tests {
 
     #[tokio::test]
     async fn allows_skill_returns_false_without_a_cert() {
-        // No cert on disk → `inner.gate` is None → every skill is
-        // refused, regardless of provisioning state. This is the
-        // pristine-install behavior.
+        // No certs on disk → no gates → every skill is refused, regardless
+        // of provisioning state. This is the pristine-install behavior.
         let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
         assert!(!mgr.allows_skill("skill-velociraptor-actions").await);
     }
@@ -452,7 +524,28 @@ mod tests {
         let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
         let s = mgr.status().await;
         assert!(s.provisioned, "TRUSTED_PUBKEYS is now populated");
-        assert!(s.license_key.is_none());
-        assert!(s.tier.is_none());
+        assert!(s.licenses.is_empty());
+        assert!(!s.has_any_license());
+    }
+
+    #[tokio::test]
+    async fn deactivate_unknown_license_returns_typed_error() {
+        let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
+        let r = mgr.deactivate("TC-NEVER-SEEN-XXXX-XXXX").await;
+        assert!(matches!(r, Err(ManagerError::UnknownLocalLicense(_))));
+    }
+
+    #[tokio::test]
+    async fn heartbeat_for_unknown_license_returns_typed_error() {
+        let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
+        let r = mgr.heartbeat(Some("TC-NEVER-SEEN-XXXX-XXXX")).await;
+        assert!(matches!(r, Err(ManagerError::UnknownLocalLicense(_))));
+    }
+
+    #[tokio::test]
+    async fn heartbeat_with_no_licenses_is_a_noop() {
+        let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
+        // Empty state → no targets → nothing to do, nothing to fail.
+        assert!(mgr.heartbeat(None).await.is_ok());
     }
 }

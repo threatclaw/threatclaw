@@ -56,14 +56,14 @@ pub fn locally_consumed() -> bool {
 
 /// Bookkeeping after a trial start succeeds with the server.
 ///
-/// Persists the new `license_key`, marks the trial as consumed, and
-/// stamps the heartbeat clock so the background renewal task does not
-/// immediately fire a duplicate call.
+/// Appends the new `license_key` to the multi-license state, marks the
+/// trial as consumed, and stamps the heartbeat clock so the background
+/// renewal task does not immediately fire a duplicate call.
 pub fn record_trial_started(license_key: &str, now_secs: u64) -> std::io::Result<()> {
     let mut state = storage::read_state().unwrap_or_default();
-    state.license_key = license_key.to_string();
-    state.last_heartbeat = now_secs;
-    state.last_attempt = now_secs;
+    let entry = state.upsert(license_key, now_secs);
+    entry.last_heartbeat = now_secs;
+    entry.last_attempt = now_secs;
     state.trial_consumed = true;
     storage::write_state(&state)
 }
