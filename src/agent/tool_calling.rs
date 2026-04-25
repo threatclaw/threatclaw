@@ -31,9 +31,9 @@ pub fn tool_required_skill(tool_name: &str) -> Option<&'static str> {
         | "velociraptor_isolate_host" => Some("skill-velociraptor-actions"),
 
         // ── Future premium skills (placeholders) ──
-        "opnsense_block_ip"
-        | "opnsense_kill_states"
-        | "opnsense_quarantine_mac" => Some("skill-opnsense-actions"),
+        "opnsense_block_ip" | "opnsense_kill_states" | "opnsense_quarantine_mac" => {
+            Some("skill-opnsense-actions")
+        }
         "fortinet_block_ip" | "fortinet_block_url" => Some("skill-fortinet-actions"),
         "ad_disable_account" | "ad_reset_password" => Some("skill-ad-remediation"),
 
@@ -813,7 +813,11 @@ mod tests {
     #[tokio::test]
     async fn test_check_tool_license_free_tools_pass_with_no_manager() {
         // No license manager + free tool → must succeed.
-        assert!(check_tool_license("get_security_status", None).await.is_ok());
+        assert!(
+            check_tool_license("get_security_status", None)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -829,9 +833,9 @@ mod tests {
     async fn test_check_tool_license_premium_fails_with_no_cert() {
         // Manager exists but no license activated → still denied.
         let mgr = Arc::new(
-            crate::licensing::LicenseManager::bootstrap(
-                crate::licensing::LicenseClient::new("https://unused.invalid"),
-            )
+            crate::licensing::LicenseManager::bootstrap(crate::licensing::LicenseClient::new(
+                "https://unused.invalid",
+            ))
             .await,
         );
         let r = check_tool_license("opnsense_block_ip", Some(&mgr)).await;
