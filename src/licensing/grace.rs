@@ -10,10 +10,13 @@
 //! of a payment-provider hiccup. Warnings escalate over the grace window,
 //! and only after full expiry does enforcement kick in.
 
+use serde::{Deserialize, Serialize};
+
 use super::cert::LicenseCert;
 
 /// Where a license stands relative to its lifecycle at a given moment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GraceState {
     /// Cert is valid, no action needed.
     Valid,

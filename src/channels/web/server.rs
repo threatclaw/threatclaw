@@ -179,6 +179,10 @@ pub struct GatewayState {
     pub startup_time: std::time::Instant,
     /// Shared HITL nonce manager — anti-replay for approval buttons.
     pub hitl_nonce_manager: Arc<crate::agent::hitl_nonce::NonceManager>,
+    /// Premium-skill licensing manager — owns the in-memory gate, the
+    /// install-id, and the heartbeat task. `None` when the binary boots
+    /// outside the standard server entrypoint (tests, dispatcher).
+    pub license_manager: Option<Arc<crate::licensing::LicenseManager>>,
 }
 
 /// Start the gateway HTTP server.
@@ -388,6 +392,27 @@ pub async fn start_server(
         .route(
             "/api/tc/metrics",
             get(super::handlers::threatclaw_api::dashboard_metrics_handler),
+        )
+        // ── Premium-skill licensing ──
+        .route(
+            "/api/tc/licensing/status",
+            get(super::handlers::licensing_api::status_handler),
+        )
+        .route(
+            "/api/tc/licensing/activate",
+            post(super::handlers::licensing_api::activate_handler),
+        )
+        .route(
+            "/api/tc/licensing/trial/start",
+            post(super::handlers::licensing_api::trial_start_handler),
+        )
+        .route(
+            "/api/tc/licensing/heartbeat",
+            post(super::handlers::licensing_api::heartbeat_handler),
+        )
+        .route(
+            "/api/tc/licensing/deactivate",
+            post(super::handlers::licensing_api::deactivate_handler),
         )
         // Agent control
         .route(
@@ -3993,6 +4018,7 @@ mod tests {
             hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(
                 std::time::Duration::from_secs(3600),
             )),
+            license_manager: None,
         })
     }
 

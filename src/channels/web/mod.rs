@@ -106,6 +106,7 @@ impl GatewayChannel {
             hitl_nonce_manager: Arc::new(crate::agent::hitl_nonce::NonceManager::new(
                 std::time::Duration::from_secs(3600),
             )),
+            license_manager: None,
         });
 
         Self {
@@ -144,6 +145,7 @@ impl GatewayChannel {
             routine_engine: Arc::clone(&self.state.routine_engine),
             startup_time: self.state.startup_time,
             hitl_nonce_manager: Arc::clone(&self.state.hitl_nonce_manager),
+            license_manager: self.state.license_manager.clone(),
         };
         mutate(&mut new_state);
         self.state = Arc::new(new_state);
@@ -228,6 +230,15 @@ impl GatewayChannel {
     /// Inject the skill catalog for skill search API.
     pub fn with_skill_catalog(mut self, sc: Arc<SkillCatalog>) -> Self {
         self.rebuild_state(|s| s.skill_catalog = Some(sc));
+        self
+    }
+
+    /// Inject the premium-skill licensing manager.
+    pub fn with_license_manager(
+        mut self,
+        lm: Arc<crate::licensing::LicenseManager>,
+    ) -> Self {
+        self.rebuild_state(|s| s.license_manager = Some(lm));
         self
     }
 

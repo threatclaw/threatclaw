@@ -522,6 +522,20 @@ async fn async_main() -> anyhow::Result<()> {
             gw = gw.with_skill_catalog(Arc::clone(sc));
         }
         gw = gw.with_cost_guard(Arc::clone(&components.cost_guard));
+
+        // Premium-skill licensing — bootstrap the manager (loads any
+        // persisted cert) and spawn the background heartbeat task. Safe
+        // to construct unconditionally: every entry point is gated on
+        // `is_provisioned()`, so when `TRUSTED_PUBKEYS` are still
+        // placeholders the manager is functionally inert.
+        let license_manager: Arc<threatclaw::licensing::LicenseManager> = Arc::new(
+            threatclaw::licensing::LicenseManager::bootstrap(
+                threatclaw::licensing::LicenseClient::from_env(),
+            )
+            .await,
+        );
+        let _heartbeat_task = license_manager.spawn_heartbeat();
+        gw = gw.with_license_manager(Arc::clone(&license_manager));
         if config.sandbox.enabled {
             gw = gw.with_prompt_queue(Arc::clone(&prompt_queue));
 
