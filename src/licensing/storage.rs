@@ -42,7 +42,9 @@ thread_local! {
 
 #[cfg(test)]
 fn current_base_dir() -> PathBuf {
-    TEST_BASE_DIR.with(|d| d.borrow().clone()).unwrap_or_else(threatclaw_base_dir)
+    TEST_BASE_DIR
+        .with(|d| d.borrow().clone())
+        .unwrap_or_else(threatclaw_base_dir)
 }
 
 #[cfg(not(test))]

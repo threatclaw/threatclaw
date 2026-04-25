@@ -347,8 +347,8 @@ impl LicenseManager {
     /// Verify the response cert and persist it both on disk and in the
     /// in-memory gate.
     async fn persist_cert(&self, resp: &CertResponse) -> Result<(), ManagerError> {
-        let signed = SignedLicense::decode(&resp.cert)
-            .map_err(|e| ManagerError::Verify(e.to_string()))?;
+        let signed =
+            SignedLicense::decode(&resp.cert).map_err(|e| ManagerError::Verify(e.to_string()))?;
         verify_license(&signed).map_err(|e| ManagerError::Verify(e.to_string()))?;
 
         // Build the gate up front so a bad cert (e.g. site_fingerprint

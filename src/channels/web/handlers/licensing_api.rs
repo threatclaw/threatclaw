@@ -23,7 +23,7 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::channels::web::server::GatewayState;
-use crate::licensing::{ApiError, ApiRejection, LicenseStatus, LicenseManager, ManagerError};
+use crate::licensing::{ApiError, ApiRejection, LicenseManager, LicenseStatus, ManagerError};
 
 type ApiResult<T> = Result<Json<T>, (StatusCode, String)>;
 
@@ -85,9 +85,7 @@ fn manager(state: &Arc<GatewayState>) -> Result<Arc<LicenseManager>, (StatusCode
 
 // ── Status ──────────────────────────────────────────────────────────
 
-pub async fn status_handler(
-    State(state): State<Arc<GatewayState>>,
-) -> ApiResult<LicenseStatus> {
+pub async fn status_handler(State(state): State<Arc<GatewayState>>) -> ApiResult<LicenseStatus> {
     // Status is readable even when the manager is absent — degrade
     // gracefully instead of returning 503.
     if let Some(mgr) = state.license_manager.clone() {
@@ -197,6 +195,7 @@ pub async fn deactivate_handler(
     let mgr = manager(&state)?;
     mgr.deactivate().await.map_err(manager_err)?;
     Ok(Json(DeactivateResponse {
-        message: "license deactivated locally — activation slot released on the license server".into(),
+        message: "license deactivated locally — activation slot released on the license server"
+            .into(),
     }))
 }

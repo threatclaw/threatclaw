@@ -234,10 +234,7 @@ impl GatewayChannel {
     }
 
     /// Inject the premium-skill licensing manager.
-    pub fn with_license_manager(
-        mut self,
-        lm: Arc<crate::licensing::LicenseManager>,
-    ) -> Self {
+    pub fn with_license_manager(mut self, lm: Arc<crate::licensing::LicenseManager>) -> Self {
         self.rebuild_state(|s| s.license_manager = Some(lm));
         self
     }

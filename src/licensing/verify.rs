@@ -109,7 +109,9 @@ mod tests {
     fn signature_verifies_when_any_slot_matches() {
         // PRIMARY is unrelated, EMERGENCY is the actual signer — verifier
         // must still accept (the whole point of multi-pubkey).
-        let other = SigningKey::from_bytes(&[7u8; 32]).verifying_key().to_bytes();
+        let other = SigningKey::from_bytes(&[7u8; 32])
+            .verifying_key()
+            .to_bytes();
         let real = SigningKey::from_bytes(&[2u8; 32]);
         let real_pk = real.verifying_key().to_bytes();
 
@@ -123,8 +125,12 @@ mod tests {
         let issuer = SigningKey::from_bytes(&[3u8; 32]);
         let signed = sample_signed(&issuer);
 
-        let unrelated_a = SigningKey::from_bytes(&[8u8; 32]).verifying_key().to_bytes();
-        let unrelated_b = SigningKey::from_bytes(&[9u8; 32]).verifying_key().to_bytes();
+        let unrelated_a = SigningKey::from_bytes(&[8u8; 32])
+            .verifying_key()
+            .to_bytes();
+        let unrelated_b = SigningKey::from_bytes(&[9u8; 32])
+            .verifying_key()
+            .to_bytes();
 
         let trust_set = [unrelated_a, unrelated_b];
         assert!(matches!(

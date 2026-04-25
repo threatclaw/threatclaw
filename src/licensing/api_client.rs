@@ -23,10 +23,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 /// User-Agent string. Lets the operator distinguish agent versions in
 /// the Worker access logs without leaking client identity.
 fn user_agent() -> String {
-    format!(
-        "threatclaw/{} (licensing; rust)",
-        env!("CARGO_PKG_VERSION")
-    )
+    format!("threatclaw/{} (licensing; rust)", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,10 +37,7 @@ pub enum ApiError {
     Transient { status: u16, message: String },
     /// Server explicitly rejected the request — no retry will help.
     #[error("license server rejected the request: {kind} ({message})")]
-    Rejected {
-        kind: ApiRejection,
-        message: String,
-    },
+    Rejected { kind: ApiRejection, message: String },
     /// Couldn't deserialize the response body. Treat as a server bug.
     #[error("malformed response from license server: {0}")]
     BadResponse(String),
