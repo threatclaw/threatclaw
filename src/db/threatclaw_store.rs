@@ -265,6 +265,39 @@ pub struct AssetCategory {
     pub is_builtin: bool,
 }
 
+// ── Scan schedule records (V52__scan_schedules.sql) ──
+
+/// One row from the `scan_schedules` table — a recurring scan plan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanSchedule {
+    pub id: i64,
+    pub scan_type: String,
+    pub target: String,
+    pub name: Option<String>,
+    pub frequency: String, // hourly | daily | weekly | monthly
+    pub minute: i32,
+    pub hour: Option<i32>,
+    pub day_of_week: Option<i32>,
+    pub day_of_month: Option<i32>,
+    pub enabled: bool,
+    pub last_run_at: Option<String>,
+    pub next_run_at: String,
+    pub created_at: String,
+    pub created_by: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NewScanSchedule {
+    pub scan_type: String,
+    pub target: String,
+    pub name: Option<String>,
+    pub frequency: String,
+    pub minute: i32,
+    pub hour: Option<i32>,
+    pub day_of_week: Option<i32>,
+    pub day_of_month: Option<i32>,
+}
+
 // ── Scan queue records ──
 
 /// One row from the `scan_queue` table — represents a queued/running/done
@@ -547,6 +580,46 @@ pub trait ThreatClawStore: Send + Sync {
         _scan_type: Option<&str>,
     ) -> Result<i64, DatabaseError> {
         Ok(0)
+    }
+
+    // ── Scan schedules (V52__scan_schedules.sql) ──
+
+    async fn create_scan_schedule(
+        &self,
+        _req: &NewScanSchedule,
+        _next_run_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Err(DatabaseError::Query(
+            "scan schedules require postgres".into(),
+        ))
+    }
+
+    async fn list_scan_schedules(&self) -> Result<Vec<ScanSchedule>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn delete_scan_schedule(&self, _id: i64) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn toggle_scan_schedule(&self, _id: i64, _enabled: bool) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    /// Tick worker: rows whose next_run_at <= now AND enabled = true.
+    /// Returned in oldest-first order so a backlog drains predictably.
+    async fn fetch_due_scan_schedules(&self) -> Result<Vec<ScanSchedule>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// After enqueueing a scan, update last_run_at = now and next_run_at
+    /// to the new computed value.
+    async fn bump_scan_schedule(
+        &self,
+        _id: i64,
+        _next_run_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
     }
 
     // Skill configs
