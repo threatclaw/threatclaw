@@ -15,6 +15,7 @@ import {
   Search,
   Server,
   Users,
+  Bot,
   Brain,
   Shield,
   ShieldAlert,
@@ -98,10 +99,11 @@ export const SECTIONS: Record<SectionKey, Section> = {
   investigation: {
     key: "investigation",
     label: () => "Investigation",
-    matches: ["/intelligence", "/governance"],
+    matches: ["/intelligence", "/governance", "/shadow-ai"],
     items: [
       { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
       { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance", icon: Shield },
+      { href: "/shadow-ai", labelFr: "Shadow IA", labelEn: "Shadow AI", icon: Bot },
     ],
   },
   skills: {
