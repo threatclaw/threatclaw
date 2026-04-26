@@ -8,52 +8,52 @@ Earlier `v0.x` entries below reflect pre-public internal development and are kep
 
 ## [1.0.13-beta] — 2026-04-26
 
-Réécriture complète du modèle commercial HITL et passage d'OPNsense
-au statut de vraie source SIEM. Toutes les actions destructives passent
-désormais derrière une licence unique "Action Pack", et trois nouveaux
-détecteurs (volumétrique, Sigma single-shot, EDR Velociraptor) couvrent
-le réseau et le poste de travail.
+Full rework of the HITL commercial model and OPNsense promoted to a
+real SIEM source. All destructive actions now sit behind a single
+"Action Pack" license, and three new detectors (volumetric, single-shot
+Sigma, Velociraptor EDR) cover both the network and the endpoint.
 
 ### Added
-- **Doctrine "Action Pack" unique** — une licence (199 €/an) débloque
-  toutes les actions destructives HITL sur tous les skills. Page
-  `/licensing` refondue, gate exécutoire sur tous les chemins
-  d'exécution (dashboard `/api/tc/incidents/{id}/execute-action`,
-  bridges Slack/Telegram), retour HTTP 402 sans licence.
-- **Velociraptor — 3 actions HITL** : `quarantine_endpoint`,
-  `kill_process`, `isolate_host`. Canal mTLS séparé avec un api_client
-  rôle administrator. Artefact custom `ThreatClaw.Remediation.ProcessKill`
-  versionné (Velociraptor 0.76 n'a pas de ProcessKill upstream).
-- **OPNsense en source SIEM** — 12 endpoints REST consommés (firewall
-  log, PF states, sessions OpenVPN/WireGuard/IPsec, audit, gateway,
-  aliases, system info), table `firewall_events` rolling 24 h, split
-  des manifestes pfSense / OPNsense.
-- **Détecteur firewall agrégé** — port scan (25+ ports / 10+ hosts en
-  5 min depuis IP externe) et brute force SSH/RDP/SMB (30+ blocks),
-  CRITICAL si la source est interne (compromission latérale).
-- **5 règles Sigma firewall** (V56) — backdoor port (4444 Meta, 31337,
-  6667, 23, 1337), RDP/SMB inbound, amplification UDP, ports
-  cryptomining. Tirées sur `firewall_events` mirrorés dans `logs`.
-- **Page `/scans` dédiée** — 4 onglets (Lancer / Historique / Planifiés
-  / Bibliothèque), 9 types (nmap, trivy, syft, lynis, docker_bench,
-  semgrep, checkov, trufflehog, zap), scheduler V52 réel.
-- **Catalogue skills WordPress-style** — un seul flux groupé par
-  catégorie, badge "Installé" au lieu d'apparition/disparition,
-  panneau HITL avec credentials privilégiés séparés.
+- **"Action Pack" doctrine** — one license (199 €/year) unlocks every
+  HITL destructive action across every skill. `/licensing` page
+  rebuilt; license gate enforced on every execution path
+  (`/api/tc/incidents/{id}/execute-action` dashboard handler,
+  Slack/Telegram bridges); HTTP 402 returned when missing.
+- **Velociraptor HITL trio** — `quarantine_endpoint`, `kill_process`,
+  `isolate_host`. Separate mTLS channel for an administrator-role
+  api_client. Custom artifact `ThreatClaw.Remediation.ProcessKill`
+  shipped in-tree (Velociraptor 0.76 has no upstream ProcessKill).
+- **OPNsense as a SIEM source** — 12 REST endpoints consumed
+  (firewall log, PF states, OpenVPN/WireGuard/IPsec sessions, audit,
+  gateway, aliases, system info), 24 h rolling `firewall_events`
+  table, pfSense / OPNsense manifests split.
+- **Aggregate firewall detector** — port scan (25+ ports or 10+ hosts
+  in 5 min from one external IP) and SSH/RDP/SMB brute force (30+
+  blocks). CRITICAL when the source is internal (lateral movement).
+- **5 Sigma firewall rules** (V56) — backdoor port hits (4444, 31337,
+  6667, 23, 1337), RDP/SMB inbound, UDP amplification, cryptomining
+  proxy ports. Match against `firewall_events` mirrored into `logs`.
+- **Dedicated `/scans` page** — 4 tabs (Launch / History / Scheduled
+  / Library), 9 scan types (nmap, trivy, syft, lynis, docker_bench,
+  semgrep, checkov, trufflehog, zap), real V52 scheduler.
+- **WordPress-style skill catalogue** — single grouped feed per
+  category, "Installed" badge instead of appearance/disappearance,
+  HITL panel with separate privileged credential fields.
 
 ### Changed
-- Refactor `tool_calling.rs` : remplace `tool_required_skill` (per-skill)
-  par `tool_requires_hitl` (boolean). `LicenseManager.allows_hitl()`
-  reconnaît le marker moderne `hitl` et les anciens `skill-*-actions`
-  pour la transition.
-- `extract_compromised_user` câblé sur `AlertRecord.username` (Wazuh
-  Windows logon décodé) — débloque `disable_account` / `reset_password`.
+- `tool_calling.rs` refactor: replaced `tool_required_skill`
+  (per-skill) with `tool_requires_hitl` (boolean).
+  `LicenseManager.allows_hitl()` recognizes both the modern `hitl`
+  marker and legacy `skill-*-actions` tokens for the transition.
+- `extract_compromised_user` wired onto `AlertRecord.username`
+  (decoded Wazuh Windows logon events) — unblocks
+  `disable_account` and `reset_password`.
 
 ### Fixed
-- `insert_firewall_events` (PG) avait l'impl par défaut `Ok(0)` —
-  les events ingérés depuis OPNsense tombaient dans le vide.
-- Stripe live mode : webhook secret poussé sur le worker Cloudflare,
-  site marketing pointe vers le Payment Link production.
+- `insert_firewall_events` (PG) was using the default trait impl
+  (`Ok(0)`) — events ingested from OPNsense were silently dropped.
+- Stripe live mode: webhook secret pushed to the Cloudflare Worker,
+  marketing site now points at the production Payment Link.
 
 ---
 
