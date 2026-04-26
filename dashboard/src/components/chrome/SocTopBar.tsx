@@ -31,6 +31,7 @@ const NAV: NavEntry[] = [
   { href: "/assets", label: (l) => (l === "fr" ? "Inventaire" : "Inventory") },
   { href: "/intelligence", label: () => "Investigation" },
   { href: "/skills", label: () => "Skills" },
+  { href: "/scans", label: () => "Scans" },
   { href: "/exports", label: (l) => (l === "fr" ? "Rapports" : "Reports") },
   { href: "/setup", label: () => "Config" },
 ];

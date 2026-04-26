@@ -393,6 +393,19 @@ pub async fn start_server(
             "/api/tc/metrics",
             get(super::handlers::threatclaw_api::dashboard_metrics_handler),
         )
+        // ── Scans (V51 scan_queue) ──
+        .route(
+            "/api/tc/scans",
+            get(super::handlers::threatclaw_api::scans_list_handler),
+        )
+        .route(
+            "/api/tc/scans/queue",
+            post(super::handlers::threatclaw_api::scans_enqueue_handler),
+        )
+        .route(
+            "/api/tc/scans/asset/{asset_id}",
+            get(super::handlers::threatclaw_api::scans_for_asset_handler),
+        )
         // ── Premium-skill licensing ──
         .route(
             "/api/tc/licensing/status",

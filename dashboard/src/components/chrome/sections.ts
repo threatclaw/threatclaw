@@ -71,6 +71,7 @@ export type SectionKey =
   | "inventaire"
   | "investigation"
   | "skills"
+  | "scans"
   | "rapports"
   | "setup";
 
@@ -124,6 +125,17 @@ export const SECTIONS: Record<SectionKey, Section> = {
         ],
       },
       { href: "/setup?tab=licenses", labelFr: "Mes licences", labelEn: "My licenses", icon: Lock },
+    ],
+  },
+  scans: {
+    key: "scans",
+    label: () => "Scans",
+    matches: ["/scans"],
+    items: [
+      { href: "/scans", labelFr: "Lancer un scan", labelEn: "Launch scan", icon: Play },
+      { href: "/scans?tab=history", labelFr: "Historique", labelEn: "History", icon: Clock },
+      { href: "/scans?tab=scheduled", labelFr: "Planifiés", labelEn: "Scheduled", icon: Bell },
+      { href: "/scans?tab=library", labelFr: "Bibliothèque", labelEn: "Library", icon: Puzzle },
     ],
   },
   rapports: {
