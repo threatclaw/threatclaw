@@ -194,6 +194,14 @@ pub async fn tc_health_handler(
                     tracing::info!("AUTO-START: Connector Sync Scheduler started");
                 }
 
+                // Start Scan Worker Pool (passive enrichment via scan_queue)
+                static SCAN_WORKERS_RUNNING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !SCAN_WORKERS_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    crate::scans::spawn_scan_workers(store_clone.clone());
+                    tracing::info!("AUTO-START: Scan Worker Pool started");
+                }
+
                 // Start Telegram Bot (if configured)
                 if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     // Check if Telegram is configured
