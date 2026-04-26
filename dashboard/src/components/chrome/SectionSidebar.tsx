@@ -12,6 +12,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useLocale } from "@/lib/useLocale";
 import { sectionForPath, subNavLabel, type SubNavItem } from "./sections";
 
@@ -62,16 +63,25 @@ export function SectionSidebar() {
 
   if (!section) return null;
 
+  // Flatten parent + children to know about every sibling/descendant when
+  // deciding which plain-path item should light up. A parent like
+  // `/skills` should NOT highlight when we're on `/skills?cat=network`
+  // because the child item owns that state.
+  const flatItems: SubNavItem[] = [];
+  for (const it of section.items) {
+    flatItems.push(it);
+    if (it.children) flatItems.push(...it.children);
+  }
+
   const isActive = (href: string) => {
     const [targetPath, targetQs] = href.split("?", 2);
     if (pathname !== targetPath && !pathname.startsWith(targetPath + "/")) {
       return false;
     }
     if (!targetQs) {
-      // Plain-path item: active only when no sibling tab-qualified item
-      // is currently matched (so /skills doesn't light up when we're on
-      // /skills?tab=catalog — that's another item's job).
-      const tabScoped = section.items.some((i) => {
+      // Plain-path item: active only when no sibling/child query-qualified
+      // item is currently matched.
+      const tabScoped = flatItems.some((i) => {
         const [p, q] = i.href.split("?", 2);
         if (!q) return false;
         return (
@@ -118,11 +128,11 @@ export function SectionSidebar() {
       </div>
       <nav style={{ display: "flex", flexDirection: "column" }}>
         {section.items.map((item) => (
-          <SidebarItem
+          <SidebarBranch
             key={item.href}
             item={item}
             locale={locale}
-            active={isActive(item.href)}
+            isActive={isActive}
           />
         ))}
       </nav>
@@ -130,28 +140,85 @@ export function SectionSidebar() {
   );
 }
 
+function SidebarBranch({
+  item,
+  locale,
+  isActive,
+}: {
+  item: SubNavItem;
+  locale: "fr" | "en";
+  isActive: (href: string) => boolean;
+}) {
+  const hasChildren = !!item.children?.length;
+  const selfActive = isActive(item.href);
+  const childActive = hasChildren && item.children!.some((c) => isActive(c.href));
+  // Auto-expand when parent or any child is active. The `?installed=1`
+  // sibling page (Mes skills installés) shouldn't pull the catalog open,
+  // so we only expand on self/child match — not on bare /skills hits.
+  const expanded = selfActive || childActive;
+
+  return (
+    <>
+      <SidebarItem
+        item={item}
+        locale={locale}
+        active={selfActive}
+        hasChildren={hasChildren}
+        expanded={expanded}
+        depth={0}
+      />
+      {hasChildren && expanded && (
+        <div>
+          {item.children!.map((child) => (
+            <SidebarItem
+              key={child.href}
+              item={child}
+              locale={locale}
+              active={isActive(child.href)}
+              hasChildren={false}
+              expanded={false}
+              depth={1}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function SidebarItem({
   item,
   locale,
   active,
+  hasChildren,
+  expanded,
+  depth,
 }: {
   item: SubNavItem;
   locale: "fr" | "en";
   active: boolean;
+  hasChildren: boolean;
+  expanded: boolean;
+  depth: number;
 }) {
   const Icon = item.icon;
+  const Chevron = expanded ? ChevronDown : ChevronRight;
   return (
     <Link
       href={item.href}
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "10px",
+        gap: "8px",
         width: "100%",
-        padding: "9px 18px",
+        padding: depth === 0 ? "9px 18px" : "7px 18px 7px 38px",
         background: active ? "var(--tc-red-soft)" : "transparent",
-        color: active ? "var(--tc-red)" : "var(--tc-text-sec)",
-        fontSize: "11px",
+        color: active
+          ? "var(--tc-red)"
+          : depth === 0
+            ? "var(--tc-text-sec)"
+            : "var(--tc-text-muted)",
+        fontSize: depth === 0 ? "11px" : "10.5px",
         fontWeight: active ? 700 : 500,
         textDecoration: "none",
         letterSpacing: "0.02em",
@@ -168,7 +235,12 @@ function SidebarItem({
         if (!active) e.currentTarget.style.background = "transparent";
       }}
     >
-      <Icon size={13} />
+      {hasChildren ? (
+        <Chevron size={12} style={{ flexShrink: 0 }} />
+      ) : depth === 0 ? null : (
+        <span style={{ width: "12px", flexShrink: 0 }} />
+      )}
+      <Icon size={depth === 0 ? 13 : 12} style={{ flexShrink: 0 }} />
       <span>{subNavLabel(item, locale)}</span>
     </Link>
   );

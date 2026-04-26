@@ -39,6 +39,8 @@ import {
   Crosshair,
   Zap,
   Lock,
+  Network,
+  Database,
 } from "lucide-react";
 
 export type SubNavItem = {
@@ -49,6 +51,9 @@ export type SubNavItem = {
   labelFr: string;
   labelEn: string;
   icon: LucideIcon;
+  /// Optional nested submenu — rendered indented and auto-expanded when
+  /// the parent or any child is the active route.
+  children?: SubNavItem[];
 };
 
 export type Section = {
@@ -103,12 +108,21 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Skills",
     matches: ["/skills"],
     items: [
-      { href: "/skills?tab=installed", labelFr: "Mes skills installés", labelEn: "My installed skills", icon: Puzzle },
-      { href: "/skills?tab=catalog", labelFr: "Catalogue — tous", labelEn: "Catalog — all", icon: Search },
-      { href: "/skills?tab=catalog&cat=connectors", labelFr: "Connecteurs", labelEn: "Connectors", icon: Plug },
-      { href: "/skills?tab=catalog&cat=intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
-      { href: "/skills?tab=catalog&cat=tools", labelFr: "Outils & scan", labelEn: "Tools & scan", icon: Crosshair },
-      { href: "/skills?tab=catalog&cat=actions", labelFr: "Actions (premium)", labelEn: "Actions (premium)", icon: Zap },
+      { href: "/skills?installed=1", labelFr: "Mes skills installés", labelEn: "My installed skills", icon: Puzzle },
+      {
+        href: "/skills",
+        labelFr: "Catalogue",
+        labelEn: "Catalog",
+        icon: Search,
+        children: [
+          { href: "/skills?cat=network", labelFr: "Réseau", labelEn: "Network", icon: Network },
+          { href: "/skills?cat=endpoints", labelFr: "Endpoints", labelEn: "Endpoints", icon: Monitor },
+          { href: "/skills?cat=inventory", labelFr: "Inventaire", labelEn: "Inventory", icon: Database },
+          { href: "/skills?cat=scan", labelFr: "Scan", labelEn: "Scan", icon: Crosshair },
+          { href: "/skills?cat=threat-intel", labelFr: "Threat Intel", labelEn: "Threat Intel", icon: Eye },
+          { href: "/skills?cat=web", labelFr: "Web", labelEn: "Web", icon: Globe },
+        ],
+      },
       { href: "/setup?tab=licenses", labelFr: "Mes licences", labelEn: "My licenses", icon: Lock },
     ],
   },
