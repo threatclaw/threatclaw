@@ -451,6 +451,91 @@ pub async fn skill_config_set_handler(
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
 
+// ── Scan queue (V51 scan_queue) ──
+
+#[derive(Debug, Deserialize)]
+pub struct ScansListQuery {
+    pub status: Option<String>,
+    pub scan_type: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+pub async fn scans_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<ScansListQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let status = q.status.as_deref();
+    let scan_type = q.scan_type.as_deref();
+    let scans = store
+        .list_scans(status, scan_type, limit, offset)
+        .await
+        .map_err(db_err)?;
+    let total = store.count_scans(status, scan_type).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "scans": scans,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    })))
+}
+
+pub async fn scans_for_asset_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(asset_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let scans = store
+        .recent_scans_for_asset(&asset_id, 20)
+        .await
+        .map_err(db_err)?;
+    let running = store
+        .has_running_scan_for_asset(&asset_id)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "scans": scans,
+        "running": running,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScansEnqueueRequest {
+    pub target: String,
+    pub scan_type: String,
+    pub asset_id: Option<String>,
+    /// 0 means "force scan now, ignore TTL dedup".
+    pub ttl_seconds: Option<i32>,
+}
+
+pub async fn scans_enqueue_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<ScansEnqueueRequest>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let new_req = crate::db::threatclaw_store::NewScanRequest {
+        target: req.target,
+        scan_type: req.scan_type,
+        asset_id: req.asset_id,
+        requested_by: "manual:rssi".into(),
+        ttl_seconds: req.ttl_seconds.or(Some(0)),
+    };
+    let id = store.enqueue_scan(&new_req).await.map_err(db_err)?;
+    match id {
+        Some(scan_id) => Ok(Json(serde_json::json!({
+            "queued": true,
+            "scan_id": scan_id,
+        }))),
+        None => Ok(Json(serde_json::json!({
+            "queued": false,
+            "reason": "dedup: a recent scan already exists within the TTL window",
+        }))),
+    }
+}
+
 // ── Dashboard Metrics ──
 
 pub async fn dashboard_metrics_handler(

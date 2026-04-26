@@ -199,7 +199,11 @@ export default function SkillsPage() {
       ]);
       const catData = catRes.ok ? await catRes.json() : { skills: [] };
       const skillsData = skillsRes.ok ? await skillsRes.json() : { config: [] };
-      const allList: SkillManifest[] = catData.skills || [];
+      // Tool-type skills (Nmap, Trivy, Lynis, ...) live on /scans now —
+      // filter them out of the /skills catalogue so this page only shows
+      // connectors (= sources of data the operator wires once).
+      const rawList: SkillManifest[] = catData.skills || [];
+      const allList: SkillManifest[] = rawList.filter((s) => s.type !== "tool");
       const validIds = new Set(allList.map((s) => s.id));
 
       const active = new Set<string>();
