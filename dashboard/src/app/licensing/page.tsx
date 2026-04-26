@@ -313,7 +313,7 @@ export default function LicensingPage() {
             )}
             {hasAny && !showAddForm && !showTrialForm && (
               <p style={{ margin: "0 0 12px", fontSize: 14 }}>
-                Vous avez acheté un autre skill premium ? Activez sa clé ici.
+                Vous avez acheté une autre licence ? Activez sa clé ici.
               </p>
             )}
 
