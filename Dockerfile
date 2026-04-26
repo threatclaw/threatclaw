@@ -60,7 +60,16 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libssl3 postgresql-client curl \
+    docker.io nmap \
     && rm -rf /var/lib/apt/lists/*
+
+# `docker.io` ships the CLI client. The daemon stays on the host;
+# the threatclaw-core container talks to it via DOCKER_HOST=tcp://docker-proxy:2375
+# (see docker/docker-compose.yml). Without the CLI binary, src/connectors/docker_executor.rs's
+# `Command::new("docker").args(["pull", ...])` aborts with "executable not found"
+# and every ephemeral scan tool (Trivy/Nmap/Lynis/...) fails. `nmap` is needed
+# for src/connectors/nmap_discovery.rs which spawns the binary directly,
+# not via Docker.
 
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 COPY --from=builder /app/migrations /app/migrations
