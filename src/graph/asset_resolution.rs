@@ -535,6 +535,31 @@ async fn create_new_asset(
         confidence
     );
 
+    // Passive enrichment hook: a new asset with at least one IP gets
+    // an automatic Nmap fingerprint queued. The scan_queue dedup TTL
+    // (1 h by default) ensures we don't scan the same target multiple
+    // times when an asset is observed by several connectors in quick
+    // succession. We skip the trigger when the source IS nmap itself —
+    // otherwise we'd loop on every nmap run.
+    if discovered.source != "nmap" {
+        if let Some(ip) = discovered.ip.iter().next() {
+            // Don't fail asset creation if the queue write hiccups —
+            // it's an enrichment, not a hard dependency.
+            let store_clone = store;
+            let ip_owned = ip.clone();
+            let asset_id_owned = asset_id.clone();
+            let source = discovered.source.clone();
+            let _ = crate::scans::enqueue_nmap_fingerprint(
+                store_clone,
+                &ip_owned,
+                Some(asset_id_owned),
+                &format!("auto:asset_merge:{}", source),
+                None, // use default TTL (1 h)
+            )
+            .await;
+        }
+    }
+
     ResolutionResult {
         asset_id,
         action: ResolutionAction::Created,
