@@ -834,8 +834,12 @@ function LogTail({
         const next = new Map<string, SourceStatus>();
         for (const s of list) next.set(s.id, s);
         latest.current.sourcesTotal = list.length;
-        latest.current.sourcesActive = list.filter(
-          (s) => s.status === "active" || s.status === "listening" || s.status === "ok",
+        // Match the actual statuses produced by /api/tc/sources/status:
+        // - "connected"   = source has logs in the last 24h (the green path)
+        // - "listening"   = always-on inputs (syslog/fluent-bit) waiting for events
+        // - "active"/"ok" = legacy aliases kept for safety
+        latest.current.sourcesActive = list.filter((s) =>
+          ["connected", "listening", "active", "ok"].includes(s.status),
         ).length;
 
         if (!prev.current.sourcesInit) {
@@ -845,7 +849,7 @@ function LogTail({
             at: nowDate,
             tag: "source",
             color: "var(--tc-text-sec)",
-            msg: `sources · ${latest.current.sourcesActive}/${list.length} configurées · ${list.map((s) => `${s.id}=${s.status}`).join(" ")}`,
+            msg: `sources · ${latest.current.sourcesActive}/${list.length} actives · ${list.map((s) => `${s.id}=${s.status}`).join(" ")}`,
           });
           return;
         }
