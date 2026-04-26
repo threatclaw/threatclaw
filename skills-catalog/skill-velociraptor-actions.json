@@ -2,7 +2,7 @@
   "id": "skill-velociraptor-actions",
   "name": "Velociraptor Actions",
   "version": "0.1.0",
-  "description": "Skill premium — extension du connecteur Velociraptor avec les outils de remédiation Phase C : quarantaine endpoint, kill process, isolation host. Tous les outils d'action passent par le flow HITL avec approbation explicite avant exécution.",
+  "description": "Extension premium du skill Velociraptor DFIR : ajoute trois outils d'action destructive (quarantaine endpoint, kill process, isolation host) au L2 forensic. Utilise la même connexion que Velociraptor DFIR — pas de configuration séparée. Tous les outils passent par HITL : le RSSI valide explicitement avant exécution, sinon abandon dans les 60 secondes.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "tool",
@@ -14,7 +14,7 @@
   "requires_config": false,
   "api_key_required": false,
   "depends_on": "skill-velociraptor",
-  "help": "Ce skill ajoute des outils d'action destructive sur les endpoints surveillés par Velociraptor :\n\n• velociraptor_quarantine_endpoint — isole un endpoint du réseau (Windows.Remediation.Quarantine)\n• velociraptor_kill_process — termine un processus suspect par PID ou nom\n• velociraptor_isolate_host — bloque tout traffic sortant sauf vers le serveur Velociraptor\n\nChaque action passe par le flow HITL ThreatClaw (approbation RSSI dans les 60 secondes, sinon abandon automatique).\n\nPrérequis :\n• skill-velociraptor (gratuit) installé et configuré\n• Licence ThreatClaw Premium (Individual ou Action Pack)\n\nCe skill est gouverné par LICENSE-PREMIUM.md — voir /licensing dans le dashboard pour activer un essai 60 jours gratuit ou coller votre clé d'abonnement.",
+  "help": "À QUOI ÇA SERT\n\nQuand le L2 forensic identifie un endpoint compromis, ce skill lui donne les moyens d'agir directement au lieu de juste recommander une action manuelle :\n\n• velociraptor_quarantine_endpoint — isole l'endpoint du réseau via l'artefact Windows.Remediation.Quarantine\n• velociraptor_kill_process — termine un processus suspect par PID ou nom\n• velociraptor_isolate_host — bloque tout trafic sortant sauf vers le serveur Velociraptor lui-même\n\nChaque action déclenche le flow HITL ThreatClaw : tu reçois une notification (Slack/email selon ta config), tu valides ou tu refuses, tu as 60 secondes pour répondre sinon l'action est abandonnée. Aucune action destructive n'est exécutée sans ton OK explicite.\n\nPAS DE CONFIG À FAIRE ICI\n\nCe skill réutilise la connexion Velociraptor configurée dans le skill Velociraptor DFIR (gratuit). Si Velociraptor DFIR n'est pas configuré, ce skill ne peut rien faire — installe et configure-le d'abord.\n\nLICENCE\n\nNécessite une licence Premium active (Individual ou Action Pack). Voir Mes licences dans le dashboard pour démarrer un essai 60 jours gratuit ou coller une clé d'abonnement.",
   "execution": {
     "mode": "hitl",
     "requires_approval": true,
