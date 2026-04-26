@@ -265,6 +265,42 @@ pub struct AssetCategory {
     pub is_builtin: bool,
 }
 
+// ── Firewall events (V54__firewall_events.sql) ──
+
+/// One pf log entry as ingested from pfSense / OPNsense.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirewallEventRecord {
+    pub id: i64,
+    pub timestamp: String,
+    pub fw_source: String,
+    pub interface: Option<String>,
+    pub action: String,
+    pub direction: Option<String>,
+    pub proto: Option<String>,
+    pub src_ip: Option<String>,
+    pub src_port: Option<i32>,
+    pub dst_ip: Option<String>,
+    pub dst_port: Option<i32>,
+    pub rule_id: Option<String>,
+    pub raw_meta: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewFirewallEvent {
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub fw_source: String,
+    pub interface: Option<String>,
+    pub action: String,
+    pub direction: Option<String>,
+    pub proto: Option<String>,
+    pub src_ip: Option<String>,
+    pub src_port: Option<i32>,
+    pub dst_ip: Option<String>,
+    pub dst_port: Option<i32>,
+    pub rule_id: Option<String>,
+    pub raw_meta: serde_json::Value,
+}
+
 // ── Scan schedule records (V52__scan_schedules.sql) ──
 
 /// One row from the `scan_schedules` table — a recurring scan plan.
@@ -620,6 +656,47 @@ pub trait ThreatClawStore: Send + Sync {
         _next_run_at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), DatabaseError> {
         Ok(())
+    }
+
+    // ── Firewall events (V54__firewall_events.sql) ──
+
+    /// Bulk insert firewall events (pf log entries). Skips duplicates
+    /// based on (timestamp, src_ip, src_port, dst_ip, dst_port, rule_id).
+    /// Returns number of rows actually inserted.
+    async fn insert_firewall_events(
+        &self,
+        _events: &[NewFirewallEvent],
+    ) -> Result<usize, DatabaseError> {
+        Ok(0)
+    }
+
+    /// Delete events older than the cutoff. Returns number of rows
+    /// deleted. Called at the end of each sync cycle for 24h retention.
+    async fn prune_firewall_events(
+        &self,
+        _cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
+    /// Forensic lookup: events involving an IP within a time window.
+    async fn firewall_events_for_ip(
+        &self,
+        _ip: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+        _limit: i64,
+    ) -> Result<Vec<FirewallEventRecord>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// Pattern detection helper: count blocks toward dst_ip in last
+    /// N seconds, grouped by src_ip. Returns top sources by hit count.
+    async fn firewall_block_counts_by_src(
+        &self,
+        _dst_ip: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, DatabaseError> {
+        Ok(vec![])
     }
 
     // Skill configs

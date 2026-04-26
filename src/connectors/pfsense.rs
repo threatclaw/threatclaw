@@ -10,6 +10,7 @@
 //! Auth: Basic auth (pfSense) or API Key/Secret (OPNsense)
 
 use crate::db::Database;
+use crate::db::threatclaw_store::NewFirewallEvent;
 use crate::graph::asset_resolution::{self, DiscoveredAsset};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -38,14 +39,38 @@ pub enum FirewallType {
 }
 
 /// Result of a firewall sync operation.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 pub struct FirewallSyncResult {
+    // ── Inventory (existing) ──
     pub arp_entries: usize,
     pub dhcp_leases: usize,
     pub interfaces: usize,
     pub vlans: usize,
     pub firewall_rules: usize,
     pub assets_resolved: usize,
+    // ── Telemetry (C13: full SIEM-style ingestion) ──
+    /// pf log entries inserted into firewall_events this cycle.
+    pub firewall_log_ingested: usize,
+    /// pf log entries deleted by 24 h retention this cycle.
+    pub firewall_log_pruned: i64,
+    /// Active connections snapshot (pf_states table size).
+    pub pf_states_active: i64,
+    /// Active OpenVPN sessions, OpenVPN LOGGED_IN edges pushed.
+    pub openvpn_sessions: usize,
+    /// WireGuard peers seen + how many had a recent handshake.
+    pub wireguard_peers_total: usize,
+    pub wireguard_peers_active: usize,
+    /// IPsec phase 1 sessions active.
+    pub ipsec_phase1_active: usize,
+    /// Audit log entries (UI logins / config changes).
+    pub audit_events: usize,
+    /// Gateway status.
+    pub gateways_total: usize,
+    pub gateways_offline: usize,
+    /// Aliases (firewall lists used in rules).
+    pub aliases_count: usize,
+    /// Self-reported version of the firewall (last segment of /system/system_information).
+    pub system_version: Option<String>,
     pub errors: Vec<String>,
 }
 
@@ -79,15 +104,7 @@ struct DhcpLease {
 
 /// Sync firewall data into ThreatClaw graph.
 pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> FirewallSyncResult {
-    let mut result = FirewallSyncResult {
-        arp_entries: 0,
-        dhcp_leases: 0,
-        interfaces: 0,
-        vlans: 0,
-        firewall_rules: 0,
-        assets_resolved: 0,
-        errors: vec![],
-    };
+    let mut result = FirewallSyncResult::default();
 
     let client = match build_client(config) {
         Ok(c) => c,
@@ -205,14 +222,115 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
         }
     }
 
+    // ── Telemetry / SIEM-style ingestion (C13) ──
+    // OPNsense only for now; pfSense's REST API package exposes a
+    // similar but not identical surface — we'll wire pfSense paths
+    // when we have a real pfSense to verify against.
+    if config.fw_type == FirewallType::OPNsense {
+        // 4. Firewall log → firewall_events table (rolling 24 h).
+        match fetch_firewall_log(&client, config).await {
+            Ok(events) => {
+                let cutoff = chrono::Utc::now() - chrono::Duration::hours(24);
+                if !events.is_empty() {
+                    match store.insert_firewall_events(&events).await {
+                        Ok(n) => result.firewall_log_ingested = n,
+                        Err(e) => {
+                            result.errors.push(format!("Firewall log insert: {}", e));
+                        }
+                    }
+                }
+                // Always prune; cheap if nothing's old.
+                if let Ok(n) = store.prune_firewall_events(cutoff).await {
+                    result.firewall_log_pruned = n;
+                }
+            }
+            Err(e) => result.errors.push(format!("Firewall log fetch: {}", e)),
+        }
+
+        // 5. PF states (active connections snapshot).
+        match fetch_pf_states_count(&client, config).await {
+            Ok(n) => result.pf_states_active = n,
+            Err(e) => result.errors.push(format!("PF states: {}", e)),
+        }
+
+        // 6. OpenVPN sessions → identity_graph LOGGED_IN edges.
+        match fetch_openvpn_sessions(&client, config).await {
+            Ok(sessions) => {
+                for s in &sessions {
+                    if let (Some(u), Some(ip)) = (&s.common_name, &s.real_address) {
+                        let real_ip = ip.split(':').next().unwrap_or(ip);
+                        crate::graph::identity_graph::record_login(
+                            store, u, "vpn", real_ip, "openvpn", true,
+                        )
+                        .await;
+                    }
+                }
+                result.openvpn_sessions = sessions.len();
+            }
+            Err(e) => result.errors.push(format!("OpenVPN: {}", e)),
+        }
+
+        // 7. WireGuard peers + active handshakes.
+        match fetch_wireguard_peers(&client, config).await {
+            Ok((total, active)) => {
+                result.wireguard_peers_total = total;
+                result.wireguard_peers_active = active;
+            }
+            Err(e) => result.errors.push(format!("WireGuard: {}", e)),
+        }
+
+        // 8. IPsec phase 1.
+        match fetch_ipsec_phase1(&client, config).await {
+            Ok(n) => result.ipsec_phase1_active = n,
+            Err(e) => result.errors.push(format!("IPsec: {}", e)),
+        }
+
+        // 9. UI audit log (logins to OPNsense itself).
+        match fetch_audit_log(&client, config).await {
+            Ok(n) => result.audit_events = n,
+            Err(e) => result.errors.push(format!("Audit log: {}", e)),
+        }
+
+        // 10. Gateway status (uptime, loss).
+        match fetch_gateways(&client, config).await {
+            Ok((total, offline)) => {
+                result.gateways_total = total;
+                result.gateways_offline = offline;
+            }
+            Err(e) => result.errors.push(format!("Gateways: {}", e)),
+        }
+
+        // 11. Aliases (firewall lists).
+        match fetch_aliases_count(&client, config).await {
+            Ok(n) => result.aliases_count = n,
+            Err(e) => result.errors.push(format!("Aliases: {}", e)),
+        }
+
+        // 12. System info (version banner).
+        match fetch_system_info(&client, config).await {
+            Ok(v) => result.system_version = v,
+            Err(e) => result.errors.push(format!("System info: {}", e)),
+        }
+    }
+
     tracing::info!(
-        "FIREWALL SYNC COMPLETE: {} ARP, {} DHCP, {} interfaces, {} VLANs, {} rules, {} assets",
+        "FIREWALL SYNC COMPLETE: {} ARP, {} DHCP, {} ifaces, {} rules, {} assets, \
+         fw_log+{}/-{}, pf_states={}, vpn={}, wg={}/{}, ipsec={}, audit={}, gw={}/{}",
         result.arp_entries,
         result.dhcp_leases,
         result.interfaces,
-        result.vlans,
         result.firewall_rules,
-        result.assets_resolved
+        result.assets_resolved,
+        result.firewall_log_ingested,
+        result.firewall_log_pruned,
+        result.pf_states_active,
+        result.openvpn_sessions,
+        result.wireguard_peers_active,
+        result.wireguard_peers_total,
+        result.ipsec_phase1_active,
+        result.audit_events,
+        result.gateways_total - result.gateways_offline,
+        result.gateways_total,
     );
 
     result
@@ -520,6 +638,219 @@ fn extract_vlan_from_interface(interface: Option<&str>) -> Option<u16> {
     }
 
     None
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// C13 — SIEM-style telemetry fetchers (OPNsense)
+// Each function consumes one OPNsense API endpoint and converts the
+// response into the shape the rest of the codebase expects (DB rows,
+// identity_graph edges, or scalar counters).
+// ═══════════════════════════════════════════════════════════════════
+
+/// Helper: GET an OPNsense endpoint with basic auth + timeout, return
+/// JSON or a clean error string.
+async fn opn_get_json(
+    client: &Client,
+    config: &FirewallConfig,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let url = format!("{}{}", config.url, path);
+    let resp = client
+        .get(&url)
+        .basic_auth(&config.auth_user, Some(&config.auth_secret))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request error: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {}", status));
+    }
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("JSON parse error: {}", e))
+}
+
+/// Pull recent pf log entries. The endpoint returns the last `limit`
+/// matches (default 100) of pf rules in chronological order. We parse
+/// the `__timestamp__`, `action`, `src`/`dst`, etc., into the DB shape.
+async fn fetch_firewall_log(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<Vec<NewFirewallEvent>, String> {
+    // 500 entries per cycle = ~100 events/min sustained, more than
+    // enough for a /24 LAN. Operators with heavier traffic can raise
+    // via env later if it ever matters.
+    let body = opn_get_json(client, config, "/api/diagnostics/firewall/log?limit=500").await?;
+    let arr = body.as_array().cloned().unwrap_or_default();
+    let mut events = Vec::with_capacity(arr.len());
+    for entry in arr {
+        let ts = entry
+            .get("__timestamp__")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.with_timezone(&chrono::Utc));
+        let timestamp = match ts {
+            Some(t) => t,
+            // Skip entries with unparseable timestamps rather than
+            // poison the whole batch.
+            None => continue,
+        };
+        let action = entry
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let s = |k: &str| -> Option<String> {
+            entry.get(k).and_then(|v| v.as_str()).map(|s| s.to_string())
+        };
+        let port_i32 = |k: &str| -> Option<i32> {
+            entry
+                .get(k)
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<i32>().ok())
+                .filter(|&n| (1..=65535).contains(&n))
+        };
+        events.push(NewFirewallEvent {
+            timestamp,
+            fw_source: "opnsense".into(),
+            interface: s("interface"),
+            action,
+            direction: s("dir"),
+            proto: s("protoname"),
+            src_ip: s("src"),
+            src_port: port_i32("srcport"),
+            dst_ip: s("dst"),
+            dst_port: port_i32("dstport"),
+            rule_id: s("rid").or_else(|| s("rulenr")),
+            raw_meta: entry,
+        });
+    }
+    Ok(events)
+}
+
+/// Active connections snapshot — pf_states.current is just a number.
+async fn fetch_pf_states_count(client: &Client, config: &FirewallConfig) -> Result<i64, String> {
+    let body = opn_get_json(client, config, "/api/diagnostics/firewall/pf_states").await?;
+    Ok(body
+        .get("current")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenvpnSession {
+    common_name: Option<String>,
+    real_address: Option<String>,
+}
+
+async fn fetch_openvpn_sessions(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<Vec<OpenvpnSession>, String> {
+    let body = opn_get_json(client, config, "/api/openvpn/service/searchSessions").await?;
+    let rows = body
+        .get("rows")
+        .cloned()
+        .unwrap_or(serde_json::Value::Array(vec![]));
+    serde_json::from_value::<Vec<OpenvpnSession>>(rows)
+        .map_err(|e| format!("openvpn deserialize: {}", e))
+}
+
+/// WireGuard returns a mixed list (interfaces + peers). We count peers
+/// only; "active" = peer with a non-null latest-handshake-epoch within
+/// the last 3 minutes (WG keepalive default is 25 s).
+async fn fetch_wireguard_peers(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<(usize, usize), String> {
+    let body = opn_get_json(client, config, "/api/wireguard/service/show").await?;
+    let rows = body
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let mut total = 0usize;
+    let mut active = 0usize;
+    let now = chrono::Utc::now().timestamp();
+    for row in rows {
+        if row.get("type").and_then(|v| v.as_str()) != Some("peer") {
+            continue;
+        }
+        total += 1;
+        if let Some(ts) = row
+            .get("latest-handshake-epoch")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<i64>().ok())
+        {
+            if ts > 0 && (now - ts) < 180 {
+                active += 1;
+            }
+        }
+    }
+    Ok((total, active))
+}
+
+async fn fetch_ipsec_phase1(client: &Client, config: &FirewallConfig) -> Result<usize, String> {
+    let body = opn_get_json(client, config, "/api/ipsec/sessions/searchPhase1").await?;
+    Ok(body
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0))
+}
+
+async fn fetch_audit_log(client: &Client, config: &FirewallConfig) -> Result<usize, String> {
+    let body = opn_get_json(client, config, "/api/diagnostics/log/audit?limit=200").await?;
+    Ok(body.as_array().map(|a| a.len()).unwrap_or(0))
+}
+
+/// Gateway status: returns total + how many are offline.
+async fn fetch_gateways(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<(usize, usize), String> {
+    let body = opn_get_json(client, config, "/api/routes/gateway/status").await?;
+    let items = body
+        .get("items")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let total = items.len();
+    let offline = items
+        .iter()
+        .filter(|g| {
+            g.get("status_translated")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_lowercase())
+                .map(|s| s.contains("offline") || s.contains("down"))
+                .unwrap_or(false)
+        })
+        .count();
+    Ok((total, offline))
+}
+
+async fn fetch_aliases_count(client: &Client, config: &FirewallConfig) -> Result<usize, String> {
+    let body = opn_get_json(client, config, "/api/firewall/alias/searchItem").await?;
+    Ok(body
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0))
+}
+
+/// System info: returns the OPNsense version banner.
+async fn fetch_system_info(
+    client: &Client,
+    config: &FirewallConfig,
+) -> Result<Option<String>, String> {
+    let body = opn_get_json(client, config, "/api/diagnostics/system/system_information").await?;
+    Ok(body
+        .get("versions")
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string()))
 }
 
 #[cfg(test)]
