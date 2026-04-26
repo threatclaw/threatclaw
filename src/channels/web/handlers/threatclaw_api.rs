@@ -3650,7 +3650,8 @@ pub async fn connector_defectdojo_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
-/// POST /api/tc/connectors/firewall/sync — sync pfSense/OPNsense into graph.
+/// POST /api/tc/connectors/firewall/sync — generic sync handler kept
+/// for backward compatibility. Body must include `fw_type`.
 pub async fn connector_firewall_sync_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
@@ -3665,6 +3666,31 @@ pub async fn connector_firewall_sync_handler(
         })?;
     let result = crate::connectors::pfsense::sync_firewall(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
+}
+
+/// POST /api/tc/connectors/pfsense/sync — sync handler with fw_type
+/// pinned to pfsense, so the dashboard form doesn't have to send it.
+pub async fn connector_pfsense_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(mut body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    inject_fw_type(&mut body, "pfsense");
+    connector_firewall_sync_handler(State(state), Json(body)).await
+}
+
+/// POST /api/tc/connectors/opnsense/sync — same, pinned to opnsense.
+pub async fn connector_opnsense_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(mut body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    inject_fw_type(&mut body, "opnsense");
+    connector_firewall_sync_handler(State(state), Json(body)).await
+}
+
+fn inject_fw_type(body: &mut serde_json::Value, value: &str) {
+    if let Some(map) = body.as_object_mut() {
+        map.insert("fw_type".into(), serde_json::Value::String(value.into()));
+    }
 }
 
 // ══════════════════════════════════════════════════════════

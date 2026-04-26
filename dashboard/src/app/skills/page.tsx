@@ -72,7 +72,8 @@ const RUNNABLE: Record<string, string> = {
   // single CVE scanner reduces image-pull churn and simplifies the
   // catalog.
   "skill-active-directory": "/api/tc/connectors/ad/sync",
-  "skill-pfsense": "/api/tc/connectors/firewall/sync",
+  "skill-pfsense": "/api/tc/connectors/pfsense/sync",
+  "skill-opnsense": "/api/tc/connectors/opnsense/sync",
   "skill-proxmox": "/api/tc/connectors/proxmox/sync",
   "skill-fortinet": "/api/tc/connectors/fortinet/sync",
   "skill-wazuh": "/api/tc/connectors/wazuh/sync",

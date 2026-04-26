@@ -986,6 +986,14 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::connector_firewall_sync_handler),
         )
         .route(
+            "/api/tc/connectors/pfsense/sync",
+            post(super::handlers::threatclaw_api::connector_pfsense_sync_handler),
+        )
+        .route(
+            "/api/tc/connectors/opnsense/sync",
+            post(super::handlers::threatclaw_api::connector_opnsense_sync_handler),
+        )
+        .route(
             "/api/tc/connectors/elastic-siem/sync",
             post(super::handlers::threatclaw_api::connector_elastic_siem_sync_handler),
         )

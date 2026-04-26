@@ -66,6 +66,7 @@ struct ArpEntry {
 struct DhcpLease {
     #[serde(alias = "address")]
     ip: Option<String>,
+    #[serde(alias = "hwaddr")]
     mac: Option<String>,
     hostname: Option<String>,
     #[serde(alias = "if")]
@@ -273,46 +274,117 @@ async fn fetch_arp(client: &Client, config: &FirewallConfig) -> Result<Vec<ArpEn
 }
 
 /// Fetch DHCP leases from firewall.
+///
+/// OPNsense ships several DHCP backends — historically ISC dhcpd, but
+/// 26+ defaults to Kea or Dnsmasq. We probe each known endpoint in
+/// turn and merge whatever responds. A 404 on a backend just means
+/// "not enabled here", not a hard failure.
 async fn fetch_dhcp_leases(
     client: &Client,
     config: &FirewallConfig,
 ) -> Result<Vec<DhcpLease>, String> {
-    let url = match config.fw_type {
-        FirewallType::PfSense => format!("{}/api/v2/services/dhcpd/lease", config.url),
-        FirewallType::OPNsense => format!("{}/api/dhcpv4/leases/searchLease", config.url),
-    };
-
-    let resp = client
-        .get(&url)
-        .basic_auth(&config.auth_user, Some(&config.auth_secret))
-        .send()
-        .await
-        .map_err(|e| format!("DHCP request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("DHCP: HTTP {}", resp.status()));
+    if config.fw_type == FirewallType::PfSense {
+        // pfSense API v2 ships a single endpoint (data: [...]). No
+        // per-backend probing needed.
+        let url = format!("{}/api/v2/services/dhcpd/lease", config.url);
+        let resp = client
+            .get(&url)
+            .basic_auth(&config.auth_user, Some(&config.auth_secret))
+            .send()
+            .await
+            .map_err(|e| format!("DHCP request failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("DHCP: HTTP {}", resp.status()));
+        }
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("DHCP parse error: {}", e))?;
+        let leases_val = body
+            .get("data")
+            .cloned()
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        let leases: Vec<DhcpLease> = serde_json::from_value(leases_val)
+            .map_err(|e| format!("DHCP deserialize error: {}", e))?;
+        return Ok(leases);
     }
 
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("DHCP parse error: {}", e))?;
+    // OPNsense — try each backend, merge whatever returns.
+    let endpoints = [
+        (
+            "dnsmasq",
+            format!("{}/api/dnsmasq/leases/search", config.url),
+        ),
+        ("kea", format!("{}/api/kea/leases4/search", config.url)),
+        (
+            "isc-dhcpd",
+            format!("{}/api/dhcpv4/leases/searchLease", config.url),
+        ),
+    ];
 
-    // pfSense: {data: [...]}, OPNsense: {rows: [...]}
-    let leases_val = if config.fw_type == FirewallType::PfSense {
-        body.get("data")
+    let mut merged: Vec<DhcpLease> = Vec::new();
+    let mut tried_any_ok = false;
+    let mut last_err: Option<String> = None;
+
+    for (label, url) in &endpoints {
+        let resp = match client
+            .get(url)
+            .basic_auth(&config.auth_user, Some(&config.auth_secret))
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(format!("{} request error: {}", label, e));
+                continue;
+            }
+        };
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND {
+            // Backend not enabled — perfectly normal.
+            continue;
+        }
+        if !status.is_success() {
+            last_err = Some(format!("{}: HTTP {}", label, status));
+            continue;
+        }
+        let body: serde_json::Value = match resp.json().await {
+            Ok(b) => b,
+            Err(e) => {
+                last_err = Some(format!("{} parse error: {}", label, e));
+                continue;
+            }
+        };
+        let rows = body
+            .get("rows")
             .cloned()
-            .unwrap_or(serde_json::Value::Array(vec![]))
-    } else {
-        body.get("rows")
-            .cloned()
-            .unwrap_or(serde_json::Value::Array(vec![]))
-    };
+            .unwrap_or(serde_json::Value::Array(vec![]));
+        match serde_json::from_value::<Vec<DhcpLease>>(rows) {
+            Ok(leases) => {
+                tried_any_ok = true;
+                tracing::info!("DHCP {}: {} leases", label, leases.len());
+                merged.extend(leases);
+            }
+            Err(e) => {
+                last_err = Some(format!("{} deserialize error: {}", label, e));
+            }
+        }
+    }
 
-    let leases: Vec<DhcpLease> =
-        serde_json::from_value(leases_val).map_err(|e| format!("DHCP deserialize error: {}", e))?;
-
-    Ok(leases)
+    if !tried_any_ok {
+        // Every backend failed. If the last error is just "endpoint not
+        // found", treat it as zero leases (OPNsense without any DHCP
+        // enabled) rather than a hard error that the operator has to
+        // care about.
+        if let Some(e) = last_err {
+            if e.contains("404") {
+                return Ok(vec![]);
+            }
+            return Err(e);
+        }
+        return Ok(vec![]);
+    }
+    Ok(merged)
 }
 
 /// Fetch interface count.
