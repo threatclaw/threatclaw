@@ -601,7 +601,7 @@ pub async fn kill_process(
     let flow_id = collect_admin_artifact(
         &config,
         client_id,
-        "Windows.Remediation.ProcessKill",
+        "ThreatClaw.Remediation.ProcessKill",
         &params,
     )
     .await?;
@@ -615,7 +615,7 @@ pub async fn kill_process(
         "flow_id": flow_id,
         "client_id": client_id,
         "target": process_name_or_pid,
-        "artifact": "Windows.Remediation.ProcessKill",
+        "artifact": "ThreatClaw.Remediation.ProcessKill",
         "reversible": false,
     }))
 }

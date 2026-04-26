@@ -1,0 +1,32 @@
+name: ThreatClaw.Remediation.ProcessKill
+description: |
+  Kills a process on the endpoint by name or PID.
+
+  Custom remediation artifact provisioned by ThreatClaw — the upstream
+  Velociraptor catalog has no built-in ProcessKill. Uses execve()
+  with the platform-native tool (taskkill on Windows, kill/pkill on
+  Linux/macOS), so the api_client must carry the administrator role.
+type: CLIENT
+parameters:
+  - name: ProcessName
+    description: Image name to kill (e.g. evil.exe). Empty if PID is set.
+    default: ""
+  - name: ProcessId
+    description: Numeric PID to kill. Empty if ProcessName is set.
+    default: ""
+sources:
+  - precondition:
+      SELECT OS From info() where OS = 'windows'
+    query: |
+      LET cmd <= if(condition=ProcessId,
+                   then=("taskkill", "/F", "/PID", ProcessId),
+                   else=("taskkill", "/F", "/IM", ProcessName))
+      SELECT * FROM execve(argv=cmd)
+
+  - precondition:
+      SELECT OS From info() where OS = 'linux' OR OS = 'darwin'
+    query: |
+      LET cmd <= if(condition=ProcessId,
+                   then=("kill", "-9", ProcessId),
+                   else=("pkill", "-9", "-f", ProcessName))
+      SELECT * FROM execve(argv=cmd)
