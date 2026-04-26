@@ -20,55 +20,60 @@ use crate::licensing::LicenseManager;
 /// Rust concern. Keeping the mapping next to the tool registration
 /// minimises drift between "I added a premium tool" and "I forgot to
 /// gate it".
-pub fn tool_required_skill(tool_name: &str) -> Option<&'static str> {
-    match tool_name {
-        // ── Phase C Velociraptor (quarantine, kill_process) — premium ──
-        // Implementations land in a follow-up PR; the gate is wired now
-        // so the day they ship there is no risk of forgetting to mark
-        // them.
+/// Returns true when the tool is a destructive HITL action (quarantine,
+/// block IP, disable account, etc.). Free tools — read-only DB queries,
+/// VQL lookups, asset enrichments — return false and run without any
+/// license check.
+///
+/// Doctrine pivot 2026-04-26: the licensing model moved from
+/// "per-skill premium" (skill-velociraptor-actions, skill-opnsense-actions,
+/// ...) to a single "ThreatClaw Action Pack" that unlocks every HITL
+/// destructive flow at once. See SCAN_REFACTOR_PLAN.md / hitl_actions in
+/// the skill manifests.
+pub fn tool_requires_hitl(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        // EDR endpoint remediation
         "velociraptor_quarantine_endpoint"
         | "velociraptor_kill_process"
-        | "velociraptor_isolate_host" => Some("skill-velociraptor-actions"),
-
-        // ── Future premium skills (placeholders) ──
-        "opnsense_block_ip" | "opnsense_kill_states" | "opnsense_quarantine_mac" => {
-            Some("skill-opnsense-actions")
-        }
-        "fortinet_block_ip" | "fortinet_block_url" => Some("skill-fortinet-actions"),
-        "ad_disable_account" | "ad_reset_password" => Some("skill-ad-remediation"),
-
-        _ => None,
-    }
+        | "velociraptor_isolate_host"
+        // Firewall HITL actions
+        | "opnsense_block_ip"
+        | "opnsense_kill_states"
+        | "opnsense_quarantine_mac"
+        | "pfsense_block_ip"
+        | "fortinet_block_ip"
+        | "fortinet_block_url"
+        // Identity remediation
+        | "ad_disable_account"
+        | "ad_reset_password"
+    )
 }
 
 /// Verify that a tool is allowed to execute under the current license.
 ///
-/// - **Free tools** (no entry in [`tool_required_skill`]) always pass.
-/// - **Premium tools** require a `LicenseManager` and an active license
-///   covering the matching skill. Without those, returns `Err` with a
-///   user-facing reason that the caller should surface verbatim — the
-///   message points the operator to `/licensing` so they can activate.
+/// - **Free tools** (where [`tool_requires_hitl`] returns false) always pass.
+/// - **HITL tools** require an active "Action Pack" license. Without one,
+///   returns an explanatory error the caller should surface verbatim.
 ///
-/// Call **before** `execute_tool` at any site that may dispatch premium
-/// tools (HITL approval flow, dashboard buttons, L2 forensic agent).
-/// The conversational bot path does not call premium tools today, so
-/// it can keep using `execute_tool` directly.
+/// Call **before** `execute_tool` at any site that may dispatch HITL
+/// actions (approval flow, dashboard buttons, L2 forensic agent).
 pub async fn check_tool_license(
     tool_name: &str,
     license_manager: Option<&Arc<LicenseManager>>,
 ) -> Result<(), String> {
-    let Some(required_skill) = tool_required_skill(tool_name) else {
+    if !tool_requires_hitl(tool_name) {
         return Ok(());
-    };
+    }
     let Some(mgr) = license_manager else {
         return Err(format!(
-            "outil `{tool_name}` requiert le skill premium `{required_skill}` — \
+            "action `{tool_name}` requiert la licence ThreatClaw Action Pack — \
              aucune licence configurée. Activez via /licensing dans le dashboard."
         ));
     };
-    if !mgr.allows_skill(required_skill).await {
+    if !mgr.allows_hitl().await {
         return Err(format!(
-            "outil `{tool_name}` requiert le skill premium `{required_skill}` — \
+            "action `{tool_name}` requiert la licence ThreatClaw Action Pack — \
              licence absente, expirée ou révoquée. Vérifiez /licensing."
         ));
     }
@@ -774,9 +779,8 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_required_skill_free_tools() {
-        // Existing free tools must not be gated, otherwise the L0
-        // conversational bot regresses.
+    fn test_tool_requires_hitl_free_tools() {
+        // Read-only tools must not require HITL license.
         for free_tool in &[
             "get_security_status",
             "get_recent_alerts",
@@ -787,27 +791,33 @@ mod tests {
             "velociraptor_collect",
         ] {
             assert!(
-                tool_required_skill(free_tool).is_none(),
-                "free tool `{free_tool}` should not be gated"
+                !tool_requires_hitl(free_tool),
+                "free tool `{free_tool}` should not be HITL-gated"
             );
         }
     }
 
     #[test]
-    fn test_tool_required_skill_premium_mappings() {
-        assert_eq!(
-            tool_required_skill("velociraptor_quarantine_endpoint"),
-            Some("skill-velociraptor-actions")
-        );
-        assert_eq!(
-            tool_required_skill("opnsense_block_ip"),
-            Some("skill-opnsense-actions")
-        );
-        assert_eq!(
-            tool_required_skill("ad_disable_account"),
-            Some("skill-ad-remediation")
-        );
-        assert_eq!(tool_required_skill("nonexistent_tool"), None);
+    fn test_tool_requires_hitl_destructive_tools() {
+        for hitl_tool in &[
+            "velociraptor_quarantine_endpoint",
+            "velociraptor_kill_process",
+            "velociraptor_isolate_host",
+            "opnsense_block_ip",
+            "opnsense_kill_states",
+            "opnsense_quarantine_mac",
+            "pfsense_block_ip",
+            "fortinet_block_ip",
+            "fortinet_block_url",
+            "ad_disable_account",
+            "ad_reset_password",
+        ] {
+            assert!(
+                tool_requires_hitl(hitl_tool),
+                "destructive tool `{hitl_tool}` should require HITL license"
+            );
+        }
+        assert!(!tool_requires_hitl("nonexistent_tool"));
     }
 
     #[tokio::test]
@@ -821,16 +831,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_tool_license_premium_fails_without_manager() {
+    async fn test_check_tool_license_hitl_fails_without_manager() {
         let r = check_tool_license("velociraptor_quarantine_endpoint", None).await;
         assert!(r.is_err());
         let msg = r.unwrap_err();
-        assert!(msg.contains("skill-velociraptor-actions"));
+        assert!(msg.contains("Action Pack"));
         assert!(msg.contains("/licensing"));
     }
 
     #[tokio::test]
-    async fn test_check_tool_license_premium_fails_with_no_cert() {
+    async fn test_check_tool_license_hitl_fails_with_no_cert() {
         // Manager exists but no license activated → still denied.
         let mgr = Arc::new(
             crate::licensing::LicenseManager::bootstrap(crate::licensing::LicenseClient::new(
@@ -840,7 +850,7 @@ mod tests {
         );
         let r = check_tool_license("opnsense_block_ip", Some(&mgr)).await;
         assert!(r.is_err());
-        assert!(r.unwrap_err().contains("skill-opnsense-actions"));
+        assert!(r.unwrap_err().contains("Action Pack"));
     }
 
     #[test]

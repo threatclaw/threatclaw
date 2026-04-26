@@ -57,6 +57,41 @@
       "default": 500
     }
   },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": false,
+    "requires_separate_creds": true,
+    "credential_fields": {
+      "admin_client_cert_pem": {
+        "type": "string",
+        "description": "Certificat client privilégié (rôle administrator)",
+        "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+        "hint": "Pour exécuter des actions destructives (quarantaine, kill process, isolation), Velociraptor exige un api_client avec rôle administrator (différent du rôle investigator,api utilisé pour la lecture). Régénère un second threatclaw.config.yaml avec --role administrator et colle ici le bloc client_cert."
+      },
+      "admin_client_key_pem": {
+        "type": "password",
+        "description": "Clé privée privilégiée",
+        "hint": "Le bloc client_private_key du second threatclaw.config.yaml généré avec --role administrator. Stocké chiffré côté ThreatClaw."
+      }
+    },
+    "actions": [
+      {
+        "name": "velociraptor_quarantine_endpoint",
+        "label": "Isoler un endpoint",
+        "description": "Bloque tout trafic réseau de l'endpoint sauf vers le serveur Velociraptor (Windows.Remediation.Quarantine)."
+      },
+      {
+        "name": "velociraptor_kill_process",
+        "label": "Terminer un processus",
+        "description": "Termine un processus suspect par PID ou nom sur l'endpoint."
+      },
+      {
+        "name": "velociraptor_isolate_host",
+        "label": "Bloquer le trafic sortant",
+        "description": "Bloque toutes les connexions sortantes de l'endpoint sauf vers le serveur Velociraptor lui-même."
+      }
+    ]
+  },
   "outputs": {
     "assets": "db",
     "findings": "db"

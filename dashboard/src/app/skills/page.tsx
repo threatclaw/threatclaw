@@ -11,6 +11,20 @@ import {
   Plug, Lock, HelpCircle, Info, Globe,
 } from "lucide-react";
 
+interface HitlAction {
+  name: string;
+  label?: string;
+  description?: string;
+}
+
+interface HitlActionsManifest {
+  enabled?: boolean;
+  implemented?: boolean;
+  requires_separate_creds?: boolean;
+  credential_fields?: Record<string, any>;
+  actions?: HitlAction[];
+}
+
 interface SkillManifest {
   id: string;
   name: string;
@@ -33,6 +47,7 @@ interface SkillManifest {
   tier?: string;
   depends_on?: string;
   advanced?: boolean;
+  hitl_actions?: HitlActionsManifest;
 }
 
 // ── Type definitions for UI ──
@@ -116,10 +131,13 @@ const BETA_SKILLS: Set<string> = new Set([
   "skill-microsoft-graph",
 ]);
 
-// `premium: true` (legacy) and `tier: 'premium'` (new) both light up the
-// premium badge so old and new manifests cohabit during the transition.
-const isPremium = (s: SkillManifest) =>
-  s.premium === true || s.tier === "premium" || s.tier === "beta-premium";
+// Doctrine pivot 2026-04-26: skills no longer carry a "premium" flag.
+// HITL destructive actions are gated by a single global Action Pack
+// license, surfaced via the per-skill HitlActionsPanel. Kept the
+// helper as a no-op pass-through to minimise the diff in render code
+// — every call site now reads `false`, so the premium-gated install
+// branch is dead code that the next cleanup pass can prune.
+const isPremium = (_s: SkillManifest) => false;
 
 function TrustBadge({ trust }: { trust: string }) {
   // "official" is the implicit default — surfacing a "TC" badge on every
@@ -1020,6 +1038,15 @@ function ConfigModal({
           </div>
         )}
 
+        {skill.hitl_actions?.enabled && (
+          <HitlActionsPanel
+            skillId={skill.id}
+            hitl={skill.hitl_actions}
+            configValues={configValues}
+            setConfig={setConfig}
+            locale={locale}
+          />
+        )}
         {skill.id === "skill-velociraptor" && (
           <VelociraptorPastePanel
             onParsed={(fields) => {
@@ -1224,6 +1251,192 @@ function TestResultBox({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// HitlActionsPanel — collapsible section in the Configure modal that
+// surfaces destructive HITL actions declared by the skill manifest.
+// Shows: list of actions + their description, implementation status,
+// optional privileged credential slots, and a license indicator.
+//
+// License pivot 2026-04-26: instead of selling a separate
+// "skill-velociraptor-actions" SKU, ThreatClaw now sells a single
+// "Action Pack" license that unlocks every HITL flow across all skills.
+// This panel reads /api/tc/licensing/status to know if the operator
+// currently has Action Pack and renders a clear message either way.
+// ─────────────────────────────────────────────────────────────────────
+function HitlActionsPanel({
+  skillId,
+  hitl,
+  configValues,
+  setConfig,
+  locale,
+}: {
+  skillId: string;
+  hitl: HitlActionsManifest;
+  configValues: Record<string, Record<string, string>>;
+  setConfig: (sid: string, key: string, val: string) => void;
+  locale: "fr" | "en";
+}) {
+  const [open, setOpen] = useState(false);
+  const [allowsHitl, setAllowsHitl] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch("/api/tc/licensing/status", { signal: AbortSignal.timeout(3000) })
+      .then((r) => r.json())
+      .then((d: any) => {
+        const ok = (d.licenses || []).some((l: any) => l.active && l.allows_hitl);
+        setAllowsHitl(ok);
+      })
+      .catch(() => setAllowsHitl(false));
+  }, []);
+
+  const actions = hitl.actions || [];
+  const credFields = hitl.credential_fields || {};
+  const credKeys = Object.keys(credFields);
+  const hasCreds = credKeys.every(
+    (k) => (configValues[skillId]?.[k] || "").length > 0,
+  );
+
+  return (
+    <div style={{
+      marginBottom: "16px",
+      background: "rgba(208,168,32,0.06)",
+      border: "1px solid rgba(208,168,32,0.22)",
+      borderRadius: "var(--tc-radius-sm)",
+    }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          padding: "10px 14px", cursor: "pointer",
+          display: "flex", alignItems: "center", gap: "10px",
+        }}
+      >
+        <Lock size={13} color="#d0a820" />
+        <div style={{ flex: 1, fontSize: "12px", fontWeight: 700, color: "#d0a820" }}>
+          {locale === "fr" ? "Actions HITL" : "HITL Actions"}{" "}
+          <span style={{ fontWeight: 400, color: "var(--tc-text-muted)", fontSize: "11px" }}>
+            ({actions.length}{" "}
+            {hitl.implemented === false
+              ? (locale === "fr" ? "à venir" : "coming soon")
+              : ""})
+          </span>
+        </div>
+        <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </div>
+
+      {open && (
+        <div style={{ padding: "0 14px 14px", fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.55 }}>
+          {/* License status */}
+          <div style={{
+            display: "flex", alignItems: "center", gap: "8px",
+            padding: "8px 10px", marginBottom: "12px",
+            borderRadius: "var(--tc-radius-sm)",
+            background: allowsHitl
+              ? "rgba(48,160,80,0.08)"
+              : "rgba(208,48,32,0.06)",
+            border: `1px solid ${allowsHitl ? "rgba(48,160,80,0.22)" : "rgba(208,48,32,0.22)"}`,
+          }}>
+            {allowsHitl ? (
+              <>
+                <CheckCircle2 size={12} color="#30a050" />
+                <span style={{ color: "#30a050", fontWeight: 600 }}>
+                  {locale === "fr" ? "Action Pack actif" : "Action Pack active"}
+                </span>
+              </>
+            ) : (
+              <>
+                <X size={12} color="#d03020" />
+                <span style={{ color: "var(--tc-text-sec)" }}>
+                  {locale === "fr"
+                    ? "Action Pack non activé — les actions sont visibles mais non exécutables. "
+                    : "Action Pack not active — actions are visible but not executable. "}
+                  <a href="/setup?tab=licenses" style={{ color: "var(--tc-blue)" }}>
+                    {locale === "fr" ? "Activer" : "Activate"}
+                  </a>
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* List of declared actions */}
+          <div style={{ marginBottom: credKeys.length > 0 ? "12px" : 0 }}>
+            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+              {locale === "fr" ? "Outils" : "Tools"}
+            </div>
+            {actions.map((a) => (
+              <div key={a.name} style={{ marginBottom: "6px" }}>
+                <code style={{ background: "var(--tc-input)", padding: "1px 5px", fontSize: "10px" }}>
+                  {a.name}
+                </code>
+                {a.label && (
+                  <span style={{ marginLeft: "8px", fontWeight: 600, color: "var(--tc-text)" }}>
+                    {a.label}
+                  </span>
+                )}
+                {a.description && (
+                  <div style={{ marginTop: "2px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+                    {a.description}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Privileged credentials (optional) */}
+          {credKeys.length > 0 && (
+            <div>
+              <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
+                {locale === "fr" ? "Credentials privilégiés" : "Privileged credentials"}
+                {hitl.requires_separate_creds && (
+                  <span style={{ fontWeight: 400, marginLeft: "6px", textTransform: "none" }}>
+                    {locale === "fr" ? "(obligatoires si tu veux exécuter les actions)" : "(required to run actions)"}
+                  </span>
+                )}
+              </div>
+              {!hasCreds && hitl.requires_separate_creds && (
+                <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginBottom: "8px" }}>
+                  {locale === "fr"
+                    ? "⚠️ Champs vides : les actions ne peuvent pas s'exécuter, même avec une licence active."
+                    : "⚠️ Fields empty: actions cannot execute even with an active license."}
+                </div>
+              )}
+              {credKeys.map((k) => {
+                const field = credFields[k];
+                const val = configValues[skillId]?.[k] || "";
+                return (
+                  <div key={k} style={{ marginBottom: "8px" }}>
+                    <label style={{ fontSize: "10px", color: "var(--tc-text-sec)", display: "block", marginBottom: "3px" }}>
+                      {field.description || k}
+                    </label>
+                    {field.hint && (
+                      <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "3px", lineHeight: 1.4 }}>
+                        {field.hint}
+                      </div>
+                    )}
+                    <input
+                      type={field.type === "password" ? "password" : "text"}
+                      value={val}
+                      onChange={(e) => setConfig(skillId, k, e.target.value)}
+                      placeholder={field.placeholder || ""}
+                      style={{
+                        width: "100%", padding: "6px 9px", fontSize: "11px",
+                        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                        borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none",
+                        fontFamily: field.type === "password" ? "inherit" : "'JetBrains Mono', monospace",
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

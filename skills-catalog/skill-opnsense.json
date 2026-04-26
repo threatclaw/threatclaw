@@ -41,6 +41,29 @@
       "default": true
     }
   },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": true,
+    "requires_separate_creds": false,
+    "credential_fields": {},
+    "actions": [
+      {
+        "name": "opnsense_block_ip",
+        "label": "Bloquer une IP",
+        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift)."
+      },
+      {
+        "name": "opnsense_kill_states",
+        "label": "Tuer les états actifs (à venir)",
+        "description": "Termine immédiatement toutes les connexions actives venant ou allant vers une IP. Utile pour couper net une exfil pendant qu'on bloque côté firewall."
+      },
+      {
+        "name": "opnsense_quarantine_mac",
+        "label": "Quarantaine MAC (à venir)",
+        "description": "Déplace un MAC vers un VLAN de quarantaine isolé du LAN principal. Nécessite une config VLAN tagging existante."
+      }
+    ]
+  },
   "auto_sync": true,
   "sync_interval": 5,
   "outputs": {
