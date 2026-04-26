@@ -68,6 +68,15 @@ pub struct ActiveLicense {
     pub expires_at: u64,
     pub last_heartbeat: u64,
     pub last_attempt: u64,
+    /// True if this license currently has the right to run HITL
+    /// destructive actions. Set in [`LicenseManager::status`] from the
+    /// in-memory gate, not derived from the cert payload alone — so
+    /// expired / revoked / not-yet-active licenses report `false`
+    /// even though their cert advertises HITL skills.
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub allows_hitl: bool,
 }
 
 /// Aggregate diagnostic snapshot. Composed of per-license entries plus
@@ -173,7 +182,9 @@ impl LicenseManager {
     /// True if at least one in-memory gate currently allows the given
     /// premium skill. Returns `false` for unprovisioned builds, missing
     /// certs, or any denial reason. Cheap, suitable for hot paths in
-    /// skill loading.
+    /// skill loading. Kept around for any callers still asking by skill
+    /// id; new code should use [`Self::allows_hitl`] which expresses the
+    /// post-2026-04-26 doctrine pivot.
     pub async fn allows_skill(&self, skill_id: &str) -> bool {
         if !super::is_provisioned() {
             return false;
@@ -182,11 +193,43 @@ impl LicenseManager {
         inner.allows_skill_now(skill_id)
     }
 
+    /// True if any active license unlocks the global "Action Pack" —
+    /// the single SKU that gates every HITL destructive flow (firewall
+    /// block, AD disable, EDR isolate, ...).
+    ///
+    /// Implementation note: a license cert with skills containing
+    /// either the catch-all "hitl" or any of the legacy `*-actions`
+    /// skill ids counts as enabling HITL. The legacy ids are the
+    /// transition path for licenses already in the wild from the
+    /// per-skill premium era.
+    pub async fn allows_hitl(&self) -> bool {
+        if !super::is_provisioned() {
+            return false;
+        }
+        let inner = self.inner.read().await;
+        const LEGACY_SKILLS: &[&str] = &[
+            "hitl",
+            "skill-velociraptor-actions",
+            "skill-opnsense-actions",
+            "skill-fortinet-actions",
+            "skill-ad-remediation",
+        ];
+        LEGACY_SKILLS.iter().any(|s| inner.allows_skill_now(s))
+    }
+
     /// Diagnostic snapshot for the dashboard.
     pub async fn status(&self) -> LicenseStatus {
         let inner = self.inner.read().await;
         let mut licenses = Vec::with_capacity(inner.state.licenses.len());
         let now = now_secs();
+
+        const HITL_MARKERS: &[&str] = &[
+            "hitl",
+            "skill-velociraptor-actions",
+            "skill-opnsense-actions",
+            "skill-fortinet-actions",
+            "skill-ad-remediation",
+        ];
 
         for entry in &inner.state.licenses {
             let mut active = ActiveLicense {
@@ -199,6 +242,8 @@ impl LicenseManager {
                 expires_at: 0,
                 last_heartbeat: entry.last_heartbeat,
                 last_attempt: entry.last_attempt,
+                active: false,
+                allows_hitl: false,
             };
             if let Ok(Some(encoded)) = storage::read_cert(&entry.license_key) {
                 if let Ok(signed) = SignedLicense::decode(&encoded) {
@@ -208,6 +253,18 @@ impl LicenseManager {
                     active.expires_at = signed.cert.expires_at;
                     active.trial = trial::is_trial(&signed.cert);
                     active.grace = assess(&signed.cert, now);
+                    active.active = matches!(
+                        active.grace,
+                        GraceState::Valid
+                            | GraceState::RenewalSoon { .. }
+                            | GraceState::InGrace { .. }
+                    );
+                    if active.active {
+                        active.allows_hitl = active
+                            .skills
+                            .iter()
+                            .any(|s| HITL_MARKERS.contains(&s.as_str()));
+                    }
                 }
             }
             licenses.push(active);
@@ -517,6 +574,7 @@ mod tests {
         // of provisioning state. This is the pristine-install behavior.
         let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
         assert!(!mgr.allows_skill("skill-velociraptor-actions").await);
+        assert!(!mgr.allows_hitl().await);
     }
 
     #[tokio::test]

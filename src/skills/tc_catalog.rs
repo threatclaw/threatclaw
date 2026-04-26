@@ -72,6 +72,17 @@ pub struct TcSkillManifest {
     /// Commercial tier. Absent → `free` (see [`SkillTier::default`]).
     #[serde(default)]
     pub tier: SkillTier,
+    /// HITL action declarations (see ADR doctrine pivot 2026-04-26).
+    /// When present, the skill exposes destructive remediation actions
+    /// gated by the global "Action Pack" license. Schema is
+    /// pass-through JSON: { enabled, implemented, requires_separate_creds,
+    /// credential_fields {...}, actions [{name, label, description}] }.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hitl_actions: Option<serde_json::Value>,
+    /// Marketing flag — true for niche / pentest tools we hide behind
+    /// the "Avancés" toggle in the catalog. Backed by C2 manifests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub advanced: Option<bool>,
 }
 
 fn default_tool() -> String {

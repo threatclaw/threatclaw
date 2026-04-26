@@ -56,6 +56,36 @@
       "default": false
     }
   },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": true,
+    "requires_separate_creds": true,
+    "credential_fields": {
+      "admin_bind_dn": {
+        "type": "string",
+        "description": "DN du compte privilégié",
+        "placeholder": "cn=tc-actions,ou=ServiceAccounts,dc=corp,dc=local",
+        "hint": "Compte de service avec droits Account Operators (ou un OU spécifique pour limiter le scope). DOIT être différent du compte de lecture pour respecter le principe de moindre privilège — la sync read-only continue avec bind_dn ci-dessus, les actions HITL passent par ce compte privilégié."
+      },
+      "admin_bind_password": {
+        "type": "password",
+        "description": "Mot de passe du compte privilégié",
+        "hint": "Stocké chiffré côté ThreatClaw. Rotation recommandée tous les 90 jours."
+      }
+    },
+    "actions": [
+      {
+        "name": "ad_disable_account",
+        "label": "Désactiver un compte",
+        "description": "Set userAccountControl pour désactiver le compte. Réversible (re-activation manuelle requise)."
+      },
+      {
+        "name": "ad_reset_password",
+        "label": "Forcer un changement de mot de passe (à venir)",
+        "description": "Set pwdLastSet=0 pour forcer le user à changer son mot de passe au prochain login. Pas de génération de mdp temp côté TC : le user passe par le portail self-service standard."
+      }
+    ]
+  },
   "auto_sync": true,
   "sync_interval": 60,
   "outputs": {

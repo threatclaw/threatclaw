@@ -32,10 +32,15 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 const SKILL_LABELS: Record<string, string> = {
-  "skill-velociraptor-actions": "Velociraptor Actions",
-  "skill-opnsense-actions": "OPNsense Actions",
-  "skill-fortinet-actions": "Fortinet Actions",
-  "skill-ad-remediation": "AD Remediation",
+  // Doctrine pivot 2026-04-26: a single Action Pack license unlocks
+  // every HITL destructive flow across all connectors. The legacy
+  // per-skill ids below are still understood by older certs in the
+  // wild and are mapped to the same human label.
+  "hitl": "Action Pack — Toutes les actions HITL",
+  "skill-velociraptor-actions": "Action Pack (legacy: velociraptor)",
+  "skill-opnsense-actions": "Action Pack (legacy: opnsense)",
+  "skill-fortinet-actions": "Action Pack (legacy: fortinet)",
+  "skill-ad-remediation": "Action Pack (legacy: ad-remediation)",
 };
 
 function formatTimestamp(ts: number | null): string {
@@ -62,7 +67,7 @@ export default function LicensingPage() {
   // Trial form
   const [trialEmail, setTrialEmail] = useState("");
   const [trialOrg, setTrialOrg] = useState("");
-  const [trialSkill, setTrialSkill] = useState("skill-velociraptor-actions");
+  const [trialSkill, setTrialSkill] = useState("hitl");
   const [showTrialForm, setShowTrialForm] = useState(false);
 
   const fetchStatus = useCallback(async () => {
@@ -185,9 +190,12 @@ export default function LicensingPage() {
   return (
     <div style={{ padding: 24, maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
       <header>
-        <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0, marginBottom: 4 }}>Licences Premium</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0, marginBottom: 4 }}>Mes licences</h1>
         <p style={{ margin: 0, color: "var(--tc-grey-mid)", fontSize: 14 }}>
-          Skills d'action premium activés sur cette installation. Le cœur ThreatClaw reste gratuit AGPL.
+          ThreatClaw reste gratuit en AGPL pour toute la collecte, l&apos;analyse et la détection.
+          La licence <strong>Action Pack</strong> ajoute l&apos;exécution des actions HITL destructives
+          (block IP, désactiver compte, isoler endpoint, …) avec workflow d&apos;approbation, audit log
+          signé et notification Slack/email.
         </p>
       </header>
 
@@ -207,21 +215,27 @@ export default function LicensingPage() {
           <div style={{ padding: 20 }}>
             <strong>Licensing non provisionné dans cette build.</strong>
             <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--tc-grey-mid)" }}>
-              Aucun skill premium ne peut être activé tant que la cérémonie de signature n'a pas été effectuée.
+              Aucune licence ne peut être activée tant que la cérémonie de signature n&apos;a pas été effectuée.
             </p>
           </div>
         </NeuCard>
       )}
 
-      {/* ── Smart upgrade banner (Action Pack) ───────────────────────── */}
-      {status?.provisioned && totalSkills >= 2 && !hasWildcard && (
+      {/* ── No-license CTA ───────────────────────────────────────────── */}
+      {status?.provisioned && !hasAny && (
         <div style={{
           padding: 14, borderRadius: 6,
-          background: "rgba(208,144,32,0.10)", border: "1px solid rgba(208,144,32,0.25)",
-          fontSize: 13, color: "var(--tc-text)",
+          background: "rgba(48,128,208,0.06)", border: "1px solid rgba(48,128,208,0.22)",
+          fontSize: 13, color: "var(--tc-text)", lineHeight: 1.55,
         }}>
-          Vous avez {totalSkills} skills Individual à 79 €/an = {totalSkills * 79} €/an.
-          {' '}L'<a href="https://threatclaw.io/fr/pricing" target="_blank" rel="noreferrer" style={{ color: "var(--tc-red)", fontWeight: 600 }}>Action Pack à 590 €/an</a> débloque tous les skills premium et économise dès le 4e skill.
+          Tu n&apos;as pas encore de licence active. La détection / corrélation / propositions L2
+          fonctionnent déjà avec la version Community gratuite. Pour <strong>exécuter</strong> les
+          actions HITL proposées (bloquer une IP sur le firewall, désactiver un compte AD, isoler
+          un endpoint via Velociraptor, etc.), il te faut un Action Pack actif.
+          {' '}<a href="https://threatclaw.io/fr/pricing" target="_blank" rel="noreferrer" style={{ color: "var(--tc-red)", fontWeight: 600 }}>
+            Voir les tarifs
+          </a>
+          {' '}ou démarre un essai 60 jours gratuit ci-dessous.
         </div>
       )}
 
@@ -342,10 +356,12 @@ export default function LicensingPage() {
               <div>
                 <h3 style={{ margin: "0 0 6px", fontSize: 15 }}>
                   <Mail size={14} style={{ display: "inline", marginRight: 6 }} />
-                  Essai gratuit 60 jours
+                  Essai Action Pack — 60 jours gratuits
                 </h3>
                 <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--tc-grey-mid)" }}>
-                  1 skill au choix, sans carte bancaire. Une clé vous sera envoyée par mail.
+                  Action Pack complet sans carte bancaire (toutes les actions HITL débloquées :
+                  block IP firewall, désactiver compte AD, isoler endpoint Velociraptor…). Une clé
+                  arrive par mail.
                 </p>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                   <input type="email" placeholder="email@boite.fr" value={trialEmail}
@@ -353,13 +369,8 @@ export default function LicensingPage() {
                   <input type="text" placeholder="Nom organisation (optionnel)" value={trialOrg}
                     onChange={(e) => setTrialOrg(e.target.value)} style={inputStyle} />
                 </div>
-                <select value={trialSkill} onChange={(e) => setTrialSkill(e.target.value)}
-                  style={{ ...inputStyle, marginBottom: 8 }}>
-                  <option value="skill-velociraptor-actions">Velociraptor Actions (quarantine endpoint)</option>
-                  <option value="skill-opnsense-actions">OPNsense Actions (block IP / kill states)</option>
-                  <option value="skill-fortinet-actions">Fortinet Actions</option>
-                  <option value="skill-ad-remediation">AD Remediation</option>
-                </select>
+                {/* No skill picker any more — Action Pack is the single SKU. */}
+                <input type="hidden" value={trialSkill} readOnly />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={onStartTrial} disabled={busy !== null} style={btnPrimary}>
                     {busy === "global" ? <Loader2 size={14} className="animate-spin" /> : null} Démarrer l'essai

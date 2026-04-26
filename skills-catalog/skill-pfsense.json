@@ -41,6 +41,19 @@
       "default": true
     }
   },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": true,
+    "requires_separate_creds": false,
+    "credential_fields": {},
+    "actions": [
+      {
+        "name": "pfsense_block_ip",
+        "label": "Bloquer une IP",
+        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift)."
+      }
+    ]
+  },
   "auto_sync": true,
   "sync_interval": 5,
   "outputs": {
