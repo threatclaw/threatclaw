@@ -407,6 +407,14 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::scans_for_asset_handler),
         )
         .route(
+            "/api/tc/firewall/events",
+            get(super::handlers::threatclaw_api::firewall_events_handler),
+        )
+        .route(
+            "/api/tc/firewall/block-sources",
+            get(super::handlers::threatclaw_api::firewall_block_sources_handler),
+        )
+        .route(
             "/api/tc/scans/schedules",
             get(super::handlers::threatclaw_api::scans_schedules_list_handler),
         )

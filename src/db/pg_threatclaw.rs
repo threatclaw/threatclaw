@@ -40,6 +40,24 @@ fn scan_job_from_row(r: tokio_postgres::Row) -> ScanJob {
     }
 }
 
+fn firewall_event_from_row(r: tokio_postgres::Row) -> FirewallEventRecord {
+    FirewallEventRecord {
+        id: r.get(0),
+        timestamp: r.get::<_, chrono::DateTime<chrono::Utc>>(1).to_rfc3339(),
+        fw_source: r.get(2),
+        interface: r.get(3),
+        action: r.get(4),
+        direction: r.get(5),
+        proto: r.get(6),
+        src_ip: r.get(7),
+        src_port: r.get(8),
+        dst_ip: r.get(9),
+        dst_port: r.get(10),
+        rule_id: r.get(11),
+        raw_meta: r.get(12),
+    }
+}
+
 /// See ADR-047.
 fn row_to_suppression_rule(r: tokio_postgres::Row) -> serde_json::Value {
     serde_json::json!({

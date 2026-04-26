@@ -537,6 +537,72 @@ pub async fn scans_enqueue_handler(
     }
 }
 
+// ── Firewall events (V54 firewall_events) ──
+
+#[derive(Debug, Deserialize)]
+pub struct FirewallEventsQuery {
+    pub ip: Option<String>,
+    pub minutes_back: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+pub async fn firewall_events_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<FirewallEventsQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(200).clamp(1, 2000);
+    let mins = q.minutes_back.unwrap_or(60).clamp(1, 1440);
+    let since = chrono::Utc::now() - chrono::Duration::minutes(mins);
+    let events = if let Some(ip) = q.ip.as_deref() {
+        store
+            .firewall_events_for_ip(ip, since, limit)
+            .await
+            .map_err(db_err)?
+    } else {
+        // No IP filter — return empty rather than scan the whole table.
+        // Operators get guidance to pass ?ip=10.0.0.50 (or pull bulk via SQL).
+        return Ok(Json(serde_json::json!({
+            "events": [],
+            "hint": "pass ?ip=<ip> to filter; full-table scans are not exposed via this endpoint",
+        })));
+    };
+    Ok(Json(serde_json::json!({
+        "events": events,
+        "count": events.len(),
+        "minutes_back": mins,
+    })))
+}
+
+pub async fn firewall_block_sources_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<FirewallEventsQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let mins = q.minutes_back.unwrap_or(60).clamp(1, 1440);
+    let since = chrono::Utc::now() - chrono::Duration::minutes(mins);
+    let dst_ip = match q.ip.as_deref() {
+        Some(ip) => ip,
+        None => {
+            return Ok(Json(serde_json::json!({
+                "error": "missing ?ip=<dst_ip> param",
+            })));
+        }
+    };
+    let counts = store
+        .firewall_block_counts_by_src(dst_ip, since)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "dst_ip": dst_ip,
+        "minutes_back": mins,
+        "top_sources": counts
+            .into_iter()
+            .map(|(src, n)| serde_json::json!({"src_ip": src, "blocks": n}))
+            .collect::<Vec<_>>(),
+    })))
+}
+
 // ── Scan schedules (V52 scan_schedules) ──
 
 pub async fn scans_schedules_list_handler(
