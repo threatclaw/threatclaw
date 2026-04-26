@@ -30,5 +30,6 @@
   "default_active": false,
   "requires_config": true,
   "api_key_required": false,
-  "icon": "globe"
+  "icon": "globe",
+  "advanced": true
 }

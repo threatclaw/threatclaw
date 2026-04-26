@@ -32,6 +32,7 @@ interface SkillManifest {
   help?: string;
   tier?: string;
   depends_on?: string;
+  advanced?: boolean;
 }
 
 // ── Type definitions for UI ──
@@ -63,11 +64,13 @@ const RUNNABLE: Record<string, string> = {
   "skill-semgrep": "/api/tc/skills/run/skill-semgrep",
   "skill-checkov": "/api/tc/skills/run/skill-checkov",
   "skill-trufflehog": "/api/tc/skills/run/skill-trufflehog",
-  "skill-grype": "/api/tc/skills/run/skill-grype",
   "skill-syft": "/api/tc/skills/run/skill-syft",
   "skill-lynis": "/api/tc/skills/run/skill-lynis",
   "skill-docker-bench": "/api/tc/skills/run/skill-docker-bench",
   "skill-nmap-discovery": "/api/tc/connectors/nmap/scan",
+  // skill-grype removed in C2 — duplicate of skill-trivy. Keeping a
+  // single CVE scanner reduces image-pull churn and simplifies the
+  // catalog.
   "skill-active-directory": "/api/tc/connectors/ad/sync",
   "skill-pfsense": "/api/tc/connectors/firewall/sync",
   "skill-proxmox": "/api/tc/connectors/proxmox/sync",
@@ -105,7 +108,7 @@ const BETA_SKILLS: Set<string> = new Set([
   "skill-wazuh", "skill-wazuh-connector", "skill-glpi", "skill-defectdojo",
   "skill-pihole", "skill-unifi", "skill-zeek", "skill-suricata",
   "skill-crowdsec-connector", "skill-cloudflare", "skill-uptimerobot",
-  "skill-semgrep", "skill-checkov", "skill-trufflehog", "skill-grype",
+  "skill-semgrep", "skill-checkov", "skill-trufflehog",
   "skill-syft", "skill-docker-bench", "skill-lynis",
   "skill-darkweb-monitor", "skill-email-audit", "skill-report-gen",
   "skill-compliance-nis2", "skill-compliance-iso27001",

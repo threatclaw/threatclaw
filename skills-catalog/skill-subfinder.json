@@ -30,5 +30,6 @@
   "default_active": false,
   "requires_config": true,
   "api_key_required": false,
-  "icon": "search"
+  "icon": "search",
+  "advanced": true
 }
