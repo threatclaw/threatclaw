@@ -238,6 +238,44 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                             result.errors.push(format!("Firewall log insert: {}", e));
                         }
                     }
+                    // Mirror BLOCK events into the logs table so the Sigma
+                    // engine can run pattern rules against single events
+                    // (backdoor port hit, RFC1918 spoof, etc.). Volumetric
+                    // detection stays on firewall_events via SQL aggregates
+                    // — this is the complementary single-line path.
+                    let mut sigma_logs = 0usize;
+                    for ev in &events {
+                        if ev.action != "block" {
+                            continue;
+                        }
+                        let entry = serde_json::json!({
+                            "fw_source": ev.fw_source,
+                            "interface": ev.interface,
+                            "action": ev.action,
+                            "direction": ev.direction,
+                            "proto": ev.proto,
+                            "src_ip": ev.src_ip,
+                            "src_port": ev.src_port,
+                            "dst_ip": ev.dst_ip,
+                            "dst_port": ev.dst_port,
+                            "rule_id": ev.rule_id,
+                        });
+                        let host = ev.src_ip.as_deref().unwrap_or("-");
+                        let ts = ev.timestamp.to_rfc3339();
+                        if store
+                            .insert_log("opnsense.firewall", host, &entry, &ts)
+                            .await
+                            .is_ok()
+                        {
+                            sigma_logs += 1;
+                        }
+                    }
+                    if sigma_logs > 0 {
+                        tracing::debug!(
+                            "OPNSENSE: mirrored {} block events into logs for Sigma",
+                            sigma_logs
+                        );
+                    }
                 }
                 // Always prune; cheap if nothing's old.
                 if let Ok(n) = store.prune_firewall_events(cutoff).await {
