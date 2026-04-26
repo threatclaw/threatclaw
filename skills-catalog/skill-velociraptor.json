@@ -7,7 +7,7 @@
   "trust": "official",
   "type": "connector",
   "category": "endpoints",
-  "help": "À QUOI ÇA SERT\n\nVelociraptor est un EDR open-source (Rapid7) qui pose un agent léger (Windows/Linux/macOS) sur chaque endpoint et permet d'y exécuter des requêtes VQL à la demande pendant un incident. Sans Velociraptor, le L2 forensic de ThreatClaw écrit \"investigation manuelle requise\" sur les incidents endpoint. Avec, il peut lui-même lister les process, l'historique d'exécution, les connexions réseau, les events Windows, sans qu'un humain ait à se logger sur la machine.\n\nDFIR = Digital Forensics & Incident Response (investigation forensique d'un incident sur un endpoint).\n\n→ PRÉREQUIS\n\n1. Tu dois déjà avoir un serveur Velociraptor en place quelque part (sinon, voir velociraptor.app pour l'installer — environ 30 minutes).\n2. Le serveur doit être accessible depuis ThreatClaw sur le port API (8001 par défaut). Dans server.config.yaml côté Velociraptor, vérifier que `API.bind_address` est sur 0.0.0.0 (par défaut c'est 127.0.0.1, ce qui empêche ThreatClaw de se connecter).\n\n→ COMMENT GÉNÉRER LA CONFIG (à exécuter SUR le serveur Velociraptor)\n\nConnecte-toi en SSH sur le serveur Velociraptor et lance :\n\n    velociraptor --config /etc/velociraptor/server.config.yaml \\\n        config api_client --name threatclaw \\\n        --role investigator,api threatclaw.config.yaml\n\nÇa génère un fichier threatclaw.config.yaml qui contient 4 champs en YAML : `api_connection_string`, `ca_certificate`, `client_cert`, `client_private_key`. Tu copies-colles ces 4 champs dans la config ci-dessous.\n\nIMPORTANT : choisis bien `--role investigator,api` (et JAMAIS `administrator`). Le rôle investigator refuse déjà côté serveur les VQL dangereux (execve, powershell, cmd, copy, upload, rm). ThreatClaw double le garde avec un lint côté Rust.\n\n→ APRÈS CONFIGURATION\n\nThreatClaw fait une sync toutes les 5 minutes pour importer nouveaux clients et hunts terminés. Si la sync échoue, le détail de l'erreur s'affiche dans Config > Sources de logs.",
+  "help": "À QUOI ÇA SERT\n\nVelociraptor est un EDR open-source (Rapid7) qui pose un agent léger (Windows/Linux/macOS) sur chaque endpoint et permet d'y exécuter des requêtes VQL à la demande pendant un incident. Sans Velociraptor, le L2 forensic de ThreatClaw écrit \"investigation manuelle requise\" sur les incidents endpoint. Avec, il peut lui-même lister les process, l'historique d'exécution, les connexions réseau, les events Windows, sans qu'un humain ait à se logger sur la machine.\n\nDFIR = Digital Forensics & Incident Response (investigation forensique d'un incident sur un endpoint).\n\n→ MODE D'EMPLOI\n\nIl te faut un serveur Velociraptor déjà installé et joignable depuis ThreatClaw sur son port API (8001 par défaut). Sur le serveur, dans server.config.yaml, API.bind_address doit être 0.0.0.0 (par défaut c'est 127.0.0.1, ce qui empêche ThreatClaw de se connecter).\n\n1. Connecte-toi en SSH au serveur Velociraptor et lance :\n\n    velociraptor --config /etc/velociraptor/server.config.yaml config api_client --name threatclaw --role investigator,api threatclaw.config.yaml\n\nIMPORTANT : --role investigator,api (jamais administrator). Le rôle investigator refuse déjà côté serveur les VQL dangereux (execve, powershell, cmd, copy, upload, rm). ThreatClaw double le garde avec un lint côté Rust.\n\n2. Ouvre le fichier threatclaw.config.yaml généré (il fait ~70 lignes) et copie-colle son contenu intégral dans le panneau bleu \"Coller le YAML\" ci-dessous. Les 4 champs (api_url, username, certs) se rempliront automatiquement. Tu peux aussi remplir les champs un par un à la main si tu préfères.\n\n3. Clique Enregistrer puis Lancer pour vérifier la connexion. Au prochain cycle (5 min), les clients Velociraptor apparaissent comme assets dans /assets et les hunts terminés deviennent des findings.\n\n→ EN CAS D'ERREUR\n\nLes erreurs de sync s'affichent dans Config > Sources de logs.",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
@@ -31,22 +31,22 @@
     },
     "ca_pem": {
       "type": "string",
-      "description": "Certificat CA (à coller depuis threatclaw.config.yaml)",
+      "description": "Certificat CA (rempli auto par le panneau bleu)",
       "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-      "hint": "Ouvre le fichier threatclaw.config.yaml généré sur le serveur Velociraptor. Trouve le champ ca_certificate: et copie-colle ici tout le bloc PEM (du -----BEGIN CERTIFICATE----- jusqu'au -----END CERTIFICATE-----, inclus). Ce certificat valide à la fois le serveur Velociraptor et le client ThreatClaw.",
+      "hint": "Normalement rempli automatiquement quand tu colles threatclaw.config.yaml dans le panneau bleu en haut. Si tu remplis à la main : copie le bloc PEM du champ ca_certificate de threatclaw.config.yaml (-----BEGIN CERTIFICATE----- jusqu'au -----END CERTIFICATE-----, inclus).",
       "required": true
     },
     "client_cert_pem": {
       "type": "string",
-      "description": "Certificat client (à coller depuis threatclaw.config.yaml)",
+      "description": "Certificat client (rempli auto par le panneau bleu)",
       "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-      "hint": "Dans le même fichier threatclaw.config.yaml, copie le bloc PEM du champ client_cert:. C'est ce certificat qui prouve à Velociraptor que la connexion vient bien de ThreatClaw. Il est valide 1 an par défaut — quand il expire il faut regénérer un nouveau threatclaw.config.yaml côté Velociraptor.",
+      "hint": "Normalement rempli automatiquement par le panneau bleu en haut. Si tu remplis à la main : copie le bloc PEM du champ client_cert de threatclaw.config.yaml. Valide 1 an par défaut — quand il expire il faut regénérer un nouveau threatclaw.config.yaml côté Velociraptor.",
       "required": true
     },
     "client_key_pem": {
       "type": "password",
-      "description": "Clé privée client (à coller depuis threatclaw.config.yaml)",
-      "hint": "Dans threatclaw.config.yaml, copie le bloc du champ client_private_key:. C'est le secret qui va avec le certificat client juste au-dessus. Stocké chiffré dans la base ThreatClaw (table skill_configs) — ne le partage avec personne d'autre.",
+      "description": "Clé privée client (rempli auto par le panneau bleu)",
+      "hint": "Normalement rempli automatiquement par le panneau bleu en haut. Si tu remplis à la main : copie le bloc PEM du champ client_private_key de threatclaw.config.yaml. Stocké chiffré dans la base ThreatClaw (table skill_configs).",
       "required": true
     },
     "max_findings_per_cycle": {

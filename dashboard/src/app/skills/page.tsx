@@ -944,6 +944,16 @@ function ConfigModal({
           </div>
         )}
 
+        {skill.id === "skill-velociraptor" && (
+          <VelociraptorPastePanel
+            onParsed={(fields) => {
+              const sid = "skill-velociraptor";
+              Object.entries(fields).forEach(([k, v]) => {
+                if (v) setConfig(sid, k, v);
+              });
+            }}
+          />
+        )}
         {skill.id === "skill-wazuh-connector" && (
           <WazuhExtraPanel
             cursor={configValues["skill-wazuh-connector"]?.cursor_last_timestamp || ""}
@@ -1028,6 +1038,137 @@ function ConfigModal({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Velociraptor — paste-once helper ──
+// The api_client subcommand on the Velociraptor server emits a YAML
+// file with one URL line and three indented PEM blocks (CA, client
+// cert, client key). Asking the operator to copy-paste each one into
+// a separate text field is a 4-paste, error-prone exercise. This panel
+// takes the whole file in a single textarea, parses it client-side,
+// and pre-fills the underlying form fields. They can still verify or
+// override the individual fields before saving.
+function VelociraptorPastePanel({ onParsed }: { onParsed: (fields: Record<string, string>) => void }) {
+  const locale = useLocale();
+  const [yaml, setYaml] = useState("");
+  const [status, setStatus] = useState<"idle" | "ok" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  const parse = () => {
+    try {
+      const text = yaml;
+      // api_connection_string: <url>
+      const apiMatch = text.match(/^api_connection_string:\s*(.+)$/m);
+      let apiUrl = apiMatch ? apiMatch[1].trim() : "";
+      if (apiUrl && !apiUrl.startsWith("http")) apiUrl = "https://" + apiUrl;
+
+      // PEM blocks — extract all, strip leading whitespace from each line
+      const pemRe = /-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g;
+      const pems = (text.match(pemRe) || []).map((p) => p.replace(/^[ \t]+/gm, ""));
+
+      // Velociraptor's api_client output has 3 PEMs in order:
+      // 1. ca_certificate (CERTIFICATE)
+      // 2. client_cert (CERTIFICATE)
+      // 3. client_private_key (RSA PRIVATE KEY / PRIVATE KEY)
+      const ca = pems[0] || "";
+      const cert = pems[1] || "";
+      const key = pems.find((p) => p.includes("PRIVATE KEY")) || pems[2] || "";
+
+      // username comes from `name: <value>` (the --name arg passed to api_client)
+      const nameMatch = text.match(/^name:\s*(\S+)/m);
+      const username = nameMatch ? nameMatch[1].trim() : "threatclaw";
+
+      const filled: string[] = [];
+      const out: Record<string, string> = {};
+      if (apiUrl) { out.api_url = apiUrl; filled.push("api_url"); }
+      if (username) { out.username = username; filled.push("username"); }
+      if (ca) { out.ca_pem = ca; filled.push("ca_pem"); }
+      if (cert) { out.client_cert_pem = cert; filled.push("client_cert_pem"); }
+      if (key) { out.client_key_pem = key; filled.push("client_key_pem"); }
+
+      if (filled.length === 0) {
+        setStatus("error");
+        setMessage(locale === "fr"
+          ? "Impossible d'extraire des champs — vérifie que tu as collé le contenu complet de threatclaw.config.yaml."
+          : "Could not extract any fields — make sure you pasted the full content of threatclaw.config.yaml.");
+        return;
+      }
+      onParsed(out);
+      setStatus("ok");
+      setMessage(locale === "fr"
+        ? `${filled.length} champs remplis automatiquement. Vérifie ci-dessous puis clique sur Enregistrer.`
+        : `${filled.length} fields auto-filled. Verify below and click Save.`);
+    } catch (e: any) {
+      setStatus("error");
+      setMessage(`${locale === "fr" ? "Erreur" : "Error"}: ${e?.message || String(e)}`);
+    }
+  };
+
+  return (
+    <div style={{
+      marginBottom: "16px", padding: "12px 14px",
+      background: "rgba(48,128,208,0.06)", border: "1px solid rgba(48,128,208,0.18)",
+      borderRadius: "var(--tc-radius-sm)",
+    }}>
+      <div style={{
+        fontSize: "11px", fontWeight: 700, color: "var(--tc-blue)", marginBottom: "6px",
+        display: "flex", alignItems: "center", gap: "6px",
+      }}>
+        <Info size={13} /> {locale === "fr" ? "Coller le YAML en une fois (recommandé)" : "Paste YAML once (recommended)"}
+      </div>
+      <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", marginBottom: "8px", lineHeight: 1.5 }}>
+        {locale === "fr" ? (
+          <>
+            Sur le serveur Velociraptor, lance{" "}
+            <code style={{ background: "var(--tc-input)", padding: "0 4px", fontSize: "10px" }}>
+              velociraptor --config /etc/velociraptor/server.config.yaml config api_client --name threatclaw --role investigator,api threatclaw.config.yaml
+            </code>
+            , puis colle le contenu intégral de <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>threatclaw.config.yaml</code> ci-dessous. Les 4 champs en bas se rempliront tout seuls.
+          </>
+        ) : (
+          <>
+            On the Velociraptor server, run{" "}
+            <code style={{ background: "var(--tc-input)", padding: "0 4px", fontSize: "10px" }}>
+              velociraptor --config /etc/velociraptor/server.config.yaml config api_client --name threatclaw --role investigator,api threatclaw.config.yaml
+            </code>
+            , then paste the full content of <code style={{ background: "var(--tc-input)", padding: "0 4px" }}>threatclaw.config.yaml</code> below. The 4 fields underneath will fill automatically.
+          </>
+        )}
+      </div>
+      <textarea
+        value={yaml}
+        onChange={(e) => setYaml(e.target.value)}
+        placeholder={"ca_certificate: |\n  -----BEGIN CERTIFICATE-----\n  ...\n  -----END CERTIFICATE-----\nclient_cert: |\n  ...\nclient_private_key: |\n  ...\napi_connection_string: 10.77.0.136:8001\nname: threatclaw"}
+        style={{
+          width: "100%", minHeight: "100px", maxHeight: "180px",
+          padding: "8px 10px", borderRadius: "var(--tc-radius-input)", fontSize: "10px",
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+          background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+          color: "var(--tc-text)", outline: "none", resize: "vertical",
+        }}
+      />
+      <div style={{ display: "flex", gap: "8px", marginTop: "8px", alignItems: "center" }}>
+        <button
+          onClick={parse}
+          disabled={!yaml.trim()}
+          className="tc-btn-embossed"
+          style={{ fontSize: "11px", padding: "6px 14px" }}
+        >
+          {locale === "fr" ? "Extraire les champs" : "Extract fields"}
+        </button>
+        {status === "ok" && (
+          <span style={{ fontSize: "10px", color: "#30a050", display: "flex", alignItems: "center", gap: "4px" }}>
+            <CheckCircle2 size={11} /> {message}
+          </span>
+        )}
+        {status === "error" && (
+          <span style={{ fontSize: "10px", color: "#d03020", display: "flex", alignItems: "center", gap: "4px" }}>
+            <X size={11} /> {message}
+          </span>
+        )}
       </div>
     </div>
   );
