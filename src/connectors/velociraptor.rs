@@ -37,8 +37,8 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 use super::velociraptor_proto::api_client::ApiClient as VrApiClient;
 use super::velociraptor_proto::{
-    ArtifactCollectorArgs, Hunt as HuntMsg, ListHuntsRequest, SearchClientsRequest,
-    VqlCollectorArgs, VqlRequest, hunt::State as HuntState,
+    ArtifactCollectorArgs, ArtifactParameters, ArtifactSpec, Hunt as HuntMsg, ListHuntsRequest,
+    SearchClientsRequest, VqlCollectorArgs, VqlEnv, VqlRequest, hunt::State as HuntState,
 };
 
 /// Connection config for a single Velociraptor server.
@@ -53,6 +53,15 @@ pub struct VelociraptorConfig {
     pub cursor_last_hunt_completion: Option<String>,
     #[serde(default = "default_max_findings")]
     pub max_findings_per_cycle: u32,
+    /// Optional second client certificate with `administrator` role for
+    /// destructive HITL actions (quarantine, kill_process, isolate_host).
+    /// The read-only sync user (investigator,api role) cannot execute
+    /// EXECVE/FILESYSTEM_WRITE plugins, so a separate api_client with
+    /// elevated privileges is required.
+    #[serde(default)]
+    pub admin_client_cert_pem: Option<String>,
+    #[serde(default)]
+    pub admin_client_key_pem: Option<String>,
 }
 
 fn default_max_findings() -> u32 {
@@ -430,7 +439,210 @@ async fn load_config(store: &dyn Database) -> Result<VelociraptorConfig, String>
             .get("max_findings_per_cycle")
             .and_then(|v| v.parse().ok())
             .unwrap_or(500),
+        admin_client_cert_pem: map
+            .get("admin_client_cert_pem")
+            .filter(|v| !v.is_empty())
+            .cloned(),
+        admin_client_key_pem: map
+            .get("admin_client_key_pem")
+            .filter(|v| !v.is_empty())
+            .cloned(),
     })
+}
+
+/// Build an mTLS channel using the **admin** identity for destructive
+/// actions. Errors clearly when the operator hasn't configured the
+/// elevated api_client — the dashboard surfaces this back to the user
+/// instead of trying with the read-only cert and silently failing
+/// server-side.
+async fn build_admin_channel(config: &VelociraptorConfig) -> Result<Channel, String> {
+    let admin_cert = config
+        .admin_client_cert_pem
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or(
+            "skill-velociraptor: admin_client_cert_pem non configuré — \
+             régénère un threatclaw.config.yaml avec --role administrator \
+             et colle les blocs admin dans le panneau HITL",
+        )?;
+    let admin_key = config
+        .admin_client_key_pem
+        .as_deref()
+        .filter(|v| !v.trim().is_empty())
+        .ok_or("skill-velociraptor: admin_client_key_pem non configuré")?;
+
+    let raw = config.api_url.trim();
+    let uri = if raw.starts_with("https://") || raw.starts_with("http://") {
+        raw.to_string()
+    } else if let Some(rest) = raw.strip_prefix("grpc://") {
+        format!("https://{rest}")
+    } else if let Some(rest) = raw.strip_prefix("grpcs://") {
+        format!("https://{rest}")
+    } else {
+        format!("https://{raw}")
+    };
+
+    let ca = Certificate::from_pem(config.ca_pem.as_bytes());
+    let identity_pem = format!("{}\n{}", admin_cert.trim(), admin_key.trim());
+    let identity = Identity::from_pem(identity_pem.as_bytes(), identity_pem.as_bytes());
+
+    let tls = ClientTlsConfig::new()
+        .ca_certificate(ca)
+        .identity(identity)
+        .domain_name("VelociraptorServer");
+
+    Channel::from_shared(uri.clone())
+        .map_err(|e| format!("invalid api_url '{uri}': {e}"))?
+        .tls_config(tls)
+        .map_err(|e| format!("tls config: {e}"))?
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
+        .connect()
+        .await
+        .map_err(|e| format!("connect: {e}"))
+}
+
+/// Schedule a Velociraptor artifact collection on `client_id` using the
+/// admin identity. `params` becomes the artifact's `env` block.
+///
+/// Returns the flow id assigned by the Velociraptor server. The flow
+/// runs asynchronously on the endpoint; the operator can follow it in
+/// the GUI under Flows.
+async fn collect_admin_artifact(
+    config: &VelociraptorConfig,
+    client_id: &str,
+    artifact: &str,
+    params: &[(&str, String)],
+) -> Result<String, String> {
+    if !client_id.starts_with("C.") || client_id.len() < 4 {
+        return Err(format!(
+            "invalid client_id '{client_id}' (expected 'C.' + 16 hex)"
+        ));
+    }
+    if artifact.is_empty() || artifact.contains(';') || artifact.contains('\n') {
+        return Err(format!("invalid artifact '{artifact}'"));
+    }
+    let channel = build_admin_channel(config).await?;
+    let mut api = VrApiClient::new(channel);
+
+    let env = params
+        .iter()
+        .map(|(k, v)| VqlEnv {
+            key: (*k).to_string(),
+            value: v.clone(),
+            comment: String::new(),
+        })
+        .collect::<Vec<_>>();
+
+    let req = ArtifactCollectorArgs {
+        client_id: client_id.to_string(),
+        specs: vec![ArtifactSpec {
+            artifact: artifact.to_string(),
+            parameters: Some(ArtifactParameters { env }),
+            ..Default::default()
+        }],
+        urgent: true,
+        ..Default::default()
+    };
+    let resp = api
+        .collect_artifact(req)
+        .await
+        .map_err(status_to_str)?
+        .into_inner();
+    Ok(resp.flow_id)
+}
+
+/// Quarantine an endpoint — adds host-firewall rules that block all
+/// network traffic except to the Velociraptor frontend, so the agent
+/// stays controllable while malware loses C2 / lateral movement.
+///
+/// Backed by the standard `Windows.Remediation.Quarantine` artifact
+/// (Linux equivalent on Linux clients). Reversible via the Velociraptor
+/// GUI flow "RemoveQuarantine".
+pub async fn quarantine_endpoint(
+    store: &dyn Database,
+    client_id: &str,
+) -> Result<serde_json::Value, String> {
+    let config = load_config(store).await?;
+    let flow_id =
+        collect_admin_artifact(&config, client_id, "Windows.Remediation.Quarantine", &[]).await?;
+    tracing::info!(
+        "VELOCIRAPTOR: quarantine_endpoint scheduled flow={} client={}",
+        flow_id,
+        client_id
+    );
+    Ok(serde_json::json!({
+        "flow_id": flow_id,
+        "client_id": client_id,
+        "artifact": "Windows.Remediation.Quarantine",
+        "reversible": true,
+        "undo_info": "RemoveQuarantine artifact via Velociraptor GUI",
+    }))
+}
+
+/// Kill a process on the endpoint by name (or PID if numeric). Backed
+/// by `Windows.Remediation.ProcessKill`. The agent runs taskkill / kill
+/// server-side under the admin role; investigator-role api_clients will
+/// be refused by Velociraptor itself.
+pub async fn kill_process(
+    store: &dyn Database,
+    client_id: &str,
+    process_name_or_pid: &str,
+) -> Result<serde_json::Value, String> {
+    let config = load_config(store).await?;
+    // Velociraptor's ProcessKill takes ProcessName (substring match) or
+    // ProcessId (exact). We send whichever matches the input shape so
+    // the operator can pass either "evil.exe" or "4242".
+    let params: Vec<(&str, String)> = if process_name_or_pid.chars().all(|c| c.is_ascii_digit()) {
+        vec![("ProcessId", process_name_or_pid.to_string())]
+    } else {
+        vec![("ProcessName", process_name_or_pid.to_string())]
+    };
+    let flow_id = collect_admin_artifact(
+        &config,
+        client_id,
+        "Windows.Remediation.ProcessKill",
+        &params,
+    )
+    .await?;
+    tracing::info!(
+        "VELOCIRAPTOR: kill_process scheduled flow={} client={} target={}",
+        flow_id,
+        client_id,
+        process_name_or_pid
+    );
+    Ok(serde_json::json!({
+        "flow_id": flow_id,
+        "client_id": client_id,
+        "target": process_name_or_pid,
+        "artifact": "Windows.Remediation.ProcessKill",
+        "reversible": false,
+    }))
+}
+
+/// Block all outbound connections from the endpoint except the
+/// Velociraptor frontend. Same artifact as `quarantine_endpoint` but
+/// surfaced as a separate action in the UI for operators who think of
+/// it differently (full quarantine vs. egress block).
+pub async fn isolate_host(
+    store: &dyn Database,
+    client_id: &str,
+) -> Result<serde_json::Value, String> {
+    let config = load_config(store).await?;
+    let flow_id =
+        collect_admin_artifact(&config, client_id, "Windows.Remediation.Quarantine", &[]).await?;
+    tracing::info!(
+        "VELOCIRAPTOR: isolate_host scheduled flow={} client={}",
+        flow_id,
+        client_id
+    );
+    Ok(serde_json::json!({
+        "flow_id": flow_id,
+        "client_id": client_id,
+        "artifact": "Windows.Remediation.Quarantine",
+        "reversible": true,
+        "undo_info": "RemoveQuarantine artifact via Velociraptor GUI",
+    }))
 }
 
 pub async fn tool_list_clients(store: &dyn Database) -> Result<serde_json::Value, String> {

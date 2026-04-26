@@ -59,7 +59,7 @@
   },
   "hitl_actions": {
     "enabled": true,
-    "implemented": false,
+    "implemented": true,
     "requires_separate_creds": true,
     "credential_fields": {
       "admin_client_cert_pem": {
