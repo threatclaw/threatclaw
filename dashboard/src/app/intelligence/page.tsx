@@ -3,8 +3,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Shield, AlertTriangle, Target, Users, Network, TrendingUp,
-  RefreshCw, Eye, Crosshair, Brain, FileText, Activity,
+  AlertTriangle, Target, Users, Network, TrendingUp,
+  RefreshCw, Eye, Crosshair, Brain, Activity,
 } from "lucide-react";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
 import { t as tr } from "@/lib/i18n";
@@ -470,28 +470,6 @@ export default function IntelligencePage() {
           )}
         </Card>
 
-      </div>
-
-      {/* NIS2 Report button */}
-      <div style={{ marginTop: "20px", display: "flex", gap: "12px", justifyContent: "center" }}>
-        <EmbossedButton onClick={async () => {
-          const report = await fetchJson(`${API}/supply-chain/nis2`);
-          if (report) {
-            const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url; a.download = "threatclaw-nis2-report.json"; a.click();
-            URL.revokeObjectURL(url);
-          }
-        }}>
-          <FileText size={14} /> Rapport NIS2 Article 21
-        </EmbossedButton>
-        <EmbossedButton onClick={async () => {
-          await fetch(`${API}/coa/seed`, { method: "POST" });
-          alert(locale === "fr" ? "Mitigations MITRE chargées dans le graphe" : "MITRE mitigations loaded into graph");
-        }}>
-          <Shield size={14} /> Charger playbooks MITRE
-        </EmbossedButton>
       </div>
     </PageShell>
   );

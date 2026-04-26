@@ -203,6 +203,24 @@ pub async fn tc_health_handler(
                     tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
                 }
 
+                // Seed MITRE Mitigation playbooks once at boot. Idempotent
+                // (upsert_coa keys on the explicit "coa--mitre-m####" id),
+                // so subsequent restarts are no-ops. The catalogue is
+                // quasi-static reference data — operators should never have
+                // to click a "Load playbooks" button to populate it.
+                static COA_SEEDED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !COA_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let coa_store = store_clone.clone();
+                    tokio::spawn(async move {
+                        crate::graph::course_of_action::seed_default_mitigations(
+                            coa_store.as_ref(),
+                        )
+                        .await;
+                        tracing::info!("AUTO-START: MITRE Mitigation playbooks seeded into graph");
+                    });
+                }
+
                 // Start Telegram Bot (if configured)
                 if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     // Check if Telegram is configured
