@@ -222,6 +222,113 @@ function SecurityTab({ assetId }: { assetId: string }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// AssetScanSurface — banner inside the Réseau tab. Calls the
+// /api/tc/scans/asset/{id} endpoint to display "Dernier scan: il y a
+// X" + "Re-scanner" button. The button forces ttl_seconds=0 so the
+// dedup window is bypassed.
+// ─────────────────────────────────────────────────────────────────────
+function AssetScanSurface({ asset }: { asset: any }) {
+  const [scans, setScans] = useState<any[]>([]);
+  const [running, setRunning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/tc/scans/asset/${encodeURIComponent(asset.id)}`);
+      const d = await r.json();
+      setScans(d.scans || []);
+      setRunning(!!d.running);
+    } catch {}
+  }, [asset.id]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  // Auto-refresh while a scan is queued or running on this asset
+  useEffect(() => {
+    if (!running) return;
+    const id = setInterval(refresh, 3000);
+    return () => clearInterval(id);
+  }, [running, refresh]);
+
+  const ip = (asset.ip_addresses || []).find((s: string) => s && !s.includes(":")) || "";
+  const lastNmap = scans.find((s) => s.scan_type === "nmap_fingerprint" && s.status === "done");
+  const ago = lastNmap ? relTimeShort(lastNmap.finished_at) : null;
+
+  const rescan = async () => {
+    if (!ip) { setMsg("Pas d'IP sur cet asset"); return; }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/tc/scans/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target: ip,
+          scan_type: "nmap_fingerprint",
+          asset_id: asset.id,
+          ttl_seconds: 0,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok || d.queued === false) {
+        setMsg(d.error || d.reason || "Échec");
+      } else {
+        setMsg(`Scan #${d.scan_id} lancé`);
+        setTimeout(refresh, 1000);
+      }
+    } catch (e: any) {
+      setMsg(e.message || String(e));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: "12px", flexWrap: "wrap",
+      padding: "10px 14px", marginBottom: "14px",
+      background: running ? "rgba(48,128,208,0.06)" : "rgba(48,128,208,0.04)",
+      border: `1px solid ${running ? "rgba(48,128,208,0.25)" : "var(--tc-border)"}`,
+      borderRadius: "var(--tc-radius-sm)",
+    }}>
+      <div style={{ fontSize: "11px", color: "var(--tc-text-sec)" }}>
+        {running ? (
+          <>🔄 <strong>Scan Nmap en cours</strong> sur cet asset…</>
+        ) : lastNmap ? (
+          <>Dernier scan Nmap : <strong>{ago}</strong> · {(lastNmap.result_json?.open_ports_total ?? 0)} ports détectés</>
+        ) : (
+          <>Aucun scan Nmap pour le moment.</>
+        )}
+        {msg && <span style={{ marginLeft: "10px", color: "var(--tc-amber)", fontSize: "10px" }}>{msg}</span>}
+      </div>
+      <button
+        onClick={rescan}
+        disabled={busy || running || !ip}
+        style={{
+          padding: "5px 12px", fontSize: "10px", fontWeight: 600, fontFamily: "inherit",
+          borderRadius: "var(--tc-radius-sm)", cursor: (busy || running || !ip) ? "default" : "pointer",
+          background: "var(--tc-input)", color: "var(--tc-text-sec)",
+          border: "1px solid var(--tc-border)",
+          display: "inline-flex", alignItems: "center", gap: "4px",
+          opacity: (!ip) ? 0.5 : 1,
+        }}
+      >
+        <RefreshCw size={10} /> Re-scanner
+      </button>
+    </div>
+  );
+}
+
+function relTimeShort(iso: string | null): string {
+  if (!iso) return "—";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return "à l'instant";
+  if (diff < 3_600_000) return `il y a ${Math.floor(diff / 60_000)} min`;
+  if (diff < 86_400_000) return `il y a ${Math.floor(diff / 3_600_000)} h`;
+  return new Date(iso).toLocaleDateString("fr-FR");
+}
+
 function AssetFindings({ asset }: { asset: any }) {
   const locale = useLocale();
   const [findings, setFindings] = useState<any[]>([]);
@@ -731,6 +838,7 @@ export default function AssetsPage() {
                     {/* ── Tab: Réseau ── */}
                     {activeTab === "network" && (
                       <div>
+                        <AssetScanSurface asset={a} />
                         {hasServices ? (
                           <>
                             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Services / Ports ({a.services.length})</div>
@@ -749,7 +857,7 @@ export default function AssetsPage() {
                           </>
                         ) : (
                           <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
-                            Aucun service réseau détecté. Lancez un scan Nmap ou installez l&apos;agent ThreatClaw.
+                            Aucun service réseau détecté. Le scan Nmap se déclenche automatiquement à la première observation de l&apos;asset (TTL 1h). Sinon, utilisez le bouton « Re-scanner » ci-dessus.
                           </div>
                         )}
                       </div>
