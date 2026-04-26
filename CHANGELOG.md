@@ -6,6 +6,57 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.13-beta] — 2026-04-26
+
+Réécriture complète du modèle commercial HITL et passage d'OPNsense
+au statut de vraie source SIEM. Toutes les actions destructives passent
+désormais derrière une licence unique "Action Pack", et trois nouveaux
+détecteurs (volumétrique, Sigma single-shot, EDR Velociraptor) couvrent
+le réseau et le poste de travail.
+
+### Added
+- **Doctrine "Action Pack" unique** — une licence (199 €/an) débloque
+  toutes les actions destructives HITL sur tous les skills. Page
+  `/licensing` refondue, gate exécutoire sur tous les chemins
+  d'exécution (dashboard `/api/tc/incidents/{id}/execute-action`,
+  bridges Slack/Telegram), retour HTTP 402 sans licence.
+- **Velociraptor — 3 actions HITL** : `quarantine_endpoint`,
+  `kill_process`, `isolate_host`. Canal mTLS séparé avec un api_client
+  rôle administrator. Artefact custom `ThreatClaw.Remediation.ProcessKill`
+  versionné (Velociraptor 0.76 n'a pas de ProcessKill upstream).
+- **OPNsense en source SIEM** — 12 endpoints REST consommés (firewall
+  log, PF states, sessions OpenVPN/WireGuard/IPsec, audit, gateway,
+  aliases, system info), table `firewall_events` rolling 24 h, split
+  des manifestes pfSense / OPNsense.
+- **Détecteur firewall agrégé** — port scan (25+ ports / 10+ hosts en
+  5 min depuis IP externe) et brute force SSH/RDP/SMB (30+ blocks),
+  CRITICAL si la source est interne (compromission latérale).
+- **5 règles Sigma firewall** (V56) — backdoor port (4444 Meta, 31337,
+  6667, 23, 1337), RDP/SMB inbound, amplification UDP, ports
+  cryptomining. Tirées sur `firewall_events` mirrorés dans `logs`.
+- **Page `/scans` dédiée** — 4 onglets (Lancer / Historique / Planifiés
+  / Bibliothèque), 9 types (nmap, trivy, syft, lynis, docker_bench,
+  semgrep, checkov, trufflehog, zap), scheduler V52 réel.
+- **Catalogue skills WordPress-style** — un seul flux groupé par
+  catégorie, badge "Installé" au lieu d'apparition/disparition,
+  panneau HITL avec credentials privilégiés séparés.
+
+### Changed
+- Refactor `tool_calling.rs` : remplace `tool_required_skill` (per-skill)
+  par `tool_requires_hitl` (boolean). `LicenseManager.allows_hitl()`
+  reconnaît le marker moderne `hitl` et les anciens `skill-*-actions`
+  pour la transition.
+- `extract_compromised_user` câblé sur `AlertRecord.username` (Wazuh
+  Windows logon décodé) — débloque `disable_account` / `reset_password`.
+
+### Fixed
+- `insert_firewall_events` (PG) avait l'impl par défaut `Ok(0)` —
+  les events ingérés depuis OPNsense tombaient dans le vide.
+- Stripe live mode : webhook secret poussé sur le worker Cloudflare,
+  site marketing pointe vers le Payment Link production.
+
+---
+
 ## [1.0.12-beta] — 2026-04-25
 
 Iteration focused on three things: making the Velociraptor connector
