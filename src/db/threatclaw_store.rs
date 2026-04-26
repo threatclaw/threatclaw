@@ -265,6 +265,39 @@ pub struct AssetCategory {
     pub is_builtin: bool,
 }
 
+// ── Scan queue records ──
+
+/// One row from the `scan_queue` table — represents a queued/running/done
+/// scan job (see migrations/V51__scan_queue.sql).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanJob {
+    pub id: i64,
+    pub target: String,
+    pub scan_type: String,
+    pub status: String, // queued | running | done | error | skipped
+    pub asset_id: Option<String>,
+    pub requested_by: String,
+    pub requested_at: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub duration_ms: Option<i32>,
+    pub result_json: Option<serde_json::Value>,
+    pub error_msg: Option<String>,
+    pub ttl_seconds: i32,
+    pub worker_id: Option<String>,
+}
+
+/// Input for scan_queue::enqueue. Caller doesn't set status/timestamps —
+/// those are managed by the queue.
+#[derive(Debug, Clone)]
+pub struct NewScanRequest {
+    pub target: String,
+    pub scan_type: String,
+    pub asset_id: Option<String>,
+    pub requested_by: String,
+    pub ttl_seconds: Option<i32>,
+}
+
 // ── Store trait ──
 
 #[async_trait]
@@ -439,6 +472,80 @@ pub trait ThreatClawStore: Send + Sync {
         Ok(0)
     }
     async fn delete_demo_data_older_than(&self, _ttl_minutes: i64) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
+    // ── Scan queue (V51__scan_queue.sql) ──
+    // Default impls are no-ops so the libsql backend doesn't have to
+    // implement them — scans run on the postgres-backed prod stack.
+
+    /// Enqueue a scan job. Returns the row id, or `None` if a recent
+    /// `done` row exists for the same (target, scan_type) within
+    /// `ttl_seconds` (dedup).
+    async fn enqueue_scan(&self, _req: &NewScanRequest) -> Result<Option<i64>, DatabaseError> {
+        Ok(None)
+    }
+
+    /// Worker pool: claim the next queued job. Uses
+    /// `SELECT FOR UPDATE SKIP LOCKED` so multiple workers can run in
+    /// parallel without trampling each other.
+    async fn claim_next_scan(&self, _worker_id: &str) -> Result<Option<ScanJob>, DatabaseError> {
+        Ok(None)
+    }
+
+    /// Mark a job done with its structured result.
+    async fn complete_scan(
+        &self,
+        _id: i64,
+        _result: &serde_json::Value,
+        _duration_ms: i32,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    /// Mark a job failed. `duration_ms` is best-effort (may be 0 if the
+    /// failure happened before any work).
+    async fn fail_scan(
+        &self,
+        _id: i64,
+        _error_msg: &str,
+        _duration_ms: i32,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    /// Recent scans for an asset (newest first, capped at `limit`).
+    async fn recent_scans_for_asset(
+        &self,
+        _asset_id: &str,
+        _limit: i64,
+    ) -> Result<Vec<ScanJob>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// True if at least one queued or running scan exists for the asset.
+    /// Used by the incident card "scan en cours" badge.
+    async fn has_running_scan_for_asset(&self, _asset_id: &str) -> Result<bool, DatabaseError> {
+        Ok(false)
+    }
+
+    /// Paginated listing for the /scans Historique tab.
+    async fn list_scans(
+        &self,
+        _status: Option<&str>,
+        _scan_type: Option<&str>,
+        _limit: i64,
+        _offset: i64,
+    ) -> Result<Vec<ScanJob>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    /// Total count for paginator on /scans Historique.
+    async fn count_scans(
+        &self,
+        _status: Option<&str>,
+        _scan_type: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
         Ok(0)
     }
 
