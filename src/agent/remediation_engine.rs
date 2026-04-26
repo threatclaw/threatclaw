@@ -464,11 +464,97 @@ pub async fn extract_attacker_ip(
     None
 }
 
-async fn extract_compromised_user(
-    _store: &dyn Database,
-    _asset: &str,
+/// Extract the username most likely associated with the incident on `asset`.
+///
+/// Reads recent sigma alerts (Wazuh-fed) for this hostname and returns the
+/// first plausible human account. Skips machine accounts (`HOST$`), the
+/// SYSTEM pseudo-account, and ANONYMOUS LOGON — none of those should be
+/// targeted by `disable_account` or `reset_password`.
+///
+/// Username normalization mirrors what the Wazuh connector applies on the
+/// way in (drop `DOMAIN\` prefix, drop `@REALM` suffix, lowercase) so the
+/// value can be passed straight to LDAP modify on the AD bind DN.
+pub async fn extract_compromised_user(
+    store: &dyn Database,
+    asset: &str,
     _incident_id: i32,
 ) -> Option<String> {
-    // TODO: extract from alert metadata (agent.name, syscheck.user, etc.)
+    let alerts = store
+        .list_alerts(None, None, 100, 0)
+        .await
+        .unwrap_or_default();
+    let asset_lc = asset.to_lowercase();
+    for alert in &alerts {
+        let host_match = alert
+            .hostname
+            .as_deref()
+            .map(|h| h.to_lowercase() == asset_lc)
+            .unwrap_or(false);
+        if !host_match {
+            continue;
+        }
+        if let Some(raw) = alert.username.as_deref() {
+            if let Some(normalized) = normalize_account_name(raw) {
+                return Some(normalized);
+            }
+        }
+    }
     None
+}
+
+/// Normalize a raw username from a SIEM alert into a sAMAccountName-style
+/// identifier suitable for AD operations. Returns `None` if the value is a
+/// machine/system account that must not be targeted by remediation.
+fn normalize_account_name(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+        return None;
+    }
+    // Strip Windows DOMAIN\user prefix
+    let no_domain = trimmed.rsplit_once('\\').map(|(_, u)| u).unwrap_or(trimmed);
+    // Strip Kerberos UPN @realm
+    let no_realm = no_domain
+        .split_once('@')
+        .map(|(u, _)| u)
+        .unwrap_or(no_domain);
+    let lc = no_realm.to_ascii_lowercase();
+    // Skip machine accounts (HOST$) and well-known pseudo-accounts.
+    if lc.ends_with('$') {
+        return None;
+    }
+    if matches!(
+        lc.as_str(),
+        "system" | "anonymous logon" | "anonymous" | "local service" | "network service"
+    ) {
+        return None;
+    }
+    Some(lc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_strips_domain_and_realm() {
+        assert_eq!(
+            normalize_account_name("CORP\\jdoe").as_deref(),
+            Some("jdoe")
+        );
+        assert_eq!(
+            normalize_account_name("jdoe@CORP.LOCAL").as_deref(),
+            Some("jdoe")
+        );
+        assert_eq!(normalize_account_name("JDoe").as_deref(), Some("jdoe"));
+    }
+
+    #[test]
+    fn normalize_rejects_machine_and_system() {
+        assert!(normalize_account_name("WS01$").is_none());
+        assert!(normalize_account_name("CORP\\WS01$").is_none());
+        assert!(normalize_account_name("SYSTEM").is_none());
+        assert!(normalize_account_name("ANONYMOUS LOGON").is_none());
+        assert!(normalize_account_name("-").is_none());
+        assert!(normalize_account_name("").is_none());
+    }
 }
