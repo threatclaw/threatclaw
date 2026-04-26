@@ -18,6 +18,28 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// Map a scan_queue row to its struct. Centralises the column order so
+/// every query above can rely on the same SELECT shape.
+fn scan_job_from_row(r: tokio_postgres::Row) -> ScanJob {
+    let ts_to_string = |opt: Option<chrono::DateTime<chrono::Utc>>| opt.map(|t| t.to_rfc3339());
+    ScanJob {
+        id: r.get(0),
+        target: r.get(1),
+        scan_type: r.get(2),
+        status: r.get(3),
+        asset_id: r.get(4),
+        requested_by: r.get(5),
+        requested_at: r.get::<_, chrono::DateTime<chrono::Utc>>(6).to_rfc3339(),
+        started_at: ts_to_string(r.get(7)),
+        finished_at: ts_to_string(r.get(8)),
+        duration_ms: r.get(9),
+        result_json: r.get(10),
+        error_msg: r.get(11),
+        ttl_seconds: r.get(12),
+        worker_id: r.get(13),
+    }
+}
+
 /// See ADR-047.
 fn row_to_suppression_rule(r: tokio_postgres::Row) -> serde_json::Value {
     serde_json::json!({
@@ -787,6 +809,191 @@ impl ThreatClawStore for PgBackend {
             .iter()
             .map(|r| (r.get::<_, String>(0), r.get::<_, i64>(1)))
             .collect())
+    }
+
+    // ── Scan queue (V51__scan_queue.sql) ──
+
+    async fn enqueue_scan(&self, req: &NewScanRequest) -> Result<Option<i64>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let ttl = req.ttl_seconds.unwrap_or(3600);
+
+        // Dedup: if a `done` row exists for (target, scan_type) within
+        // the TTL window, don't enqueue a new one. Manual scans pass
+        // ttl_seconds=0 which always falls through.
+        if ttl > 0 {
+            let interval_str = format!("{} seconds", ttl);
+            let recent: Option<i64> = conn
+                .query_opt(
+                    "SELECT id FROM scan_queue \
+                     WHERE target = $1 AND scan_type = $2 AND status = 'done' \
+                       AND finished_at > now() - $3::interval \
+                     ORDER BY finished_at DESC LIMIT 1",
+                    &[&req.target, &req.scan_type, &interval_str],
+                )
+                .await
+                .map_err(query_err)?
+                .map(|r| r.get(0));
+            if recent.is_some() {
+                return Ok(None);
+            }
+        }
+
+        let row = conn
+            .query_one(
+                "INSERT INTO scan_queue \
+                 (target, scan_type, asset_id, requested_by, ttl_seconds) \
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &req.target,
+                    &req.scan_type,
+                    &req.asset_id,
+                    &req.requested_by,
+                    &ttl,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(Some(row.get(0)))
+    }
+
+    async fn claim_next_scan(&self, worker_id: &str) -> Result<Option<ScanJob>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Atomic claim: SELECT FOR UPDATE SKIP LOCKED so concurrent
+        // workers each grab a different row. UPDATE flips status to
+        // running and stamps started_at + worker_id in the same tx.
+        let row = conn
+            .query_opt(
+                "WITH claimed AS ( \
+                    SELECT id FROM scan_queue \
+                    WHERE status = 'queued' \
+                    ORDER BY requested_at ASC \
+                    LIMIT 1 \
+                    FOR UPDATE SKIP LOCKED \
+                 ) \
+                 UPDATE scan_queue q \
+                 SET status = 'running', started_at = now(), worker_id = $1 \
+                 FROM claimed c \
+                 WHERE q.id = c.id \
+                 RETURNING q.id, q.target, q.scan_type, q.status, q.asset_id, \
+                           q.requested_by, q.requested_at, q.started_at, q.finished_at, \
+                           q.duration_ms, q.result_json, q.error_msg, q.ttl_seconds, q.worker_id",
+                &[&worker_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(scan_job_from_row))
+    }
+
+    async fn complete_scan(
+        &self,
+        id: i64,
+        result: &serde_json::Value,
+        duration_ms: i32,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE scan_queue \
+             SET status = 'done', finished_at = now(), duration_ms = $2, result_json = $3 \
+             WHERE id = $1",
+            &[&id, &duration_ms, &result],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn fail_scan(
+        &self,
+        id: i64,
+        error_msg: &str,
+        duration_ms: i32,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE scan_queue \
+             SET status = 'error', finished_at = now(), duration_ms = $2, error_msg = $3 \
+             WHERE id = $1",
+            &[&id, &duration_ms, &error_msg],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn recent_scans_for_asset(
+        &self,
+        asset_id: &str,
+        limit: i64,
+    ) -> Result<Vec<ScanJob>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, target, scan_type, status, asset_id, requested_by, \
+                        requested_at, started_at, finished_at, duration_ms, \
+                        result_json, error_msg, ttl_seconds, worker_id \
+                 FROM scan_queue \
+                 WHERE asset_id = $1 \
+                 ORDER BY requested_at DESC LIMIT $2",
+                &[&asset_id, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.into_iter().map(scan_job_from_row).collect())
+    }
+
+    async fn has_running_scan_for_asset(&self, asset_id: &str) -> Result<bool, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_opt(
+                "SELECT 1 FROM scan_queue \
+                 WHERE asset_id = $1 AND status IN ('queued', 'running') LIMIT 1",
+                &[&asset_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.is_some())
+    }
+
+    async fn list_scans(
+        &self,
+        status: Option<&str>,
+        scan_type: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<ScanJob>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, target, scan_type, status, asset_id, requested_by, \
+                        requested_at, started_at, finished_at, duration_ms, \
+                        result_json, error_msg, ttl_seconds, worker_id \
+                 FROM scan_queue \
+                 WHERE ($1::text IS NULL OR status = $1) \
+                   AND ($2::text IS NULL OR scan_type = $2) \
+                 ORDER BY requested_at DESC LIMIT $3 OFFSET $4",
+                &[&status, &scan_type, &limit, &offset],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.into_iter().map(scan_job_from_row).collect())
+    }
+
+    async fn count_scans(
+        &self,
+        status: Option<&str>,
+        scan_type: Option<&str>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM scan_queue \
+                 WHERE ($1::text IS NULL OR status = $1) \
+                   AND ($2::text IS NULL OR scan_type = $2)",
+                &[&status, &scan_type],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
     }
 
     async fn get_skill_config(
