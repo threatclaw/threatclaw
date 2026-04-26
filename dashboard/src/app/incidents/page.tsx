@@ -58,6 +58,44 @@ export interface BlastRadiusSnapshot {
   reachable: ReachableAsset[];
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// ScanInProgressBadge — small pill on the incident card that lights up
+// when scan_queue has a queued/running row for the incident's asset.
+// Auto-refreshes every 5s so the badge disappears when the scan
+// finishes without forcing the operator to F5.
+// ─────────────────────────────────────────────────────────────────────
+function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: string }) {
+  const [running, setRunning] = React.useState(false);
+  React.useEffect(() => {
+    let cancel = false;
+    const fetchOnce = async () => {
+      try {
+        const r = await fetch(`/api/tc/scans/asset/${encodeURIComponent(assetId)}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!cancel) setRunning(!!d.running);
+      } catch {}
+    };
+    fetchOnce();
+    const id = setInterval(fetchOnce, 5000);
+    return () => {
+      cancel = true;
+      clearInterval(id);
+    };
+  }, [assetId]);
+  if (!running) return null;
+  return (
+    <span style={{
+      padding: "2px 8px", borderRadius: 4,
+      background: "rgba(48,128,208,0.12)", color: "#3080d0",
+      fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em",
+      whiteSpace: "nowrap",
+    }}>
+      🔄 {locale === "fr" ? "scan en cours" : "scan in progress"}
+    </span>
+  );
+}
+
 interface Incident {
   id: number;
   asset: string;
@@ -305,6 +343,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                     <span style={{ color: "var(--tc-text-muted)" }}>
                       {inc.asset} &middot; {inc.alert_count || 0} {locale === "fr" ? "alertes" : "alerts"} &middot; {getTimeAgo(inc.created_at, locale)}
                     </span>
+                    {inc.asset && <ScanInProgressBadge assetId={inc.asset} locale={locale} />}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
