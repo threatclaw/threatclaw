@@ -27,6 +27,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-shuffle", "shuffle"),
     ("skill-keycloak", "keycloak"),
     ("skill-authentik", "authentik"),
+    ("skill-proxmox", "proxmox"),
     ("skill-proxmox-backup", "proxmox_backup"),
     ("skill-veeam", "veeam"),
     ("skill-mikrotik", "mikrotik"),
@@ -485,6 +486,38 @@ async fn run_connector_sync(
             Ok(format!(
                 "{} events, {} findings",
                 r.events_imported, r.findings_created
+            ))
+        }
+        "proxmox" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let token_id = config.get("token_id").cloned().unwrap_or_default();
+            let token_secret = config.get("token_secret").cloned().unwrap_or_default();
+            if url.is_empty() || token_id.is_empty() || token_secret.is_empty() {
+                return Err("url, token_id or token_secret not configured".into());
+            }
+            let c = crate::connectors::proxmox::ProxmoxConfig {
+                url,
+                token_id,
+                token_secret,
+                no_tls_verify: config
+                    .get("no_tls_verify")
+                    .map(|v| v == "true")
+                    .unwrap_or(true),
+                cursor_last_log_time: config.get("cursor_last_log_time").cloned(),
+            };
+            let r = crate::connectors::proxmox::sync_proxmox(store, &c).await;
+            // Persist cursor so the next cycle picks up only new audit log events.
+            if let Some(ref ts) = r.cursor_last_log_time {
+                if let Err(e) = store
+                    .set_skill_config("skill-proxmox", "cursor_last_log_time", ts)
+                    .await
+                {
+                    tracing::warn!("SYNC SCHEDULER: failed to persist proxmox cursor: {}", e);
+                }
+            }
+            Ok(format!(
+                "{} VMs, {} containers, {} nodes, {} audit events, {} findings",
+                r.vms, r.containers, r.nodes, r.audit_events_ingested, r.findings_created
             ))
         }
         "proxmox_backup" => {
