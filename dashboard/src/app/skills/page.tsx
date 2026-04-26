@@ -410,7 +410,18 @@ export default function SkillsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      setRunResult(await res.json());
+      const ct = res.headers.get("content-type") || "";
+      let data: any;
+      if (ct.includes("json")) {
+        try { data = await res.json(); } catch { data = { error: `HTTP ${res.status}` }; }
+      } else {
+        const text = await res.text();
+        data = res.ok ? { message: text } : { error: text || `HTTP ${res.status}` };
+      }
+      if (!res.ok && !data.error) {
+        data = { error: data.message || data.error || `HTTP ${res.status}`, raw: data };
+      }
+      setRunResult(data);
     } catch (e: any) {
       setRunResult({ error: e.message });
     }
@@ -1037,16 +1048,7 @@ function ConfigModal({
           <FreeboxPairingFlow url={configValues["skill-freebox"]?.freebox_url || "http://mafreebox.freebox.fr"} />
         )}
 
-        {runResult && (
-          <div style={{
-            marginBottom: "16px", padding: "10px", borderRadius: "var(--tc-radius-sm)",
-            background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)",
-            fontSize: "10px", fontFamily: "monospace", color: "var(--tc-text-sec)",
-            maxHeight: "120px", overflow: "auto",
-          }}>
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(runResult, null, 2)}</pre>
-          </div>
-        )}
+        {runResult && <TestResultBox result={runResult} skillType={skill.type} locale={locale} />}
 
         <div style={{
           display: "flex", gap: "8px", justifyContent: "space-between",
@@ -1071,7 +1073,12 @@ function ConfigModal({
                 disabled={running === skill.id}
                 style={{ fontSize: "11px", padding: "8px 14px" }}
               >
-                <Play size={12} /> {running === skill.id ? "..." : skill.type === "connector" ? "Sync" : (locale === "fr" ? "Lancer" : "Run")}
+                <Play size={12} />{" "}
+                {running === skill.id
+                  ? "..."
+                  : skill.type === "connector"
+                    ? (locale === "fr" ? "Tester la connexion" : "Test connection")
+                    : (locale === "fr" ? "Lancer" : "Run")}
               </button>
             )}
             <button
@@ -1094,6 +1101,119 @@ function ConfigModal({
               {tr("save", locale)}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// TestResultBox — pretty-print the response from a "Tester la connexion"
+// (or run-tool) call. Recognises the common shapes our connector sync
+// handlers return (clients_imported, hunts_fetched, errors[],
+// findings_created, etc.) and renders them as a green success block
+// with a one-line summary. Falls back to a red error block when the
+// response carries an `error` key, and to JSON for unrecognised shapes.
+// ─────────────────────────────────────────────────────────────────────
+function TestResultBox({
+  result, skillType, locale,
+}: {
+  result: any;
+  skillType: string;
+  locale: "fr" | "en";
+}) {
+  const isError = !!(result && (result.error || result.errors?.length > 0));
+  const isConnector = skillType === "connector";
+
+  // Build a compact summary out of the well-known counter keys our
+  // connectors emit. Anything that isn't a counter (or that is zero)
+  // just gets dropped — we only want to surface useful signal.
+  const counters: Array<[string, number, string]> = [];
+  const labelize = (k: string): string => {
+    if (locale !== "fr") return k.replace(/_/g, " ");
+    const map: Record<string, string> = {
+      clients_imported: "clients importés",
+      hunts_fetched: "hunts récupérés",
+      findings_created: "findings créés",
+      insert_errors: "erreurs d'insertion",
+      assets_imported: "assets importés",
+      users_imported: "utilisateurs importés",
+      events_ingested: "événements ingérés",
+      rules_imported: "règles importées",
+      arp_imported: "entrées ARP",
+      dhcp_leases: "baux DHCP",
+      interfaces: "interfaces",
+      vlans: "VLANs",
+      sign_ins: "connexions",
+      audit_logs: "events d'audit",
+    };
+    return map[k] || k.replace(/_/g, " ");
+  };
+  if (result && typeof result === "object" && !isError) {
+    for (const [k, v] of Object.entries(result)) {
+      if (typeof v === "number" && k !== "cursor" && !k.endsWith("_at")) {
+        counters.push([k, v, labelize(k)]);
+      }
+    }
+  }
+
+  if (isError) {
+    const msg = result.error || (Array.isArray(result.errors) ? result.errors.join("; ") : null) || "Erreur inconnue";
+    return (
+      <div style={{
+        marginBottom: "16px", padding: "12px 14px",
+        borderRadius: "var(--tc-radius-sm)",
+        background: "rgba(208,48,32,0.06)",
+        border: "1px solid rgba(208,48,32,0.22)",
+      }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+          <X size={14} color="#d03020" style={{ flexShrink: 0, marginTop: "1px" }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#d03020", marginBottom: "4px" }}>
+              {locale === "fr" ? "Échec de la connexion" : "Connection failed"}
+            </div>
+            <div style={{
+              fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.5,
+              fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+              maxHeight: "140px", overflow: "auto",
+            }}>
+              {String(msg)}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      marginBottom: "16px", padding: "12px 14px",
+      borderRadius: "var(--tc-radius-sm)",
+      background: "rgba(48,160,80,0.06)",
+      border: "1px solid rgba(48,160,80,0.22)",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+        <CheckCircle2 size={14} color="#30a050" style={{ flexShrink: 0, marginTop: "1px" }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#30a050", marginBottom: "4px" }}>
+            {isConnector
+              ? (locale === "fr" ? "Connexion établie" : "Connection successful")
+              : (locale === "fr" ? "Exécution réussie" : "Run successful")}
+          </div>
+          {counters.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px 14px", fontSize: "11px", color: "var(--tc-text-sec)" }}>
+              {counters.map(([k, v, label]) => (
+                <span key={k}>
+                  <strong style={{ color: "var(--tc-text)" }}>{v}</strong> {label}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontFamily: "'JetBrains Mono', ui-monospace, monospace", maxHeight: "120px", overflow: "auto" }}>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{JSON.stringify(result, null, 2)}</pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
