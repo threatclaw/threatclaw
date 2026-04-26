@@ -385,7 +385,7 @@ function EvidenceCard({ locale, summary }: { locale: string; summary: Governance
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <a href="/api/tc/exports/audit-trail" style={evidenceLinkStyle}>
+        <a href="/exports?cat=compliance-audit#audit-trail" style={evidenceLinkStyle}>
           <span style={{ fontSize: "10px", fontWeight: 700 }}>
             {locale === "fr" ? "Consulter l'audit trail immuable" : "Browse immutable audit trail"}
           </span>
@@ -393,8 +393,8 @@ function EvidenceCard({ locale, summary }: { locale: string; summary: Governance
         </a>
         <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", padding: "4px 8px" }}>
           {locale === "fr"
-            ? "Export Audit Trail (onglet Rapports) pour récupérer le journal complet avec hash-chain."
-            : "Use the Audit Trail export (Reports tab) to download the full hash-chained journal."}
+            ? "Ouvre Rapports → Audit & conformité → carte Audit Trail (PDF + JSON, hash-chain)."
+            : "Opens Reports → Compliance & audit → Audit Trail card (PDF + JSON, hash-chained)."}
         </div>
       </div>
     </NeuCard>
@@ -536,9 +536,8 @@ export default function GovernancePage() {
         </div>
       )}
 
+      {/* Shadow AI live + AI Inventory cards moved to /shadow-ai */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-        <ShadowAiCard locale={locale} summary={summary} findings={shadowFindings} loading={loading} onRefresh={load} />
-        <AiInventoryCard locale={locale} summary={summary} systems={systems} onDeclare={declareSystem} />
         <ComplianceCard locale={locale} summary={summary} />
         <EvidenceCard locale={locale} summary={summary} />
       </div>
