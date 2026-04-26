@@ -31,6 +31,7 @@ interface SkillManifest {
   price?: number;
   help?: string;
   tier?: string;
+  depends_on?: string;
 }
 
 // ── Type definitions for UI ──
@@ -247,24 +248,38 @@ export default function SkillsPage() {
     };
   }, []);
 
-  // Load skill config when modal opens
+  // Load skill config when modal opens. Layers, lowest priority first:
+  // (1) defaults from the skill manifest, (2) values stored in DB,
+  // (3) values the user just typed in this session. The merge below
+  // preserves that order so a user's in-session typing always wins.
   useEffect(() => {
     if (!modalSkill) return;
+    const seedDefaults: Record<string, string> = {};
+    if (modalSkill.config) {
+      for (const [key, field] of Object.entries(modalSkill.config)) {
+        if (field && field.default !== undefined && field.default !== null) {
+          seedDefaults[key] = String(field.default);
+        }
+      }
+    }
     fetch(`/api/tc/config/${modalSkill.id}`, { signal: AbortSignal.timeout(3000) })
       .then((r) => r.json())
       .then((d: any) => {
+        const fromDb: Record<string, string> = {};
         if (d.config && Array.isArray(d.config)) {
-          const vals: Record<string, string> = {};
-          for (const c of d.config) vals[c.key] = c.value;
-          if (Object.keys(vals).length > 0) {
-            setConfigValues((prev) => ({
-              ...prev,
-              [modalSkill.id]: { ...vals, ...prev[modalSkill.id] },
-            }));
-          }
+          for (const c of d.config) fromDb[c.key] = c.value;
         }
+        setConfigValues((prev) => ({
+          ...prev,
+          [modalSkill.id]: { ...seedDefaults, ...fromDb, ...prev[modalSkill.id] },
+        }));
       })
-      .catch(() => {});
+      .catch(() => {
+        setConfigValues((prev) => ({
+          ...prev,
+          [modalSkill.id]: { ...seedDefaults, ...prev[modalSkill.id] },
+        }));
+      });
   }, [modalSkill]);
 
   // ── Persistence helpers ──
@@ -577,9 +592,11 @@ export default function SkillsPage() {
           activeHint={activeHint}
           running={running}
           runResult={runResult}
+          allSkills={allSkills}
           setActiveHint={setActiveHint}
           setConfig={setConfig}
           setConfigValues={setConfigValues}
+          onOpenSkill={(s) => { setRunResult(null); setActiveHint(null); setModalSkill(s); }}
           onClose={() => setModalSkill(null)}
           onRun={() => handleRun(modalSkill)}
           onUninstall={() => uninstall(modalSkill.id)}
@@ -766,8 +783,8 @@ function SkillCard({
 // addendums, plus Save / Run / Uninstall.
 // ─────────────────────────────────────────────────────────────────────
 function ConfigModal({
-  skill, locale, configValues, activeHint, running, runResult,
-  setActiveHint, setConfig, setConfigValues,
+  skill, locale, configValues, activeHint, running, runResult, allSkills,
+  setActiveHint, setConfig, setConfigValues, onOpenSkill,
   onClose, onRun, onUninstall,
 }: {
   skill: SkillManifest;
@@ -776,13 +793,18 @@ function ConfigModal({
   activeHint: string | null;
   running: string | null;
   runResult: any;
+  allSkills: SkillManifest[];
   setActiveHint: (s: string | null) => void;
   setConfig: (sid: string, key: string, val: string) => void;
   setConfigValues: React.Dispatch<React.SetStateAction<Record<string, Record<string, string>>>>;
+  onOpenSkill: (s: SkillManifest) => void;
   onClose: () => void;
   onRun: () => void;
   onUninstall: () => void;
 }) {
+  const parentSkill = skill.depends_on
+    ? allSkills.find((s) => s.id === skill.depends_on)
+    : null;
   const sortedConfig: [string, any][] = skill.config
     ? Object.entries(skill.config).sort(([, a]: [string, any], [, b]: [string, any]) => {
         const reqA = a?.required ? 0 : 1;
@@ -829,6 +851,41 @@ function ConfigModal({
           </button>
         </div>
         <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: "1.6", marginBottom: "12px" }}>{skill.description}</p>
+
+        {parentSkill && (
+          <div style={{
+            display: "flex", alignItems: "flex-start", gap: "8px",
+            padding: "10px 12px", marginBottom: "16px",
+            background: "rgba(48,128,208,0.08)", border: "1px solid rgba(48,128,208,0.22)",
+            borderRadius: "var(--tc-radius-sm)",
+          }}>
+            <Info size={13} color="var(--tc-blue)" style={{ flexShrink: 0, marginTop: "2px" }} />
+            <div style={{ flex: 1, fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.55 }}>
+              <div style={{ fontWeight: 700, color: "var(--tc-blue)", marginBottom: "3px" }}>
+                {locale === "fr" ? "Configuration partagée" : "Shared configuration"}
+              </div>
+              {locale === "fr" ? (
+                <>Ce skill utilise la connexion configurée dans <strong>{parentSkill.name}</strong>. Pas de paramètres à régler ici.</>
+              ) : (
+                <>This skill uses the connection configured in <strong>{parentSkill.name}</strong>. No settings to tune here.</>
+              )}
+              <div style={{ marginTop: "6px" }}>
+                <button
+                  onClick={() => onOpenSkill(parentSkill)}
+                  style={{
+                    fontSize: "10px", fontWeight: 600, padding: "4px 10px",
+                    borderRadius: "var(--tc-radius-sm)", cursor: "pointer",
+                    background: "var(--tc-blue-soft)", color: "var(--tc-blue)",
+                    border: "1px solid rgba(48,128,208,0.3)", fontFamily: "inherit",
+                    display: "inline-flex", alignItems: "center", gap: "4px",
+                  }}
+                >
+                  <Settings size={10} /> {locale === "fr" ? `Configurer ${parentSkill.name}` : `Configure ${parentSkill.name}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {skill.help && (
           <details style={{

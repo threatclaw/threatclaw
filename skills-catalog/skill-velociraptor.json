@@ -24,10 +24,11 @@
     },
     "username": {
       "type": "string",
-      "description": "Nom de l'utilisateur API",
+      "description": "Nom de l'utilisateur API (rempli auto, par défaut threatclaw)",
       "placeholder": "threatclaw",
-      "hint": "Identifiant de l'utilisateur API que tu as créé. C'est la valeur que tu as passée à --name lors de la commande velociraptor config api_client (par défaut on suggère \"threatclaw\"). Sert uniquement à identifier ThreatClaw dans l'audit log Velociraptor.",
-      "required": true
+      "hint": "Normalement rempli automatiquement par le panneau bleu en haut. Reflète le --name passé à velociraptor config api_client. Sert uniquement à identifier ThreatClaw dans l'audit log Velociraptor — tu peux laisser threatclaw.",
+      "required": false,
+      "default": "threatclaw"
     },
     "ca_pem": {
       "type": "string",
