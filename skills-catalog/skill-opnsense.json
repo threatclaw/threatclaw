@@ -1,0 +1,54 @@
+{
+  "id": "skill-opnsense",
+  "name": "OPNsense",
+  "version": "1.0.0",
+  "description": "Connecte ThreatClaw au firewall OPNsense en lecture seule. Importe la table ARP, les baux DHCP (dnsmasq, Kea ou ISC dhcpd legacy), les interfaces, les VLANs et les règles. Alimente automatiquement /assets : chaque machine vue par OPNsense apparaît avec son MAC, hostname et VLAN, puis se fait fingerprinter par Nmap dans la foulée (TTL 1h).",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "network",
+  "help": "À QUOI ÇA SERT\n\nOPNsense voit passer tout le trafic du LAN, donc il connaît mieux que personne ton parc interne. ThreatClaw exploite ça pour cartographier les machines sans poser d'agent. Spécifiquement, à chaque sync (5 min) on récupère :\n\n• ARP table — chaque IP/MAC actif sur les interfaces OPNsense (utile pour les machines orphelines : pas d'agent, pas de DHCP, mais visibles)\n• DHCP leases — baux actifs (hostname auto-déclaré par les clients). Trois backends supportés : dnsmasq (défaut OPNsense 26.1+), Kea, ISC dhcpd legacy. Le connecteur essaie les trois, merge ce qui répond, ignore les 404 silencieusement.\n• Interfaces — liste, MTU, état link\n• VLANs — segmentation existante\n• Règles firewall — comptées (utile pour suivre la dérive)\n\nLes nouvelles IP non connues deviennent des assets dans /assets. Un scan Nmap automatique se déclenche derrière (TTL 1h) pour les fingerprinter.\n\nMODE D'EMPLOI — Générer la clé API\n\n1. UI OPNsense → System → Access → Users → choisir un user (ou en créer un dédié, scope = user)\n2. En bas de la fiche utilisateur → API keys → bouton +\n3. Un fichier .txt se télécharge automatiquement, contenant deux lignes :\n   - key=<chaîne base64>\n   - secret=<chaîne base64>\n4. Coller key dans 'Utilisateur API' ci-dessous, secret dans 'Secret API'\n5. Laisser 'Ignorer la vérification TLS' coché si OPNsense utilise un certificat auto-signé (cas par défaut)\n\nVERSIONS TESTÉES\n\nOPNsense 26.1+ avec dnsmasq DHCP — validé end-to-end le 2026-04-26 sur le lab Gargantua (5 ARP, 6 interfaces, 1 asset auto-fingerprinté). Compatible OPNsense 24.x et antérieurs (fallback ISC dhcpd legacy)." ,
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL OPNsense",
+      "placeholder": "https://10.0.0.1",
+      "hint": "Adresse de la GUI OPNsense (sans /api). Utilise https://. L'IP de l'interface LAN typiquement.",
+      "required": true
+    },
+    "auth_user": {
+      "type": "string",
+      "description": "Clé API",
+      "placeholder": "key=...",
+      "hint": "La valeur du champ 'key' dans le fichier .txt téléchargé depuis System > Access > Users > API keys.",
+      "required": true
+    },
+    "auth_secret": {
+      "type": "password",
+      "description": "Secret API",
+      "hint": "La valeur du champ 'secret' dans le fichier .txt téléchargé. Stocké chiffré côté ThreatClaw.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer la vérification du certificat TLS",
+      "hint": "OPNsense utilise un certificat auto-signé par défaut. Laisse activé sauf si tu as un Let's Encrypt ou une PKI interne sur la GUI.",
+      "default": true
+    }
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "graph",
+    "topology": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

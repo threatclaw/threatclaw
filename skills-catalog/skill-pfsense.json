@@ -1,13 +1,13 @@
 {
   "id": "skill-pfsense",
-  "name": "pfSense / OPNsense",
+  "name": "pfSense",
   "version": "1.0.0",
-  "description": "Synchronise la table ARP, baux DHCP, interfaces, VLANs et règles firewall. Cartographie réseau complète.",
+  "description": "Connecte ThreatClaw au firewall pfSense en lecture seule (via le paquet pfSense-pkg-API v2). Importe ARP, baux DHCP, interfaces, VLANs et règles. Alimente automatiquement /assets : chaque machine vue par pfSense apparaît avec son MAC + hostname, puis se fait fingerprinter par Nmap dans la foulée.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
   "category": "network",
-  "help": "pfSense et OPNsense sont des firewalls open-source qui protègent votre réseau. Ils contiennent des informations précieuses : table ARP (qui est sur le réseau), baux DHCP, interfaces réseau, VLANs et règles de filtrage.\n\nThreatClaw récupère ces données via l'API REST pour construire une cartographie réseau complète dans le graphe. Cela permet de détecter les machines inconnues, les VLANs mal segmentés et les règles firewall trop permissives.\n\nPrérequis :\n• pfSense avec le package API installé (pfSense-pkg-API) ou OPNsense (API intégrée)\n• Pour pfSense : un utilisateur API dédié (System > User Manager)\n• Pour OPNsense : une clé API (System > Access > Users > API keys)",
+  "help": "À QUOI ÇA SERT\n\npfSense voit tout le trafic du LAN, donc il connaît mieux que personne ton parc interne. ThreatClaw exploite ça pour cartographier sans poser d'agent. À chaque sync (5 min) on récupère :\n\n• ARP table — chaque IP/MAC actif (utile pour repérer les machines orphelines)\n• DHCP leases — baux actifs avec hostname auto-déclaré\n• Interfaces — liste, MTU, état link\n• VLANs — segmentation\n• Règles firewall — comptées\n\nLes nouvelles IP non connues deviennent des assets dans /assets. Un scan Nmap automatique se déclenche derrière (TTL 1h) pour les fingerprinter.\n\nMODE D'EMPLOI\n\n1. Installer le paquet API : pfSense UI → System → Package Manager → Available Packages → chercher 'pfSense-pkg-RESTAPI' → Install. C'est le paquet officiel maintenu par jaredhendrickson13/pfrest, requis car pfSense de base n'expose pas d'API REST.\n2. Créer un user API dédié : System → User Manager → +\n   - Username : threatclaw\n   - Password : (générer un mot de passe fort)\n   - Group memberships : aucun (read-only)\n3. Donner le privilège lecture API au user : Edit user → Effective Privileges → + → 'WebCfg - System: API package' (ou 'WebCfg - All pages' en lecture si tu veux scoper plus large)\n4. Coller le username dans 'Utilisateur API' ci-dessous et le password dans 'Secret API'\n5. Laisser 'Ignorer la vérification TLS' coché si pfSense utilise un certificat auto-signé\n\nVERSIONS TESTÉES\n\npfSense CE 2.7+ et pfSense Plus 23.05+ avec pfSense-pkg-RESTAPI v2." ,
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
@@ -16,35 +16,28 @@
   "config": {
     "url": {
       "type": "string",
-      "description": "URL du firewall",
-      "placeholder": "https://192.168.1.1",
-      "hint": "L'adresse de votre pfSense ou OPNsense. Utilisez https:// et l'IP de l'interface LAN.",
-      "required": true
-    },
-    "fw_type": {
-      "type": "select",
-      "description": "Type de firewall",
-      "options": ["pfsense", "opnsense"],
-      "hint": "Sélectionnez le type de votre firewall. L'API est différente entre pfSense et OPNsense.",
+      "description": "URL pfSense",
+      "placeholder": "https://10.0.0.1",
+      "hint": "Adresse de la GUI pfSense (sans /api). Utilise https://. L'IP de l'interface LAN typiquement.",
       "required": true
     },
     "auth_user": {
       "type": "string",
-      "description": "Utilisateur API ou clé API",
+      "description": "Utilisateur API",
       "placeholder": "threatclaw",
-      "hint": "Pour pfSense : nom d'utilisateur API (System > User Manager). Pour OPNsense : la clé API (System > Access > Users > votre utilisateur > API keys).",
+      "hint": "Le nom du user API que tu as créé dans System > User Manager.",
       "required": true
     },
     "auth_secret": {
       "type": "password",
-      "description": "Mot de passe ou secret API",
-      "hint": "Pour pfSense : le mot de passe de l'utilisateur API. Pour OPNsense : le secret API associé à la clé.",
+      "description": "Mot de passe",
+      "hint": "Mot de passe du user API. Stocké chiffré côté ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
-      "hint": "pfSense et OPNsense utilisent un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat Let's Encrypt ou PKI interne.",
+      "hint": "pfSense utilise un certificat auto-signé par défaut. Laisse activé sauf si tu as un Let's Encrypt ou une PKI interne sur la GUI.",
       "default": true
     }
   },
