@@ -2899,7 +2899,7 @@ pub async fn skill_run_handler(
         "skill-semgrep" => (semgrep_config(target), parse_semgrep),
         "skill-checkov" => (checkov_config(target), parse_checkov),
         "skill-trufflehog" => (trufflehog_config(target), parse_trufflehog),
-        "skill-grype" => (grype_config(target), parse_grype),
+        // skill-grype removed in C2 — duplicate of skill-trivy
         "skill-syft" => (syft_config(target), parse_syft),
         "skill-lynis" => (lynis_config(target), parse_lynis),
         "skill-docker-bench" => (docker_bench_config(), parse_docker_bench),

@@ -47,7 +47,11 @@
       "type": "select",
       "description": "Frequence d'audit",
       "hint": "Frequence de l'audit AD automatique. Un audit mensuel permet de detecter les derives de configuration et les nouveaux comptes a risque.",
-      "options": ["Manuel uniquement", "Chaque lundi a 2h", "1er du mois a 2h"],
+      "options": [
+        "Manuel uniquement",
+        "Chaque lundi a 2h",
+        "1er du mois a 2h"
+      ],
       "default": "1er du mois a 2h"
     }
   },
@@ -58,5 +62,6 @@
   "default_active": false,
   "requires_config": true,
   "api_key_required": false,
-  "icon": "users"
+  "icon": "users",
+  "advanced": true
 }

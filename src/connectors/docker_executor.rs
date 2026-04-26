@@ -450,55 +450,6 @@ pub fn parse_syft(stdout: &str) -> Vec<ParsedFinding> {
     findings
 }
 
-/// Parse Grype JSON output into findings.
-pub fn parse_grype(stdout: &str) -> Vec<ParsedFinding> {
-    let mut findings = vec![];
-    let json: serde_json::Value = match serde_json::from_str(stdout) {
-        Ok(v) => v,
-        Err(_) => return findings,
-    };
-
-    if let Some(matches) = json.get("matches").and_then(|m| m.as_array()) {
-        for m in matches {
-            let vuln_id = m["vulnerability"]["id"].as_str().unwrap_or("unknown");
-            let severity = m["vulnerability"]["severity"].as_str().unwrap_or("MEDIUM");
-            let pkg_name = m["artifact"]["name"].as_str().unwrap_or("");
-            let pkg_version = m["artifact"]["version"].as_str().unwrap_or("");
-            let fixed_in = m["vulnerability"]["fix"]["versions"]
-                .as_array()
-                .map(|v| {
-                    v.iter()
-                        .filter_map(|x| x.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                })
-                .unwrap_or_default();
-
-            findings.push(ParsedFinding {
-                title: format!("{} — {} {}", vuln_id, pkg_name, pkg_version),
-                description: format!(
-                    "Package {} {} vulnerable. Fix: {}",
-                    pkg_name,
-                    pkg_version,
-                    if fixed_in.is_empty() {
-                        "pas de fix disponible"
-                    } else {
-                        &fixed_in
-                    }
-                ),
-                severity: normalize_severity(severity),
-                category: "container-vuln".into(),
-                asset: Some(format!("{}:{}", pkg_name, pkg_version)),
-                metadata: serde_json::json!({
-                    "cve": vuln_id, "package": pkg_name, "version": pkg_version,
-                    "fixed_in": fixed_in, "tool": "grype",
-                }),
-            });
-        }
-    }
-    findings
-}
-
 /// Parse ZAP JSON output into findings.
 pub fn parse_zap(stdout: &str) -> Vec<ParsedFinding> {
     let mut findings = vec![];
@@ -717,21 +668,6 @@ pub fn trufflehog_config(target_path: &str) -> DockerSkillConfig {
         timeout_seconds: 300,
         skill_id: "skill-trufflehog".into(),
         skill_name: "TruffleHog Secrets".into(),
-        asset_label: None,
-    }
-}
-
-pub fn grype_config(image: &str) -> DockerSkillConfig {
-    DockerSkillConfig {
-        image: "anchore/grype:latest".into(),
-        command: vec![image.into(), "-o".into(), "json".into()],
-        mount_path: None,
-        mount_target: "/workspace".into(),
-        network: "bridge".into(), // Needs to pull image
-        memory_limit: "512m".into(),
-        timeout_seconds: 300,
-        skill_id: "skill-grype".into(),
-        skill_name: "Grype Container CVE".into(),
         asset_label: None,
     }
 }
@@ -987,18 +923,6 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, "CRITICAL"); // Verified = CRITICAL
         assert!(findings[0].title.contains("AWS"));
-    }
-
-    #[test]
-    fn test_parse_grype() {
-        let json = r#"{"matches":[{
-            "vulnerability":{"id":"CVE-2024-1234","severity":"Critical","fix":{"versions":["1.2.3"]}},
-            "artifact":{"name":"openssl","version":"1.1.1"}
-        }]}"#;
-        let findings = parse_grype(json);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity, "CRITICAL");
-        assert!(findings[0].title.contains("CVE-2024-1234"));
     }
 
     #[test]

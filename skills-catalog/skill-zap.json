@@ -42,5 +42,6 @@
   "default_active": false,
   "requires_config": true,
   "api_key_required": false,
-  "icon": "shield"
+  "icon": "shield",
+  "advanced": true
 }
