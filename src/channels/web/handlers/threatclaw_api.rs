@@ -194,12 +194,13 @@ pub async fn tc_health_handler(
                     tracing::info!("AUTO-START: Connector Sync Scheduler started");
                 }
 
-                // Start Scan Worker Pool (passive enrichment via scan_queue)
+                // Start Scan Worker Pool + Schedule Tick (passive enrichment via scan_queue)
                 static SCAN_WORKERS_RUNNING: std::sync::atomic::AtomicBool =
                     std::sync::atomic::AtomicBool::new(false);
                 if !SCAN_WORKERS_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     crate::scans::spawn_scan_workers(store_clone.clone());
-                    tracing::info!("AUTO-START: Scan Worker Pool started");
+                    crate::scans::spawn_schedule_tick(store_clone.clone());
+                    tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
                 }
 
                 // Start Telegram Bot (if configured)
@@ -534,6 +535,78 @@ pub async fn scans_enqueue_handler(
             "reason": "dedup: a recent scan already exists within the TTL window",
         }))),
     }
+}
+
+// ── Scan schedules (V52 scan_schedules) ──
+
+pub async fn scans_schedules_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let schedules = store.list_scan_schedules().await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "schedules": schedules })))
+}
+
+pub async fn scans_schedules_create_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<crate::db::threatclaw_store::NewScanSchedule>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let now = chrono::Utc::now();
+    let preview = crate::db::threatclaw_store::ScanSchedule {
+        id: 0,
+        scan_type: req.scan_type.clone(),
+        target: req.target.clone(),
+        name: req.name.clone(),
+        frequency: req.frequency.clone(),
+        minute: req.minute,
+        hour: req.hour,
+        day_of_week: req.day_of_week,
+        day_of_month: req.day_of_month,
+        enabled: true,
+        last_run_at: None,
+        next_run_at: now.to_rfc3339(),
+        created_at: now.to_rfc3339(),
+        created_by: "rssi".into(),
+    };
+    let next_run_at = crate::scans::compute_next_run(&preview, now);
+    let id = store
+        .create_scan_schedule(&req, next_run_at)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "next_run_at": next_run_at.to_rfc3339(),
+    })))
+}
+
+pub async fn scans_schedules_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store.delete_scan_schedule(id).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "deleted": id })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScanScheduleToggle {
+    pub enabled: bool,
+}
+
+pub async fn scans_schedules_toggle_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+    Json(req): Json<ScanScheduleToggle>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    store
+        .toggle_scan_schedule(id, req.enabled)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(
+        serde_json::json!({ "id": id, "enabled": req.enabled }),
+    ))
 }
 
 // ── Dashboard Metrics ──

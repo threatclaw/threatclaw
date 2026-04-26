@@ -406,6 +406,22 @@ pub async fn start_server(
             "/api/tc/scans/asset/{asset_id}",
             get(super::handlers::threatclaw_api::scans_for_asset_handler),
         )
+        .route(
+            "/api/tc/scans/schedules",
+            get(super::handlers::threatclaw_api::scans_schedules_list_handler),
+        )
+        .route(
+            "/api/tc/scans/schedules",
+            post(super::handlers::threatclaw_api::scans_schedules_create_handler),
+        )
+        .route(
+            "/api/tc/scans/schedules/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::scans_schedules_delete_handler),
+        )
+        .route(
+            "/api/tc/scans/schedules/{id}/toggle",
+            post(super::handlers::threatclaw_api::scans_schedules_toggle_handler),
+        )
         // ── Premium-skill licensing ──
         .route(
             "/api/tc/licensing/status",

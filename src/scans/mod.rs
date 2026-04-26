@@ -28,7 +28,9 @@
 //! See `migrations/V51__scan_queue.sql` for the table.
 
 pub mod queue;
+pub mod schedule;
 pub mod worker;
 
 pub use queue::{enqueue_nmap_fingerprint, enqueue_trivy_image};
+pub use schedule::{compute_next_run, spawn_schedule_tick};
 pub use worker::spawn_scan_workers;

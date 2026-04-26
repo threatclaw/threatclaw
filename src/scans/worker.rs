@@ -115,9 +115,22 @@ async fn run_worker(worker_id: String, store: Arc<dyn Database>) {
 /// Dispatch a job to the right runner. Returns the structured result
 /// (will be stored in scan_queue.result_json).
 async fn dispatch(store: &dyn Database, job: &ScanJob) -> Result<serde_json::Value, String> {
+    use crate::connectors::docker_executor::*;
     match job.scan_type.as_str() {
+        // Native binary
         "nmap_fingerprint" => run_nmap(store, &job.target).await,
-        "trivy_image" => run_trivy(store, &job.target).await,
+        // Ephemeral docker — each maps to a (config_fn, parser_fn) pair
+        // already shipped with the catalog manifests.
+        "trivy_image" => run_docker(store, trivy_image_config(&job.target), parse_trivy).await,
+        "lynis_audit" => run_docker(store, lynis_config(&job.target), parse_lynis).await,
+        "docker_bench" => run_docker(store, docker_bench_config(), parse_docker_bench).await,
+        "syft_sbom" => run_docker(store, syft_config(&job.target), parse_syft).await,
+        "semgrep_scan" => run_docker(store, semgrep_config(&job.target), parse_semgrep).await,
+        "checkov_scan" => run_docker(store, checkov_config(&job.target), parse_checkov).await,
+        "trufflehog_scan" => {
+            run_docker(store, trufflehog_config(&job.target), parse_trufflehog).await
+        }
+        "zap_scan" => run_zap(store, &job.target).await,
         other => Err(format!("unknown scan_type '{}'", other)),
     }
 }
@@ -142,14 +155,68 @@ async fn run_nmap(store: &dyn Database, target: &str) -> Result<serde_json::Valu
     }))
 }
 
-async fn run_trivy(store: &dyn Database, target: &str) -> Result<serde_json::Value, String> {
-    use crate::connectors::docker_executor::{execute_skill, parse_trivy, trivy_image_config};
-    let config = trivy_image_config(target);
-    let result = execute_skill(store, &config, parse_trivy).await;
+/// Generic ephemeral-docker runner. Used for every scan_type that
+/// already has a (config, parser) pair defined in docker_executor.
+async fn run_docker(
+    store: &dyn Database,
+    config: crate::connectors::docker_executor::DockerSkillConfig,
+    parser: fn(&str) -> Vec<crate::connectors::docker_executor::ParsedFinding>,
+) -> Result<serde_json::Value, String> {
+    let result = crate::connectors::docker_executor::execute_skill(store, &config, parser).await;
     if !result.success {
-        return Err(result.error.unwrap_or_else(|| "trivy failed".into()));
+        return Err(result
+            .error
+            .unwrap_or_else(|| format!("{} failed", result.skill_id)));
     }
     Ok(serde_json::json!({
+        "skill": result.skill_id,
+        "findings_created": result.findings_created,
+        "stdout_lines": result.stdout_lines,
+        "duration_secs": result.duration_secs,
+        "exit_code": result.exit_code,
+    }))
+}
+
+/// ZAP needs a custom DockerSkillConfig (host network, mount point for
+/// the work dir). The handler in threatclaw_api.rs already builds this
+/// inline; replicate the same shape here.
+async fn run_zap(store: &dyn Database, target: &str) -> Result<serde_json::Value, String> {
+    use crate::connectors::docker_executor::{DockerSkillConfig, execute_skill, parse_zap};
+    let config = DockerSkillConfig {
+        image: "zaproxy/zap-stable:latest".into(),
+        command: vec![
+            "zap-baseline.py".into(),
+            "-t".into(),
+            target.into(),
+            "-I".into(),
+        ],
+        mount_path: Some("/tmp/zap-work".into()),
+        mount_target: "/zap/wrk".into(),
+        network: "host".into(),
+        memory_limit: "1g".into(),
+        timeout_seconds: 600,
+        skill_id: "skill-zap".into(),
+        skill_name: "OWASP ZAP".into(),
+        asset_label: None,
+    };
+    run_docker_inner(store, config, parse_zap).await
+}
+
+// Same body as run_docker — pulled out so run_zap can call without
+// trying to copy a non-Copy config into the closure.
+async fn run_docker_inner(
+    store: &dyn Database,
+    config: crate::connectors::docker_executor::DockerSkillConfig,
+    parser: fn(&str) -> Vec<crate::connectors::docker_executor::ParsedFinding>,
+) -> Result<serde_json::Value, String> {
+    let result = crate::connectors::docker_executor::execute_skill(store, &config, parser).await;
+    if !result.success {
+        return Err(result
+            .error
+            .unwrap_or_else(|| format!("{} failed", result.skill_id)));
+    }
+    Ok(serde_json::json!({
+        "skill": result.skill_id,
         "findings_created": result.findings_created,
         "stdout_lines": result.stdout_lines,
         "duration_secs": result.duration_secs,
