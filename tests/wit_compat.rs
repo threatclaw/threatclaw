@@ -166,22 +166,22 @@ fn compile_component(
 fn stub_shared_host_functions(
     host: &mut wasmtime::component::LinkerInstance<'_, TestStoreData>,
 ) -> Result<(), String> {
-    host.func_new("log", |_ctx, _args, _results| Ok(()))
+    host.func_new("log", |_ctx, _info, _args, _results| Ok(()))
         .map_err(|e| format!("stub 'log': {e}"))?;
 
-    host.func_new("now-millis", |_ctx, _args, results| {
+    host.func_new("now-millis", |_ctx, _info, _args, results| {
         results[0] = wasmtime::component::Val::U64(0);
         Ok(())
     })
     .map_err(|e| format!("stub 'now-millis': {e}"))?;
 
-    host.func_new("workspace-read", |_ctx, _args, results| {
+    host.func_new("workspace-read", |_ctx, _info, _args, results| {
         results[0] = wasmtime::component::Val::Option(None);
         Ok(())
     })
     .map_err(|e| format!("stub 'workspace-read': {e}"))?;
 
-    host.func_new("http-request", |_ctx, _args, results| {
+    host.func_new("http-request", |_ctx, _info, _args, results| {
         results[0] = wasmtime::component::Val::Result(Err(Some(Box::new(
             wasmtime::component::Val::String("stub".into()),
         ))));
@@ -189,7 +189,7 @@ fn stub_shared_host_functions(
     })
     .map_err(|e| format!("stub 'http-request': {e}"))?;
 
-    host.func_new("secret-exists", |_ctx, _args, results| {
+    host.func_new("secret-exists", |_ctx, _info, _args, results| {
         results[0] = wasmtime::component::Val::Bool(false);
         Ok(())
     })
@@ -220,7 +220,7 @@ fn instantiate_tool_component(
         if let Ok(mut host) = root.instance(interface) {
             stub_shared_host_functions(&mut host)?;
 
-            host.func_new("tool-invoke", |_ctx, _args, results| {
+            host.func_new("tool-invoke", |_ctx, _info, _args, results| {
                 results[0] = wasmtime::component::Val::Result(Err(Some(Box::new(
                     wasmtime::component::Val::String("stub".into()),
                 ))));
@@ -260,22 +260,22 @@ fn instantiate_channel_component(
     ) -> Result<(), String> {
         stub_shared_host_functions(host)?;
 
-        host.func_new("store-attachment-data", |_ctx, _args, results| {
+        host.func_new("store-attachment-data", |_ctx, _info, _args, results| {
             results[0] = wasmtime::component::Val::Result(Ok(None));
             Ok(())
         })
         .map_err(|e| format!("stub 'store-attachment-data': {e}"))?;
 
-        host.func_new("emit-message", |_ctx, _args, _results| Ok(()))
+        host.func_new("emit-message", |_ctx, _info, _args, _results| Ok(()))
             .map_err(|e| format!("stub 'emit-message': {e}"))?;
 
-        host.func_new("workspace-write", |_ctx, _args, results| {
+        host.func_new("workspace-write", |_ctx, _info, _args, results| {
             results[0] = wasmtime::component::Val::Result(Ok(None));
             Ok(())
         })
         .map_err(|e| format!("stub 'workspace-write': {e}"))?;
 
-        host.func_new("pairing-upsert-request", |_ctx, _args, results| {
+        host.func_new("pairing-upsert-request", |_ctx, _info, _args, results| {
             results[0] = wasmtime::component::Val::Result(Err(Some(Box::new(
                 wasmtime::component::Val::String("stub".into()),
             ))));
@@ -283,7 +283,7 @@ fn instantiate_channel_component(
         })
         .map_err(|e| format!("stub 'pairing-upsert-request': {e}"))?;
 
-        host.func_new("pairing-is-allowed", |_ctx, _args, results| {
+        host.func_new("pairing-is-allowed", |_ctx, _info, _args, results| {
             results[0] = wasmtime::component::Val::Result(Err(Some(Box::new(
                 wasmtime::component::Val::String("stub".into()),
             ))));
@@ -291,7 +291,7 @@ fn instantiate_channel_component(
         })
         .map_err(|e| format!("stub 'pairing-is-allowed': {e}"))?;
 
-        host.func_new("pairing-read-allow-from", |_ctx, _args, results| {
+        host.func_new("pairing-read-allow-from", |_ctx, _info, _args, results| {
             results[0] = wasmtime::component::Val::Result(Err(Some(Box::new(
                 wasmtime::component::Val::String("stub".into()),
             ))));
