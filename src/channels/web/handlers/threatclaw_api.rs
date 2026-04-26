@@ -4448,8 +4448,12 @@ pub async fn alerts_archive_resolved_handler(
 }
 
 /// POST /api/tc/incidents/{id}/execute-action — execute a proposed action on an incident.
-/// Body: {"action": "block_ip"|"create_ticket"|"disable_account"|"manual"}
+/// Body: {"action": "block_ip"|"create_ticket"|"disable_account"|"kill_states"|"reset_password"|"manual"}
 /// Routes to the remediation engine, which validates via remediation_guard.
+///
+/// Destructive HITL actions (anything that mutates an external system —
+/// firewall, AD, EDR) require an active Action Pack license. Soft
+/// actions (create_ticket, manual mark) run without a gate.
 pub async fn incident_execute_action_handler(
     State(state): State<Arc<GatewayState>>,
     axum::extract::Path(id): axum::extract::Path<i32>,
@@ -4460,6 +4464,37 @@ pub async fn incident_execute_action_handler(
     if action.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "missing 'action' field".into()));
     }
+
+    // ── HITL license gate (C23) ──
+    // Refuse the request before remediation_engine runs anything if
+    // the action is destructive and no Action Pack license covers it.
+    // Defense in depth: the LLM tool path has its own check via
+    // check_tool_license; this gate covers the dashboard / Slack /
+    // Telegram entry points.
+    if crate::agent::tool_calling::dashboard_action_requires_hitl(&action) {
+        let licensed = match state.license_manager.as_ref() {
+            Some(mgr) => mgr.allows_hitl().await,
+            None => false,
+        };
+        if !licensed {
+            let msg = format!(
+                "L'action `{}` requiert la licence ThreatClaw Action Pack. \
+                 Activez-la depuis /licensing puis recliquez sur Approuver.",
+                action
+            );
+            // Trace the refused attempt in the incident audit log so the
+            // RSSI sees in /incidents that the gate fired (no silent ignore).
+            let _ = store
+                .add_incident_note(
+                    id,
+                    &format!("Action `{}` refusée : licence Action Pack absente", action),
+                    "license_gate",
+                )
+                .await;
+            return Err((StatusCode::PAYMENT_REQUIRED, msg));
+        }
+    }
+
     // Append a note to the audit trail before executing
     let _ = store
         .add_incident_note(id, &format!("Action lancée : {}", action), "dashboard")

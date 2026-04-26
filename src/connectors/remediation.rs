@@ -408,6 +408,257 @@ pub async fn ad_disable_account(
     }
 }
 
+// ══════════════════════════════════════════════════════════
+// OPNsense — Kill active connection states (C26a)
+// ══════════════════════════════════════════════════════════
+
+/// Terminate every pf state (active connection) involving a given IP,
+/// in either direction. Pairs with `opnsense_block_ip` to cut both the
+/// future packets (rule) AND the in-flight ones (states). Reversible:
+/// blocked traffic resumes naturally if the operator rolls back the
+/// firewall rule.
+///
+/// OPNsense API: `POST /api/diagnostics/firewall/kill_states`
+/// Body: `{"filter": "<ip>"}` — accepts an IP / CIDR / ipfw-style filter.
+pub async fn opnsense_kill_states(
+    fw_url: &str,
+    api_key: &str,
+    api_secret: &str,
+    ip_to_kill: &str,
+    no_tls_verify: bool,
+) -> RemediationResult {
+    if !is_valid_ip(ip_to_kill) {
+        return RemediationResult {
+            action: "opnsense_kill_states".into(),
+            target: ip_to_kill.into(),
+            success: false,
+            message: "Invalid IP format".into(),
+            reversible: false,
+            undo_info: None,
+        };
+    }
+
+    let client = match Client::builder()
+        .danger_accept_invalid_certs(no_tls_verify)
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return RemediationResult {
+                action: "opnsense_kill_states".into(),
+                target: ip_to_kill.into(),
+                success: false,
+                message: format!("HTTP client error: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
+    };
+
+    let url = format!("{}/api/diagnostics/firewall/kill_states", fw_url);
+    let body = serde_json::json!({"filter": ip_to_kill});
+    let resp = match client
+        .post(&url)
+        .basic_auth(api_key, Some(api_secret))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return RemediationResult {
+                action: "opnsense_kill_states".into(),
+                target: ip_to_kill.into(),
+                success: false,
+                message: format!("OPNsense API error: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
+    };
+
+    let status = resp.status();
+    if status.is_success() {
+        let killed = resp
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v.get("dropped").and_then(|n| n.as_i64()))
+            .unwrap_or(0);
+        tracing::warn!(
+            "REMEDIATION: Killed {} states for {} on OPNsense",
+            killed,
+            ip_to_kill
+        );
+        RemediationResult {
+            action: "opnsense_kill_states".into(),
+            target: ip_to_kill.into(),
+            success: true,
+            message: format!("{} états actifs terminés pour {}", killed, ip_to_kill),
+            reversible: false, // a killed state is gone — the next packet rebuilds one
+            undo_info: None,
+        }
+    } else {
+        RemediationResult {
+            action: "opnsense_kill_states".into(),
+            target: ip_to_kill.into(),
+            success: false,
+            message: format!("OPNsense kill_states refusé : HTTP {}", status),
+            reversible: true,
+            undo_info: None,
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════
+// Active Directory — Force password reset at next login (C26b)
+// ══════════════════════════════════════════════════════════
+
+/// Set `pwdLastSet=0` on a user object so the next login forces a
+/// password change through the standard self-service portal. We
+/// deliberately do NOT generate a temporary password ourselves — that
+/// would mean handling secret distribution, which raises the privilege
+/// requirement on the bind account. The user lands on the password
+/// change screen and goes through their normal flow.
+pub async fn ad_reset_password(
+    host: &str,
+    port: u16,
+    bind_dn: &str,
+    bind_pw: &str,
+    base_dn: &str,
+    username: &str,
+    no_tls_verify: bool,
+) -> RemediationResult {
+    use ldap3::{LdapConnAsync, LdapConnSettings, Mod, Scope};
+
+    let url = if port == 636 {
+        format!("ldaps://{}:{}", host, port)
+    } else {
+        format!("ldap://{}:{}", host, port)
+    };
+    let settings = LdapConnSettings::new()
+        .set_conn_timeout(Duration::from_secs(15))
+        .set_no_tls_verify(no_tls_verify);
+
+    let (conn, mut ldap) = match LdapConnAsync::with_settings(settings, &url).await {
+        Ok(c) => c,
+        Err(e) => {
+            return RemediationResult {
+                action: "ad_reset_password".into(),
+                target: username.into(),
+                success: false,
+                message: format!("LDAP connection failed: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
+    };
+    tokio::spawn(async move {
+        let _ = conn.drive().await;
+    });
+
+    if let Err(e) = ldap
+        .simple_bind(bind_dn, bind_pw)
+        .await
+        .and_then(|res| res.success().map(|_| ()))
+    {
+        return RemediationResult {
+            action: "ad_reset_password".into(),
+            target: username.into(),
+            success: false,
+            message: format!("LDAP bind failed: {}", e),
+            reversible: true,
+            undo_info: None,
+        };
+    }
+
+    let filter = format!(
+        "(&(objectCategory=person)(objectClass=user)(sAMAccountName={}))",
+        username
+    );
+    let (results, _) = match ldap
+        .search(base_dn, Scope::Subtree, &filter, vec!["distinguishedName"])
+        .await
+        .and_then(|res| res.success())
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return RemediationResult {
+                action: "ad_reset_password".into(),
+                target: username.into(),
+                success: false,
+                message: format!("LDAP search failed: {}", e),
+                reversible: true,
+                undo_info: None,
+            };
+        }
+    };
+
+    if results.is_empty() {
+        let _ = ldap.unbind().await;
+        return RemediationResult {
+            action: "ad_reset_password".into(),
+            target: username.into(),
+            success: false,
+            message: format!("Utilisateur '{}' non trouvé dans l'AD", username),
+            reversible: false,
+            undo_info: None,
+        };
+    }
+
+    let entry = ldap3::SearchEntry::construct(results.into_iter().next().unwrap());
+    let user_dn = &entry.dn;
+
+    // pwdLastSet=0 → "must change password at next logon".
+    // pwdLastSet=-1 (or some implementations: another modify with a new
+    // value) would re-mark the password as "fresh" — that's the undo path.
+    let mods = vec![Mod::Replace(
+        "pwdLastSet",
+        std::collections::HashSet::from(["0"]),
+    )];
+
+    match ldap
+        .modify(user_dn, mods)
+        .await
+        .and_then(|res| res.success().map(|_| ()))
+    {
+        Ok(_) => {
+            tracing::warn!(
+                "REMEDIATION: Forced password reset on AD account '{}' (DN: {})",
+                username,
+                user_dn
+            );
+            let _ = ldap.unbind().await;
+            RemediationResult {
+                action: "ad_reset_password".into(),
+                target: username.into(),
+                success: true,
+                message: format!(
+                    "Changement de mot de passe forcé au prochain login pour '{}'",
+                    username
+                ),
+                reversible: true,
+                undo_info: Some(format!("Annuler : modify pwdLastSet=-1 sur {}", user_dn)),
+            }
+        }
+        Err(e) => {
+            let _ = ldap.unbind().await;
+            RemediationResult {
+                action: "ad_reset_password".into(),
+                target: username.into(),
+                success: false,
+                message: format!(
+                    "Echec reset password: {} — le compte de service a-t-il les droits ?",
+                    e
+                ),
+                reversible: true,
+                undo_info: None,
+            }
+        }
+    }
+}
+
 fn is_valid_ip(ip: &str) -> bool {
     ip.chars()
         .all(|c| c.is_ascii_digit() || c == '.' || c == ':')
