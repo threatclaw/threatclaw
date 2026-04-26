@@ -48,6 +48,8 @@ pub async fn execute_incident_remediation(
             execute_block_ip(store.as_ref(), asset, incident_id).await
         }
         "disable_account" => execute_disable_account(store.as_ref(), asset, incident_id).await,
+        "kill_states" => execute_kill_states(store.as_ref(), asset, incident_id).await,
+        "reset_password" => execute_reset_password(store.as_ref(), asset, incident_id).await,
         "create_ticket" => execute_create_ticket(store.as_ref(), asset, title, incident_id).await,
         _ => {
             tracing::warn!(
@@ -164,6 +166,81 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
             }
         }
         None => (false, "Aucun firewall configure (pfSense/OPNsense)".into()),
+    }
+}
+
+/// Kill active pf states for the attacker IP on the lab firewall.
+/// Used in tandem with `block_ip` when the operator wants to cut
+/// in-flight connections too, not just future packets.
+async fn execute_kill_states(
+    store: &dyn Database,
+    asset: &str,
+    incident_id: i32,
+) -> (bool, String) {
+    let target_ip = match extract_attacker_ip(store, asset, incident_id).await {
+        Some(ip) => ip,
+        None => {
+            return (
+                false,
+                format!("Impossible de determiner l'IP source pour {}", asset),
+            );
+        }
+    };
+    if crate::agent::remediation_guard::is_protected_target(&target_ip) {
+        return (false, format!("IP {} dans la liste protegee", target_ip));
+    }
+    match load_firewall_config(store).await {
+        Some((fw_type, url, user, secret, no_tls)) if fw_type == "opnsense" => {
+            let result = crate::connectors::remediation::opnsense_kill_states(
+                &url, &user, &secret, &target_ip, no_tls,
+            )
+            .await;
+            if result.success {
+                (true, result.message)
+            } else {
+                (false, format!("Echec kill_states : {}", result.message))
+            }
+        }
+        Some(_) => (
+            false,
+            "kill_states n'est pas implémenté pour pfSense (OPNsense uniquement)".into(),
+        ),
+        None => (false, "Aucun firewall configure (OPNsense)".into()),
+    }
+}
+
+/// Force a password reset on an AD account at next login. Pairs with
+/// `disable_account` for compromised credentials — disable while the
+/// IR is in progress, force reset before re-enabling.
+async fn execute_reset_password(
+    store: &dyn Database,
+    asset: &str,
+    incident_id: i32,
+) -> (bool, String) {
+    let username = match extract_compromised_user(store, asset, incident_id).await {
+        Some(u) => u,
+        None => {
+            return (
+                false,
+                format!("Impossible de determiner le compte concerne pour {}", asset),
+            );
+        }
+    };
+    let escaped = crate::agent::remediation_guard::ldap_escape(&username);
+    match load_ad_config(store).await {
+        Some((url, bind_dn, bind_pass, base_dn, no_tls)) => {
+            let port: u16 = if no_tls { 389 } else { 636 };
+            let result = crate::connectors::remediation::ad_reset_password(
+                &url, port, &bind_dn, &bind_pass, &base_dn, &escaped, no_tls,
+            )
+            .await;
+            if result.success {
+                (true, result.message)
+            } else {
+                (false, format!("Echec reset_password : {}", result.message))
+            }
+        }
+        None => (false, "Active Directory non configure".into()),
     }
 }
 

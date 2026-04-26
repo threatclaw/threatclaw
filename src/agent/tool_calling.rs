@@ -20,6 +20,28 @@ use crate::licensing::LicenseManager;
 /// Rust concern. Keeping the mapping next to the tool registration
 /// minimises drift between "I added a premium tool" and "I forgot to
 /// gate it".
+/// Returns true when a short "dashboard action" verb (the strings the
+/// /incidents page POSTs as `{"action": "block_ip"}`) is a destructive
+/// HITL action. Used by the http handler to gate the Approve button.
+/// Mirrors [`tool_requires_hitl`] for the LLM tool path.
+pub fn dashboard_action_requires_hitl(action: &str) -> bool {
+    matches!(
+        action,
+        // Firewall remediation
+        "block_ip"
+        | "approve_remediate"  // legacy alias for block_ip
+        | "kill_states"
+        | "quarantine_mac"
+        // Identity remediation
+        | "disable_account"
+        | "reset_password"
+        // EDR remediation
+        | "quarantine_endpoint"
+        | "isolate_host"
+        | "kill_process"
+    )
+}
+
 /// Returns true when the tool is a destructive HITL action (quarantine,
 /// block IP, disable account, etc.). Free tools — read-only DB queries,
 /// VQL lookups, asset enrichments — return false and run without any
