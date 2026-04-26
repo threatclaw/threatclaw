@@ -684,15 +684,26 @@ async fn fetch_firewall_log(
     let arr = body.as_array().cloned().unwrap_or_default();
     let mut events = Vec::with_capacity(arr.len());
     for entry in arr {
-        let ts = entry
-            .get("__timestamp__")
-            .and_then(|v| v.as_str())
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|d| d.with_timezone(&chrono::Utc));
-        let timestamp = match ts {
-            Some(t) => t,
-            // Skip entries with unparseable timestamps rather than
-            // poison the whole batch.
+        // OPNsense emits naive ISO ("2026-04-26T16:26:24") in server-local
+        // time, no offset. Try strict RFC 3339 first (covers anyone
+        // patching the API to send Z), fall back to NaiveDateTime
+        // assuming UTC. We accept that operators on a non-UTC firewall
+        // see timestamps slightly off — fixable later by reading the
+        // system timezone from /api/diagnostics/system/system_information.
+        let raw = entry.get("__timestamp__").and_then(|v| v.as_str());
+        let timestamp = match raw {
+            Some(s) => {
+                if let Ok(d) = chrono::DateTime::parse_from_rfc3339(s) {
+                    d.with_timezone(&chrono::Utc)
+                } else if let Ok(naive) =
+                    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+                {
+                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(naive, chrono::Utc)
+                } else {
+                    // Unparseable — skip rather than poison the batch.
+                    continue;
+                }
+            }
             None => continue,
         };
         let action = entry
