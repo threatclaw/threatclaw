@@ -2673,6 +2673,128 @@ impl ThreatClawStore for PgBackend {
             .unwrap_or(0);
         Ok((r1 + r2 + r3) as i64)
     }
+
+    // ── V54__firewall_events ──
+
+    async fn insert_firewall_events(
+        &self,
+        events: &[crate::db::threatclaw_store::NewFirewallEvent],
+    ) -> Result<usize, DatabaseError> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let mut inserted = 0usize;
+        for ev in events {
+            // INET cast happens server-side via $5/$7::inet — pass strings.
+            let n = conn
+                .execute(
+                    r#"INSERT INTO firewall_events
+                       (timestamp, fw_source, interface, action, direction, proto,
+                        src_ip, src_port, dst_ip, dst_port, rule_id, raw_meta)
+                       VALUES ($1, $2, $3, $4, $5, $6,
+                               $7::inet, $8, $9::inet, $10, $11, $12)"#,
+                    &[
+                        &ev.timestamp,
+                        &ev.fw_source,
+                        &ev.interface,
+                        &ev.action,
+                        &ev.direction,
+                        &ev.proto,
+                        &ev.src_ip,
+                        &ev.src_port,
+                        &ev.dst_ip,
+                        &ev.dst_port,
+                        &ev.rule_id,
+                        &ev.raw_meta,
+                    ],
+                )
+                .await
+                .map_err(query_err)?;
+            inserted += n as usize;
+        }
+        Ok(inserted)
+    }
+
+    async fn prune_firewall_events(
+        &self,
+        cutoff: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute(
+                "DELETE FROM firewall_events WHERE timestamp < $1",
+                &[&cutoff],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n as i64)
+    }
+
+    async fn firewall_events_for_ip(
+        &self,
+        ip: &str,
+        since: chrono::DateTime<chrono::Utc>,
+        limit: i64,
+    ) -> Result<Vec<FirewallEventRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                r#"SELECT id, timestamp, fw_source, interface, action, direction, proto,
+                          src_ip, src_port, dst_ip, dst_port, rule_id, raw_meta
+                   FROM firewall_events
+                   WHERE (src_ip = $1::inet OR dst_ip = $1::inet) AND timestamp >= $2
+                   ORDER BY timestamp DESC
+                   LIMIT $3"#,
+                &[&ip, &since, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.into_iter().map(firewall_event_from_row).collect())
+    }
+
+    async fn firewall_blocked_aggregates(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<crate::db::threatclaw_store::FirewallBlockedAggregate>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                r#"SELECT
+                       host(src_ip)            AS src_ip,
+                       COUNT(*)::BIGINT        AS blocked_count,
+                       COUNT(DISTINCT dst_ip)::BIGINT  AS distinct_dst_ips,
+                       COUNT(DISTINCT dst_port)::BIGINT AS distinct_dst_ports,
+                       COUNT(*) FILTER (WHERE dst_port = 22)::BIGINT  AS hits_ssh,
+                       COUNT(*) FILTER (WHERE dst_port = 3389)::BIGINT AS hits_rdp,
+                       COUNT(*) FILTER (WHERE dst_port = 445)::BIGINT  AS hits_smb,
+                       (array_agg(DISTINCT host(dst_ip)))[1:5] AS sample_dst_ips
+                   FROM firewall_events
+                   WHERE action = 'block'
+                     AND src_ip IS NOT NULL
+                     AND timestamp >= $1
+                   GROUP BY src_ip
+                   HAVING COUNT(*) >= 5
+                   ORDER BY blocked_count DESC
+                   LIMIT 200"#,
+                &[&since],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::db::threatclaw_store::FirewallBlockedAggregate {
+                src_ip: r.get(0),
+                blocked_count: r.get(1),
+                distinct_dst_ips: r.get(2),
+                distinct_dst_ports: r.get(3),
+                hits_ssh: r.get(4),
+                hits_rdp: r.get(5),
+                hits_smb: r.get(6),
+                sample_dst_ips: r.try_get::<_, Vec<String>>(7).unwrap_or_default(),
+            })
+            .collect())
+    }
 }
 
 // ── Helper: parse asset row ──

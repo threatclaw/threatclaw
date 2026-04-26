@@ -32,6 +32,7 @@ pub mod evidence_tracker;
 pub mod executor;
 pub mod executor_ssh;
 pub mod fingerprint;
+pub mod firewall_detection;
 mod heartbeat;
 pub mod hitl_bridge;
 pub mod hitl_nonce;

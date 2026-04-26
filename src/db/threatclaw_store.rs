@@ -267,6 +267,21 @@ pub struct AssetCategory {
 
 // ── Firewall events (V54__firewall_events.sql) ──
 
+/// Per-source-IP aggregate of blocked events over a time window.
+/// Used by the firewall detection cycle to surface port scans and
+/// brute-force attempts without pulling individual rows into memory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirewallBlockedAggregate {
+    pub src_ip: String,
+    pub blocked_count: i64,
+    pub distinct_dst_ips: i64,
+    pub distinct_dst_ports: i64,
+    pub hits_ssh: i64,
+    pub hits_rdp: i64,
+    pub hits_smb: i64,
+    pub sample_dst_ips: Vec<String>,
+}
+
 /// One pf log entry as ingested from pfSense / OPNsense.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirewallEventRecord {
@@ -677,6 +692,15 @@ pub trait ThreatClawStore: Send + Sync {
         _cutoff: chrono::DateTime<chrono::Utc>,
     ) -> Result<i64, DatabaseError> {
         Ok(0)
+    }
+
+    /// Per-source-IP aggregate of recent BLOCKED events. Powers the
+    /// firewall_detection cycle (port scan, brute force).
+    async fn firewall_blocked_aggregates(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<FirewallBlockedAggregate>, DatabaseError> {
+        Ok(vec![])
     }
 
     /// Forensic lookup: events involving an IP within a time window.

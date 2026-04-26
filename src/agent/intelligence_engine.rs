@@ -885,6 +885,18 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
     // ── 5k. SIGMA ENGINE — native rule matching on recent logs ──
     crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
 
+    // ── 5k-bis. FIREWALL DETECTION — port scan / brute force on pf log ──
+    let fw_result =
+        crate::agent::firewall_detection::run_firewall_detection_cycle(store.clone(), 5).await;
+    if fw_result.findings_created > 0 {
+        tracing::info!(
+            "FIREWALL DETECTION: scans={} brute={} findings={}",
+            fw_result.port_scans_detected,
+            fw_result.brute_forces_detected,
+            fw_result.findings_created
+        );
+    }
+
     // ── 5l. NDR — JA3 fingerprinting, beacon detection, TLS scoring, DNS tunneling, SNI ──
     // NDR analysis — See ADR-005, ADR-007, SESSION_2026-04-06.md
     let ja3_result = crate::agent::ndr_ja3::scan_ja3(store.clone(), 5).await;
