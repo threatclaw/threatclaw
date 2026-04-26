@@ -7,7 +7,7 @@ import {
   Search, Settings, Shield, Network, Database, Monitor,
   Eye, Crosshair, RefreshCw, CheckCircle2,
   Key, Clock, Zap, Play, X, Trash2,
-  ChevronDown, ChevronRight, Download, Wifi, Loader2,
+  Download, Wifi, Loader2,
   Plug, Lock, HelpCircle, Info, Globe,
 } from "lucide-react";
 
@@ -117,6 +117,10 @@ const isPremium = (s: SkillManifest) =>
   s.premium === true || s.tier === "premium" || s.tier === "beta-premium";
 
 function TrustBadge({ trust }: { trust: string }) {
+  // "official" is the implicit default — surfacing a "TC" badge on every
+  // first-party skill is noise. Only show the badge when it signals
+  // something the user should actually pay attention to.
+  if (!trust || trust === "official") return null;
   const t = TRUST_UI[trust] || TRUST_UI["community"];
   return (
     <span style={{
@@ -166,7 +170,6 @@ export default function SkillsPage() {
 
   const [modalSkill, setModalSkill] = useState<SkillManifest | null>(null);
   const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [running, setRunning] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<any>(null);
   const [activeHint, setActiveHint] = useState<string | null>(null);
@@ -519,9 +522,7 @@ export default function SkillsPage() {
                   skill={skill}
                   installed={enabled.has(skill.id)}
                   disabled={disabledSkills.has(skill.id)}
-                  expanded={expanded === skill.id}
                   locale={locale}
-                  onToggleExpand={() => setExpanded(expanded === skill.id ? null : skill.id)}
                   onToggleActive={() => toggleActive(skill.id)}
                   onInstall={() => install(skill)}
                   onOpenConfig={() => { setRunResult(null); setActiveHint(null); setModalSkill(skill); }}
@@ -589,19 +590,19 @@ export default function SkillsPage() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// SkillCard — single card in the catalog. Always visible regardless of
-// install state; the install/configure action morphs based on state.
+// SkillCard — single card in the catalog. Always-expanded WordPress-style:
+// description, meta and the action row are visible at a glance, no
+// expand/collapse interaction. The action row morphs based on install
+// state (Installer / Configurer + active toggle / Licence requise).
 // ─────────────────────────────────────────────────────────────────────
 function SkillCard({
-  skill, installed, disabled, expanded, locale,
-  onToggleExpand, onToggleActive, onInstall, onOpenConfig,
+  skill, installed, disabled, locale,
+  onToggleActive, onInstall, onOpenConfig,
 }: {
   skill: SkillManifest;
   installed: boolean;
   disabled: boolean;
-  expanded: boolean;
   locale: "fr" | "en";
-  onToggleExpand: () => void;
   onToggleActive: () => void;
   onInstall: () => void;
   onOpenConfig: () => void;
@@ -613,22 +614,18 @@ function SkillCard({
 
   return (
     <div style={{
+      display: "flex", flexDirection: "column",
       borderRadius: "var(--tc-radius-md)",
       background: "var(--tc-neu-inner)",
       overflow: "hidden",
       boxShadow: "inset 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 2px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.08)",
       opacity: notReady ? 0.45 : (installed && disabled ? 0.65 : 1),
-      border: installed
-        ? "1px solid rgba(48,160,80,0.28)"
-        : "1px solid transparent",
-      transition: "border 150ms",
+      border: installed ? "1px solid rgba(48,160,80,0.28)" : "1px solid transparent",
+      padding: "12px",
+      gap: "8px",
     }}>
-      <div onClick={onToggleExpand} style={{
-        display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", cursor: "pointer",
-      }}>
-        {expanded
-          ? <ChevronDown size={14} color="var(--tc-text-muted)" />
-          : <ChevronRight size={14} color="var(--tc-text-muted)" />}
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
@@ -663,84 +660,80 @@ function SkillCard({
         )}
       </div>
 
-      {expanded && (
-        <div style={{ padding: "0 12px 12px", borderTop: "1px solid var(--tc-border)" }}>
-          <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: "1.6", margin: "10px 0" }}>
-            {skill.description}
-          </p>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
-            {skill.version && <span>v{skill.version}</span>}
-            <span>{tr("by", locale)} : {skill.author || "ThreatClaw"}</span>
-            {skill.execution?.mode && (
-              <span>
-                {skill.execution.mode === "ephemeral" ? "Docker"
-                  : skill.execution.mode === "persistent" ? (locale === "fr" ? "Sync continue" : "Continuous sync")
-                  : "API"}
-              </span>
-            )}
-          </div>
+      {/* Description */}
+      <p style={{
+        fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: "1.55",
+        margin: 0, flex: 1,
+      }}>
+        {skill.description}
+      </p>
 
-          {/* Action row */}
-          {isCommunityAction ? (
-            <div style={{
-              display: "flex", alignItems: "center", gap: "8px", padding: "10px 12px",
-              borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)",
-              border: "1px solid rgba(208,48,32,0.15)", fontSize: "10px",
+      {/* Meta */}
+      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "9px", color: "var(--tc-text-muted)" }}>
+        {skill.version && <span>v{skill.version}</span>}
+        <span>{tr("by", locale)} : {skill.author || "ThreatClaw"}</span>
+        {skill.execution?.mode && (
+          <span>
+            {skill.execution.mode === "ephemeral" ? "Docker"
+              : skill.execution.mode === "persistent" ? (locale === "fr" ? "Sync continue" : "Continuous sync")
+              : "API"}
+          </span>
+        )}
+      </div>
+
+      {/* Action row */}
+      <div style={{ marginTop: "4px" }}>
+        {isCommunityAction ? (
+          <div style={{
+            display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px",
+            borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)",
+            border: "1px solid rgba(208,48,32,0.15)", fontSize: "10px",
+          }}>
+            <Lock size={12} color="#d03020" />
+            <div>
+              <div style={{ fontWeight: 700, color: "#d03020", marginBottom: "2px" }}>{tr("verificationRequired", locale)}</div>
+              <div style={{ color: "var(--tc-text-muted)" }}>{tr("communityReadOnly", locale)}</div>
+            </div>
+          </div>
+        ) : notReady ? (
+          <span style={{
+            fontSize: "8px", fontWeight: 700, padding: "2px 8px", borderRadius: "4px",
+            background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)",
+            textTransform: "uppercase", letterSpacing: "0.05em",
+          }}>{tr("inDevelopment", locale)}</span>
+        ) : installed ? (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", justifyContent: "space-between" }}>
+            <label style={{
+              display: "flex", alignItems: "center", gap: "8px",
+              fontSize: "10px", color: "var(--tc-text-muted)", cursor: "pointer",
             }}>
-              <Lock size={12} color="#d03020" />
-              <div>
-                <div style={{ fontWeight: 700, color: "#d03020", marginBottom: "2px" }}>{tr("verificationRequired", locale)}</div>
-                <div style={{ color: "var(--tc-text-muted)" }}>{tr("communityReadOnly", locale)}</div>
-              </div>
-            </div>
-          ) : notReady ? (
-            <span style={{
-              fontSize: "8px", fontWeight: 700, padding: "2px 8px", borderRadius: "4px",
-              background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)",
-              textTransform: "uppercase", letterSpacing: "0.05em",
-            }}>{tr("inDevelopment", locale)}</span>
-          ) : installed ? (
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", justifyContent: "space-between" }}>
-              <label style={{
-                display: "flex", alignItems: "center", gap: "8px",
-                fontSize: "10px", color: "var(--tc-text-muted)", cursor: "pointer",
-              }}>
-                <input
-                  type="checkbox"
-                  className="tc-toggle"
-                  checked={!disabled}
-                  onChange={onToggleActive}
-                />
-                {disabled ? (locale === "fr" ? "Désactivé" : "Disabled") : (locale === "fr" ? "Actif" : "Active")}
-              </label>
-              <button
-                onClick={onOpenConfig}
-                className="tc-btn-embossed"
-                style={{ fontSize: "11px", padding: "6px 14px" }}
-              >
-                <Settings size={12} /> {locale === "fr" ? "Configurer" : "Configure"}
-              </button>
-            </div>
-          ) : premium ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
-              <button
-                onClick={onInstall}
-                className="tc-btn-embossed"
-                style={{ fontSize: "11px", padding: "6px 16px" }}
-              >
-                <Download size={12} /> {locale === "fr" ? "Installer" : "Install"}
-              </button>
-              <a
-                href="/setup?tab=licenses"
-                style={{
-                  fontSize: "10px", color: "var(--tc-red)", textDecoration: "none",
-                  display: "inline-flex", alignItems: "center", gap: "3px",
-                }}
-              >
-                <Lock size={10} /> {locale === "fr" ? "Licence requise pour exécuter" : "License required to run"}
-              </a>
-            </div>
-          ) : (
+              <input
+                type="checkbox"
+                className="tc-toggle"
+                checked={!disabled}
+                onChange={onToggleActive}
+              />
+              {disabled ? (locale === "fr" ? "Désactivé" : "Disabled") : (locale === "fr" ? "Actif" : "Active")}
+            </label>
+            <button
+              onClick={onOpenConfig}
+              className="tc-btn-embossed"
+              style={{ fontSize: "11px", padding: "6px 14px" }}
+            >
+              <Settings size={12} /> {locale === "fr" ? "Configurer" : "Configure"}
+            </button>
+          </div>
+        ) : premium ? (
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+            <a
+              href="/setup?tab=licenses"
+              style={{
+                fontSize: "10px", color: "var(--tc-red)", textDecoration: "none",
+                display: "inline-flex", alignItems: "center", gap: "3px",
+              }}
+            >
+              <Lock size={10} /> {locale === "fr" ? "Licence requise pour exécuter" : "License required to run"}
+            </a>
             <button
               onClick={onInstall}
               className="tc-btn-embossed"
@@ -748,9 +741,19 @@ function SkillCard({
             >
               <Download size={12} /> {locale === "fr" ? "Installer" : "Install"}
             </button>
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={onInstall}
+              className="tc-btn-embossed"
+              style={{ fontSize: "11px", padding: "6px 16px" }}
+            >
+              <Download size={12} /> {locale === "fr" ? "Installer" : "Install"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -2,12 +2,12 @@
   "id": "skill-velociraptor",
   "name": "Velociraptor DFIR",
   "version": "0.1.0",
-  "description": "Importe les clients et résultats de hunts Velociraptor dans ThreatClaw, et expose des requêtes VQL lecture seule à l'investigator L2 — transforme l'agent en SOC qui va chercher l'évidence sur l'endpoint au lieu de recommander une investigation manuelle.",
+  "description": "Connecte ThreatClaw à un serveur Velociraptor existant pour aller chercher l'évidence sur l'endpoint pendant un incident (DFIR — Digital Forensics & Incident Response). Importe les clients et hunts comme assets/findings, et donne à l'investigator L2 quatre outils VQL lecture seule.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
   "category": "endpoints",
-  "help": "Velociraptor est un outil DFIR/EDR open-source (Rapid7 OSS) avec agents légers (Windows/Linux/macOS) qui répondent à des requêtes VQL en temps réel. ThreatClaw s'y connecte en tant qu'utilisateur API dédié et :\n\n• Importe tes clients Velociraptor comme assets\n• Remonte les hunts terminés comme findings\n• Donne au L2 forensic la capacité d'interroger un endpoint pendant un incident (liste processus, events, fichiers) sans logger dessus manuellement\n\nPrérequis :\n• Serveur Velociraptor accessible depuis ThreatClaw (par défaut port 8001)\n• Un utilisateur API dédié créé via `velociraptor --config server.config.yaml config api_client --name threatclaw --role investigator,api threatclaw.config.yaml` (rôle investigator + api uniquement — jamais administrator)\n• Le fichier threatclaw.config.yaml généré contient les 4 champs à coller ci-dessous\n\nSécurité : le rôle `investigator` refuse déjà côté serveur les plugins VQL dangereux (execve, powershell, cmd, copy, upload, rm). ThreatClaw double le garde avec un lint côté Rust.",
+  "help": "À QUOI ÇA SERT\n\nVelociraptor est un EDR open-source (Rapid7) qui pose un agent léger (Windows/Linux/macOS) sur chaque endpoint et permet d'y exécuter des requêtes VQL à la demande pendant un incident. Sans Velociraptor, le L2 forensic de ThreatClaw écrit \"investigation manuelle requise\" sur les incidents endpoint. Avec, il peut lui-même lister les process, l'historique d'exécution, les connexions réseau, les events Windows, sans qu'un humain ait à se logger sur la machine.\n\nDFIR = Digital Forensics & Incident Response (investigation forensique d'un incident sur un endpoint).\n\n→ PRÉREQUIS\n\n1. Tu dois déjà avoir un serveur Velociraptor en place quelque part (sinon, voir velociraptor.app pour l'installer — environ 30 minutes).\n2. Le serveur doit être accessible depuis ThreatClaw sur le port API (8001 par défaut). Dans server.config.yaml côté Velociraptor, vérifier que `API.bind_address` est sur 0.0.0.0 (par défaut c'est 127.0.0.1, ce qui empêche ThreatClaw de se connecter).\n\n→ COMMENT GÉNÉRER LA CONFIG (à exécuter SUR le serveur Velociraptor)\n\nConnecte-toi en SSH sur le serveur Velociraptor et lance :\n\n    velociraptor --config /etc/velociraptor/server.config.yaml \\\n        config api_client --name threatclaw \\\n        --role investigator,api threatclaw.config.yaml\n\nÇa génère un fichier threatclaw.config.yaml qui contient 4 champs en YAML : `api_connection_string`, `ca_certificate`, `client_cert`, `client_private_key`. Tu copies-colles ces 4 champs dans la config ci-dessous.\n\nIMPORTANT : choisis bien `--role investigator,api` (et JAMAIS `administrator`). Le rôle investigator refuse déjà côté serveur les VQL dangereux (execve, powershell, cmd, copy, upload, rm). ThreatClaw double le garde avec un lint côté Rust.\n\n→ APRÈS CONFIGURATION\n\nThreatClaw fait une sync toutes les 5 minutes pour importer nouveaux clients et hunts terminés. Si la sync échoue, le détail de l'erreur s'affiche dans Config > Sources de logs.",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
@@ -19,40 +19,40 @@
       "type": "string",
       "description": "URL de l'API Velociraptor",
       "placeholder": "https://velociraptor.internal:8001",
-      "hint": "L'URL du frontend API Velociraptor. Par défaut 127.0.0.1:8001 dans la conf serveur — à binder sur 0.0.0.0 dans server.config.yaml (section `API.bind_address`) pour autoriser ThreatClaw à se connecter depuis une autre VM.",
+      "hint": "Adresse du frontend API Velociraptor, sous la forme https://hote:port. Tu trouves cette valeur dans le champ api_connection_string du fichier threatclaw.config.yaml généré par la commande velociraptor config api_client. Par défaut Velociraptor écoute sur 127.0.0.1:8001 — pour autoriser ThreatClaw à se connecter depuis une autre VM, il faut binder sur 0.0.0.0 dans server.config.yaml (section API.bind_address).",
       "required": true
     },
     "username": {
       "type": "string",
-      "description": "Utilisateur API",
+      "description": "Nom de l'utilisateur API",
       "placeholder": "threatclaw",
-      "hint": "Le nom passé à `--name` lors du `velociraptor config api_client`. Identifie ThreatClaw côté audit log Velociraptor.",
+      "hint": "Identifiant de l'utilisateur API que tu as créé. C'est la valeur que tu as passée à --name lors de la commande velociraptor config api_client (par défaut on suggère \"threatclaw\"). Sert uniquement à identifier ThreatClaw dans l'audit log Velociraptor.",
       "required": true
     },
     "ca_pem": {
       "type": "string",
-      "description": "CA cert (PEM)",
+      "description": "Certificat CA (à coller depuis threatclaw.config.yaml)",
       "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-      "hint": "Contenu du champ `ca_certificate` du fichier threatclaw.config.yaml généré. Signe à la fois le cert serveur et le cert client.",
+      "hint": "Ouvre le fichier threatclaw.config.yaml généré sur le serveur Velociraptor. Trouve le champ ca_certificate: et copie-colle ici tout le bloc PEM (du -----BEGIN CERTIFICATE----- jusqu'au -----END CERTIFICATE-----, inclus). Ce certificat valide à la fois le serveur Velociraptor et le client ThreatClaw.",
       "required": true
     },
     "client_cert_pem": {
       "type": "string",
-      "description": "Certificat client (PEM)",
+      "description": "Certificat client (à coller depuis threatclaw.config.yaml)",
       "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
-      "hint": "Contenu du champ `client_cert` du fichier threatclaw.config.yaml. Identifie ThreatClaw auprès du serveur — valide 1 an par défaut.",
+      "hint": "Dans le même fichier threatclaw.config.yaml, copie le bloc PEM du champ client_cert:. C'est ce certificat qui prouve à Velociraptor que la connexion vient bien de ThreatClaw. Il est valide 1 an par défaut — quand il expire il faut regénérer un nouveau threatclaw.config.yaml côté Velociraptor.",
       "required": true
     },
     "client_key_pem": {
       "type": "password",
-      "description": "Clé privée client (PEM)",
-      "hint": "Contenu du champ `client_private_key` du fichier threatclaw.config.yaml. Stockée chiffrée dans skill_configs.",
+      "description": "Clé privée client (à coller depuis threatclaw.config.yaml)",
+      "hint": "Dans threatclaw.config.yaml, copie le bloc du champ client_private_key:. C'est le secret qui va avec le certificat client juste au-dessus. Stocké chiffré dans la base ThreatClaw (table skill_configs) — ne le partage avec personne d'autre.",
       "required": true
     },
     "max_findings_per_cycle": {
       "type": "number",
-      "description": "Limite de hunts par cycle",
-      "hint": "Soft cap pour éviter qu'un backlog de hunts terminés ne bloque le scheduler. 500 par défaut. Les hunts non ingérés dans un cycle seront repris au suivant (curseur persiste).",
+      "description": "Nombre max de hunts ingérés par cycle de sync",
+      "hint": "Plafond souple pour éviter qu'un gros backlog de hunts terminés ne bloque la sync de 5 minutes. À 500 par défaut, les hunts non ingérés dans un cycle sont repris au suivant (un curseur de progression est sauvegardé). À augmenter seulement si tu as un retard d'ingestion important après une coupure.",
       "default": 500
     }
   },
