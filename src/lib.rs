@@ -72,6 +72,7 @@ pub mod registry;
 pub mod safety;
 pub mod sandbox;
 pub mod scanners;
+pub mod scans;
 pub mod secrets;
 pub mod service;
 pub mod settings;
