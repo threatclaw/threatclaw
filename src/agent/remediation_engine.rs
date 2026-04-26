@@ -50,6 +50,15 @@ pub async fn execute_incident_remediation(
         "disable_account" => execute_disable_account(store.as_ref(), asset, incident_id).await,
         "kill_states" => execute_kill_states(store.as_ref(), asset, incident_id).await,
         "reset_password" => execute_reset_password(store.as_ref(), asset, incident_id).await,
+        "quarantine_endpoint" | "velociraptor_quarantine_endpoint" => {
+            execute_quarantine_endpoint(store.as_ref(), asset, incident_id).await
+        }
+        "isolate_host" | "velociraptor_isolate_host" => {
+            execute_isolate_host(store.as_ref(), asset, incident_id).await
+        }
+        "kill_process" | "velociraptor_kill_process" => {
+            execute_kill_process(store.as_ref(), asset, incident_id).await
+        }
         "create_ticket" => execute_create_ticket(store.as_ref(), asset, title, incident_id).await,
         _ => {
             tracing::warn!(
@@ -206,6 +215,191 @@ async fn execute_kill_states(
             "kill_states n'est pas implémenté pour pfSense (OPNsense uniquement)".into(),
         ),
         None => (false, "Aucun firewall configure (OPNsense)".into()),
+    }
+}
+
+/// Quarantine an endpoint via Velociraptor — installs host-firewall
+/// rules that block all network traffic except the Velociraptor
+/// frontend, so the agent stays controllable while malware loses C2
+/// and lateral movement.
+async fn execute_quarantine_endpoint(
+    store: &dyn Database,
+    asset: &str,
+    _incident_id: i32,
+) -> (bool, String) {
+    let client_id = match resolve_velociraptor_client_id(store, asset).await {
+        Ok(id) => id,
+        Err(msg) => return (false, msg),
+    };
+    match crate::connectors::velociraptor::quarantine_endpoint(store, &client_id).await {
+        Ok(v) => {
+            let flow = v["flow_id"].as_str().unwrap_or("?");
+            (
+                true,
+                format!("Endpoint {} mis en quarantaine (flow {})", asset, flow),
+            )
+        }
+        Err(e) => (false, format!("Echec quarantine_endpoint : {}", e)),
+    }
+}
+
+/// Same as `quarantine_endpoint` but surfaced as a separate UI action
+/// for operators who think of it as "block egress" rather than full
+/// quarantine. Wires to the same Velociraptor artifact.
+async fn execute_isolate_host(
+    store: &dyn Database,
+    asset: &str,
+    _incident_id: i32,
+) -> (bool, String) {
+    let client_id = match resolve_velociraptor_client_id(store, asset).await {
+        Ok(id) => id,
+        Err(msg) => return (false, msg),
+    };
+    match crate::connectors::velociraptor::isolate_host(store, &client_id).await {
+        Ok(v) => {
+            let flow = v["flow_id"].as_str().unwrap_or("?");
+            (true, format!("Endpoint {} isolé (flow {})", asset, flow))
+        }
+        Err(e) => (false, format!("Echec isolate_host : {}", e)),
+    }
+}
+
+/// Kill a suspect process on the endpoint. The process target is
+/// extracted from recent Wazuh alerts on this asset (NewProcessName /
+/// Image / process.name), preferring the most recent.
+async fn execute_kill_process(
+    store: &dyn Database,
+    asset: &str,
+    incident_id: i32,
+) -> (bool, String) {
+    let client_id = match resolve_velociraptor_client_id(store, asset).await {
+        Ok(id) => id,
+        Err(msg) => return (false, msg),
+    };
+    let target = match extract_suspect_process(store, asset, incident_id).await {
+        Some(p) => p,
+        None => {
+            return (
+                false,
+                format!(
+                    "Impossible de determiner le processus a terminer pour {} (aucune alerte avec NewProcessName/Image)",
+                    asset
+                ),
+            );
+        }
+    };
+    match crate::connectors::velociraptor::kill_process(store, &client_id, &target).await {
+        Ok(v) => {
+            let flow = v["flow_id"].as_str().unwrap_or("?");
+            (
+                true,
+                format!(
+                    "Processus '{}' terminé sur {} (flow {})",
+                    target, asset, flow
+                ),
+            )
+        }
+        Err(e) => (false, format!("Echec kill_process : {}", e)),
+    }
+}
+
+/// Look up the Velociraptor client_id for `asset` by listing all
+/// clients and matching on hostname/fqdn (case-insensitive). Returns
+/// a clear error if Velociraptor isn't configured or the asset isn't
+/// known to it.
+async fn resolve_velociraptor_client_id(
+    store: &dyn Database,
+    asset: &str,
+) -> Result<String, String> {
+    let listing = crate::connectors::velociraptor::tool_list_clients(store)
+        .await
+        .map_err(|e| format!("Velociraptor list_clients: {}", e))?;
+    let asset_lc = asset.to_lowercase();
+    let clients = listing["clients"].as_array().cloned().unwrap_or_default();
+    for c in &clients {
+        let hostname = c["hostname"].as_str().unwrap_or("").to_lowercase();
+        let fqdn = c["fqdn"].as_str().unwrap_or("").to_lowercase();
+        if !hostname.is_empty() && hostname == asset_lc {
+            return Ok(c["client_id"].as_str().unwrap_or_default().to_string());
+        }
+        if !fqdn.is_empty() && (fqdn == asset_lc || fqdn.starts_with(&format!("{}.", asset_lc))) {
+            return Ok(c["client_id"].as_str().unwrap_or_default().to_string());
+        }
+    }
+    Err(format!(
+        "Asset '{}' non trouvé côté Velociraptor (l'agent n'est peut-être pas installé ou pas synchronisé)",
+        asset
+    ))
+}
+
+/// Extract a process name (or PID) from recent alerts on `asset`. Looks
+/// at Windows event metadata and Sysmon-style fields commonly stored
+/// in `matched_fields` by the Wazuh import path.
+async fn extract_suspect_process(
+    store: &dyn Database,
+    asset: &str,
+    _incident_id: i32,
+) -> Option<String> {
+    let alerts = store
+        .list_alerts(None, None, 50, 0)
+        .await
+        .unwrap_or_default();
+    let asset_lc = asset.to_lowercase();
+    for alert in &alerts {
+        let host_match = alert
+            .hostname
+            .as_deref()
+            .map(|h| h.to_lowercase() == asset_lc)
+            .unwrap_or(false);
+        if !host_match {
+            continue;
+        }
+        let fields = match alert.matched_fields.as_ref() {
+            Some(v) => v,
+            None => continue,
+        };
+        for path in [
+            ("data", "win", "eventdata", "NewProcessName"),
+            ("data", "win", "eventdata", "Image"),
+            ("data", "win", "eventdata", "ProcessName"),
+        ] {
+            if let Some(val) = fields[path.0][path.1][path.2][path.3].as_str() {
+                if let Some(name) = process_name_only(val) {
+                    return Some(name);
+                }
+            }
+        }
+        if let Some(val) = fields["process"]["name"].as_str() {
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        }
+        if let Some(val) = fields["data"]["process"].as_str() {
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Strip the directory portion of a Windows path so `C:\Users\foo\evil.exe`
+/// becomes `evil.exe`. Velociraptor's ProcessKill matches by basename
+/// when given a name, which is what operators expect.
+fn process_name_only(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let slash = trimmed.rfind(['\\', '/']);
+    let name = match slash {
+        Some(idx) => &trimmed[idx + 1..],
+        None => trimmed,
+    };
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
     }
 }
 
@@ -546,6 +740,24 @@ mod tests {
             Some("jdoe")
         );
         assert_eq!(normalize_account_name("JDoe").as_deref(), Some("jdoe"));
+    }
+
+    #[test]
+    fn process_name_only_strips_paths() {
+        assert_eq!(
+            process_name_only("C:\\Users\\admin\\evil.exe").as_deref(),
+            Some("evil.exe")
+        );
+        assert_eq!(
+            process_name_only("/usr/bin/suspicious").as_deref(),
+            Some("suspicious")
+        );
+        assert_eq!(
+            process_name_only("powershell.exe").as_deref(),
+            Some("powershell.exe")
+        );
+        assert_eq!(process_name_only("  cmd.exe  ").as_deref(), Some("cmd.exe"));
+        assert!(process_name_only("").is_none());
     }
 
     #[test]

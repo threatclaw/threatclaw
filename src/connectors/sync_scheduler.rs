@@ -227,6 +227,8 @@ async fn run_connector_sync(
                 username,
                 cursor_last_hunt_completion,
                 max_findings_per_cycle,
+                admin_client_cert_pem: None,
+                admin_client_key_pem: None,
             };
             let r = crate::connectors::velociraptor::sync_velociraptor(store, &vc).await;
 
