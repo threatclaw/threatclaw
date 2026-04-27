@@ -503,6 +503,56 @@ pub fn build_investigation_prompt(
         }
     }
 
+    // ── Phase C — pre-resolved graph context for the primary asset ──
+    // Always emitted (even when "asset isolated") so the LLM has an
+    // explicit signal: a Confirmed verdict that ignores this section
+    // will be downgraded by the reconciler.
+    if let Some(ref ctx) = dossier.graph_context {
+        p.push_str("### CONTEXTE GRAPH ASSET\n\n");
+        p.push_str(&format!("- Criticité: {}\n", ctx.criticality));
+        p.push_str(&format!(
+            "- Chemins de mouvement latéral connus: {}\n",
+            ctx.lateral_paths
+        ));
+        if ctx.linked_cves.is_empty() {
+            p.push_str("- CVE liées: aucune\n");
+        } else {
+            p.push_str(&format!("- CVE liées: {}\n", ctx.linked_cves.join(", ")));
+        }
+        if ctx.recent_users.is_empty() {
+            p.push_str("- Utilisateurs récents (7j): aucun\n");
+        } else {
+            p.push_str(&format!(
+                "- Utilisateurs récents (7j): {}\n",
+                ctx.recent_users.join(", ")
+            ));
+        }
+        if ctx.lateral_paths == 0 && ctx.linked_cves.is_empty() {
+            p.push_str(
+                "- ⚠️ Asset ISOLÉ — aucun chemin latéral, aucune CVE liée. \
+                 Une attaque confirmée doit s'appuyer sur des signaux \
+                 directs (sigma, scan, IOC), pas sur de la propagation.\n",
+            );
+        }
+        p.push('\n');
+    }
+
+    // ── Phase C — adaptive prompt: skills connectés et NON connectés ──
+    if !dossier.connected_skills.is_empty() {
+        p.push_str("### SKILLS RÉELLEMENT CONNECTÉS\n\n");
+        p.push_str(&format!(
+            "Ne prétends pas avoir consulté un skill absent de cette liste : {}\n\n",
+            dossier.connected_skills.join(", ")
+        ));
+    } else {
+        p.push_str("### SKILLS CONNECTÉS\n\n");
+        p.push_str(
+            "Aucun skill collecteur n'est configuré côté ThreatClaw. \
+             Ne prétends pas avoir consulté Wazuh / OPNsense / Velociraptor / etc. \
+             Base ton verdict uniquement sur les findings ci-dessus.\n\n",
+        );
+    }
+
     // ── Prior skill results (from previous iterations) ──
     if !skill_results.is_empty() {
         p.push_str("### RÉSULTATS D'INVESTIGATION\n\n");

@@ -103,6 +103,8 @@ fn brute_force_dossier() -> IncidentDossier {
         asset_score: 55.0,
         global_score: 55.0,
         notification_level: NotificationLevel::Alert,
+        connected_skills: vec![],
+        graph_context: None,
     }
 }
 

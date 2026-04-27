@@ -167,6 +167,8 @@ fn build_dossier(fx: &FxDossier) -> IncidentDossier {
         asset_score: fx.global_score,
         global_score: fx.global_score,
         notification_level: NotificationLevel::Silence,
+        connected_skills: vec![],
+        graph_context: None,
     }
 }
 

@@ -126,6 +126,31 @@ pub struct IncidentDossier {
     pub asset_score: f64,
     pub global_score: f64,
     pub notification_level: NotificationLevel,
+    /// Phase C — list of skills the operator has configured + enabled.
+    /// Injected into the LLM prompt so the model knows what it can ask
+    /// for and — critically — what it CANNOT pretend to have consulted.
+    /// Stops the "I checked Wazuh and saw…" hallucination when Wazuh
+    /// isn't installed.
+    #[serde(default)]
+    pub connected_skills: Vec<String>,
+    /// Phase C — pre-resolved graph context for the primary asset:
+    /// criticality, lateral path count, linked CVEs, recent users.
+    /// Cheaper than letting the LLM choose to query the graph, and
+    /// consumed by the reconciler to downgrade an unsupported verdict.
+    #[serde(default)]
+    pub graph_context: Option<GraphAssetContext>,
+}
+
+/// Pre-resolved graph context for the primary asset. Fed into the L1/L2
+/// prompts and consumed by the reconciler to downgrade a Confirmed
+/// verdict when the graph says "isolated, no lateral path, no CVE" —
+/// i.e. the LLM probably hallucinated a kill chain.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GraphAssetContext {
+    pub criticality: String,
+    pub lateral_paths: u32,
+    pub linked_cves: Vec<String>,
+    pub recent_users: Vec<String>,
 }
 
 impl IncidentDossier {
