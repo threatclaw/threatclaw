@@ -1058,6 +1058,10 @@ pub async fn start_server(
             "/api/tc/remediation/quarantine-mac",
             post(super::handlers::threatclaw_api::remediation_quarantine_mac_handler),
         )
+        .route(
+            "/api/tc/network/overview",
+            get(super::handlers::threatclaw_api::network_overview_handler),
+        )
         // Asset Resolution + Behavior
         .route(
             "/api/tc/graph/assets/resolve",
