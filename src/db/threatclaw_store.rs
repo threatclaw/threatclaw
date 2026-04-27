@@ -412,6 +412,20 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<(), DatabaseError>;
     async fn count_findings_by_severity(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
+    /// Count recent independent signals on a given asset across the major
+    /// signal tables (sigma_alerts + findings + firewall_events block).
+    /// Used by sigma_engine to decide whether a `medium` sigma match has
+    /// enough corroboration to be promoted to a finding (and downstream
+    /// to escalate as an incident). The default impl returns 0 so non-PG
+    /// stores stay safe — only the Postgres impl is expected to wire it.
+    async fn count_recent_signals_on_asset(
+        &self,
+        _asset: &str,
+        _minutes: i64,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
     // ── Shift Report queries ──
 
     /// Count findings created since a given timestamp.

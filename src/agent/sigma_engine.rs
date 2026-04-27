@@ -551,7 +551,32 @@ pub async fn match_log(log: &Value, log_tag: Option<&str>) -> Vec<SigmaMatch> {
     matches
 }
 
-/// Run sigma matching on recent logs and create alerts. Called from IE cycle.
+// ── Pipeline tunables (Phase A — refoundation 27/04) ──
+// 15 min dedup was too short — same rule re-fires every Sigma cycle (5 min)
+// because the lab's brute force keeps hitting the same window. 1 h is the
+// SOC industry standard for "same alert, same asset, suppress."
+const SIGMA_DEDUP_WINDOW_MIN: i64 = 60;
+const FINDING_DEDUP_WINDOW_MIN: i64 = 60;
+/// How long do we look for "another signal on the same asset" to decide
+/// whether a `medium` sigma should promote to a finding. Longer than the
+/// dedup window so a single brute-force burst (8 events in 30s, dedup'd
+/// once) still corroborates a separate medium-level audit log.
+const CORROBORATION_WINDOW_MIN: i64 = 60;
+
+/// Run sigma matching on recent logs, create alerts AND auto-create
+/// findings for high/critical matches (or corroborated medium ones).
+///
+/// Pipeline philosophy (Phase A) — an incident must equal a real threat,
+/// so the sigma layer:
+///   - always creates a `sigma_alert` row (raw signal, 30 d retention)
+///   - resolves the `hostname` to a canonical asset (avoid raw IP / FQDN drift)
+///   - decides whether the alert is signal-rich enough to deserve a `finding`:
+///     * critical / high → always promote
+///     * medium → promote ONLY if corroborated (≥ 1 other signal on the
+///       same asset in the last hour: sigma alert, finding, or firewall event)
+///     * low / informational → never auto-promote
+///   - leaves escalation-to-incident to the Intelligence Engine which
+///     reads findings, not raw alerts.
 // See ADR-030: sigma dedup uses in-memory HashSet before DB fallback
 pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: i64) {
     let rules = SIGMA_RULES.read().await;
@@ -565,25 +590,24 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     };
 
     let mut alerts_created = 0u32;
+    let mut findings_created = 0u32;
     let mut cycle_dedup: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for log in &logs {
         for rule in rules.iter() {
             if let Some(m) = match_rule(rule, &log.data, log.tag.as_deref()) {
-                let hostname = log.hostname.as_deref().unwrap_or("unknown");
-                let dedup_key = format!("{}_{}", m.rule_id, hostname);
+                let raw_hostname = log.hostname.as_deref().unwrap_or("unknown");
+                let canonical_asset = resolve_canonical_asset(store.as_ref(), raw_hostname).await;
 
-                // Fast in-memory dedup (skip DB query for same rule+host within this cycle)
+                let dedup_key = format!("{}_{}", m.rule_id, canonical_asset);
                 if !cycle_dedup.insert(dedup_key.clone()) {
                     continue;
                 }
-
-                // DB dedup fallback (15 min window across cycles)
                 if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
                     if let Some(at) = prev["at"].as_str() {
                         if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(at) {
                             if chrono::Utc::now().signed_duration_since(ts)
-                                < chrono::Duration::minutes(15)
+                                < chrono::Duration::minutes(SIGMA_DEDUP_WINDOW_MIN)
                             {
                                 continue;
                             }
@@ -591,7 +615,6 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     }
                 }
 
-                // Create alert
                 let source_ip = m
                     .matched_fields
                     .iter()
@@ -608,34 +631,124 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                         &m.rule_id,
                         &m.level,
                         &m.rule_title,
-                        hostname,
+                        &canonical_asset,
                         source_ip,
                         username,
                     )
                     .await;
-
-                // Dedup marker (expires in 15 min via settings cleanup)
                 let _ = store
                     .set_setting(
                         "_sigma_dedup",
-                        &format!("{}_{}", m.rule_id, hostname),
-                        &serde_json::json!({
-                            "at": chrono::Utc::now().to_rfc3339(),
-                        }),
+                        &dedup_key,
+                        &serde_json::json!({ "at": chrono::Utc::now().to_rfc3339() }),
                     )
                     .await;
-
                 alerts_created += 1;
+
+                // ── Decide if this alert promotes to a finding ──
+                let level_lc = m.level.to_lowercase();
+                let promote = match level_lc.as_str() {
+                    "critical" | "high" => true,
+                    "medium" => {
+                        // count_recent_signals_on_asset returns ≥ 1 because
+                        // we just inserted our own sigma_alert. Need ≥ 2 for
+                        // genuine corroboration (us + one other).
+                        let n = store
+                            .count_recent_signals_on_asset(
+                                &canonical_asset,
+                                CORROBORATION_WINDOW_MIN,
+                            )
+                            .await
+                            .unwrap_or(0);
+                        n >= 2
+                    }
+                    _ => false,
+                };
+
+                if promote {
+                    let f_dedup_key = format!("{}_{}", m.rule_id, canonical_asset);
+                    let recently_filed = store
+                        .get_setting("_finding_dedup", &f_dedup_key)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v["at"].as_str().map(String::from))
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                        .map(|ts| {
+                            chrono::Utc::now().signed_duration_since(ts)
+                                < chrono::Duration::minutes(FINDING_DEDUP_WINDOW_MIN)
+                        })
+                        .unwrap_or(false);
+
+                    if !recently_filed {
+                        let metadata = serde_json::json!({
+                            "rule_id": m.rule_id,
+                            "matched_fields": m.matched_fields,
+                            "source_ip": source_ip,
+                            "username": username,
+                            "raw_hostname": raw_hostname,
+                        });
+                        let f = crate::db::threatclaw_store::NewFinding {
+                            skill_id: "sigma".into(),
+                            title: m.rule_title.clone(),
+                            description: Some(format!(
+                                "Sigma rule {} matched on {} (level={})",
+                                m.rule_id, canonical_asset, level_lc
+                            )),
+                            severity: level_lc.clone(),
+                            category: Some("sigma".into()),
+                            asset: Some(canonical_asset.clone()),
+                            source: Some(format!("sigma:{}", m.rule_id)),
+                            metadata: Some(metadata),
+                        };
+                        if store.insert_finding(&f).await.is_ok() {
+                            let _ = store
+                                .set_setting(
+                                    "_finding_dedup",
+                                    &f_dedup_key,
+                                    &serde_json::json!({
+                                        "at": chrono::Utc::now().to_rfc3339()
+                                    }),
+                                )
+                                .await;
+                            findings_created += 1;
+                        }
+                    }
+                }
             }
         }
     }
 
-    if alerts_created > 0 {
+    if alerts_created > 0 || findings_created > 0 {
         tracing::info!(
-            "SIGMA ENGINE: {} alerts from {} logs ({} rules)",
+            "SIGMA ENGINE: {} alerts, {} findings from {} logs ({} rules)",
             alerts_created,
+            findings_created,
             logs.len(),
             rules.len()
         );
     }
+}
+
+/// Resolve a raw `hostname` (could be IP, FQDN, NetBIOS, or short name)
+/// against the assets table. Falls back to the raw value when the asset
+/// is unknown so the pipeline still records something — but we prefer
+/// the canonical hostname stored in `assets` so downstream aggregation
+/// (Intelligence Engine) doesn't split signals between "10.77.0.1" and
+/// "OPNsense.internal" and "opnsense-firewall".
+async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> String {
+    if raw.is_empty() || raw == "unknown" {
+        return raw.to_string();
+    }
+    let looks_like_ipv4 =
+        raw.split('.').count() == 4 && raw.split('.').all(|p| p.parse::<u8>().is_ok());
+    if looks_like_ipv4 {
+        if let Ok(Some(asset)) = store.find_asset_by_ip(raw).await {
+            return asset.hostname.unwrap_or_else(|| asset.name);
+        }
+    }
+    if let Ok(Some(asset)) = store.find_asset_by_hostname(raw).await {
+        return asset.hostname.unwrap_or_else(|| asset.name);
+    }
+    raw.to_string()
 }

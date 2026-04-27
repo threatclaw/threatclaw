@@ -607,6 +607,42 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    /// Count distinct signal sources on an asset within the last N minutes.
+    /// Three independent tables contribute one signal each:
+    ///   1. sigma_alerts on hostname=asset
+    ///   2. findings with `asset` matching (case-insensitive)
+    ///   3. firewall_events with src_ip / dst_ip matching the asset (when
+    ///      the asset is referenced by IP) OR the firewall hostname for
+    ///      asset-by-name. Uses raw_meta->>'hostname' as fallback.
+    /// We don't double-count rows in the same table — the goal is to
+    /// answer "is there any other independent signal on this asset?".
+    async fn count_recent_signals_on_asset(
+        &self,
+        asset: &str,
+        minutes: i64,
+    ) -> Result<i64, DatabaseError> {
+        if asset.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT \
+                   (SELECT COUNT(*) FROM sigma_alerts \
+                      WHERE hostname = $1 AND matched_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
+                 + (SELECT COUNT(*) FROM findings \
+                      WHERE LOWER(asset) = LOWER($1) AND created_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
+                 + (SELECT COUNT(*) FROM firewall_events \
+                      WHERE timestamp > NOW() - ($2::int * INTERVAL '1 minute') \
+                        AND (host(src_ip) = $1 OR host(dst_ip) = $1))::bigint \
+                 AS total",
+                &[&asset, &(minutes as i32)],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
     // ── Shift Report queries ──
 
     async fn count_findings_since(

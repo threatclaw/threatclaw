@@ -1808,8 +1808,35 @@ fn decide_notification_level(
         return NotificationLevel::Alert;
     }
 
-    // Multiple High on same asset → Alert
-    if assets.values().any(|a| a.findings_high >= 3) {
+    // Phase A — corroboration-driven escalation.
+    //
+    // Old rule "≥ 3 high" delayed action until 3 separate signals
+    // accumulated, missing the goal of "1 real signal = 1 incident". The
+    // replacement is two-step:
+    //
+    //   - 1 high + (active_attack flag OR ≥ 1 active_alert OR ≥ 1 medium)
+    //     → Alert. The qualifier is what tells us "this isn't a stale
+    //     compliance scan finding, the asset is actually under pressure".
+    //   - ≥ 2 high alone (with no qualifier) → Alert (legitimate volume
+    //     signal, e.g. several CVE detections on the same host).
+    //   - 2+ medium correlated on the same asset (with active_attack OR
+    //     active_alert) → Alert.
+    //
+    // Anything weaker stays as findings — the RSSI sees them in /findings
+    // for the weekly review, no incident is created.
+    if assets.values().any(|a| {
+        a.findings_high >= 1
+            && (a.has_active_attack || a.active_alerts > 0 || a.findings_medium > 0)
+    }) {
+        return NotificationLevel::Alert;
+    }
+    if assets.values().any(|a| a.findings_high >= 2) {
+        return NotificationLevel::Alert;
+    }
+    if assets
+        .values()
+        .any(|a| a.findings_medium >= 2 && (a.has_active_attack || a.active_alerts > 0))
+    {
         return NotificationLevel::Alert;
     }
 
