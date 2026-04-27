@@ -31,8 +31,14 @@ pub struct InvestigationConfig {
 impl Default for InvestigationConfig {
     fn default() -> Self {
         Self {
+            // Phase B — tighten budget. 2 iterations × ~30 s LLM call =
+            // ~60-90 s total typical, ≤ 180 s worst case. The previous
+            // 1800 s ceiling was too generous and caused 56 incidents to
+            // sit in `error` for hours waiting on Ollama hiccups. The
+            // RSSI SLA is "I open TC and see what's happening" — a
+            // 5-min wait for L2 enrichment is acceptable, 30 min isn't.
             max_iterations: 2,
-            timeout: Duration::from_secs(1800),
+            timeout: Duration::from_secs(180),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
@@ -253,9 +259,13 @@ pub async fn run_investigation(
         // Build prompt with dossier + accumulated skill results
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
-        // Call L1 LLM with triage_schema (phase 1 structured outputs)
+        // Call L1 LLM with triage_schema (phase 1 structured outputs).
+        // Phase B — per-call timeout 60 s (was 900 s). qwen3:8b on a
+        // healthy local Ollama answers in 5-20 s; 60 s is a generous
+        // upper bound and lets us detect a hung backend quickly. The
+        // outer config.timeout still caps the whole loop.
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(900),
+            Duration::from_secs(60),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,

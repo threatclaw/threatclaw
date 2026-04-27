@@ -2031,8 +2031,13 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let conf_f32 = confidence as f32;
+        // Phase B — `error` is no longer a terminal status: an L2 failure
+        // shouldn't bury the incident in a "broken" bucket no one revisits.
+        // The incident stays `open` with verdict='error' so the RSSI sees
+        // it in the regular queue and can act on the rules-based fallback
+        // title; an audit note (added by the caller) explains the L2 fail.
         conn.execute(
-            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, evidence_citations = $8, status = CASE WHEN $2 = 'false_positive' THEN 'closed' WHEN $2 = 'error' THEN 'error' WHEN $2 = 'confirmed' THEN 'open' WHEN $2 = 'informational' THEN 'closed' ELSE 'open' END, updated_at = NOW() WHERE id = $1",
+            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, evidence_citations = $8, status = CASE WHEN $2 = 'false_positive' THEN 'closed' WHEN $2 = 'confirmed' THEN 'open' WHEN $2 = 'informational' THEN 'closed' ELSE 'open' END, updated_at = NOW() WHERE id = $1",
             &[&id, &verdict, &conf_f32, &summary, &mitre, proposed_actions, investigation_log, evidence_citations],
         ).await.map_err(query_err)?;
         Ok(())
