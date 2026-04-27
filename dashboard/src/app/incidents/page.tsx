@@ -357,9 +357,58 @@ function IncidentsTab({ locale }: { locale: string }) {
               const actions: IncidentAction[] = (inc.proposed_actions?.actions || []) as IncidentAction[];
               const iocs: string[] = (inc.proposed_actions?.iocs || []) as string[];
               const isOpen = inc.status !== "resolved" && inc.status !== "closed" && inc.status !== "archived";
+              const executableActions = actions.filter(a => a.kind !== "manual");
               return (
               <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
-                {/* See ADR-048 */}
+                {/* Phase D — action-first layout. The RSSI must see what
+                    to do BEFORE the technical context. Hero block at the
+                    top with prominent HITL buttons; everything else (blast
+                    radius, IOCs, MITRE, summary, triage) is moved down. */}
+
+                {/* Hero — summary + primary actions */}
+                {inc.summary && (
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 14, whiteSpace: "pre-wrap" }}>
+                    {inc.summary}
+                  </div>
+                )}
+
+                {isOpen && executableActions.length > 0 && (
+                  <div style={{
+                    marginBottom: 16,
+                    padding: "14px 16px",
+                    background: "linear-gradient(180deg, rgba(208,48,32,0.08) 0%, rgba(208,48,32,0.02) 100%)",
+                    border: "1px solid rgba(208,48,32,0.25)",
+                    borderRadius: "var(--tc-radius-sm)",
+                  }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#d03020", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6, letterSpacing: 0.5 }}>
+                      <Zap size={13} /> {locale === "fr" ? "Que faire maintenant" : "What to do now"}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {executableActions.map((act, i) => (
+                        <button key={i} onClick={() => setConfirmAction({ incident: inc, action: act })} style={{
+                          padding: "10px 16px", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
+                          cursor: "pointer", background: "#d03020", color: "#fff",
+                          border: "1px solid #b02818", borderRadius: "var(--tc-radius-sm)",
+                          display: "flex", alignItems: "center", gap: 8, minWidth: 160,
+                          boxShadow: "0 1px 3px rgba(208,48,32,0.3)",
+                        }} title={act.description}>
+                          {actionIcon(act.kind)}
+                          <span style={{ flex: 1, textAlign: "left" }}>{act.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {isOpen && executableActions.length === 0 && (
+                  <div style={{ marginBottom: 14, padding: "10px 14px", fontSize: 12, color: "var(--tc-text-muted)", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px dashed var(--tc-border)" }}>
+                    {locale === "fr"
+                      ? "Aucune action HITL automatisée n'est proposée pour cet incident. Utilise les boutons de décision RSSI ci-dessous ou ajoute une note."
+                      : "No automated HITL action proposed for this incident. Use the CISO decision buttons below or add a note."}
+                  </div>
+                )}
+
+                {/* Blast Radius (ADR-048) — kept but moved below the hero */}
                 <BlastRadiusCard
                   incidentId={inc.id}
                   snapshot={inc.blast_radius_snapshot}
@@ -381,13 +430,6 @@ function IncidentsTab({ locale }: { locale: string }) {
                     );
                   }}
                 />
-
-                {/* Summary */}
-                {inc.summary && (
-                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 16, whiteSpace: "pre-wrap" }}>
-                    {inc.summary}
-                  </div>
-                )}
 
                 {/* Context: IOCs + MITRE */}
                 {(iocs.length > 0 || (inc.mitre_techniques && inc.mitre_techniques.length > 0)) && (
@@ -414,31 +456,18 @@ function IncidentsTab({ locale }: { locale: string }) {
                   </div>
                 )}
 
-                {/* Proposed actions */}
-                {isOpen && actions.length > 0 && (
+                {/* Manual / informational actions list (proposed but not
+                    auto-executable — operator follows them out of band). */}
+                {isOpen && actions.length > executableActions.length && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                      <Zap size={11} /> {locale === "fr" ? "Actions proposées" : "Proposed actions"}
+                      <Search size={11} /> {locale === "fr" ? "Actions manuelles suggérées" : "Suggested manual actions"}
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {actions.map((act, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border-light)" }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--tc-text-muted)" }}>{i + 1}.</span>
-                          <span style={{ flex: 1, fontSize: 12, color: "var(--tc-text)" }}>{act.description}</span>
-                          {act.kind !== "manual" && (
-                            <button onClick={() => setConfirmAction({ incident: inc, action: act })} style={{
-                              padding: "4px 12px", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
-                              cursor: "pointer", background: "rgba(208,48,32,0.12)", color: "#d03020",
-                              border: "1px solid rgba(208,48,32,0.3)", borderRadius: "var(--tc-radius-sm)",
-                              display: "flex", alignItems: "center", gap: 4,
-                            }}>
-                              {actionIcon(act.kind)}
-                              {locale === "fr" ? "Exécuter" : "Execute"}
-                            </button>
-                          )}
-                        </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--tc-text-muted)" }}>
+                      {actions.filter(a => a.kind === "manual").map((act, i) => (
+                        <li key={i} style={{ marginBottom: 4 }}>{act.description}</li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 )}
 

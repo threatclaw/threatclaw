@@ -55,6 +55,12 @@ export type SubNavItem = {
   /// Optional nested submenu — rendered indented and auto-expanded when
   /// the parent or any child is the active route.
   children?: SubNavItem[];
+  /// Optional tooltip explaining what this entry contains and what the
+  /// expected volume / cadence is. Surfaced as the native title= on the
+  /// sidebar item. Used to disambiguate the alerts/findings/incidents
+  /// triptyque (Phase D — refoundation 27/04).
+  tooltipFr?: string;
+  tooltipEn?: string;
 };
 
 export type Section = {
@@ -82,9 +88,30 @@ export const SECTIONS: Record<SectionKey, Section> = {
     label: () => "Incidents",
     matches: ["/incidents", "/findings", "/alerts", "/alertes"],
     items: [
-      { href: "/incidents", labelFr: "Incidents", labelEn: "Incidents", icon: Siren },
-      { href: "/findings", labelFr: "Findings", labelEn: "Findings", icon: Search },
-      { href: "/alerts", labelFr: "Alertes", labelEn: "Alerts", icon: AlertTriangle },
+      {
+        href: "/incidents",
+        labelFr: "Incidents",
+        labelEn: "Incidents",
+        icon: Siren,
+        tooltipFr: "Menaces confirmées et corroborées — tu dois agir.",
+        tooltipEn: "Corroborated, confirmed threats — you must act.",
+      },
+      {
+        href: "/findings",
+        labelFr: "Findings",
+        labelEn: "Findings",
+        icon: Search,
+        tooltipFr: "Observations à revoir — pas urgentes, revue hebdo.",
+        tooltipEn: "Observations to review — not urgent, weekly triage.",
+      },
+      {
+        href: "/alerts",
+        labelFr: "Alertes",
+        labelEn: "Alerts",
+        icon: AlertTriangle,
+        tooltipFr: "Signal brut — matière première du moteur, ne nécessite pas d'action directe.",
+        tooltipEn: "Raw signal — engine input, no direct action required.",
+      },
     ],
   },
   inventaire: {
