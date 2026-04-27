@@ -3855,6 +3855,120 @@ pub async fn remediation_block_ip_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// GET /api/tc/network/overview — aggregate firewall data for the
+/// /network page. Returns one snapshot mixing every configured firewall.
+pub async fn network_overview_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let now = chrono::Utc::now();
+    let since_24h = now - chrono::Duration::hours(24);
+    let since_60m = now - chrono::Duration::minutes(60);
+
+    // Connected firewalls (skill_configs).
+    let mut firewalls: Vec<serde_json::Value> = vec![];
+    for skill_id in ["skill-pfsense", "skill-opnsense", "skill-fortinet"] {
+        let configs = store.get_skill_config(skill_id).await.unwrap_or_default();
+        if configs.is_empty() {
+            continue;
+        }
+        let cfg_map: std::collections::HashMap<String, String> = configs
+            .iter()
+            .map(|c| (c.key.clone(), c.value.clone()))
+            .collect();
+        let url = cfg_map.get("url").cloned().unwrap_or_default();
+        let enabled = cfg_map.get("enabled").map(|v| v == "true").unwrap_or(false);
+        firewalls.push(serde_json::json!({
+            "skill_id": skill_id,
+            "url": url,
+            "enabled": enabled,
+            "auto_sync": cfg_map.get("auto_sync") == Some(&"true".to_string()),
+        }));
+    }
+
+    // Top blocked sources (24h).
+    let block_aggregates = store
+        .firewall_blocked_aggregates(since_24h)
+        .await
+        .unwrap_or_default();
+    let top_blocked: Vec<serde_json::Value> = block_aggregates
+        .iter()
+        .take(10)
+        .map(|a| {
+            serde_json::json!({
+                "src_ip": a.src_ip,
+                "block_count": a.blocked_count,
+                "distinct_dst": a.distinct_dst_ips,
+                "distinct_ports": a.distinct_dst_ports,
+                "ssh_brute_count": a.hits_ssh,
+                "rdp_brute_count": a.hits_rdp,
+                "smb_brute_count": a.hits_smb,
+            })
+        })
+        .collect();
+
+    // Helper: pull logs for a list of tags + flatten.
+    async fn pull_tagged(
+        store: &dyn crate::db::Database,
+        tags: &[&str],
+        per_tag_limit: i64,
+    ) -> Vec<serde_json::Value> {
+        let mut out = Vec::new();
+        for tag in tags {
+            if let Ok(rows) = store.query_logs(60, None, Some(tag), per_tag_limit).await {
+                for r in rows {
+                    out.push(serde_json::json!({
+                        "tag": r.tag,
+                        "time": r.time,
+                        "hostname": r.hostname,
+                        "snippet": r.data.get("line")
+                            .or_else(|| r.data.get("msg"))
+                            .and_then(|v| v.as_str()).unwrap_or(""),
+                    }));
+                }
+            }
+        }
+        out.sort_by(|a, b| {
+            b["time"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(a["time"].as_str().unwrap_or(""))
+        });
+        out.truncate(20);
+        out
+    }
+    let recent_alerts = pull_tagged(
+        store.as_ref(),
+        &["opnsense.suricata", "fortinet.utm.ips"],
+        10,
+    )
+    .await;
+    let admin_events = pull_tagged(
+        store.as_ref(),
+        &[
+            "opnsense.audit",
+            "fortinet.event.user",
+            "fortinet.event.system",
+        ],
+        7,
+    )
+    .await;
+
+    // Identity anomalies (includes impossible-travel from V P1-2).
+    let identity = crate::graph::identity_graph::detect_identity_anomalies(store.as_ref()).await;
+
+    Ok(Json(serde_json::json!({
+        "firewalls": firewalls,
+        "top_blocked_sources": top_blocked,
+        "recent_ids_alerts": recent_alerts,
+        "admin_events": admin_events,
+        "identity_anomalies": identity.anomalies,
+        "users_tracked": identity.users_tracked,
+        "since_24h": since_24h.to_rfc3339(),
+        "since_60m": since_60m.to_rfc3339(),
+    })))
+}
+
 /// POST /api/tc/remediation/block-url — block URL pattern on FortiGate webfilter.
 ///
 /// **License gate**: requires Action Pack. Body: `{fw_url, api_key, no_tls_verify, url}`.

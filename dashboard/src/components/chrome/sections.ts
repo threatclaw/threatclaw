@@ -90,10 +90,11 @@ export const SECTIONS: Record<SectionKey, Section> = {
   inventaire: {
     key: "inventaire",
     label: (l) => (l === "fr" ? "Inventaire" : "Inventory"),
-    matches: ["/assets", "/users"],
+    matches: ["/assets", "/users", "/network"],
     items: [
       { href: "/assets", labelFr: "Assets", labelEn: "Assets", icon: Server },
       { href: "/users", labelFr: "Utilisateurs", labelEn: "Users", icon: Users },
+      { href: "/network", labelFr: "Réseau", labelEn: "Network", icon: Network },
     ],
   },
   investigation: {

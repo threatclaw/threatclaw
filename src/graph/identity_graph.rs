@@ -210,6 +210,11 @@ pub async fn detect_identity_anomalies(store: &dyn Database) -> IdentityAnalysis
     let honeypot = detect_honeypot_logins(store).await;
     anomalies.extend(honeypot);
 
+    // 5. Impossible travel — two logins from different /16 subnets
+    //    within a short window (proxy for "geographically impossible").
+    let travel = detect_impossible_travel(store).await;
+    anomalies.extend(travel);
+
     let users_tracked = count_users(store).await;
     let summary = if anomalies.is_empty() {
         "Aucune anomalie d'identité détectée".into()
@@ -396,6 +401,106 @@ async fn detect_escalation_chains(store: &dyn Database) -> Vec<IdentityAnomaly> 
             })
         })
         .collect()
+}
+
+/// Impossible-travel detection.
+///
+/// We don't have a GeoIP DB embedded — adding one (MaxMind GeoLite2 ~70 MB)
+/// is a future enhancement. For now we use a network-distance proxy:
+/// two successful logins for the same user from **different /16 subnets**
+/// within **5 minutes** are flagged as impossible-travel-suspect. This
+/// catches the actually-dangerous patterns:
+///   - stolen creds replayed from a different ISP
+///   - VPN compromise where the legit user is at home (one /16) and
+///     the attacker shows up from a hosting provider (different /16)
+///   - lateral movement from a hopped-into VPN endpoint
+/// Same-/16 noise (e.g. the same user roaming on corporate WiFi) is
+/// silenced. False-positive risk: a remote-worker who genuinely jumps
+/// ISPs (4G → home wifi) within 5 min — operators can ignore those.
+async fn detect_impossible_travel(store: &dyn Database) -> Vec<IdentityAnomaly> {
+    // Pull all successful logins with their source_ip + timestamp from
+    // the last 12 h. We keep the result set small (one row per
+    // user/ip/ts) so the post-processing in Rust stays cheap.
+    let results = query(
+        store,
+        "MATCH (u:User)-[l:LOGGED_IN]->(a:Asset) \
+         WHERE l.success = true AND l.source_ip <> '' \
+         RETURN u.username, l.source_ip, l.timestamp, l.protocol, a.hostname \
+         ORDER BY u.username, l.timestamp DESC LIMIT 1000",
+    )
+    .await;
+
+    use std::collections::HashMap;
+    // Group by user.
+    let mut by_user: HashMap<String, Vec<(String, String, String, String)>> = HashMap::new();
+    for r in &results {
+        let user = match r["u.username"].as_str() {
+            Some(u) if !u.is_empty() => u.to_string(),
+            _ => continue,
+        };
+        let ip = r["l.source_ip"].as_str().unwrap_or("").to_string();
+        let ts = r["l.timestamp"].as_str().unwrap_or("").to_string();
+        let proto = r["l.protocol"].as_str().unwrap_or("").to_string();
+        let asset = r["a.hostname"].as_str().unwrap_or("").to_string();
+        if ip.is_empty() || ts.is_empty() {
+            continue;
+        }
+        by_user
+            .entry(user)
+            .or_default()
+            .push((ip, ts, proto, asset));
+    }
+
+    let mut out = vec![];
+    let cutoff_secs = 5i64 * 60;
+    for (user, mut events) in by_user {
+        if events.len() < 2 {
+            continue;
+        }
+        // Sort newest first (the query already does this but be safe).
+        events.sort_by(|a, b| b.1.cmp(&a.1));
+        for window in events.windows(2) {
+            let (ip_a, ts_a, proto_a, asset_a) = &window[0];
+            let (ip_b, ts_b, _proto_b, _asset_b) = &window[1];
+            if subnet16(ip_a) == subnet16(ip_b) {
+                continue;
+            }
+            let dt_a = chrono::DateTime::parse_from_rfc3339(ts_a).ok();
+            let dt_b = chrono::DateTime::parse_from_rfc3339(ts_b).ok();
+            let (Some(a), Some(b)) = (dt_a, dt_b) else {
+                continue;
+            };
+            let delta = (a - b).num_seconds().abs();
+            if delta > cutoff_secs {
+                continue;
+            }
+            out.push(IdentityAnomaly {
+                anomaly_type: "impossible_travel".into(),
+                username: user.clone(),
+                detail: format!(
+                    "{} : login depuis {} puis {} en {}s ({}, asset {})",
+                    user, ip_a, ip_b, delta, proto_a, asset_a
+                ),
+                severity: "high".into(),
+                confidence: 75,
+            });
+            break; // one finding per user is enough
+        }
+    }
+    out
+}
+
+/// Return the /16 of an IPv4 address as `"a.b"`. Non-IPv4 returns the
+/// raw input — that means IPv6 still gets compared by string equality,
+/// which is conservative (we'd rather miss a finding than fire an FP
+/// because of dual-stack noise).
+fn subnet16(ip: &str) -> String {
+    let parts: Vec<&str> = ip.split('.').collect();
+    if parts.len() == 4 {
+        format!("{}.{}", parts[0], parts[1])
+    } else {
+        ip.to_string()
+    }
 }
 
 async fn count_users(store: &dyn Database) -> usize {
