@@ -31,14 +31,15 @@ pub struct InvestigationConfig {
 impl Default for InvestigationConfig {
     fn default() -> Self {
         Self {
-            // Phase B — tighten budget. 2 iterations × ~30 s LLM call =
-            // ~60-90 s total typical, ≤ 180 s worst case. The previous
-            // 1800 s ceiling was too generous and caused 56 incidents to
-            // sit in `error` for hours waiting on Ollama hiccups. The
-            // RSSI SLA is "I open TC and see what's happening" — a
-            // 5-min wait for L2 enrichment is acceptable, 30 min isn't.
+            // Phase B — tighten budget. 2 iterations × 120 s per LLM
+            // call = 240 s worst case, plus skill calls in between. The
+            // previous 1800 s ceiling was too generous and caused 56
+            // incidents to sit in `error` for hours waiting on Ollama
+            // hiccups. The RSSI SLA is "I open TC and see what's
+            // happening" — a 5-min wait for L2 enrichment is acceptable,
+            // 30 min isn't.
             max_iterations: 2,
-            timeout: Duration::from_secs(180),
+            timeout: Duration::from_secs(300),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
@@ -68,9 +69,10 @@ impl InvestigationRegistry {
     pub async fn try_register(&self, asset: &str, dossier_id: uuid::Uuid) -> bool {
         let mut active = self.active.lock().await;
 
-        // Clean up stale entries (> 1 hour = crashed)
-        // Aligned with 900s per-iteration LLM timeout * 5 iterations max.
-        active.retain(|_, state| state.started_at.elapsed() < Duration::from_secs(3600));
+        // Clean up stale entries (> 30 min = orphaned). Aligned with the
+        // Phase B 300 s outer timeout × generous safety margin for skill
+        // calls / network blips. Anything older means the worker died.
+        active.retain(|_, state| state.started_at.elapsed() < Duration::from_secs(1800));
 
         if active.contains_key(asset) {
             return false;
@@ -260,12 +262,14 @@ pub async fn run_investigation(
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
         // Call L1 LLM with triage_schema (phase 1 structured outputs).
-        // Phase B — per-call timeout 60 s (was 900 s). qwen3:8b on a
-        // healthy local Ollama answers in 5-20 s; 60 s is a generous
-        // upper bound and lets us detect a hung backend quickly. The
-        // outer config.timeout still caps the whole loop.
+        // Phase B — per-call timeout 120 s (was 900 s). qwen3:8b on a
+        // healthy local Ollama answers in 5-30 s; 120 s lets us cover
+        // first-call model load (Ollama lazy-loads up to 60 s) and a
+        // heavier dossier (10 findings, full skill list) without
+        // tripping. The outer config.timeout (180 s) still caps the
+        // whole loop so we can't loop forever.
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(60),
+            Duration::from_secs(120),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -292,7 +296,7 @@ pub async fn run_investigation(
                 return make_error_result(
                     dossier_id,
                     asset,
-                    "LLM timeout 900s",
+                    "LLM timeout (120 s per call)",
                     start,
                     iteration,
                     skill_calls,
