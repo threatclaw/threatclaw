@@ -31,15 +31,15 @@ pub struct InvestigationConfig {
 impl Default for InvestigationConfig {
     fn default() -> Self {
         Self {
-            // Phase B — tighten budget. 2 iterations × 120 s per LLM
-            // call = 240 s worst case, plus skill calls in between. The
-            // previous 1800 s ceiling was too generous and caused 56
-            // incidents to sit in `error` for hours waiting on Ollama
-            // hiccups. The RSSI SLA is "I open TC and see what's
-            // happening" — a 5-min wait for L2 enrichment is acceptable,
-            // 30 min isn't.
+            // Phase B revisited — calibrated for CPU-only Ollama on CASE
+            // (no GPU layers). Previous 1800 s was absurdly generous; my
+            // first cut at 300 s was too tight and caused systematic L2
+            // timeouts on heavy dossiers. 900 s = 1.5 calls × 600 s
+            // per-call budget. The RSSI doesn't wait for it — Phase B2
+            // surfaces the incident immediately with a human title;
+            // L2 just enriches the verdict in the background.
             max_iterations: 2,
-            timeout: Duration::from_secs(300),
+            timeout: Duration::from_secs(900),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
@@ -262,14 +262,18 @@ pub async fn run_investigation(
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
         // Call L1 LLM with triage_schema (phase 1 structured outputs).
-        // Phase B — per-call timeout 180 s (was 900 s). qwen3:8b on a
-        // healthy local Ollama answers in 5-30 s; 180 s covers
-        // first-call model load (Ollama lazy-loads up to 60 s) and a
-        // heavy dossier (10 findings, graph context, adaptive prompt
-        // with skill list). The outer config.timeout (300 s) caps the
-        // whole loop so we can't loop forever.
+        // Phase B revisited (CPU-only Ollama on CASE) — qwen3:8b runs
+        // entirely on CPU (`offloaded 0/37 layers to GPU`), at ~5-15
+        // tok/s. With Phase C's graph context + adaptive skill list
+        // making the prompt heavier, 180 s was tripping systematically.
+        // 600 s is the sweet spot: enough headroom on CPU for a real
+        // verdict (L2 typically completes in 60-300 s on this profile)
+        // while the outer config.timeout (900 s) still caps the loop.
+        // The user perceives no delay because Phase B2 already creates
+        // the incident with a human title BEFORE the L2 runs — only the
+        // verdict enrichment lands later.
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(180),
+            Duration::from_secs(600),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -292,11 +296,11 @@ pub async fn run_investigation(
                 );
             }
             Err(_) => {
-                error!("INVESTIGATION: LLM call timed out (180s per call)");
+                error!("INVESTIGATION: LLM call timed out (600s per call)");
                 return make_error_result(
                     dossier_id,
                     asset,
-                    "LLM timeout (180 s per call)",
+                    "LLM timeout (600 s per call — CPU-only Ollama)",
                     start,
                     iteration,
                     skill_calls,
