@@ -25,12 +25,15 @@ pub struct CompiledRule {
 }
 
 pub enum FieldMatcher {
-    Exact(String, String),      // field, value
-    Contains(String, String),   // field, substring
-    StartsWith(String, String), // field, prefix
-    EndsWith(String, String),   // field, suffix
-    Wildcard(String, String),   // field, glob pattern
-    AnyOf(String, Vec<String>), // field, [values]
+    Exact(String, String),            // field, value
+    Contains(String, String),         // field, substring
+    StartsWith(String, String),       // field, prefix
+    EndsWith(String, String),         // field, suffix
+    Wildcard(String, String),         // field, glob pattern
+    AnyOf(String, Vec<String>),       // field, [values] — exact match OR
+    ContainsAny(String, Vec<String>), // field|contains: [a,b,c] — substring OR
+    StartsWithAny(String, Vec<String>),
+    EndsWithAny(String, Vec<String>),
 }
 
 pub enum Condition {
@@ -96,7 +99,6 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                         matchers.push(FieldMatcher::Exact(field, n.to_string()));
                     }
                     Value::Array(arr) => {
-                        // List of values → AnyOf
                         let values: Vec<String> = arr
                             .iter()
                             .filter_map(|v| {
@@ -105,7 +107,28 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                                     .or_else(|| v.as_i64().map(|n| n.to_string()))
                             })
                             .collect();
-                        matchers.push(FieldMatcher::AnyOf(field, values));
+                        // The Sigma semantics for `field|<mod>: [a, b, c]` is "ANY
+                        // of [a,b,c] matches with that modifier". Without the
+                        // *Any variants below, a `line|contains: ["Failed
+                        // password", "auth denied"]` was being compiled to
+                        // exact-match AnyOf — silently never firing on real syslog
+                        // content (which has prefixes / suffixes). The pre-fix
+                        // bug took out our V58 / V59 / V60 rules until V61.
+                        let lower: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
+                        match modifier {
+                            "contains" => {
+                                matchers.push(FieldMatcher::ContainsAny(field, lower));
+                            }
+                            "startswith" => {
+                                matchers.push(FieldMatcher::StartsWithAny(field, lower));
+                            }
+                            "endswith" => {
+                                matchers.push(FieldMatcher::EndsWithAny(field, lower));
+                            }
+                            _ => {
+                                matchers.push(FieldMatcher::AnyOf(field, values));
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -323,6 +346,44 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             if let Some(val) = find_field(log, field) {
                 let val_lower = val.to_lowercase();
                 if values.iter().any(|v| v.to_lowercase() == val_lower) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::ContainsAny(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().any(|v| val_lower.contains(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            // Defense in depth: also probe the whole log body — same semantics as
+            // FieldMatcher::Contains so rules don't depend on whether the field
+            // is exposed at top-level or nested.
+            let text = log.to_string().to_lowercase();
+            if values.iter().any(|v| text.contains(v.as_str())) {
+                matched.push((field.clone(), "(found in log body)".into()));
+                return true;
+            }
+            false
+        }
+        FieldMatcher::StartsWithAny(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().any(|v| val_lower.starts_with(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::EndsWithAny(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().any(|v| val_lower.ends_with(v.as_str())) {
                     matched.push((field.clone(), val));
                     return true;
                 }
