@@ -203,9 +203,11 @@ function SidebarItem({
 }) {
   const Icon = item.icon;
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const tooltip = locale === "fr" ? item.tooltipFr : item.tooltipEn;
   return (
     <Link
       href={item.href}
+      title={tooltip}
       style={{
         display: "flex",
         alignItems: "center",
