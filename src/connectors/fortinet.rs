@@ -39,6 +39,16 @@ pub struct FortinetConfig {
     pub api_key: String,
     #[serde(default = "default_true")]
     pub no_tls_verify: bool,
+    /// Cursor for incremental log pulls — keeps the highest `eventtime`
+    /// (epoch seconds) already ingested for user-event log.
+    #[serde(default)]
+    pub cursor_user_event: Option<String>,
+    /// Same for system-event log.
+    #[serde(default)]
+    pub cursor_system_event: Option<String>,
+    /// Same for forward-traffic log (block events only).
+    #[serde(default)]
+    pub cursor_forward_traffic: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -59,11 +69,28 @@ pub struct FortinetSyncResult {
     pub cpu_usage_pct: Option<u8>,
     pub mem_usage_pct: Option<u8>,
     pub disk_usage_pct: Option<u8>,
+    /// Number of user-event log rows ingested into `logs` this cycle.
+    pub user_events_ingested: usize,
+    /// Number of system-event log rows ingested into `logs` this cycle.
+    pub system_events_ingested: usize,
+    /// Forward-traffic block events ingested into `firewall_events`.
+    pub forward_blocks_ingested: usize,
+    /// Identity-graph LOGGED_IN edges created from SSL VPN active sessions.
+    pub identity_edges_created: usize,
     pub errors: Vec<String>,
+    /// New cursors written back at the end of the sync.
+    pub cursor_user_event: Option<String>,
+    pub cursor_system_event: Option<String>,
+    pub cursor_forward_traffic: Option<String>,
 }
 
 pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> FortinetSyncResult {
-    let mut result = FortinetSyncResult::default();
+    let mut result = FortinetSyncResult {
+        cursor_user_event: config.cursor_user_event.clone(),
+        cursor_system_event: config.cursor_system_event.clone(),
+        cursor_forward_traffic: config.cursor_forward_traffic.clone(),
+        ..Default::default()
+    };
 
     let client = match Client::builder()
         .danger_accept_invalid_certs(config.no_tls_verify)
@@ -163,9 +190,33 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
             .map(|v| v.round().clamp(0.0, 255.0) as u8);
     }
 
-    // 7. SSL VPN active sessions
+    // 7. SSL VPN active sessions — count + identity bridge for each user
     if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/vpn/ssl").await {
-        result.ssl_vpn_sessions = body["results"].as_array().map(|a| a.len()).unwrap_or(0);
+        if let Some(sessions) = body["results"].as_array() {
+            result.ssl_vpn_sessions = sessions.len();
+            let asset_id = result
+                .system_serial
+                .as_deref()
+                .map(|s| format!("fortigate-{s}"))
+                .unwrap_or_else(|| format!("fortigate-{base}"));
+            for s in sessions {
+                let username = s["user_name"]
+                    .as_str()
+                    .or_else(|| s["username"].as_str())
+                    .unwrap_or("");
+                let src_ip = s["source_ip"]
+                    .as_str()
+                    .or_else(|| s["src_ip"].as_str())
+                    .unwrap_or("");
+                if !username.is_empty() {
+                    crate::graph::identity_graph::record_login(
+                        store, username, &asset_id, src_ip, "ssl-vpn", true,
+                    )
+                    .await;
+                    result.identity_edges_created += 1;
+                }
+            }
+        }
     }
 
     // 8. IPsec phase1 tunnels
@@ -173,8 +224,175 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         result.ipsec_tunnels = body["results"].as_array().map(|a| a.len()).unwrap_or(0);
     }
 
+    // 9. User-event log → ingest into `logs` table tagged `fortinet.event.user`
+    //    Covers admin login/logout, auth failures, account changes — the
+    //    high-value control-plane signals for SIEM.
+    let host = result
+        .system_serial
+        .as_deref()
+        .map(String::from)
+        .unwrap_or_else(|| base.replace("https://", "").replace("/", ""));
+    let cursor_user: i64 = config
+        .cursor_user_event
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if let Ok(body) = fgt_get(
+        &client,
+        base,
+        &auth,
+        "/api/v2/log/memory/event/user/select?count=500",
+    )
+    .await
+    {
+        if let Some(rows) = body["results"].as_array() {
+            let mut newest = cursor_user;
+            for ev in rows {
+                let ts = ev["eventtime"].as_i64().unwrap_or(0);
+                if ts <= cursor_user {
+                    continue;
+                }
+                if ts > newest {
+                    newest = ts;
+                }
+                let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                if store
+                    .insert_log("fortinet.event.user", &host, ev, &iso)
+                    .await
+                    .is_ok()
+                {
+                    result.user_events_ingested += 1;
+                }
+            }
+            if newest > cursor_user {
+                result.cursor_user_event = Some(newest.to_string());
+            }
+        }
+    }
+
+    // 10. System-event log → ingest into `logs` tagged `fortinet.event.system`
+    //     Covers config changes, daemon restarts, service status — useful
+    //     to detect tampering with the firewall itself.
+    let cursor_sys: i64 = config
+        .cursor_system_event
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if let Ok(body) = fgt_get(
+        &client,
+        base,
+        &auth,
+        "/api/v2/log/memory/event/system/select?count=500",
+    )
+    .await
+    {
+        if let Some(rows) = body["results"].as_array() {
+            let mut newest = cursor_sys;
+            for ev in rows {
+                let ts = ev["eventtime"].as_i64().unwrap_or(0);
+                if ts <= cursor_sys {
+                    continue;
+                }
+                if ts > newest {
+                    newest = ts;
+                }
+                let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                if store
+                    .insert_log("fortinet.event.system", &host, ev, &iso)
+                    .await
+                    .is_ok()
+                {
+                    result.system_events_ingested += 1;
+                }
+            }
+            if newest > cursor_sys {
+                result.cursor_system_event = Some(newest.to_string());
+            }
+        }
+    }
+
+    // 11. Forward-traffic log → block events into `firewall_events`,
+    //     mirrored into `logs` tag `fortinet.firewall` for Sigma matching
+    //     (same approach as pfsense.rs).
+    let cursor_fwd: i64 = config
+        .cursor_forward_traffic
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    if let Ok(body) = fgt_get(
+        &client,
+        base,
+        &auth,
+        "/api/v2/log/memory/traffic/forward/select?count=500",
+    )
+    .await
+    {
+        if let Some(rows) = body["results"].as_array() {
+            let mut newest = cursor_fwd;
+            let mut events: Vec<crate::db::threatclaw_store::NewFirewallEvent> = Vec::new();
+            for ev in rows {
+                let ts = ev["eventtime"].as_i64().unwrap_or(0);
+                if ts <= cursor_fwd {
+                    continue;
+                }
+                if ts > newest {
+                    newest = ts;
+                }
+                // FortiGate "action": accept / deny / close / start ... we
+                // only persist the deny/block path for SIEM correlation.
+                let action = ev["action"].as_str().unwrap_or("").to_lowercase();
+                if !matches!(action.as_str(), "deny" | "block" | "blocked" | "drop") {
+                    continue;
+                }
+                let timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                    .unwrap_or_else(chrono::Utc::now);
+                let iso = timestamp.to_rfc3339();
+                let payload = serde_json::json!({
+                    "fw_source": "fortinet",
+                    "action": "block",
+                    "src_ip": ev.get("srcip"),
+                    "src_port": ev.get("srcport"),
+                    "dst_ip": ev.get("dstip"),
+                    "dst_port": ev.get("dstport"),
+                    "proto": ev.get("proto"),
+                    "policy_id": ev.get("policyid"),
+                    "logid": ev.get("logid"),
+                });
+                let _ = store
+                    .insert_log("fortinet.firewall", &host, &payload, &iso)
+                    .await;
+                events.push(crate::db::threatclaw_store::NewFirewallEvent {
+                    timestamp,
+                    fw_source: "fortinet".into(),
+                    interface: ev["srcintf"].as_str().map(String::from),
+                    action: "block".into(),
+                    direction: ev["direction"].as_str().map(String::from),
+                    proto: ev["proto"].as_str().map(String::from),
+                    src_ip: ev["srcip"].as_str().map(String::from),
+                    src_port: ev["srcport"].as_i64().map(|v| v as i32),
+                    dst_ip: ev["dstip"].as_str().map(String::from),
+                    dst_port: ev["dstport"].as_i64().map(|v| v as i32),
+                    rule_id: ev["policyid"].as_str().map(String::from),
+                    raw_meta: ev.clone(),
+                });
+            }
+            if !events.is_empty() {
+                if let Ok(n) = store.insert_firewall_events(&events).await {
+                    result.forward_blocks_ingested = n;
+                }
+            }
+            if newest > cursor_fwd {
+                result.cursor_forward_traffic = Some(newest.to_string());
+            }
+        }
+    }
+
     tracing::info!(
-        "FORTINET SYNC: v{} serial={} ARP={} assets={} ifaces={} addr={} policies={} sslvpn={} ipsec={} cpu={}% mem={}% disk={}%",
+        "FORTINET SYNC: v{} serial={} ARP={} assets={} ifaces={} addr={} policies={} sslvpn={}/identity={} ipsec={} cpu={}% mem={}% disk={}% events_user={} events_sys={} fw_blocks={}",
         result.system_version.as_deref().unwrap_or("?"),
         result.system_serial.as_deref().unwrap_or("?"),
         result.arp_entries,
@@ -183,6 +401,7 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         result.firewall_addresses,
         result.firewall_policies,
         result.ssl_vpn_sessions,
+        result.identity_edges_created,
         result.ipsec_tunnels,
         result
             .cpu_usage_pct
@@ -196,6 +415,9 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
             .disk_usage_pct
             .map(|v| v.to_string())
             .unwrap_or("?".into()),
+        result.user_events_ingested,
+        result.system_events_ingested,
+        result.forward_blocks_ingested,
     );
 
     result
