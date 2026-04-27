@@ -458,6 +458,18 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
             Ok(v) => result.system_version = v,
             Err(e) => result.errors.push(format!("System info: {}", e)),
         }
+
+        // 13. Baseline monitoring — compare current counts against
+        //     the previous sync. ±25 % delta on firewall_rules or
+        //     aliases_count is a defense-evasion / accidental wipe
+        //     signal worth surfacing as a HIGH finding.
+        check_baseline_drift(
+            store,
+            "opnsense",
+            result.firewall_rules,
+            result.aliases_count,
+        )
+        .await;
     }
 
     tracing::info!(
@@ -498,6 +510,80 @@ impl FirewallType {
             FirewallType::OPNsense => "opnsense",
         }
     }
+}
+
+/// Compare current rule + alias counts against the previously-seen
+/// baseline. ±25 % delta in either direction is logged as a HIGH
+/// finding — large enough to not fire on routine ops, small enough to
+/// catch defense-evasion (mass rule disable / alias wipe).
+///
+/// Baseline is stored under `_baseline` / `firewall_<src>` as a JSON
+/// `{firewall_rules, aliases_count, ts}`. First run: just stores the
+/// baseline, no finding.
+async fn check_baseline_drift(store: &dyn Database, fw_source: &str, rules: usize, aliases: usize) {
+    let key = format!("firewall_{}", fw_source);
+    let prev = store.get_setting("_baseline", &key).await.ok().flatten();
+    let now = chrono::Utc::now().to_rfc3339();
+    let snapshot = serde_json::json!({
+        "firewall_rules": rules,
+        "aliases_count": aliases,
+        "ts": now,
+    });
+
+    if let Some(prev) = prev {
+        let prev_rules = prev
+            .get("firewall_rules")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        let prev_aliases = prev
+            .get("aliases_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+
+        for (label, current, prev_n) in [
+            ("firewall_rules", rules, prev_rules),
+            ("aliases_count", aliases, prev_aliases),
+        ] {
+            if prev_n == 0 {
+                continue;
+            }
+            let delta = (current as i64 - prev_n as i64).abs() as f64 / prev_n as f64;
+            if delta >= 0.25 {
+                let direction = if current > prev_n {
+                    "increased"
+                } else {
+                    "decreased"
+                };
+                let _ = store
+                    .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                        skill_id: format!("skill-{fw_source}"),
+                        title: format!("{fw_source} {label} {direction} by {:.0}%", delta * 100.0),
+                        description: Some(format!(
+                            "{label} went from {prev_n} to {current} between syncs ({direction}). \
+                             Sudden large changes can indicate defense-evasion, \
+                             accidental wipe, or compromise of the firewall admin."
+                        )),
+                        severity: "high".into(),
+                        category: Some("firewall_drift".into()),
+                        asset: Some(fw_source.into()),
+                        source: Some(format!("skill-{fw_source}")),
+                        metadata: Some(serde_json::json!({
+                            "prev": prev_n,
+                            "current": current,
+                            "delta_pct": (delta * 100.0).round(),
+                            "direction": direction,
+                            "metric": label,
+                        })),
+                    })
+                    .await;
+                tracing::warn!(
+                    "BASELINE DRIFT: {fw_source} {label} {prev_n} → {current} ({direction})"
+                );
+            }
+        }
+    }
+
+    let _ = store.set_setting("_baseline", &key, &snapshot).await;
 }
 
 fn build_client(config: &FirewallConfig) -> Result<Client, String> {
