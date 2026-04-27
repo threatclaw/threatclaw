@@ -340,6 +340,109 @@ pub struct GraphIntelSummary {
     pub confidence_scores: Vec<(String, u8, String)>, // (ip, score, level)
 }
 
+/// Phase B — produce a human-readable incident title from the dossier
+/// alone (no LLM call). Used at incident creation time so the RSSI
+/// always sees a clean title even before L2 has run, and as the
+/// permanent fallback when L2 fails or times out.
+///
+/// Templates target the top finding's `category` + `source` (sigma rule
+/// id, scanner name, ...). When no specific template matches we fall
+/// back to a generic but still informative form: severity + count of
+/// signals + asset + first source.
+fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDossier) -> String {
+    let top = dossier.findings.first();
+    let asset = if dossier.primary_asset.is_empty() {
+        "asset inconnu".to_string()
+    } else {
+        dossier.primary_asset.clone()
+    };
+    let count = dossier.findings.len();
+    if let Some(f) = top {
+        let title = f.title.trim();
+        let source_ip = f
+            .metadata
+            .get("source_ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let username = f
+            .metadata
+            .get("username")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let rule_id = f
+            .source
+            .as_deref()
+            .and_then(|s| s.strip_prefix("sigma:"))
+            .unwrap_or("");
+        // Detect a few high-signal patterns we care about and humanise them
+        // explicitly. Anything else falls back to the generic template.
+        let lc = title.to_lowercase();
+        if lc.contains("auth failed") || lc.contains("brute force") || rule_id.contains("auth") {
+            let from = if !source_ip.is_empty() {
+                format!(" depuis {source_ip}")
+            } else {
+                String::new()
+            };
+            let user = if !username.is_empty() {
+                format!(" sur {username}")
+            } else {
+                String::new()
+            };
+            return format!("Brute force / auth failed sur {asset}{user}{from}");
+        }
+        if lc.contains("admin login") || lc.contains("admin login successful") {
+            return format!(
+                "Login admin {asset}{}",
+                if !source_ip.is_empty() {
+                    format!(" depuis {source_ip}")
+                } else {
+                    String::new()
+                }
+            );
+        }
+        if lc.contains("sensitive admin") || lc.contains("config changed") {
+            return format!("Action admin sensible sur {asset}");
+        }
+        if lc.contains("ids alert") || lc.contains("suricata") {
+            return format!("Alerte IDS / IPS sur {asset}");
+        }
+        if lc.contains("port scan") {
+            return format!(
+                "Port scan sur {asset}{}",
+                if !source_ip.is_empty() {
+                    format!(" depuis {source_ip}")
+                } else {
+                    String::new()
+                }
+            );
+        }
+        if lc.contains("rogue ap") {
+            return format!("Point d'accès Wi-Fi non autorisé proche de {asset}");
+        }
+        if lc.contains("dns")
+            && (lc.contains("rebind") || lc.contains("blacklist") || lc.contains("dnssec"))
+        {
+            return format!("Anomalie DNS sur {asset}");
+        }
+        // Generic fallback that's still useful.
+        if count > 1 {
+            format!(
+                "{count} signaux {} sur {asset} — {title}",
+                f.severity.to_lowercase()
+            )
+        } else {
+            format!("{title} sur {asset}")
+        }
+    } else {
+        // No findings (rare — patterns like firewall_detection without a
+        // promoted finding). Use the dossier-level signals.
+        format!(
+            "Activité suspecte sur {asset} (score {:.0})",
+            dossier.global_score
+        )
+    }
+}
+
 /// Build an IncidentDossier from a SecuritySituation and its worst asset.
 /// Re-fetches findings from DB for that specific asset.
 async fn build_dossier_from_situation(
@@ -2396,10 +2499,19 @@ pub fn spawn_intelligence_ticker(
                                 existing_id
                             }
                             _ => {
+                                // Phase B — human-friendly title even before
+                                // L2 has a chance to refine. dossier.summary()
+                                // produces "Dossier de88d8aa — asset=...
+                                // findings=8 alerts=0 score=100 level=Alert"
+                                // which is unreadable for a RSSI. The
+                                // rules-based title derived from the top
+                                // finding is the fallback that always works,
+                                // even if Ollama is down.
+                                let title = humanize_incident_title(&dossier);
                                 let new_id = store
                                     .create_incident(
                                         &worst_asset.asset,
-                                        &dossier.summary(),
+                                        &title,
                                         &incident_severity,
                                         &alert_ids,
                                         &finding_ids,
