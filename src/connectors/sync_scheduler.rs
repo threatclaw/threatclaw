@@ -31,6 +31,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-proxmox-backup", "proxmox_backup"),
     ("skill-veeam", "veeam"),
     ("skill-mikrotik", "mikrotik"),
+    ("skill-fortinet", "fortinet"),
     ("skill-velociraptor", "velociraptor"),
     ("skill-microsoft-graph", "microsoft_graph"),
 ];
@@ -567,6 +568,26 @@ async fn run_connector_sync(
             Ok(format!(
                 "{} sessions, {} findings",
                 r.sessions_checked, r.findings_created
+            ))
+        }
+        "fortinet" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let api_key = config.get("api_key").cloned().unwrap_or_default();
+            if url.is_empty() || api_key.is_empty() {
+                return Err("url or api_key not configured".into());
+            }
+            let c = crate::connectors::fortinet::FortinetConfig {
+                url,
+                api_key,
+                no_tls_verify: config
+                    .get("no_tls_verify")
+                    .map(|v| v == "true")
+                    .unwrap_or(true),
+            };
+            let r = crate::connectors::fortinet::sync_fortinet(store, &c).await;
+            Ok(format!(
+                "{} ARP entries, {} assets, {} interfaces",
+                r.arp_entries, r.assets_resolved, r.interfaces
             ))
         }
         "mikrotik" => {
