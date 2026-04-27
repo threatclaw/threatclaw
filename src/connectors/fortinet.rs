@@ -735,6 +735,18 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         }
     }
 
+    // Wireless + topology drift detection — track managed APs +
+    // wifi_clients between syncs, raise a HIGH finding on ±30 % churn.
+    // Catches: rogue AP appearing, AP suddenly offline (jamming or
+    // physical pull), bulk client disconnect (deauth attack).
+    fortinet_drift_check(
+        store,
+        result.managed_aps,
+        result.wifi_clients,
+        result.firewall_policies,
+    )
+    .await;
+
     tracing::info!(
         "FORTINET SYNC: v{} serial={} ARP={} assets={} ifaces={} addr={} policies={} sslvpn={}/identity={} ipsec={} cpu={}% mem={}% disk={}% events_user={} events_sys={} fw_blocks={}",
         result.system_version.as_deref().unwrap_or("?"),
@@ -765,6 +777,84 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
     );
 
     result
+}
+
+/// Track per-cycle wireless + policy counts and emit a HIGH finding
+/// on >= 30 % churn. Stored in `_baseline` / `firewall_fortinet`.
+async fn fortinet_drift_check(
+    store: &dyn Database,
+    managed_aps: usize,
+    wifi_clients: usize,
+    policies: usize,
+) {
+    let key = "firewall_fortinet";
+    let prev = store.get_setting("_baseline", key).await.ok().flatten();
+    let snapshot = serde_json::json!({
+        "managed_aps": managed_aps,
+        "wifi_clients": wifi_clients,
+        "firewall_policies": policies,
+        "ts": chrono::Utc::now().to_rfc3339(),
+    });
+
+    if let Some(prev) = prev {
+        let prev_aps = prev
+            .get("managed_aps")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        let prev_wifi = prev
+            .get("wifi_clients")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+        let prev_pol = prev
+            .get("firewall_policies")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+
+        for (label, current, prev_n, threshold) in [
+            ("managed_aps", managed_aps, prev_aps, 0.30),
+            ("wifi_clients", wifi_clients, prev_wifi, 0.30),
+            ("firewall_policies", policies, prev_pol, 0.25),
+        ] {
+            if prev_n == 0 {
+                continue;
+            }
+            let delta = (current as i64 - prev_n as i64).abs() as f64 / prev_n as f64;
+            if delta < threshold {
+                continue;
+            }
+            let direction = if current > prev_n {
+                "increased"
+            } else {
+                "decreased"
+            };
+            let _ = store
+                .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                    skill_id: "skill-fortinet".into(),
+                    title: format!("FortiGate {label} {direction} by {:.0}%", delta * 100.0),
+                    description: Some(format!(
+                        "{label} went from {prev_n} to {current} between syncs ({direction}). \
+                         For wireless metrics this can mean a rogue AP appearing / disappearing \
+                         or a deauth attack on the LAN; for firewall_policies it can mean \
+                         defense-evasion or accidental wipe."
+                    )),
+                    severity: "high".into(),
+                    category: Some("firewall_drift".into()),
+                    asset: Some("fortinet".into()),
+                    source: Some("skill-fortinet".into()),
+                    metadata: Some(serde_json::json!({
+                        "prev": prev_n,
+                        "current": current,
+                        "delta_pct": (delta * 100.0).round(),
+                        "direction": direction,
+                        "metric": label,
+                    })),
+                })
+                .await;
+            tracing::warn!("BASELINE DRIFT: fortinet {label} {prev_n} → {current} ({direction})");
+        }
+    }
+
+    let _ = store.set_setting("_baseline", key, &snapshot).await;
 }
 
 /// Block an IP on FortiGate via the native quarantine endpoint.
