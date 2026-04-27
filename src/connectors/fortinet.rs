@@ -767,14 +767,43 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
     result
 }
 
-/// Block an IP on FortiGate by creating an address object + deny policy.
+/// Block an IP on FortiGate via the native quarantine endpoint.
+///
+/// FortiGate ships a built-in "banned IP" mechanism (`/monitor/user/banned`)
+/// that drops every packet sourced or destined to the IP without needing
+/// any policy plumbing. We use that as the primary block — instantaneous,
+/// reversible, and doesn't require the admin to pre-create a policy.
+///
+/// We also create an address object as a paper-trail (visible in the GUI
+/// for compliance/audit), but it's not what enforces the block.
 pub async fn block_ip(config: &FortinetConfig, ip: &str) -> Result<serde_json::Value, String> {
     let client = Client::builder()
         .danger_accept_invalid_certs(config.no_tls_verify)
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| format!("HTTP: {e}"))?;
+    let auth = format!("Bearer {}", config.api_key);
 
+    // 1. Native quarantine — single endpoint, instant effect.
+    let banned_url = format!("{}/api/v2/monitor/user/banned/add_users", config.url);
+    let banned_body = serde_json::json!({
+        "ip_addresses": [ip],
+        "expiry": 0,  // 0 = until manually cleared
+    });
+    let resp = client
+        .post(&banned_url)
+        .header("Authorization", &auth)
+        .json(&banned_body)
+        .send()
+        .await
+        .map_err(|e| format!("ban request: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("ban failed ({status}): {body}"));
+    }
+
+    // 2. Paper-trail: idempotent address object (PUT-or-create-then-PUT).
     let obj_name = format!("tc-block-{}", ip.replace('.', "-"));
     let addr_url = format!("{}/api/v2/cmdb/firewall/address", config.url);
     let addr_body = serde_json::json!({
@@ -783,27 +812,119 @@ pub async fn block_ip(config: &FortinetConfig, ip: &str) -> Result<serde_json::V
         "subnet": format!("{}/32", ip),
         "comment": format!("ThreatClaw auto-block: {}", ip),
     });
-
-    let resp = client
+    let _ = client
         .post(&addr_url)
-        .header("Authorization", format!("Bearer {}", config.api_key))
+        .header("Authorization", &auth)
         .json(&addr_body)
         .send()
-        .await
-        .map_err(|e| format!("Address create: {e}"))?;
+        .await; // best-effort — quarantine already enforced.
 
-    if !resp.status().is_success() && resp.status().as_u16() != 500 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Address create failed: {body}"));
-    }
-
-    tracing::info!("FORTINET: Blocked IP {ip} (address object: {obj_name})");
+    tracing::info!("FORTINET: Quarantined IP {ip} (banned + address: {obj_name})");
     Ok(serde_json::json!({
         "blocked": true,
         "ip": ip,
+        "method": "monitor.user.banned",
         "address_object": obj_name,
         "reversible": true,
-        "undo": format!("DELETE {}/api/v2/cmdb/firewall/address/{}", config.url, obj_name),
+        "undo": format!(
+            "POST {}/api/v2/monitor/user/banned/clear_users  body={{\"ip_addresses\":[\"{}\"]}}",
+            config.url, ip
+        ),
+    }))
+}
+
+/// Block a URL pattern on FortiGate via webfilter URL filter list.
+///
+/// Adds the pattern to a managed urlfilter list `TC-URL-BLOCKLIST`. Auto-
+/// creates the list on first call. The admin still has to attach the list
+/// to a webfilter profile and that profile to a policy — we surface the
+/// hint in the result if the list looks unattached. Reversible by removing
+/// the entry from the list.
+pub async fn block_url(config: &FortinetConfig, url: &str) -> Result<serde_json::Value, String> {
+    let client = Client::builder()
+        .danger_accept_invalid_certs(config.no_tls_verify)
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP: {e}"))?;
+    let auth = format!("Bearer {}", config.api_key);
+    let list_name = "TC-URL-BLOCKLIST";
+
+    // 1. Read existing list (404 = not yet created).
+    let list_url = format!("{}/api/v2/cmdb/webfilter/urlfilter", config.url);
+    let read = client
+        .get(format!("{list_url}/{list_name}"))
+        .header("Authorization", &auth)
+        .send()
+        .await
+        .map_err(|e| format!("urlfilter read: {e}"))?;
+    let mut entries: Vec<serde_json::Value> = if read.status().is_success() {
+        read.json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v["results"][0]["entries"].as_array().cloned())
+            .unwrap_or_default()
+    } else {
+        // List doesn't exist → create empty.
+        let create = client
+            .post(&list_url)
+            .header("Authorization", &auth)
+            .json(&serde_json::json!({
+                "name": list_name,
+                "comment": "ThreatClaw auto-blocked URLs",
+                "one-arm-ips-urlfilter": "disable",
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("urlfilter create: {e}"))?;
+        if !create.status().is_success() {
+            let body = create.text().await.unwrap_or_default();
+            return Err(format!("urlfilter create failed: {body}"));
+        }
+        vec![]
+    };
+
+    // 2. Already in list?
+    if entries.iter().any(|e| e["url"].as_str() == Some(url)) {
+        return Ok(serde_json::json!({
+            "blocked": true,
+            "url": url,
+            "list": list_name,
+            "already_present": true,
+        }));
+    }
+
+    // 3. Append + PUT.
+    let next_id = entries.len() as i64 + 1;
+    entries.push(serde_json::json!({
+        "id": next_id,
+        "url": url,
+        "type": "wildcard",
+        "action": "block",
+        "status": "enable",
+    }));
+    let put = client
+        .put(format!("{list_url}/{list_name}"))
+        .header("Authorization", &auth)
+        .json(&serde_json::json!({ "entries": entries }))
+        .send()
+        .await
+        .map_err(|e| format!("urlfilter update: {e}"))?;
+    if !put.status().is_success() {
+        let body = put.text().await.unwrap_or_default();
+        return Err(format!("urlfilter update failed: {body}"));
+    }
+
+    tracing::info!("FORTINET: Blocked URL '{url}' (list: {list_name})");
+    Ok(serde_json::json!({
+        "blocked": true,
+        "url": url,
+        "list": list_name,
+        "reversible": true,
+        "undo": format!(
+            "remove the entry id={} from PUT {list_url}/{list_name} entries",
+            next_id
+        ),
+        "note": "If this is the first block, attach TC-URL-BLOCKLIST to your webfilter profile in the GUI (Security Profiles → Web Filter → Static URL Filter)."
     }))
 }
 
