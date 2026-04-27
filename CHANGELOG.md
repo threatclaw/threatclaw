@@ -6,6 +6,156 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.14-beta] — 2026-04-27
+
+Pipeline refoundation: alerts, findings and incidents are now wired the
+way a real SOC expects — corroboration before escalation, human-readable
+incident titles, status='open' with a B3 fallback so an incident is never
+silently buried in `error`. FortiGate becomes a first-class SIEM source
+on par with OPNsense, the LLM grounds its verdicts against the asset
+graph, and the RSSI sees an "act now" zone with prominent HITL buttons
+when opening any incident.
+
+### Added
+- **FortiGate full SOC ingestion** — 25 endpoints consumed in one cycle:
+  ARP / DHCP / interfaces / addresses / policies / system status, SSL VPN
+  sessions (with identity-graph LOGGED_IN edges), IPsec tunnels, local
+  users + firewall-auth users, FortiAP managed list + Wi-Fi clients,
+  rogue APs (CRITICAL finding when present), FortiSwitch detected
+  devices, HA cluster status, license expiry, four UTM log scopes
+  (virus / IPS / webfilter / app-ctrl) with per-subtype cursors. Plug
+  the firewall, no syslog forwarding required. V58 ships 5 Sigma rules
+  on `fortinet.event.user/system` (auth failed, admin login, config
+  change, policy disable, admin user added).
+- **OPNsense full-API ingestion** — 8 log scopes via
+  `POST /api/diagnostics/log/core/<scope>` (audit, system, filter,
+  suricata, configd, dnsmasq, wireguard, resolver). No more syslog
+  forwarding requirement. V59 ships 6 Sigma rules on `opnsense.*`
+  (auth failed, admin login, sensitive admin action, IDS alert, kernel
+  critical event, MAC migration). V60 adds 7 DNS rules on
+  `opnsense.dnsmasq` + `opnsense.resolver` (unbound unwanted reply,
+  DNSSEC failure, blacklist, restart, DHCP starvation, DNS rebind,
+  rate-limit).
+- **Sigma engine `*Any` matchers** — `field|contains: [a, b, c]` arrays
+  used to be compiled to exact-match `AnyOf` (the modifier was silently
+  dropped on arrays). Most V58 / V59 / V60 rules with array contains
+  never fired. Fix: `ContainsAny / StartsWithAny / EndsWithAny` apply
+  the modifier to each element. Validated on lab brute force: 0 matches
+  before fix, opnsense-001 fires post-fix.
+- **Sigma → finding auto-promotion** — sigma_engine creates a
+  `sigma:<rule>` finding after each match when level is high/critical
+  OR level=medium AND ≥1 other independent signal exists on the same
+  asset within 1 h. Stops the noise: low / lone-medium alerts stay as
+  alerts, only corroborated signals become findings.
+- **Asset normalization in sigma matches** — raw hostname is resolved
+  via `find_asset_by_ip / find_asset_by_hostname` before insert, so the
+  Intelligence Engine doesn't split signals between `10.77.0.1`,
+  `OPNsense.internal`, and `opnsense-firewall`.
+- **Human incident titles at creation** — `humanize_incident_title`
+  produces readable titles based on the top finding (brute force,
+  admin login, sensitive admin action, IDS alert, port scan, rogue AP,
+  DNS anomaly) instead of the cryptic
+  `Dossier {uuid} — asset=... findings=N alerts=M score=K level=Alert`.
+- **Status='open' on L2 failure** — `update_incident_verdict` no longer
+  routes verdict='error' to status='error'. The incident keeps
+  status='open' so the RSSI sees it in the regular queue, with the
+  rules-based title intact. V61 reclassifies the 56 incidents
+  historically stuck in `error`.
+- **Adaptive LLM prompt** — the L1/L2 prompt now lists the skills the
+  operator has actually configured + enabled so the model doesn't
+  hallucinate "I checked Wazuh" when Wazuh isn't installed (the common
+  PME single-skill deployment).
+- **Pre-resolved graph context per dossier** — Cypher query for the
+  primary asset (criticality, lateral_paths, linked_cves, recent
+  users) is injected in the dossier and surfaced in the prompt's
+  CONTEXTE GRAPH ASSET block.
+- **Reconciler rule F: confirmed_but_isolated_graph** — downgrades a
+  Confirmed verdict to Inconclusive (confidence × 0.7) when the graph
+  shows zero lateral paths, zero linked CVEs, and zero sigma critical
+  on the asset. Catches the LLM hallucinating a kill chain that the
+  topology doesn't support.
+- **Impossible-travel detection** in the identity graph — flags a user
+  with two successful logins from different /16 subnets within 5 min.
+  Network-distance proxy in lieu of an embedded GeoIP DB.
+- **Baseline drift findings** — pf/OPNsense detect ±25 % delta on
+  `firewall_rules` or `aliases_count` between cycles; FortiGate
+  detects ±30 % on `managed_aps` / `wifi_clients`, ±25 % on
+  `firewall_policies`. Catches defense-evasion (rule wipe), rogue AP
+  appearance, deauth attacks. Stored under `_baseline` settings — no
+  migration needed.
+- **`/network` page** in the dashboard sidebar (Inventaire ▸ Réseau).
+  Single pane of glass exposing data the connectors collect but
+  nothing else surfaces: connected firewalls, top blocked sources
+  (24 h), identity anomalies (incl. impossible-travel), recent IDS /
+  IPS alerts, recent admin/audit events. Empty state with CTA to
+  `/skills?cat=network` when no firewall is configured. Backed by
+  `GET /api/tc/network/overview`.
+- **Action-first incident detail UI** — clicking an incident now
+  surfaces a prominent red "Que faire maintenant" hero block with
+  large HITL buttons (Bloquer IP / Désactiver compte / Isoler
+  endpoint), then context (blast radius, IOCs, MITRE), then triage
+  buttons (false positive / re-investigate / ignore pattern) at the
+  bottom. The proposed actions are the same path as before, just
+  visually surfaced.
+- **Sidebar tooltips on the incidents/findings/alerts triptych** —
+  "Menaces confirmées et corroborées — tu dois agir." / "Observations
+  à revoir — pas urgentes, revue hebdo." / "Signal brut — matière
+  première du moteur." Disambiguates the three levels.
+
+### Changed
+- **License gate plumbed on every destructive route** — the direct API
+  paths `/api/tc/remediation/block-ip`,
+  `/api/tc/remediation/disable-account` previously bypassed the
+  Action Pack check. They now call `check_tool_license` and return
+  HTTP 402 + audit log when the license is missing. Two new gated
+  endpoints: `/api/tc/remediation/block-url` (FortiGate webfilter) and
+  `/api/tc/remediation/quarantine-mac` (OPNsense alias). Slack /
+  Mattermost / Ntfy approval callbacks also gated.
+- `fortinet::block_ip` rewritten to use FortiGate's native banned-IP
+  endpoint (`/api/v2/monitor/user/banned/add_users`) — instant block,
+  no policy plumbing required. Address object still created as a
+  paper-trail entry.
+- `fortinet::block_url` (new) — manages a `TC-URL-BLOCKLIST` urlfilter
+  list (auto-create, idempotent append). Surfaces a hint when the
+  list isn't yet attached to a webfilter profile.
+- `opnsense_quarantine_mac` (new) — drives a `TC_QUARANTINE_MACS`
+  firewall alias via `/api/firewall/alias/{getAliasUUID,addItem,
+  setItem,reconfigure}`. Auto-create + idempotent append.
+- `remediation_engine::load_firewall_config` now also reads
+  `skill-fortinet` config so incident-driven `block_ip` dispatches to
+  FortiGate, not just pf/OPNsense.
+- skill-fortinet manifest gains a `hitl_actions` block declaring
+  `fortinet_block_ip` + `fortinet_block_url` (was missing).
+- Intelligence Engine escalation seuil revisited: 1 high finding plus
+  any corroboration (active attack, active alert, or a medium on the
+  same asset) → Alert. Two high findings without qualifier → Alert.
+  Two medium with corroboration → Alert. Anything weaker stays as a
+  finding visible in `/findings`.
+- Sigma + finding dedup window 15 min → 1 h on `(rule_id, asset)`.
+- Per-call LLM timeout calibrated for CPU-only Ollama: 600 s (was
+  900 s nominal but never enforced; my first cut at 60-180 s was too
+  tight for qwen3:8b on CPU + heavy prompt). Total ReAct loop 900 s.
+- Findings cap in dossier 10 → 5 — keeps the prompt manageable for
+  qwen3:8b, the 5 most-severe still cover triage.
+- sigma_alerts retention 365 d → 30 d (V61). The previous 365 d
+  accumulated 74 k rows nobody queried.
+
+### Fixed
+- Sigma engine never fired any rule with array `|contains` modifier
+  (V58 / V59 / V60 dead until 92d7449). See "Added" section above for
+  the *Any matcher fix.
+- `docker/Dockerfile` was missing both `COPY proto/` (Velociraptor
+  proto tree required by `tonic-build`) and `libprotobuf-dev` (ships
+  the `google.protobuf.*` well-known types protoc resolves at compile
+  time). Builds were silently failing on `google.protobuf.Empty is not
+  defined` even though the host build worked.
+- skill-opnsense audit log ingestion was calling
+  `/api/diagnostics/log/audit?limit=200` (GET) which silently returns
+  `[]`. The correct path is `POST /api/diagnostics/log/core/audit`
+  with a bootstrap-table body — wired in the new full-API loop.
+
+---
+
 ## [1.0.13-beta] — 2026-04-26
 
 Full rework of the HITL commercial model and OPNsense promoted to a
