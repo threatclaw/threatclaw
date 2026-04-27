@@ -118,8 +118,16 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
             .map(String::from);
     }
 
-    // 2. ARP table — 8.x path (was monitor/system/arp in 7.x)
-    match fgt_get(&client, base, &auth, "/api/v2/monitor/network/arp").await {
+    // 2. ARP table — try the 8.x path first, fall back to the 7.x one.
+    //    7.0–7.6 used `monitor/system/arp`; 8.0 moved it to
+    //    `monitor/network/arp`. Probing in this order means a fresh 8.x
+    //    install hits the right endpoint immediately, while a 7.x box
+    //    transparently falls back without needing a config flag.
+    let arp_body = match fgt_get(&client, base, &auth, "/api/v2/monitor/network/arp").await {
+        Ok(body) => Ok(body),
+        Err(_) => fgt_get(&client, base, &auth, "/api/v2/monitor/system/arp").await,
+    };
+    match arp_body {
         Ok(body) => {
             if let Some(entries) = body["results"].as_array() {
                 result.arp_entries = entries.len();
