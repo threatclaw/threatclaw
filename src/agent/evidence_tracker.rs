@@ -187,6 +187,8 @@ mod tests {
             asset_score: 0.0,
             global_score: 0.0,
             notification_level: NotificationLevel::Silence,
+            connected_skills: vec![],
+            graph_context: None,
         }
     }
 

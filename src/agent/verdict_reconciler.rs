@@ -35,6 +35,13 @@ pub struct SignalsSnapshot {
     pub kev_cve_count: usize,
     pub validation_error_count: usize,
     pub validation_warning_count: usize,
+    /// Phase C — graph-derived signals on the primary asset. Used by
+    /// rule_f_confirmed_but_isolated_graph to downgrade a Confirmed
+    /// verdict when the asset has zero lateral paths AND zero linked
+    /// CVEs — i.e. the LLM probably hallucinated propagation.
+    pub graph_lateral_paths: u32,
+    pub graph_linked_cves: usize,
+    pub graph_known: bool,
 }
 
 impl SignalsSnapshot {
@@ -57,6 +64,11 @@ impl SignalsSnapshot {
             .filter(|cve| cve.is_kev)
             .count();
 
+        let (graph_lateral_paths, graph_linked_cves, graph_known) = match &dossier.graph_context {
+            Some(ctx) => (ctx.lateral_paths, ctx.linked_cves.len(), true),
+            None => (0, 0, false),
+        };
+
         Self {
             global_score: dossier.global_score,
             ml_anomaly_score: dossier.ml_scores.anomaly_score,
@@ -65,6 +77,9 @@ impl SignalsSnapshot {
             kev_cve_count,
             validation_error_count: report.errors.len(),
             validation_warning_count: report.warnings.len(),
+            graph_lateral_paths,
+            graph_linked_cves,
+            graph_known,
         }
     }
 }
@@ -239,6 +254,55 @@ pub fn rule_d_validation_errors(
     })
 }
 
+/// Rule F: LLM claims `confirmed` but the graph context says the asset
+/// is isolated (no lateral path, no linked CVE).
+///
+/// Triggers when ALL of:
+/// - LLM verdict = "confirmed"
+/// - Graph context was successfully fetched (we know the asset)
+/// - lateral_paths == 0 AND linked_cves == 0
+/// - sigma_critical_count == 0 (no rule-based hard signal either)
+///
+/// Downgrades to `inconclusive MEDIUM` with confidence × 0.7. The idea:
+/// the LLM hallucinated propagation / kill chain that the graph doesn't
+/// support. We don't kill the alert (still inconclusive for analyst
+/// review), we just refuse to call it "confirmed".
+pub fn rule_f_confirmed_but_isolated_graph(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    // Skip if the graph wasn't queried — we can't argue from absence.
+    if !signals.graph_known {
+        return None;
+    }
+    if signals.graph_lateral_paths == 0
+        && signals.graph_linked_cves == 0
+        && signals.sigma_critical_count == 0
+    {
+        Some(Modification {
+            new_verdict: "inconclusive".into(),
+            new_severity: "MEDIUM".into(),
+            new_confidence: (llm.confidence * 0.7).clamp(0.0, 1.0),
+            reason_code: "rule_f_confirmed_but_isolated_graph".into(),
+            reason_text: format!(
+                "LLM claimed 'confirmed' but the asset graph shows no lateral \
+                 path AND no linked CVE AND no sigma critical. Possible \
+                 hallucination of kill chain / propagation. Downgraded for \
+                 analyst review (sigma_critical={}, lateral_paths={}, \
+                 linked_cves={}).",
+                signals.sigma_critical_count,
+                signals.graph_lateral_paths,
+                signals.graph_linked_cves
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 /// Rule E: LLM claims `confirmed` but at least one cited evidence is
 /// absent from the dossier (i.e. fabricated).
 ///
@@ -315,6 +379,7 @@ pub fn reconcile_verdict(
     let modification = rule_d_validation_errors(llm, &signals, mode)
         .or_else(|| rule_e_fabricated_citations(llm, citation_report, mode))
         .or_else(|| rule_a_confirmed_but_weak(llm, &signals))
+        .or_else(|| rule_f_confirmed_but_isolated_graph(llm, &signals))
         .or_else(|| rule_b_false_positive_but_strong(llm, &signals))
         .or_else(|| rule_c_inconclusive_but_kev(llm, &signals));
 
@@ -380,6 +445,8 @@ mod tests {
             asset_score: 0.0,
             global_score: 0.0,
             notification_level: NotificationLevel::Silence,
+            connected_skills: vec![],
+            graph_context: None,
         }
     }
 
@@ -499,6 +566,9 @@ mod tests {
             kev_cve_count: 0,
             validation_error_count: 0,
             validation_warning_count: 0,
+            graph_lateral_paths: 0,
+            graph_linked_cves: 0,
+            graph_known: false,
         }
     }
 
@@ -511,6 +581,9 @@ mod tests {
             kev_cve_count: 1,
             validation_error_count: 0,
             validation_warning_count: 0,
+            graph_lateral_paths: 2,
+            graph_linked_cves: 1,
+            graph_known: true,
         }
     }
 

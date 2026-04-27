@@ -558,7 +558,114 @@ async fn build_dossier_from_situation(
         asset_score: worst_asset.score,
         global_score: situation.global_score,
         notification_level: situation.notification_level,
+        connected_skills: list_connected_skills(store).await,
+        graph_context: fetch_asset_graph_context(store, &worst_asset.asset).await,
     }
+}
+
+/// Phase C — names of skills currently enabled in skill_configs. Used
+/// in the L1/L2 prompt so the LLM doesn't pretend to have consulted a
+/// skill that isn't installed. Probes a known list (no SQL "list all
+/// distinct skill_id" exposed on the trait); any skill with `enabled=
+/// true` is reported. Failure → empty list (the prompt says "no skill
+/// connected").
+async fn list_connected_skills(store: &dyn Database) -> Vec<String> {
+    const KNOWN_SKILLS: &[&str] = &[
+        "skill-wazuh-connector",
+        "skill-pihole",
+        "skill-glpi",
+        "skill-crowdsec-connector",
+        "skill-unifi",
+        "skill-active-directory",
+        "skill-elastic-siem",
+        "skill-graylog",
+        "skill-thehive",
+        "skill-dfir-iris",
+        "skill-shuffle",
+        "skill-keycloak",
+        "skill-authentik",
+        "skill-proxmox",
+        "skill-proxmox-backup",
+        "skill-veeam",
+        "skill-mikrotik",
+        "skill-fortinet",
+        "skill-opnsense",
+        "skill-pfsense",
+        "skill-velociraptor",
+        "skill-microsoft-graph",
+    ];
+    let mut connected = vec![];
+    for skill in KNOWN_SKILLS {
+        if let Ok(rows) = store.get_skill_config(skill).await {
+            if rows.iter().any(|r| r.key == "enabled" && r.value == "true") {
+                connected.push((*skill).to_string());
+            }
+        }
+    }
+    connected
+}
+
+/// Phase C — best-effort graph query for the primary asset. Provides
+/// criticality, lateral path count, linked CVEs, recent logged-in
+/// users. Used in the prompt + by the reconciler to downgrade an
+/// unsupported Confirmed verdict ("LLM said attack but graph says
+/// asset isolated, no CVE, no admin login"). Defensive: any failure
+/// returns None and the reconciler treats it as "no graph evidence".
+async fn fetch_asset_graph_context(
+    store: &dyn Database,
+    asset: &str,
+) -> Option<crate::agent::incident_dossier::GraphAssetContext> {
+    if asset.is_empty() {
+        return None;
+    }
+    let escaped = asset.replace('\'', "\\'");
+    let since = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
+    let cypher = format!(
+        "MATCH (a:Asset) \
+         WHERE a.hostname = '{esc}' OR a.name = '{esc}' OR a.id = '{esc}' \
+         OPTIONAL MATCH (a)-[:LATERAL_PATH|ATTACKS*1..3]->(t:Asset) \
+         OPTIONAL MATCH (a)-[:AFFECTED_BY]->(c:CVE) \
+         OPTIONAL MATCH (u:User)-[l:LOGGED_IN]->(a) \
+         WHERE l.timestamp > '{since}' \
+         RETURN a.criticality AS criticality, \
+                count(DISTINCT t) AS lateral_paths, \
+                collect(DISTINCT c.cve_id) AS cves, \
+                collect(DISTINCT u.username) AS users \
+         LIMIT 1",
+        esc = escaped,
+        since = since
+    );
+    let rows = store.execute_cypher(&cypher).await.ok()?;
+    let row = rows.first()?;
+    Some(crate::agent::incident_dossier::GraphAssetContext {
+        criticality: row
+            .get("criticality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        lateral_paths: row
+            .get("lateral_paths")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        linked_cves: row
+            .get("cves")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        recent_users: row
+            .get("users")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// Run the intelligence engine cycle.
