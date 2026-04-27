@@ -512,6 +512,241 @@ pub async fn opnsense_kill_states(
 }
 
 // ══════════════════════════════════════════════════════════
+// OPNsense — Quarantine MAC via firewall alias
+// ══════════════════════════════════════════════════════════
+
+/// Quarantine a MAC address by adding it to a firewall alias
+/// `TC_QUARANTINE_MACS` (auto-created on first call). The admin attaches
+/// that alias to a deny rule on the LAN interface — once one rule exists,
+/// every subsequent quarantine becomes plug-and-play.
+///
+/// Why an alias rather than touching the L2 captive portal: the alias
+/// approach works on every OPNsense regardless of whether captive
+/// portal / 802.1x is configured. The downside is that the operator has
+/// to wire a single firewall rule that uses the alias on first setup —
+/// we surface that hint in the result if the alias was just created.
+pub async fn opnsense_quarantine_mac(
+    fw_url: &str,
+    api_key: &str,
+    api_secret: &str,
+    mac: &str,
+    no_tls_verify: bool,
+) -> RemediationResult {
+    let mac = mac.trim().to_lowercase();
+    if !is_valid_mac(&mac) {
+        return RemediationResult {
+            action: "opnsense_quarantine_mac".into(),
+            target: mac,
+            success: false,
+            message: "Invalid MAC format (expected aa:bb:cc:dd:ee:ff)".into(),
+            reversible: false,
+            undo_info: None,
+        };
+    }
+    let client = match Client::builder()
+        .danger_accept_invalid_certs(no_tls_verify)
+        .timeout(Duration::from_secs(15))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return RemediationResult {
+                action: "opnsense_quarantine_mac".into(),
+                target: mac,
+                success: false,
+                message: format!("HTTP client error: {e}"),
+                reversible: true,
+                undo_info: None,
+            };
+        }
+    };
+    let alias = "TC_QUARANTINE_MACS";
+
+    // 1. Look the alias up by name. 404 / not_found → create it.
+    let get_url = format!("{fw_url}/api/firewall/alias/getAliasUUID/{alias}");
+    let uuid = client
+        .get(&get_url)
+        .basic_auth(api_key, Some(api_secret))
+        .send()
+        .await
+        .ok()
+        .and_then(|r| {
+            if r.status().is_success() {
+                Some(r)
+            } else {
+                None
+            }
+        });
+    let mut just_created = false;
+    let alias_uuid: Option<String> = match uuid {
+        Some(r) => r
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| v["uuid"].as_str().map(|s| s.to_string())),
+        None => None,
+    };
+    let alias_uuid = match alias_uuid {
+        Some(u) if !u.is_empty() => u,
+        _ => {
+            // Create the alias.
+            let add_url = format!("{fw_url}/api/firewall/alias/addItem");
+            let body = serde_json::json!({
+                "alias": {
+                    "enabled": "1",
+                    "name": alias,
+                    "type": "mac",
+                    "description": "ThreatClaw — quarantined MAC addresses",
+                    "content": ""
+                }
+            });
+            match client
+                .post(&add_url)
+                .basic_auth(api_key, Some(api_secret))
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_success() => {
+                    let v = r.json::<serde_json::Value>().await.ok();
+                    just_created = true;
+                    v.and_then(|v| v["uuid"].as_str().map(|s| s.to_string()))
+                        .unwrap_or_default()
+                }
+                Ok(r) => {
+                    return RemediationResult {
+                        action: "opnsense_quarantine_mac".into(),
+                        target: mac,
+                        success: false,
+                        message: format!("alias create refused: HTTP {}", r.status()),
+                        reversible: true,
+                        undo_info: None,
+                    };
+                }
+                Err(e) => {
+                    return RemediationResult {
+                        action: "opnsense_quarantine_mac".into(),
+                        target: mac,
+                        success: false,
+                        message: format!("alias create error: {e}"),
+                        reversible: true,
+                        undo_info: None,
+                    };
+                }
+            }
+        }
+    };
+
+    // 2. Read current content + append.
+    let detail_url = format!("{fw_url}/api/firewall/alias/getItem/{alias_uuid}");
+    let detail = match client
+        .get(&detail_url)
+        .basic_auth(api_key, Some(api_secret))
+        .send()
+        .await
+    {
+        Ok(r) => r.json::<serde_json::Value>().await.ok(),
+        Err(_) => None,
+    };
+    let mut content_lines: Vec<String> = detail
+        .as_ref()
+        .and_then(|v| v["alias"]["content"].as_object())
+        .map(|m| {
+            m.iter()
+                .filter_map(|(_k, v)| {
+                    v["selected"]
+                        .as_i64()
+                        .filter(|n| *n == 1)
+                        .map(|_| _k.clone())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if content_lines.iter().any(|m| m == &mac) {
+        return RemediationResult {
+            action: "opnsense_quarantine_mac".into(),
+            target: mac,
+            success: true,
+            message: "MAC déjà en quarantaine".into(),
+            reversible: true,
+            undo_info: Some(format!("alias {alias} member {} (already)", "")),
+        };
+    }
+    content_lines.push(mac.clone());
+    let set_url = format!("{fw_url}/api/firewall/alias/setItem/{alias_uuid}");
+    let body = serde_json::json!({
+        "alias": {
+            "enabled": "1",
+            "name": alias,
+            "type": "mac",
+            "description": "ThreatClaw — quarantined MAC addresses",
+            "content": content_lines.join("\n")
+        }
+    });
+    let resp = client
+        .post(&set_url)
+        .basic_auth(api_key, Some(api_secret))
+        .json(&body)
+        .send()
+        .await;
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            // 3. Apply (reload aliases + tables).
+            let _ = client
+                .post(format!("{fw_url}/api/firewall/alias/reconfigure"))
+                .basic_auth(api_key, Some(api_secret))
+                .send()
+                .await;
+            tracing::warn!("REMEDIATION: Quarantined MAC {mac} via alias {alias}");
+            RemediationResult {
+                action: "opnsense_quarantine_mac".into(),
+                target: mac.clone(),
+                success: true,
+                message: if just_created {
+                    format!(
+                        "Alias {alias} créé + MAC {mac} ajouté. \
+                         Pense à attacher l'alias à une règle de blocage \
+                         layer-2 sur LAN dans la GUI (Firewall → Rules → LAN)."
+                    )
+                } else {
+                    format!("MAC {mac} ajouté à l'alias {alias}")
+                },
+                reversible: true,
+                undo_info: Some(format!(
+                    "remove member from POST {fw_url}/api/firewall/alias/setItem/{alias_uuid}"
+                )),
+            }
+        }
+        Ok(r) => RemediationResult {
+            action: "opnsense_quarantine_mac".into(),
+            target: mac,
+            success: false,
+            message: format!("alias setItem refused: HTTP {}", r.status()),
+            reversible: true,
+            undo_info: None,
+        },
+        Err(e) => RemediationResult {
+            action: "opnsense_quarantine_mac".into(),
+            target: mac,
+            success: false,
+            message: format!("alias setItem error: {e}"),
+            reversible: true,
+            undo_info: None,
+        },
+    }
+}
+
+fn is_valid_mac(mac: &str) -> bool {
+    let parts: Vec<&str> = mac.split(':').collect();
+    if parts.len() != 6 {
+        return false;
+    }
+    parts
+        .iter()
+        .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+// ══════════════════════════════════════════════════════════
 // Active Directory — Force password reset at next login (C26b)
 // ══════════════════════════════════════════════════════════
 

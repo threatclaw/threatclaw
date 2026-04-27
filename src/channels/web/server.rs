@@ -1050,6 +1050,14 @@ pub async fn start_server(
             "/api/tc/remediation/disable-account",
             post(super::handlers::threatclaw_api::remediation_disable_account_handler),
         )
+        .route(
+            "/api/tc/remediation/block-url",
+            post(super::handlers::threatclaw_api::remediation_block_url_handler),
+        )
+        .route(
+            "/api/tc/remediation/quarantine-mac",
+            post(super::handlers::threatclaw_api::remediation_quarantine_mac_handler),
+        )
         // Asset Resolution + Behavior
         .route(
             "/api/tc/graph/assets/resolve",

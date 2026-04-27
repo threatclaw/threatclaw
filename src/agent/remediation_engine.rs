@@ -141,20 +141,58 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
         );
     }
 
-    // Load pfSense/OPNsense config from DB
+    // Load pfSense / OPNsense / FortiGate config from DB.
     let config = load_firewall_config(store).await;
     match config {
         Some((fw_type, url, user, secret, no_tls)) => {
-            let result = if fw_type == "opnsense" {
-                crate::connectors::remediation::opnsense_block_ip(
-                    &url, &user, &secret, &target_ip, no_tls,
-                )
-                .await
-            } else {
-                crate::connectors::remediation::pfsense_block_ip(
-                    &url, &user, &secret, &target_ip, no_tls,
-                )
-                .await
+            let result = match fw_type.as_str() {
+                "opnsense" => {
+                    crate::connectors::remediation::opnsense_block_ip(
+                        &url, &user, &secret, &target_ip, no_tls,
+                    )
+                    .await
+                }
+                "fortinet" => {
+                    let cfg = crate::connectors::fortinet::FortinetConfig {
+                        url: url.clone(),
+                        api_key: user.clone(),
+                        no_tls_verify: no_tls,
+                        cursor_user_event: None,
+                        cursor_system_event: None,
+                        cursor_forward_traffic: None,
+                        cursor_utm_virus: None,
+                        cursor_utm_ips: None,
+                        cursor_utm_webfilter: None,
+                        cursor_utm_app_ctrl: None,
+                    };
+                    match crate::connectors::fortinet::block_ip(&cfg, &target_ip).await {
+                        Ok(v) => crate::connectors::remediation::RemediationResult {
+                            success: true,
+                            action: "fortinet_block_ip".into(),
+                            target: target_ip.clone(),
+                            message: format!(
+                                "Quarantined via {}",
+                                v["method"].as_str().unwrap_or("monitor.user.banned")
+                            ),
+                            reversible: true,
+                            undo_info: v["undo"].as_str().map(String::from),
+                        },
+                        Err(e) => crate::connectors::remediation::RemediationResult {
+                            success: false,
+                            action: "fortinet_block_ip".into(),
+                            target: target_ip.clone(),
+                            message: e,
+                            reversible: true,
+                            undo_info: None,
+                        },
+                    }
+                }
+                _ => {
+                    crate::connectors::remediation::pfsense_block_ip(
+                        &url, &user, &secret, &target_ip, no_tls,
+                    )
+                    .await
+                }
             };
 
             if result.success {
@@ -174,7 +212,10 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
                 )
             }
         }
-        None => (false, "Aucun firewall configure (pfSense/OPNsense)".into()),
+        None => (
+            false,
+            "Aucun firewall configure (pfSense / OPNsense / FortiGate)".into(),
+        ),
     }
 }
 
@@ -525,23 +566,46 @@ async fn execute_create_ticket(
 pub(crate) async fn load_firewall_config(
     store: &dyn Database,
 ) -> Option<(String, String, String, String, bool)> {
-    // Try pfSense first, then OPNsense
-    for skill_id in &["skill-pfsense", "skill-opnsense"] {
+    // Probe pfSense → OPNsense → FortiGate. Fortinet uses a single token
+    // (api_key) so the "user" field carries it and "secret" is empty —
+    // the dispatch in execute_block_ip rebuilds a FortinetConfig from
+    // that shape.
+    for skill_id in &["skill-pfsense", "skill-opnsense", "skill-fortinet"] {
         if let Ok(Some(val)) = store.get_setting(skill_id, "config").await {
-            let url = val["url"].as_str().or(val["api_url"].as_str())?;
-            let user = val["api_key"]
-                .as_str()
-                .or(val["key"].as_str())
-                .unwrap_or("");
-            let secret = val["api_secret"]
-                .as_str()
-                .or(val["secret"].as_str())
-                .unwrap_or("");
+            let url = match val["url"].as_str().or(val["api_url"].as_str()) {
+                Some(u) => u,
+                None => continue,
+            };
             let no_tls = val["no_tls_verify"].as_bool().unwrap_or(true);
-            let fw_type = if skill_id.contains("opn") {
-                "opnsense"
+            let (fw_type, user, secret) = if *skill_id == "skill-fortinet" {
+                let token = val["api_key"].as_str().unwrap_or("");
+                ("fortinet", token, "")
+            } else if *skill_id == "skill-opnsense" {
+                (
+                    "opnsense",
+                    val["auth_user"]
+                        .as_str()
+                        .or(val["api_key"].as_str())
+                        .or(val["key"].as_str())
+                        .unwrap_or(""),
+                    val["auth_secret"]
+                        .as_str()
+                        .or(val["api_secret"].as_str())
+                        .or(val["secret"].as_str())
+                        .unwrap_or(""),
+                )
             } else {
-                "pfsense"
+                (
+                    "pfsense",
+                    val["api_key"]
+                        .as_str()
+                        .or(val["key"].as_str())
+                        .unwrap_or(""),
+                    val["api_secret"]
+                        .as_str()
+                        .or(val["secret"].as_str())
+                        .unwrap_or(""),
+                )
             };
             return Some((
                 fw_type.into(),

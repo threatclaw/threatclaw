@@ -1011,6 +1011,30 @@ pub async fn hitl_callback_handler(
     // Use the shared NonceManager from GatewayState
     let nonce_mgr = &state.hitl_nonce_manager;
 
+    // ── License gate ──
+    // The Slack approve callback hits the shell-level executor. Anything
+    // approved here is by definition destructive (the L2 reasoning only
+    // surfaces actions to HITL when they are). Refuse if no Action Pack.
+    if req.approved {
+        let licensed = match state.license_manager.as_ref() {
+            Some(mgr) => mgr.allows_hitl().await,
+            None => false,
+        };
+        if !licensed {
+            tracing::warn!(
+                "LICENSE GATE: refused HITL slack callback cmd_id={} approved_by={}",
+                req.nonce,
+                req.approved_by
+            );
+            return Err((
+                StatusCode::PAYMENT_REQUIRED,
+                "Action Pack license required to approve destructive HITL actions. \
+                 Activate it from /licensing then retry the approval."
+                    .into(),
+            ));
+        }
+    }
+
     let result = crate::agent::hitl_bridge::process_slack_callback(
         &req.nonce,
         req.approved,
@@ -3782,6 +3806,10 @@ fn inject_fw_type(body: &mut serde_json::Value, value: &str) {
 // ══════════════════════════════════════════════════════════
 
 /// POST /api/tc/remediation/block-ip — block IP on firewall (pfSense/OPNsense).
+///
+/// **License gate**: requires the Action Pack — without it returns HTTP 402.
+/// Mirrors the gate on `incident_execute_action_handler` so this direct
+/// route can't be used as a back-door around the dashboard flow.
 pub async fn remediation_block_ip_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
@@ -3796,6 +3824,19 @@ pub async fn remediation_block_ip_handler(
     let auth_user = body["auth_user"].as_str().unwrap_or("");
     let auth_secret = body["auth_secret"].as_str().unwrap_or("");
     let no_tls = body["no_tls_verify"].as_bool().unwrap_or(true);
+
+    let tool_name = if fw_type == "opnsense" {
+        "opnsense_block_ip"
+    } else {
+        "pfsense_block_ip"
+    };
+    if let Err(msg) =
+        crate::agent::tool_calling::check_tool_license(tool_name, state.license_manager.as_ref())
+            .await
+    {
+        tracing::warn!("LICENSE GATE: refused {tool_name} for ip={ip} fw={fw_url} — {msg}");
+        return Err((StatusCode::PAYMENT_REQUIRED, msg));
+    }
 
     let result = if fw_type == "opnsense" {
         crate::connectors::remediation::opnsense_block_ip(
@@ -3814,7 +3855,93 @@ pub async fn remediation_block_ip_handler(
     Ok(Json(serde_json::json!(result)))
 }
 
+/// POST /api/tc/remediation/block-url — block URL pattern on FortiGate webfilter.
+///
+/// **License gate**: requires Action Pack. Body: `{fw_url, api_key, no_tls_verify, url}`.
+pub async fn remediation_block_url_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let url = body["url"]
+        .as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing url".to_string()))?;
+    let fw_url = body["fw_url"]
+        .as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing fw_url".to_string()))?;
+    let api_key = body["api_key"].as_str().unwrap_or("");
+    let no_tls = body["no_tls_verify"].as_bool().unwrap_or(true);
+
+    if let Err(msg) = crate::agent::tool_calling::check_tool_license(
+        "fortinet_block_url",
+        state.license_manager.as_ref(),
+    )
+    .await
+    {
+        tracing::warn!("LICENSE GATE: refused fortinet_block_url for url={url} — {msg}");
+        return Err((StatusCode::PAYMENT_REQUIRED, msg));
+    }
+
+    let cfg = crate::connectors::fortinet::FortinetConfig {
+        url: fw_url.into(),
+        api_key: api_key.into(),
+        no_tls_verify: no_tls,
+        cursor_user_event: None,
+        cursor_system_event: None,
+        cursor_forward_traffic: None,
+        cursor_utm_virus: None,
+        cursor_utm_ips: None,
+        cursor_utm_webfilter: None,
+        cursor_utm_app_ctrl: None,
+    };
+    let result = crate::connectors::fortinet::block_url(&cfg, url).await;
+    match result {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => Err((StatusCode::BAD_GATEWAY, e)),
+    }
+}
+
+/// POST /api/tc/remediation/quarantine-mac — add MAC to OPNsense quarantine alias.
+///
+/// **License gate**: requires Action Pack. Body: `{fw_url, auth_user, auth_secret, mac, no_tls_verify}`.
+pub async fn remediation_quarantine_mac_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let mac = body["mac"]
+        .as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing mac".to_string()))?;
+    let fw_url = body["fw_url"]
+        .as_str()
+        .ok_or((StatusCode::BAD_REQUEST, "Missing fw_url".to_string()))?;
+    let auth_user = body["auth_user"].as_str().unwrap_or("");
+    let auth_secret = body["auth_secret"].as_str().unwrap_or("");
+    let no_tls = body["no_tls_verify"].as_bool().unwrap_or(true);
+
+    if let Err(msg) = crate::agent::tool_calling::check_tool_license(
+        "opnsense_quarantine_mac",
+        state.license_manager.as_ref(),
+    )
+    .await
+    {
+        tracing::warn!("LICENSE GATE: refused opnsense_quarantine_mac for mac={mac} — {msg}");
+        return Err((StatusCode::PAYMENT_REQUIRED, msg));
+    }
+
+    let result = crate::connectors::remediation::opnsense_quarantine_mac(
+        fw_url,
+        auth_user,
+        auth_secret,
+        mac,
+        no_tls,
+    )
+    .await;
+    Ok(Json(serde_json::json!(result)))
+}
+
 /// POST /api/tc/remediation/disable-account — disable AD account.
+///
+/// **License gate**: same as `remediation_block_ip_handler`. Returns HTTP 402
+/// without an active Action Pack license.
 pub async fn remediation_disable_account_handler(
     State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
@@ -3830,6 +3957,18 @@ pub async fn remediation_disable_account_handler(
     let bind_pw = body["bind_password"].as_str().unwrap_or("");
     let base_dn = body["base_dn"].as_str().unwrap_or("");
     let no_tls = body["no_tls_verify"].as_bool().unwrap_or(false);
+
+    if let Err(msg) = crate::agent::tool_calling::check_tool_license(
+        "ad_disable_account",
+        state.license_manager.as_ref(),
+    )
+    .await
+    {
+        tracing::warn!(
+            "LICENSE GATE: refused ad_disable_account for user={username} host={host} — {msg}"
+        );
+        return Err((StatusCode::PAYMENT_REQUIRED, msg));
+    }
 
     let result = crate::connectors::remediation::ad_disable_account(
         host, port, bind_dn, bind_pw, base_dn, username, no_tls,
@@ -4757,6 +4896,25 @@ pub async fn hitl_button_callback_handler(
         action,
         &nonce[..8.min(nonce.len())]
     );
+
+    // ── License gate (Mattermost / Ntfy button) ──
+    if approved {
+        let licensed = match state.license_manager.as_ref() {
+            Some(mgr) => mgr.allows_hitl().await,
+            None => false,
+        };
+        if !licensed {
+            tracing::warn!(
+                "LICENSE GATE: refused HITL button callback nonce={}",
+                &nonce[..8.min(nonce.len())]
+            );
+            return Ok(Json(serde_json::json!({
+                "ok": false,
+                "error": "Action Pack license required for HITL approval",
+                "hint": "Activate from /licensing"
+            })));
+        }
+    }
 
     // Use the shared NonceManager and process_slack_callback (works for all channels)
     let nonce_mgr = &state.hitl_nonce_manager;

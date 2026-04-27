@@ -34,6 +34,24 @@
       "default": true
     }
   },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": true,
+    "requires_separate_creds": false,
+    "credential_fields": {},
+    "actions": [
+      {
+        "name": "fortinet_block_ip",
+        "label": "Bloquer une IP",
+        "description": "Crée un address object FortiGate pour l'IP cible et l'attache à une policy DROP en sortie de la zone WAN. Réversible (retrait du membre + suppression de l'address)."
+      },
+      {
+        "name": "fortinet_block_url",
+        "label": "Bloquer une URL",
+        "description": "Ajoute le pattern à un profil webfilter (catégorie blocked-urls) appliqué aux policies sortantes. Réversible. Nécessite un profil UTM webfilter actif."
+      }
+    ]
+  },
   "auto_sync": true,
   "sync_interval": 5,
   "outputs": {
