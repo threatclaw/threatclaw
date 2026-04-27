@@ -32,6 +32,8 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-veeam", "veeam"),
     ("skill-mikrotik", "mikrotik"),
     ("skill-fortinet", "fortinet"),
+    ("skill-opnsense", "opnsense"),
+    ("skill-pfsense", "pfsense"),
     ("skill-velociraptor", "velociraptor"),
     ("skill-microsoft-graph", "microsoft_graph"),
 ];
@@ -631,6 +633,79 @@ async fn run_connector_sync(
                 r.utm_webfilter_ingested,
                 r.utm_app_ctrl_ingested,
                 r.findings_created,
+            ))
+        }
+        "opnsense" | "pfsense" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let auth_user = config.get("auth_user").cloned().unwrap_or_default();
+            let auth_secret = config.get("auth_secret").cloned().unwrap_or_default();
+            if url.is_empty() || auth_user.is_empty() || auth_secret.is_empty() {
+                return Err("url / auth_user / auth_secret not configured".into());
+            }
+            let fw_type = if connector_type == "opnsense" {
+                crate::connectors::pfsense::FirewallType::OPNsense
+            } else {
+                crate::connectors::pfsense::FirewallType::PfSense
+            };
+            let skill_id = if connector_type == "opnsense" {
+                "skill-opnsense"
+            } else {
+                "skill-pfsense"
+            };
+            let c = crate::connectors::pfsense::FirewallConfig {
+                url,
+                fw_type,
+                auth_user,
+                auth_secret,
+                no_tls_verify: config
+                    .get("no_tls_verify")
+                    .map(|v| v == "true")
+                    .unwrap_or(true),
+                cursor_log_audit: config.get("cursor_log_audit").cloned(),
+                cursor_log_system: config.get("cursor_log_system").cloned(),
+                cursor_log_filter: config.get("cursor_log_filter").cloned(),
+                cursor_log_suricata: config.get("cursor_log_suricata").cloned(),
+                cursor_log_configd: config.get("cursor_log_configd").cloned(),
+                cursor_log_dnsmasq: config.get("cursor_log_dnsmasq").cloned(),
+                cursor_log_wireguard: config.get("cursor_log_wireguard").cloned(),
+                cursor_log_resolver: config.get("cursor_log_resolver").cloned(),
+            };
+            let r = crate::connectors::pfsense::sync_firewall(store, &c).await;
+            for (key, val) in [
+                ("cursor_log_audit", &r.cursor_log_audit),
+                ("cursor_log_system", &r.cursor_log_system),
+                ("cursor_log_filter", &r.cursor_log_filter),
+                ("cursor_log_suricata", &r.cursor_log_suricata),
+                ("cursor_log_configd", &r.cursor_log_configd),
+                ("cursor_log_dnsmasq", &r.cursor_log_dnsmasq),
+                ("cursor_log_wireguard", &r.cursor_log_wireguard),
+                ("cursor_log_resolver", &r.cursor_log_resolver),
+            ] {
+                if let Some(v) = val {
+                    if let Err(e) = store.set_skill_config(skill_id, key, v).await {
+                        tracing::warn!("SYNC SCHEDULER: failed to persist {skill_id} {key}: {e}");
+                    }
+                }
+            }
+            Ok(format!(
+                "{} ARP, {} DHCP, {} ifaces, {} rules, fw_log+{}, vpn={}/{}/{}, \
+                 logs[audit={} sys={} filt={} suri={} cfgd={} dns={} wg={} res={}]",
+                r.arp_entries,
+                r.dhcp_leases,
+                r.interfaces,
+                r.firewall_rules,
+                r.firewall_log_ingested,
+                r.openvpn_sessions,
+                r.wireguard_peers_active,
+                r.ipsec_phase1_active,
+                r.audit_logs_ingested,
+                r.system_logs_ingested,
+                r.filter_logs_ingested,
+                r.suricata_alerts_ingested,
+                r.configd_logs_ingested,
+                r.dnsmasq_logs_ingested,
+                r.wireguard_logs_ingested,
+                r.resolver_logs_ingested,
             ))
         }
         "mikrotik" => {

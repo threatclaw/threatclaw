@@ -29,6 +29,25 @@ pub struct FirewallConfig {
     pub auth_secret: String,
     /// Skip TLS certificate verification (self-signed certs)
     pub no_tls_verify: bool,
+    // ── C27: per-scope log cursors (ISO of the highest timestamp we've
+    //   already ingested). `None` on first sync → 1 h backfill window.
+    //   These map 1:1 to /var/log/<scope>/ on the OPNsense host.
+    #[serde(default)]
+    pub cursor_log_audit: Option<String>,
+    #[serde(default)]
+    pub cursor_log_system: Option<String>,
+    #[serde(default)]
+    pub cursor_log_filter: Option<String>,
+    #[serde(default)]
+    pub cursor_log_suricata: Option<String>,
+    #[serde(default)]
+    pub cursor_log_configd: Option<String>,
+    #[serde(default)]
+    pub cursor_log_dnsmasq: Option<String>,
+    #[serde(default)]
+    pub cursor_log_wireguard: Option<String>,
+    #[serde(default)]
+    pub cursor_log_resolver: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -71,6 +90,26 @@ pub struct FirewallSyncResult {
     pub aliases_count: usize,
     /// Self-reported version of the firewall (last segment of /system/system_information).
     pub system_version: Option<String>,
+    // ── C27: per-scope log ingestion counts + advanced cursors.
+    //   Each scope is read incrementally from /api/diagnostics/log/core/<scope>
+    //   and its rows are inserted into `logs` tagged `opnsense.<scope>` so
+    //   the Sigma engine (logsource_category='opnsense') picks them up.
+    pub audit_logs_ingested: usize,
+    pub system_logs_ingested: usize,
+    pub filter_logs_ingested: usize,
+    pub suricata_alerts_ingested: usize,
+    pub configd_logs_ingested: usize,
+    pub dnsmasq_logs_ingested: usize,
+    pub wireguard_logs_ingested: usize,
+    pub resolver_logs_ingested: usize,
+    pub cursor_log_audit: Option<String>,
+    pub cursor_log_system: Option<String>,
+    pub cursor_log_filter: Option<String>,
+    pub cursor_log_suricata: Option<String>,
+    pub cursor_log_configd: Option<String>,
+    pub cursor_log_dnsmasq: Option<String>,
+    pub cursor_log_wireguard: Option<String>,
+    pub cursor_log_resolver: Option<String>,
     pub errors: Vec<String>,
 }
 
@@ -323,11 +362,81 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
             Err(e) => result.errors.push(format!("IPsec: {}", e)),
         }
 
-        // 9. UI audit log (logins to OPNsense itself).
-        match fetch_audit_log(&client, config).await {
-            Ok(n) => result.audit_events = n,
-            Err(e) => result.errors.push(format!("Audit log: {}", e)),
+        // 9. C27 — pull 8 /var/log/<scope>/ files via the JSON API. Each
+        //    row goes into `logs` tagged `opnsense.<scope>` so the Sigma
+        //    engine (logsource_category='opnsense') matches them. This is
+        //    the path that lets a SOC ingest OPNsense without the operator
+        //    having to configure syslog forwarding.
+        let host = config
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split('/')
+            .next()
+            .unwrap_or("opnsense")
+            .to_string();
+        for (scope, cur_in, cnt_out, cur_out) in [
+            (
+                "audit",
+                config.cursor_log_audit.as_deref(),
+                &mut result.audit_logs_ingested,
+                &mut result.cursor_log_audit,
+            ),
+            (
+                "system",
+                config.cursor_log_system.as_deref(),
+                &mut result.system_logs_ingested,
+                &mut result.cursor_log_system,
+            ),
+            (
+                "filter",
+                config.cursor_log_filter.as_deref(),
+                &mut result.filter_logs_ingested,
+                &mut result.cursor_log_filter,
+            ),
+            (
+                "suricata",
+                config.cursor_log_suricata.as_deref(),
+                &mut result.suricata_alerts_ingested,
+                &mut result.cursor_log_suricata,
+            ),
+            (
+                "configd",
+                config.cursor_log_configd.as_deref(),
+                &mut result.configd_logs_ingested,
+                &mut result.cursor_log_configd,
+            ),
+            (
+                "dnsmasq",
+                config.cursor_log_dnsmasq.as_deref(),
+                &mut result.dnsmasq_logs_ingested,
+                &mut result.cursor_log_dnsmasq,
+            ),
+            (
+                "wireguard",
+                config.cursor_log_wireguard.as_deref(),
+                &mut result.wireguard_logs_ingested,
+                &mut result.cursor_log_wireguard,
+            ),
+            (
+                "resolver",
+                config.cursor_log_resolver.as_deref(),
+                &mut result.resolver_logs_ingested,
+                &mut result.cursor_log_resolver,
+            ),
+        ] {
+            match ingest_log_scope(store, &client, config, &host, scope, cur_in).await {
+                Ok((n, new_cur)) => {
+                    *cnt_out = n;
+                    if new_cur.is_some() {
+                        *cur_out = new_cur;
+                    }
+                }
+                Err(e) => result.errors.push(format!("log/{}: {}", scope, e)),
+            }
         }
+        // Legacy field — kept so existing dashboard widgets don't break.
+        result.audit_events = result.audit_logs_ingested;
 
         // 10. Gateway status (uptime, loss).
         match fetch_gateways(&client, config).await {
@@ -353,7 +462,8 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
 
     tracing::info!(
         "FIREWALL SYNC COMPLETE: {} ARP, {} DHCP, {} ifaces, {} rules, {} assets, \
-         fw_log+{}/-{}, pf_states={}, vpn={}, wg={}/{}, ipsec={}, audit={}, gw={}/{}",
+         fw_log+{}/-{}, pf_states={}, vpn={}, wg={}/{}, ipsec={}, gw={}/{}, \
+         logs[audit={} sys={} filt={} suri={} cfgd={} dns={} wg={} res={}]",
         result.arp_entries,
         result.dhcp_leases,
         result.interfaces,
@@ -366,9 +476,16 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
         result.wireguard_peers_active,
         result.wireguard_peers_total,
         result.ipsec_phase1_active,
-        result.audit_events,
         result.gateways_total - result.gateways_offline,
         result.gateways_total,
+        result.audit_logs_ingested,
+        result.system_logs_ingested,
+        result.filter_logs_ingested,
+        result.suricata_alerts_ingested,
+        result.configd_logs_ingested,
+        result.dnsmasq_logs_ingested,
+        result.wireguard_logs_ingested,
+        result.resolver_logs_ingested,
     );
 
     result
@@ -849,9 +966,101 @@ async fn fetch_ipsec_phase1(client: &Client, config: &FirewallConfig) -> Result<
         .unwrap_or(0))
 }
 
-async fn fetch_audit_log(client: &Client, config: &FirewallConfig) -> Result<usize, String> {
-    let body = opn_get_json(client, config, "/api/diagnostics/log/audit?limit=200").await?;
-    Ok(body.as_array().map(|a| a.len()).unwrap_or(0))
+/// POST JSON to an OPNsense endpoint with basic auth.
+async fn opn_post_json(
+    client: &Client,
+    config: &FirewallConfig,
+    path: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let url = format!("{}{}", config.url, path);
+    let resp = client
+        .post(&url)
+        .basic_auth(&config.auth_user, Some(&config.auth_secret))
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request error: {}", e))?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {}", status));
+    }
+    resp.json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("JSON parse error: {}", e))
+}
+
+/// Parse OPNsense naive ISO timestamp ("2026-04-27T11:49:23") as UTC.
+fn parse_opn_ts(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S")
+        .ok()
+        .map(|nt| chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(nt, chrono::Utc))
+}
+
+/// C27: pull a /var/log/<scope>/ logfile via the JSON API. URL pattern is
+/// `/api/diagnostics/log/core/<scope>` (POST). Returns (ingest_count, new
+/// cursor). The cursor is the ISO timestamp of the highest row seen, so
+/// the next cycle passes `validFrom = epoch(cursor)` and we never scan
+/// the whole file again.
+async fn ingest_log_scope(
+    store: &dyn Database,
+    client: &Client,
+    config: &FirewallConfig,
+    host: &str,
+    scope: &str,
+    cursor: Option<&str>,
+) -> Result<(usize, Option<String>), String> {
+    // First sync: only pull the last hour. Subsequent syncs: from cursor.
+    let valid_from_epoch = match cursor.and_then(parse_opn_ts) {
+        Some(dt) => dt.timestamp(),
+        None => chrono::Utc::now().timestamp() - 3600,
+    };
+    let body = serde_json::json!({
+        "current": 1,
+        "rowCount": 1000,
+        "searchPhrase": "",
+        "severity": "",
+        "validFrom": valid_from_epoch.to_string(),
+    });
+    let path = format!("/api/diagnostics/log/core/{}", scope);
+    let resp = opn_post_json(client, config, &path, &body).await?;
+    let rows = resp
+        .get("rows")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if rows.is_empty() {
+        return Ok((0, None));
+    }
+    let cursor_dt = cursor.and_then(parse_opn_ts);
+    let mut count = 0usize;
+    let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut newest_iso: Option<String> = None;
+    let tag = format!("opnsense.{}", scope);
+    for row in rows {
+        let raw_ts = match row.get("timestamp").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        let ts = match parse_opn_ts(raw_ts) {
+            Some(t) => t,
+            None => continue,
+        };
+        if let Some(c) = cursor_dt {
+            if ts <= c {
+                continue;
+            }
+        }
+        let iso = ts.to_rfc3339();
+        if store.insert_log(&tag, host, &row, &iso).await.is_ok() {
+            count += 1;
+        }
+        if newest.is_none_or(|n| ts > n) {
+            newest = Some(ts);
+            newest_iso = Some(raw_ts.to_string());
+        }
+    }
+    Ok((count, newest_iso))
 }
 
 /// Gateway status: returns total + how many are offline.

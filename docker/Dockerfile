@@ -17,11 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libssl-dev \
         libpq-dev \
         protobuf-compiler \
+        libprotobuf-dev \
         cmake \
         clang \
         gcc \
         g++ \
     && rm -rf /var/lib/apt/lists/*
+
+# libprotobuf-dev is required (not just protobuf-compiler) — it ships the
+# Protocol Buffers well-known types (/usr/include/google/protobuf/empty.proto,
+# timestamp.proto, ...) that the Velociraptor api.proto imports. Without it,
+# tonic-build fails with "google.protobuf.Empty is not defined" even though
+# protoc itself is present.
 
 # Install WASM target and tools (needed for tool sandbox compilation).
 # wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
@@ -42,6 +49,14 @@ RUN mkdir -p src && echo 'fn main() {}' > src/main.rs \
 
 # Copy build script (needed for dependency resolution)
 COPY build.rs build.rs
+
+# Velociraptor v0.76 proto tree — compiled by build.rs via tonic-build
+# into $OUT_DIR for skill-velociraptor's gRPC client. Must arrive BEFORE
+# the deps-cache cargo build below, otherwise build.rs fires "proto tree
+# missing", skips tonic compile, caches that incomplete state, and the
+# real build fails because src/connectors/velociraptor_proto.rs's
+# include_proto! macros can't resolve.
+COPY proto/ proto/
 
 # Pre-build dependencies (this layer is cached unless Cargo.toml/Cargo.lock change)
 RUN cargo build --release --bin threatclaw 2>/dev/null || true
