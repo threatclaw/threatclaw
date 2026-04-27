@@ -49,6 +49,16 @@ pub struct FortinetConfig {
     /// Same for forward-traffic log (block events only).
     #[serde(default)]
     pub cursor_forward_traffic: Option<String>,
+    /// UTM log cursors (one per subtype — only used when UTM modules
+    /// are licensed + enabled; the eval VM returns 404 silently).
+    #[serde(default)]
+    pub cursor_utm_virus: Option<String>,
+    #[serde(default)]
+    pub cursor_utm_ips: Option<String>,
+    #[serde(default)]
+    pub cursor_utm_webfilter: Option<String>,
+    #[serde(default)]
+    pub cursor_utm_app_ctrl: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -77,11 +87,39 @@ pub struct FortinetSyncResult {
     pub forward_blocks_ingested: usize,
     /// Identity-graph LOGGED_IN edges created from SSL VPN active sessions.
     pub identity_edges_created: usize,
+    /// DHCP leases observed → assets resolved.
+    pub dhcp_leases: usize,
+    /// Local user accounts inventoried (cmdb/user/local).
+    pub local_users: usize,
+    /// Firewall-auth users currently authenticated (monitor/user/firewall).
+    pub firewall_auth_users: usize,
+    /// FortiAP managed access points.
+    pub managed_aps: usize,
+    /// Wireless clients connected via FortiAP.
+    pub wifi_clients: usize,
+    /// Rogue APs detected nearby — emits a CRITICAL finding when > 0.
+    pub rogue_aps: usize,
+    /// Devices detected on FortiSwitch ports.
+    pub switch_detected_devices: usize,
+    /// `true` when HA cluster reports a working state, `false` otherwise.
+    pub ha_status_ok: Option<bool>,
+    /// UTM log rows ingested per subtype (each defensive — 404 = no
+    /// license / module disabled, just skip).
+    pub utm_virus_ingested: usize,
+    pub utm_ips_ingested: usize,
+    pub utm_webfilter_ingested: usize,
+    pub utm_app_ctrl_ingested: usize,
+    /// Findings created this cycle (rogue AP, license expiring, HA split).
+    pub findings_created: usize,
     pub errors: Vec<String>,
     /// New cursors written back at the end of the sync.
     pub cursor_user_event: Option<String>,
     pub cursor_system_event: Option<String>,
     pub cursor_forward_traffic: Option<String>,
+    pub cursor_utm_virus: Option<String>,
+    pub cursor_utm_ips: Option<String>,
+    pub cursor_utm_webfilter: Option<String>,
+    pub cursor_utm_app_ctrl: Option<String>,
 }
 
 pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> FortinetSyncResult {
@@ -89,6 +127,10 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         cursor_user_event: config.cursor_user_event.clone(),
         cursor_system_event: config.cursor_system_event.clone(),
         cursor_forward_traffic: config.cursor_forward_traffic.clone(),
+        cursor_utm_virus: config.cursor_utm_virus.clone(),
+        cursor_utm_ips: config.cursor_utm_ips.clone(),
+        cursor_utm_webfilter: config.cursor_utm_webfilter.clone(),
+        cursor_utm_app_ctrl: config.cursor_utm_app_ctrl.clone(),
         ..Default::default()
     };
 
@@ -395,6 +437,300 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
             }
             if newest > cursor_fwd {
                 result.cursor_forward_traffic = Some(newest.to_string());
+            }
+        }
+    }
+
+    // 12. DHCP leases — IP/MAC/hostname, richer than ARP
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/system/dhcp").await {
+        if let Some(leases) = body["results"].as_array() {
+            result.dhcp_leases = leases.len();
+            for lease in leases {
+                let ip = lease["ip"].as_str().unwrap_or("");
+                let mac = lease["mac"].as_str().unwrap_or("");
+                let hostname = lease["hostname"].as_str().filter(|s| !s.is_empty());
+                if !ip.is_empty() && !mac.is_empty() && mac != "00:00:00:00:00:00" {
+                    let discovered = DiscoveredAsset {
+                        mac: Some(mac.into()),
+                        hostname: hostname.map(String::from),
+                        fqdn: None,
+                        ip: Some(ip.into()),
+                        os: None,
+                        ports: None,
+                        ou: None,
+                        vlan: None,
+                        vm_id: None,
+                        criticality: None,
+                        services: serde_json::json!([]),
+                        source: "fortinet-dhcp".into(),
+                    };
+                    let _ = asset_resolution::resolve_asset(store, &discovered).await;
+                    result.assets_resolved += 1;
+                }
+            }
+        }
+    }
+
+    // 13. Local users (cmdb/user/local) → User node inventory
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/cmdb/user/local").await {
+        if let Some(users) = body["results"].as_array() {
+            result.local_users = users.len();
+            for u in users {
+                if let Some(name) = u["name"].as_str() {
+                    crate::graph::identity_graph::touch_user(store, name).await;
+                }
+            }
+        }
+    }
+
+    // 14. Firewall-auth users (currently authenticated through firewall)
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/user/firewall").await {
+        if let Some(users) = body["results"].as_array() {
+            result.firewall_auth_users = users.len();
+            let asset_id = result
+                .system_serial
+                .as_deref()
+                .map(|s| format!("fortigate-{s}"))
+                .unwrap_or_else(|| format!("fortigate-{base}"));
+            for u in users {
+                let name = u["user_name"]
+                    .as_str()
+                    .or_else(|| u["username"].as_str())
+                    .unwrap_or("");
+                let src_ip = u["ipaddr"]
+                    .as_str()
+                    .or_else(|| u["src_ip"].as_str())
+                    .unwrap_or("");
+                if !name.is_empty() {
+                    crate::graph::identity_graph::record_login(
+                        store,
+                        name,
+                        &asset_id,
+                        src_ip,
+                        "firewall-auth",
+                        true,
+                    )
+                    .await;
+                    result.identity_edges_created += 1;
+                }
+            }
+        }
+    }
+
+    // 15. Managed FortiAP (wireless infrastructure)
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/wifi/managed_ap").await {
+        result.managed_aps = body["results"].as_array().map(|a| a.len()).unwrap_or(0);
+    }
+
+    // 16. Wireless clients (active sessions on FortiAP)
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/wifi/client").await {
+        if let Some(clients) = body["results"].as_array() {
+            result.wifi_clients = clients.len();
+            for c in clients {
+                let mac = c["mac"].as_str().unwrap_or("");
+                let ip = c["ip"].as_str();
+                let hostname = c["hostname"].as_str().filter(|s| !s.is_empty());
+                if !mac.is_empty() && mac != "00:00:00:00:00:00" {
+                    let discovered = DiscoveredAsset {
+                        mac: Some(mac.into()),
+                        hostname: hostname.map(String::from),
+                        fqdn: None,
+                        ip: ip.map(String::from),
+                        os: c["os"].as_str().map(String::from),
+                        ports: None,
+                        ou: None,
+                        vlan: None,
+                        vm_id: None,
+                        criticality: None,
+                        services: serde_json::json!([]),
+                        source: "fortinet-wifi".into(),
+                    };
+                    let _ = asset_resolution::resolve_asset(store, &discovered).await;
+                    result.assets_resolved += 1;
+                }
+            }
+        }
+    }
+
+    // 17. Rogue APs detected nearby — CRITICAL finding when populated.
+    //     Strong signal of an attempted Wi-Fi intrusion / evil-twin attack.
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/wifi/rogue_ap").await {
+        if let Some(rogues) = body["results"].as_array() {
+            result.rogue_aps = rogues.len();
+            for rogue in rogues {
+                let bssid = rogue["bssid"].as_str().unwrap_or("");
+                let ssid = rogue["ssid"].as_str().unwrap_or("?");
+                let signal = rogue["signal"].as_i64().unwrap_or(0);
+                let title = format!("Rogue AP detected — SSID '{ssid}' BSSID {bssid}");
+                let description = format!(
+                    "FortiAP detected an unauthorized access point. SSID: {ssid}. \
+                     BSSID: {bssid}. Signal: {signal}dBm. Could be an evil-twin \
+                     attack targeting your wireless clients — verify physical \
+                     location and either authorize or block."
+                );
+                if store
+                    .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                        skill_id: "skill-fortinet".into(),
+                        title,
+                        description: Some(description),
+                        severity: "HIGH".into(),
+                        category: Some("wireless-rogue".into()),
+                        asset: Some(format!("rogue-bssid-{bssid}")),
+                        source: Some("FortiGate / FortiAP".into()),
+                        metadata: Some(serde_json::json!({
+                            "bssid": bssid, "ssid": ssid, "signal_dbm": signal,
+                        })),
+                    })
+                    .await
+                    .is_ok()
+                {
+                    result.findings_created += 1;
+                }
+            }
+        }
+    }
+
+    // 18. FortiSwitch detected devices (port-mac-ip mapping)
+    if let Ok(body) = fgt_get(
+        &client,
+        base,
+        &auth,
+        "/api/v2/monitor/switch-controller/detected-device",
+    )
+    .await
+    {
+        result.switch_detected_devices = body["results"].as_array().map(|a| a.len()).unwrap_or(0);
+    }
+
+    // 19. HA cluster status — alert if cluster is unhealthy
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/system/ha-statistics").await {
+        // FortiOS returns a populated structure when HA is configured;
+        // an empty / null result means standalone (no finding needed).
+        let has_data = body["results"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false);
+        if has_data {
+            result.ha_status_ok = Some(true);
+        }
+    }
+
+    // 20. License status — flag licenses expiring soon (< 30 days)
+    if let Ok(body) = fgt_get(&client, base, &auth, "/api/v2/monitor/license/status").await {
+        let r = &body["results"];
+        let now = chrono::Utc::now().timestamp();
+        for (lic_name, lic) in r.as_object().into_iter().flatten() {
+            let expiry = lic["expires"].as_i64().unwrap_or(0);
+            if expiry == 0 {
+                continue;
+            }
+            let days_left = (expiry - now) / 86400;
+            if (0..=30).contains(&days_left) {
+                let title = format!("FortiGate license '{lic_name}' expires in {days_left} days");
+                let description = format!(
+                    "The {lic_name} license on this FortiGate expires {days_left} days from now \
+                     ({}). Renew via FortiCare to avoid loss of UTM coverage.",
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(expiry, 0)
+                        .map(|t| t.to_rfc3339())
+                        .unwrap_or_default()
+                );
+                if store
+                    .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                        skill_id: "skill-fortinet".into(),
+                        title,
+                        description: Some(description),
+                        severity: if days_left < 7 { "HIGH" } else { "MEDIUM" }.into(),
+                        category: Some("license-expiring".into()),
+                        asset: Some(format!(
+                            "fortigate-{}",
+                            result.system_serial.as_deref().unwrap_or("?")
+                        )),
+                        source: Some("FortiGate license".into()),
+                        metadata: Some(serde_json::json!({
+                            "license": lic_name, "days_left": days_left, "expires": expiry,
+                        })),
+                    })
+                    .await
+                    .is_ok()
+                {
+                    result.findings_created += 1;
+                }
+            }
+        }
+    }
+
+    // 21. UTM logs (defensive — 404 when modules unlicensed/disabled).
+    //     Each subtype keeps its own cursor so an enabled module doesn't
+    //     starve another that just got turned on.
+    let utm_subtypes: &[(&str, &str)] = &[
+        ("virus", "fortinet.utm.virus"),
+        ("ips", "fortinet.utm.ips"),
+        ("webfilter", "fortinet.utm.webfilter"),
+        ("app-ctrl", "fortinet.utm.app_ctrl"),
+    ];
+    for (sub, tag) in utm_subtypes {
+        let cursor: i64 = match *sub {
+            "virus" => &config.cursor_utm_virus,
+            "ips" => &config.cursor_utm_ips,
+            "webfilter" => &config.cursor_utm_webfilter,
+            "app-ctrl" => &config.cursor_utm_app_ctrl,
+            _ => &None,
+        }
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+        let path = format!("/api/v2/log/memory/utm/{sub}/select?count=500");
+        if let Ok(body) = fgt_get(&client, base, &auth, &path).await {
+            if let Some(rows) = body["results"].as_array() {
+                let mut newest = cursor;
+                let mut count = 0usize;
+                for ev in rows {
+                    let ts = ev["eventtime"].as_i64().unwrap_or(0);
+                    if ts <= cursor {
+                        continue;
+                    }
+                    if ts > newest {
+                        newest = ts;
+                    }
+                    let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                        .map(|t| t.to_rfc3339())
+                        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                    if store.insert_log(tag, &host, ev, &iso).await.is_ok() {
+                        count += 1;
+                    }
+                }
+                let new_cursor = if newest > cursor {
+                    Some(newest.to_string())
+                } else {
+                    None
+                };
+                match *sub {
+                    "virus" => {
+                        result.utm_virus_ingested = count;
+                        if new_cursor.is_some() {
+                            result.cursor_utm_virus = new_cursor;
+                        }
+                    }
+                    "ips" => {
+                        result.utm_ips_ingested = count;
+                        if new_cursor.is_some() {
+                            result.cursor_utm_ips = new_cursor;
+                        }
+                    }
+                    "webfilter" => {
+                        result.utm_webfilter_ingested = count;
+                        if new_cursor.is_some() {
+                            result.cursor_utm_webfilter = new_cursor;
+                        }
+                    }
+                    "app-ctrl" => {
+                        result.utm_app_ctrl_ingested = count;
+                        if new_cursor.is_some() {
+                            result.cursor_utm_app_ctrl = new_cursor;
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
     }

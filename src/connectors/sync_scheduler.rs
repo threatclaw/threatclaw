@@ -586,12 +586,20 @@ async fn run_connector_sync(
                 cursor_user_event: config.get("cursor_user_event").cloned(),
                 cursor_system_event: config.get("cursor_system_event").cloned(),
                 cursor_forward_traffic: config.get("cursor_forward_traffic").cloned(),
+                cursor_utm_virus: config.get("cursor_utm_virus").cloned(),
+                cursor_utm_ips: config.get("cursor_utm_ips").cloned(),
+                cursor_utm_webfilter: config.get("cursor_utm_webfilter").cloned(),
+                cursor_utm_app_ctrl: config.get("cursor_utm_app_ctrl").cloned(),
             };
             let r = crate::connectors::fortinet::sync_fortinet(store, &c).await;
             for (key, val) in [
                 ("cursor_user_event", &r.cursor_user_event),
                 ("cursor_system_event", &r.cursor_system_event),
                 ("cursor_forward_traffic", &r.cursor_forward_traffic),
+                ("cursor_utm_virus", &r.cursor_utm_virus),
+                ("cursor_utm_ips", &r.cursor_utm_ips),
+                ("cursor_utm_webfilter", &r.cursor_utm_webfilter),
+                ("cursor_utm_app_ctrl", &r.cursor_utm_app_ctrl),
             ] {
                 if let Some(v) = val {
                     if let Err(e) = store.set_skill_config("skill-fortinet", key, v).await {
@@ -600,7 +608,7 @@ async fn run_connector_sync(
                 }
             }
             Ok(format!(
-                "{} ARP, {} assets, {} ifaces, {} addr, {} pols, sslvpn={}, ipsec={}, events_u={} events_s={} fw_blocks={}",
+                "{} ARP, {} assets, {} ifaces, {} addr, {} pols, sslvpn={}, ipsec={}, events_u={} events_s={} fw_blocks={} dhcp={} users={} fw_auth={} aps={} wifi={} rogue={} sw={} utm_v/i/w/a={}/{}/{}/{} findings={}",
                 r.arp_entries,
                 r.assets_resolved,
                 r.interfaces,
@@ -610,7 +618,19 @@ async fn run_connector_sync(
                 r.ipsec_tunnels,
                 r.user_events_ingested,
                 r.system_events_ingested,
-                r.forward_blocks_ingested
+                r.forward_blocks_ingested,
+                r.dhcp_leases,
+                r.local_users,
+                r.firewall_auth_users,
+                r.managed_aps,
+                r.wifi_clients,
+                r.rogue_aps,
+                r.switch_detected_devices,
+                r.utm_virus_ingested,
+                r.utm_ips_ingested,
+                r.utm_webfilter_ingested,
+                r.utm_app_ctrl_ingested,
+                r.findings_created,
             ))
         }
         "mikrotik" => {
