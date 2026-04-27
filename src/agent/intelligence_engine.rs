@@ -499,7 +499,12 @@ async fn build_dossier_from_situation(
         })
         .collect();
     asset_findings.sort_by(|a, b| severity_order(&a.severity).cmp(&severity_order(&b.severity)));
-    asset_findings.truncate(10); // Top 10 most severe — keeps prompt manageable for local LLM
+    // Phase B — cap to 5 (was 10). 10 findings per asset blew the
+    // prompt past what qwen3:8b can answer reliably in <120s, causing
+    // the L2 timeouts seen on incidents #92/#93. The 5 most severe
+    // are still enough context for triage; the rest are reachable via
+    // the dossier link in the UI.
+    asset_findings.truncate(5);
 
     // Extract kill chain steps from MITRE metadata
     let kill_chain_steps: Vec<MitreStep> = asset_findings

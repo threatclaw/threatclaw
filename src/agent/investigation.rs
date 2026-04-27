@@ -262,14 +262,14 @@ pub async fn run_investigation(
         let prompt = build_investigation_prompt(&dossier, &skill_results, &lang);
 
         // Call L1 LLM with triage_schema (phase 1 structured outputs).
-        // Phase B — per-call timeout 120 s (was 900 s). qwen3:8b on a
-        // healthy local Ollama answers in 5-30 s; 120 s lets us cover
+        // Phase B — per-call timeout 180 s (was 900 s). qwen3:8b on a
+        // healthy local Ollama answers in 5-30 s; 180 s covers
         // first-call model load (Ollama lazy-loads up to 60 s) and a
-        // heavier dossier (10 findings, full skill list) without
-        // tripping. The outer config.timeout (180 s) still caps the
+        // heavy dossier (10 findings, graph context, adaptive prompt
+        // with skill list). The outer config.timeout (300 s) caps the
         // whole loop so we can't loop forever.
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(120),
+            Duration::from_secs(180),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -292,11 +292,11 @@ pub async fn run_investigation(
                 );
             }
             Err(_) => {
-                error!("INVESTIGATION: LLM call timed out (900s)");
+                error!("INVESTIGATION: LLM call timed out (180s per call)");
                 return make_error_result(
                     dossier_id,
                     asset,
-                    "LLM timeout (120 s per call)",
+                    "LLM timeout (180 s per call)",
                     start,
                     iteration,
                     skill_calls,
