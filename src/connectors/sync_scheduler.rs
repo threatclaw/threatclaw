@@ -583,11 +583,34 @@ async fn run_connector_sync(
                     .get("no_tls_verify")
                     .map(|v| v == "true")
                     .unwrap_or(true),
+                cursor_user_event: config.get("cursor_user_event").cloned(),
+                cursor_system_event: config.get("cursor_system_event").cloned(),
+                cursor_forward_traffic: config.get("cursor_forward_traffic").cloned(),
             };
             let r = crate::connectors::fortinet::sync_fortinet(store, &c).await;
+            for (key, val) in [
+                ("cursor_user_event", &r.cursor_user_event),
+                ("cursor_system_event", &r.cursor_system_event),
+                ("cursor_forward_traffic", &r.cursor_forward_traffic),
+            ] {
+                if let Some(v) = val {
+                    if let Err(e) = store.set_skill_config("skill-fortinet", key, v).await {
+                        tracing::warn!("SYNC SCHEDULER: failed to persist fortinet {key}: {e}");
+                    }
+                }
+            }
             Ok(format!(
-                "{} ARP entries, {} assets, {} interfaces",
-                r.arp_entries, r.assets_resolved, r.interfaces
+                "{} ARP, {} assets, {} ifaces, {} addr, {} pols, sslvpn={}, ipsec={}, events_u={} events_s={} fw_blocks={}",
+                r.arp_entries,
+                r.assets_resolved,
+                r.interfaces,
+                r.firewall_addresses,
+                r.firewall_policies,
+                r.ssl_vpn_sessions,
+                r.ipsec_tunnels,
+                r.user_events_ingested,
+                r.system_events_ingested,
+                r.forward_blocks_ingested
             ))
         }
         "mikrotik" => {
