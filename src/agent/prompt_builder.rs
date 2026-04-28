@@ -209,61 +209,7 @@ pub fn build_react_prompt(
     prompt.push_str("\n```\n");
 
     // ── Section 7: Whitelist (core + dynamic skill actions) ──
-    if lang == "en" {
-        prompt.push_str(
-            r#"
-# AVAILABLE ACTIONS (cmd_id to use in proposed_actions)
-Network: net-001 (block inbound IP), net-002 (fail2ban), net-004 (block outbound IP), net-005 (DNS sinkhole)
-Scan: scan-001 (Nuclei vuln), scan-003 (Nmap ports), scan-005 (SSL check)
-Forensics: forensic-001 (file hash), forensic-004 (network snapshot)
-Users: usr-001 (lock account), proc-001 (kill process)
-Services: svc-001 (stop service), docker-001 (stop container)
-Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)
-"#,
-        );
-    } else {
-        prompt.push_str(
-            r#"
-# ACTIONS DISPONIBLES (cmd_id à utiliser dans proposed_actions)
-Réseau: net-001 (bloquer IP entrant), net-002 (fail2ban), net-004 (bloquer IP sortant), net-005 (sinkhole DNS)
-Scan: scan-001 (Nuclei vuln), scan-003 (Nmap ports), scan-005 (SSL check)
-Forensique: forensic-001 (hash fichier), forensic-004 (snapshot réseau)
-Utilisateurs: usr-001 (verrouiller compte), proc-001 (kill process)
-Services: svc-001 (stop service), docker-001 (stop container)
-Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)
-"#,
-        );
-    }
-
-    // Append dynamic skill commands from the global registry
-    let registry = crate::agent::remediation_whitelist::global_registry();
-    let dynamic_ids: Vec<&str> = registry
-        .all_command_ids()
-        .into_iter()
-        .filter(|id| {
-            !id.starts_with("net-")
-                && !id.starts_with("scan-")
-                && !id.starts_with("forensic-")
-                && !id.starts_with("usr-")
-                && !id.starts_with("proc-")
-                && !id.starts_with("svc-")
-                && !id.starts_with("docker-")
-                && !id.starts_with("skill-")
-                && !id.starts_with("ssh-")
-                && !id.starts_with("file-")
-                && !id.starts_with("log-")
-                && !id.starts_with("pkg-")
-        })
-        .collect();
-    if !dynamic_ids.is_empty() {
-        if lang == "en" {
-            prompt.push_str("Dynamic skills: ");
-        } else {
-            prompt.push_str("Skills dynamiques: ");
-        }
-        prompt.push_str(&dynamic_ids.join(", "));
-        prompt.push('\n');
-    }
+    prompt.push_str(&actions_catalog_text(lang, "# "));
 
     // ── Section 8: Language instruction ──
     prompt.push_str(&language_instruction(lang));
@@ -360,6 +306,72 @@ fn truncate_for_prompt(s: &str, max: usize) -> String {
 
 use crate::agent::incident_dossier::IncidentDossier;
 use crate::agent::investigation_skills::investigation_skills_description;
+
+/// Builds the section listing the cmd_ids the LLM is allowed to propose
+/// in `proposed_actions`. Same catalog for both the ReAct loop and the L2
+/// investigation prompt — keeping a single source of truth means the two
+/// prompts can never drift apart on which actions are valid.
+///
+/// `heading_prefix` is "# " for top-level (ReAct) or "### " for a nested
+/// section (investigation prompt that already uses ## headings).
+fn actions_catalog_text(lang: &str, heading_prefix: &str) -> String {
+    let mut out = String::with_capacity(1024);
+    out.push('\n');
+    if lang == "en" {
+        out.push_str(heading_prefix);
+        out.push_str("AVAILABLE ACTIONS (cmd_id to use in proposed_actions)\n");
+        out.push_str(
+            "Network: net-001 (block inbound IP), net-002 (fail2ban), net-004 (block outbound IP), net-005 (DNS sinkhole)\n\
+             Scan: scan-001 (Nuclei vuln), scan-003 (Nmap ports), scan-005 (SSL check)\n\
+             Forensics: forensic-001 (file hash), forensic-004 (network snapshot)\n\
+             Users: usr-001 (lock account), proc-001 (kill process)\n\
+             Services: svc-001 (stop service), docker-001 (stop container)\n\
+             Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)\n",
+        );
+    } else {
+        out.push_str(heading_prefix);
+        out.push_str("ACTIONS DISPONIBLES (cmd_id à utiliser dans proposed_actions)\n");
+        out.push_str(
+            "Réseau: net-001 (bloquer IP entrant), net-002 (fail2ban), net-004 (bloquer IP sortant), net-005 (sinkhole DNS)\n\
+             Scan: scan-001 (Nuclei vuln), scan-003 (Nmap ports), scan-005 (SSL check)\n\
+             Forensique: forensic-001 (hash fichier), forensic-004 (snapshot réseau)\n\
+             Utilisateurs: usr-001 (verrouiller compte), proc-001 (kill process)\n\
+             Services: svc-001 (stop service), docker-001 (stop container)\n\
+             Skills API: skill-abuseipdb-check (IP), skill-crowdsec-check (IP), skill-shodan-lookup (TARGET), skill-virustotal-check (HASH), skill-hibp-check (EMAIL)\n",
+        );
+    }
+
+    // Dynamic skill commands (extras shipped by skill manifests).
+    let registry = crate::agent::remediation_whitelist::global_registry();
+    let dynamic_ids: Vec<&str> = registry
+        .all_command_ids()
+        .into_iter()
+        .filter(|id| {
+            !id.starts_with("net-")
+                && !id.starts_with("scan-")
+                && !id.starts_with("forensic-")
+                && !id.starts_with("usr-")
+                && !id.starts_with("proc-")
+                && !id.starts_with("svc-")
+                && !id.starts_with("docker-")
+                && !id.starts_with("skill-")
+                && !id.starts_with("ssh-")
+                && !id.starts_with("file-")
+                && !id.starts_with("log-")
+                && !id.starts_with("pkg-")
+        })
+        .collect();
+    if !dynamic_ids.is_empty() {
+        if lang == "en" {
+            out.push_str("Dynamic skills: ");
+        } else {
+            out.push_str("Skills dynamiques: ");
+        }
+        out.push_str(&dynamic_ids.join(", "));
+        out.push('\n');
+    }
+    out
+}
 
 /// Build an investigation prompt from an incident dossier.
 ///
@@ -577,8 +589,16 @@ pub fn build_investigation_prompt(
     }
     p.push('\n');
 
+    // ── Sprint 1 #3 — Action catalog ──
+    // Same catalog as build_react_prompt so the LLM has explicit cmd_ids to
+    // pick from. Without this, the LLM either invents non-existent ids or
+    // (more often) leaves proposed_actions empty, forcing the rules-based
+    // fallback to kick in on every incident card.
+    p.push_str(&actions_catalog_text(lang, "### "));
+
     // ── Response schema ──
-    p.push_str(r#"### RÉPONSE (JSON strict)
+    p.push_str(r#"
+### RÉPONSE (JSON strict)
 
 ```json
 {
@@ -600,10 +620,33 @@ pub fn build_investigation_prompt(
 
 "#);
 
+    // Sprint 1 #3 — explicit requirement on proposed_actions when verdict
+    // = confirmed. The L2 must commit to 1-3 concrete actions so the RSSI
+    // sees a usable HITL block instead of an empty "Recommandations
+    // manuelles" fallback. cmd_ids must come from the ACTIONS DISPONIBLES
+    // section above.
     if lang == "en" {
-        p.push_str("If needs_more_info=true, provide skill_requests. Otherwise give your final verdict. The `incident_title_fr` field MUST be in French regardless of the dossier language — it is shown on the RSSI dashboard. Respond ONLY with valid JSON.\n");
+        p.push_str(
+            "RULES on `proposed_actions`:\n\
+             - if verdict=\"confirmed\", you MUST return between 1 and 3 actions, taken from the AVAILABLE ACTIONS catalog above.\n\
+             - if verdict=\"false_positive\" or \"informational\", return [].\n\
+             - if verdict=\"inconclusive\", return either [] or 1 enrichment skill action (skill-* or scan-*).\n\
+             - never invent a cmd_id that is not in the catalog. The whitelist will reject it.\n\n\
+             If needs_more_info=true, provide skill_requests. Otherwise give your final verdict. \
+             The `incident_title_fr` field MUST be in French regardless of the dossier language — it is shown on the RSSI dashboard. \
+             Respond ONLY with valid JSON.\n",
+        );
     } else {
-        p.push_str("Si needs_more_info=true, fournis skill_requests. Sinon donne ton verdict final. Le champ `incident_title_fr` DOIT être en français — c'est ce qui s'affiche sur la carte d'incident. Réponds UNIQUEMENT en JSON valide.\n");
+        p.push_str(
+            "RÈGLES sur `proposed_actions` :\n\
+             - si verdict=\"confirmed\", tu DOIS retourner entre 1 et 3 actions, choisies dans le catalogue ACTIONS DISPONIBLES ci-dessus.\n\
+             - si verdict=\"false_positive\" ou \"informational\", retourne [].\n\
+             - si verdict=\"inconclusive\", retourne [] ou 1 action d'enrichissement (skill-* ou scan-*).\n\
+             - n'invente jamais un cmd_id qui n'est pas dans le catalogue. La whitelist le rejettera.\n\n\
+             Si needs_more_info=true, fournis skill_requests. Sinon donne ton verdict final. \
+             Le champ `incident_title_fr` DOIT être en français — c'est ce qui s'affiche sur la carte d'incident. \
+             Réponds UNIQUEMENT en JSON valide.\n",
+        );
     }
 
     p
