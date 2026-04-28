@@ -11,7 +11,7 @@ description: |
   precalcule cote Rust avant l'evaluation — y compris graph.asset_in_graph
   qui est un booleen, pas un appel de fonction.
 trigger:
-  sigma_rule: backdoor_port_block
+  sigma_rule: opnsense-fw-001
 steps:
   start:
     type: start

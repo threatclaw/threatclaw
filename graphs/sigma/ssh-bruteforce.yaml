@@ -14,7 +14,7 @@ description: |
   criticite (`asset.criticality`) sont precalcules par l'executor avant
   l'evaluation.
 trigger:
-  sigma_rule: ssh_brute_force
+  sigma_rule: tc-ssh-brute
 steps:
   start:
     type: start
