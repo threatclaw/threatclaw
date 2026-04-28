@@ -349,11 +349,7 @@ steps:
 "#;
         let err = Graph::from_yaml(yaml).expect_err("attendu : erreur de validation");
         match err {
-            ParseError::Validation(ValidationError::UnknownReference {
-                name,
-                from,
-                target,
-            }) => {
+            ParseError::Validation(ValidationError::UnknownReference { name, from, target }) => {
                 assert_eq!(name, "dangling-ref");
                 assert_eq!(from, "start");
                 assert_eq!(target, "ghost");

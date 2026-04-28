@@ -96,10 +96,7 @@ pub fn compile(graph: &Graph) -> Result<CompiledGraph, GraphCompileError> {
     };
 
     // Vérifier qu'au moins un `end` existe
-    let has_end = graph
-        .steps
-        .values()
-        .any(|s| matches!(s, Step::End));
+    let has_end = graph.steps.values().any(|s| matches!(s, Step::End));
     if !has_end {
         return Err(GraphCompileError::MissingEnd(name));
     }

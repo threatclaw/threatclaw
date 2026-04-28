@@ -147,8 +147,7 @@ mod tests {
     /// n'existe pas (dev / CI partielle).
     #[test]
     fn all_fixtures_match_expected_outcomes() {
-        let fixtures_dir =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("graphs/sigma/fixtures");
+        let fixtures_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("graphs/sigma/fixtures");
         let graphs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("graphs/sigma");
         if !fixtures_dir.exists() {
             eprintln!("skipping — {} not found", fixtures_dir.display());
@@ -190,10 +189,8 @@ mod tests {
                 match GraphExecutor::run(&compiled, &ctx) {
                     Ok(trace) => {
                         if let Err(msg) = check_outcome(&trace.outcome, &case.expected) {
-                            failures.push(format!(
-                                "[{}] case '{}': {}",
-                                fixture.graph, case.name, msg
-                            ));
+                            failures
+                                .push(format!("[{}] case '{}': {}", fixture.graph, case.name, msg));
                         }
                     }
                     Err(e) => {

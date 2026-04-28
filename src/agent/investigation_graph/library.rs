@@ -101,11 +101,7 @@ impl GraphLibrary {
             let compiled = match compile(&g) {
                 Ok(c) => c,
                 Err(e) => {
-                    warn!(
-                        "GRAPH LIBRARY: skip '{}' (compile : {})",
-                        path.display(),
-                        e
-                    );
+                    warn!("GRAPH LIBRARY: skip '{}' (compile : {})", path.display(), e);
                     skipped += 1;
                     continue;
                 }
@@ -209,7 +205,11 @@ steps:
     fn skips_invalid_yaml_without_crashing() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("ok.yaml"), yaml_minimal("ok", "rule_ok")).unwrap();
-        fs::write(dir.path().join("broken.yaml"), "this is not yaml at all: {[}").unwrap();
+        fs::write(
+            dir.path().join("broken.yaml"),
+            "this is not yaml at all: {[}",
+        )
+        .unwrap();
 
         let lib = GraphLibrary::load_from_dir(dir.path()).unwrap();
         assert_eq!(lib.len(), 1);
@@ -219,8 +219,16 @@ steps:
     #[test]
     fn rejects_duplicate_trigger() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("a.yaml"), yaml_minimal("graph-a", "same_rule")).unwrap();
-        fs::write(dir.path().join("b.yaml"), yaml_minimal("graph-b", "same_rule")).unwrap();
+        fs::write(
+            dir.path().join("a.yaml"),
+            yaml_minimal("graph-a", "same_rule"),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("b.yaml"),
+            yaml_minimal("graph-b", "same_rule"),
+        )
+        .unwrap();
 
         let err = GraphLibrary::load_from_dir(dir.path()).unwrap_err();
         assert!(matches!(err, LibraryError::DuplicateTrigger { .. }));
@@ -258,10 +266,6 @@ steps:
         let mut sorted = names.clone();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(
-            names.len(),
-            sorted.len(),
-            "duplicate graph names detected"
-        );
+        assert_eq!(names.len(), sorted.len(), "duplicate graph names detected");
     }
 }

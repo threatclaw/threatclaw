@@ -358,20 +358,50 @@ fn translate_finding_title_fr(raw: &str) -> String {
     let pairs: &[(&str, &str)] = &[
         // ML DBSCAN
         ("Behavioral outlier:", "Anomalie comportementale :"),
-        ("Behavioral anomaly detected:", "Anomalie comportementale détectée :"),
+        (
+            "Behavioral anomaly detected:",
+            "Anomalie comportementale détectée :",
+        ),
         ("deviates from", "s'écarte de"),
         ("similar assets", "assets similaires"),
         // Wazuh OpenCanary
-        ("OpenCanary: Telnet login attempt", "OpenCanary — tentative de login Telnet"),
-        ("OpenCanary: SSH login attempt", "OpenCanary — tentative de login SSH"),
-        ("OpenCanary: port scan recorded", "OpenCanary — scan de ports détecté"),
-        ("OpenCanary: HTTP login attempt", "OpenCanary — tentative de login HTTP"),
-        ("OpenCanary: FTP login attempt", "OpenCanary — tentative de login FTP"),
+        (
+            "OpenCanary: Telnet login attempt",
+            "OpenCanary — tentative de login Telnet",
+        ),
+        (
+            "OpenCanary: SSH login attempt",
+            "OpenCanary — tentative de login SSH",
+        ),
+        (
+            "OpenCanary: port scan recorded",
+            "OpenCanary — scan de ports détecté",
+        ),
+        (
+            "OpenCanary: HTTP login attempt",
+            "OpenCanary — tentative de login HTTP",
+        ),
+        (
+            "OpenCanary: FTP login attempt",
+            "OpenCanary — tentative de login FTP",
+        ),
         // Wazuh generic
-        ("Failed authentication attempts", "Échecs d'authentification répétés"),
-        ("Multiple authentication failures", "Échecs d'authentification multiples"),
-        ("Successful sudo to ROOT", "Élévation sudo vers root réussie"),
-        ("Possible kernel level rootkit", "Rootkit niveau noyau possible"),
+        (
+            "Failed authentication attempts",
+            "Échecs d'authentification répétés",
+        ),
+        (
+            "Multiple authentication failures",
+            "Échecs d'authentification multiples",
+        ),
+        (
+            "Successful sudo to ROOT",
+            "Élévation sudo vers root réussie",
+        ),
+        (
+            "Possible kernel level rootkit",
+            "Rootkit niveau noyau possible",
+        ),
         // Sigma generic
         ("auth failed", "échec d'authentification"),
         ("admin login", "login admin"),
@@ -380,7 +410,10 @@ fn translate_finding_title_fr(raw: &str) -> String {
         ("brute force", "brute force"),
         // Scanners (Trivy / Nuclei / etc.)
         ("Critical CVE found", "CVE critique trouvée"),
-        ("High severity vulnerability", "Vulnérabilité de sévérité haute"),
+        (
+            "High severity vulnerability",
+            "Vulnérabilité de sévérité haute",
+        ),
     ];
     for (en, fr) in pairs {
         t = t.replace(en, fr);
@@ -2708,8 +2741,7 @@ pub fn spawn_intelligence_ticker(
                                 // avant de couper ReAct (G1e).
                                 if let Some(exec_id) =
                                     crate::agent::task_queue::try_enqueue_graph_for_dossier(
-                                        &store_inv,
-                                        &dossier,
+                                        &store_inv, &dossier,
                                     )
                                     .await
                                 {

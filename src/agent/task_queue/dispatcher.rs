@@ -101,7 +101,10 @@ pub async fn try_enqueue_graph_for_dossier(
             Some(exec_id)
         }
         Err(e) => {
-            warn!("GRAPH DISPATCH: enqueue_task échoué pour '{}': {}", graph_name, e);
+            warn!(
+                "GRAPH DISPATCH: enqueue_task échoué pour '{}': {}",
+                graph_name, e
+            );
             None
         }
     }
