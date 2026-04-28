@@ -3104,7 +3104,13 @@ impl ThreatClawStore for PgBackend {
         let status_owned: Option<String> = filter.status.clone();
         let asset_owned: Option<String> = filter.asset_id.clone();
         let reason_owned: Option<String> = filter.archive_reason.clone();
-        let since_owned: Option<String> = filter.since_hours.map(|h| format!("{} hours", h));
+        // tokio-postgres ne sérialise pas un String en `interval` malgré
+        // le cast `::interval` côté SQL. On passe les heures en i32 et on
+        // construit l'interval avec `make_interval(hours => $N)` qui
+        // attend bien un int4.
+        let since_hours_owned: Option<i32> = filter
+            .since_hours
+            .map(|h| h.clamp(0, i32::MAX as i64) as i32);
 
         if status_owned.is_some() {
             sql.push_str(&format!(" AND status = ${}", idx));
@@ -3118,8 +3124,11 @@ impl ThreatClawStore for PgBackend {
             sql.push_str(&format!(" AND archive_reason = ${}", idx));
             idx += 1;
         }
-        if since_owned.is_some() {
-            sql.push_str(&format!(" AND started_at > now() - ${}::interval", idx));
+        if since_hours_owned.is_some() {
+            sql.push_str(&format!(
+                " AND started_at > now() - make_interval(hours => ${})",
+                idx
+            ));
             idx += 1;
         }
         sql.push_str(&format!(" ORDER BY started_at DESC LIMIT ${}", idx));
@@ -3134,7 +3143,7 @@ impl ThreatClawStore for PgBackend {
         if let Some(r) = reason_owned.as_ref() {
             params.push(r);
         }
-        if let Some(i) = since_owned.as_ref() {
+        if let Some(i) = since_hours_owned.as_ref() {
             params.push(i);
         }
         params.push(&limit);
