@@ -2730,25 +2730,43 @@ pub fn spawn_intelligence_ticker(
                             let inv_key_owned = inv_key.clone();
 
                             tokio::spawn(async move {
-                                // Phase G1b — parallel-run : on tente d'enqueue
-                                // le dossier dans la queue d'Investigation Graph
-                                // (best-effort, non bloquant). Si un graph
-                                // match le sigma_rule, le graph_step worker le
-                                // pull et persiste son verdict en
-                                // `graph_executions`. ReAct continue de tourner
-                                // ci-dessous en doublon — les deux verdicts
-                                // sont comparés offline pour calibrer les graphs
-                                // avant de couper ReAct (G1e).
-                                if let Some(exec_id) =
+                                // Phase G1b/G1e — Investigation Graph dispatch.
+                                // Deux modes contrôlés par TC_GRAPH_ONLY :
+                                //  - default (parallel-run) : on enqueue le
+                                //    graph en plus du ReAct. Les deux verdicts
+                                //    coexistent (graph dans `graph_executions`,
+                                //    ReAct dans `incidents.verdict`) et sont
+                                //    comparés offline pour calibrer.
+                                //  - TC_GRAPH_ONLY=1 : si un graph matche le
+                                //    sigma_rule, on lui délègue entièrement et
+                                //    on coupe ReAct. Si pas de match, on
+                                //    fallback sur ReAct comme d'habitude.
+                                let graph_enqueued =
                                     crate::agent::task_queue::try_enqueue_graph_for_dossier(
                                         &store_inv, &dossier,
                                     )
-                                    .await
-                                {
+                                    .await;
+                                let graph_only = std::env::var("TC_GRAPH_ONLY")
+                                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                                    .unwrap_or(false);
+                                if let Some(exec_id) = graph_enqueued {
+                                    if graph_only {
+                                        tracing::info!(
+                                            "GRAPH-FIRST: dossier {} delegated to graph (exec_id={}) — ReAct skipped",
+                                            dossier.id,
+                                            exec_id
+                                        );
+                                        return;
+                                    }
                                     tracing::info!(
                                         "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
                                         dossier.id,
                                         exec_id
+                                    );
+                                } else if graph_only {
+                                    tracing::info!(
+                                        "GRAPH-FIRST: dossier {} no matching graph — ReAct fallback",
+                                        dossier.id
                                     );
                                 }
 
