@@ -131,14 +131,20 @@ pub async fn upsert_user(
 /// set by authoritative sources. Used by event-derived paths (Wazuh logon
 /// events, auth log scrape) where we have the username but not the
 /// authoritative role.
+///
+/// Apache AGE ne supporte pas la syntaxe Cypher `ON CREATE SET / ON MATCH
+/// SET` ; on utilise `coalesce()` pour préserver les flags
+/// authoritatifs déjà set tout en initialisant les nouveaux nœuds avec
+/// `false`/`''` par défaut.
 pub async fn touch_user(store: &dyn Database, username: &str) {
     let cypher = format!(
         "MERGE (u:User {{username: '{}'}}) \
-         ON CREATE SET u.is_admin = false, u.is_service_account = false, u.department = '', u.last_seen = '{}' \
-         ON MATCH SET u.last_seen = '{}' \
+         SET u.is_admin = coalesce(u.is_admin, false), \
+             u.is_service_account = coalesce(u.is_service_account, false), \
+             u.department = coalesce(u.department, ''), \
+             u.last_seen = '{}' \
          RETURN u",
         esc(username),
-        chrono::Utc::now().to_rfc3339(),
         chrono::Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
