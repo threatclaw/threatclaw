@@ -1144,6 +1144,19 @@ pub async fn start_server(
             "/api/tc/assets/{id}/criticality",
             axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
         )
+        // Sprint 4 — investigation graph authoring
+        .route(
+            "/api/tc/graphs",
+            get(super::handlers::threatclaw_api::graphs_list_handler),
+        )
+        .route(
+            "/api/tc/graphs/draft-from-sigma",
+            post(super::handlers::threatclaw_api::draft_graph_from_sigma_handler),
+        )
+        .route(
+            "/api/tc/graphs/save",
+            post(super::handlers::threatclaw_api::save_graph_handler),
+        )
         .route(
             "/api/tc/assets/{id}",
             axum::routing::delete(super::handlers::threatclaw_api::assets_delete_handler),
