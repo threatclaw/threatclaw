@@ -2941,10 +2941,10 @@ impl ThreatClawStore for PgBackend {
 
     async fn recover_stale_tasks(&self, older_than_secs: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // tokio-postgres can't directly serialize a Rust String into the
-        // `interval` Postgres type. Pass seconds as i32 and let SQL build
-        // the interval via `make_interval(secs => $1)`.
-        let secs: i32 = older_than_secs.clamp(0, i32::MAX as i64) as i32;
+        // Postgres `make_interval(secs)` expects a double precision
+        // argument. Passing an integer triggers tokio-postgres
+        // serialization errors — keep the rust-side type as f64.
+        let secs: f64 = older_than_secs.max(0) as f64;
         let row = conn
             .query_one(
                 "WITH recovered AS ( \

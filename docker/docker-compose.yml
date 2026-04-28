@@ -67,6 +67,10 @@ services:
       # licensing module can persist install_id, cert.tcl, state.json
       # across container restarts.
       THREATCLAW_BASE_DIR: /app/data
+      # Phase G — investigation graphs library loaded at boot from a host
+      # mount (so operators can edit YAMLs and restart without rebuilding
+      # the image). Falls back to ReAct loop if the dir is missing.
+      TC_GRAPHS_DIR: /app/graphs/sigma
     cap_add:
       - NET_BIND_SERVICE
     read_only: true
@@ -83,6 +87,8 @@ services:
       - ./certs/pg-client.crt:/app/certs/pg-client.crt:ro
       - ./certs/pg-client.key:/app/certs/pg-client.key:ro
       - ./certs/ca.crt:/app/certs/ca.crt:ro
+      # Investigation graphs (Phase G) — read-only, ship from repo.
+      - ./graphs:/app/graphs:ro
     secrets:
       - tc_db_password
       - tc_auth_token
