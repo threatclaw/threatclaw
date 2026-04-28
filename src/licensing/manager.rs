@@ -99,6 +99,39 @@ impl LicenseStatus {
     }
 }
 
+/// Phase A.4 — runtime billing/quota snapshot. Returned by
+/// `LicenseManager::billing_status` and surfaced on the `/billing`
+/// dashboard tab.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BillingStatus {
+    /// Display name (Free / Starter / Pro / Business / Enterprise).
+    pub tier: String,
+    /// Maximum billable assets allowed under this tier. None = unlimited.
+    pub assets_limit: Option<u32>,
+    /// What the caller passed in — typically the live billable count.
+    pub current_count: u32,
+    /// True when a cert is on disk and active. False = Free instance.
+    pub has_cert: bool,
+    /// Cert expiry (UNIX seconds), if any.
+    pub expires_at: Option<u64>,
+    /// Coarse state for the dashboard banner.
+    pub state: BillingState,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BillingState {
+    /// Comfortably under the cap.
+    WithinLimit,
+    /// Within 10 assets of the cap — show an amber upgrade banner.
+    Approaching { remaining: u32 },
+    /// Past the cap. The caller is expected to show a 7-day grace
+    /// banner; persistent banner once the grace window elapses.
+    OverLimit { over_by: u32 },
+    /// No cap (Enterprise / MSSP custom contract).
+    Unlimited,
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Errors
 // ────────────────────────────────────────────────────────────────────
@@ -209,6 +242,113 @@ impl LicenseManager {
     /// specific destructive action, this is the surgical lever.
     pub async fn allows_hitl(&self) -> bool {
         true
+    }
+
+    /// Phase A.4 — current billing status for the active license + the
+    /// asset count provided by the caller. The dashboard `/billing`
+    /// page polls this via `GET /api/tc/admin/billing-status`; the
+    /// over-quota banner kicks in past a 7-day grace.
+    ///
+    /// Resolution order:
+    /// 1. The most recent active cert on disk → tier + assets_limit
+    ///    derived from `LicenseTier::assets_limit`.
+    /// 2. No active cert → `Free` tier with 50 assets.
+    pub async fn billing_status(&self, current_count: u32) -> BillingStatus {
+        const FREE_ASSETS: u32 = 50;
+        let inner = self.inner.read().await;
+        let now = now_secs();
+
+        // Pick the longest-valid cert if multiple are installed.
+        let mut chosen: Option<(LicenseTier, u64, GraceState)> = None;
+        for entry in &inner.state.licenses {
+            if let Ok(Some(encoded)) = storage::read_cert(&entry.license_key) {
+                if let Ok(signed) = SignedLicense::decode(&encoded) {
+                    let grace = assess(&signed.cert, now);
+                    let active = matches!(
+                        grace,
+                        GraceState::Valid
+                            | GraceState::RenewalSoon { .. }
+                            | GraceState::InGrace { .. }
+                    );
+                    if active {
+                        let cand = (signed.cert.tier, signed.cert.expires_at, grace);
+                        match chosen {
+                            None => chosen = Some(cand),
+                            Some(ref c) if cand.1 > c.1 => chosen = Some(cand),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        let (tier, expires_at, _grace) = chosen.unwrap_or((
+            LicenseTier::Trial, // sentinel; overridden by has_cert below
+            0,
+            GraceState::Lapsed,
+        ));
+        let has_cert = expires_at > 0;
+        let effective_tier = if has_cert {
+            tier
+        } else {
+            // Synthesize Free state — there's no Free variant in the
+            // cert enum (Free instances run with no cert at all). The
+            // dashboard surfaces this as "Free 0-50".
+            LicenseTier::Trial
+        };
+
+        let assets_limit = if has_cert {
+            effective_tier.assets_limit()
+        } else {
+            Some(FREE_ASSETS)
+        };
+
+        let tier_name = if has_cert {
+            effective_tier.display_name().to_string()
+        } else {
+            "Free".to_string()
+        };
+
+        // Status decision: ok / warn (≤10 left) / over (current > limit).
+        let status = match assets_limit {
+            None => BillingState::Unlimited,
+            Some(limit) => {
+                if current_count > limit {
+                    BillingState::OverLimit {
+                        over_by: current_count - limit,
+                    }
+                } else if limit.saturating_sub(current_count) <= 10 {
+                    BillingState::Approaching {
+                        remaining: limit - current_count,
+                    }
+                } else {
+                    BillingState::WithinLimit
+                }
+            }
+        };
+
+        BillingStatus {
+            tier: tier_name,
+            assets_limit,
+            current_count,
+            has_cert,
+            state: status,
+            expires_at: if has_cert { Some(expires_at) } else { None },
+        }
+    }
+
+    /// Returns true when the current asset count is within the active
+    /// tier's cap (or there's no cap, ie Enterprise). Free instances
+    /// without a cert are capped at 50.
+    ///
+    /// Used by callers that need a yes/no answer (eg. notify-on-overage
+    /// hooks). The dashboard banner uses `billing_status` directly to
+    /// surface richer state.
+    pub async fn allows_assets_count(&self, n: u32) -> bool {
+        matches!(
+            self.billing_status(n).await.state,
+            BillingState::WithinLimit | BillingState::Approaching { .. } | BillingState::Unlimited
+        )
     }
 
     /// Diagnostic snapshot for the dashboard.

@@ -22,21 +22,37 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Commercial tier of a license. Informational — the actual skills
-/// unlocked are in `LicenseCert::skills`.
+/// Commercial tier of a license. Drives the asset-count cap surfaced
+/// on the `/billing` page.
+///
+/// 2026-04-28 pricing pivot: every tier now gets every feature
+/// (Investigation Graphs, HITL, Threat Map, NIS2 reports). The only
+/// difference between tiers is the number of internal monitored
+/// devices a customer can carry. See `assets_limit` and the doc at
+/// `internal/PRICING_PIVOT_2026-04-28.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LicenseTier {
-    /// 60-day free evaluation. One specific premium skill. No grace period
-    /// after expiry — the user is expected to subscribe before the deadline.
+    /// 60-day free evaluation. Same caps as `Starter` while the trial
+    /// is active. No grace period after expiry — the user is expected
+    /// to subscribe before the deadline.
     Trial,
-    /// One specific premium skill, single site.
+    /// Legacy: kept so old certs still deserialize. Treated as
+    /// `Starter` at runtime (same asset cap, same access).
     Individual,
-    /// All premium skills, single site.
+    /// Legacy: the retired Action Pack 199 €/year SKU. Treated as
+    /// `Starter` at runtime so the rare LIVE-window customers (if any)
+    /// keep working without disruption.
     ActionPack,
-    /// All premium skills, unlimited client deployments (MSPs).
+    /// 51-200 monitored assets — 99 €/mo or 990 €/yr.
+    Starter,
+    /// 201-600 monitored assets — 249 €/mo or 2490 €/yr.
+    Pro,
+    /// 601-1500 monitored assets — 599 €/mo or 5990 €/yr.
+    Business,
+    /// Legacy alias for MSP. Treated as `Enterprise`.
     Msp,
-    /// Custom enterprise terms (SLA, support, source escrow, ...).
+    /// 1500+ monitored assets, multi-site, MSSP. Custom contract.
     Enterprise,
 }
 
@@ -45,6 +61,35 @@ impl LicenseTier {
     /// to nudge subscription before expiry.
     pub fn is_trial(&self) -> bool {
         matches!(self, LicenseTier::Trial)
+    }
+
+    /// Maximum number of billable assets allowed for this tier.
+    /// `None` means unlimited (Enterprise / Msp custom contract).
+    /// Free instances (no cert at all) are handled at the
+    /// `LicenseManager` layer with a hardcoded 50 cap.
+    pub fn assets_limit(&self) -> Option<u32> {
+        match self {
+            // Trial mirrors Starter while active.
+            LicenseTier::Trial => Some(200),
+            // Legacy Individual / ActionPack are mapped to Starter
+            // because the retired Action Pack SKU was sold flat at
+            // 199 €/year for SMBs that fit a Starter parc.
+            LicenseTier::Individual | LicenseTier::ActionPack | LicenseTier::Starter => Some(200),
+            LicenseTier::Pro => Some(600),
+            LicenseTier::Business => Some(1500),
+            LicenseTier::Msp | LicenseTier::Enterprise => None,
+        }
+    }
+
+    /// Display name. Used in license banners and the /billing widget.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            LicenseTier::Trial => "Trial",
+            LicenseTier::Individual | LicenseTier::ActionPack | LicenseTier::Starter => "Starter",
+            LicenseTier::Pro => "Pro",
+            LicenseTier::Business => "Business",
+            LicenseTier::Msp | LicenseTier::Enterprise => "Enterprise",
+        }
     }
 }
 
