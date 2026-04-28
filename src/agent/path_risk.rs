@@ -118,6 +118,11 @@ pub async fn run_attack_path_batch(
         run_id, config.max_hops, config.top_n
     );
 
+    // Seed les attributs `exposure_class` et `criticality` qu'utilisent
+    // les requêtes ci-dessous. Heuristiques basées sur les attributs
+    // déjà présents (ip, hostname, type) — best-effort, non bloquant.
+    seed_path_risk_attributes(store.as_ref()).await;
+
     let sources = list_exposed_sources(store.as_ref()).await?;
     let targets = list_critical_targets(store.as_ref()).await?;
     info!(
@@ -215,8 +220,12 @@ async fn list_exposed_sources(store: &dyn Database) -> Result<Vec<String>, Strin
 }
 
 async fn list_critical_targets(store: &dyn Database) -> Result<Vec<String>, String> {
+    // Inclut 'medium' : à l'échelle SMB (10–50 assets), restreindre à
+    // high/critical strict laisse souvent 0 cibles. medium = serveur ou
+    // hôte tagué dans `seed_path_risk_attributes` — assez intéressant
+    // pour figurer dans les top attack paths.
     let cypher = "MATCH (a:Asset) \
-                  WHERE a.criticality IN ['high', 'critical'] \
+                  WHERE a.criticality IN ['medium', 'high', 'critical'] \
                   RETURN a.id AS id";
     let rows = store
         .execute_cypher(cypher)
@@ -226,6 +235,98 @@ async fn list_critical_targets(store: &dyn Database) -> Result<Vec<String>, Stri
         .into_iter()
         .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
         .collect())
+}
+
+/// Heuristiques de seeding des attributs Asset utilisés par les requêtes
+/// path-risk. Idempotent : tourne avant chaque batch (toutes les 6 h).
+///
+/// `exposure_class` — IP-based :
+/// - IP publique (non-RFC1918, non-loopback, non-link-local) → `internet`
+/// - sinon → `internal`
+///
+/// `criticality` — hostname/type-based :
+/// - hostname matche un pattern DC/AD/domain controller → `critical`
+/// - type IN ('firewall','router','gateway') OU hostname matche pfsense/
+///   opnsense/fortigate → `high`
+/// - sinon, on ne touche pas (préserve les criticality déjà set par d'autres
+///   sources, ex. `upsert_asset` appelé depuis le sync).
+///
+/// Si une requête Cypher échoue, on log un warn mais on n'aborte pas
+/// (un batch dégradé vaut mieux qu'un batch raté).
+async fn seed_path_risk_attributes(store: &dyn Database) {
+    // exposure_class : IP-based, override systématique pour rester
+    // cohérent quand l'IP change.
+    let exposure_cypher = "MATCH (a:Asset) \
+        WHERE a.ip IS NOT NULL \
+        SET a.exposure_class = CASE \
+            WHEN a.ip STARTS WITH '10.' THEN 'internal' \
+            WHEN a.ip STARTS WITH '192.168.' THEN 'internal' \
+            WHEN a.ip STARTS WITH '172.16.' OR a.ip STARTS WITH '172.17.' \
+              OR a.ip STARTS WITH '172.18.' OR a.ip STARTS WITH '172.19.' \
+              OR a.ip STARTS WITH '172.2' OR a.ip STARTS WITH '172.30.' \
+              OR a.ip STARTS WITH '172.31.' THEN 'internal' \
+            WHEN a.ip STARTS WITH '127.' THEN 'internal' \
+            WHEN a.ip STARTS WITH '169.254.' THEN 'internal' \
+            WHEN a.ip STARTS WITH 'fe80:' THEN 'internal' \
+            WHEN a.ip STARTS WITH 'fc' OR a.ip STARTS WITH 'fd' THEN 'internal' \
+            ELSE 'internet' \
+        END";
+    if let Err(e) = store.execute_cypher(exposure_cypher).await {
+        warn!("PATH RISK SEED: exposure_class cypher failed: {}", e);
+    }
+
+    // criticality : 3 passes ordonnées (critical > high > medium) sur
+    // les assets pas encore promus. CASE imbriqué AGE n'évalue pas
+    // toujours dans l'ordre attendu — 3 SET successifs sont plus
+    // prédictibles. Chaque pass exclut les niveaux supérieurs déjà
+    // attribués pour ne pas rétrograder.
+
+    // Pass 1 — critical : domain controllers
+    let crit_pass = "MATCH (a:Asset) \
+        WHERE coalesce(a.criticality, 'low') IN ['low', 'medium', 'unknown'] \
+          AND a.hostname IS NOT NULL \
+          AND ( toLower(a.hostname) CONTAINS 'srv-01-dom' \
+             OR toLower(a.hostname) CONTAINS 'domain-controller' \
+             OR toLower(a.hostname) CONTAINS '-dc-' \
+             OR toLower(a.hostname) STARTS WITH 'dc-' \
+             OR toLower(a.hostname) STARTS WITH 'dc0' \
+             OR toLower(a.hostname) STARTS WITH 'dc1' \
+             OR toLower(a.hostname) CONTAINS 'win-server-ad' ) \
+        SET a.criticality = 'critical'";
+    if let Err(e) = store.execute_cypher(crit_pass).await {
+        warn!("PATH RISK SEED: critical pass failed: {}", e);
+    }
+
+    // Pass 2 — high : firewalls / gateways / fortigate / pfsense / opnsense
+    let high_pass = "MATCH (a:Asset) \
+        WHERE coalesce(a.criticality, 'low') IN ['low', 'medium', 'unknown'] \
+          AND ( ( a.hostname IS NOT NULL AND \
+                  ( toLower(a.hostname) CONTAINS 'opnsense' \
+                 OR toLower(a.hostname) CONTAINS 'pfsense' \
+                 OR toLower(a.hostname) CONTAINS 'fortigate' \
+                 OR toLower(a.hostname) CONTAINS 'firewall' \
+                 OR toLower(a.hostname) CONTAINS 'gateway' \
+                 OR toLower(a.hostname) CONTAINS '-fw-' \
+                 OR toLower(a.hostname) CONTAINS 'router' ) ) \
+             OR ( a.type IS NOT NULL AND \
+                  toLower(a.type) IN ['firewall', 'router', 'gateway'] ) ) \
+        SET a.criticality = 'high'";
+    if let Err(e) = store.execute_cypher(high_pass).await {
+        warn!("PATH RISK SEED: high pass failed: {}", e);
+    }
+
+    // Pass 3 — medium : serveurs génériques (srv-, server, type=server)
+    let medium_pass = "MATCH (a:Asset) \
+        WHERE coalesce(a.criticality, 'low') IN ['low', 'unknown'] \
+          AND ( ( a.hostname IS NOT NULL AND \
+                  ( toLower(a.hostname) CONTAINS 'srv-' \
+                 OR toLower(a.hostname) STARTS WITH 'server' \
+                 OR toLower(a.hostname) CONTAINS '-server' ) ) \
+             OR ( a.type IS NOT NULL AND toLower(a.type) = 'server' ) ) \
+        SET a.criticality = 'medium'";
+    if let Err(e) = store.execute_cypher(medium_pass).await {
+        warn!("PATH RISK SEED: medium pass failed: {}", e);
+    }
 }
 
 /// Plus court path entre deux assets via les edges latéraux.

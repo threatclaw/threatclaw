@@ -143,13 +143,23 @@ pub async fn upsert_asset(
         );
         return;
     }
+    // ON CREATE seed criticality + first_seen ; ON MATCH on ne touche
+    // PAS à criticality pour préserver les upgrades faits par
+    // `path_risk::seed_path_risk_attributes` ou autres heuristiques. Sans
+    // ce split, chaque sync (toutes les 5 min) ramène tous les assets à
+    // 'low' et les batches predictive paths ne trouvent jamais de
+    // critical target.
     let cypher = format!(
-        "MERGE (a:Asset {{id: '{}'}}) SET a.hostname = '{}', a.type = '{}', a.criticality = '{}', a.last_seen = '{}' RETURN a",
-        sanitize_cypher_value(&id_norm),
-        sanitize_cypher_value(hostname),
-        sanitize_cypher_value(asset_type),
-        sanitize_cypher_value(criticality),
-        chrono::Utc::now().to_rfc3339()
+        "MERGE (a:Asset {{id: '{id}'}}) \
+         ON CREATE SET a.hostname = '{host}', a.type = '{ty}', a.criticality = '{crit}', \
+                       a.last_seen = '{ts}', a.first_seen = '{ts}' \
+         ON MATCH  SET a.hostname = '{host}', a.type = '{ty}', a.last_seen = '{ts}' \
+         RETURN a",
+        id = sanitize_cypher_value(&id_norm),
+        host = sanitize_cypher_value(hostname),
+        ty = sanitize_cypher_value(asset_type),
+        crit = sanitize_cypher_value(criticality),
+        ts = chrono::Utc::now().to_rfc3339()
     );
     mutate(store, &cypher).await;
 }
