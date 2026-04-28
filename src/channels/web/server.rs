@@ -1144,6 +1144,11 @@ pub async fn start_server(
             "/api/tc/assets/{id}/criticality",
             axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
         )
+        // Phase G acceptance probe
+        .route(
+            "/api/tc/admin/phase-g-acceptance",
+            get(super::handlers::threatclaw_api::phase_g_acceptance_handler),
+        )
         // Sprint 4 — investigation graph authoring
         .route(
             "/api/tc/graphs",

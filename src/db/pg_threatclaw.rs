@@ -2583,6 +2583,49 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn phase_g_acceptance_stats(
+        &self,
+        lookback_days: i32,
+    ) -> Result<(i64, i64, Vec<i32>), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // total incidents in window (excluding archived)
+        let q_total = format!(
+            "SELECT COUNT(*)::bigint AS n FROM incidents \
+             WHERE created_at > NOW() - INTERVAL '{} days' \
+               AND status != 'archived'",
+            lookback_days.max(1)
+        );
+        let total_row = conn
+            .query_one(q_total.as_str(), &[])
+            .await
+            .map_err(query_err)?;
+        let total: i64 = total_row.get("n");
+
+        // incidents in window without any proposed_actions.actions
+        let q_missing = format!(
+            "SELECT id, COUNT(*) OVER ()::bigint AS n FROM incidents \
+             WHERE created_at > NOW() - INTERVAL '{} days' \
+               AND status != 'archived' \
+               AND ( \
+                    proposed_actions IS NULL \
+                 OR proposed_actions = '[]'::jsonb \
+                 OR (proposed_actions->'actions') IS NULL \
+                 OR jsonb_typeof(proposed_actions->'actions') != 'array' \
+                 OR jsonb_array_length(proposed_actions->'actions') = 0 \
+               ) \
+             ORDER BY created_at DESC \
+             LIMIT 20",
+            lookback_days.max(1)
+        );
+        let rows = conn
+            .query(q_missing.as_str(), &[])
+            .await
+            .map_err(query_err)?;
+        let missing: i64 = rows.first().map(|r| r.get::<_, i64>("n")).unwrap_or(0);
+        let ids: Vec<i32> = rows.iter().map(|r| r.get::<_, i32>("id")).collect();
+        Ok((total, missing, ids))
+    }
+
     async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Delete only acknowledged/resolved alerts to avoid losing actionable ones.
