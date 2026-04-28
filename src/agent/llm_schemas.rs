@@ -64,6 +64,11 @@ pub fn triage_schema() -> Value {
                 "type": "string",
                 "minLength": 5
             },
+            "incident_title_fr": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 120
+            },
             "correlations": {
                 "type": "array",
                 "items": { "type": "string" }
@@ -121,6 +126,11 @@ pub fn forensic_schema() -> Value {
             "analysis": {
                 "type": "string",
                 "minLength": 10
+            },
+            "incident_title_fr": {
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 120
             },
             "mitre_techniques": {
                 "type": "array",

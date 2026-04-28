@@ -586,6 +586,7 @@ pub fn build_investigation_prompt(
   "analysis": "ton analyse détaillée",
   "severity": "LOW|MEDIUM|HIGH|CRITICAL",
   "confidence": 0.85,
+  "incident_title_fr": "Titre court FR pour la carte d'incident (max 110 chars, factuel, ex : « Brute force SSH sur srv-01-dom (12 échecs en 3 min) »)",
   "correlations": ["corrélation 1"],
   "needs_more_info": false,
   "skill_requests": [
@@ -600,9 +601,9 @@ pub fn build_investigation_prompt(
 "#);
 
     if lang == "en" {
-        p.push_str("If needs_more_info=true, provide skill_requests. Otherwise give your final verdict. Respond ONLY with valid JSON.\n");
+        p.push_str("If needs_more_info=true, provide skill_requests. Otherwise give your final verdict. The `incident_title_fr` field MUST be in French regardless of the dossier language — it is shown on the RSSI dashboard. Respond ONLY with valid JSON.\n");
     } else {
-        p.push_str("Si needs_more_info=true, fournis skill_requests. Sinon donne ton verdict final. Réponds UNIQUEMENT en JSON valide.\n");
+        p.push_str("Si needs_more_info=true, fournis skill_requests. Sinon donne ton verdict final. Le champ `incident_title_fr` DOIT être en français — c'est ce qui s'affiche sur la carte d'incident. Réponds UNIQUEMENT en JSON valide.\n");
     }
 
     p

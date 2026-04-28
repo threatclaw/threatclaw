@@ -1,0 +1,14 @@
+graph: dcsync
+cases:
+  - name: always_emits_critical_incident
+    ctx: {}
+    expected:
+      outcome: incident
+      severity: critical
+
+  - name: emits_critical_even_with_unknown_asset
+    ctx:
+      graph: { asset_in_graph: false }
+    expected:
+      outcome: incident
+      severity: critical

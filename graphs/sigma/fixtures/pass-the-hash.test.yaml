@@ -1,0 +1,7 @@
+graph: pass-the-hash
+cases:
+  - name: always_high
+    ctx: {}
+    expected:
+      outcome: incident
+      severity: high

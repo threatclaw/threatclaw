@@ -1,0 +1,38 @@
+spec_version: cacao-2.0
+name: rdp-block-internet
+description: |
+  Sigma "Block RDP from Internet" : tentative RDP depuis Internet bloquee
+  par le firewall. Pattern "deja gere" — RDP ne devrait JAMAIS etre expose
+  en Internet. Le firewall a fait son boulot.
+
+  Archive si IP source externe + 1 hit isole (bruit scan).
+  Escalate si volume burst (recent_count_5m >= 10) — c'est un scan dirige.
+trigger:
+  sigma_rule: opnsense-fw-002
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: emit_incident
+    on_false: archive_handled
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: medium
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan RDP dirige depuis Internet — durcir le block en alias permanent"
+          requires_hitl: true
+    on_completion: terminal
+  archive_handled:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "resolu par firewall — RDP Internet bloque, hit isole"
+    on_completion: terminal
+  terminal:
+    type: end

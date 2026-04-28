@@ -1,0 +1,24 @@
+graph: opnsense-ids-alert
+cases:
+  - name: low_burst_archives
+    ctx:
+      signals: { recent_count_5m: 3 }
+    expected:
+      outcome: archive
+      reason: "bruit IDS"
+
+  - name: burst_critical_target_emits_incident
+    ctx:
+      signals: { recent_count_5m: 15 }
+      asset: { criticality_score: 9 }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: burst_low_criticality_routes_to_llm
+    ctx:
+      signals: { recent_count_5m: 15 }
+      asset: { criticality_score: 4 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm

@@ -1,0 +1,15 @@
+graph: admin-group-membership-change
+cases:
+  - name: critical_asset_routes_to_llm_for_context
+    ctx:
+      asset: { criticality_score: 9 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: local_asset_archives
+    ctx:
+      asset: { criticality_score: 3 }
+    expected:
+      outcome: archive
+      reason: "groupe admin local"

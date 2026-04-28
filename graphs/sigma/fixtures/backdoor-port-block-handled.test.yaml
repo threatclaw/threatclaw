@@ -1,0 +1,25 @@
+graph: backdoor-port-block-handled
+cases:
+  - name: external_ip_block_archives
+    ctx:
+      alert: { firewall_action: "block", src_ip: "1.2.3.4" }
+      graph: { asset_in_graph: false }
+    expected:
+      outcome: archive
+      reason: "resolu par firewall"
+
+  - name: internal_asset_routes_to_llm
+    ctx:
+      alert: { firewall_action: "block" }
+      graph: { asset_in_graph: true }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: non_block_action_routes_to_llm
+    ctx:
+      alert: { firewall_action: "alert" }
+      graph: { asset_in_graph: false }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm

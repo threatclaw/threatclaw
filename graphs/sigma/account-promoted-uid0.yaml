@@ -1,0 +1,30 @@
+spec_version: cacao-2.0
+name: account-promoted-uid0
+description: |
+  Sigma "Account Promoted To UID 0" (lnx-acct-002) : un compte non-root
+  passe a UID 0 (modification /etc/passwd ou /etc/shadow). Quasi-jamais
+  legitime — c'est typique d'un escalade post-compromis Linux.
+
+  Toujours INCIDENT. Action : isoler + collecter les logs syslog
+  recents sur l'asset.
+trigger:
+  sigma_rule: lnx-acct-002
+steps:
+  start:
+    type: start
+    on_completion: emit_incident
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Compte promu root — escalade Linux post-compromis"
+          requires_hitl: true
+        - cmd_id: velociraptor_collect_artifacts
+          rationale: "Collecter /etc/passwd, /etc/shadow, syslog, bash_history"
+          requires_hitl: true
+    on_completion: terminal
+  terminal:
+    type: end

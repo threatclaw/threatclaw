@@ -1,0 +1,30 @@
+spec_version: cacao-2.0
+name: amsi-bypass
+description: |
+  Sigma "PowerShell AMSI Bypass" (ps-obfusc-013) : pattern reflection
+  pour neutraliser AMSI (`amsiInitFailed = $true`, etc.). Aucune raison
+  legitime — c'est l'attaquant qui prepare le terrain pour son loader.
+
+  Toujours INCIDENT critical. Action : isoler + collecter le script
+  parent (PS history, scheduled tasks, run keys).
+trigger:
+  sigma_rule: ps-obfusc-013
+steps:
+  start:
+    type: start
+    on_completion: emit_incident
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - cmd_id: velociraptor_isolate_host
+          rationale: "AMSI bypass detecte — l'asset prepare l'execution d'un payload, isoler"
+          requires_hitl: true
+        - cmd_id: velociraptor_collect_artifacts
+          rationale: "Collecter PS history + autostart pour identifier le payload qui suit"
+          requires_hitl: true
+    on_completion: terminal
+  terminal:
+    type: end

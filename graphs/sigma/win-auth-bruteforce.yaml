@@ -1,0 +1,59 @@
+spec_version: cacao-2.0
+name: win-auth-bruteforce
+description: |
+  Sigma "Brute Force Authentication" (win-auth-002) : volume eleve
+  d'echec d'auth Windows (4625 burst). Pattern equivalent SSH brute
+  force mais cote Windows/AD.
+
+  - Volume confirme (>= 10 echecs en 5 min) + asset critique → INCIDENT
+    avec reset password + block IP source
+  - Asset isole → archive
+  - Sinon → route LLM
+trigger:
+  sigma_rule: win-auth-002
+steps:
+  start:
+    type: start
+    on_completion: check_count
+  check_count:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: check_asset_known
+    on_false: route_llm
+  check_asset_known:
+    type: if-condition
+    condition: "graph.asset_in_graph"
+    on_true: check_criticality
+    on_false: archive_isolated
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: ad_reset_password
+          rationale: "Brute force AD confirme sur asset critique"
+          requires_hitl: true
+        - cmd_id: opnsense_block_ip
+          rationale: "Bloquer la source du brute force"
+          requires_hitl: true
+    on_completion: terminal
+  archive_isolated:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "non corrobore — asset isolee du graph"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

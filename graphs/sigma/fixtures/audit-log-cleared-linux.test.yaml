@@ -1,0 +1,7 @@
+graph: audit-log-cleared-linux
+cases:
+  - name: always_critical
+    ctx: {}
+    expected:
+      outcome: incident
+      severity: critical

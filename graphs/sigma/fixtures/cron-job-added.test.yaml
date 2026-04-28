@@ -1,0 +1,15 @@
+graph: cron-job-added
+cases:
+  - name: critical_routes_to_llm
+    ctx:
+      asset: { criticality_score: 9 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: low_criticality_archives
+    ctx:
+      asset: { criticality_score: 3 }
+    expected:
+      outcome: archive
+      reason: "non-critique"

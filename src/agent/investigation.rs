@@ -39,7 +39,7 @@ impl Default for InvestigationConfig {
             // surfaces the incident immediately with a human title;
             // L2 just enriches the verdict in the background.
             max_iterations: 2,
-            timeout: Duration::from_secs(900),
+            timeout: Duration::from_secs(1800),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
@@ -125,6 +125,7 @@ struct ParsedLlmResponse {
     skill_requests: Vec<SkillRequest>,
     proposed_actions: Vec<ProposedAction>,
     evidence_citations: Vec<crate::agent::evidence_tracker::EvidenceCitation>,
+    incident_title_fr: Option<String>,
 }
 
 fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
@@ -187,6 +188,11 @@ fn parse_llm_response(raw: &str) -> Result<ParsedLlmResponse, String> {
             .get("evidence_citations")
             .and_then(|c| serde_json::from_value(c.clone()).ok())
             .unwrap_or_default(),
+        incident_title_fr: v
+            .get("incident_title_fr")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
     })
 }
 
@@ -273,7 +279,7 @@ pub async fn run_investigation(
         // the incident with a human title BEFORE the L2 runs — only the
         // verdict enrichment lands later.
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(600),
+            Duration::from_secs(1500),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -296,11 +302,11 @@ pub async fn run_investigation(
                 );
             }
             Err(_) => {
-                error!("INVESTIGATION: LLM call timed out (600s per call)");
+                error!("INVESTIGATION: LLM call timed out (1500s per call)");
                 return make_error_result(
                     dossier_id,
                     asset,
-                    "LLM timeout (600 s per call — CPU-only Ollama)",
+                    "LLM timeout (1500 s per call — CPU-only Ollama)",
                     start,
                     iteration,
                     skill_calls,
@@ -552,6 +558,7 @@ pub async fn run_investigation(
                         iterations: iteration,
                         skill_calls,
                         completed_at: Utc::now(),
+                        incident_title_fr: l2.incident_title_fr,
                     };
                 }
             }
@@ -560,6 +567,7 @@ pub async fn run_investigation(
 
         // Final verdict from L1
         if parsed.confidence >= config.confidence_accept || !parsed.needs_more_info {
+            let title_fr = parsed.incident_title_fr.clone();
             let verdict = match parsed.verdict.as_str() {
                 "confirmed" => InvestigationVerdict::Confirmed {
                     analysis: parsed.analysis,
@@ -594,6 +602,7 @@ pub async fn run_investigation(
                 iterations: iteration,
                 skill_calls,
                 completed_at: Utc::now(),
+                incident_title_fr: title_fr,
             };
         }
     }
@@ -619,6 +628,7 @@ pub async fn run_investigation(
         iterations: iteration,
         skill_calls,
         completed_at: Utc::now(),
+        incident_title_fr: None,
     }
 }
 
@@ -641,6 +651,7 @@ fn make_error_result(
         iterations,
         skill_calls,
         completed_at: Utc::now(),
+        incident_title_fr: None,
     }
 }
 

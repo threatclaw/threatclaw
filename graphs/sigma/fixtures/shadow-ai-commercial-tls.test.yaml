@@ -1,0 +1,7 @@
+graph: shadow-ai-commercial-tls
+cases:
+  - name: always_archives_compliance_review
+    ctx: {}
+    expected:
+      outcome: archive
+      reason: "shadow AI"

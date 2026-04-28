@@ -394,6 +394,9 @@ impl ThreatClawStore for LibSqlBackend {
     async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn update_incident_title(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn list_incidents(
         &self,
         _: Option<&str>,
@@ -427,6 +430,80 @@ impl ThreatClawStore for LibSqlBackend {
         Err(not_supported())
     }
     async fn add_incident_note(&self, _: i32, _: &str, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+
+    // ── Phase G1b — task_queue (libsql non supporté, postgres only) ──
+
+    async fn enqueue_task(
+        &self,
+        _: &crate::agent::task_queue::NewTask,
+    ) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn claim_next_task(
+        &self,
+        _: crate::agent::task_queue::TaskKind,
+        _: &str,
+    ) -> Result<Option<crate::agent::task_queue::Task>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn complete_task(&self, _: i64, _: &serde_json::Value) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn fail_task(&self, _: i64, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn recover_stale_tasks(&self, _: i64) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn count_tasks_by_status(
+        &self,
+    ) -> Result<crate::agent::task_queue::QueueDepths, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn create_graph_execution(
+        &self,
+        _: &crate::agent::task_queue::NewGraphExecution,
+    ) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn finalize_graph_execution(
+        &self,
+        _: i64,
+        _: crate::agent::task_queue::GraphExecutionStatus,
+        _: Option<&str>,
+        _: Option<i32>,
+        _: &serde_json::Value,
+        _: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+
+    // ── Phase G2 — attack_paths (postgres only) ──
+
+    async fn insert_attack_paths(
+        &self,
+        _: &[crate::agent::path_risk::AttackPath],
+    ) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn latest_attack_paths(
+        &self,
+        _: i64,
+    ) -> Result<Vec<crate::agent::path_risk::AttackPath>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn latest_choke_points(
+        &self,
+        _: i64,
+    ) -> Result<Vec<crate::db::threatclaw_store::ChokePoint>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_graph_executions(
+        &self,
+        _: &crate::db::threatclaw_store::GraphExecutionsFilter,
+    ) -> Result<Vec<crate::agent::task_queue::GraphExecutionRecord>, DatabaseError> {
         Err(not_supported())
     }
 }

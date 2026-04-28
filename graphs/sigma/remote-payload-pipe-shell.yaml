@@ -1,0 +1,25 @@
+spec_version: cacao-2.0
+name: remote-payload-pipe-shell
+description: |
+  Sigma "Remote Payload Piped To Shell" (lnx-exec-001) : `curl ... | bash`
+  ou `wget -O- ... | sh` detecte. Souvent benign (admins qui installent
+  des outils), mais aussi pattern attaquant typique pour deployer un
+  reverse shell ou un loader.
+
+  Toujours route LLM — c'est typique d'une decision contextuelle, le
+  determinisme ne tranche pas. L'asset criticality + le payload URL +
+  l'utilisateur source decident.
+trigger:
+  sigma_rule: lnx-exec-001
+steps:
+  start:
+    type: start
+    on_completion: route_llm
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

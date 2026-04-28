@@ -1,0 +1,15 @@
+graph: udp-amplification-block
+cases:
+  - name: extreme_burst_routes_to_llm
+    ctx:
+      signals: { recent_count_5m: 60 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: small_count_archives
+    ctx:
+      signals: { recent_count_5m: 5 }
+    expected:
+      outcome: archive
+      reason: "bruit Internet"

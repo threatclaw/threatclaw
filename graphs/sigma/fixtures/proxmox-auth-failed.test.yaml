@@ -1,0 +1,15 @@
+graph: proxmox-auth-failed
+cases:
+  - name: burst_emits_incident
+    ctx:
+      signals: { recent_count_5m: 5 }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: isolated_archives
+    ctx:
+      signals: { recent_count_5m: 1 }
+    expected:
+      outcome: archive
+      reason: "isole"

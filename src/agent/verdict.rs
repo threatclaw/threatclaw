@@ -68,6 +68,11 @@ pub struct InvestigationResult {
     pub iterations: usize,
     pub skill_calls: usize,
     pub completed_at: DateTime<Utc>,
+    /// Short FR title produced by the LLM (≤120 chars). When present and
+    /// the verdict is non-error, the incident card title is rewritten with
+    /// this value — replacing the heuristic title set at incident creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incident_title_fr: Option<String>,
 }
 
 impl InvestigationVerdict {

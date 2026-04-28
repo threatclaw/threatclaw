@@ -1,0 +1,30 @@
+spec_version: cacao-2.0
+name: pass-the-hash
+description: |
+  Sigma "Pass-the-Hash — NTLM Logon" (win-auth-005) : NTLM logon avec
+  pattern PtH (NetworkLogon depuis asset non-DC, hash NT au lieu de
+  password). Le hash NT a ete vole et est rejoue.
+
+  Toujours INCIDENT high. Action : reset le compte cible + isoler
+  l'asset source.
+trigger:
+  sigma_rule: win-auth-005
+steps:
+  start:
+    type: start
+    on_completion: emit_incident
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: ad_reset_password
+          rationale: "Hash NT vole — reset le compte cible avant nouvelle utilisation"
+          requires_hitl: true
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Isoler l'asset source du Pass-the-Hash"
+          requires_hitl: true
+    on_completion: terminal
+  terminal:
+    type: end

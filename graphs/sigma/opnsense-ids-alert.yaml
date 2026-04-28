@@ -1,0 +1,50 @@
+spec_version: cacao-2.0
+name: opnsense-ids-alert
+description: |
+  Sigma "OPNsense IDS alert" (opnsense-004) : Suricata a leve une alerte
+  IDS. La majorite est du bruit (signatures generiques sur du trafic
+  legitime), donc :
+
+  - Burst (>= 10 alerts en 5 min) sur asset critique → INCIDENT (vrai
+    pattern d'attaque ciblee)
+  - Sinon → archive (bruit IDS classique)
+trigger:
+  sigma_rule: opnsense-004
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: check_critical_target
+    on_false: archive_noise
+  check_critical_target:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Burst IDS sur asset critique — bloquer la source"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "bruit IDS classique — alertes isolees"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end
