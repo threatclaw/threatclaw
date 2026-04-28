@@ -1744,6 +1744,41 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn set_asset_dedup_confidence(
+        &self,
+        id: &str,
+        dedup_confidence: &str,
+    ) -> Result<(), DatabaseError> {
+        // Validate against a fixed enum so a misbehaving caller can't
+        // poison the column. Anything outside the set falls back to
+        // 'medium' (the safe default — won't be excluded by the
+        // billable filter, won't be marked authoritative either).
+        let safe = match dedup_confidence {
+            "high" | "medium" | "uncertain" => dedup_confidence.to_string(),
+            _ => "medium".to_string(),
+        };
+        // Upgrade-only: once an asset is marked `high` (matched by MAC
+        // = physical id), a later partial sync that only carries an IP
+        // must NOT regress it to `uncertain`. Same logic for `medium`
+        // vs `uncertain`. The SQL CASE encodes the lattice
+        // uncertain < medium < high.
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE assets \
+                SET dedup_confidence = CASE \
+                    WHEN $2 = 'high' THEN 'high' \
+                    WHEN $2 = 'medium' AND dedup_confidence != 'high' THEN 'medium' \
+                    WHEN $2 = 'uncertain' AND COALESCE(dedup_confidence, 'uncertain') = 'uncertain' THEN 'uncertain' \
+                    ELSE dedup_confidence \
+                END \
+              WHERE id = $1",
+            &[&id, &safe],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn

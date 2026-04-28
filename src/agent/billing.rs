@@ -68,21 +68,39 @@ pub struct BillableCount {
     pub demo: i64,
 }
 
-/// Categories that are considered real monitorable devices. Anything
-/// else (bare ip, threat actor placeholder, "unknown" blobs) is
-/// excluded from billable count.
+/// Categories that count toward the tier limit. Aligned exactly with
+/// what the catalog seeds in `migrations/V24__assets_management.sql`
+/// — `fingerprint::guess_category` only ever emits these values, so
+/// any divergence here = silent under-count.
+///
+/// What's billable (real devices ThreatClaw monitors actively):
+///   - server, workstation, mobile (smartphones/tablets with MDM/agent)
+///   - network (firewall / switch / router / wifi-ap — `subcategory`
+///     refines but the parent category is what we count)
+///   - printer, iot, ot
+///
+/// What's NOT billable (intentionally excluded):
+///   - `website` — an externally-monitored URL/SaaS is not a device
+///     in the ThreatClaw "asset" sense (it has no agent, no LATERAL
+///     reachability, no findings table contribution). If a customer
+///     wants to count their websites, that's a separate Web Security
+///     SKU later.
+///   - `cloud` — covers VMs / containers / SaaS accounts / storage
+///     buckets. Ambiguous billing surface (one Kubernetes cluster
+///     with 200 ephemeral containers must not = 200 assets). Treat
+///     as Enterprise contract for now.
+///   - `unknown` — auto-discovered IPs on internal subnets that
+///     ThreatClaw saw once but has no real source for. Promoting
+///     these to billable would let a customer accidentally rack up
+///     50+ entries from a single `nmap -sP`.
 const BILLABLE_CATEGORIES: &[&str] = &[
     "server",
     "workstation",
-    "network_device",
-    "iot",
-    "nas",
-    "firewall",
-    "router",
-    "switch",
+    "mobile",
+    "network",
     "printer",
-    "vm",
-    "hypervisor",
+    "iot",
+    "ot",
 ];
 
 /// SQL filter shared by the count, the list, and the reclassify job.
@@ -156,12 +174,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn billable_categories_cover_real_devices_and_exclude_meta() {
-        // The list intentionally excludes pure-meta entries that may
-        // still end up in the `assets` table from edge code paths.
-        // Keep this assertion as a tripwire — adding "ip" or
-        // "threat_actor" would silently inflate the count.
-        for excluded in &["ip", "threat_actor", "cve", "user", "container"] {
+    fn billable_categories_exclude_ambiguous_and_meta_categories() {
+        // Tripwire: these are real categories seeded by V24 OR meta
+        // placeholders that may end up in the `assets` table from edge
+        // code paths. Adding any of them to BILLABLE_CATEGORIES would
+        // silently inflate the count — block at compile-test time.
+        for excluded in &[
+            // Real V24 categories we deliberately don't bill on:
+            "website",
+            "cloud",
+            "unknown",
+            // Meta placeholders that should never reach `assets` but
+            // we guard against regressions:
+            "ip",
+            "threat_actor",
+            "cve",
+            "user",
+            "container",
+        ] {
             assert!(
                 !BILLABLE_CATEGORIES.contains(excluded),
                 "category '{}' must not be in BILLABLE_CATEGORIES",
@@ -171,14 +201,45 @@ mod tests {
     }
 
     #[test]
-    fn billable_categories_include_what_smb_inventories_actually_have() {
-        for required in &["server", "workstation", "firewall", "switch"] {
+    fn billable_categories_cover_every_real_device_seeded_by_v24() {
+        // The 7 V24 seeded categories that DO represent monitored
+        // physical/logical devices — must all be billable.
+        for required in &[
+            "server",
+            "workstation",
+            "mobile",
+            "network",
+            "printer",
+            "iot",
+            "ot",
+        ] {
             assert!(
                 BILLABLE_CATEGORIES.contains(required),
                 "category '{}' must be in BILLABLE_CATEGORIES",
                 required
             );
         }
+    }
+
+    #[test]
+    fn billable_categories_match_v24_exactly() {
+        // Hard tripwire: BILLABLE_CATEGORIES must equal the union of
+        // (real-device V24 categories) — no extras, no missing. If
+        // V24 grows or shrinks the catalog, this test forces a
+        // conscious update here.
+        let mut got: Vec<&str> = BILLABLE_CATEGORIES.iter().copied().collect();
+        got.sort();
+        let mut want = vec![
+            "iot",
+            "mobile",
+            "network",
+            "ot",
+            "printer",
+            "server",
+            "workstation",
+        ];
+        want.sort();
+        assert_eq!(got, want, "BILLABLE_CATEGORIES drifted from V24 catalog");
     }
 
     #[test]

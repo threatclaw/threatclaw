@@ -893,6 +893,18 @@ pub trait ThreatClawStore: Send + Sync {
     async fn set_asset_criticality(&self, id: &str, criticality: &str)
     -> Result<(), DatabaseError>;
 
+    /// Phase A.2 fix — persist the dedup confidence (`high` / `medium`
+    /// / `uncertain`) the resolution pipeline computed in memory.
+    /// Called from `asset_resolution::merge_asset` and
+    /// `create_new_asset` right after the upsert, so the SQL filter
+    /// in `billable_breakdown` can exclude `uncertain` rows that
+    /// shouldn't count toward the tier limit.
+    async fn set_asset_dedup_confidence(
+        &self,
+        id: &str,
+        dedup_confidence: &str,
+    ) -> Result<(), DatabaseError>;
+
     // ── Company Profile ──
 
     async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError>;

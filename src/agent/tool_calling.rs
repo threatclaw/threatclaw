@@ -84,21 +84,17 @@ pub async fn check_tool_license(
     tool_name: &str,
     license_manager: Option<&Arc<LicenseManager>>,
 ) -> Result<(), String> {
-    if !tool_requires_hitl(tool_name) {
-        return Ok(());
-    }
-    let Some(mgr) = license_manager else {
-        return Err(format!(
-            "action `{tool_name}` requiert la licence ThreatClaw Action Pack — \
-             aucune licence configurée. Activez via /licensing dans le dashboard."
-        ));
-    };
-    if !mgr.allows_hitl().await {
-        return Err(format!(
-            "action `{tool_name}` requiert la licence ThreatClaw Action Pack — \
-             licence absente, expirée ou révoquée. Vérifiez /licensing."
-        ));
-    }
+    // Phase A.1 (2026-04-28 pricing pivot) — HITL is now free for every
+    // tier including the unlicensed Free instance. The asset-count
+    // tier is the only paid lever; gating an emergency response button
+    // behind a paywall created moral friction at the worst moment.
+    //
+    // The function is kept (rather than deleted) so call-sites at the
+    // approval flow, the dashboard, and the L2 forensic agent compile
+    // without changes — and so a future surgical re-gating of one
+    // specific destructive action is possible without rewiring the
+    // pipeline.
+    let _ = (tool_name, license_manager);
     Ok(())
 }
 
@@ -853,26 +849,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_check_tool_license_hitl_fails_without_manager() {
-        let r = check_tool_license("velociraptor_quarantine_endpoint", None).await;
-        assert!(r.is_err());
-        let msg = r.unwrap_err();
-        assert!(msg.contains("Action Pack"));
-        assert!(msg.contains("/licensing"));
+    async fn test_check_tool_license_hitl_passes_without_manager() {
+        // Phase A.1 pricing pivot — HITL is free, the absence of a
+        // license manager (Free instance) must NOT block destructive
+        // actions anymore.
+        assert!(
+            check_tool_license("velociraptor_quarantine_endpoint", None)
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
-    async fn test_check_tool_license_hitl_fails_with_no_cert() {
-        // Manager exists but no license activated → still denied.
+    async fn test_check_tool_license_hitl_passes_with_no_cert() {
+        // Manager exists but no license activated — must still pass
+        // post-A.1.
         let mgr = Arc::new(
             crate::licensing::LicenseManager::bootstrap(crate::licensing::LicenseClient::new(
                 "https://unused.invalid",
             ))
             .await,
         );
-        let r = check_tool_license("opnsense_block_ip", Some(&mgr)).await;
-        assert!(r.is_err());
-        assert!(r.unwrap_err().contains("Action Pack"));
+        assert!(
+            check_tool_license("opnsense_block_ip", Some(&mgr))
+                .await
+                .is_ok()
+        );
     }
 
     #[test]
