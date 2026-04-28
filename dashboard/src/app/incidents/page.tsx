@@ -90,8 +90,10 @@ function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: str
       background: "rgba(48,128,208,0.12)", color: "#3080d0",
       fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.04em",
       whiteSpace: "nowrap",
+      display: "inline-flex", alignItems: "center", gap: 4,
     }}>
-      🔄 {locale === "fr" ? "scan en cours" : "scan in progress"}
+      <RefreshCw size={9} className="tc-spin" />
+      {locale === "fr" ? "scan en cours" : "scan in progress"}
     </span>
   );
 }
@@ -127,6 +129,52 @@ const severityColor: Record<string, string> = {
   CRITICAL: "#ff2020", HIGH: "#ff6030", MEDIUM: "#e0a020", LOW: "#30a050",
 };
 
+// Sépare un titre dense ("X — Y") en {title, description}. Permet
+// d'afficher juste la portion factuelle dans le header collapsed et
+// d'exposer la description riche dans le body. Supporte "—" (em dash)
+// et "-" (hyphen) comme séparateurs.
+function splitTitle(raw: string | null): { title: string; description: string | null } {
+  if (!raw) return { title: "", description: null };
+  const sep = raw.indexOf(" — ") >= 0 ? " — " : (raw.indexOf(" - ") >= 0 ? " - " : null);
+  if (!sep) return { title: raw, description: null };
+  const idx = raw.indexOf(sep);
+  const desc = raw.substring(idx + sep.length).trim();
+  return {
+    title: raw.substring(0, idx).trim(),
+    description: desc || null,
+  };
+}
+
+// Identifie la source du verdict pour distinguer une décision graph
+// déterministe (rapide, traçable) d'une investigation ReAct (LLM, plus
+// lente). On se base sur la convention `[graph] ...` posée par le worker
+// `create_incident_from_graph`. Quand on aura un champ source dédié en
+// DB, on lira directement celui-ci.
+function getVerdictSource(inc: Incident, locale: string): {
+  kind: "graph" | "react" | "manual";
+  label: string;
+  color: string;
+  detail: string;
+} {
+  const t = inc.title || "";
+  if (t.startsWith("[graph]")) {
+    const m = t.match(/^\[graph\]\s+([^\s—-]+)/);
+    const graphName = m ? m[1] : null;
+    return {
+      kind: "graph",
+      label: locale === "fr" ? "Graph déterministe" : "Deterministic graph",
+      color: "#4090ff",
+      detail: graphName ? `'${graphName}'` : "",
+    };
+  }
+  return {
+    kind: "react",
+    label: locale === "fr" ? "Investigation IA (ReAct)" : "AI investigation (ReAct)",
+    color: "#a060c0",
+    detail: "",
+  };
+}
+
 const verdictBadge: Record<string, { color: string; labelFr: string; labelEn: string }> = {
   pending: { color: "#888", labelFr: "En cours...", labelEn: "Pending..." },
   confirmed: { color: "#ff4040", labelFr: "Confirme", labelEn: "Confirmed" },
@@ -142,6 +190,10 @@ function IncidentsTab({ locale }: { locale: string }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ incident: Incident; action: IncidentAction } | null>(null);
   const [suppressingIncident, setSuppressingIncident] = useState<Incident | null>(null);
+  // Dialog de confirmation pour les décisions RSSI irréversibles (FP).
+  // Le bouton "Ignorer ce pattern" passe par SuppressionWizard qui a son
+  // propre flow de confirmation, donc pas besoin ici.
+  const [confirmFp, setConfirmFp] = useState<Incident | null>(null);
   const [executing, setExecuting] = useState(false);
   const [noteInput, setNoteInput] = useState<Record<number, string>>({});
 
@@ -288,6 +340,72 @@ function IncidentsTab({ locale }: { locale: string }) {
           }}
         />
       )}
+      {confirmFp && (
+        <div
+          onClick={() => setConfirmFp(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 480, width: "90%",
+              background: "var(--tc-surface)",
+              border: "1px solid var(--tc-border)",
+              borderRadius: 12, padding: 24,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.55)",
+            }}
+          >
+            <h2 style={{ margin: "0 0 12px 0", fontSize: 17, fontWeight: 600, color: "var(--tc-text)" }}>
+              {locale === "fr" ? "Marquer comme faux positif ?" : "Mark as false positive?"}
+            </h2>
+            <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text-sec)", marginBottom: 8 }}>
+              {locale === "fr"
+                ? "Tu vas fermer l'incident #" + confirmFp.id + " et le classer en faux positif."
+                : "You'll close incident #" + confirmFp.id + " and classify it as false positive."}
+            </p>
+            <ul style={{ fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-muted)", paddingLeft: 18, marginBottom: 16 }}>
+              <li>{locale === "fr"
+                ? "L'asset reste surveillé — les futurs signaux seront analysés normalement."
+                : "The asset stays monitored — future signals are analyzed normally."}</li>
+              <li>{locale === "fr"
+                ? "Aucune règle de suppression n'est créée. Pour ça, utilise plutôt \"Ignorer ce pattern\"."
+                : "No suppression rule is created. For that, use \"Ignore this pattern\" instead."}</li>
+              <li>{locale === "fr"
+                ? "Décision réversible — l'incident reste consultable dans les archives."
+                : "Reversible — the incident stays viewable in archives."}</li>
+            </ul>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setConfirmFp(null)}
+                style={{
+                  padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                  cursor: "pointer", background: "var(--tc-surface-alt)",
+                  color: "var(--tc-text)", border: "1px solid var(--tc-border)",
+                  borderRadius: "var(--tc-radius-sm)",
+                }}>
+                {locale === "fr" ? "Annuler" : "Cancel"}
+              </button>
+              <button
+                onClick={() => {
+                  const id = confirmFp.id;
+                  setConfirmFp(null);
+                  markFalsePositive(id);
+                }}
+                style={{
+                  padding: "8px 16px", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                  cursor: "pointer", background: "#d03020", color: "#fff",
+                  border: "1px solid #b02818", borderRadius: "var(--tc-radius-sm)",
+                }}>
+                {locale === "fr" ? "Confirmer faux positif" : "Confirm false positive"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
         {filters.map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)} style={{
@@ -323,6 +441,10 @@ function IncidentsTab({ locale }: { locale: string }) {
         const isExpanded = expanded === inc.id;
         const badge = verdictBadge[inc.verdict] || verdictBadge.pending;
         const sevColor = severityColor[inc.severity || "MEDIUM"] || "#888";
+        // Scinde le titre dense en title court (header) + description
+        // (body) pour que le scan rapide de la liste reste lisible.
+        const split = splitTitle(inc.title);
+        const source = getVerdictSource(inc, locale);
 
         return (
           <NeuCard key={inc.id} style={{ padding: 0, marginBottom: 8, borderRadius: "var(--tc-radius-card)", overflow: "hidden" }}>
@@ -330,15 +452,29 @@ function IncidentsTab({ locale }: { locale: string }) {
               padding: "16px 18px", cursor: "pointer",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: "var(--tc-text)" }}>#{inc.id}</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tc-text)" }}>{inc.title}</span>
+                    <span style={{
+                      fontSize: 14, fontWeight: 600, color: "var(--tc-text)",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>{split.title}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, fontSize: 11, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, flexWrap: "wrap", alignItems: "center" }}>
                     <span style={{ padding: "2px 8px", borderRadius: 4, background: `${sevColor}22`, color: sevColor, fontWeight: 600 }}>{inc.severity}</span>
                     <span style={{ padding: "2px 8px", borderRadius: 4, background: `${badge.color}22`, color: badge.color, fontWeight: 600 }}>
                       {locale === "fr" ? badge.labelFr : badge.labelEn}{inc.confidence ? ` ${Math.round(inc.confidence * 100)}%` : ""}
+                    </span>
+                    <span style={{
+                      padding: "2px 8px", borderRadius: 4,
+                      background: `${source.color}1f`, color: source.color, fontWeight: 600,
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                    }} title={source.kind === "graph"
+                      ? (locale === "fr" ? "Verdict produit par un graph d'investigation déterministe (rapide, traçable)" : "Verdict from a deterministic investigation graph (fast, auditable)")
+                      : (locale === "fr" ? "Verdict produit par l'investigation IA ReAct (LLM)" : "Verdict from AI ReAct investigation (LLM)")
+                    }>
+                      {source.kind === "graph" ? <Zap size={10} /> : <Brain size={10} />}
+                      {source.label}
                     </span>
                     <span style={{ color: "var(--tc-text-muted)" }}>
                       {inc.asset} &middot; {inc.alert_count || 0} {locale === "fr" ? "alertes" : "alerts"} &middot; {getTimeAgo(inc.created_at, locale)}
@@ -360,17 +496,51 @@ function IncidentsTab({ locale }: { locale: string }) {
               const executableActions = actions.filter(a => a.kind !== "manual");
               return (
               <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
-                {/* Phase D — action-first layout. The RSSI must see what
-                    to do BEFORE the technical context. Hero block at the
-                    top with prominent HITL buttons; everything else (blast
-                    radius, IOCs, MITRE, summary, triage) is moved down. */}
-
-                {/* Hero — summary + primary actions */}
-                {inc.summary && (
-                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text)", marginBottom: 14, whiteSpace: "pre-wrap" }}>
-                    {inc.summary}
+                {/* Section A — Verdict IA. La 1ère chose que le RSSI lit
+                    en ouvrant un incident : qui a décidé, comment, et
+                    quel est le résumé. Si on a une description scindée
+                    du titre, on la met en avant. */}
+                <div style={{
+                  marginBottom: 14, padding: "12px 14px",
+                  background: "var(--tc-surface-alt)",
+                  borderLeft: `3px solid ${source.color}`,
+                  borderRadius: "var(--tc-radius-sm)",
+                }}>
+                  <div style={{
+                    fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)",
+                    textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    {source.kind === "graph" ? <Zap size={11} /> : <Brain size={11} />}
+                    {locale === "fr" ? "Verdict IA" : "AI verdict"}
+                    <span style={{ color: source.color, fontWeight: 700 }}>
+                      &middot; {source.label}{source.detail ? ` ${source.detail}` : ""}
+                    </span>
                   </div>
-                )}
+                  {split.description && (
+                    <div style={{
+                      fontSize: 13, lineHeight: 1.5, color: "var(--tc-text)",
+                      marginBottom: inc.summary ? 8 : 0, fontWeight: 500,
+                    }}>
+                      {split.description}
+                    </div>
+                  )}
+                  {inc.summary && (
+                    <div style={{
+                      fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-sec)",
+                      whiteSpace: "pre-wrap",
+                    }}>
+                      {inc.summary}
+                    </div>
+                  )}
+                  {!split.description && !inc.summary && (
+                    <div style={{ fontSize: 12, color: "var(--tc-text-muted)", fontStyle: "italic" }}>
+                      {locale === "fr"
+                        ? "Investigation en cours — pas encore de résumé disponible."
+                        : "Investigation in progress — no summary yet."}
+                    </div>
+                  )}
+                </div>
 
                 {isOpen && executableActions.length > 0 && (
                   <div style={{
@@ -471,37 +641,57 @@ function IncidentsTab({ locale }: { locale: string }) {
                   </div>
                 )}
 
-                {/* RSSI decision buttons */}
+                {/* RSSI decision buttons — chacun avec tooltip explicite
+                    sur la conséquence. FP passe par un dialog de
+                    confirmation (action irréversible : ferme l'incident).
+                    Suppress passe par SuppressionWizard (lui-même
+                    interactif). Re-investigate ne demande pas de
+                    confirmation (réversible, juste un coût LLM). */}
                 {isOpen && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
                       <CheckCircle2 size={11} /> {locale === "fr" ? "Décision RSSI" : "CISO decision"}
                     </div>
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button onClick={() => markFalsePositive(inc.id)} style={{
-                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
-                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
-                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
-                        display: "flex", alignItems: "center", gap: 6,
-                      }}>
+                      <button
+                        onClick={() => setConfirmFp(inc)}
+                        title={locale === "fr"
+                          ? "Ferme l'incident et le classe en faux positif. L'asset reste surveillé mais ce signal précis est marqué non-pertinent. Réversible depuis les archives."
+                          : "Closes the incident and classifies it as false positive. The asset stays monitored but this specific signal is marked irrelevant. Reversible from archives."}
+                        style={{
+                          padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                          background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                          border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
                         <XCircle size={12} />
                         {locale === "fr" ? "Marquer faux positif" : "Mark false positive"}
                       </button>
-                      <button onClick={() => reinvestigate(inc.id)} style={{
-                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
-                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
-                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
-                        display: "flex", alignItems: "center", gap: 6,
-                      }}>
+                      <button
+                        onClick={() => reinvestigate(inc.id)}
+                        title={locale === "fr"
+                          ? "Relance l'investigation IA avec les données fraîches. Le verdict actuel sera remplacé. Aucun impact sur l'asset."
+                          : "Re-runs AI investigation with fresh data. Current verdict gets replaced. No impact on the asset."}
+                        style={{
+                          padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                          background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                          border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
                         <Brain size={12} />
                         {locale === "fr" ? "Relancer l'investigation" : "Re-investigate"}
                       </button>
-                      <button onClick={() => setSuppressingIncident(inc)} style={{
-                        padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
-                        background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
-                        border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
-                        display: "flex", alignItems: "center", gap: 6,
-                      }} title={locale === "fr" ? "Créer une règle de suppression pour ce pattern récurrent" : "Create a suppression rule for this recurring pattern"}>
+                      <button
+                        onClick={() => setSuppressingIncident(inc)}
+                        title={locale === "fr"
+                          ? "Crée une règle de suppression : ce pattern (asset + sigma_rule + IP source) sera silencieux pour la durée que tu choisis (1j / 7j / 30j / illimité). Le pipeline continue de l'analyser, juste plus de notification."
+                          : "Creates a suppression rule: this pattern (asset + sigma_rule + source IP) will be silent for the chosen duration (1d / 7d / 30d / forever). The pipeline still analyzes it, just no notification."}
+                        style={{
+                          padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                          background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                          border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
                         <Filter size={12} />
                         {locale === "fr" ? "Ignorer ce pattern" : "Ignore this pattern"}
                       </button>
