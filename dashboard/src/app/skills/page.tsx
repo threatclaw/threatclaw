@@ -1259,13 +1259,12 @@ function TestResultBox({
 // HitlActionsPanel — collapsible section in the Configure modal that
 // surfaces destructive HITL actions declared by the skill manifest.
 // Shows: list of actions + their description, implementation status,
-// optional privileged credential slots, and a license indicator.
+// and optional privileged credential slots.
 //
-// License pivot 2026-04-26: instead of selling a separate
-// "skill-velociraptor-actions" SKU, ThreatClaw now sells a single
-// "Action Pack" license that unlocks every HITL flow across all skills.
-// This panel reads /api/tc/licensing/status to know if the operator
-// currently has Action Pack and renders a clear message either way.
+// Pricing pivot 2026-04-28 (Phase A.1): HITL is now free for every tier.
+// The previous "Action Pack required" license banner has been removed.
+// The pricing moat is the asset-count tier (`/billing` page), not the
+// ability to act on threats.
 // ─────────────────────────────────────────────────────────────────────
 function HitlActionsPanel({
   skillId,
@@ -1281,17 +1280,6 @@ function HitlActionsPanel({
   locale: "fr" | "en";
 }) {
   const [open, setOpen] = useState(false);
-  const [allowsHitl, setAllowsHitl] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    fetch("/api/tc/licensing/status", { signal: AbortSignal.timeout(3000) })
-      .then((r) => r.json())
-      .then((d: any) => {
-        const ok = (d.licenses || []).some((l: any) => l.active && l.allows_hitl);
-        setAllowsHitl(ok);
-      })
-      .catch(() => setAllowsHitl(false));
-  }, []);
 
   const actions = hitl.actions || [];
   const credFields = hitl.credential_fields || {};
@@ -1331,38 +1319,6 @@ function HitlActionsPanel({
 
       {open && (
         <div style={{ padding: "0 14px 14px", fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.55 }}>
-          {/* License status */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: "8px",
-            padding: "8px 10px", marginBottom: "12px",
-            borderRadius: "var(--tc-radius-sm)",
-            background: allowsHitl
-              ? "rgba(48,160,80,0.08)"
-              : "rgba(208,48,32,0.06)",
-            border: `1px solid ${allowsHitl ? "rgba(48,160,80,0.22)" : "rgba(208,48,32,0.22)"}`,
-          }}>
-            {allowsHitl ? (
-              <>
-                <CheckCircle2 size={12} color="#30a050" />
-                <span style={{ color: "#30a050", fontWeight: 600 }}>
-                  {locale === "fr" ? "Action Pack actif" : "Action Pack active"}
-                </span>
-              </>
-            ) : (
-              <>
-                <X size={12} color="#d03020" />
-                <span style={{ color: "var(--tc-text-sec)" }}>
-                  {locale === "fr"
-                    ? "Action Pack non activé — les actions sont visibles mais non exécutables. "
-                    : "Action Pack not active — actions are visible but not executable. "}
-                  <a href="/setup?tab=licenses" style={{ color: "var(--tc-blue)" }}>
-                    {locale === "fr" ? "Activer" : "Activate"}
-                  </a>
-                </span>
-              </>
-            )}
-          </div>
-
           {/* List of declared actions */}
           <div style={{ marginBottom: credKeys.length > 0 ? "12px" : 0 }}>
             <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
