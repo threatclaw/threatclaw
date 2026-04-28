@@ -42,8 +42,12 @@ export default function EnquetesPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
+      // Les graphs synchrones rendent leur verdict en quelques ms,
+      // donc filtrer status=running ne montre presque rien. À la place
+      // on affiche l'activité récente (1h) tous statuts confondus —
+      // c'est l'onglet "ce qui s'est passé récemment".
       const r = await fetch(
-        "/api/tc/graph-executions?status=running&limit=50",
+        "/api/tc/graph-executions?since_hours=1&limit=50",
         { cache: "no-store" }
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);

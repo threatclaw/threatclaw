@@ -11,7 +11,7 @@ import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
-  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send, Brain,
+  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send, Brain, Filter,
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
@@ -502,7 +502,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                         border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
                         display: "flex", alignItems: "center", gap: 6,
                       }} title={locale === "fr" ? "Créer une règle de suppression pour ce pattern récurrent" : "Create a suppression rule for this recurring pattern"}>
-                        ⚙️
+                        <Filter size={12} />
                         {locale === "fr" ? "Ignorer ce pattern" : "Ignore this pattern"}
                       </button>
                     </div>

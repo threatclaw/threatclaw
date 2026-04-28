@@ -53,7 +53,10 @@ export default function ArchivesPage() {
   const [executions, setExecutions] = useState<GraphExecution[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("archived");
+  // Default = "" (tous les statuts terminaux). En G1 les graphs rendent
+  // souvent un verdict 'incident' instantanément — restreindre à
+  // 'archived' par défaut cachait toutes les décisions à fort enjeu.
+  const [statusFilter, setStatusFilter] = useState("");
   const [reasonFilter, setReasonFilter] = useState("");
   const [assetFilter, setAssetFilter] = useState("");
   const [sinceFilter, setSinceFilter] = useState("168"); // 7 jours
@@ -63,7 +66,10 @@ export default function ArchivesPage() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      params.set("status", statusFilter);
+      // Status vide = tous les statuts terminaux (incident + archived +
+      // inconclusive + failed). Ne pas envoyer le param dans ce cas
+      // sinon le backend l'utilise comme `status = ''` et matche 0 row.
+      if (statusFilter) params.set("status", statusFilter);
       params.set("limit", "100");
       if (reasonFilter) params.set("archive_reason", reasonFilter);
       if (assetFilter) params.set("asset_id", assetFilter);
