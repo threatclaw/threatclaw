@@ -150,7 +150,7 @@ pub fn graph_step_worker_fn(library: Arc<GraphLibrary>, store: Arc<dyn Database>
 
             // Persist verdict en `graph_executions` si on a un id parent.
             if let Some(exec_id) = task.graph_run_id {
-                persist_outcome(&store, exec_id, &trace).await;
+                persist_outcome(&store, exec_id, &ctx_payload, &trace).await;
             }
 
             info!(
@@ -204,17 +204,26 @@ fn build_eval_context(payload: &Value) -> EvalContext {
 async fn persist_outcome(
     store: &Arc<dyn Database>,
     exec_id: i64,
+    ctx_payload: &Value,
     trace: &crate::agent::investigation_graph::ExecutionTrace,
 ) {
     let (status, archive_reason, incident_id) = match &trace.outcome {
         ExecutionOutcome::Archive { reason } => {
             (GraphExecutionStatus::Archived, Some(reason.clone()), None)
         }
-        ExecutionOutcome::Incident { .. } => {
-            // L'incident_id concret sera lié par la couche IE (G1d) qui
-            // fait l'INSERT dans incidents en parallèle. Ici on marque
-            // le verdict, l'IE updatera incident_id quand prêt.
-            (GraphExecutionStatus::Incident, None, None)
+        ExecutionOutcome::Incident {
+            severity,
+            proposed_actions,
+        } => {
+            // Phase G1d (corrected): le graph rend Incident, on doit créer
+            // une row dans `incidents` pour que le pipeline HITL existant
+            // (Slack/Telegram, page /incidents, license gate sur execute)
+            // y trouve les `proposed_actions`. Sans ça, le verdict reste
+            // cloisonné dans `graph_executions` et invisible pour le RSSI.
+            let inc_id =
+                create_incident_from_graph(store, ctx_payload, trace, severity, proposed_actions)
+                    .await;
+            (GraphExecutionStatus::Incident, None, inc_id)
         }
         ExecutionOutcome::Inconclusive => (GraphExecutionStatus::Inconclusive, None, None),
         ExecutionOutcome::PendingAsync { .. } => {
@@ -243,4 +252,91 @@ async fn persist_outcome(
             exec_id, e
         );
     }
+}
+
+/// Crée une row `incidents` à partir d'un verdict Incident produit par
+/// un graph. Le RSSI verra cet incident dans /incidents avec ses
+/// `proposed_actions` exposés en HITL — exactement comme un verdict
+/// ReAct. Le `investigation_log` contient la trace du graph (steps
+/// visités, branchements, durées) pour fournir le contexte décisionnel.
+///
+/// Retourne `Some(incident_id)` en cas de succès, ou `None` si la
+/// création échoue (logué en warn, le graph_executions reste status =
+/// 'incident' sans incident_id lié).
+async fn create_incident_from_graph(
+    store: &Arc<dyn Database>,
+    ctx_payload: &Value,
+    trace: &crate::agent::investigation_graph::ExecutionTrace,
+    severity: &str,
+    proposed_actions: &[Value],
+) -> Option<i32> {
+    let asset = ctx_payload
+        .pointer("/asset/id")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+
+    let action_count = proposed_actions.len();
+    let title = if action_count > 0 {
+        format!(
+            "[graph] {} — {} action(s) proposée(s)",
+            trace.graph_name, action_count
+        )
+    } else {
+        format!("[graph] {} — verdict {}", trace.graph_name, severity)
+    };
+
+    let sev_db = severity.to_uppercase();
+
+    let inc_id = match store
+        .create_incident(&asset, &title, &sev_db, &[], &[], 0)
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            warn!("GRAPH STEP WORKER: create_incident failed: {}", e);
+            return None;
+        }
+    };
+
+    let actions_json = Value::Array(proposed_actions.to_vec());
+    let investigation_log = json!({
+        "source": "investigation_graph",
+        "graph_name": trace.graph_name,
+        "duration_ms": trace.total_duration_ms,
+        "trace": trace,
+    });
+    let summary = format!(
+        "Verdict déterministe via graph '{}' en {}ms ({} étape(s)). \
+         Branchement final → outcome = Incident (severity={}).",
+        trace.graph_name,
+        trace.total_duration_ms,
+        trace.steps_visited.len(),
+        severity
+    );
+
+    if let Err(e) = store
+        .update_incident_verdict(
+            inc_id,
+            "Confirmed",
+            0.85,
+            &summary,
+            &[],
+            &actions_json,
+            &investigation_log,
+            &json!([]),
+        )
+        .await
+    {
+        warn!(
+            "GRAPH STEP WORKER: update_incident_verdict({}) failed: {}",
+            inc_id, e
+        );
+    }
+
+    info!(
+        "GRAPH STEP WORKER: incident #{} created (asset={} graph={} actions={})",
+        inc_id, asset, trace.graph_name, action_count
+    );
+    Some(inc_id)
 }

@@ -143,17 +143,19 @@ pub async fn upsert_asset(
         );
         return;
     }
-    // ON CREATE seed criticality + first_seen ; ON MATCH on ne touche
-    // PAS à criticality pour préserver les upgrades faits par
-    // `path_risk::seed_path_risk_attributes` ou autres heuristiques. Sans
-    // ce split, chaque sync (toutes les 5 min) ramène tous les assets à
-    // 'low' et les batches predictive paths ne trouvent jamais de
-    // critical target.
+    // criticality wrappée dans coalesce() pour préserver une criticality
+    // déjà définie (ex. par path_risk::seed_path_risk_attributes). Sans
+    // ça, chaque sync ramènerait tous les assets à 'low' et les batches
+    // predictive paths ne trouveraient jamais de critical target.
+    //
+    // Note: Apache AGE ne supporte pas la syntaxe `ON CREATE SET /
+    // ON MATCH SET` — coalesce dans un SET expression est l'équivalent
+    // sémantique compatible.
     let cypher = format!(
         "MERGE (a:Asset {{id: '{id}'}}) \
-         ON CREATE SET a.hostname = '{host}', a.type = '{ty}', a.criticality = '{crit}', \
-                       a.last_seen = '{ts}', a.first_seen = '{ts}' \
-         ON MATCH  SET a.hostname = '{host}', a.type = '{ty}', a.last_seen = '{ts}' \
+         SET a.hostname = '{host}', a.type = '{ty}', \
+             a.criticality = coalesce(a.criticality, '{crit}'), \
+             a.last_seen = '{ts}' \
          RETURN a",
         id = sanitize_cypher_value(&id_norm),
         host = sanitize_cypher_value(hostname),
