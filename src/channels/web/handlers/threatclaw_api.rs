@@ -5904,6 +5904,37 @@ pub async fn assets_get_handler(
     }
 }
 
+/// PUT /api/tc/assets/{id}/criticality — RSSI override of asset criticality.
+/// Sprint 3 #2: persists in `assets` table AND syncs the AGE graph node so
+/// the path-risk batch and graph predicates see the new value on next run.
+pub async fn asset_criticality_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let crit = body
+        .get("criticality")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !matches!(crit, "low" | "medium" | "high" | "critical" | "unknown") {
+        return Ok(Json(serde_json::json!({
+            "error": "criticality must be one of: low, medium, high, critical, unknown"
+        })));
+    }
+    if let Err(e) = store.set_asset_criticality(&id, crit).await {
+        return Ok(Json(serde_json::json!({ "error": e.to_string() })));
+    }
+    // Best-effort graph sync. If AGE is briefly unavailable the SQL row is
+    // still authoritative — the next graph context refresh will re-read it.
+    crate::graph::threat_graph::set_asset_criticality_graph(store.as_ref(), &id, crit).await;
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "id": id,
+        "criticality": crit
+    })))
+}
+
 /// GET /api/tc/assets/{id}/security — osquery security data for an asset
 pub async fn asset_security_handler(
     State(state): State<Arc<GatewayState>>,

@@ -123,6 +123,21 @@ pub async fn run_attack_path_batch(
     // déjà présents (ip, hostname, type) — best-effort, non bloquant.
     seed_path_risk_attributes(store.as_ref()).await;
 
+    // Sprint 3 #1 — Dérive des LATERAL_PATH depuis les LOGGED_IN. Sans
+    // ce pas, find_shortest_path ne trouve jamais d'arête à traverser
+    // (le detector lateral.rs ne PERSISTE pas ses chaînes), donc 0 path
+    // ne remontent jusqu'au /threat-map même quand la topologie le
+    // permet. Logique : si un user U s'est connecté à A et B dans les
+    // 30 derniers jours, A et B sont reachable lateralement via reuse
+    // de creds — on écrit l'edge.
+    let derived = derive_lateral_paths_from_logins(store.as_ref()).await;
+    if derived > 0 {
+        info!(
+            "PATH RISK BATCH: derived {} LATERAL_PATH edges from co-login events",
+            derived
+        );
+    }
+
     let sources = list_exposed_sources(store.as_ref()).await?;
     let targets = list_critical_targets(store.as_ref()).await?;
     info!(
@@ -204,6 +219,104 @@ pub fn spawn_attack_path_scheduler(store: Arc<dyn Database>, interval_hours: u64
 }
 
 // ── Cypher helpers ──
+
+/// Sprint 3 #1 — derives `LATERAL_PATH` edges from successful login events.
+///
+/// Why this exists: the lateral movement detector (`graph::lateral`) only
+/// reports chains in-memory; nothing in the codebase persists `LATERAL_PATH`
+/// edges in the AGE graph. As a result `find_shortest_path` (which queries
+/// `[:LATERAL_PATH|ATTACKS*1..N]`) had nothing to traverse and the
+/// `/threat-map` page came back empty even on labs with real co-login
+/// patterns. This function derives the edge set deterministically from
+/// `LOGGED_IN`: if user U successfully logged into both A and B, A and B
+/// are reachable laterally via credential reuse.
+///
+/// Idempotent: uses MERGE so re-running the batch doesn't duplicate edges.
+/// Bounded: caps at 50 distinct users to avoid quadratic explosion on huge
+/// AD environments.
+///
+/// Returns the number of edges written (best-effort: a Cypher failure on
+/// one user pair is logged and skipped, the next pair still runs).
+async fn derive_lateral_paths_from_logins(store: &dyn Database) -> usize {
+    // 1) Collect users with multiple successful logon targets in the
+    //    last 30 days. AGE doesn't accept parameter binding so the
+    //    timestamp threshold is inlined.
+    let since = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    let list_cypher = format!(
+        "MATCH (u:User)-[l:LOGGED_IN]->(a:Asset) \
+         WHERE l.success = true AND l.timestamp > '{since}' \
+         RETURN u.username AS username, collect(DISTINCT a.id) AS assets \
+         LIMIT 50",
+        since = since
+    );
+    let rows = match store.execute_cypher(&list_cypher).await {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(
+                "PATH RISK: derive_lateral_paths list query failed: {}",
+                e
+            );
+            return 0;
+        }
+    };
+
+    let mut written = 0usize;
+    for row in &rows {
+        let user = match row.get("username").and_then(|v| v.as_str()) {
+            Some(s) if !s.is_empty() => s.to_string(),
+            _ => continue,
+        };
+        let assets: Vec<String> = row
+            .get("assets")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if assets.len() < 2 {
+            continue;
+        }
+
+        // 2) For each unordered pair {a, b} write two directed
+        //    LATERAL_PATH edges so shortestPath finds the link in
+        //    either direction. Canonical ordering (a < b) ensures we
+        //    don't run the same pair twice within this user.
+        let user_esc = user.replace('\'', "\\'");
+        for i in 0..assets.len() {
+            for j in (i + 1)..assets.len() {
+                let a = &assets[i];
+                let b = &assets[j];
+                if a == b {
+                    continue;
+                }
+                let a_esc = a.replace('\'', "\\'");
+                let b_esc = b.replace('\'', "\\'");
+                let edge_cypher = format!(
+                    "MATCH (n1:Asset {{id: '{a}'}}), (n2:Asset {{id: '{b}'}}) \
+                     MERGE (n1)-[:LATERAL_PATH {{via_user: '{u}'}}]->(n2) \
+                     MERGE (n2)-[:LATERAL_PATH {{via_user: '{u}'}}]->(n1) \
+                     RETURN 1",
+                    a = a_esc,
+                    b = b_esc,
+                    u = user_esc
+                );
+                if let Err(e) = store.execute_cypher(&edge_cypher).await {
+                    warn!(
+                        "PATH RISK: lateral edge {a}↔{b} via {u} failed: {e}",
+                        a = a,
+                        b = b,
+                        u = user
+                    );
+                    continue;
+                }
+                written += 1;
+            }
+        }
+    }
+    written
+}
 
 async fn list_exposed_sources(store: &dyn Database) -> Result<Vec<String>, String> {
     let cypher = "MATCH (a:Asset) \
@@ -330,6 +443,13 @@ async fn seed_path_risk_attributes(store: &dyn Database) {
 }
 
 /// Plus court path entre deux assets via les edges latéraux.
+///
+/// B5 fix : Apache AGE refuse `[:LATERAL_PATH|ATTACKS*1..N]` (longueur
+/// variable + union de types). On run deux `shortestPath` séparés (un
+/// par relation), on garde le plus court résultat. Mixed-hop paths
+/// (LATERAL_PATH puis ATTACKS dans le même chemin) ne sont pas couverts —
+/// acceptable pour une infra SMB où les deux relations sont quasi
+/// disjointes en pratique.
 async fn find_shortest_path(
     store: &dyn Database,
     src: &str,
@@ -338,24 +458,49 @@ async fn find_shortest_path(
 ) -> Option<Vec<String>> {
     let src_esc = src.replace('\'', "\\'");
     let dst_esc = dst.replace('\'', "\\'");
-    let cypher = format!(
-        "MATCH path = shortestPath( \
-           (s:Asset {{id: '{src}'}})-[:LATERAL_PATH|ATTACKS*1..{hops}]->(d:Asset {{id: '{dst}'}}) \
-         ) \
-         RETURN [n IN nodes(path) | n.id] AS assets",
-        src = src_esc,
-        dst = dst_esc,
-        hops = max_hops
-    );
-    let rows = store.execute_cypher(&cypher).await.ok()?;
-    let row = rows.first()?;
-    let assets = row.get("assets")?.as_array()?;
-    Some(
-        assets
-            .iter()
-            .filter_map(|v| v.as_str().map(String::from))
-            .collect(),
-    )
+
+    let mut best: Option<Vec<String>> = None;
+    for rel in &["LATERAL_PATH", "ATTACKS"] {
+        let cypher = format!(
+            "MATCH path = shortestPath( \
+               (s:Asset {{id: '{src}'}})-[:{rel}*1..{hops}]->(d:Asset {{id: '{dst}'}}) \
+             ) \
+             RETURN [n IN nodes(path) | n.id] AS assets",
+            src = src_esc,
+            dst = dst_esc,
+            rel = rel,
+            hops = max_hops,
+        );
+        let rows = match store.execute_cypher(&cypher).await {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "PATH RISK: shortestPath {rel} {src}→{dst} failed: {e}",
+                    rel = rel
+                );
+                continue;
+            }
+        };
+        let assets: Vec<String> = match rows
+            .first()
+            .and_then(|r| r.get("assets"))
+            .and_then(|v| v.as_array())
+        {
+            Some(arr) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect(),
+            None => continue,
+        };
+        if assets.is_empty() {
+            continue;
+        }
+        match &best {
+            Some(b) if assets.len() >= b.len() => {}
+            _ => best = Some(assets),
+        }
+    }
+    best
 }
 
 /// Pour un path brut, agrège CVE+EPSS+KEV et calcule le score final.

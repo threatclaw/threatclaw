@@ -887,6 +887,15 @@ pub trait ThreatClawStore: Send + Sync {
         software: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
 
+    /// Sprint 3 #2 — RSSI override of the seed/auto-detected criticality.
+    /// Updates the canonical `assets` row; the caller is responsible for
+    /// keeping the AGE graph node in sync (via threat_graph::upsert_asset).
+    async fn set_asset_criticality(
+        &self,
+        id: &str,
+        criticality: &str,
+    ) -> Result<(), DatabaseError>;
+
     // ── Company Profile ──
 
     async fn get_company_profile(&self) -> Result<CompanyProfile, DatabaseError>;

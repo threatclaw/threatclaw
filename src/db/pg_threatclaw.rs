@@ -1729,6 +1729,21 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn set_asset_criticality(
+        &self,
+        id: &str,
+        criticality: &str,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE assets SET criticality = $2, updated_at = NOW() WHERE id = $1",
+            &[&id, &criticality],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn

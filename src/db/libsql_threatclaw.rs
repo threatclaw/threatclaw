@@ -219,6 +219,9 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn set_asset_criticality(&self, _: &str, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         Err(not_supported())
     }
