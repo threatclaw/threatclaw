@@ -1117,6 +1117,20 @@ pub trait ThreatClawStore: Send + Sync {
         lookback_days: i32,
     ) -> Result<(i64, i64, Vec<i32>), DatabaseError>;
 
+    /// Phase A.2 — billable asset breakdown for the dashboard widget
+    /// and the license gate. `billable_categories` is the array of
+    /// asset categories that count toward the tier limit (the rest is
+    /// surfaced as discovered/uncertain/etc). Single round-trip.
+    async fn billable_breakdown(
+        &self,
+        billable_categories: &[String],
+    ) -> Result<crate::agent::billing::BillableCount, DatabaseError>;
+
+    /// Phase A.2 — flip `monitored` assets that haven't seen an event
+    /// in `idle_days` to `inactive`. Returns the number of rows
+    /// affected. Driven by a daily scheduler.
+    async fn reclassify_inactive_assets(&self, idle_days: i32) -> Result<u64, DatabaseError>;
+
     /// Count rows in the mitre_techniques table (used for self-heal trigger).
     async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError>;
 

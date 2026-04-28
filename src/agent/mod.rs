@@ -14,6 +14,7 @@ mod agent_loop;
 pub mod agentic_loop;
 mod attachments;
 pub mod backup_manager;
+pub mod billing;
 pub mod binary_verify;
 #[cfg(feature = "postgres")]
 pub mod blast_radius_trigger;

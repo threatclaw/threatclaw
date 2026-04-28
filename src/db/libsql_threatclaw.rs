@@ -425,6 +425,17 @@ impl ThreatClawStore for LibSqlBackend {
         Err(not_supported())
     }
 
+    async fn billable_breakdown(
+        &self,
+        _: &[String],
+    ) -> Result<crate::agent::billing::BillableCount, DatabaseError> {
+        Err(not_supported())
+    }
+
+    async fn reclassify_inactive_assets(&self, _: i32) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+
     async fn cleanup_old_sigma_alerts(&self, _: i32) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }

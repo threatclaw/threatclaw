@@ -2583,6 +2583,109 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn billable_breakdown(
+        &self,
+        billable_categories: &[String],
+    ) -> Result<crate::agent::billing::BillableCount, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let cats: Vec<&str> = billable_categories.iter().map(|s| s.as_str()).collect();
+
+        // Single round-trip aggregation: one CTE for the table-wide
+        // counts the operator wants on the widget ("you have N
+        // discovered, M uncertain..."), then the strict billable count
+        // and category breakdown filtered through the same predicate
+        // the V66 index covers.
+        let row = conn
+            .query_one(
+                "WITH all_counts AS ( \
+                    SELECT \
+                        COUNT(*) FILTER (WHERE TRUE)                                            AS total, \
+                        COUNT(*) FILTER (WHERE billable_status = 'discovered')                  AS discovered, \
+                        COUNT(*) FILTER (WHERE billable_status = 'inactive')                    AS inactive, \
+                        COUNT(*) FILTER (WHERE dedup_confidence = 'uncertain')                  AS uncertain, \
+                        COUNT(*) FILTER (WHERE demo = true)                                     AS demo \
+                    FROM assets \
+                ), billable_count AS ( \
+                    SELECT COUNT(*) AS billable \
+                      FROM assets \
+                     WHERE demo = false \
+                       AND status = 'active' \
+                       AND dedup_confidence != 'uncertain' \
+                       AND category = ANY($1) \
+                       AND last_event_at > NOW() - INTERVAL '30 days' \
+                       AND billable_status = 'monitored' \
+                ) \
+                SELECT a.total, a.discovered, a.inactive, a.uncertain, a.demo, b.billable \
+                  FROM all_counts a CROSS JOIN billable_count b",
+                &[&cats],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let total: i64 = row.get("total");
+        let discovered: i64 = row.get("discovered");
+        let inactive: i64 = row.get("inactive");
+        let uncertain: i64 = row.get("uncertain");
+        let demo: i64 = row.get("demo");
+        let billable: i64 = row.get("billable");
+
+        // Per-category breakdown (only the billable subset).
+        let cat_rows = conn
+            .query(
+                "SELECT category, COUNT(*) AS n \
+                   FROM assets \
+                  WHERE demo = false \
+                    AND status = 'active' \
+                    AND dedup_confidence != 'uncertain' \
+                    AND category = ANY($1) \
+                    AND last_event_at > NOW() - INTERVAL '30 days' \
+                    AND billable_status = 'monitored' \
+                  GROUP BY category \
+                  ORDER BY n DESC",
+                &[&cats],
+            )
+            .await
+            .map_err(query_err)?;
+        let by_category: Vec<(String, i64)> = cat_rows
+            .iter()
+            .map(|r| (r.get::<_, String>("category"), r.get::<_, i64>("n")))
+            .collect();
+
+        Ok(crate::agent::billing::BillableCount {
+            billable,
+            total,
+            by_category,
+            discovered,
+            inactive,
+            uncertain,
+            demo,
+        })
+    }
+
+    async fn reclassify_inactive_assets(&self, idle_days: i32) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Bounded statement — clamp idle_days to a sane range to avoid
+        // accidentally setting the cutoff in the future.
+        let days = idle_days.clamp(1, 365);
+        let n = conn
+            .execute(
+                &format!(
+                    "UPDATE assets \
+                        SET billable_status = 'inactive' \
+                      WHERE billable_status = 'monitored' \
+                        AND ( \
+                              last_event_at IS NULL \
+                           OR last_event_at < NOW() - INTERVAL '{} days' \
+                        )",
+                    days
+                ),
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
     async fn phase_g_acceptance_stats(
         &self,
         lookback_days: i32,
