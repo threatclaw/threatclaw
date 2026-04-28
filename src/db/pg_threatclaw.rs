@@ -627,11 +627,18 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn
             .query_one(
+                // findings.detected_at (pas created_at — la colonne ne
+                // s'appelle pas pareil) ; firewall_events.timestamp ;
+                // matching insensible à la casse sur findings et
+                // sigma_alerts pour absorber les variations 'srv-01-dom'
+                // / 'SRV-01-DOM' qui apparaissent selon la source.
                 "SELECT \
                    (SELECT COUNT(*) FROM sigma_alerts \
-                      WHERE hostname = $1 AND matched_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
+                      WHERE LOWER(hostname) = LOWER($1) \
+                        AND matched_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
                  + (SELECT COUNT(*) FROM findings \
-                      WHERE LOWER(asset) = LOWER($1) AND created_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
+                      WHERE LOWER(asset) = LOWER($1) \
+                        AND detected_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
                  + (SELECT COUNT(*) FROM firewall_events \
                       WHERE timestamp > NOW() - ($2::int * INTERVAL '1 minute') \
                         AND (host(src_ip) = $1 OR host(dst_ip) = $1))::bigint \
