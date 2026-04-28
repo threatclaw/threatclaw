@@ -288,14 +288,44 @@ async fn create_incident_from_graph(
 
     let sev_db = severity.to_uppercase();
 
-    let inc_id = match store
-        .create_incident(&asset, &title, &sev_db, &[], &[], 0)
+    // Dedup : si un incident open existe déjà pour cet asset dans la
+    // fenêtre de 4h (même politique que `intelligence_engine`), on
+    // l'update au lieu d'en créer un doublon. Sinon on crée.
+    let existing = store
+        .find_open_incident_for_asset(&asset)
         .await
-    {
-        Ok(id) => id,
-        Err(e) => {
-            warn!("GRAPH STEP WORKER: create_incident failed: {}", e);
-            return None;
+        .unwrap_or_else(|e| {
+            warn!(
+                "GRAPH STEP WORKER: find_open_incident_for_asset({}) failed: {} — fallback create",
+                asset, e
+            );
+            None
+        });
+
+    let inc_id = if let Some(existing_id) = existing {
+        // Bump alert_count pour indiquer la récurrence + on update verdict
+        // ci-dessous avec les actions du graph (qui peuvent avoir changé).
+        if let Err(e) = store.touch_incident(existing_id, 1).await {
+            warn!(
+                "GRAPH STEP WORKER: touch_incident({}) failed: {}",
+                existing_id, e
+            );
+        }
+        info!(
+            "GRAPH STEP WORKER: réutilisation incident #{} pour asset={} (dedup 4h)",
+            existing_id, asset
+        );
+        existing_id
+    } else {
+        match store
+            .create_incident(&asset, &title, &sev_db, &[], &[], 0)
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                warn!("GRAPH STEP WORKER: create_incident failed: {}", e);
+                return None;
+            }
         }
     };
 

@@ -145,6 +145,56 @@ function splitTitle(raw: string | null): { title: string; description: string | 
   };
 }
 
+// Recommandations manuelles rules-based pour un incident dont l'IA
+// n'a pas proposé d'action HITL automatisable. Basé sur severity +
+// type d'asset (IP publique = source externe à bloquer ; IP RFC1918 =
+// asset interne à isoler ; hostname = on suggère reset password / log
+// review). Pas de LLM call — c'est le minimum syndical pour ne pas
+// laisser le RSSI face à un incident "Confirmé" sans aucune piste.
+function generateRecommendations(inc: Incident, locale: string): string[] {
+  const recs: string[] = [];
+  const sev = inc.severity || "MEDIUM";
+  const asset = inc.asset || "";
+  const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(asset);
+  const isRfc1918 = isIp && (
+    asset.startsWith("10.") ||
+    asset.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(asset) ||
+    asset.startsWith("127.")
+  );
+  const isPublicIp = isIp && !isRfc1918;
+  const isHigh = sev === "CRITICAL" || sev === "HIGH";
+
+  if (locale === "fr") {
+    if (isHigh && isPublicIp) {
+      recs.push("Bloquer cette IP au firewall (skill-opnsense, skill-fortinet)");
+      recs.push("Vérifier la réputation IP via les enrichissements (urlscan, greynoise, spamhaus)");
+    } else if (isHigh && isIp) {
+      recs.push("Isoler l'asset du réseau via skill-velociraptor (isolate_host)");
+      recs.push("Collecter les artefacts forensiques (logs, processus, connexions)");
+    } else if (isHigh) {
+      recs.push("Vérifier les logs d'authentification récents sur cet asset");
+      recs.push("Si compromission suspecte : isoler via skill-velociraptor + reset password AD");
+    }
+    recs.push("Reviewer les findings et alertes liés (contexte ci-dessus)");
+    recs.push("Documenter la décision RSSI dans une note pour traçabilité");
+  } else {
+    if (isHigh && isPublicIp) {
+      recs.push("Block this IP at the firewall (skill-opnsense, skill-fortinet)");
+      recs.push("Check IP reputation via enrichments (urlscan, greynoise, spamhaus)");
+    } else if (isHigh && isIp) {
+      recs.push("Isolate the asset from the network via skill-velociraptor (isolate_host)");
+      recs.push("Collect forensic artifacts (logs, processes, connections)");
+    } else if (isHigh) {
+      recs.push("Review recent authentication logs on this asset");
+      recs.push("If compromise suspected: isolate via skill-velociraptor + reset AD password");
+    }
+    recs.push("Review related findings and alerts (context above)");
+    recs.push("Document the CISO decision in a note for traceability");
+  }
+  return recs;
+}
+
 // Identifie la source du verdict pour distinguer une décision graph
 // déterministe (rapide, traçable) d'une investigation ReAct (LLM, plus
 // lente). On se base sur la convention `[graph] ...` posée par le worker
@@ -496,51 +546,42 @@ function IncidentsTab({ locale }: { locale: string }) {
               const executableActions = actions.filter(a => a.kind !== "manual");
               return (
               <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
-                {/* Section A — Verdict IA. La 1ère chose que le RSSI lit
-                    en ouvrant un incident : qui a décidé, comment, et
-                    quel est le résumé. Si on a une description scindée
-                    du titre, on la met en avant. */}
-                <div style={{
-                  marginBottom: 14, padding: "12px 14px",
-                  background: "var(--tc-surface-alt)",
-                  borderLeft: `3px solid ${source.color}`,
-                  borderRadius: "var(--tc-radius-sm)",
-                }}>
-                  <div style={{
-                    fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)",
-                    textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
-                    display: "flex", alignItems: "center", gap: 6,
-                  }}>
-                    {source.kind === "graph" ? <Zap size={11} /> : <Brain size={11} />}
-                    {locale === "fr" ? "Verdict IA" : "AI verdict"}
-                    <span style={{ color: source.color, fontWeight: 700 }}>
-                      &middot; {source.label}{source.detail ? ` ${source.detail}` : ""}
-                    </span>
+                {/* Section A — résumé. La 1ère chose que le RSSI lit en
+                    ouvrant un incident : description (split du titre) +
+                    summary investigation. Pas de bordure colorée — la
+                    source du verdict est déjà signalée par le badge dans
+                    le header collapsed, inutile de la répéter ici avec un
+                    encadré qui distrait du contenu. */}
+                {(split.description || inc.summary) && (
+                  <div style={{ marginBottom: 14 }}>
+                    {split.description && (
+                      <div style={{
+                        fontSize: 13, lineHeight: 1.5, color: "var(--tc-text)",
+                        marginBottom: inc.summary ? 8 : 0, fontWeight: 500,
+                      }}>
+                        {split.description}
+                      </div>
+                    )}
+                    {inc.summary && (
+                      <div style={{
+                        fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-sec)",
+                        whiteSpace: "pre-wrap",
+                      }}>
+                        {inc.summary}
+                      </div>
+                    )}
                   </div>
-                  {split.description && (
-                    <div style={{
-                      fontSize: 13, lineHeight: 1.5, color: "var(--tc-text)",
-                      marginBottom: inc.summary ? 8 : 0, fontWeight: 500,
-                    }}>
-                      {split.description}
-                    </div>
-                  )}
-                  {inc.summary && (
-                    <div style={{
-                      fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-sec)",
-                      whiteSpace: "pre-wrap",
-                    }}>
-                      {inc.summary}
-                    </div>
-                  )}
-                  {!split.description && !inc.summary && (
-                    <div style={{ fontSize: 12, color: "var(--tc-text-muted)", fontStyle: "italic" }}>
-                      {locale === "fr"
-                        ? "Investigation en cours — pas encore de résumé disponible."
-                        : "Investigation in progress — no summary yet."}
-                    </div>
-                  )}
-                </div>
+                )}
+                {!split.description && !inc.summary && (
+                  <div style={{
+                    marginBottom: 14, fontSize: 12,
+                    color: "var(--tc-text-muted)", fontStyle: "italic",
+                  }}>
+                    {locale === "fr"
+                      ? "Investigation en cours — pas encore de résumé disponible."
+                      : "Investigation in progress — no summary yet."}
+                  </div>
+                )}
 
                 {isOpen && executableActions.length > 0 && (
                   <div style={{
@@ -570,13 +611,41 @@ function IncidentsTab({ locale }: { locale: string }) {
                   </div>
                 )}
 
-                {isOpen && executableActions.length === 0 && (
-                  <div style={{ marginBottom: 14, padding: "10px 14px", fontSize: 12, color: "var(--tc-text-muted)", background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)", border: "1px dashed var(--tc-border)" }}>
-                    {locale === "fr"
-                      ? "Aucune action HITL automatisée n'est proposée pour cet incident. Utilise les boutons de décision RSSI ci-dessous ou ajoute une note."
-                      : "No automated HITL action proposed for this incident. Use the CISO decision buttons below or add a note."}
-                  </div>
-                )}
+                {/* Pas d'action HITL automatisée → on génère des
+                    recommandations manuelles rules-based selon
+                    severity + type d'asset, pour que le RSSI ait au
+                    moins une checklist de pistes au lieu d'un message
+                    vide qui le laisse seul face à l'incident. */}
+                {isOpen && executableActions.length === 0 && (() => {
+                  const recommendations = generateRecommendations(inc, locale);
+                  return (
+                    <div style={{
+                      marginBottom: 14, padding: "12px 14px",
+                      background: "var(--tc-surface-alt)",
+                      borderRadius: "var(--tc-radius-sm)",
+                      border: "1px solid var(--tc-border-light)",
+                    }}>
+                      <div style={{
+                        fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)",
+                        textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
+                        display: "flex", alignItems: "center", gap: 6,
+                      }}>
+                        <CheckCircle2 size={11} />
+                        {locale === "fr" ? "Recommandations manuelles" : "Manual recommendations"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 8, fontStyle: "italic" }}>
+                        {locale === "fr"
+                          ? "Aucune action n'a été proposée automatiquement par l'IA. Pistes suggérées selon le contexte :"
+                          : "No automated action proposed by the AI. Suggested steps based on context:"}
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
+                        {recommendations.map((r, i) => (
+                          <li key={i} style={{ marginBottom: 3 }}>{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })()}
 
                 {/* Blast Radius (ADR-048) — kept but moved below the hero */}
                 <BlastRadiusCard
