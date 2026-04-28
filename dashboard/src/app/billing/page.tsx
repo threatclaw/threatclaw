@@ -88,7 +88,7 @@ const labelStyle: React.CSSProperties = {
 const REFRESH_MS = 60_000;
 
 export default function BillingPage() {
-  const { locale } = useLocale();
+  const locale = useLocale();
   const fr = locale === "fr";
 
   const [data, setData] = useState<BillableResponse | null>(null);
