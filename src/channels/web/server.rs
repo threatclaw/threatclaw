@@ -1154,6 +1154,11 @@ pub async fn start_server(
             "/api/tc/admin/billable-assets",
             get(super::handlers::threatclaw_api::billable_assets_handler),
         )
+        // Phase A.4 — combined tier + billing status
+        .route(
+            "/api/tc/admin/billing-status",
+            get(super::handlers::threatclaw_api::billing_status_handler),
+        )
         // Sprint 4 — investigation graph authoring
         .route(
             "/api/tc/graphs",

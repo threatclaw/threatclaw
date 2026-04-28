@@ -29,6 +29,26 @@ interface BillableResponse {
   error?: string;
 }
 
+interface BillingStatus {
+  tier: string;
+  assets_limit: number | null;
+  current_count: number;
+  has_cert: boolean;
+  expires_at: number | null;
+  state:
+    | { kind: "within_limit" }
+    | { kind: "approaching"; remaining: number }
+    | { kind: "over_limit"; over_by: number }
+    | { kind: "unlimited" };
+}
+
+interface BillingStatusResponse {
+  count: BillableResponse;
+  billing: BillingStatus;
+  computed_at: string;
+  error?: string;
+}
+
 interface Tier {
   id: "free" | "starter" | "pro" | "business" | "enterprise";
   labelFr: string;
@@ -72,14 +92,19 @@ export default function BillingPage() {
   const fr = locale === "fr";
 
   const [data, setData] = useState<BillableResponse | null>(null);
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
   async function fetchData() {
     try {
-      const res = await fetch("/api/tc/admin/billable-assets");
-      const j = (await res.json()) as BillableResponse;
-      setData(j);
+      // Single round-trip — billing-status wraps the count + the
+      // license-manager tier resolution in one response.
+      const res = await fetch("/api/tc/admin/billing-status");
+      const j = (await res.json()) as BillingStatusResponse;
+      if (j.error) throw new Error(j.error);
+      setData(j.count);
+      setBilling(j.billing);
       setLastFetch(new Date());
     } catch (e: any) {
       setData({
@@ -105,17 +130,25 @@ export default function BillingPage() {
   }, []);
 
   const billable = data?.billable ?? 0;
-  const tier = tierForCount(billable);
 
-  // Position within the tier (0..1)
+  // Tier resolution — prefer the cert-driven tier from the backend.
+  // Falls back to "what tier would this count fit into" when no cert
+  // is present (Free instance).
+  const certTierId = (billing?.tier || "Free").toLowerCase() as Tier["id"];
+  const tier =
+    TIERS.find((t) => t.id === certTierId) ??
+    tierForCount(billable);
+
+  const limit = billing?.assets_limit ?? tier.max;
   const tierProgress =
-    tier.max == null
+    limit == null
       ? 1
-      : Math.min(1, Math.max(0, (billable - tier.min) / Math.max(1, tier.max - tier.min)));
+      : Math.min(1, Math.max(0, (billable - tier.min) / Math.max(1, limit - tier.min)));
 
   const tierLabel = fr ? tier.labelFr : tier.labelEn;
-  const remainingInTier = tier.max == null ? null : Math.max(0, tier.max - billable);
-  const overTier = tier.max != null && billable > tier.max;
+  const remainingInTier = limit == null ? null : Math.max(0, limit - billable);
+  const overTier = billing?.state?.kind === "over_limit";
+  const approaching = billing?.state?.kind === "approaching";
 
   return (
     <div
@@ -129,12 +162,23 @@ export default function BillingPage() {
     >
       <div style={{ marginBottom: "20px" }}>
         <h1 style={{ fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>
-          {fr ? "Facturation — assets surveillés" : "Billing — monitored assets"}
+          {fr ? "Utilisation — quota d'assets" : "Usage — asset quota"}
         </h1>
-        <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
+        <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "8px" }}>
           {fr
-            ? "ThreatClaw facture par nombre de devices internes activement surveillés. Toutes les fonctionnalités (HITL, Investigation Graphs, Threat Map, rapports NIS2) sont incluses dans tous les tiers — seule la limite d'assets change."
-            : "ThreatClaw bills by the count of actively-monitored internal devices. Every feature (HITL, Investigation Graphs, Threat Map, NIS2 reports) is included in every tier — only the asset count changes."}
+            ? "Page de visualisation du quota — pas de paiement ici. ThreatClaw facture par nombre de devices internes activement surveillés. Toutes les fonctionnalités (HITL, Investigation Graphs, Threat Map, rapports NIS2) sont incluses dans tous les tiers."
+            : "Quota visualisation page — no payment here. ThreatClaw bills by the count of actively-monitored internal devices. Every feature (HITL, Investigation Graphs, Threat Map, NIS2 reports) is included in every tier."}
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
+          {fr ? "Pour souscrire ou upgrader →" : "To subscribe or upgrade →"}{" "}
+          <a
+            href="https://threatclaw.io/fr/pricing"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--tc-blue)" }}
+          >
+            threatclaw.io/pricing
+          </a>
         </div>
       </div>
 
@@ -184,15 +228,15 @@ export default function BillingPage() {
           <span style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>
             {fr ? "assets facturables" : "billable assets"}
           </span>
-          {tier.max != null && (
+          {limit != null && (
             <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginLeft: "auto" }}>
-              {fr ? "limite tier" : "tier limit"}: {tier.max}
+              {fr ? "limite tier" : "tier limit"}: {limit}
             </span>
           )}
         </div>
 
         {/* Tier progress bar */}
-        {tier.max != null && (
+        {limit != null && (
           <div
             style={{
               height: "10px",
@@ -235,18 +279,24 @@ export default function BillingPage() {
             }}
           >
             <strong style={{ color: "#e04040" }}>
-              {fr
-                ? `Tier ${tier.labelFr} dépassé.`
-                : `${tier.labelEn} tier exceeded.`}
+              {fr ? `Tier ${tier.labelFr} dépassé.` : `${tier.labelEn} tier exceeded.`}
             </strong>
             <br />
             {fr
-              ? "Une période de grâce de 7 jours est accordée. Au-delà, certains incidents peuvent ne plus être traités. Pensez à upgrader."
-              : "A 7-day grace period applies. Beyond that some incidents may stop being processed. Consider upgrading."}
+              ? "Une période de grâce de 7 jours est accordée. Pour upgrader → "
+              : "A 7-day grace period applies. To upgrade → "}
+            <a
+              href="https://threatclaw.io/fr/pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--tc-blue)" }}
+            >
+              threatclaw.io/pricing
+            </a>
           </div>
         )}
 
-        {!overTier && remainingInTier != null && remainingInTier <= 10 && (
+        {!overTier && approaching && remainingInTier != null && (
           <div
             style={{
               padding: "10px 12px",
@@ -259,8 +309,16 @@ export default function BillingPage() {
             }}
           >
             {fr
-              ? `Plus que ${remainingInTier} assets avant la limite du tier. Pensez à upgrader avant de la dépasser.`
-              : `Only ${remainingInTier} assets remain before the tier limit. Consider upgrading.`}
+              ? `Plus que ${remainingInTier} assets avant la limite. Anticipez → `
+              : `Only ${remainingInTier} assets remain before the tier limit. Plan ahead → `}
+            <a
+              href="https://threatclaw.io/fr/pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--tc-blue)" }}
+            >
+              threatclaw.io/pricing
+            </a>
           </div>
         )}
 
@@ -350,8 +408,13 @@ export default function BillingPage() {
           marginBottom: "16px",
         }}
       >
-        <div style={{ fontSize: "11px", fontWeight: 700, marginBottom: "10px", color: "var(--tc-text-sec)" }}>
-          {fr ? "Tarifs ThreatClaw" : "ThreatClaw pricing"}
+        <div style={{ fontSize: "11px", fontWeight: 700, marginBottom: "4px", color: "var(--tc-text-sec)" }}>
+          {fr ? "Tarifs ThreatClaw — référence" : "ThreatClaw pricing — reference"}
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
+          {fr
+            ? "Achat sur threatclaw.io/pricing. Cette page est en lecture seule."
+            : "Purchase via threatclaw.io/pricing. This page is read-only."}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "8px" }}>
           {TIERS.map((t) => {
@@ -406,7 +469,16 @@ export default function BillingPage() {
         )}
       </div>
 
-      <div style={{ marginTop: "16px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+      <div style={{ marginTop: "20px", padding: "10px 14px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", fontSize: "11px", color: "var(--tc-text-sec)" }}>
+        <strong>{fr ? "Vous avez reçu une clé de licence ?" : "You received a license key?"}</strong>{" "}
+        {fr ? "Collez-la sur" : "Paste it on"}{" "}
+        <Link href="/licensing" style={{ color: "var(--tc-blue)" }}>/licensing</Link>{" "}
+        {fr
+          ? "pour activer votre tier (Starter / Pro / Business). Cette page-ci ne sert qu'à visualiser le quota."
+          : "to activate your tier (Starter / Pro / Business). This page is read-only."}
+      </div>
+
+      <div style={{ marginTop: "12px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
         {fr ? "Voir aussi" : "See also"}:{" "}
         <Link href="/assets" style={{ color: "var(--tc-blue)" }}>/assets</Link>
         {" — "}

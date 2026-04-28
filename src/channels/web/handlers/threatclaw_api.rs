@@ -9530,8 +9530,65 @@ fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde
 }
 
 // ════════════════════════════════════════════════════════════════
-// Phase A.2 — Billable assets endpoint
+// Phase A.2 / A.4 — Billing endpoints
 // ════════════════════════════════════════════════════════════════
+
+/// GET /api/tc/admin/billing-status — combined tier + count for the
+/// /billing widget. Wraps `count_billable_assets` and
+/// `LicenseManager::billing_status` so the dashboard makes a single
+/// fetch instead of joining two endpoints client-side.
+pub async fn billing_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let count = match crate::agent::billing::count_billable_assets(store).await {
+        Ok(b) => b,
+        Err(e) => return Ok(Json(serde_json::json!({ "error": e }))),
+    };
+    let billable_u32 = count.billable.max(0) as u32;
+    let billing = match state.license_manager.as_ref() {
+        Some(mgr) => mgr.billing_status(billable_u32).await,
+        None => {
+            // License manager not wired (rare — only when
+            // initialization failed). Synthesize Free state so the
+            // dashboard still renders a sensible card.
+            const FREE_CAP: u32 = 50;
+            let st = if billable_u32 > FREE_CAP {
+                crate::licensing::manager::BillingState::OverLimit {
+                    over_by: billable_u32 - FREE_CAP,
+                }
+            } else if FREE_CAP.saturating_sub(billable_u32) <= 10 {
+                crate::licensing::manager::BillingState::Approaching {
+                    remaining: FREE_CAP - billable_u32,
+                }
+            } else {
+                crate::licensing::manager::BillingState::WithinLimit
+            };
+            crate::licensing::manager::BillingStatus {
+                tier: "Free".to_string(),
+                assets_limit: Some(FREE_CAP),
+                current_count: billable_u32,
+                has_cert: false,
+                expires_at: None,
+                state: st,
+            }
+        }
+    };
+
+    Ok(Json(serde_json::json!({
+        "count": {
+            "billable":    count.billable,
+            "total":       count.total,
+            "by_category": count.by_category,
+            "discovered":  count.discovered,
+            "inactive":    count.inactive,
+            "uncertain":   count.uncertain,
+            "demo":        count.demo,
+        },
+        "billing":     billing,
+        "computed_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
 
 /// GET /api/tc/admin/billable-assets — current billable count + breakdown.
 ///
