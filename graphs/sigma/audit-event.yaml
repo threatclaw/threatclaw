@@ -1,0 +1,35 @@
+spec_version: cacao-2.0
+name: audit-event
+description: |
+  Wazuh Linux audit event (rule_id 592). Evenement generique du
+  sous-systeme auditd — changement setuid, ajustement de capabilities,
+  exec tracee, etc. Sur un host actif ces alertes peuvent firer
+  plusieurs fois par minute en operations normales.
+  - Burst (>=10 en 5 min sur le meme asset) → suspect, on route au L2
+    pour analyse contextuelle.
+  - Volume normal → archive "bruit du sous-systeme audit".
+trigger:
+  sigma_rule: wazuh-592
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: route_llm
+    on_false: archive_noise
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 120
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "evenement audit subsystem (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

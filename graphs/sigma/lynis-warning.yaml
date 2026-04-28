@@ -1,0 +1,22 @@
+spec_version: cacao-2.0
+name: lynis-warning
+description: |
+  Wazuh Lynis security warning (rule_id 100101). Lynis est un outil
+  d'audit systeme qui emet des conseils de durcissement (kernel, patchs
+  manquants, services exposes inutilement). Utile comme KPI hygiene
+  mais jamais signal d'attaque active. Toujours archiver — le RSSI les
+  passe en revue dans le rapport posture hebdomadaire, pas en incident.
+trigger:
+  sigma_rule: wazuh-100101
+steps:
+  start:
+    type: start
+    on_completion: archive_advice
+  archive_advice:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "lynis : conseil d'audit, a revoir dans le rapport posture hebdo"
+    on_completion: terminal
+  terminal:
+    type: end

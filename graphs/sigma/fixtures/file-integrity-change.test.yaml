@@ -1,0 +1,7 @@
+graph: file-integrity-change
+cases:
+  - name: routes_to_llm
+    ctx: {}
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm

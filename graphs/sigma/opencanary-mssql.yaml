@@ -1,0 +1,41 @@
+spec_version: cacao-2.0
+name: opencanary-mssql
+description: |
+  Wazuh OpenCanary MSSQL honeypot (rule_id 100701). Tout contact avec un
+  honeypot est suspect par definition — aucun utilisateur legitime ne
+  doit toucher MSSQL sur ce host. Mais le bruit de fond reel existe
+  (scans fail2ban, decouverte reseau interne, outillage erratique). On
+  decide :
+  - Burst (>=3 signaux en 5 min sur l'asset honeypot) → reconnaissance
+    active, on emet un incident avec HITL block_ip sur l'IP source.
+  - Touche isolee → archive "bruit (touch canary unique)" pour que le
+    RSSI voie le count en /archives sans etre paged.
+trigger:
+  sigma_rule: wazuh-100701
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_noise
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan actif du honeypot MSSQL — bloquer l'IP source au plus vite"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "touch canary unique (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

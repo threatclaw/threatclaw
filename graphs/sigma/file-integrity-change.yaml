@@ -1,0 +1,25 @@
+spec_version: cacao-2.0
+name: file-integrity-change
+description: |
+  Wazuh FIM (file integrity monitoring) — rule_id 533. Un fichier
+  surveille a change sur disque. Cas d'usage :
+  - benign : update de paquet, deploy, push de config
+  - malveillant : implant depose, webshell, persistence cron/init
+
+  Pas de raccourci deterministe possible — le contexte importe (quel
+  fichier, qui, quand, est-ce qu'un deploy est en cours). On route au
+  L2 pour triage avec acces aux logs et au graph.
+trigger:
+  sigma_rule: wazuh-533
+steps:
+  start:
+    type: start
+    on_completion: route_llm
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 120
+    on_completion: terminal
+  terminal:
+    type: end
