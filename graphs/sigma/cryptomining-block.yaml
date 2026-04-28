@@ -1,0 +1,42 @@
+spec_version: cacao-2.0
+name: cryptomining-block
+description: |
+  Sigma "Block toward cryptomining proxy" : trafic vers proxy/pool de
+  minage bloque. C'est un signal *tres* different des autres firewall
+  blocks : quand ça vient d'un asset INTERNE, c'est une compromission
+  potentielle (CryptoJacker / malware).
+
+  - Asset interne (asset_in_graph) → ESCALATE incident (HITL pour isoler)
+  - Asset externe / non-resolu → archive (firewall a fait son boulot)
+trigger:
+  sigma_rule: opnsense-fw-005
+steps:
+  start:
+    type: start
+    on_completion: check_internal_source
+  check_internal_source:
+    type: if-condition
+    condition: "graph.asset_in_graph"
+    on_true: emit_incident
+    on_false: archive_external
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Asset interne tente du cryptomining — isolation prioritaire"
+          requires_hitl: true
+        - cmd_id: opnsense_block_ip
+          rationale: "Bloquer le pool de minage de maniere permanente"
+          requires_hitl: true
+    on_completion: terminal
+  archive_external:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "resolu par firewall — source externe bloquee, asset non-interne"
+    on_completion: terminal
+  terminal:
+    type: end

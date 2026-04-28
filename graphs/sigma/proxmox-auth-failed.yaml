@@ -1,0 +1,35 @@
+spec_version: cacao-2.0
+name: proxmox-auth-failed
+description: |
+  Sigma "Proxmox auth failed" : echec auth sur l'hyperviseur. Compromission
+  Proxmox = compromission des VMs hebergees, donc treatment proche du
+  firewall (asset critique de facto).
+trigger:
+  sigma_rule: proxmox-001
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_typo
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: proxmox_block_ip
+          rationale: "Brute force admin Proxmox confirme — bloquer la source"
+          requires_hitl: true
+    on_completion: terminal
+  archive_typo:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "echec d'auth Proxmox isole — probable typo"
+    on_completion: terminal
+  terminal:
+    type: end

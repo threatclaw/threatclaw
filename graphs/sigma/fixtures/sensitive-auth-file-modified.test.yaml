@@ -1,0 +1,15 @@
+graph: sensitive-auth-file-modified
+cases:
+  - name: critical_emits_incident
+    ctx:
+      asset: { criticality_score: 8 }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: low_criticality_archives
+    ctx:
+      asset: { criticality_score: 4 }
+    expected:
+      outcome: archive
+      reason: "provisioning"

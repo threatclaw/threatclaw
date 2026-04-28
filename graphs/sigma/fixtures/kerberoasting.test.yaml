@@ -1,0 +1,7 @@
+graph: kerberoasting
+cases:
+  - name: always_critical
+    ctx: {}
+    expected:
+      outcome: incident
+      severity: critical

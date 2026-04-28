@@ -1,0 +1,39 @@
+spec_version: cacao-2.0
+name: local-user-created
+description: |
+  Sigma "Local User Created" (lnx-acct-001) : useradd / addgroup detecte.
+  Pattern persistance Linux classique — l'attaquant cree son compte
+  pour revenir.
+
+  - Asset critique → INCIDENT (pas d'auto-action — l'humain decide quoi
+    faire du compte)
+  - Asset non-critique → archive (bruit — provisioning legitime probable)
+trigger:
+  sigma_rule: lnx-acct-001
+steps:
+  start:
+    type: start
+    on_completion: check_criticality
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: archive_provisioning
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: velociraptor_collect_artifacts
+          rationale: "Collecter /etc/passwd, bash_history, syslog pour identifier qui a cree le compte et pourquoi"
+          requires_hitl: true
+    on_completion: terminal
+  archive_provisioning:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "creation de compte sur asset non-critique — probable provisioning legitime"
+    on_completion: terminal
+  terminal:
+    type: end

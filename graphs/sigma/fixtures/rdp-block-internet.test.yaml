@@ -1,0 +1,15 @@
+graph: rdp-block-internet
+cases:
+  - name: scan_burst_emits_incident
+    ctx:
+      signals: { recent_count_5m: 12 }
+    expected:
+      outcome: incident
+      severity: medium
+
+  - name: isolated_archive
+    ctx:
+      signals: { recent_count_5m: 1 }
+    expected:
+      outcome: archive
+      reason: "resolu par firewall"

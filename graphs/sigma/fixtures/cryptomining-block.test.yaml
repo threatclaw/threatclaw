@@ -1,0 +1,15 @@
+graph: cryptomining-block
+cases:
+  - name: internal_asset_emits_incident
+    ctx:
+      graph: { asset_in_graph: true }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: external_source_archives
+    ctx:
+      graph: { asset_in_graph: false }
+    expected:
+      outcome: archive
+      reason: "resolu par firewall"

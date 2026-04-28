@@ -1,0 +1,37 @@
+spec_version: cacao-2.0
+name: admin-group-membership-change
+description: |
+  Sigma "Admin Group Membership Change" (win-auth-007) : ajout d'un
+  compte a Domain Admins / Enterprise Admins / Schema Admins. Si ça se
+  fait pendant les heures de bureau par un admin connu = legitime ;
+  sinon = persistance d'attaquant.
+
+  - Asset critique (DC) → toujours route LLM (le LLM doit verifier le
+    contexte temporel + utilisateur)
+  - Asset non-DC → archive (probablement un admin local non-domain-admin
+    qui change un groupe local — bruit)
+trigger:
+  sigma_rule: win-auth-007
+steps:
+  start:
+    type: start
+    on_completion: check_critical_asset
+  check_critical_asset:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_local
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_local:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "groupe admin local sur asset non-critique — verifier en revue hebdo"
+    on_completion: terminal
+  terminal:
+    type: end

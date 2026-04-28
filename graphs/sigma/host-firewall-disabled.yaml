@@ -1,0 +1,40 @@
+spec_version: cacao-2.0
+name: host-firewall-disabled
+description: |
+  Sigma "Host Firewall Disabled" (lnx-evasion-001) : iptables/nftables/
+  firewalld desactive sur Linux. Possible legitime (admin qui debug)
+  mais hors fenetre maintenance c'est un signal d'attaque post-compromis
+  preparant la lateralisation.
+
+  Asset critique → INCIDENT immediate. Asset non-critique ou isole →
+  route LLM (le LLM tranche selon le contexte du dossier — ex: heure
+  ouvree, autres signaux, etc.).
+trigger:
+  sigma_rule: lnx-evasion-001
+steps:
+  start:
+    type: start
+    on_completion: check_criticality
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Firewall host desactive sur asset critique — preparation lateralisation"
+          requires_hitl: true
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

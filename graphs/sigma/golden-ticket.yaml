@@ -1,0 +1,30 @@
+spec_version: cacao-2.0
+name: golden-ticket
+description: |
+  Sigma "Golden Ticket — Suspicious TGT" (win-auth-004) : TGT forge
+  detecte (lifetime anormal, signature suspecte). Le hash krbtgt est
+  compromis — l'attaquant peut forger des tickets indefinis.
+
+  Toujours INCIDENT critical. Action : reset krbtgt deux fois (cf
+  Microsoft KB) + isolement des assets source qui presentent le ticket.
+trigger:
+  sigma_rule: win-auth-004
+steps:
+  start:
+    type: start
+    on_completion: emit_incident
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - cmd_id: ad_reset_krbtgt
+          rationale: "Krbtgt compromis — reset double mandatory (cf Microsoft KB)"
+          requires_hitl: true
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Isoler les assets qui presentent le golden ticket"
+          requires_hitl: true
+    on_completion: terminal
+  terminal:
+    type: end

@@ -350,6 +350,26 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::tc_health_handler),
         )
         .route(
+            "/api/tc/admin/queue-state",
+            get(super::handlers::threatclaw_api::admin_queue_state_handler),
+        )
+        .route(
+            "/api/tc/security/attack-paths",
+            get(super::handlers::threatclaw_api::security_attack_paths_handler),
+        )
+        .route(
+            "/api/tc/security/attack-paths/recompute",
+            post(super::handlers::threatclaw_api::security_attack_paths_recompute_handler),
+        )
+        .route(
+            "/api/tc/security/choke-points",
+            get(super::handlers::threatclaw_api::security_choke_points_handler),
+        )
+        .route(
+            "/api/tc/graph-executions",
+            get(super::handlers::threatclaw_api::graph_executions_list_handler),
+        )
+        .route(
             "/api/tc/findings",
             get(super::handlers::threatclaw_api::findings_list_handler),
         )

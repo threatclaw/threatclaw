@@ -1,0 +1,24 @@
+spec_version: cacao-2.0
+name: shadow-ai-commercial-tls
+description: |
+  Sigma "Shadow AI — Commercial LLM API (TLS SNI)" (shadow-ai-001) :
+  detection de connexion vers OpenAI/Anthropic/Mistral cloud depuis le
+  reseau corporate, hors politique. Pattern compliance / fuite de
+  donnees (employes qui collent du code prive dans ChatGPT).
+
+  Pas une attaque — c'est un signal hygiene. On archive avec motif
+  explicit pour que ça apparaisse en revue hebdo "Shadow AI".
+trigger:
+  sigma_rule: shadow-ai-001
+steps:
+  start:
+    type: start
+    on_completion: archive_compliance
+  archive_compliance:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "shadow AI detecte — revue hebdo compliance, pas une attaque"
+    on_completion: terminal
+  terminal:
+    type: end

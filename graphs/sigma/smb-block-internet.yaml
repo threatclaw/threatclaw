@@ -1,0 +1,37 @@
+spec_version: cacao-2.0
+name: smb-block-internet
+description: |
+  Sigma "Block SMB from Internet" : SMB depuis Internet (port 445/139)
+  bloque. Pattern "deja gere" — SMB Internet = WannaCry-style scan ou
+  reconnaissance pre-attaque.
+
+  Archive si hit isole. Escalate si volume burst (>= 10 en 5 min).
+trigger:
+  sigma_rule: opnsense-fw-003
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: emit_incident
+    on_false: archive_handled
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: medium
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan SMB dirige depuis Internet — durcir le block"
+          requires_hitl: true
+    on_completion: terminal
+  archive_handled:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "resolu par firewall — SMB Internet bloque, hit isole"
+    on_completion: terminal
+  terminal:
+    type: end

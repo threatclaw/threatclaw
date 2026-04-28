@@ -1,0 +1,36 @@
+graph: ssh-bruteforce
+cases:
+  - name: confirmed_volume_critical_asset_emits_incident
+    ctx:
+      signals: { recent_count_5m: 8 }
+      graph: { asset_in_graph: true }
+      asset: { criticality_score: 9 }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: confirmed_volume_isolated_asset_archives
+    ctx:
+      signals: { recent_count_5m: 8 }
+      graph: { asset_in_graph: false }
+    expected:
+      outcome: archive
+      reason: "non corrobore"
+
+  - name: low_volume_routes_to_llm
+    ctx:
+      signals: { recent_count_5m: 2 }
+      graph: { asset_in_graph: true }
+      asset: { criticality_score: 5 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: confirmed_volume_low_criticality_routes_to_llm
+    ctx:
+      signals: { recent_count_5m: 8 }
+      graph: { asset_in_graph: true }
+      asset: { criticality_score: 5 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm

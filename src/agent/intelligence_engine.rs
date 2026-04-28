@@ -349,6 +349,45 @@ pub struct GraphIntelSummary {
 /// id, scanner name, ...). When no specific template matches we fall
 /// back to a generic but still informative form: severity + count of
 /// signals + asset + first source.
+/// Translate common English phrases imported from Wazuh / ML / scanners
+/// to French. The ingested findings keep their raw English titles
+/// (we don't own those producers), so we map the recurrent patterns at
+/// display time for the FR locale (default for ThreatClaw).
+fn translate_finding_title_fr(raw: &str) -> String {
+    let mut t = raw.to_string();
+    let pairs: &[(&str, &str)] = &[
+        // ML DBSCAN
+        ("Behavioral outlier:", "Anomalie comportementale :"),
+        ("Behavioral anomaly detected:", "Anomalie comportementale détectée :"),
+        ("deviates from", "s'écarte de"),
+        ("similar assets", "assets similaires"),
+        // Wazuh OpenCanary
+        ("OpenCanary: Telnet login attempt", "OpenCanary — tentative de login Telnet"),
+        ("OpenCanary: SSH login attempt", "OpenCanary — tentative de login SSH"),
+        ("OpenCanary: port scan recorded", "OpenCanary — scan de ports détecté"),
+        ("OpenCanary: HTTP login attempt", "OpenCanary — tentative de login HTTP"),
+        ("OpenCanary: FTP login attempt", "OpenCanary — tentative de login FTP"),
+        // Wazuh generic
+        ("Failed authentication attempts", "Échecs d'authentification répétés"),
+        ("Multiple authentication failures", "Échecs d'authentification multiples"),
+        ("Successful sudo to ROOT", "Élévation sudo vers root réussie"),
+        ("Possible kernel level rootkit", "Rootkit niveau noyau possible"),
+        // Sigma generic
+        ("auth failed", "échec d'authentification"),
+        ("admin login", "login admin"),
+        ("config changed", "configuration modifiée"),
+        ("port scan", "scan de ports"),
+        ("brute force", "brute force"),
+        // Scanners (Trivy / Nuclei / etc.)
+        ("Critical CVE found", "CVE critique trouvée"),
+        ("High severity vulnerability", "Vulnérabilité de sévérité haute"),
+    ];
+    for (en, fr) in pairs {
+        t = t.replace(en, fr);
+    }
+    t
+}
+
 fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDossier) -> String {
     let top = dossier.findings.first();
     let asset = if dossier.primary_asset.is_empty() {
@@ -358,6 +397,10 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
     };
     let count = dossier.findings.len();
     if let Some(f) = top {
+        // Keep the original English title for pattern matching below
+        // (the lc.contains() tests target the EN raw form), then use
+        // the FR-translated version when we fall through to the
+        // generic format at the end.
         let title = f.title.trim();
         let source_ip = f
             .metadata
@@ -424,14 +467,17 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         {
             return format!("Anomalie DNS sur {asset}");
         }
-        // Generic fallback that's still useful.
+        // Generic fallback that's still useful. Use the FR-translated
+        // form so the RSSI doesn't see "Behavioral outlier deviates
+        // from..." in the middle of an otherwise French UI.
+        let title_fr = translate_finding_title_fr(title);
         if count > 1 {
             format!(
-                "{count} signaux {} sur {asset} — {title}",
+                "{count} signaux {} sur {asset} — {title_fr}",
                 f.severity.to_lowercase()
             )
         } else {
-            format!("{title} sur {asset}")
+            format!("{title_fr} sur {asset}")
         }
     } else {
         // No findings (rare — patterns like firewall_detection without a
@@ -2651,6 +2697,29 @@ pub fn spawn_intelligence_ticker(
                             let inv_key_owned = inv_key.clone();
 
                             tokio::spawn(async move {
+                                // Phase G1b — parallel-run : on tente d'enqueue
+                                // le dossier dans la queue d'Investigation Graph
+                                // (best-effort, non bloquant). Si un graph
+                                // match le sigma_rule, le graph_step worker le
+                                // pull et persiste son verdict en
+                                // `graph_executions`. ReAct continue de tourner
+                                // ci-dessous en doublon — les deux verdicts
+                                // sont comparés offline pour calibrer les graphs
+                                // avant de couper ReAct (G1e).
+                                if let Some(exec_id) =
+                                    crate::agent::task_queue::try_enqueue_graph_for_dossier(
+                                        &store_inv,
+                                        &dossier,
+                                    )
+                                    .await
+                                {
+                                    tracing::info!(
+                                        "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
+                                        dossier.id,
+                                        exec_id
+                                    );
+                                }
+
                                 // Serialize: only 1 LLM investigation at a time (CPU-bound Ollama).
                                 let _permit = INVESTIGATION_SEMAPHORE.acquire().await.ok();
                                 let llm_config =
@@ -2692,6 +2761,9 @@ pub fn spawn_intelligence_ticker(
                                 let mut parsed_mitre: Vec<String> = vec![];
                                 let mut parsed_iocs: Vec<String> = vec![];
                                 let mut parsed_actions: Vec<serde_json::Value> = vec![];
+                                // Short FR title — prefer L2's rewrite, fall back to L1's, then to the heuristic.
+                                let mut parsed_title_fr: Option<String> =
+                                    result.incident_title_fr.clone();
                                 if result.verdict.should_notify() {
                                     tracing::info!(
                                         "INVESTIGATION: Enriching verdict with L2 (forensic) for {}",
@@ -2705,12 +2777,13 @@ pub fn spawn_intelligence_ticker(
                                          Analyse initiale : {l1}\n\n\
                                          Réponds en JSON avec EXACTEMENT ces clés :\n\
                                          {{\n\
+                                           \"incident_title_fr\": \"Titre court FR pour la carte d'incident (max 110 caractères, factuel, format ≪ Brute force SSH sur srv-01-dom (12 échecs en 3 min) ≫)\",\n\
                                            \"summary\": \"1-2 phrases décrivant ce qui s'est passé\",\n\
                                            \"mitre_attck\": [\"T1110 Brute Force\", \"T1078 Valid Accounts\"],\n\
                                            \"ioc\": [\"IP: 1.2.3.4\", \"hash: abc123\"],\n\
                                            \"actions\": [\"Bloquer l'IP source\", \"Réinitialiser les mots de passe\", \"Vérifier les logs\"]\n\
                                          }}\n\
-                                         Maximum 4 clés. Sois factuel, concis, maximum 15 lignes au total.",
+                                         Sois factuel, concis, maximum 15 lignes au total.",
                                         asset = asset_name,
                                         dossier = dossier.summary(),
                                         l1 = result.verdict.analysis_text()
@@ -2762,6 +2835,16 @@ pub fn spawn_intelligence_ticker(
                                             });
 
                                             if let Some(obj) = parsed {
+                                                // Extract FR title (preferred over L1's title)
+                                                if let Some(t) = obj
+                                                    .get("incident_title_fr")
+                                                    .and_then(|v| v.as_str())
+                                                {
+                                                    let t = t.trim();
+                                                    if !t.is_empty() {
+                                                        parsed_title_fr = Some(t.to_string());
+                                                    }
+                                                }
                                                 // Extract summary
                                                 if let Some(s) =
                                                     obj.get("summary").and_then(|v| v.as_str())
@@ -2918,6 +3001,28 @@ pub fn spawn_intelligence_ticker(
                                         result.verdict.verdict_type(),
                                         result.verdict.confidence() * 100.0
                                     );
+
+                                    // If the LLM produced a clean FR title, overwrite the
+                                    // heuristic title set at incident creation. Cap at 120
+                                    // chars (schema enforces ≤120 — defense in depth).
+                                    if let Some(t) = parsed_title_fr.as_ref() {
+                                        let t = t.trim();
+                                        if !t.is_empty() {
+                                            let trimmed: String = if t.chars().count() > 120 {
+                                                t.chars().take(120).collect()
+                                            } else {
+                                                t.to_string()
+                                            };
+                                            let _ = store_inv
+                                                .update_incident_title(incident_id, &trimmed)
+                                                .await;
+                                            tracing::info!(
+                                                "INCIDENT #{}: title rewritten by LLM ({} chars)",
+                                                incident_id,
+                                                trimmed.chars().count()
+                                            );
+                                        }
+                                    }
 
                                     // See ADR-048.
                                     crate::agent::blast_radius_trigger::try_auto_trigger(

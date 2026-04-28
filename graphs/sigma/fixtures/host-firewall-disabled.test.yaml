@@ -1,0 +1,15 @@
+graph: host-firewall-disabled
+cases:
+  - name: critical_asset_emits_incident
+    ctx:
+      asset: { criticality_score: 8 }
+    expected:
+      outcome: incident
+      severity: high
+
+  - name: low_criticality_routes_to_llm
+    ctx:
+      asset: { criticality_score: 4 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm

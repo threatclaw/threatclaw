@@ -972,6 +972,13 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
 
+    /// Overwrite the incident title with a short LLM-rewritten label
+    /// (≤120 chars). Called when L1/L2 returns a non-empty `incident_title_fr`
+    /// that improves on the heuristic title set at incident creation
+    /// (see `humanize_incident_title`).
+    async fn update_incident_title(&self, id: i32, title: &str)
+    -> Result<(), DatabaseError>;
+
     // ── Suppression rules (See ADR-047) ──
 
     async fn list_suppression_rules(
@@ -1101,4 +1108,117 @@ pub trait ThreatClawStore: Send + Sync {
         text: &str,
         author: &str,
     ) -> Result<(), DatabaseError>;
+
+    // ── Phase G1b — task_queue + graph_executions (V62) ──
+
+    /// Push une nouvelle task dans `task_queue`. Renvoie l'id alloué.
+    async fn enqueue_task(
+        &self,
+        task: &crate::agent::task_queue::NewTask,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Pull la prochaine task `queued` du kind donné. Atomique (FOR UPDATE
+    /// SKIP LOCKED) — les workers concurrents grab des rows différentes.
+    /// Retourne `None` si la queue est vide pour ce kind.
+    async fn claim_next_task(
+        &self,
+        kind: crate::agent::task_queue::TaskKind,
+        worker_id: &str,
+    ) -> Result<Option<crate::agent::task_queue::Task>, DatabaseError>;
+
+    /// Marque la task `done` avec son résultat.
+    async fn complete_task(
+        &self,
+        id: i64,
+        result: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
+    /// Marque la task `error`. Si `attempts < max_attempts`, le caller
+    /// peut rééenqueue (logique applicative, pas DB).
+    async fn fail_task(&self, id: i64, error: &str) -> Result<(), DatabaseError>;
+
+    /// Recovery au boot : remet en `queued` les tasks `running` plus
+    /// vieilles que `older_than_secs` (worker mort sans nettoyage).
+    /// Retourne le nombre de rows recovered.
+    async fn recover_stale_tasks(&self, older_than_secs: i64) -> Result<i64, DatabaseError>;
+
+    /// Comptage par status — utilisé par le check de backpressure pour
+    /// décider si on accepte de nouveaux graphs.
+    async fn count_tasks_by_status(
+        &self,
+    ) -> Result<crate::agent::task_queue::QueueDepths, DatabaseError>;
+
+    /// Crée une row dans `graph_executions` au démarrage d'un graph.
+    /// Renvoie l'id alloué (sert de `graph_run_id` aux tasks enfants).
+    async fn create_graph_execution(
+        &self,
+        exec: &crate::agent::task_queue::NewGraphExecution,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Update du status final d'un graph (archived/incident/inconclusive/failed).
+    /// Persiste la trace JSON et marque finished_at + duration_ms.
+    async fn finalize_graph_execution(
+        &self,
+        id: i64,
+        status: crate::agent::task_queue::GraphExecutionStatus,
+        archive_reason: Option<&str>,
+        incident_id: Option<i32>,
+        trace: &serde_json::Value,
+        error: Option<&str>,
+    ) -> Result<(), DatabaseError>;
+
+    // ── Phase G2 — attack_paths_predicted (V63) ──
+
+    /// Bulk-insert d'un batch de paths d'un même run. Renvoie le nombre
+    /// inséré.
+    async fn insert_attack_paths(
+        &self,
+        paths: &[crate::agent::path_risk::AttackPath],
+    ) -> Result<i64, DatabaseError>;
+
+    /// Top-N paths du dernier run (par score décroissant). Utilisé par
+    /// l'endpoint API + future page UI.
+    async fn latest_attack_paths(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::agent::path_risk::AttackPath>, DatabaseError>;
+
+    /// Phase G3 — Top-N choke points : nœuds qui apparaissent dans le
+    /// plus grand nombre d'attack_paths du dernier run, pondérés par le
+    /// score des paths. Patcher ces nœuds = casser le plus de paths.
+    async fn latest_choke_points(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ChokePoint>, DatabaseError>;
+
+    /// Phase G4a — list les `graph_executions` filtrables par status,
+    /// asset, motif d'archive, période. Pour pages /enquetes et /archives.
+    async fn list_graph_executions(
+        &self,
+        filter: &GraphExecutionsFilter,
+    ) -> Result<Vec<crate::agent::task_queue::GraphExecutionRecord>, DatabaseError>;
+}
+
+/// Phase G4 — filtre côté list_graph_executions.
+#[derive(Debug, Clone, Default)]
+pub struct GraphExecutionsFilter {
+    /// "running" | "archived" | "incident" | "inconclusive" | "failed"
+    pub status: Option<String>,
+    pub asset_id: Option<String>,
+    pub archive_reason: Option<String>,
+    pub since_hours: Option<i64>,
+    pub limit: i64,
+}
+
+/// Phase G3 — un choke point dans le top-N : asset qui, durci, casse N
+/// chemins d'attaque (avec poids = somme des scores).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChokePoint {
+    pub asset: String,
+    /// Nombre de paths du dernier run qui passent par cet asset.
+    pub paths_through: i64,
+    /// Somme des scores des paths qui le traversent.
+    pub weighted_score: f64,
+    /// Top-3 des assets cibles (crown jewels) accessibles via ce choke point.
+    pub top_targets: Vec<String>,
 }

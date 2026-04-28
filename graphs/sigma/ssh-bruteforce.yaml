@@ -1,0 +1,60 @@
+spec_version: cacao-2.0
+name: ssh-bruteforce
+description: |
+  Sigma "SSH brute force" : >= 5 echecs SSH en 5 min sur le meme asset.
+  - Si volume confirme ET asset critique (criticality >= 7) : on emet un
+    incident avec action HITL block_ip proposee au RSSI.
+  - Si volume confirme MAIS asset isolee du graph (pas de contexte) :
+    on archive "non corrobore" pour eviter la pollution incidents.
+  - Cas intermediaires (asset connue mais pas critique) : route LLM.
+
+  Predicats CEL : variables disponibles = alert, asset, dossier, signals,
+  graph (cf. agent::investigation_graph::cel_eval::EvalContext). Les
+  compteurs temporels (`signals.recent_count_5m`) et le score de
+  criticite (`asset.criticality`) sont precalcules par l'executor avant
+  l'evaluation.
+trigger:
+  sigma_rule: ssh_brute_force
+steps:
+  start:
+    type: start
+    on_completion: check_count
+  check_count:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 5"
+    on_true: check_asset_known
+    on_false: route_llm
+  check_asset_known:
+    type: if-condition
+    condition: "graph.asset_in_graph"
+    on_true: check_criticality
+    on_false: archive_isolated
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "SSH brute force confirme sur asset critique"
+          requires_hitl: true
+    on_completion: terminal
+  archive_isolated:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "non corrobore - asset isolee"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

@@ -1,0 +1,7 @@
+graph: powershell-reverse-shell
+cases:
+  - name: always_critical
+    ctx: {}
+    expected:
+      outcome: incident
+      severity: critical

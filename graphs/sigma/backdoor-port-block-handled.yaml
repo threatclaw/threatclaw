@@ -1,0 +1,42 @@
+spec_version: cacao-2.0
+name: backdoor-port-block-handled
+description: |
+  Sigma "backdoor port block" : si le pare-feu a deja bloque le trafic
+  ET la source n'est pas connue dans le graph d'assets, on archive avec
+  motif "resolu par firewall". Sinon (firewall n'a pas bloque, ou source
+  est un asset interne potentiellement compromis), on route vers le LLM.
+
+  Predicats CEL : variables disponibles = alert, asset, dossier, signals,
+  graph (cf. agent::investigation_graph::cel_eval::EvalContext). Tout est
+  precalcule cote Rust avant l'evaluation — y compris graph.asset_in_graph
+  qui est un booleen, pas un appel de fonction.
+trigger:
+  sigma_rule: backdoor_port_block
+steps:
+  start:
+    type: start
+    on_completion: check_firewall_action
+  check_firewall_action:
+    type: if-condition
+    condition: "alert.firewall_action == 'block'"
+    on_true: check_source_unknown
+    on_false: route_llm
+  check_source_unknown:
+    type: if-condition
+    condition: "graph.asset_in_graph"
+    on_true: route_llm
+    on_false: archive_handled
+  archive_handled:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "resolu par firewall"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

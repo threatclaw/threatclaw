@@ -1,0 +1,31 @@
+spec_version: cacao-2.0
+name: kerberoasting
+description: |
+  Sigma "Kerberoasting — RC4 TGS Request" (win-auth-001) : tentative
+  d'extraction de hash Kerberos via TGS RC4. Pas d'ambiguite possible —
+  RC4 est obsolete depuis 2017, son usage = attaquant offline crackant
+  des hash service.
+
+  Toujours INCIDENT, asset critique ou pas. L'asset cible n'est pas le
+  point — c'est la presence du pattern qui est anormale.
+trigger:
+  sigma_rule: win-auth-001
+steps:
+  start:
+    type: start
+    on_completion: emit_incident
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - cmd_id: ad_reset_password
+          rationale: "Reset le compte service cible avant qu'il soit casse offline"
+          requires_hitl: true
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Isoler l'asset source de la requete TGS"
+          requires_hitl: true
+    on_completion: terminal
+  terminal:
+    type: end

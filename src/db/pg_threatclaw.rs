@@ -2093,6 +2093,21 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn update_incident_title(
+        &self,
+        id: i32,
+        title: &str,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET title = $2, updated_at = NOW() WHERE id = $1",
+            &[&id, &title],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn list_suppression_rules(
         &self,
         enabled_only: bool,
@@ -2835,6 +2850,442 @@ impl ThreatClawStore for PgBackend {
                 sample_dst_ips: r.try_get::<_, Vec<String>>(7).unwrap_or_default(),
             })
             .collect())
+    }
+
+    // ── Phase G1b — task_queue + graph_executions (V62) ──
+
+    async fn enqueue_task(
+        &self,
+        task: &crate::agent::task_queue::NewTask,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let kind_str = task.kind.as_str();
+        let row = conn
+            .query_one(
+                "INSERT INTO task_queue (kind, graph_run_id, payload, priority, max_attempts) \
+                 VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                &[
+                    &kind_str,
+                    &task.graph_run_id,
+                    &task.payload,
+                    &task.priority,
+                    &task.max_attempts,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn claim_next_task(
+        &self,
+        kind: crate::agent::task_queue::TaskKind,
+        worker_id: &str,
+    ) -> Result<Option<crate::agent::task_queue::Task>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let kind_str = kind.as_str();
+        // Atomic claim : SELECT FOR UPDATE SKIP LOCKED garantit que deux
+        // workers n'attrapent jamais la même row, et UPDATE flips status
+        // + bumpe attempts dans la même tx.
+        let row = conn
+            .query_opt(
+                "WITH claimed AS ( \
+                    SELECT id FROM task_queue \
+                    WHERE status = 'queued' AND kind = $1 \
+                    ORDER BY priority ASC, created_at ASC \
+                    LIMIT 1 \
+                    FOR UPDATE SKIP LOCKED \
+                 ) \
+                 UPDATE task_queue q \
+                 SET status = 'running', \
+                     started_at = now(), \
+                     worker_id = $2, \
+                     attempts = q.attempts + 1 \
+                 FROM claimed c \
+                 WHERE q.id = c.id \
+                 RETURNING q.id, q.kind, q.graph_run_id, q.payload, q.status, \
+                           q.priority, q.attempts, q.max_attempts, q.created_at, \
+                           q.started_at, q.completed_at, q.worker_id, q.result, q.error",
+                &[&kind_str, &worker_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(parse_task_row))
+    }
+
+    async fn complete_task(
+        &self,
+        id: i64,
+        result: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE task_queue \
+             SET status = 'done', completed_at = now(), result = $2 \
+             WHERE id = $1",
+            &[&id, &result],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn fail_task(&self, id: i64, error: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE task_queue \
+             SET status = 'error', completed_at = now(), error = $2 \
+             WHERE id = $1",
+            &[&id, &error],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn recover_stale_tasks(&self, older_than_secs: i64) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let interval = format!("{} seconds", older_than_secs);
+        let row = conn
+            .query_one(
+                "WITH recovered AS ( \
+                    UPDATE task_queue \
+                    SET status = 'queued', worker_id = NULL, started_at = NULL \
+                    WHERE status = 'running' AND started_at < now() - $1::interval \
+                    RETURNING 1 \
+                 ) SELECT COUNT(*)::bigint FROM recovered",
+                &[&interval],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn count_tasks_by_status(
+        &self,
+    ) -> Result<crate::agent::task_queue::QueueDepths, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT status, COUNT(*)::bigint FROM task_queue \
+                 WHERE status IN ('queued', 'running') \
+                 GROUP BY status",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        let mut depths = crate::agent::task_queue::QueueDepths::default();
+        for r in rows {
+            let status: String = r.get(0);
+            let count: i64 = r.get(1);
+            match status.as_str() {
+                "queued" => depths.queued = count,
+                "running" => depths.running = count,
+                _ => {}
+            }
+        }
+        Ok(depths)
+    }
+
+    async fn create_graph_execution(
+        &self,
+        exec: &crate::agent::task_queue::NewGraphExecution,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO graph_executions (graph_name, sigma_alert_id, asset_id) \
+                 VALUES ($1, $2, $3) RETURNING id",
+                &[&exec.graph_name, &exec.sigma_alert_id, &exec.asset_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn insert_attack_paths(
+        &self,
+        paths: &[crate::agent::path_risk::AttackPath],
+    ) -> Result<i64, DatabaseError> {
+        if paths.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let mut count = 0i64;
+        for p in paths {
+            let hops_i16: i16 = p.hops;
+            let epss = p.epss_max;
+            conn.execute(
+                "INSERT INTO attack_paths_predicted \
+                 (run_id, src_asset, dst_asset, path_assets, hops, score, \
+                  epss_max, has_kev, cves_chain, mitre_techniques, explanation) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                &[
+                    &p.run_id,
+                    &p.src_asset,
+                    &p.dst_asset,
+                    &p.path_assets,
+                    &hops_i16,
+                    &p.score,
+                    &epss,
+                    &p.has_kev,
+                    &p.cves_chain,
+                    &p.mitre_techniques,
+                    &p.explanation,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+            count += 1;
+        }
+        Ok(count)
+    }
+
+    async fn latest_attack_paths(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::agent::path_risk::AttackPath>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Le run le plus récent (= computed_at max) puis Top-N par score.
+        let rows = conn
+            .query(
+                "WITH last_run AS ( \
+                    SELECT run_id FROM attack_paths_predicted \
+                    ORDER BY computed_at DESC LIMIT 1 \
+                 ) \
+                 SELECT id, run_id, src_asset, dst_asset, path_assets, hops, \
+                        score, epss_max, has_kev, cves_chain, mitre_techniques, \
+                        explanation, computed_at \
+                 FROM attack_paths_predicted \
+                 WHERE run_id = (SELECT run_id FROM last_run) \
+                 ORDER BY score DESC LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::agent::path_risk::AttackPath {
+                run_id: r.get(1),
+                src_asset: r.get(2),
+                dst_asset: r.get(3),
+                path_assets: r.get(4),
+                hops: r.get(5),
+                score: r.get(6),
+                epss_max: r.try_get(7).ok(),
+                has_kev: r.get(8),
+                cves_chain: r.try_get(9).unwrap_or_default(),
+                mitre_techniques: r.try_get(10).unwrap_or_default(),
+                explanation: r.try_get(11).ok(),
+                computed_at: r.get(12),
+            })
+            .collect())
+    }
+
+    async fn list_graph_executions(
+        &self,
+        filter: &crate::db::threatclaw_store::GraphExecutionsFilter,
+    ) -> Result<Vec<crate::agent::task_queue::GraphExecutionRecord>, DatabaseError> {
+        use crate::agent::task_queue::{GraphExecutionRecord, GraphExecutionStatus};
+
+        let conn = self.pool().get().await.map_err(pool_err)?;
+
+        // Build dynamic WHERE — petit nombre de paramètres, on accumule
+        // un Vec<&(dyn ToSql + Sync)> et on construit la SQL en
+        // remplaçant $N au fur et à mesure.
+        let mut sql = String::from(
+            "SELECT id, graph_name, sigma_alert_id, asset_id, status, archive_reason, \
+                    incident_id, trace, started_at, finished_at, duration_ms, error \
+             FROM graph_executions WHERE 1=1",
+        );
+        let mut idx = 1;
+        let limit = filter.limit.clamp(1, 500);
+
+        let status_owned: Option<String> = filter.status.clone();
+        let asset_owned: Option<String> = filter.asset_id.clone();
+        let reason_owned: Option<String> = filter.archive_reason.clone();
+        let since_owned: Option<String> = filter
+            .since_hours
+            .map(|h| format!("{} hours", h));
+
+        if status_owned.is_some() {
+            sql.push_str(&format!(" AND status = ${}", idx));
+            idx += 1;
+        }
+        if asset_owned.is_some() {
+            sql.push_str(&format!(" AND asset_id = ${}", idx));
+            idx += 1;
+        }
+        if reason_owned.is_some() {
+            sql.push_str(&format!(" AND archive_reason = ${}", idx));
+            idx += 1;
+        }
+        if since_owned.is_some() {
+            sql.push_str(&format!(" AND started_at > now() - ${}::interval", idx));
+            idx += 1;
+        }
+        sql.push_str(&format!(
+            " ORDER BY started_at DESC LIMIT ${}",
+            idx
+        ));
+
+        let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
+        if let Some(s) = status_owned.as_ref() {
+            params.push(s);
+        }
+        if let Some(a) = asset_owned.as_ref() {
+            params.push(a);
+        }
+        if let Some(r) = reason_owned.as_ref() {
+            params.push(r);
+        }
+        if let Some(i) = since_owned.as_ref() {
+            params.push(i);
+        }
+        params.push(&limit);
+
+        let rows = conn
+            .query(sql.as_str(), &params[..])
+            .await
+            .map_err(query_err)?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let status_str: String = r.get(4);
+                let status = GraphExecutionStatus::from_str(&status_str)
+                    .unwrap_or(GraphExecutionStatus::Failed);
+                GraphExecutionRecord {
+                    id: r.get(0),
+                    graph_name: r.get(1),
+                    sigma_alert_id: r.try_get(2).ok(),
+                    asset_id: r.try_get(3).ok(),
+                    status,
+                    archive_reason: r.try_get(5).ok(),
+                    incident_id: r.try_get(6).ok(),
+                    trace: r.try_get(7).ok(),
+                    started_at: r.get(8),
+                    finished_at: r.try_get(9).ok(),
+                    duration_ms: r.try_get(10).ok(),
+                    error: r.try_get(11).ok(),
+                }
+            })
+            .collect())
+    }
+
+    async fn latest_choke_points(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::db::threatclaw_store::ChokePoint>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Du dernier run, on UNNEST les path_assets en excluant le
+        // src_asset (pas un choke point — c'est l'entrée externe) et
+        // le dst_asset (la cible elle-même), puis on agrège.
+        let rows = conn
+            .query(
+                "WITH last_run AS ( \
+                    SELECT run_id FROM attack_paths_predicted \
+                    ORDER BY computed_at DESC LIMIT 1 \
+                 ), \
+                 hops AS ( \
+                    SELECT \
+                      unnest(p.path_assets) AS asset, \
+                      p.score, \
+                      p.dst_asset \
+                    FROM attack_paths_predicted p \
+                    WHERE p.run_id = (SELECT run_id FROM last_run) \
+                 ), \
+                 mid_only AS ( \
+                    SELECT h.asset, h.score, h.dst_asset \
+                    FROM hops h \
+                    JOIN attack_paths_predicted p ON p.run_id = (SELECT run_id FROM last_run) \
+                    WHERE h.asset != p.src_asset AND h.asset != p.dst_asset \
+                 ) \
+                 SELECT \
+                    asset, \
+                    COUNT(*)::bigint AS paths_through, \
+                    COALESCE(SUM(score), 0)::double precision AS weighted_score, \
+                    array_agg(DISTINCT dst_asset) FILTER (WHERE dst_asset IS NOT NULL) AS top_targets \
+                 FROM mid_only \
+                 GROUP BY asset \
+                 ORDER BY weighted_score DESC \
+                 LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let mut targets: Vec<String> = r.try_get(3).unwrap_or_default();
+                targets.truncate(3);
+                crate::db::threatclaw_store::ChokePoint {
+                    asset: r.get(0),
+                    paths_through: r.get(1),
+                    weighted_score: r.get(2),
+                    top_targets: targets,
+                }
+            })
+            .collect())
+    }
+
+    async fn finalize_graph_execution(
+        &self,
+        id: i64,
+        status: crate::agent::task_queue::GraphExecutionStatus,
+        archive_reason: Option<&str>,
+        incident_id: Option<i32>,
+        trace: &serde_json::Value,
+        error: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let status_str = status.as_str();
+        conn.execute(
+            "UPDATE graph_executions \
+             SET status = $2, \
+                 archive_reason = $3, \
+                 incident_id = $4, \
+                 trace = $5, \
+                 error = $6, \
+                 finished_at = now(), \
+                 duration_ms = EXTRACT(EPOCH FROM (now() - started_at))::int * 1000 \
+             WHERE id = $1",
+            &[
+                &id,
+                &status_str,
+                &archive_reason,
+                &incident_id,
+                trace,
+                &error,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+}
+
+// ── Helper: parse task_queue row ──
+
+fn parse_task_row(r: tokio_postgres::Row) -> crate::agent::task_queue::Task {
+    use crate::agent::task_queue::{Task, TaskKind, TaskStatus};
+    let kind_str: String = r.get(1);
+    let status_str: String = r.get(4);
+    Task {
+        id: r.get(0),
+        kind: TaskKind::from_str(&kind_str).unwrap_or(TaskKind::SkillCall),
+        graph_run_id: r.get(2),
+        payload: r.get(3),
+        status: TaskStatus::from_str(&status_str).unwrap_or(TaskStatus::Queued),
+        priority: r.get(5),
+        attempts: r.get(6),
+        max_attempts: r.get(7),
+        created_at: r.get(8),
+        started_at: r.get(9),
+        completed_at: r.get(10),
+        worker_id: r.get(11),
+        result: r.get(12),
+        error: r.get(13),
     }
 }
 

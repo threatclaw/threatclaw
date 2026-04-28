@@ -203,6 +203,44 @@ pub async fn tc_health_handler(
                     tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
                 }
 
+                // Start Investigation Graph task queue (Phase G1b) — recovery
+                // au boot puis 3 supervisors (LLM / skills / graph_step) qui
+                // pullent task_queue avec Semaphore pour borner la concurrence.
+                static TASK_QUEUE_RUNNING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !TASK_QUEUE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let store_for_tq = store_clone.clone();
+                    // graphs/sigma/ est shipé dans le repo, à la racine du
+                    // projet quand on tourne en dev. En prod (Docker), on
+                    // monte le dossier ou on l'embarque dans l'image — le
+                    // path est résolu via $TC_GRAPHS_DIR avec fallback
+                    // sur ./graphs/sigma.
+                    let graphs_dir = std::env::var("TC_GRAPHS_DIR")
+                        .unwrap_or_else(|_| "graphs/sigma".to_string());
+                    tokio::spawn(async move {
+                        let path = std::path::PathBuf::from(&graphs_dir);
+                        crate::agent::task_queue::boot(store_for_tq, &path).await;
+                    });
+                }
+
+                // Phase G2 — predictive attack-path batch (toutes les 6h).
+                static PATH_RISK_RUNNING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !PATH_RISK_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let interval_h = std::env::var("TC_PATH_RISK_INTERVAL_HOURS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(6);
+                    crate::agent::path_risk::spawn_attack_path_scheduler(
+                        store_clone.clone(),
+                        interval_h,
+                    );
+                    tracing::info!(
+                        "AUTO-START: Attack-path predictive scheduler online (every {} h)",
+                        interval_h
+                    );
+                }
+
                 // Seed MITRE Mitigation playbooks once at boot. Idempotent
                 // (upsert_coa keys on the explicit "coa--mitre-m####" id),
                 // so subsequent restarts are no-ops. The catalogue is
@@ -444,6 +482,135 @@ pub async fn alerts_counts_handler(
             .map(|(label, count)| CountEntry { label, count })
             .collect(),
     }))
+}
+
+// ── Phase G1b — Investigation Graph queue state (admin / monitoring) ──
+
+/// GET /api/tc/admin/queue-state — JSON snapshot de l'état de la queue +
+/// graphs chargés. Pour la page dashboard `/admin/queue-state` et pour
+/// debug en CLI (`curl ... | jq`).
+pub async fn admin_queue_state_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let depths = store
+        .count_tasks_by_status()
+        .await
+        .unwrap_or_default();
+    let backpressure_decision =
+        crate::agent::task_queue::BackpressureCheck::default().decide(&depths);
+
+    let library = crate::agent::task_queue::library();
+    let graph_names = library.names();
+
+    Ok(Json(serde_json::json!({
+        "queue_depths": {
+            "queued": depths.queued,
+            "running": depths.running,
+            "total": depths.total(),
+        },
+        "backpressure": format!("{:?}", backpressure_decision).to_lowercase(),
+        "graphs_loaded": {
+            "count": library.len(),
+            "names": graph_names,
+        },
+    })))
+}
+
+// ── Phase G2 — Predictive attack paths ──
+
+/// GET /api/tc/security/attack-paths?limit=20 — Top-N paths du dernier
+/// run, par score décroissant.
+#[derive(Debug, Deserialize)]
+pub struct AttackPathsQuery {
+    pub limit: Option<i64>,
+}
+
+pub async fn security_attack_paths_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<AttackPathsQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(20).clamp(1, 200);
+    let paths = store
+        .latest_attack_paths(limit)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "count": paths.len(),
+        "paths": paths,
+    })))
+}
+
+/// POST /api/tc/security/attack-paths/recompute — déclenche un batch
+/// G2 manuellement (sinon il tourne via le scheduler toutes les 4-6h).
+pub async fn security_attack_paths_recompute_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let cfg = crate::agent::path_risk::PathRiskConfig::default();
+    match crate::agent::path_risk::run_attack_path_batch(store, &cfg).await {
+        Ok((run_id, count)) => Ok(Json(serde_json::json!({
+            "run_id": run_id,
+            "paths_persisted": count,
+        }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
+
+// ── Phase G4 — Investigation Graphs : Enquêtes en cours + Archives ──
+
+#[derive(Debug, Deserialize)]
+pub struct GraphExecutionsQuery {
+    pub status: Option<String>,
+    pub asset_id: Option<String>,
+    pub archive_reason: Option<String>,
+    pub since_hours: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+/// GET /api/tc/graph-executions — list les exécutions de graph, filtrables.
+/// Sert les pages /enquetes (status=running) et /archives (status=archived).
+pub async fn graph_executions_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<GraphExecutionsQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let filter = crate::db::threatclaw_store::GraphExecutionsFilter {
+        status: q.status,
+        asset_id: q.asset_id,
+        archive_reason: q.archive_reason,
+        since_hours: q.since_hours,
+        limit: q.limit.unwrap_or(50),
+    };
+    let rows = store
+        .list_graph_executions(&filter)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "count": rows.len(),
+        "executions": rows,
+    })))
+}
+
+/// GET /api/tc/security/choke-points?limit=10 — Top-N choke points :
+/// nœuds dont le durcissement casse le plus de chemins d'attaque.
+/// Calcule a la volée à partir du dernier run G2.
+pub async fn security_choke_points_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<AttackPathsQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(10).clamp(1, 50);
+    let points = store
+        .latest_choke_points(limit)
+        .await
+        .map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "count": points.len(),
+        "choke_points": points,
+    })))
 }
 
 // ── Skill Config ──

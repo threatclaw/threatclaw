@@ -1,0 +1,32 @@
+spec_version: cacao-2.0
+name: cron-job-added
+description: |
+  Sigma "Cron Job Added" (lnx-persist-001) : nouvelle entree crontab
+  detectee. Pattern persistance Linux classique. Beaucoup de bruit
+  (vrais cron legitimes ajoutes par admins / packages), donc on
+  delegue au LLM avec contexte.
+trigger:
+  sigma_rule: lnx-persist-001
+steps:
+  start:
+    type: start
+    on_completion: check_critical_asset
+  check_critical_asset:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_likely_legit
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_likely_legit:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "cron sur asset non-critique — probablement legitime, revue hebdo"
+    on_completion: terminal
+  terminal:
+    type: end

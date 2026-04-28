@@ -1,0 +1,7 @@
+graph: remote-payload-pipe-shell
+cases:
+  - name: always_routes_to_llm
+    ctx: {}
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
