@@ -145,14 +145,25 @@ function splitTitle(raw: string | null): { title: string; description: string | 
   };
 }
 
-// Recommandations manuelles rules-based pour un incident dont l'IA
-// n'a pas proposé d'action HITL automatisable. Basé sur severity +
-// type d'asset (IP publique = source externe à bloquer ; IP RFC1918 =
-// asset interne à isoler ; hostname = on suggère reset password / log
-// review). Pas de LLM call — c'est le minimum syndical pour ne pas
-// laisser le RSSI face à un incident "Confirmé" sans aucune piste.
-function generateRecommendations(inc: Incident, locale: string): string[] {
-  const recs: string[] = [];
+// Recommandations rules-based pour un incident dont l'IA n'a pas
+// proposé d'action HITL automatisable. Distingue deux choses :
+//
+//  - `actions` : recommandations qui correspondent à un skill actionnable
+//    (ex. opnsense_block_ip). Elles passent par le MÊME chemin HITL que
+//    les actions produites par l'IA — boutons rouge dans "Que faire
+//    maintenant", confirmation dialog, license check, audit. Si le skill
+//    n'est pas installé, le backend rejette l'exec avec un message clair.
+//
+//  - `manual` : recommandations purement humaines (reviewer findings,
+//    documenter décision). Pas de bouton — juste une checklist.
+//
+// Pas de LLM call — c'est rules-based.
+function generateRecommendedActions(inc: Incident, locale: string): {
+  actions: IncidentAction[];
+  manual: string[];
+} {
+  const actions: IncidentAction[] = [];
+  const manual: string[] = [];
   const sev = inc.severity || "MEDIUM";
   const asset = inc.asset || "";
   const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(asset);
@@ -164,35 +175,58 @@ function generateRecommendations(inc: Incident, locale: string): string[] {
   );
   const isPublicIp = isIp && !isRfc1918;
   const isHigh = sev === "CRITICAL" || sev === "HIGH";
+  const fr = locale === "fr";
 
-  if (locale === "fr") {
-    if (isHigh && isPublicIp) {
-      recs.push("Bloquer cette IP au firewall (skill-opnsense, skill-fortinet)");
-      recs.push("Vérifier la réputation IP via les enrichissements (urlscan, greynoise, spamhaus)");
-    } else if (isHigh && isIp) {
-      recs.push("Isoler l'asset du réseau via skill-velociraptor (isolate_host)");
-      recs.push("Collecter les artefacts forensiques (logs, processus, connexions)");
-    } else if (isHigh) {
-      recs.push("Vérifier les logs d'authentification récents sur cet asset");
-      recs.push("Si compromission suspecte : isoler via skill-velociraptor + reset password AD");
-    }
-    recs.push("Reviewer les findings et alertes liés (contexte ci-dessus)");
-    recs.push("Documenter la décision RSSI dans une note pour traçabilité");
-  } else {
-    if (isHigh && isPublicIp) {
-      recs.push("Block this IP at the firewall (skill-opnsense, skill-fortinet)");
-      recs.push("Check IP reputation via enrichments (urlscan, greynoise, spamhaus)");
-    } else if (isHigh && isIp) {
-      recs.push("Isolate the asset from the network via skill-velociraptor (isolate_host)");
-      recs.push("Collect forensic artifacts (logs, processes, connections)");
-    } else if (isHigh) {
-      recs.push("Review recent authentication logs on this asset");
-      recs.push("If compromise suspected: isolate via skill-velociraptor + reset AD password");
-    }
-    recs.push("Review related findings and alerts (context above)");
-    recs.push("Document the CISO decision in a note for traceability");
+  if (isHigh && isPublicIp) {
+    actions.push({
+      kind: "opnsense_block_ip",
+      description: fr ? `Bloquer ${asset} au firewall OPNsense` : `Block ${asset} at OPNsense firewall`,
+    });
+    actions.push({
+      kind: "fortinet_block_ip",
+      description: fr ? `Bloquer ${asset} au firewall Fortinet` : `Block ${asset} at Fortinet firewall`,
+    });
+    manual.push(fr
+      ? "Vérifier la réputation IP via les enrichissements (urlscan, greynoise, spamhaus)"
+      : "Check IP reputation via enrichments (urlscan, greynoise, spamhaus)");
+  } else if (isHigh && isIp) {
+    actions.push({
+      kind: "velociraptor_isolate_host",
+      description: fr ? `Isoler ${asset} du réseau via Velociraptor` : `Isolate ${asset} from network via Velociraptor`,
+    });
+    actions.push({
+      kind: "velociraptor_collect_artifacts",
+      description: fr ? `Collecter les artefacts forensiques de ${asset}` : `Collect forensic artifacts from ${asset}`,
+    });
+  } else if (isHigh) {
+    // Asset par hostname — on a souvent un user dans les findings, mais
+    // sans nom certain on suggère les actions sans cible précise. Le
+    // backend résoudra le username depuis le contexte de l'incident.
+    actions.push({
+      kind: "velociraptor_isolate_host",
+      description: fr ? `Isoler ${asset} (Velociraptor)` : `Isolate ${asset} (Velociraptor)`,
+    });
+    actions.push({
+      kind: "ad_disable_account",
+      description: fr ? "Désactiver le compte AD compromis" : "Disable compromised AD account",
+    });
+    actions.push({
+      kind: "ad_reset_password",
+      description: fr ? "Forcer le reset password du compte" : "Force account password reset",
+    });
+    manual.push(fr
+      ? "Vérifier les logs d'authentification récents sur cet asset"
+      : "Review recent authentication logs on this asset");
   }
-  return recs;
+
+  manual.push(fr
+    ? "Reviewer les findings et alertes liés (contexte ci-dessus)"
+    : "Review related findings and alerts (context above)");
+  manual.push(fr
+    ? "Documenter la décision RSSI dans une note pour traçabilité"
+    : "Document the CISO decision in a note for traceability");
+
+  return { actions, manual };
 }
 
 // Identifie la source du verdict pour distinguer une décision graph
@@ -543,7 +577,18 @@ function IncidentsTab({ locale }: { locale: string }) {
               const actions: IncidentAction[] = (inc.proposed_actions?.actions || []) as IncidentAction[];
               const iocs: string[] = (inc.proposed_actions?.iocs || []) as string[];
               const isOpen = inc.status !== "resolved" && inc.status !== "closed" && inc.status !== "archived";
-              const executableActions = actions.filter(a => a.kind !== "manual");
+              const aiActions = actions.filter(a => a.kind !== "manual");
+              // Si l'IA n'a proposé aucune action exécutable, on injecte
+              // des recommandations rules-based selon severity + asset.
+              // Elles passent par le MÊME chemin HITL (confirmation,
+              // license gate, audit) — pas de raccourci. Si l'IA a déjà
+              // proposé quelque chose, on lui fait confiance et on
+              // n'ajoute rien.
+              const recoBundle = aiActions.length === 0
+                ? generateRecommendedActions(inc, locale)
+                : { actions: [] as IncidentAction[], manual: [] as string[] };
+              const executableActions = [...aiActions, ...recoBundle.actions];
+              const recoSource: "ai" | "rules" = aiActions.length > 0 ? "ai" : "rules";
               return (
               <div style={{ padding: "16px 18px", borderTop: "1px solid var(--tc-border-light)" }}>
                 {/* Section A — résumé. La 1ère chose que le RSSI lit en
@@ -591,10 +636,17 @@ function IncidentsTab({ locale }: { locale: string }) {
                     border: "1px solid rgba(208,48,32,0.25)",
                     borderRadius: "var(--tc-radius-sm)",
                   }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#d03020", textTransform: "uppercase", marginBottom: 10, display: "flex", alignItems: "center", gap: 6, letterSpacing: 0.5 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#d03020", textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center", gap: 6, letterSpacing: 0.5 }}>
                       <Zap size={13} /> {locale === "fr" ? "Que faire maintenant" : "What to do now"}
                     </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {recoSource === "rules" && (
+                      <div style={{ fontSize: 10, color: "var(--tc-text-muted)", marginBottom: 10, fontStyle: "italic" }}>
+                        {locale === "fr"
+                          ? "Actions suggérées automatiquement (l'IA n'en a proposé aucune). Chaque exécution passe par confirmation + license check."
+                          : "Auto-suggested actions (AI didn't propose any). Each execution goes through confirmation + license check."}
+                      </div>
+                    )}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: recoSource === "ai" ? 6 : 0 }}>
                       {executableActions.map((act, i) => (
                         <button key={i} onClick={() => setConfirmAction({ incident: inc, action: act })} style={{
                           padding: "10px 16px", fontSize: 13, fontWeight: 600, fontFamily: "inherit",
@@ -611,41 +663,34 @@ function IncidentsTab({ locale }: { locale: string }) {
                   </div>
                 )}
 
-                {/* Pas d'action HITL automatisée → on génère des
-                    recommandations manuelles rules-based selon
-                    severity + type d'asset, pour que le RSSI ait au
-                    moins une checklist de pistes au lieu d'un message
-                    vide qui le laisse seul face à l'incident. */}
-                {isOpen && executableActions.length === 0 && (() => {
-                  const recommendations = generateRecommendations(inc, locale);
-                  return (
+                {/* Checklist humaine — recommandations qui ne
+                    correspondent pas à un skill exécutable (ex.
+                    "reviewer findings", "documenter décision"). Affichées
+                    seulement quand on a injecté des recos rules-based,
+                    pour ne pas polluer les incidents où l'IA a déjà
+                    proposé de vraies actions. */}
+                {isOpen && recoBundle.manual.length > 0 && (
+                  <div style={{
+                    marginBottom: 14, padding: "12px 14px",
+                    background: "var(--tc-surface-alt)",
+                    borderRadius: "var(--tc-radius-sm)",
+                    border: "1px solid var(--tc-border-light)",
+                  }}>
                     <div style={{
-                      marginBottom: 14, padding: "12px 14px",
-                      background: "var(--tc-surface-alt)",
-                      borderRadius: "var(--tc-radius-sm)",
-                      border: "1px solid var(--tc-border-light)",
+                      fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)",
+                      textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
+                      display: "flex", alignItems: "center", gap: 6,
                     }}>
-                      <div style={{
-                        fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)",
-                        textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8,
-                        display: "flex", alignItems: "center", gap: 6,
-                      }}>
-                        <CheckCircle2 size={11} />
-                        {locale === "fr" ? "Recommandations manuelles" : "Manual recommendations"}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 8, fontStyle: "italic" }}>
-                        {locale === "fr"
-                          ? "Aucune action n'a été proposée automatiquement par l'IA. Pistes suggérées selon le contexte :"
-                          : "No automated action proposed by the AI. Suggested steps based on context:"}
-                      </div>
-                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
-                        {recommendations.map((r, i) => (
-                          <li key={i} style={{ marginBottom: 3 }}>{r}</li>
-                        ))}
-                      </ul>
+                      <CheckCircle2 size={11} />
+                      {locale === "fr" ? "À faire à la main" : "Manual checklist"}
                     </div>
-                  );
-                })()}
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
+                      {recoBundle.manual.map((r, i) => (
+                        <li key={i} style={{ marginBottom: 3 }}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {/* Blast Radius (ADR-048) — kept but moved below the hero */}
                 <BlastRadiusCard
