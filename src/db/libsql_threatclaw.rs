@@ -418,6 +418,13 @@ impl ThreatClawStore for LibSqlBackend {
     async fn touch_incident(&self, _: i32, _: i32, _: Option<&str>) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn phase_g_acceptance_stats(
+        &self,
+        _: i32,
+    ) -> Result<(i64, i64, Vec<i32>), DatabaseError> {
+        Err(not_supported())
+    }
+
     async fn cleanup_old_sigma_alerts(&self, _: i32) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }

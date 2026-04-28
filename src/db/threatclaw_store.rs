@@ -1107,6 +1107,16 @@ pub trait ThreatClawStore: Send + Sync {
     /// Returns the number of deleted rows.
     async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError>;
 
+    /// Phase G acceptance check — counts incidents created in the last
+    /// `lookback_days` days that have an empty `proposed_actions.actions`
+    /// array (or null). Returns `(total, missing)` so the caller can
+    /// compute the actionable ratio and surface the worst offender ids.
+    /// See `PHASE_G_INVESTIGATION_GRAPHS.md` acceptance criteria.
+    async fn phase_g_acceptance_stats(
+        &self,
+        lookback_days: i32,
+    ) -> Result<(i64, i64, Vec<i32>), DatabaseError>;
+
     /// Count rows in the mitre_techniques table (used for self-heal trigger).
     async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError>;
 

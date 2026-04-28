@@ -9517,6 +9517,74 @@ fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde
 }
 
 // ════════════════════════════════════════════════════════════════
+// Phase G acceptance probe
+// ════════════════════════════════════════════════════════════════
+
+/// GET /api/tc/admin/phase-g-acceptance — surfaces the
+/// PHASE_G_INVESTIGATION_GRAPHS.md acceptance criterion: zero
+/// incidents in the last 7 days with an empty `proposed_actions.actions`
+/// array (the "Aucune action HITL proposée" failure mode).
+///
+/// Optional `?days=N` overrides the default 7-day window. Returns:
+/// ```json
+/// {
+///   "lookback_days": 7,
+///   "incidents_total": 42,
+///   "incidents_missing_actions": 3,
+///   "actionable_ratio": 0.929,
+///   "missing_ids": [127, 134, 156],
+///   "verdict": "not_ready" | "ready",
+///   "computed_at": "2026-04-28T22:13:00Z"
+/// }
+/// ```
+pub async fn phase_g_acceptance_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let days: i32 = params
+        .get("days")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7)
+        .clamp(1, 90);
+
+    let (total, missing, ids) = match store.phase_g_acceptance_stats(days).await {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(Json(serde_json::json!({
+                "error": e.to_string(),
+                "lookback_days": days,
+            })));
+        }
+    };
+
+    let ratio = if total == 0 {
+        // No incidents at all in the window — neutral. Don't claim ready
+        // (we have no evidence) but don't claim not_ready either.
+        None
+    } else {
+        Some(((total - missing) as f64) / (total as f64))
+    };
+    let verdict = if total == 0 {
+        "no_data"
+    } else if missing == 0 {
+        "ready"
+    } else {
+        "not_ready"
+    };
+
+    Ok(Json(serde_json::json!({
+        "lookback_days": days,
+        "incidents_total": total,
+        "incidents_missing_actions": missing,
+        "actionable_ratio": ratio,
+        "missing_ids": ids,
+        "verdict": verdict,
+        "computed_at": chrono::Utc::now().to_rfc3339(),
+    })))
+}
+
+// ════════════════════════════════════════════════════════════════
 // Sprint 4 — Investigation graph authoring (LLM-assisted)
 // ════════════════════════════════════════════════════════════════
 
