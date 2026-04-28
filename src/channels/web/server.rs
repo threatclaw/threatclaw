@@ -1149,6 +1149,11 @@ pub async fn start_server(
             "/api/tc/admin/phase-g-acceptance",
             get(super::handlers::threatclaw_api::phase_g_acceptance_handler),
         )
+        // Phase A.2 — billable asset count
+        .route(
+            "/api/tc/admin/billable-assets",
+            get(super::handlers::threatclaw_api::billable_assets_handler),
+        )
         // Sprint 4 — investigation graph authoring
         .route(
             "/api/tc/graphs",

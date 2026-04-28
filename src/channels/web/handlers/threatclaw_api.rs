@@ -241,6 +241,19 @@ pub async fn tc_health_handler(
                     );
                 }
 
+                // Phase A.2 — billing reclassify daily sweep. Flips
+                // `monitored` assets idle for >30 days to `inactive` so
+                // the billable count decays naturally as devices fall
+                // out of the parc. The opposite direction (any new
+                // event promotes back to `monitored`) is handled by
+                // the V66 trigger on findings/sigma_alerts/firewall_events.
+                static BILLING_RUNNING: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !BILLING_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    crate::agent::billing::spawn_reclassify_scheduler(store_clone.clone());
+                    tracing::info!("AUTO-START: Billing reclassify scheduler online (daily)");
+                }
+
                 // Seed MITRE Mitigation playbooks once at boot. Idempotent
                 // (upsert_coa keys on the explicit "coa--mitre-m####" id),
                 // so subsequent restarts are no-ops. The catalogue is
@@ -9514,6 +9527,49 @@ fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde
             })
         })
         .collect()
+}
+
+// ════════════════════════════════════════════════════════════════
+// Phase A.2 — Billable assets endpoint
+// ════════════════════════════════════════════════════════════════
+
+/// GET /api/tc/admin/billable-assets — current billable count + breakdown.
+///
+/// The dashboard widget polls this on a 60-second tick. Drives:
+///   - the gauge "X / Y assets — tier Free"
+///   - the disclosure pane "you have N discovered / M uncertain / O demo"
+///   - the upgrade banner when the count crosses the tier limit
+///
+/// Returns:
+/// ```json
+/// {
+///   "billable":     47,
+///   "total":        312,
+///   "by_category":  [["server",12],["workstation",30],["network_device",5]],
+///   "discovered":   18,
+///   "inactive":     230,
+///   "uncertain":    14,
+///   "demo":         3,
+///   "computed_at":  "2026-04-28T22:55:00Z"
+/// }
+/// ```
+pub async fn billable_assets_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match crate::agent::billing::count_billable_assets(store).await {
+        Ok(b) => Ok(Json(serde_json::json!({
+            "billable":     b.billable,
+            "total":        b.total,
+            "by_category":  b.by_category,
+            "discovered":   b.discovered,
+            "inactive":     b.inactive,
+            "uncertain":    b.uncertain,
+            "demo":         b.demo,
+            "computed_at":  chrono::Utc::now().to_rfc3339(),
+        }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e }))),
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
