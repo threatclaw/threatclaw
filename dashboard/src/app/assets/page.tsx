@@ -778,6 +778,45 @@ export default function AssetsPage() {
                           <div><span style={labelStyle}>OS</span><div style={{ color: "var(--tc-text)" }}>{a.os || "—"}</div></div>
                           <div><span style={labelStyle}>Rôle</span><div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div></div>
                           <div><span style={labelStyle}>Responsable</span><div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div></div>
+                          <div>
+                            <span style={labelStyle}>Criticité</span>
+                            <select
+                              value={a.criticality}
+                              onChange={async (e) => {
+                                const next = e.target.value;
+                                const prev = a.criticality;
+                                // Optimistic update so the badge in the header
+                                // reflects the new value immediately.
+                                setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: next } : r));
+                                try {
+                                  const res = await fetch(`/api/tc/assets/${a.id}/criticality`, {
+                                    method: "PUT",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ criticality: next }),
+                                  });
+                                  const j = await res.json().catch(() => ({}));
+                                  if (j?.error) {
+                                    setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: prev } : r));
+                                    alert("Criticité non sauvegardée : " + j.error);
+                                  }
+                                } catch (err) {
+                                  setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: prev } : r));
+                                  alert("Criticité non sauvegardée (réseau)");
+                                }
+                              }}
+                              style={{
+                                width: "100%", padding: "4px 6px", fontSize: "10px", fontFamily: "inherit",
+                                background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                                borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)", cursor: "pointer",
+                              }}
+                            >
+                              <option value="low">Bas</option>
+                              <option value="medium">Moyen</option>
+                              <option value="high">Haut</option>
+                              <option value="critical">Critique</option>
+                              <option value="unknown">Inconnu</option>
+                            </select>
+                          </div>
                           {a.url && <div style={{ gridColumn: "1/3" }}><span style={labelStyle}>URL</span><div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div></div>}
                         </div>
                         <GraphIntelSection assetId={a.id} />

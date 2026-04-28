@@ -166,6 +166,28 @@ pub async fn upsert_asset(
     mutate(store, &cypher).await;
 }
 
+/// Sprint 3 #2 — RSSI manual override of an asset's criticality.
+///
+/// Unlike `upsert_asset` (which uses `coalesce` to preserve a value already
+/// set by the heuristic seeder), this writes the new value unconditionally.
+/// `MERGE` keeps the call idempotent if the asset isn't yet in the graph.
+pub async fn set_asset_criticality_graph(store: &dyn Database, id: &str, criticality: &str) -> bool {
+    let id_norm = normalize_asset_id(id);
+    if !validate_id(&id_norm) {
+        tracing::warn!(
+            "GRAPH: set_asset_criticality refused invalid id: {}",
+            &id[..id.len().min(40)]
+        );
+        return false;
+    }
+    let cypher = format!(
+        "MERGE (a:Asset {{id: '{id}'}}) SET a.criticality = '{crit}' RETURN a",
+        id = sanitize_cypher_value(&id_norm),
+        crit = sanitize_cypher_value(criticality),
+    );
+    mutate(store, &cypher).await
+}
+
 /// Normalize an asset ID for graph use: lowercase + replace whitespace and
 /// disallowed characters by '-'. Keeps a-z, 0-9, '-', '_', '.'.
 fn normalize_asset_id(id: &str) -> String {

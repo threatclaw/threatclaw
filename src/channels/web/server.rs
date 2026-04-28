@@ -1141,6 +1141,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::asset_security_handler),
         )
         .route(
+            "/api/tc/assets/{id}/criticality",
+            axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
+        )
+        .route(
             "/api/tc/assets/{id}",
             axum::routing::delete(super::handlers::threatclaw_api::assets_delete_handler),
         )
