@@ -124,10 +124,33 @@ export default function ThreatMapPage() {
             <div style={{ padding: "2rem", textAlign: "center" }}>
               <Target size={48} style={{ opacity: 0.4, margin: "0 auto 1rem" }} />
               <h3 style={{ marginBottom: "0.5rem" }}>Aucun chemin d&apos;attaque calculé</h3>
-              <p style={{ opacity: 0.7, marginBottom: "1.5rem" }}>
+              <p style={{ opacity: 0.7, marginBottom: "0.75rem" }}>
                 Le batch de prédiction tourne automatiquement toutes les 6 h.
                 Tu peux aussi le lancer manuellement avec le bouton « Recalculer ».
               </p>
+              <p style={{ opacity: 0.7, marginBottom: "0.75rem", fontSize: "0.9rem" }}>
+                <strong>Causes habituelles à vide :</strong>
+              </p>
+              <ul style={{ opacity: 0.7, fontSize: "0.85rem", textAlign: "left", maxWidth: "560px", margin: "0 auto", lineHeight: 1.6 }}>
+                <li>
+                  Aucun edge <code>LATERAL_PATH</code> ni <code>ATTACKS</code> dans
+                  le graph — le batch dérive maintenant les LATERAL_PATH depuis
+                  les événements <code>LOGGED_IN</code> (Wazuh, AD), il faut
+                  donc des logs d&apos;authentification ingérés.
+                </li>
+                <li>
+                  Aucune cible critique : marque tes assets sensibles (DC,
+                  serveur de fichiers, firewall) en <code>critical</code> ou{" "}
+                  <code>high</code> via la fiche asset (onglet Résumé →
+                  Criticité).
+                </li>
+                <li>
+                  Aucune source exposée : le batch ne considère que les assets
+                  dont <code>exposure_class</code> est <code>internet</code>,{" "}
+                  <code>dmz</code> ou <code>vlan_dev</code> (heuristique IP au
+                  démarrage du batch).
+                </li>
+              </ul>
             </div>
           </NeuCard>
         )}

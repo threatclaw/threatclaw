@@ -30,21 +30,35 @@ pub struct InvestigationConfig {
 
 impl Default for InvestigationConfig {
     fn default() -> Self {
+        // Sprint 6 #1 — env-overridable so the user can tighten on a host
+        // with a fast (GPU) Ollama. Defaults stay at the Phase B
+        // empirically-validated values (CPU-only Ollama on CASE). The
+        // plan-spec'd "60 s per call / 180 s total" was the original
+        // Phase B target but proved unworkable on CPU-only deployments;
+        // we expose it as TC_INVESTIGATION_TOTAL_TIMEOUT_SECS so an
+        // operator on a faster setup can opt in.
+        let total_secs: u64 = std::env::var("TC_INVESTIGATION_TOTAL_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1800);
         Self {
-            // Phase B revisited — calibrated for CPU-only Ollama on CASE
-            // (no GPU layers). Previous 1800 s was absurdly generous; my
-            // first cut at 300 s was too tight and caused systematic L2
-            // timeouts on heavy dossiers. 900 s = 1.5 calls × 600 s
-            // per-call budget. The RSSI doesn't wait for it — Phase B2
-            // surfaces the incident immediately with a human title;
-            // L2 just enriches the verdict in the background.
             max_iterations: 2,
-            timeout: Duration::from_secs(1800),
+            timeout: Duration::from_secs(total_secs),
             max_skill_calls: 10,
             skill_timeout: Duration::from_secs(15),
             confidence_accept: 0.70,
         }
     }
+}
+
+/// Per-LLM-call timeout (Sprint 6 #1). Env-overridable so an operator on
+/// a fast Ollama instance can tighten it; defaults to 1500 s — the
+/// CPU-only-Ollama safe value validated during Phase B.
+fn llm_call_timeout_secs() -> u64 {
+    std::env::var("TC_INVESTIGATION_LLM_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1500)
 }
 
 // ── Registry (one investigation per asset) ──
@@ -278,8 +292,9 @@ pub async fn run_investigation(
         // The user perceives no delay because Phase B2 already creates
         // the incident with a human title BEFORE the L2 runs — only the
         // verdict enrichment lands later.
+        let per_call_secs = llm_call_timeout_secs();
         let llm_raw = match tokio::time::timeout(
-            Duration::from_secs(1500),
+            Duration::from_secs(per_call_secs),
             crate::agent::react_runner::call_ollama_with_schema(
                 &llm_config.primary.base_url,
                 &llm_config.primary.model,
@@ -302,15 +317,17 @@ pub async fn run_investigation(
                 );
             }
             Err(_) => {
-                error!("INVESTIGATION: LLM call timed out (1500s per call)");
-                return make_error_result(
-                    dossier_id,
-                    asset,
-                    "LLM timeout (1500 s per call — CPU-only Ollama)",
-                    start,
-                    iteration,
-                    skill_calls,
+                // Sprint 6 #1 — on per-call timeout, break out of the
+                // loop instead of returning Error. The fallback path
+                // below produces an Inconclusive verdict (with whatever
+                // the previous iterations gathered, if any) — matches
+                // the plan: "downgrade verdict à Inconclusive au lieu
+                // d'attendre indéfiniment".
+                warn!(
+                    "INVESTIGATION: LLM call timed out ({}s per call) — downgrading to Inconclusive",
+                    per_call_secs
                 );
+                break;
             }
         };
 
