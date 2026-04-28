@@ -1737,6 +1737,9 @@ pub async fn reinvestigate_incident(
             &proposed,
             &inv_log,
             &empty_citations,
+            // Re-investigate doesn't change the original source — preserve
+            // whatever was set when the incident was first decided.
+            None,
         )
         .await
         .map_err(|e| format!("DB update failed: {e}"))?;
@@ -3048,6 +3051,9 @@ pub fn spawn_intelligence_ticker(
                                             &proposed,
                                             &inv_log,
                                             &evidence_citations_json,
+                                            // Sprint 1 #2 — initial L2 verdict
+                                            // = ReAct LLM decision.
+                                            Some("react"),
                                         )
                                         .await;
                                     tracing::info!(

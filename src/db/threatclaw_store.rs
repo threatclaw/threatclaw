@@ -952,6 +952,9 @@ pub trait ThreatClawStore: Send + Sync {
         proposed_actions: &serde_json::Value,
         investigation_log: &serde_json::Value,
         evidence_citations: &serde_json::Value,
+        // 'graph' | 'react' | 'manual'. None preserves the existing value
+        // (used by re-investigate paths that update without changing source).
+        verdict_source: Option<&str>,
     ) -> Result<(), DatabaseError>;
 
     async fn update_incident_hitl(

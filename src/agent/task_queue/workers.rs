@@ -360,6 +360,7 @@ async fn create_incident_from_graph(
             &actions_json,
             &investigation_log,
             &json!([]),
+            Some("graph"),
         )
         .await
     {
