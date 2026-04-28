@@ -197,24 +197,18 @@ impl LicenseManager {
     /// the single SKU that gates every HITL destructive flow (firewall
     /// block, AD disable, EDR isolate, ...).
     ///
-    /// Implementation note: a license cert with skills containing
-    /// either the catch-all "hitl" or any of the legacy `*-actions`
-    /// skill ids counts as enabling HITL. The legacy ids are the
-    /// transition path for licenses already in the wild from the
-    /// per-skill premium era.
+    /// Phase A.1 (2026-04-28 pricing pivot) — HITL is now free for every
+    /// tier including the unlicensed Free instance. The pricing moat is
+    /// the asset-count tier (see `allows_assets_count`), not the ability
+    /// to act on threats: gating an emergency response button behind a
+    /// paywall creates moral friction at the worst possible time.
+    ///
+    /// Function kept (not deleted) so the call sites at
+    /// `tool_calling.rs`, the API handlers, and the frontend manifest
+    /// loader continue to work unchanged. If we ever decide to gate a
+    /// specific destructive action, this is the surgical lever.
     pub async fn allows_hitl(&self) -> bool {
-        if !super::is_provisioned() {
-            return false;
-        }
-        let inner = self.inner.read().await;
-        const LEGACY_SKILLS: &[&str] = &[
-            "hitl",
-            "skill-velociraptor-actions",
-            "skill-opnsense-actions",
-            "skill-fortinet-actions",
-            "skill-ad-remediation",
-        ];
-        LEGACY_SKILLS.iter().any(|s| inner.allows_skill_now(s))
+        true
     }
 
     /// Diagnostic snapshot for the dashboard.
@@ -222,14 +216,6 @@ impl LicenseManager {
         let inner = self.inner.read().await;
         let mut licenses = Vec::with_capacity(inner.state.licenses.len());
         let now = now_secs();
-
-        const HITL_MARKERS: &[&str] = &[
-            "hitl",
-            "skill-velociraptor-actions",
-            "skill-opnsense-actions",
-            "skill-fortinet-actions",
-            "skill-ad-remediation",
-        ];
 
         for entry in &inner.state.licenses {
             let mut active = ActiveLicense {
@@ -243,7 +229,10 @@ impl LicenseManager {
                 last_heartbeat: entry.last_heartbeat,
                 last_attempt: entry.last_attempt,
                 active: false,
-                allows_hitl: false,
+                // A.1 pricing pivot — HITL is unconditionally available;
+                // the status snapshot reflects this so the dashboard
+                // doesn't keep showing a per-license HITL gate.
+                allows_hitl: true,
             };
             if let Ok(Some(encoded)) = storage::read_cert(&entry.license_key) {
                 if let Ok(signed) = SignedLicense::decode(&encoded) {
@@ -259,12 +248,6 @@ impl LicenseManager {
                             | GraceState::RenewalSoon { .. }
                             | GraceState::InGrace { .. }
                     );
-                    if active.active {
-                        active.allows_hitl = active
-                            .skills
-                            .iter()
-                            .any(|s| HITL_MARKERS.contains(&s.as_str()));
-                    }
                 }
             }
             licenses.push(active);
@@ -574,7 +557,9 @@ mod tests {
         // of provisioning state. This is the pristine-install behavior.
         let mgr = LicenseManager::bootstrap(LicenseClient::new("https://unused.invalid")).await;
         assert!(!mgr.allows_skill("skill-velociraptor-actions").await);
-        assert!(!mgr.allows_hitl().await);
+        // A.1 pricing pivot — HITL is unconditionally true now (no longer
+        // gated). The asset count is the new pricing lever.
+        assert!(mgr.allows_hitl().await);
     }
 
     #[tokio::test]
