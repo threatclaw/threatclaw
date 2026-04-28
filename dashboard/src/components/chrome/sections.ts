@@ -161,7 +161,7 @@ export const SECTIONS: Record<SectionKey, Section> = {
   skills: {
     key: "skills",
     label: () => "Skills",
-    matches: ["/skills"],
+    matches: ["/skills", "/billing"],
     items: [
       { href: "/skills?installed=1", labelFr: "Mes skills installés", labelEn: "My installed skills", icon: Puzzle },
       {
@@ -179,6 +179,14 @@ export const SECTIONS: Record<SectionKey, Section> = {
         ],
       },
       { href: "/setup?tab=licenses", labelFr: "Mes licences", labelEn: "My licenses", icon: Lock },
+      {
+        href: "/billing",
+        labelFr: "Facturation",
+        labelEn: "Billing",
+        icon: Lock,
+        tooltipFr: "Compteur d'assets facturables, tier actuel, ce qui est compté ou pas.",
+        tooltipEn: "Billable asset count, current tier, what's billed and what isn't.",
+      },
     ],
   },
   scans: {
