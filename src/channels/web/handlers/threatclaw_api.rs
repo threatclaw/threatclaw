@@ -9515,3 +9515,385 @@ fn report_articles_to_json(r: &crate::compliance::ComplianceReport) -> Vec<serde
         })
         .collect()
 }
+
+// ════════════════════════════════════════════════════════════════
+// Sprint 4 — Investigation graph authoring (LLM-assisted)
+// ════════════════════════════════════════════════════════════════
+
+/// Resolves the directory where graph YAML files live. Same env-var +
+/// fallback the boot path uses so dev and Docker stay aligned.
+fn graphs_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(
+        std::env::var("TC_GRAPHS_DIR").unwrap_or_else(|_| "graphs/sigma".to_string()),
+    )
+}
+
+/// Validate a YAML blob parses and compiles as a CACAO v2 graph.
+/// Returns `Ok(graph_name)` on success, `Err(message)` otherwise.
+fn validate_graph_yaml(yaml: &str) -> Result<String, String> {
+    let g = crate::agent::investigation_graph::types::Graph::from_yaml(yaml)
+        .map_err(|e| format!("parse: {e}"))?;
+    crate::agent::investigation_graph::graph::compile(&g).map_err(|e| format!("compile: {e:?}"))?;
+    Ok(g.name)
+}
+
+/// GET /api/tc/graphs — list shipped graphs (name + trigger.sigma_rule).
+pub async fn graphs_list_handler() -> ApiResult<serde_json::Value> {
+    let dir = graphs_dir();
+    let mut graphs: Vec<serde_json::Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("yaml") {
+                continue;
+            }
+            let yaml = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            // Only surface valid graphs in the list — skip broken YAMLs
+            // silently rather than confusing the RSSI with files that
+            // don't compile.
+            let g = match crate::agent::investigation_graph::types::Graph::from_yaml(&yaml) {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+            graphs.push(serde_json::json!({
+                "name": g.name,
+                "sigma_rule": g.trigger.sigma_rule,
+                "description": g.description,
+                "file": path.file_name().map(|n| n.to_string_lossy().to_string()),
+            }));
+        }
+    }
+    graphs.sort_by(|a, b| {
+        a["name"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["name"].as_str().unwrap_or(""))
+    });
+    Ok(Json(serde_json::json!({
+        "graphs": graphs,
+        "total": graphs.len(),
+        "dir": dir.display().to_string(),
+    })))
+}
+
+/// POST /api/tc/graphs/draft-from-sigma — ask the local LLM to draft a
+/// CACAO v2 YAML for a sigma rule. Body: `{rule_id, sample_alerts?}`.
+/// Returns `{yaml, valid, errors[], graph_name}`.
+pub async fn draft_graph_from_sigma_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let rule_id = body
+        .get("rule_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if rule_id.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "error": "rule_id is required"
+        })));
+    }
+    let sample_alerts = body
+        .get("sample_alerts")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+
+    // Use the Instruct LLM tier — designed for playbook/sigma authoring.
+    // Falls back to primary if instruct isn't configured.
+    let llm = crate::agent::llm_router::LlmRouterConfig::from_db_settings(store.as_ref()).await;
+    let (model, base_url) = if !llm.instruct.model.is_empty() {
+        (llm.instruct.model.clone(), llm.instruct.base_url.clone())
+    } else {
+        (llm.primary.model.clone(), llm.primary.base_url.clone())
+    };
+
+    let prompt = build_graph_draft_prompt(&rule_id, &sample_alerts);
+    let response = match crate::agent::react_runner::call_ollama(&base_url, &model, &prompt).await {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(Json(serde_json::json!({
+                "error": format!("LLM call failed: {e}"),
+                "model": model,
+            })));
+        }
+    };
+
+    let yaml = extract_yaml_block(&response);
+
+    let (valid, errors, graph_name) = match validate_graph_yaml(&yaml) {
+        Ok(name) => (true, Vec::<String>::new(), Some(name)),
+        Err(e) => (false, vec![e], None),
+    };
+
+    Ok(Json(serde_json::json!({
+        "yaml": yaml,
+        "valid": valid,
+        "errors": errors,
+        "graph_name": graph_name,
+        "model": model,
+        "raw_response_len": response.len(),
+    })))
+}
+
+/// POST /api/tc/graphs/save — persist a hand-edited or LLM-drafted YAML
+/// to the graphs directory. Validates before writing; refuses to persist
+/// a YAML that doesn't compile (S4-3). Body: `{yaml}`.
+pub async fn save_graph_handler(
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let yaml = body.get("yaml").and_then(|v| v.as_str()).unwrap_or("");
+    if yaml.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "error": "yaml is required"
+        })));
+    }
+    let name = match validate_graph_yaml(yaml) {
+        Ok(n) => n,
+        Err(e) => {
+            return Ok(Json(serde_json::json!({
+                "error": format!("graph rejected — {e}"),
+                "valid": false,
+            })));
+        }
+    };
+    // File name = sanitized graph name. Refuse path traversal.
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    if safe.is_empty() || safe != name {
+        return Ok(Json(serde_json::json!({
+            "error": format!("graph name '{name}' contains invalid chars (use a-z 0-9 - _)"),
+        })));
+    }
+    let dir = graphs_dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        return Ok(Json(serde_json::json!({
+            "error": format!("create dir: {e}"),
+        })));
+    }
+    let path = dir.join(format!("{safe}.yaml"));
+    if let Err(e) = std::fs::write(&path, yaml) {
+        return Ok(Json(serde_json::json!({
+            "error": format!("write {}: {e}", path.display()),
+        })));
+    }
+    // The running GraphLibrary won't pick this up until the next boot —
+    // mounted volume + restart, per Phase G design.
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "name": safe,
+        "file": path.display().to_string(),
+        "note": "Restart the core service to load the new graph into the dispatcher.",
+    })))
+}
+
+/// Builds the prompt for the LLM. Includes the CACAO v2 schema used
+/// here, the catalog of CEL signals available at runtime, the catalog
+/// of cmd_ids the executor recognizes, plus three reference graphs to
+/// anchor the model on the actual conventions of this codebase.
+fn build_graph_draft_prompt(rule_id: &str, sample_alerts: &serde_json::Value) -> String {
+    let sample_text = if sample_alerts.as_array().map_or(0, |a| a.len()) > 0 {
+        serde_json::to_string_pretty(sample_alerts).unwrap_or_default()
+    } else {
+        "(none provided — rely on the rule_id and the action catalog)".to_string()
+    };
+
+    format!(
+        r#"You are a security-engineer assistant. Draft an investigation graph in CACAO v2 YAML for the sigma rule `{rule_id}`.
+
+# CONTEXT — what the graph does
+At runtime, when an alert fires for sigma rule `{rule_id}`, the dispatcher
+loads this graph and walks it. Each `if-condition` step evaluates a CEL
+predicate against a context built from the alert + asset + graph state.
+Each `action` step terminates the walk with one of three outcomes:
+- threatclaw-emit-incident → creates an incident with HITL `proposed_actions`
+- threatclaw-archive       → drops to /archives without paging the RSSI
+- threatclaw-investigate-llm → routes to the L2 ReAct LLM for triage
+
+# CEL CONTEXT (variables you can use in `condition:`)
+- alert.severity                 (string: low|medium|high|critical)
+- alert.src_ip                   (string)
+- alert.firewall_action          (string|null)
+- asset.id, asset.criticality    (string)
+- asset.criticality_score        (int 0-10: low=2, medium=5, high=7, critical=9)
+- asset.score                    (IE asset risk score)
+- dossier.findings_count, dossier.alerts_count
+- signals.recent_count_5m        (int — sigma_alerts + findings + firewall_events on this asset, 5min window)
+- signals.recent_count_1h        (int — same, 1h)
+- signals.corroborated           (bool — recent_count_1h >= 2)
+- graph.asset_in_graph           (bool)
+- graph.lateral_paths            (int)
+- graph.linked_cves_count        (int)
+
+# AVAILABLE proposed_actions cmd_ids (for emit-incident steps)
+opnsense_block_ip, fortinet_block_ip, ad_disable_account, ad_reset_password,
+isolate_host, kill_process, stop_service, net-001, net-002, net-004, net-005
+
+# THREE REFERENCE GRAPHS (study the shape, then produce one in the same style)
+
+## Reference 1 — burst-then-decide (most common pattern)
+```yaml
+spec_version: cacao-2.0
+name: ssh-bruteforce
+description: |
+  >=5 SSH auth failures in 5min → escalate if asset critical, else route LLM.
+trigger:
+  sigma_rule: tc-ssh-brute
+steps:
+  start:
+    type: start
+    on_completion: check_count
+  check_count:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 5"
+    on_true: check_criticality
+    on_false: route_llm
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Brute force SSH confirmé — bloquer la source"
+          requires_hitl: true
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 120
+    on_completion: terminal
+  terminal:
+    type: end
+```
+
+## Reference 2 — always-archive (noise rules)
+```yaml
+spec_version: cacao-2.0
+name: lynis-warning
+description: Lynis posture advice — never an attack signal.
+trigger:
+  sigma_rule: wazuh-100101
+steps:
+  start:
+    type: start
+    on_completion: archive_advice
+  archive_advice:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "lynis : conseil de durcissement, vu en rapport posture"
+    on_completion: terminal
+  terminal:
+    type: end
+```
+
+## Reference 3 — always-route-LLM (need context)
+```yaml
+spec_version: cacao-2.0
+name: file-integrity-change
+description: FIM change — could be deploy or implant; route to L2.
+trigger:
+  sigma_rule: wazuh-533
+steps:
+  start:
+    type: start
+    on_completion: route_llm
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 120
+    on_completion: terminal
+  terminal:
+    type: end
+```
+
+# YOUR TASK
+
+Sample alerts for rule `{rule_id}`:
+```json
+{sample_text}
+```
+
+Output ONE YAML block, nothing else. Wrap it in ```yaml ... ```. Do not
+add prose before or after. Constraints:
+- `name` must be kebab-case, unique, descriptive (e.g. `wazuh-NNN-meaningful-suffix`)
+- `trigger.sigma_rule` MUST be `{rule_id}` exactly
+- every `on_completion` / `on_true` / `on_false` MUST point to a step that exists
+- the graph MUST end with a `terminal: type: end` step reachable from every action
+- pick the simplest pattern that fits — burst+decide, always-archive, or always-route-LLM
+- if you propose `emit-incident`, attach 1-3 `proposed_actions` from the catalog above
+"#,
+        rule_id = rule_id,
+        sample_text = sample_text,
+    )
+}
+
+/// Strips ``` fences from an LLM reply and keeps the first YAML block. If
+/// the model returned raw YAML without fences, returns it as-is. Tolerant
+/// of trailing whitespace and the optional `yaml` language tag.
+fn extract_yaml_block(s: &str) -> String {
+    let trimmed = s.trim();
+    // Find the first ```yaml or ``` opening fence.
+    if let Some(start) = trimmed
+        .find("```yaml")
+        .map(|i| i + "```yaml".len())
+        .or_else(|| trimmed.find("```").map(|i| i + 3))
+    {
+        let rest = &trimmed[start..];
+        // Skip a leading newline if present.
+        let rest = rest.trim_start_matches('\n').trim_start_matches('\r');
+        if let Some(end) = rest.find("```") {
+            return rest[..end].trim().to_string();
+        }
+        return rest.trim().to_string();
+    }
+    trimmed.to_string()
+}
+
+#[cfg(test)]
+mod sprint4_authoring_tests {
+    use super::*;
+
+    #[test]
+    fn extract_yaml_block_strips_fences() {
+        let raw = "Here you go:\n```yaml\nspec_version: cacao-2.0\nname: x\n```\n";
+        let yaml = extract_yaml_block(raw);
+        assert!(yaml.starts_with("spec_version:"));
+        assert!(!yaml.contains("```"));
+    }
+
+    #[test]
+    fn extract_yaml_block_handles_no_fences() {
+        let raw = "spec_version: cacao-2.0\nname: x\n";
+        let yaml = extract_yaml_block(raw);
+        assert_eq!(yaml, "spec_version: cacao-2.0\nname: x");
+    }
+
+    #[test]
+    fn validate_graph_yaml_accepts_minimal_valid() {
+        let yaml = "spec_version: cacao-2.0\nname: test-x\ntrigger:\n  sigma_rule: rule-x\nsteps:\n  start:\n    type: start\n    on_completion: terminal\n  terminal:\n    type: end\n";
+        let res = validate_graph_yaml(yaml);
+        assert!(res.is_ok(), "expected ok, got {:?}", res);
+        assert_eq!(res.unwrap(), "test-x");
+    }
+
+    #[test]
+    fn validate_graph_yaml_rejects_garbage() {
+        let res = validate_graph_yaml("not yaml at all");
+        assert!(res.is_err());
+    }
+}

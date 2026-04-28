@@ -135,11 +135,19 @@ export const SECTIONS: Record<SectionKey, Section> = {
   investigation: {
     key: "investigation",
     label: () => "Investigation",
-    matches: ["/intelligence", "/governance", "/shadow-ai"],
+    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs"],
     items: [
       { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
       { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance", icon: Shield },
       { href: "/shadow-ai", labelFr: "Shadow IA", labelEn: "Shadow AI", icon: Bot },
+      {
+        href: "/graphs",
+        labelFr: "Graphs",
+        labelEn: "Graphs",
+        icon: Activity,
+        tooltipFr: "Playbooks déterministes (CACAO v2) qui court-circuitent le ReAct sur patterns connus.",
+        tooltipEn: "Deterministic playbooks (CACAO v2) short-circuiting ReAct on known patterns.",
+      },
     ],
   },
   skills: {
