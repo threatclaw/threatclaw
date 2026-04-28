@@ -6,6 +6,70 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below reflect pre-public internal development and are kept for transparency.
 
+## [1.0.15-beta] — 2026-04-29
+
+Phase G — Investigation Graphs ships. ThreatClaw now decides on known
+attack patterns through deterministic playbooks instead of relying
+solely on a ReAct LLM loop. The LLM is still there for the ambiguous
+branches; the rest is reproducible and auditable.
+
+### Added
+
+- **Deterministic investigation playbooks (CACAO v2 standard)** — 38
+  playbooks ship in `graphs/sigma/`, covering SSH/RDP brute force,
+  OpenCanary honeypot touches, Wazuh FIM, Lynis advisories, AD
+  events (DCSync, Kerberoasting, Pass-the-Hash, Golden Ticket),
+  Velociraptor responses, OPNsense, Fortinet, Proxmox and shadow-AI.
+  Decision in under 100 ms with a traceable, reproducible path.
+- **Predictive Threat Map** — top attack paths are now populated.
+  Path-risk batch refactored to AGE-compatible queries and seeds
+  `LATERAL_PATH` edges from successful logon events when the lateral
+  movement detector hasn't had a chance to write them.
+- **LLM-assisted graph authoring** — new `/graphs` dashboard page lets
+  the operator draft a CACAO v2 playbook from a sigma rule using the
+  local Instruct LLM, with parse + compile validation before save.
+- **Manual asset criticality** — `/assets` modal now exposes a
+  Criticality dropdown (`PUT /api/tc/assets/{id}/criticality`),
+  persisted to both SQL and the AGE graph node.
+- **Phase G readiness gauge** — `/phase-g` page shows the live ratio
+  of incidents with a proposed HITL action over a configurable
+  window, auto-refreshing every 30 s.
+
+### Changed
+
+- **Pricing model** — HITL actions are free for every install. The
+  paid lever is the cap on monitored assets per tier. All
+  functionality is identical across tiers; only the asset cap
+  differs. The dashboard exposes the billable count and current
+  tier on `/billing`.
+- **Investigation prompt** — the L2 ReAct prompt now requires 1-3
+  `proposed_actions` from a fixed catalog when the verdict is
+  `confirmed`; the same catalog is shared with the action-execution
+  layer to keep the two from drifting apart.
+- **L2 timeouts** — a per-call or total-loop timeout downgrades the
+  verdict to `Inconclusive` instead of poisoning the incident with
+  `Error`. The thresholds are env-overridable
+  (`TC_INVESTIGATION_LLM_TIMEOUT_SECS`,
+  `TC_INVESTIGATION_TOTAL_TIMEOUT_SECS`).
+- **Threat-map empty state** explains the three real causes
+  (no LATERAL_PATH/ATTACKS edges, no critical targets, no exposed
+  sources) instead of the previous generic message.
+
+### Fixed
+
+- Several Apache AGE incompatibilities in path-risk and
+  graph-context queries that were silently returning empty results.
+- Frontend `getVerdictSource` now reads the persisted column
+  instead of parsing a `[graph]` prefix from the title.
+- Stale unit tests covering retired graph trigger names brought up
+  to date.
+
+### Migrations
+
+- `V64__incident_verdict_source.sql`
+- `V65__incident_pattern_key.sql`
+- `V66__billable_assets.sql`
+
 ## [1.0.14-beta] — 2026-04-27
 
 Pipeline refoundation: alerts, findings and incidents are now wired the
