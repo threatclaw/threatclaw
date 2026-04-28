@@ -762,15 +762,17 @@ print_success() {
   echo -e "  ${GREEN}╚══════════════════════════════════════════════════╝${NC}"
   echo ""
 
-  # Display URL based on deploy mode
+  # Display URL based on deploy mode. Lead with the URL that works out of
+  # the box (IP-based) — the hostname-based URL only works after the user
+  # edits their hosts file, so it's shown as a secondary option below.
   if [ "$TC_DEPLOY_MODE" = "external-proxy" ]; then
     echo -e "  Dashboard:      ${GREEN}http://${ip:-localhost}:${TC_PORT}${NC}"
     echo -e "  API:            http://${ip:-localhost}:${TC_CORE_PORT}"
     echo ""
     echo -e "  ${YELLOW}Configure your reverse proxy to forward to these ports.${NC}"
   elif [ "$TC_HTTPS_PORT" = "443" ]; then
-    echo -e "  Dashboard:      ${GREEN}https://${TC_HOSTNAME}${NC}"
-    echo -e "  API:            https://${TC_HOSTNAME}/api"
+    echo -e "  Dashboard:      ${GREEN}https://${ip:-localhost}${NC}"
+    echo -e "  API:            https://${ip:-localhost}/api"
   else
     echo -e "  Dashboard:      ${GREEN}https://${ip:-localhost}:${TC_HTTPS_PORT}${NC}"
     echo -e "  API:            https://${ip:-localhost}:${TC_HTTPS_PORT}/api"
@@ -778,10 +780,17 @@ print_success() {
   echo -e "  Syslog:         ${ip:-localhost}:514 (UDP)"
   echo ""
 
-  # Show hosts file hint for .local hostnames
-  if [ "$TC_DEPLOY_MODE" != "external-proxy" ] && [[ "$TC_HOSTNAME" == *.local ]] || [[ "$TC_HOSTNAME" != *.* ]]; then
-    echo -e "  ${BOLD}To access by hostname, add to your hosts file:${NC}"
-    echo -e "    ${ip:-127.0.0.1}    ${TC_HOSTNAME}"
+  # Show hosts file hint for .local hostnames as an OPTIONAL prettier alternative.
+  if [ "$TC_DEPLOY_MODE" != "external-proxy" ] && { [[ "$TC_HOSTNAME" == *.local ]] || [[ "$TC_HOSTNAME" != *.* ]]; }; then
+    if [ "$TC_HTTPS_PORT" = "443" ]; then
+      hostname_url="https://${TC_HOSTNAME}"
+    else
+      hostname_url="https://${TC_HOSTNAME}:${TC_HTTPS_PORT}"
+    fi
+    echo -e "  ${BOLD}Optional — access by hostname (${hostname_url}):${NC}"
+    echo -e "    Add to your local hosts file (/etc/hosts on Linux/macOS,"
+    echo -e "    C:\\Windows\\System32\\drivers\\etc\\hosts on Windows):"
+    echo -e "      ${ip:-127.0.0.1}    ${TC_HOSTNAME}"
     echo ""
   fi
 

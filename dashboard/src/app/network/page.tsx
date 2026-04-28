@@ -268,13 +268,14 @@ export default function NetworkPage() {
               {(data?.recent_ids_alerts || []).length === 0 && (
                 <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucune alerte IDS dans la dernière heure.</p>
               )}
-              {(data?.recent_ids_alerts || []).slice(0, 8).map((a, i) => (
+              {(data?.recent_ids_alerts || []).slice(0, 5).map((a, i) => (
                 <div
                   key={i}
                   style={{
-                    padding: "0.5rem 0",
+                    padding: "0.4rem 0",
                     borderBottom: "1px solid rgba(255,255,255,0.05)",
                     fontSize: "0.78rem",
+                    minWidth: 0,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
@@ -283,17 +284,25 @@ export default function NetworkPage() {
                   </div>
                   <div
                     style={{
-                      marginTop: "0.2rem",
-                      fontFamily: "monospace",
+                      marginTop: "0.15rem",
+                      fontSize: "0.72rem",
+                      opacity: 0.78,
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
+                      minWidth: 0,
                     }}
+                    title={a.snippet}
                   >
                     {a.snippet}
                   </div>
                 </div>
               ))}
+              {(data?.recent_ids_alerts || []).length > 5 && (
+                <div style={{ opacity: 0.55, fontSize: "0.72rem", marginTop: "0.4rem" }}>
+                  + {(data?.recent_ids_alerts || []).length - 5} autres alertes
+                </div>
+              )}
             </div>
           </NeuCard>
 
@@ -306,13 +315,14 @@ export default function NetworkPage() {
               {(data?.admin_events || []).length === 0 && (
                 <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucun événement admin.</p>
               )}
-              {(data?.admin_events || []).slice(0, 8).map((a, i) => (
+              {(data?.admin_events || []).slice(0, 5).map((a, i) => (
                 <div
                   key={i}
                   style={{
-                    padding: "0.5rem 0",
+                    padding: "0.4rem 0",
                     borderBottom: "1px solid rgba(255,255,255,0.05)",
                     fontSize: "0.78rem",
+                    minWidth: 0,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
@@ -321,17 +331,25 @@ export default function NetworkPage() {
                   </div>
                   <div
                     style={{
-                      marginTop: "0.2rem",
-                      fontFamily: "monospace",
+                      marginTop: "0.15rem",
+                      fontSize: "0.72rem",
+                      opacity: 0.78,
                       whiteSpace: "nowrap",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
+                      minWidth: 0,
                     }}
+                    title={a.snippet}
                   >
                     {a.snippet}
                   </div>
                 </div>
               ))}
+              {(data?.admin_events || []).length > 5 && (
+                <div style={{ opacity: 0.55, fontSize: "0.72rem", marginTop: "0.4rem" }}>
+                  + {(data?.admin_events || []).length - 5} autres événements
+                </div>
+              )}
             </div>
           </NeuCard>
         </div>
