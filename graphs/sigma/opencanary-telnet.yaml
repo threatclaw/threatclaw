@@ -1,0 +1,37 @@
+spec_version: cacao-2.0
+name: opencanary-telnet
+description: |
+  Wazuh OpenCanary Telnet honeypot (rule_id 100704). Telnet n'a aucune
+  raison d'etre touche en 2026 — service exclusivement honeypot.
+  - Burst (>=3 signaux en 5 min sur l'asset honeypot) → recon active,
+    incident + HITL block_ip.
+  - Touche isolee → archive "bruit (touch canary unique)".
+trigger:
+  sigma_rule: wazuh-100704
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_noise
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan actif du honeypot Telnet — bloquer l'IP source au plus vite"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "touch canary unique (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

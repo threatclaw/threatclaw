@@ -1,0 +1,37 @@
+spec_version: cacao-2.0
+name: opencanary-ssh
+description: |
+  Wazuh OpenCanary SSH honeypot (rule_id 100702). Pendant SSH du honeypot
+  multi-services. Meme decision que les autres canary touch :
+  - Burst (>=3 signaux en 5 min sur l'asset honeypot) → recon active,
+    incident + HITL block_ip.
+  - Touche isolee → archive "bruit (touch canary unique)".
+trigger:
+  sigma_rule: wazuh-100702
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_noise
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan actif du honeypot SSH — bloquer l'IP source au plus vite"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "touch canary unique (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

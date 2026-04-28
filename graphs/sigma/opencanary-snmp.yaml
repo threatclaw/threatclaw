@@ -1,0 +1,38 @@
+spec_version: cacao-2.0
+name: opencanary-snmp
+description: |
+  Wazuh OpenCanary SNMP honeypot (rule_id 100707). Une requete SNMP avec
+  community "public" sur ce host — comportement classique de scan reseau
+  (nmap -sU 161, snmpwalk recon, etc.).
+  - Burst (>=3 signaux en 5 min sur l'asset honeypot) → recon SNMP en
+    cours, incident + HITL block_ip.
+  - Touche isolee → archive "bruit (touch canary unique)".
+trigger:
+  sigma_rule: wazuh-100707
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_noise
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Scan SNMP du honeypot — bloquer l'IP source au plus vite"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "touch canary unique (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

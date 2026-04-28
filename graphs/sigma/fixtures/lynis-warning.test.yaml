@@ -1,0 +1,7 @@
+graph: lynis-warning
+cases:
+  - name: always_archives
+    ctx: {}
+    expected:
+      outcome: archive
+      reason: "lynis"

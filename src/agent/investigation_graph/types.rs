@@ -292,7 +292,10 @@ steps:
     fn roundtrip_backdoor_port_block() {
         let g = assert_roundtrip(YAML_BACKDOOR);
         assert_eq!(g.name, "backdoor-port-block-handled");
-        assert_eq!(g.trigger.sigma_rule, "backdoor_port_block");
+        // Trigger renamed from "backdoor_port_block" to "opnsense-fw-001"
+        // in commit 9854a8f to match the actual sigma rule shipped to
+        // production (the abstract name was never fired).
+        assert_eq!(g.trigger.sigma_rule, "opnsense-fw-001");
         assert!(g.steps.contains_key("archive_handled"));
     }
 

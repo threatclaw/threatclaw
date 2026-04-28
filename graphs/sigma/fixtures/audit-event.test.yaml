@@ -1,0 +1,15 @@
+graph: audit-event
+cases:
+  - name: burst_routes_to_llm
+    ctx:
+      signals: { recent_count_5m: 15 }
+    expected:
+      outcome: pending_async
+      task_kind: investigate-llm
+
+  - name: low_volume_archives
+    ctx:
+      signals: { recent_count_5m: 2 }
+    expected:
+      outcome: archive
+      reason: "bruit"
