@@ -2941,16 +2941,20 @@ impl ThreatClawStore for PgBackend {
 
     async fn recover_stale_tasks(&self, older_than_secs: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let interval = format!("{} seconds", older_than_secs);
+        // tokio-postgres can't directly serialize a Rust String into the
+        // `interval` Postgres type. Pass seconds as i32 and let SQL build
+        // the interval via `make_interval(secs => $1)`.
+        let secs: i32 = older_than_secs.clamp(0, i32::MAX as i64) as i32;
         let row = conn
             .query_one(
                 "WITH recovered AS ( \
                     UPDATE task_queue \
                     SET status = 'queued', worker_id = NULL, started_at = NULL \
-                    WHERE status = 'running' AND started_at < now() - $1::interval \
+                    WHERE status = 'running' \
+                      AND started_at < now() - make_interval(secs => $1) \
                     RETURNING 1 \
                  ) SELECT COUNT(*)::bigint FROM recovered",
-                &[&interval],
+                &[&secs],
             )
             .await
             .map_err(query_err)?;
