@@ -1086,7 +1086,22 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Touch an existing open incident: bump alert_count by delta, refresh updated_at.
     /// Used when a recurring pattern on the same asset would otherwise create a duplicate.
-    async fn touch_incident(&self, id: i32, alert_count_delta: i32) -> Result<(), DatabaseError>;
+    /// Bump `alert_count` and `updated_at` on an existing incident.
+    ///
+    /// Sprint 5 #2 — `pattern_key` (sigma rule_id, graph name, or any
+    /// string identifying the trigger) gates the count bump: when the
+    /// new pattern matches the last one we touched the incident with,
+    /// `alert_count_delta` is ignored (no-op on count, only `updated_at`
+    /// moves). This stops the count from growing unbounded when the
+    /// same rule keeps firing on the same asset. `None` preserves the
+    /// legacy behavior (always bump) — used by callers that don't yet
+    /// track a pattern key.
+    async fn touch_incident(
+        &self,
+        id: i32,
+        alert_count_delta: i32,
+        pattern_key: Option<&str>,
+    ) -> Result<(), DatabaseError>;
 
     /// Cleanup: delete acknowledged/resolved sigma alerts older than `days_old` days.
     /// Returns the number of deleted rows.

@@ -50,10 +50,21 @@ pub fn library() -> Arc<GraphLibrary> {
 /// Toute erreur DB / payload est loggée et silencieusement convertie en
 /// `None` — on ne casse jamais le pipeline existant pour un graph qui
 /// échoue à enqueue.
+/// Sprint 5 #1 — return value extended to expose whether the matched graph
+/// can emit a `PendingAsync(investigate-llm)`. The IE callsite uses this to
+/// decide whether to short-circuit ReAct (`TC_GRAPH_ONLY=1`): if the graph
+/// might delegate to the LLM, we must let ReAct run even in graph-only mode
+/// — otherwise the verdict never lands and the incident dies in `running`.
+#[derive(Debug, Clone, Copy)]
+pub struct GraphDispatch {
+    pub exec_id: i64,
+    pub requires_llm: bool,
+}
+
 pub async fn try_enqueue_graph_for_dossier(
     store: &Arc<dyn Database>,
     dossier: &IncidentDossier,
-) -> Option<i64> {
+) -> Option<GraphDispatch> {
     let lib = library();
     if lib.is_empty() {
         return None;
@@ -62,6 +73,7 @@ pub async fn try_enqueue_graph_for_dossier(
     let sigma_rule = pick_dominant_sigma_rule(dossier)?;
     let compiled = lib.find_for_sigma_rule(&sigma_rule)?;
     let graph_name = compiled.name.clone();
+    let requires_llm = compiled.requires_llm;
 
     let new_exec = NewGraphExecution {
         graph_name: graph_name.clone(),
@@ -95,10 +107,13 @@ pub async fn try_enqueue_graph_for_dossier(
     match store.enqueue_task(&new_task).await {
         Ok(task_id) => {
             info!(
-                "GRAPH DISPATCH: graph='{}' enqueued task={} exec_id={} sigma_rule='{}' asset='{}'",
-                graph_name, task_id, exec_id, sigma_rule, dossier.primary_asset
+                "GRAPH DISPATCH: graph='{}' enqueued task={} exec_id={} sigma_rule='{}' asset='{}' requires_llm={}",
+                graph_name, task_id, exec_id, sigma_rule, dossier.primary_asset, requires_llm
             );
-            Some(exec_id)
+            Some(GraphDispatch {
+                exec_id,
+                requires_llm,
+            })
         }
         Err(e) => {
             warn!(

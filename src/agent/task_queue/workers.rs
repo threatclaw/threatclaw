@@ -226,12 +226,25 @@ async fn persist_outcome(
             (GraphExecutionStatus::Incident, None, inc_id)
         }
         ExecutionOutcome::Inconclusive => (GraphExecutionStatus::Inconclusive, None, None),
-        ExecutionOutcome::PendingAsync { .. } => {
-            // Un graph G1a ne devrait pas finir en PendingAsync ici (on
-            // exécute synchrone). Si ça arrive c'est un step async qu'on
-            // n'a pas encore wired — on garde running, un retry le
-            // reprendra.
-            return;
+        ExecutionOutcome::PendingAsync {
+            task_kind, at_step, ..
+        } => {
+            // Sprint 5 #1 — the graph delegated to an async path. The
+            // only async kind currently shipped is `investigate-llm`;
+            // when that's the case ReAct is running in parallel
+            // (see intelligence_engine.rs — TC_GRAPH_ONLY no longer
+            // skips ReAct when the matched graph contains
+            // `threatclaw-investigate-llm`). We finalize the
+            // graph_execution row as Inconclusive with a clear
+            // archive_reason so it doesn't hang in `running` forever
+            // and so the audit trail records that the graph chose to
+            // delegate.
+            //
+            // For `skill-call` (no shipped graph uses it yet) we apply
+            // the same finalization — when the worker for that kind
+            // gets wired, this becomes a real resume point.
+            let reason = format!("delegated → {} (resume at step '{}')", task_kind, at_step);
+            (GraphExecutionStatus::Inconclusive, Some(reason), None)
         }
     };
 
@@ -305,7 +318,15 @@ async fn create_incident_from_graph(
     let inc_id = if let Some(existing_id) = existing {
         // Bump alert_count pour indiquer la récurrence + on update verdict
         // ci-dessous avec les actions du graph (qui peuvent avoir changé).
-        if let Err(e) = store.touch_incident(existing_id, 1).await {
+        // Sprint 5 #2 — pattern key = graph name. If the same graph keeps
+        // firing on the same asset (e.g. a port scan that touches the
+        // canary every minute), alert_count is no-op'd; we only update
+        // `updated_at`. Counter still grows when a *different* graph
+        // (genuine new evidence) folds into this incident.
+        if let Err(e) = store
+            .touch_incident(existing_id, 1, Some(&trace.graph_name))
+            .await
+        {
             warn!(
                 "GRAPH STEP WORKER: touch_incident({}) failed: {}",
                 existing_id, e

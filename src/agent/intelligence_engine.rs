@@ -2692,8 +2692,33 @@ pub fn spawn_intelligence_ticker(
                                     existing_id,
                                     worst_asset.asset
                                 );
+                                // Sprint 5 #2 — pattern key from the
+                                // dominant sigma rule of this dossier.
+                                // Falls back to the top finding's source
+                                // if no sigma alert is in play. None
+                                // when neither is available — preserves
+                                // the always-bump behavior on legacy
+                                // dossiers without trigger metadata.
+                                let pattern_key: Option<String> = dossier
+                                    .sigma_alerts
+                                    .first()
+                                    .map(|a| a.rule_name.clone())
+                                    .or_else(|| {
+                                        dossier.findings.first().and_then(|f| {
+                                            f.metadata
+                                                .get("rule_id")
+                                                .or_else(|| f.metadata.get("sigma_rule"))
+                                                .and_then(|v| v.as_str())
+                                                .map(String::from)
+                                                .or_else(|| f.source.clone())
+                                        })
+                                    });
                                 let _ = store
-                                    .touch_incident(existing_id, worst_asset.active_alerts as i32)
+                                    .touch_incident(
+                                        existing_id,
+                                        worst_asset.active_alerts as i32,
+                                        pattern_key.as_deref(),
+                                    )
                                     .await;
                                 existing_id
                             }
@@ -2757,20 +2782,37 @@ pub fn spawn_intelligence_ticker(
                                 let graph_only = std::env::var("TC_GRAPH_ONLY")
                                     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                                     .unwrap_or(false);
-                                if let Some(exec_id) = graph_enqueued {
-                                    if graph_only {
+                                if let Some(dispatch) = graph_enqueued {
+                                    // Sprint 5 #1 — only short-circuit
+                                    // ReAct in TC_GRAPH_ONLY mode if the
+                                    // matched graph commits to a final
+                                    // outcome on its own. If it can emit
+                                    // PendingAsync(investigate-llm), we
+                                    // MUST keep ReAct running otherwise
+                                    // the verdict never lands and the
+                                    // graph_execution row dies in
+                                    // `running` forever.
+                                    if graph_only && !dispatch.requires_llm {
                                         tracing::info!(
                                             "GRAPH-FIRST: dossier {} delegated to graph (exec_id={}) — ReAct skipped",
                                             dossier.id,
-                                            exec_id
+                                            dispatch.exec_id
                                         );
                                         return;
                                     }
-                                    tracing::info!(
-                                        "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
-                                        dossier.id,
-                                        exec_id
-                                    );
+                                    if graph_only && dispatch.requires_llm {
+                                        tracing::info!(
+                                            "GRAPH-FIRST: dossier {} graph (exec_id={}) may delegate to LLM — ReAct kept active for verdict",
+                                            dossier.id,
+                                            dispatch.exec_id
+                                        );
+                                    } else {
+                                        tracing::info!(
+                                            "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
+                                            dossier.id,
+                                            dispatch.exec_id
+                                        );
+                                    }
                                 } else if graph_only {
                                     tracing::info!(
                                         "GRAPH-FIRST: dossier {} no matching graph — ReAct fallback",
@@ -3041,27 +3083,52 @@ pub fn spawn_intelligence_ticker(
                                             .unwrap_or(serde_json::json!([])),
                                         _ => serde_json::json!([]),
                                     };
-                                    let _ = store_inv
-                                        .update_incident_verdict(
+                                    // Sprint 5 #1 — race protection. If a graph
+                                    // already committed to this incident
+                                    // (verdict_source='graph'), don't downgrade
+                                    // its deterministic verdict by overwriting
+                                    // with ReAct. Happens when a `requires_llm`
+                                    // graph took the deterministic branch
+                                    // (emit_incident) instead of route_llm and
+                                    // ReAct ran in parallel anyway.
+                                    let existing_source = store_inv
+                                        .get_incident(incident_id)
+                                        .await
+                                        .ok()
+                                        .flatten()
+                                        .and_then(|v| {
+                                            v.get("verdict_source")
+                                                .and_then(|s| s.as_str())
+                                                .map(String::from)
+                                        });
+                                    if existing_source.as_deref() == Some("graph") {
+                                        tracing::info!(
+                                            "INCIDENT #{}: graph already decided (deterministic) — skipping ReAct overwrite",
+                                            incident_id
+                                        );
+                                    } else {
+                                        let _ = store_inv
+                                            .update_incident_verdict(
+                                                incident_id,
+                                                result.verdict.verdict_type(),
+                                                result.verdict.confidence() as f64,
+                                                &final_analysis,
+                                                &parsed_mitre,
+                                                &proposed,
+                                                &inv_log,
+                                                &evidence_citations_json,
+                                                // Sprint 1 #2 — initial L2 verdict
+                                                // = ReAct LLM decision.
+                                                Some("react"),
+                                            )
+                                            .await;
+                                        tracing::info!(
+                                            "INCIDENT #{}: verdict={} confidence={:.0}%",
                                             incident_id,
                                             result.verdict.verdict_type(),
-                                            result.verdict.confidence() as f64,
-                                            &final_analysis,
-                                            &parsed_mitre,
-                                            &proposed,
-                                            &inv_log,
-                                            &evidence_citations_json,
-                                            // Sprint 1 #2 — initial L2 verdict
-                                            // = ReAct LLM decision.
-                                            Some("react"),
-                                        )
-                                        .await;
-                                    tracing::info!(
-                                        "INCIDENT #{}: verdict={} confidence={:.0}%",
-                                        incident_id,
-                                        result.verdict.verdict_type(),
-                                        result.verdict.confidence() * 100.0
-                                    );
+                                            result.verdict.confidence() * 100.0
+                                        );
+                                    }
 
                                     // If the LLM produced a clean FR title, overwrite the
                                     // heuristic title set at incident creation. Cap at 120
