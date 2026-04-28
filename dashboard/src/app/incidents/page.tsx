@@ -104,6 +104,8 @@ interface Incident {
   title: string;
   summary: string | null;
   verdict: string;
+  /** Sprint 1 #2 — 'graph' | 'react' | 'manual'. NULL on legacy rows. */
+  verdict_source?: "graph" | "react" | "manual" | null;
   confidence: number | null;
   severity: string | null;
   alert_count: number | null;
@@ -231,9 +233,9 @@ function generateRecommendedActions(inc: Incident, locale: string): {
 
 // Identifie la source du verdict pour distinguer une décision graph
 // déterministe (rapide, traçable) d'une investigation ReAct (LLM, plus
-// lente). On se base sur la convention `[graph] ...` posée par le worker
-// `create_incident_from_graph`. Quand on aura un champ source dédié en
-// DB, on lira directement celui-ci.
+// lente). Sprint 1 #2 : on lit la colonne `verdict_source` en DB. Pour les
+// 88 incidents legacy (NULL), fallback sur le parsing du préfixe `[graph] `
+// du titre (ancienne convention) puis sinon ReAct par défaut.
 function getVerdictSource(inc: Incident, locale: string): {
   kind: "graph" | "react" | "manual";
   label: string;
@@ -241,14 +243,30 @@ function getVerdictSource(inc: Incident, locale: string): {
   detail: string;
 } {
   const t = inc.title || "";
-  if (t.startsWith("[graph]")) {
+  const explicit = inc.verdict_source ?? null;
+
+  const graphName = (() => {
     const m = t.match(/^\[graph\]\s+([^\s—-]+)/);
-    const graphName = m ? m[1] : null;
+    return m ? m[1] : null;
+  })();
+
+  const kind: "graph" | "react" | "manual" =
+    explicit ?? (t.startsWith("[graph]") ? "graph" : "react");
+
+  if (kind === "graph") {
     return {
       kind: "graph",
       label: locale === "fr" ? "Graph déterministe" : "Deterministic graph",
       color: "#4090ff",
       detail: graphName ? `'${graphName}'` : "",
+    };
+  }
+  if (kind === "manual") {
+    return {
+      kind: "manual",
+      label: locale === "fr" ? "Décision RSSI" : "Manual decision",
+      color: "#888",
+      detail: "",
     };
   }
   return {

@@ -2035,6 +2035,7 @@ impl ThreatClawStore for PgBackend {
         proposed_actions: &serde_json::Value,
         investigation_log: &serde_json::Value,
         evidence_citations: &serde_json::Value,
+        verdict_source: Option<&str>,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let conf_f32 = confidence as f32;
@@ -2043,9 +2044,14 @@ impl ThreatClawStore for PgBackend {
         // The incident stays `open` with verdict='error' so the RSSI sees
         // it in the regular queue and can act on the rules-based fallback
         // title; an audit note (added by the caller) explains the L2 fail.
+        //
+        // Sprint 1 #2 — verdict_source: COALESCE preserves the prior value
+        // when the caller passes None (re-investigate path doesn't change
+        // who originally decided this incident).
+        let source_owned = verdict_source.map(String::from);
         conn.execute(
-            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, evidence_citations = $8, status = CASE WHEN $2 = 'false_positive' THEN 'closed' WHEN $2 = 'confirmed' THEN 'open' WHEN $2 = 'informational' THEN 'closed' ELSE 'open' END, updated_at = NOW() WHERE id = $1",
-            &[&id, &verdict, &conf_f32, &summary, &mitre, proposed_actions, investigation_log, evidence_citations],
+            "UPDATE incidents SET verdict = $2, confidence = $3, summary = $4, mitre_techniques = $5, proposed_actions = $6, investigation_log = $7, evidence_citations = $8, verdict_source = COALESCE($9, verdict_source), status = CASE WHEN $2 = 'false_positive' THEN 'closed' WHEN $2 = 'confirmed' THEN 'open' WHEN $2 = 'informational' THEN 'closed' ELSE 'open' END, updated_at = NOW() WHERE id = $1",
+            &[&id, &verdict, &conf_f32, &summary, &mitre, proposed_actions, investigation_log, evidence_citations, &source_owned],
         ).await.map_err(query_err)?;
         Ok(())
     }
@@ -2423,21 +2429,21 @@ impl ThreatClawStore for PgBackend {
         let rows = match status_owned.as_deref() {
             None | Some("all") => {
                 let q = format!(
-                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status != 'archived' ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status != 'archived' ORDER BY created_at DESC LIMIT {} OFFSET {}",
                     limit, offset
                 );
                 conn.query(&q, &[]).await.map_err(query_err)?
             }
             Some("include_archived") => {
                 let q = format!(
-                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents ORDER BY created_at DESC LIMIT {} OFFSET {}",
                     limit, offset
                 );
                 conn.query(&q, &[]).await.map_err(query_err)?
             }
             Some(s) => {
                 let q = format!(
-                    "SELECT id, asset, title, summary, verdict, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}",
+                    "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_count, status, hitl_status, hitl_response, proposed_actions, mitre_techniques, notes, created_at, updated_at, resolved_at FROM incidents WHERE status = $1 ORDER BY created_at DESC LIMIT {} OFFSET {}",
                     limit, offset
                 );
                 conn.query(&q, &[&s.to_string()]).await.map_err(query_err)?
@@ -2450,6 +2456,7 @@ impl ThreatClawStore for PgBackend {
                 "title": r.get::<_, String>("title"),
                 "summary": r.get::<_, Option<String>>("summary"),
                 "verdict": r.get::<_, String>("verdict"),
+                "verdict_source": r.get::<_, Option<String>>("verdict_source"),
                 "confidence": r.get::<_, Option<f32>>("confidence"),
                 "severity": r.get::<_, Option<String>>("severity"),
                 "alert_count": r.get::<_, Option<i32>>("alert_count"),
@@ -2470,7 +2477,7 @@ impl ThreatClawStore for PgBackend {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id, asset, title, summary, verdict, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
             &[&id],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| serde_json::json!({
@@ -2479,6 +2486,7 @@ impl ThreatClawStore for PgBackend {
             "title": r.get::<_, String>("title"),
             "summary": r.get::<_, Option<String>>("summary"),
             "verdict": r.get::<_, String>("verdict"),
+            "verdict_source": r.get::<_, Option<String>>("verdict_source"),
             "confidence": r.get::<_, Option<f32>>("confidence"),
             "severity": r.get::<_, Option<String>>("severity"),
             "alert_ids": r.get::<_, Option<Vec<i32>>>("alert_ids"),
