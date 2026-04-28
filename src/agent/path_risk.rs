@@ -252,10 +252,7 @@ async fn derive_lateral_paths_from_logins(store: &dyn Database) -> usize {
     let rows = match store.execute_cypher(&list_cypher).await {
         Ok(r) => r,
         Err(e) => {
-            warn!(
-                "PATH RISK: derive_lateral_paths list query failed: {}",
-                e
-            );
+            warn!("PATH RISK: derive_lateral_paths list query failed: {}", e);
             return 0;
         }
     };
