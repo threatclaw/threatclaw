@@ -23,7 +23,7 @@ interface Acceptance {
 const REFRESH_MS = 30_000;
 
 export default function PhaseGPage() {
-  const { locale } = useLocale();
+  const locale = useLocale();
   const fr = locale === "fr";
 
   const [data, setData] = useState<Acceptance | null>(null);

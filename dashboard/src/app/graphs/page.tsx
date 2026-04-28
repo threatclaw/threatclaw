@@ -38,7 +38,7 @@ const labelStyle: React.CSSProperties = {
 };
 
 export default function GraphsPage() {
-  const { locale } = useLocale();
+  const locale = useLocale();
   const fr = locale === "fr";
 
   const [graphs, setGraphs] = useState<GraphItem[]>([]);
