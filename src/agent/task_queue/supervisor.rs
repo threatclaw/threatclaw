@@ -78,10 +78,7 @@ async fn run_supervisor(store: Arc<dyn Database>, pool: Arc<WorkerPool>) {
                     match outcome {
                         WorkerOutcome::Done(v) => {
                             if let Err(e) = store_disp.complete_task(task_id, &v).await {
-                                error!(
-                                    "SUPERVISOR: complete_task({}) failed: {}",
-                                    task_id, e
-                                );
+                                error!("SUPERVISOR: complete_task({}) failed: {}", task_id, e);
                             }
                         }
                         WorkerOutcome::Failed(msg) => {
@@ -129,4 +126,3 @@ pub async fn recover_on_boot(store: &Arc<dyn Database>) {
         }
     }
 }
-

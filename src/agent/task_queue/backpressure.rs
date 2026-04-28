@@ -72,11 +72,7 @@ impl BackpressureCheck {
     /// Estimation grossière du temps d'attente avant que la queue
     /// redescende sous `accept_below`, basée sur un débit de `throughput`
     /// tasks par minute. Utilisé pour le message "retry in N min".
-    pub fn est_retry_after_minutes(
-        &self,
-        depths: &QueueDepths,
-        throughput_per_min: f64,
-    ) -> u64 {
+    pub fn est_retry_after_minutes(&self, depths: &QueueDepths, throughput_per_min: f64) -> u64 {
         if throughput_per_min <= 0.0 {
             return 60;
         }

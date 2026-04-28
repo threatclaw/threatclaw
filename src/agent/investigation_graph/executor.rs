@@ -110,10 +110,7 @@ const MAX_STEPS_PER_RUN: usize = 64;
 pub struct GraphExecutor;
 
 impl GraphExecutor {
-    pub fn run(
-        graph: &CompiledGraph,
-        ctx: &EvalContext,
-    ) -> Result<ExecutionTrace, ExecutorError> {
+    pub fn run(graph: &CompiledGraph, ctx: &EvalContext) -> Result<ExecutionTrace, ExecutorError> {
         let started_at = chrono::Utc::now();
         let run_start = Instant::now();
         let mut visited: Vec<StepResult> = Vec::new();
@@ -211,9 +208,7 @@ fn exec_step(
     ExecutorError,
 > {
     match step {
-        Step::Start { on_completion } => {
-            Ok((Some(on_completion.clone()), None, None, None))
-        }
+        Step::Start { on_completion } => Ok((Some(on_completion.clone()), None, None, None)),
         Step::End => Ok((None, None, None, None)),
         Step::Action {
             command,
@@ -224,11 +219,9 @@ fn exec_step(
             on_true,
             on_false,
         } => {
-            let program = cel_eval::compile(condition).map_err(|e| {
-                ExecutorError::CelFailed {
-                    step: current.to_string(),
-                    source: e,
-                }
+            let program = cel_eval::compile(condition).map_err(|e| ExecutorError::CelFailed {
+                step: current.to_string(),
+                source: e,
             })?;
             let result =
                 cel_eval::evaluate(&program, ctx).map_err(|e| ExecutorError::CelFailed {
@@ -243,9 +236,9 @@ fn exec_step(
             let branch = if result { "true" } else { "false" }.to_string();
             Ok((Some(next), Some(branch), None, None))
         }
-        Step::SwitchCondition { .. } => {
-            Err(ExecutorError::UnsupportedStepKind("switch-condition".into()))
-        }
+        Step::SwitchCondition { .. } => Err(ExecutorError::UnsupportedStepKind(
+            "switch-condition".into(),
+        )),
         Step::Parallel { .. } => Ok((
             None,
             None,
@@ -307,24 +300,17 @@ fn exec_action_command(
             None,
             None,
             Some(ExecutionOutcome::PendingAsync {
-                at_step: on_completion
-                    .unwrap_or("(no_continuation)")
-                    .to_string(),
+                at_step: on_completion.unwrap_or("(no_continuation)").to_string(),
                 task_kind: "investigate-llm".into(),
                 params: serde_json::json!({"timeout_secs": timeout_secs}),
             }),
             Some("LLM call deferred to G1b queue".into()),
         )),
-        Command::ThreatclawSkillCall {
-            skill_name,
-            params,
-        } => Ok((
+        Command::ThreatclawSkillCall { skill_name, params } => Ok((
             None,
             None,
             Some(ExecutionOutcome::PendingAsync {
-                at_step: on_completion
-                    .unwrap_or("(no_continuation)")
-                    .to_string(),
+                at_step: on_completion.unwrap_or("(no_continuation)").to_string(),
                 task_kind: "skill-call".into(),
                 params: serde_json::json!({
                     "skill_name": skill_name,
@@ -382,9 +368,7 @@ mod tests {
         steps.insert(
             "route_to_llm".to_string(),
             Step::Action {
-                command: Command::ThreatclawInvestigateLlm {
-                    timeout_secs: 1500,
-                },
+                command: Command::ThreatclawInvestigateLlm { timeout_secs: 1500 },
                 on_completion: Some("end".into()),
             },
         );

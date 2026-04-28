@@ -143,14 +143,13 @@ pub enum WorkerOutcome {
 /// Helper qui exécute la `worker_fn` avec timeout + capture des paniques.
 /// Ne touche pas à la DB — la traduction en complete_task/fail_task est
 /// faite par le caller (via le store).
-pub async fn dispatch_one(
-    worker_fn: &WorkerFn,
-    task: Task,
-    timeout: Duration,
-) -> WorkerOutcome {
+pub async fn dispatch_one(worker_fn: &WorkerFn, task: Task, timeout: Duration) -> WorkerOutcome {
     let task_id = task.id;
     let task_kind = task.kind;
-    debug!("WORKER: dispatching task {} (kind={:?})", task_id, task_kind);
+    debug!(
+        "WORKER: dispatching task {} (kind={:?})",
+        task_id, task_kind
+    );
 
     let fut = (worker_fn)(task);
     match tokio::time::timeout(timeout, fut).await {
@@ -210,8 +209,7 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_returns_done_on_success() {
-        let f: WorkerFn =
-            Arc::new(|_t| Box::pin(async move { Ok(json!({"verdict": "clean"})) }));
+        let f: WorkerFn = Arc::new(|_t| Box::pin(async move { Ok(json!({"verdict": "clean"})) }));
         let outcome = dispatch_one(&f, fake_task(), Duration::from_secs(5)).await;
         match outcome {
             WorkerOutcome::Done(v) => assert_eq!(v["verdict"], "clean"),

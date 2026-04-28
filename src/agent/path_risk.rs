@@ -210,11 +210,7 @@ async fn list_exposed_sources(store: &dyn Database) -> Result<Vec<String>, Strin
         .map_err(|e| format!("cypher sources: {}", e))?;
     Ok(rows
         .into_iter()
-        .filter_map(|r| {
-            r.get("id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
         .collect())
 }
 
@@ -228,11 +224,7 @@ async fn list_critical_targets(store: &dyn Database) -> Result<Vec<String>, Stri
         .map_err(|e| format!("cypher targets: {}", e))?;
     Ok(rows
         .into_iter()
-        .filter_map(|r| {
-            r.get("id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
         .collect())
 }
 
@@ -337,11 +329,7 @@ async fn collect_cves_on_path(store: &dyn Database, path: &[String]) -> Vec<Stri
     );
     let rows = store.execute_cypher(&cypher).await.unwrap_or_default();
     rows.into_iter()
-        .filter_map(|r| {
-            r.get("cve")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
+        .filter_map(|r| r.get("cve").and_then(|v| v.as_str()).map(String::from))
         .collect()
 }
 
@@ -424,10 +412,7 @@ mod tests {
     fn explanation_is_human_readable() {
         let exp = build_explanation(
             &["a".to_string(), "b".to_string(), "c".to_string()],
-            &[
-                "CVE-2024-1234".to_string(),
-                "CVE-2023-9999".to_string(),
-            ],
+            &["CVE-2024-1234".to_string(), "CVE-2023-9999".to_string()],
             Some(0.87),
             true,
         );

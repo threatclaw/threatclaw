@@ -494,10 +494,7 @@ pub async fn admin_queue_state_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
-    let depths = store
-        .count_tasks_by_status()
-        .await
-        .unwrap_or_default();
+    let depths = store.count_tasks_by_status().await.unwrap_or_default();
     let backpressure_decision =
         crate::agent::task_queue::BackpressureCheck::default().decide(&depths);
 
@@ -533,10 +530,7 @@ pub async fn security_attack_paths_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let limit = q.limit.unwrap_or(20).clamp(1, 200);
-    let paths = store
-        .latest_attack_paths(limit)
-        .await
-        .map_err(db_err)?;
+    let paths = store.latest_attack_paths(limit).await.map_err(db_err)?;
     Ok(Json(serde_json::json!({
         "count": paths.len(),
         "paths": paths,
@@ -584,10 +578,7 @@ pub async fn graph_executions_list_handler(
         since_hours: q.since_hours,
         limit: q.limit.unwrap_or(50),
     };
-    let rows = store
-        .list_graph_executions(&filter)
-        .await
-        .map_err(db_err)?;
+    let rows = store.list_graph_executions(&filter).await.map_err(db_err)?;
     Ok(Json(serde_json::json!({
         "count": rows.len(),
         "executions": rows,
@@ -603,10 +594,7 @@ pub async fn security_choke_points_handler(
 ) -> ApiResult<serde_json::Value> {
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let limit = q.limit.unwrap_or(10).clamp(1, 50);
-    let points = store
-        .latest_choke_points(limit)
-        .await
-        .map_err(db_err)?;
+    let points = store.latest_choke_points(limit).await.map_err(db_err)?;
     Ok(Json(serde_json::json!({
         "count": points.len(),
         "choke_points": points,

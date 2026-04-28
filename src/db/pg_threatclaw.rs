@@ -2093,11 +2093,7 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
-    async fn update_incident_title(
-        &self,
-        id: i32,
-        title: &str,
-    ) -> Result<(), DatabaseError> {
+    async fn update_incident_title(&self, id: i32, title: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             "UPDATE incidents SET title = $2, updated_at = NOW() WHERE id = $1",
@@ -3104,9 +3100,7 @@ impl ThreatClawStore for PgBackend {
         let status_owned: Option<String> = filter.status.clone();
         let asset_owned: Option<String> = filter.asset_id.clone();
         let reason_owned: Option<String> = filter.archive_reason.clone();
-        let since_owned: Option<String> = filter
-            .since_hours
-            .map(|h| format!("{} hours", h));
+        let since_owned: Option<String> = filter.since_hours.map(|h| format!("{} hours", h));
 
         if status_owned.is_some() {
             sql.push_str(&format!(" AND status = ${}", idx));
@@ -3124,10 +3118,7 @@ impl ThreatClawStore for PgBackend {
             sql.push_str(&format!(" AND started_at > now() - ${}::interval", idx));
             idx += 1;
         }
-        sql.push_str(&format!(
-            " ORDER BY started_at DESC LIMIT ${}",
-            idx
-        ));
+        sql.push_str(&format!(" ORDER BY started_at DESC LIMIT ${}", idx));
 
         let mut params: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = Vec::new();
         if let Some(s) = status_owned.as_ref() {

@@ -122,10 +122,7 @@ pub fn llm_worker_fn() -> WorkerFn {
 /// Si `task.graph_run_id` est `Some(id)`, on finalise la row
 /// `graph_executions` avec le verdict (status + motif/incident_id + trace).
 /// Sinon (call orphelin), on log et on retourne juste la trace.
-pub fn graph_step_worker_fn(
-    library: Arc<GraphLibrary>,
-    store: Arc<dyn Database>,
-) -> WorkerFn {
+pub fn graph_step_worker_fn(library: Arc<GraphLibrary>, store: Arc<dyn Database>) -> WorkerFn {
     Arc::new(move |task| {
         let library = library.clone();
         let store = store.clone();
@@ -210,11 +207,9 @@ async fn persist_outcome(
     trace: &crate::agent::investigation_graph::ExecutionTrace,
 ) {
     let (status, archive_reason, incident_id) = match &trace.outcome {
-        ExecutionOutcome::Archive { reason } => (
-            GraphExecutionStatus::Archived,
-            Some(reason.clone()),
-            None,
-        ),
+        ExecutionOutcome::Archive { reason } => {
+            (GraphExecutionStatus::Archived, Some(reason.clone()), None)
+        }
         ExecutionOutcome::Incident { .. } => {
             // L'incident_id concret sera lié par la couche IE (G1d) qui
             // fait l'INSERT dans incidents en parallèle. Ici on marque

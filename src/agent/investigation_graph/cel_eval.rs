@@ -162,9 +162,8 @@ mod tests {
     #[test]
     fn conjunction_archive_decision() {
         // motif "résolu par firewall" = block appliqué + IP externe
-        let p =
-            compile(r#"alert.firewall_action == "block" && graph.asset_in_graph == false"#)
-                .unwrap();
+        let p = compile(r#"alert.firewall_action == "block" && graph.asset_in_graph == false"#)
+            .unwrap();
         assert!(evaluate(&p, &ctx_simple()).unwrap());
     }
 
