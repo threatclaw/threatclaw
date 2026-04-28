@@ -348,7 +348,12 @@ async fn create_incident_from_graph(
     if let Err(e) = store
         .update_incident_verdict(
             inc_id,
-            "Confirmed",
+            // verdict en lowercase pour cohérence avec le reste du
+            // code (llm_schemas, llm_parsing, frontend verdictBadge).
+            // Le SQL CASE dans update_incident_verdict matche aussi en
+            // lowercase. Avec "Confirmed" capital, le frontend affichait
+            // "En cours..." au lieu de "Confirme".
+            "confirmed",
             0.85,
             &summary,
             &[],
