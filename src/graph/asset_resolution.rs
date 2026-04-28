@@ -431,6 +431,14 @@ async fn merge_asset(
         })
         .await;
 
+    // Phase A.2 fix — persist the dedup confidence so the billable
+    // filter can exclude `uncertain` rows. Upgrade-only at the SQL
+    // layer, so a later sync that only carries an IP can't regress
+    // an asset already locked-in by MAC.
+    let _ = store
+        .set_asset_dedup_confidence(&existing.id, dedup_confidence_for(discovered))
+        .await;
+
     tracing::info!(
         "ASSET MERGE: {} enriched by {} (confidence: {:.2})",
         existing.id,
@@ -526,6 +534,11 @@ async fn create_new_asset(
             location: None,
             tags: vec!["discovered".into()],
         })
+        .await;
+
+    // Phase A.2 fix — same dedup-confidence persistence as merge_asset.
+    let _ = store
+        .set_asset_dedup_confidence(&asset_id, dedup_confidence_for(discovered))
         .await;
 
     tracing::info!(
@@ -648,6 +661,29 @@ fn sanitize_id(s: &str) -> String {
     }
 }
 
+/// Phase A.2 — classify how confident we are that this discovery
+/// uniquely identifies a single physical/logical device, given which
+/// fields the connector populated. Mirrors the priority order of the
+/// `resolve_asset` matcher so the SQL `dedup_confidence` column
+/// reflects the strongest pivot the resolution had access to.
+///
+///   `high`      MAC present — physical identifier, survives DHCP
+///   `medium`    hostname or FQDN present — stable in AD environments
+///   `uncertain` only an IP — DHCP can rotate it, BYOD devices land here
+///
+/// The persisted column is upgrade-only at the SQL layer, so a later
+/// partial sync (eg. firewall log with only an IP) cannot regress
+/// an asset that was previously locked-in by MAC.
+fn dedup_confidence_for(discovered: &DiscoveredAsset) -> &'static str {
+    if discovered.mac.is_some() {
+        "high"
+    } else if discovered.hostname.is_some() || discovered.fqdn.is_some() {
+        "medium"
+    } else {
+        "uncertain"
+    }
+}
+
 /// Calculate confidence based on the number and type of contributing sources.
 fn calculate_confidence(sources: &[String]) -> f64 {
     let mut score: f64 = 0.0;
@@ -752,6 +788,54 @@ mod tests {
         assert_eq!(normalize_mac("001A2B3C4D5E"), "00:1a:2b:3c:4d:5e");
         assert_eq!(normalize_mac("00-1A-2B-3C-4D-5E"), "00:1a:2b:3c:4d:5e");
         assert_eq!(normalize_mac("invalid"), "invalid");
+    }
+
+    fn make_discovered(mac: Option<&str>, host: Option<&str>, ip: Option<&str>) -> DiscoveredAsset {
+        DiscoveredAsset {
+            mac: mac.map(String::from),
+            hostname: host.map(String::from),
+            fqdn: None,
+            ip: ip.map(String::from),
+            os: None,
+            ports: None,
+            ou: None,
+            vlan: None,
+            services: serde_json::json!([]),
+            vm_id: None,
+            criticality: None,
+            source: "test".into(),
+        }
+    }
+
+    #[test]
+    fn dedup_confidence_high_when_mac_present() {
+        let d = make_discovered(Some("aa:bb:cc:dd:ee:ff"), Some("srv"), Some("10.0.0.1"));
+        assert_eq!(dedup_confidence_for(&d), "high");
+    }
+
+    #[test]
+    fn dedup_confidence_medium_with_hostname_only() {
+        let d = make_discovered(None, Some("srv-prod-01"), Some("10.0.0.1"));
+        assert_eq!(dedup_confidence_for(&d), "medium");
+    }
+
+    #[test]
+    fn dedup_confidence_medium_with_fqdn_only() {
+        let mut d = make_discovered(None, None, Some("10.0.0.1"));
+        d.fqdn = Some("srv-prod-01.corp.local".into());
+        assert_eq!(dedup_confidence_for(&d), "medium");
+    }
+
+    #[test]
+    fn dedup_confidence_uncertain_with_ip_only() {
+        let d = make_discovered(None, None, Some("10.0.0.1"));
+        assert_eq!(dedup_confidence_for(&d), "uncertain");
+    }
+
+    #[test]
+    fn dedup_confidence_uncertain_with_nothing() {
+        let d = make_discovered(None, None, None);
+        assert_eq!(dedup_confidence_for(&d), "uncertain");
     }
 
     #[test]
