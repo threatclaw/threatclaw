@@ -415,7 +415,7 @@ impl ThreatClawStore for LibSqlBackend {
     async fn find_open_incident_for_asset(&self, _: &str) -> Result<Option<i32>, DatabaseError> {
         Err(not_supported())
     }
-    async fn touch_incident(&self, _: i32, _: i32) -> Result<(), DatabaseError> {
+    async fn touch_incident(&self, _: i32, _: i32, _: Option<&str>) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
     async fn cleanup_old_sigma_alerts(&self, _: i32) -> Result<i64, DatabaseError> {

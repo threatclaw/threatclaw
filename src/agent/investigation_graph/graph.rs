@@ -20,7 +20,7 @@ use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use thiserror::Error;
 
-use super::types::{Graph, Step};
+use super::types::{Command, Graph, Step};
 
 #[derive(Debug, Error)]
 pub enum GraphCompileError {
@@ -53,6 +53,12 @@ pub struct CompiledGraph {
     pub steps: HashMap<String, Step>,
     /// nom du step start (entrée du graph)
     pub start_step: String,
+    /// Sprint 5 #1 — true si le graph contient au moins un step
+    /// `threatclaw-investigate-llm`. Le dispatcher s'en sert pour
+    /// décider de couper ou non ReAct en mode `TC_GRAPH_ONLY=1` :
+    /// quand le graph délègue au LLM (PendingAsync), on doit laisser
+    /// ReAct tourner sinon le verdict ne tombe jamais.
+    pub requires_llm: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +136,19 @@ pub fn compile(graph: &Graph) -> Result<CompiledGraph, GraphCompileError> {
         return Err(GraphCompileError::CyclicGraph(name));
     }
 
+    // Sprint 5 #1 — pre-scan steps for any `threatclaw-investigate-llm`
+    // command. This flag drives whether the IE may short-circuit ReAct
+    // when this graph matches.
+    let requires_llm = graph.steps.values().any(|s| {
+        matches!(
+            s,
+            Step::Action {
+                command: Command::ThreatclawInvestigateLlm { .. },
+                ..
+            }
+        )
+    });
+
     Ok(CompiledGraph {
         name,
         trigger_sigma_rule: graph.trigger.sigma_rule.clone(),
@@ -137,6 +156,7 @@ pub fn compile(graph: &Graph) -> Result<CompiledGraph, GraphCompileError> {
         indices,
         steps: graph.steps.clone(),
         start_step,
+        requires_llm,
     })
 }
 

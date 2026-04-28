@@ -22,7 +22,7 @@ pub mod supervisor;
 pub mod workers;
 
 pub use backpressure::{BackpressureCheck, OverloadDecision, QueueDepths};
-pub use dispatcher::{library, set_library, try_enqueue_graph_for_dossier};
+pub use dispatcher::{GraphDispatch, library, set_library, try_enqueue_graph_for_dossier};
 pub use pool::{WorkerFn, WorkerPool, WorkerPoolConfig};
 pub use store::{
     GraphExecutionRecord, GraphExecutionStatus, NewGraphExecution, NewTask, Task, TaskKind,

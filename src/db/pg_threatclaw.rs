@@ -2555,11 +2555,28 @@ impl ThreatClawStore for PgBackend {
         Ok(row.map(|r| r.get("id")))
     }
 
-    async fn touch_incident(&self, id: i32, alert_count_delta: i32) -> Result<(), DatabaseError> {
+    async fn touch_incident(
+        &self,
+        id: i32,
+        alert_count_delta: i32,
+        pattern_key: Option<&str>,
+    ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Sprint 5 #2 — bump `alert_count` only when the pattern key
+        // actually changed. `pattern_key = NULL` means "legacy caller,
+        // always bump" (preserves prior semantics).
+        let key_owned = pattern_key.map(String::from);
         conn.execute(
-            "UPDATE incidents SET alert_count = alert_count + $2, updated_at = NOW() WHERE id = $1",
-            &[&id, &alert_count_delta],
+            "UPDATE incidents \
+             SET alert_count = alert_count + CASE \
+                 WHEN $3::text IS NULL THEN $2 \
+                 WHEN last_pattern_key IS DISTINCT FROM $3 THEN $2 \
+                 ELSE 0 \
+               END, \
+                 last_pattern_key = COALESCE($3, last_pattern_key), \
+                 updated_at = NOW() \
+             WHERE id = $1",
+            &[&id, &alert_count_delta, &key_owned],
         )
         .await
         .map_err(query_err)?;
