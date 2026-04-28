@@ -704,15 +704,20 @@ async fn fetch_asset_graph_context(
     }
     let escaped = asset.replace('\'', "\\'");
     let since = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
+    // Apache AGE ne supporte pas la syntaxe variable-length avec union
+    // de types `[:R1|R2*1..3]`. On enlève le calcul lateral_paths via
+    // ce pattern — il est de toute façon dérivé du `path_risk` batch
+    // (G2) qui peuple `attack_paths_predicted`. Le but ici est juste de
+    // confirmer que l'asset existe en graph (asset_in_graph = true)
+    // pour les prédicats CEL côté graphs YAML.
     let cypher = format!(
         "MATCH (a:Asset) \
          WHERE a.hostname = '{esc}' OR a.name = '{esc}' OR a.id = '{esc}' \
-         OPTIONAL MATCH (a)-[:LATERAL_PATH|ATTACKS*1..3]->(t:Asset) \
          OPTIONAL MATCH (a)-[:AFFECTED_BY]->(c:CVE) \
          OPTIONAL MATCH (u:User)-[l:LOGGED_IN]->(a) \
          WHERE l.timestamp > '{since}' \
          RETURN a.criticality AS criticality, \
-                count(DISTINCT t) AS lateral_paths, \
+                0 AS lateral_paths, \
                 collect(DISTINCT c.cve_id) AS cves, \
                 collect(DISTINCT u.username) AS users \
          LIMIT 1",
