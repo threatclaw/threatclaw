@@ -2511,11 +2511,17 @@ impl ThreatClawStore for PgBackend {
     ) -> Result<Option<i32>, DatabaseError> {
         // Only match incidents from the last 4 hours to allow "fresh" recurring
         // incidents to merge, but don't resurrect old ones that were never closed.
+        // Match insensible à la casse (LOWER des deux côtés) parce que les
+        // sources d'asset_id varient — Wazuh écrit en uppercase, l'asset
+        // ID en DB peut être lowercase, mes injects de test peuvent
+        // utiliser l'un ou l'autre. Sans LOWER, la dedup rate et on crée
+        // un doublon (#114bis pour SRV-01-DOM alors que #114 srv-01-dom
+        // existe déjà).
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn
             .query_opt(
                 "SELECT id FROM incidents \
-             WHERE asset = $1 \
+             WHERE LOWER(asset) = LOWER($1) \
                AND status IN ('open', 'investigating') \
                AND updated_at > NOW() - INTERVAL '4 hours' \
              ORDER BY created_at DESC LIMIT 1",
@@ -3259,7 +3265,7 @@ impl ThreatClawStore for PgBackend {
                  trace = $5, \
                  error = $6, \
                  finished_at = now(), \
-                 duration_ms = EXTRACT(EPOCH FROM (now() - started_at))::int * 1000 \
+                 duration_ms = (EXTRACT(EPOCH FROM (now() - started_at)) * 1000)::int \
              WHERE id = $1",
             &[
                 &id,
