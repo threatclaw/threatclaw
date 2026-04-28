@@ -71,6 +71,11 @@ services:
       # mount (so operators can edit YAMLs and restart without rebuilding
       # the image). Falls back to ReAct loop if the dir is missing.
       TC_GRAPHS_DIR: /app/graphs/sigma
+      # Phase G1e — when set to "1" or "true", a dossier whose sigma_rule
+      # matches a graph is delegated entirely to the graph engine (ReAct
+      # is skipped). Dossiers without a matching graph still fallback to
+      # ReAct. Default empty = parallel-run mode (graph + ReAct in doublon).
+      TC_GRAPH_ONLY: "${TC_GRAPH_ONLY:-}"
     cap_add:
       - NET_BIND_SERVICE
     read_only: true

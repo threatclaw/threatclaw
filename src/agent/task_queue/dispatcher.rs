@@ -112,7 +112,10 @@ pub async fn try_enqueue_graph_for_dossier(
 
 /// Trouve un sigma_rule représentatif du dossier. Stratégie :
 /// 1. Premier sigma_alert du dossier (par rule_name)
-/// 2. Sinon, premier finding qui a `metadata.sigma_rule`
+/// 2. Sinon, premier finding qui a `metadata.sigma_rule` ou `metadata.rule_id`
+///    (les findings produits par le sigma_engine natif stockent l'identifiant
+///    de la règle sous la clé `rule_id`, alors que les findings repackagés
+///    par le hub utilisent `sigma_rule` — on supporte les deux).
 /// 3. Sinon `None` (le dossier vient d'ailleurs, pas de graph applicable)
 fn pick_dominant_sigma_rule(dossier: &IncidentDossier) -> Option<String> {
     if let Some(alert) = dossier.sigma_alerts.first() {
@@ -121,7 +124,12 @@ fn pick_dominant_sigma_rule(dossier: &IncidentDossier) -> Option<String> {
     dossier
         .findings
         .iter()
-        .find_map(|f| f.metadata.get("sigma_rule").and_then(Value::as_str))
+        .find_map(|f| {
+            f.metadata
+                .get("sigma_rule")
+                .or_else(|| f.metadata.get("rule_id"))
+                .and_then(Value::as_str)
+        })
         .map(String::from)
 }
 
