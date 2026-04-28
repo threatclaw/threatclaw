@@ -171,7 +171,11 @@ pub async fn upsert_asset(
 /// Unlike `upsert_asset` (which uses `coalesce` to preserve a value already
 /// set by the heuristic seeder), this writes the new value unconditionally.
 /// `MERGE` keeps the call idempotent if the asset isn't yet in the graph.
-pub async fn set_asset_criticality_graph(store: &dyn Database, id: &str, criticality: &str) -> bool {
+pub async fn set_asset_criticality_graph(
+    store: &dyn Database,
+    id: &str,
+    criticality: &str,
+) -> bool {
     let id_norm = normalize_asset_id(id);
     if !validate_id(&id_norm) {
         tracing::warn!(
