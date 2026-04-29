@@ -345,6 +345,24 @@ async fn merge_asset(
     discovered: &DiscoveredAsset,
     now: &str,
 ) -> ResolutionResult {
+    // V68 — if the matched asset has been manually merged into a canonical
+    // by the operator, redirect this update to the canonical row. The
+    // SQL store consults merge_aliases; AGE writes happen on the canonical
+    // node going forward. Idempotent for non-aliased ids.
+    let canonical_id = match store.resolve_canonical_id(&existing.id).await {
+        Ok(id) => id,
+        Err(_) => existing.id.clone(),
+    };
+    let target_id = if canonical_id != existing.id {
+        tracing::debug!(
+            alias = %existing.id,
+            canonical = %canonical_id,
+            "asset_resolution: redirecting upsert to manually-merged canonical"
+        );
+        canonical_id
+    } else {
+        existing.id.clone()
+    };
     let mut sets = vec![format!("a.last_seen = '{}'", esc(now))];
 
     // Merge each field — new data overwrites only if it's more specific
@@ -398,7 +416,7 @@ async fn merge_asset(
 
     let cypher = format!(
         "MATCH (a:Asset {{id: '{}'}}) SET {} RETURN a",
-        esc(&existing.id),
+        esc(&target_id),
         sets.join(", ")
     );
     mutate(store, &cypher).await;
@@ -407,7 +425,7 @@ async fn merge_asset(
     let category = crate::agent::fingerprint::guess_category(discovered);
     let _ = store
         .upsert_asset(&crate::db::threatclaw_store::NewAsset {
-            id: existing.id.clone(),
+            id: target_id.clone(),
             name: build_asset_name(discovered),
             category: category.into(),
             subcategory: None,
@@ -436,18 +454,18 @@ async fn merge_asset(
     // layer, so a later sync that only carries an IP can't regress
     // an asset already locked-in by MAC.
     let _ = store
-        .set_asset_dedup_confidence(&existing.id, dedup_confidence_for(discovered))
+        .set_asset_dedup_confidence(&target_id, dedup_confidence_for(discovered))
         .await;
 
     tracing::info!(
         "ASSET MERGE: {} enriched by {} (confidence: {:.2})",
-        existing.id,
+        target_id,
         discovered.source,
         confidence
     );
 
     ResolutionResult {
-        asset_id: existing.id.clone(),
+        asset_id: target_id,
         action: ResolutionAction::Merged,
         confidence,
         sources,

@@ -5948,6 +5948,176 @@ pub async fn asset_criticality_set_handler(
     })))
 }
 
+/// POST /api/tc/assets/merge — manually merge multiple asset rows into one.
+///
+/// Body: { canonical_id: String, alias_ids: [String, ...], reason: String }
+///
+/// V68 — see migrations/V68__merge_aliases_and_exclusion.sql for the
+/// full data model. This endpoint:
+///   - validates the operator-supplied canonical and alias ids exist
+///   - rejects self-merges (canonical_id ∈ alias_ids)
+///   - calls store.merge_assets for each alias (transactionally per row)
+///   - returns the count of successful merges + any errors per alias
+///
+/// Audit trail: stored in merge_aliases (alias_id, canonical_id, merged_by,
+/// reason, merged_at). Reversible 30 days via /unmerge.
+pub async fn asset_merge_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let canonical_id = body
+        .get("canonical_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let alias_ids: Vec<String> = body
+        .get("alias_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if canonical_id.is_empty() {
+        return Ok(Json(
+            serde_json::json!({ "error": "canonical_id is required" }),
+        ));
+    }
+    if alias_ids.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "error": "alias_ids must contain at least one id"
+        })));
+    }
+    if alias_ids.contains(&canonical_id) {
+        return Ok(Json(serde_json::json!({
+            "error": "canonical_id must not appear in alias_ids"
+        })));
+    }
+    if reason.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "error": "reason is required (free-text, audit trail)"
+        })));
+    }
+
+    // Identify the operator from the auth layer (best-effort).
+    let merged_by = "operator"; // TODO when /api/auth/me lands as a server-side context
+
+    let mut succeeded: Vec<String> = Vec::new();
+    let mut failed: Vec<serde_json::Value> = Vec::new();
+    for alias in &alias_ids {
+        match store
+            .merge_assets(alias, &canonical_id, merged_by, &reason)
+            .await
+        {
+            Ok(()) => succeeded.push(alias.clone()),
+            Err(e) => failed.push(serde_json::json!({
+                "alias_id": alias,
+                "error": e.to_string(),
+            })),
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "merged":   succeeded,
+        "failed":   failed,
+        "canonical_id": canonical_id,
+    })))
+}
+
+/// POST /api/tc/assets/{id}/unmerge — revert a manual merge.
+///
+/// The alias row goes back to status='active' and the merge_aliases
+/// row is soft-deleted. Soft-delete preserves audit history. Caller
+/// must be the same operator who did the merge OR an admin (TODO:
+/// authz check once we have server-side identity context).
+pub async fn asset_unmerge_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(alias_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    if let Err(e) = store.unmerge_asset(&alias_id).await {
+        return Ok(Json(serde_json::json!({ "error": e.to_string() })));
+    }
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "alias_id": alias_id,
+    })))
+}
+
+/// PUT /api/tc/assets/{id}/exclude — set or clear the exclusion flag.
+///
+/// Body:
+///   { excluded: true,  reason: "Honeypot — pas surveillé", days: 90 }
+///   { excluded: false }
+///
+/// V68 — see migrations/V68__merge_aliases_and_exclusion.sql. When set
+/// to true, the asset:
+///   - is removed from the billable count
+///   - is skipped by the touch trigger (no inventory_status promotion,
+///     no last_event_at update, no distinct_days_seen_30d)
+///   - keeps existing data (sigma alerts, findings) but receives no new ones
+///
+/// `days` defaults to 90. Pass 0 to disable auto-expiry (NEVER recommended;
+/// the operator should justify a permanent exclusion).
+pub async fn asset_exclude_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let excluded = body
+        .get("excluded")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let reason = body
+        .get("reason")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let days = body
+        .get("days")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(90)
+        .clamp(0, 365);
+
+    if excluded && reason.is_empty() {
+        return Ok(Json(serde_json::json!({
+            "error": "exclusion requires a non-empty reason (audit trail)"
+        })));
+    }
+
+    let until = if excluded && days > 0 {
+        Some(chrono::Utc::now() + chrono::Duration::days(days))
+    } else {
+        None
+    };
+    let by = "operator"; // TODO server-side identity
+
+    if let Err(e) = store
+        .set_asset_excluded(&id, excluded, &reason, until, by)
+        .await
+    {
+        return Ok(Json(serde_json::json!({ "error": e.to_string() })));
+    }
+
+    Ok(Json(serde_json::json!({
+        "status":   "ok",
+        "id":       id,
+        "excluded": excluded,
+        "until":    until.map(|u| u.to_rfc3339()),
+    })))
+}
+
 /// GET /api/tc/assets/{id}/security — osquery security data for an asset
 pub async fn asset_security_handler(
     State(state): State<Arc<GatewayState>>,

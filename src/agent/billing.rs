@@ -209,13 +209,14 @@ fn billable_filter_sql() -> String {
         .join(",");
     format!(
         "demo = false \
+         AND excluded = false \
          AND status = 'active' \
          AND dedup_confidence != 'uncertain' \
          AND last_seen > NOW() - INTERVAL '30 days' \
          AND ( \
              ( \
                  inventory_status IN ('declared','observed_persistent') \
-                 AND category NOT IN ({excluded}) \
+                 AND category NOT IN ({excluded_cats}) \
              ) \
              OR ( \
                  inventory_status = 'observed_transient' \
@@ -223,7 +224,7 @@ fn billable_filter_sql() -> String {
                  AND category = ANY($1) \
              ) \
          )",
-        excluded = excluded,
+        excluded_cats = excluded,
         threshold = TRANSIENT_DAYS_THRESHOLD,
     )
 }
@@ -245,23 +246,32 @@ pub async fn count_billable_assets(store: &Arc<dyn Database>) -> Result<Billable
 }
 
 /// Periodic sweep — flips `monitored` to `inactive` for assets that
-/// haven't seen an event in 30 days. The V66 trigger handles the other
-/// direction (any new finding promotes back to monitored). This pass
-/// is idempotent and bounded so it's safe to run on every tick.
+/// haven't seen an event in 30 days, AND lifts expired manual
+/// exclusions (V68). Idempotent and bounded, safe on every tick.
 ///
-/// Returns the number of rows that changed state.
+/// Returns the total number of rows changed across both passes.
 pub async fn reclassify_assets_job(store: &Arc<dyn Database>) -> Result<u64, String> {
-    let n = store
+    let inactive_n = store
         .reclassify_inactive_assets(30)
         .await
         .map_err(|e| format!("reclassify failed: {e}"))?;
-    if n > 0 {
+    if inactive_n > 0 {
         info!(
             "BILLING: reclassified {} assets monitored → inactive (no event in 30d)",
-            n
+            inactive_n
         );
     }
-    Ok(n)
+    let unexcluded_n = store
+        .expire_asset_exclusions()
+        .await
+        .map_err(|e| format!("expire exclusions failed: {e}"))?;
+    if unexcluded_n > 0 {
+        info!(
+            "BILLING: lifted {} expired exclusions (90-day window passed) — assets back to active monitoring",
+            unexcluded_n
+        );
+    }
+    Ok(inactive_n + unexcluded_n)
 }
 
 /// Spawn the daily reclassification cron. Caller is responsible for
@@ -371,6 +381,7 @@ mod tests {
         // transient enforces the strict BILLABLE_CATEGORIES list.
         let sql = billable_filter_sql();
         assert!(sql.contains("demo = false"));
+        assert!(sql.contains("excluded = false"));
         assert!(sql.contains("dedup_confidence"));
         assert!(sql.contains("inventory_status IN ('declared','observed_persistent')"));
         assert!(sql.contains("inventory_status = 'observed_transient'"));
