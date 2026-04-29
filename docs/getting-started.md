@@ -81,9 +81,9 @@ L'installeur :
 1. Installe Docker si absent
 2. Analyse le partitionnement et adapte les chemins
 3. Génère un mot de passe DB et un token d'auth sécurisés
-4. Télécharge les images depuis `ghcr.io/threatclaw/`
+4. Télécharge les images
 5. Démarre les services
-6. Télécharge les modèles IA en arrière-plan (~18 GB, 10-15 min)
+6. Télécharge les modèles IA en arrière-plan (~15-20 GB, 10-15 min)
 
 ### Docker Compose (manuel)
 
@@ -109,9 +109,9 @@ Requires: Rust 1.90+, PostgreSQL 16 with graph extensions, local LLM runtime.
 ## First boot
 
 On first boot, ThreatClaw will:
-1. Create the database schema (28 migrations)
-2. Download AI models: L1 Triage (5GB), L2 Reasoning (8.5GB), L3 Instruct (5GB)
-3. Start the Intelligence Engine (cycle every 5 min)
+1. Create the database schema
+2. Download the local AI models (~15-20 GB, 10-15 min on a typical link)
+3. Start the Intelligence Engine
 4. Start the dashboard on port 3001
 
 **First access:** Open `http://your-server:3001` → Create your admin account → Follow the onboarding wizard.
