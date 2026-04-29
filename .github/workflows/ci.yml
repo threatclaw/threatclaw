@@ -95,6 +95,9 @@ jobs:
       - name: Run consistency checks
         run: bash scripts/check-consistency.sh
 
+      - name: Public docs leak check
+        run: bash scripts/check-public-docs.sh
+
   dashboard:
     name: Dashboard Build
     runs-on: ubuntu-latest

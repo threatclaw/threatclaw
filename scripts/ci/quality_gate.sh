@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+echo "==> public docs leak check"
+scripts/check-public-docs.sh
+
 echo "==> fmt check"
 cargo fmt --all -- --check
 

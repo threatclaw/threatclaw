@@ -6,6 +6,9 @@ jobs:
   check:
     runs-on: self-hosted
     steps:
+      - name: Public docs leak check
+        run: cd /srv/threatclaw && bash scripts/check-public-docs.sh
+
       - name: Compile check
         run: cd /srv/threatclaw && cargo check 2>&1 | tail -5
 
