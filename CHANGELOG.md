@@ -6,6 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.16-beta] — 2026-04-29
+
+Asset accounting tightened. Operators can now merge duplicate rows
+and retire an asset from billing and monitoring with a single toggle.
+
+### Added
+- **Manual merge** — select two or more rows in `/assets`, click *Fusionner*; aliases
+  redirect to the canonical asset for 30 days (undoable).
+- **Single exclusion toggle** — one switch removes an asset from both the billable count
+  and the detection pipeline, with a typed reason and an automatic 90-day expiry.
+- **Proxmox VM enrichment** — connector now fetches MAC and primary IP per VM, fixing
+  duplicate inventory when the same machine is also seen by the firewall or DHCP.
+
+### Changed
+- **Billable count** — assets are billable when they show recurring presence (declared
+  inventory or three distinct days of activity in the last 30), not because a finding
+  fired. Quiet legitimate hosts no longer drop off the bill mid-month.
+
+---
+
 ## [1.0.15-beta] — 2026-04-29
 
 Phase G ships. ThreatClaw now decides on known attack patterns through deterministic
