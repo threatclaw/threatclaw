@@ -535,6 +535,32 @@ async fn async_main() -> anyhow::Result<()> {
             .await,
         );
         let _heartbeat_task = license_manager.spawn_heartbeat();
+
+        // Anonymous telemetry — sends a 7-day ping with install_id +
+        // version + tier + bucketed asset count so we can see the free
+        // tier on the operator dashboard. Opt-out via TC_TELEMETRY_DISABLED.
+        // Best-effort, never bubbles up an error.
+        let telemetry_client = threatclaw::licensing::LicenseClient::from_env();
+        let telemetry_store = components.db.clone();
+        let _telemetry_task = threatclaw::licensing::telemetry::spawn_telemetry(
+            Arc::clone(&license_manager),
+            telemetry_client,
+            move || {
+                let store = telemetry_store.clone();
+                Box::pin(async move {
+                    match store {
+                        Some(s) => {
+                            match threatclaw::agent::billing::count_billable_assets(&s).await {
+                                Ok(c) => c.billable.max(0) as u32,
+                                Err(_) => 0,
+                            }
+                        }
+                        None => 0,
+                    }
+                })
+            },
+        );
+
         gw = gw.with_license_manager(Arc::clone(&license_manager));
         if config.sandbox.enabled {
             gw = gw.with_prompt_queue(Arc::clone(&prompt_queue));

@@ -143,6 +143,17 @@ pub struct DeactivateRequest<'a> {
     pub install_id: &'a str,
 }
 
+/// Body for `POST /api/heartbeat-anonymous`. Telemetry only — no PII,
+/// best-effort, no auth. The agent calls this every 7 days regardless
+/// of license state, unless `TC_TELEMETRY_DISABLED=1`.
+#[derive(Debug, Serialize)]
+pub struct AnonymousHeartbeatRequest<'a> {
+    pub install_id: &'a str,
+    pub version: &'a str,
+    pub tier: &'a str,
+    pub asset_count: u32,
+}
+
 /// Body for `POST /api/portal-session`. The Worker returns a single-use
 /// Stripe billing-portal URL the dashboard opens in a new tab.
 #[derive(Debug, Serialize)]
@@ -240,6 +251,17 @@ impl LicenseClient {
         req: &PortalSessionRequest<'_>,
     ) -> Result<PortalSessionResponse, ApiError> {
         self.post_json("/api/portal-session", req).await
+    }
+
+    /// Anonymous telemetry ping. Best-effort: a network failure or a
+    /// non-success HTTP response is logged-and-ignored, never bubbled
+    /// up. The caller MUST swallow errors silently.
+    pub async fn anonymous_heartbeat(
+        &self,
+        req: &AnonymousHeartbeatRequest<'_>,
+    ) -> Result<(), ApiError> {
+        let _: serde_json::Value = self.post_json("/api/heartbeat-anonymous", req).await?;
+        Ok(())
     }
 
     pub async fn check_revocation(&self, license_key: &str) -> Result<RevocationStatus, ApiError> {

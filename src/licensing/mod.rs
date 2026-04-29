@@ -38,6 +38,7 @@ pub mod gate;
 pub mod grace;
 pub mod manager;
 pub mod storage;
+pub mod telemetry;
 pub mod trial;
 pub mod verify;
 

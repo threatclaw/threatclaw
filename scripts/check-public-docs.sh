@@ -43,6 +43,7 @@ DEFAULT_FILES=(
   docs/configuration.md
   docs/skills.md
   docs/sizing.md
+  docs/telemetry.md
 )
 
 if [ "$#" -gt 0 ]; then
@@ -98,6 +99,7 @@ PATTERNS=(
 ALLOWLIST=(
   "env:docs/configuration.md"      # configuration guide — user-set env vars belong here
   "env:docs/getting-started.md"    # install guide — first-boot env vars belong here
+  "env:docs/telemetry.md"          # telemetry doc — TC_TELEMETRY_DISABLED is the documented opt-out
   "api:docs/configuration.md"      # configuration mentions /api/tc/agent/mode
 )
 

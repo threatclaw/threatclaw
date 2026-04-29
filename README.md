@@ -196,6 +196,7 @@ HITL remediation (firewall block, account disable, ticket creation, …) is **in
 - [Configuration](docs/configuration.md) — All settings and options
 - [API Reference](docs/api.md) — REST API endpoints
 - [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build custom skills
+- [Telemetry](docs/telemetry.md) — What we collect anonymously, how to opt out
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Contributing](CONTRIBUTING.md) — How to contribute
 - [Changelog](CHANGELOG.md) — Version history
