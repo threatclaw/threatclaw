@@ -21,6 +21,9 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Public docs leak check
+        run: bash scripts/check-public-docs.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
