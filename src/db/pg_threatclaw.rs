@@ -1797,6 +1797,151 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    // ── V68 — manual merge (alias) ──
+
+    async fn merge_assets(
+        &self,
+        alias_id: &str,
+        canonical_id: &str,
+        merged_by: &str,
+        reason: &str,
+    ) -> Result<(), DatabaseError> {
+        if alias_id == canonical_id {
+            return Err(DatabaseError::Constraint(
+                "alias_id == canonical_id, refusing self-merge".into(),
+            ));
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Insert the alias mapping. `unmerged_at` stays NULL = active.
+        // Conflict on (alias_id) means the row is already merged — we
+        // accept that as idempotent and just refresh the canonical /
+        // reason. This lets a re-merge after an unmerge succeed.
+        conn.execute(
+            "INSERT INTO merge_aliases (alias_id, canonical_id, merged_by, reason) \
+                 VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (alias_id) DO UPDATE \
+                 SET canonical_id = EXCLUDED.canonical_id, \
+                     merged_by    = EXCLUDED.merged_by, \
+                     reason       = EXCLUDED.reason, \
+                     merged_at    = NOW(), \
+                     unmerged_at  = NULL",
+            &[&alias_id, &canonical_id, &merged_by, &reason],
+        )
+        .await
+        .map_err(query_err)?;
+        // Hide the alias from the default /assets listing. We use the
+        // status='merged' marker rather than DELETE so findings/alerts
+        // that reference the alias still resolve.
+        conn.execute(
+            "UPDATE assets SET status = 'merged' WHERE id = $1",
+            &[&alias_id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn unmerge_asset(&self, alias_id: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE merge_aliases SET unmerged_at = NOW() \
+              WHERE alias_id = $1 AND unmerged_at IS NULL",
+            &[&alias_id],
+        )
+        .await
+        .map_err(query_err)?;
+        conn.execute(
+            "UPDATE assets SET status = 'active' WHERE id = $1 AND status = 'merged'",
+            &[&alias_id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn resolve_canonical_id(&self, id: &str) -> Result<String, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_opt(
+                "SELECT canonical_id FROM merge_aliases \
+                  WHERE alias_id = $1 AND unmerged_at IS NULL",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row
+            .map(|r| r.get::<_, String>("canonical_id"))
+            .unwrap_or_else(|| id.to_string()))
+    }
+
+    // ── V68 — single-toggle exclusion (billing + monitoring) ──
+
+    async fn set_asset_excluded(
+        &self,
+        id: &str,
+        excluded: bool,
+        reason: &str,
+        until: Option<chrono::DateTime<chrono::Utc>>,
+        by: &str,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        if excluded {
+            // Setting → require a non-empty reason (api also enforces but
+            // belt-and-braces).
+            if reason.trim().is_empty() {
+                return Err(DatabaseError::Constraint(
+                    "exclusion requires a non-empty reason".into(),
+                ));
+            }
+            conn.execute(
+                "UPDATE assets \
+                    SET excluded         = true, \
+                        exclusion_reason = $2, \
+                        exclusion_until  = $3, \
+                        exclusion_by     = $4, \
+                        updated_at       = NOW() \
+                  WHERE id = $1",
+                &[&id, &reason, &until, &by],
+            )
+            .await
+            .map_err(query_err)?;
+        } else {
+            conn.execute(
+                "UPDATE assets \
+                    SET excluded         = false, \
+                        exclusion_reason = '', \
+                        exclusion_until  = NULL, \
+                        exclusion_by     = '', \
+                        updated_at       = NOW() \
+                  WHERE id = $1",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+        Ok(())
+    }
+
+    async fn expire_asset_exclusions(&self) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute(
+                "UPDATE assets \
+                    SET excluded         = false, \
+                        exclusion_reason = '', \
+                        exclusion_until  = NULL, \
+                        exclusion_by     = '', \
+                        updated_at       = NOW() \
+                  WHERE excluded = true \
+                    AND exclusion_until IS NOT NULL \
+                    AND exclusion_until < NOW()",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
@@ -2662,6 +2807,7 @@ impl ThreatClawStore for PgBackend {
                     SELECT COUNT(*) AS billable \
                       FROM assets \
                      WHERE demo = false \
+                       AND excluded = false \
                        AND status = 'active' \
                        AND dedup_confidence != 'uncertain' \
                        AND last_seen > NOW() - INTERVAL '30 days' \
@@ -2697,6 +2843,7 @@ impl ThreatClawStore for PgBackend {
                 "SELECT category, COUNT(*) AS n \
                    FROM assets \
                   WHERE demo = false \
+                    AND excluded = false \
                     AND status = 'active' \
                     AND dedup_confidence != 'uncertain' \
                     AND last_seen > NOW() - INTERVAL '30 days' \
@@ -3627,5 +3774,15 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
             .try_get::<_, String>("billable_status")
             .unwrap_or_else(|_| "discovered".into()),
         demo: r.try_get::<_, bool>("demo").unwrap_or(false),
+        // V68 — exclusion toggle (billing + monitoring at once).
+        excluded: r.try_get::<_, bool>("excluded").unwrap_or(false),
+        exclusion_reason: r
+            .try_get::<_, String>("exclusion_reason")
+            .unwrap_or_default(),
+        exclusion_until: r
+            .try_get::<_, chrono::DateTime<chrono::Utc>>("exclusion_until")
+            .ok()
+            .map(|dt| dt.to_rfc3339()),
+        exclusion_by: r.try_get::<_, String>("exclusion_by").unwrap_or_default(),
     }
 }

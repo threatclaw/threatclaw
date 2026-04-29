@@ -1148,6 +1148,19 @@ pub async fn start_server(
             "/api/tc/assets/{id}/criticality",
             axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
         )
+        // V68 — manual merge + exclusion (single toggle, billing + monitoring)
+        .route(
+            "/api/tc/assets/merge",
+            post(super::handlers::threatclaw_api::asset_merge_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/unmerge",
+            post(super::handlers::threatclaw_api::asset_unmerge_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/exclude",
+            axum::routing::put(super::handlers::threatclaw_api::asset_exclude_set_handler),
+        )
         // Phase G acceptance probe
         .route(
             "/api/tc/admin/phase-g-acceptance",

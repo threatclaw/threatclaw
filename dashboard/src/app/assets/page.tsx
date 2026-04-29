@@ -29,6 +29,11 @@ interface Asset {
   billable_status?: string;
   demo?: boolean;
   sources?: string[];
+  // V68 — single-toggle exclusion (billing + monitoring).
+  excluded?: boolean;
+  exclusion_reason?: string;
+  exclusion_until?: string | null;
+  exclusion_by?: string;
 }
 
 interface Category {
@@ -78,7 +83,31 @@ const BILLABLE_FILTERS: Array<{
     id: "inactive",
     labelFr: "Inactifs",
     labelEn: "Inactive",
-    predicate: (a) => a.inventory_status === "inactive" || a.status !== "active",
+    predicate: (a) => a.inventory_status === "inactive" || (a.status !== "active" && a.status !== "merged"),
+  },
+];
+
+// Extra opt-in filter (one-shot, separate from the 5 main BILLABLE_FILTERS).
+// Used to surface manually-excluded assets which are otherwise hidden by
+// 'all' (because excluded → not billable, not in observation, not inactive
+// per V67 rules — they live in their own bucket).
+const EXTRA_FILTERS: Array<{
+  id: BillableFilter | "excluded" | "merged";
+  labelFr: string;
+  labelEn: string;
+  predicate: (a: Asset) => boolean;
+}> = [
+  {
+    id: "excluded",
+    labelFr: "Exclus",
+    labelEn: "Excluded",
+    predicate: (a) => a.excluded === true,
+  },
+  {
+    id: "merged",
+    labelFr: "Fusionnés",
+    labelEn: "Merged",
+    predicate: (a) => a.status === "merged",
   },
 ];
 
@@ -152,6 +181,344 @@ const btnSecondary: React.CSSProperties = {
 const SEV_COLORS: Record<string, string> = {
   CRITICAL: "#e84040", HIGH: "#d07020", MEDIUM: "var(--tc-amber)", LOW: "var(--tc-blue)",
 };
+
+// V68 — exclusion + merge ops panel rendered at the bottom of the asset
+// detail modal. Single source of truth for "this asset shouldn't be
+// counted or analysed any more" and "this asset is a duplicate of
+// another, redirect future events to it".
+function ExclusionPanel({ asset, onChanged }: { asset: Asset; onChanged: () => void }) {
+  const locale = useLocale();
+  const fr = locale === "fr";
+
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [info, setInfo] = React.useState<string | null>(null);
+
+  // Confirm-and-reason modal state for the destructive 'exclude' toggle.
+  const [showExcludeModal, setShowExcludeModal] = React.useState(false);
+  const [reason, setReason] = React.useState("");
+  const [days, setDays] = React.useState(90);
+
+  const isExcluded = !!asset.excluded;
+
+  const submitExclusion = async (excluded: boolean) => {
+    setError(null);
+    setInfo(null);
+    setBusy("exclude");
+    try {
+      const res = await fetch(`/api/tc/assets/${asset.id}/exclude`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ excluded, reason, days }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        setError(data.error || (fr ? "Refus" : "Refused"));
+      } else {
+        setInfo(
+          excluded
+            ? fr
+              ? `Asset exclu (auto-expire dans ${days} j si > 0).`
+              : `Asset excluded (auto-expire in ${days} d if > 0).`
+            : fr
+            ? "Exclusion levée. L'asset reprend la facturation et la surveillance."
+            : "Exclusion lifted. Asset returns to billing and monitoring."
+        );
+        setShowExcludeModal(false);
+        setReason("");
+        onChanged();
+      }
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    }
+    setBusy(null);
+  };
+
+  const liftExclusion = () => submitExclusion(false);
+
+  return (
+    <div
+      style={{
+        marginTop: "16px",
+        padding: "14px 16px",
+        background: "var(--tc-input)",
+        border: "1px solid var(--tc-border)",
+        borderRadius: "var(--tc-radius-sm)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "10px",
+          fontWeight: 700,
+          color: "var(--tc-text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: "10px",
+        }}
+      >
+        {fr ? "Statut commercial" : "Commercial status"}
+      </div>
+
+      {error && (
+        <div
+          style={{
+            padding: "6px 10px",
+            background: "rgba(208,48,32,0.08)",
+            border: "1px solid rgba(208,48,32,0.3)",
+            color: "#d03020",
+            fontSize: "11px",
+            borderRadius: "3px",
+            marginBottom: "10px",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {info && (
+        <div
+          style={{
+            padding: "6px 10px",
+            background: "rgba(48,160,80,0.08)",
+            border: "1px solid rgba(48,160,80,0.3)",
+            color: "#30a050",
+            fontSize: "11px",
+            borderRadius: "3px",
+            marginBottom: "10px",
+          }}
+        >
+          {info}
+        </div>
+      )}
+
+      {isExcluded ? (
+        <div>
+          <div
+            style={{
+              padding: "10px 12px",
+              background: "rgba(208,48,32,0.08)",
+              border: "1px solid rgba(208,48,32,0.4)",
+              borderRadius: "3px",
+              marginBottom: "10px",
+              fontSize: "12px",
+              color: "#d03020",
+            }}
+          >
+            <strong>{fr ? "Cet asset est EXCLU" : "This asset is EXCLUDED"}</strong>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", marginTop: "6px", lineHeight: 1.5 }}>
+              {fr
+                ? "Pas comptabilisé dans la facturation. Aucun nouveau finding/alert n'est traité dessus. Restitué dans /assets uniquement via le filtre 'Exclus'."
+                : "Not counted toward billing. No new finding/alert is processed against it. Visible only via the 'Excluded' filter."}
+            </div>
+            {asset.exclusion_reason && (
+              <div style={{ fontSize: "11px", marginTop: "8px" }}>
+                {fr ? "Raison : " : "Reason: "}
+                <em>{asset.exclusion_reason}</em>
+              </div>
+            )}
+            {asset.exclusion_until && (
+              <div style={{ fontSize: "11px", marginTop: "4px", color: "var(--tc-text-muted)" }}>
+                {fr ? "Auto-expire le " : "Auto-expires "}
+                {new Date(asset.exclusion_until).toLocaleString(fr ? "fr-FR" : "en-US")}
+              </div>
+            )}
+            {asset.exclusion_by && (
+              <div style={{ fontSize: "10px", marginTop: "4px", color: "var(--tc-text-muted)" }}>
+                {fr ? "Exclu par : " : "Excluded by: "}
+                {asset.exclusion_by}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={liftExclusion}
+            disabled={busy === "exclude"}
+            style={{
+              padding: "6px 14px",
+              fontSize: "11px",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              border: "1px solid var(--tc-border)",
+              background: "var(--tc-input)",
+              color: "var(--tc-text)",
+              borderRadius: "3px",
+              cursor: "pointer",
+            }}
+          >
+            {busy === "exclude" ? "…" : fr ? "Lever l'exclusion" : "Lift exclusion"}
+          </button>
+        </div>
+      ) : (
+        <div>
+          <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", margin: "0 0 12px", lineHeight: 1.5 }}>
+            {fr
+              ? "Exclure cet asset = il n'est plus compté dans la facturation ET ThreatClaw arrête de l'analyser. À utiliser pour : honeypot dédié, asset partenaire visible mais pas à toi, capteur bruyant à museler, équipement en transition."
+              : "Excluding this asset = no longer counted toward billing AND ThreatClaw stops analysing it. Use for: dedicated honeypot, third-party visible asset, noisy sensor to mute, transitioning gear."}
+          </p>
+          <button
+            onClick={() => setShowExcludeModal(true)}
+            style={{
+              padding: "6px 14px",
+              fontSize: "11px",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              border: "1px solid rgba(208,48,32,0.4)",
+              background: "rgba(208,48,32,0.06)",
+              color: "#d03020",
+              borderRadius: "3px",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <AlertTriangle size={12} /> {fr ? "Exclure cet asset" : "Exclude this asset"}
+          </button>
+        </div>
+      )}
+
+      {/* ── Exclude confirmation modal (destructive action) ── */}
+      {showExcludeModal && (
+        <div
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowExcludeModal(false);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            zIndex: 1100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              background: "var(--tc-bg)",
+              border: "2px solid #d03020",
+              borderRadius: "var(--tc-radius-md)",
+              padding: "22px 26px",
+              width: "560px",
+              maxWidth: "95vw",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+              <AlertTriangle size={20} color="#d03020" />
+              <h3 style={{ margin: 0, fontSize: "14px", fontWeight: 800, color: "#d03020" }}>
+                {fr ? "Action sensible : exclusion" : "Sensitive action: exclusion"}
+              </h3>
+            </div>
+
+            <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.5, marginTop: 0 }}>
+              {fr ? (
+                <>
+                  Vous allez exclure <strong>{asset.name}</strong> de la facturation ET de la surveillance ThreatClaw.
+                  <br /><br />
+                  Pendant l'exclusion, ThreatClaw n'enregistrera plus aucun nouveau finding, alert ou événement réseau ciblant cet asset. Vous ne recevrez aucune notification de compromission. <strong>Ne pas l'utiliser sur un asset critique en production.</strong>
+                </>
+              ) : (
+                <>
+                  You are about to exclude <strong>{asset.name}</strong> from BOTH billing AND ThreatClaw monitoring.
+                  <br /><br />
+                  While excluded, ThreatClaw will not record any new finding, alert, or network event targeting this asset. You will receive no compromise notification. <strong>Do not use on a critical production asset.</strong>
+                </>
+              )}
+            </p>
+
+            <div style={{ marginTop: "14px" }}>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)" }}>
+                {fr ? "Raison (audit) — obligatoire :" : "Reason (audit) — required:"}
+              </label>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder={fr ? "ex: honeypot dédié, asset retiré, capteur bruyant…" : "e.g. dedicated honeypot, retired asset, noisy sensor…"}
+                rows={2}
+                style={{
+                  width: "100%",
+                  marginTop: "4px",
+                  padding: "8px 10px",
+                  fontSize: "12px",
+                  fontFamily: "inherit",
+                  background: "var(--tc-input)",
+                  border: "1px solid var(--tc-border)",
+                  borderRadius: "3px",
+                  color: "var(--tc-text)",
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            <div style={{ marginTop: "12px" }}>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "var(--tc-text)" }}>
+                {fr ? "Auto-expiration (jours, 0 = jamais) :" : "Auto-expiry (days, 0 = never):"}
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={365}
+                value={days}
+                onChange={(e) => setDays(parseInt(e.target.value) || 0)}
+                style={{
+                  marginLeft: "8px",
+                  padding: "5px 8px",
+                  fontSize: "12px",
+                  fontFamily: "monospace",
+                  background: "var(--tc-input)",
+                  border: "1px solid var(--tc-border)",
+                  borderRadius: "3px",
+                  color: "var(--tc-text)",
+                  width: "80px",
+                }}
+              />
+              <span style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginLeft: "8px" }}>
+                {fr
+                  ? "Recommandé : 90 jours. Au-delà, l'exclusion redevient active sans intervention."
+                  : "Recommended: 90 days. After that, the asset returns to active monitoring without action."}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "20px" }}>
+              <button
+                onClick={() => setShowExcludeModal(false)}
+                style={{
+                  padding: "6px 14px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  fontFamily: "inherit",
+                  border: "1px solid var(--tc-border)",
+                  background: "var(--tc-input)",
+                  color: "var(--tc-text)",
+                  borderRadius: "3px",
+                  cursor: "pointer",
+                }}
+              >
+                {fr ? "Annuler" : "Cancel"}
+              </button>
+              <button
+                onClick={() => submitExclusion(true)}
+                disabled={!reason.trim() || busy === "exclude"}
+                style={{
+                  padding: "6px 14px",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  fontFamily: "inherit",
+                  border: "1px solid #d03020",
+                  background: "#d03020",
+                  color: "#fff",
+                  borderRadius: "3px",
+                  cursor: !reason.trim() ? "not-allowed" : "pointer",
+                  opacity: !reason.trim() ? 0.5 : 1,
+                }}
+              >
+                {busy === "exclude" ? "…" : fr ? "Confirmer l'exclusion" : "Confirm exclusion"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SecurityTab({ assetId }: { assetId: string }) {
   const [data, setData] = useState<any>(null);
@@ -1061,6 +1428,9 @@ export default function AssetsPage() {
                   </>
                 );
               })()}
+
+              {/* V68 — Exclusion + Merge actions (always shown, ops surface) */}
+              <ExclusionPanel asset={a} onChanged={loadData} />
 
               {/* Delete button (bottom) */}
               <div style={{ marginTop: "14px", textAlign: "right" }}>

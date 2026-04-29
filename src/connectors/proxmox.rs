@@ -113,8 +113,17 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                 if res.status == "running" {
                     running_vms.push((res.node.clone(), res.vmid));
                 }
+
+                // Fetch the VM config to extract the primary NIC MAC.
+                // Without this, every Proxmox VM lands with mac=NULL and
+                // dedup against DHCP / firewall / Wazuh sightings of the
+                // same VM is impossible (different rows, same machine).
+                // Best-effort: a missing/forbidden config endpoint just
+                // produces no MAC, the asset still goes through.
+                let mac = fetch_vm_primary_mac(&client, base, &auth, &res.node, res.vmid).await;
+
                 let discovered = DiscoveredAsset {
-                    mac: None,
+                    mac,
                     hostname: if res.name.is_empty() {
                         None
                     } else {
@@ -166,12 +175,19 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
     // QGA is opt-in per VM; the call returns 500/404 when the VM
     // doesn't have it. We tolerate failures silently — they're the
     // common case (most VMs don't run QGA).
+    //
+    // We pass the MAC again here too — QGA returns hardware-addr per
+    // interface, which can fall back to populate the asset if the
+    // config endpoint above didn't. It also lets us match the IP to
+    // the correct NIC when the VM has multiple (only the routable IP
+    // counts for resolution).
     for (node, vmid) in &running_vms {
         let path = format!("/api2/json/nodes/{node}/qemu/{vmid}/agent/network-get-interfaces");
         if let Ok(body) = pve_get(&client, base, &auth, &path).await {
-            if let Some(ip) = first_routable_ip(&body) {
+            let routable = first_routable_ip_with_mac(&body);
+            if let Some((ip, qga_mac)) = routable {
                 let discovered = DiscoveredAsset {
-                    mac: None,
+                    mac: qga_mac,
                     hostname: parsed
                         .iter()
                         .find(|r| r.vmid == *vmid && r.res_type == "qemu")
@@ -309,10 +325,97 @@ async fn pve_get(
     resp.json().await.map_err(|e| format!("json: {e}"))
 }
 
+/// Fetch the primary NIC MAC of a VM via /qemu/{vmid}/config. The
+/// config response stores each NIC under net0, net1, ... with values
+/// like "virtio=BC:24:11:35:09:D9,bridge=vmbr0,firewall=1". We parse
+/// the first net* entry and return its MAC. Best-effort: a missing or
+/// forbidden config endpoint, a NIC without an explicit MAC, an empty
+/// VM — all return None silently.
+async fn fetch_vm_primary_mac(
+    client: &Client,
+    base: &str,
+    auth: &str,
+    node: &str,
+    vmid: u64,
+) -> Option<String> {
+    let path = format!("/api2/json/nodes/{node}/qemu/{vmid}/config");
+    let body = pve_get(client, base, auth, &path).await.ok()?;
+    let data = body.get("data")?.as_object()?;
+    // Walk net0, net1, ... in order and return the first MAC found.
+    let mut keys: Vec<&String> = data
+        .keys()
+        .filter(|k| k.starts_with("net") && k[3..].chars().all(|c| c.is_ascii_digit()))
+        .collect();
+    keys.sort();
+    for key in keys {
+        let val = data.get(key)?.as_str()?;
+        // Format: "<model>=<MAC>,bridge=...,firewall=..."
+        // Split on comma → first element → split on '=' → second is MAC.
+        let first = val.split(',').next()?;
+        let mac = first.split('=').nth(1)?;
+        if is_valid_mac(mac) {
+            return Some(mac.to_lowercase());
+        }
+    }
+    None
+}
+
+fn is_valid_mac(s: &str) -> bool {
+    // Six hex pairs separated by colons.
+    let parts: Vec<&str> = s.split(':').collect();
+    parts.len() == 6
+        && parts
+            .iter()
+            .all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
 /// Extract the first routable (non-loopback, non-link-local) IPv4 from
 /// a `network-get-interfaces` response. Returns None when only
 /// 127.0.0.1, 169.254.x or fe80:: are reported (= QGA is up but VM has
 /// no real network yet).
+/// Same as [`first_routable_ip`] but also pulls the NIC's `hardware-address`
+/// when present. Used by the QGA enrichment pass so a VM where the
+/// config endpoint failed (rare, but happens on locked-down hypervisors)
+/// can still get a MAC populated from the guest itself. Returns
+/// (ip, Some(mac)) when QGA reported both, (ip, None) when only the IP.
+fn first_routable_ip_with_mac(body: &serde_json::Value) -> Option<(String, Option<String>)> {
+    let result = body.get("data").and_then(|d| d.get("result"))?;
+    for iface in result.as_array()? {
+        let name = iface.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if name == "lo" || name.starts_with("docker") || name.starts_with("veth") {
+            continue;
+        }
+        let addrs = iface
+            .get("ip-addresses")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mac = iface
+            .get("hardware-address")
+            .and_then(|v| v.as_str())
+            .filter(|m| is_valid_mac(m))
+            .map(|m| m.to_lowercase());
+        for addr in &addrs {
+            let ip = addr
+                .get("ip-address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let ty = addr
+                .get("ip-address-type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if ty != "ipv4" {
+                continue;
+            }
+            if ip.starts_with("127.") || ip.starts_with("169.254.") || ip.is_empty() {
+                continue;
+            }
+            return Some((ip.to_string(), mac));
+        }
+    }
+    None
+}
+
 fn first_routable_ip(body: &serde_json::Value) -> Option<String> {
     let result = body.get("data").and_then(|d| d.get("result"))?;
     for iface in result.as_array()? {
