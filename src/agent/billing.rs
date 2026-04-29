@@ -13,18 +13,31 @@
 //!   Business   601-1500   599 €/mo / 5 990 €/yr
 //!   Enterprise 1500+      sur devis (also required for any MSSP setup)
 //!
-//! What counts as billable (the SQL filter applied below):
+//! What counts as billable (the SQL filter applied below — V67 model):
 //!
 //!   - row exists in `assets` (ie went through the resolution pipeline)
 //!   - `demo` is false (setup wizard demo data is excluded)
 //!   - `dedup_confidence` is not 'uncertain' (a half-resolved DHCP
 //!     ghost shouldn't tip a customer over their tier)
 //!   - `category` is one of the device-types we actually monitor
-//!     (server / workstation / network_device / iot / nas) — excludes
-//!     bare IPs and unknown blobs
-//!   - `last_event_at` is within the last 30 days — the asset has
-//!     actually generated something we acted on
-//!   - `billable_status` is 'monitored'
+//!     (server / workstation / mobile / network / printer / iot / ot)
+//!   - `last_seen` is within the last 30 days (asset still in the parc)
+//!   - **persistence signal** — one of:
+//!       * `inventory_status = 'declared'` (AD / osquery / Velociraptor /
+//!         M365 / Intune — explicit enrollment by the customer)
+//!       * `inventory_status = 'observed_persistent'` (firewall / switch /
+//!         AP connector reports the asset as a managed entity)
+//!       * `inventory_status = 'observed_transient'` AND
+//!         `distinct_days_seen_30d >= 3` (passive sighting that came
+//!         back enough times to look like a real client device, not a
+//!         one-off Wi-Fi guest)
+//!
+//! V66 strict filter is the legacy "had a finding in the last 30d"
+//! definition. It returned 0 billable on a fresh install with 19 assets
+//! in inventory because none had findings yet — wrong intuition for a
+//! pricing tier called "monitored assets". V67 promotes anything we're
+//! actively monitoring (declared by an agent / connector, or seen
+//! persistently) to billable from day 0.
 //!
 //! Two long-running concerns live here:
 //!
@@ -103,15 +116,81 @@ const BILLABLE_CATEGORIES: &[&str] = &[
     "ot",
 ];
 
+/// Sources that count as a "declared" enrollment — the customer
+/// explicitly told ThreatClaw about this asset (agent installed,
+/// directory entry, MDM-managed). High-confidence persistence.
+const DECLARED_SOURCES: &[&str] = &[
+    "active_directory",
+    "ad",
+    "azure_ad",
+    "entra_id",
+    "m365",
+    "osquery",
+    "velociraptor",
+    "wazuh-agent",
+    "wazuh_agent",
+    "intune",
+    "manual", // operator added the row by hand
+];
+
+/// Sources that count as "observed_persistent" — a network connector
+/// that owns this asset as a managed entity (firewall, switch, AP).
+/// Medium-confidence persistence: the connector reports it on every
+/// sync, but the asset has no agent of its own.
+const PERSISTENT_SOURCES: &[&str] = &[
+    "pfsense",
+    "opnsense",
+    "fortinet",
+    "fortigate",
+    "mikrotik",
+    "unifi",
+    "cisco",
+    "aruba",
+    "proxmox",
+    "freebox",
+];
+
+/// Map a source string (the `assets.source` column) to the
+/// `inventory_status` it should imply. Anything unknown falls into
+/// `observed_transient` — the safe default that requires the
+/// 3-distinct-days threshold to count.
+pub fn inventory_status_for(source: &str) -> &'static str {
+    let s = source.to_lowercase();
+    if DECLARED_SOURCES.iter().any(|d| *d == s) {
+        "declared"
+    } else if PERSISTENT_SOURCES.iter().any(|p| *p == s) {
+        "observed_persistent"
+    } else {
+        "observed_transient"
+    }
+}
+
 /// SQL filter shared by the count, the list, and the reclassify job.
 /// Centralized so we can't accidentally diverge across callers.
-fn billable_filter_sql() -> &'static str {
-    "demo = false \
-     AND status = 'active' \
-     AND dedup_confidence != 'uncertain' \
-     AND category = ANY($1) \
-     AND last_event_at > NOW() - INTERVAL '30 days' \
-     AND billable_status = 'monitored'"
+///
+/// V67 model — see the module-level doc for the rationale. The
+/// distinct_days_seen_30d threshold for transient assets is exposed
+/// as a constant so the test, the reclassify job and the SQL all
+/// agree.
+const TRANSIENT_DAYS_THRESHOLD: i32 = 3;
+
+fn billable_filter_sql() -> String {
+    format!(
+        "demo = false \
+         AND status = 'active' \
+         AND dedup_confidence != 'uncertain' \
+         AND category = ANY($1) \
+         AND last_seen > NOW() - INTERVAL '30 days' \
+         AND ( \
+             inventory_status = 'declared' \
+             OR inventory_status = 'observed_persistent' \
+             OR ( \
+                 inventory_status = 'observed_transient' \
+                 AND distinct_days_seen_30d >= {threshold} \
+             ) \
+         )",
+        threshold = TRANSIENT_DAYS_THRESHOLD,
+    )
 }
 
 /// Single hit query for the dashboard widget + license gate.
@@ -190,7 +269,14 @@ mod tests {
             "threat_actor",
             "cve",
             "user",
+            // Ephemeral compute categories — a 200-pod cluster must
+            // never become 200 assets. The cluster (or the host) is the
+            // billable entity, the pods/containers/lambdas are not.
+            // See pricing pivot decision 2026-04-29 §3.
             "container",
+            "pod",
+            "lambda",
+            "function",
         ] {
             assert!(
                 !BILLABLE_CATEGORIES.contains(excluded),
@@ -243,13 +329,58 @@ mod tests {
     }
 
     #[test]
-    fn filter_sql_uses_indexed_columns() {
-        // The V66 index is on (billable_status, last_event_at) WHERE
-        // demo = false. The filter string must reference those columns
-        // verbatim or the index won't be picked.
+    fn filter_sql_uses_v67_persistence_signals() {
+        // V67 — the filter must check inventory_status against the
+        // three billable buckets (declared / observed_persistent /
+        // observed_transient + distinct_days threshold). The V66
+        // billable_status column is no longer the gate.
         let sql = billable_filter_sql();
-        assert!(sql.contains("billable_status"));
-        assert!(sql.contains("last_event_at"));
         assert!(sql.contains("demo = false"));
+        assert!(sql.contains("dedup_confidence"));
+        assert!(sql.contains("inventory_status = 'declared'"));
+        assert!(sql.contains("inventory_status = 'observed_persistent'"));
+        assert!(sql.contains("inventory_status = 'observed_transient'"));
+        assert!(sql.contains("distinct_days_seen_30d"));
+        assert!(sql.contains("last_seen > NOW()"));
+    }
+
+    #[test]
+    fn transient_threshold_is_three_days() {
+        // The threshold lives at three places (filter SQL, doc, tests).
+        // Lock it here so a refactor that drops one of the places fails
+        // visibly.
+        assert_eq!(TRANSIENT_DAYS_THRESHOLD, 3);
+        let sql = billable_filter_sql();
+        assert!(sql.contains("distinct_days_seen_30d >= 3"));
+    }
+
+    #[test]
+    fn inventory_status_for_known_sources() {
+        // Declared sources — agent or identity provider, immediate billable.
+        assert_eq!(inventory_status_for("active_directory"), "declared");
+        assert_eq!(inventory_status_for("osquery"), "declared");
+        assert_eq!(inventory_status_for("velociraptor"), "declared");
+        assert_eq!(inventory_status_for("m365"), "declared");
+        assert_eq!(inventory_status_for("intune"), "declared");
+        assert_eq!(inventory_status_for("manual"), "declared");
+
+        // Network connectors that own the asset.
+        assert_eq!(inventory_status_for("pfsense"), "observed_persistent");
+        assert_eq!(inventory_status_for("opnsense"), "observed_persistent");
+        assert_eq!(inventory_status_for("fortinet"), "observed_persistent");
+        assert_eq!(inventory_status_for("unifi"), "observed_persistent");
+
+        // Passive / unknown — transient (must reach 3 distinct days).
+        assert_eq!(inventory_status_for("nmap"), "observed_transient");
+        assert_eq!(inventory_status_for("dhcp"), "observed_transient");
+        assert_eq!(inventory_status_for("alert-auto"), "observed_transient");
+        assert_eq!(
+            inventory_status_for("brand-new-source"),
+            "observed_transient"
+        );
+
+        // Case insensitive.
+        assert_eq!(inventory_status_for("OSquery"), "declared");
+        assert_eq!(inventory_status_for("PFSense"), "observed_persistent");
     }
 }

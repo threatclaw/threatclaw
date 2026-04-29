@@ -1589,11 +1589,16 @@ impl ThreatClawStore for PgBackend {
         let ips: Vec<&str> = a.ip_addresses.iter().map(|s| s.as_str()).collect();
         let tags: Vec<&str> = a.tags.iter().map(|s| s.as_str()).collect();
         let source_arr = vec![a.source.as_str()];
+        // V67 — classify the incoming source to map onto inventory_status.
+        // Precedence in the UPDATE clause makes sure we never demote a
+        // 'declared' asset to 'observed_persistent' just because a passive
+        // sighting arrived from a weaker source afterward.
+        let new_inventory_status = crate::agent::billing::inventory_status_for(&a.source);
         conn.execute(
             r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
                 ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
-                services, source, sources, owner, location, tags, last_seen)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+                services, source, sources, owner, location, tags, last_seen, inventory_status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20)
             ON CONFLICT (id) DO UPDATE SET
                 -- Protect user-edited fields from auto-discovery overwrite
                 name = CASE WHEN 'name' = ANY(assets.user_modified) THEN assets.name
@@ -1626,10 +1631,23 @@ impl ThreatClawStore for PgBackend {
                 -- Tags: union (never lose a tag)
                 tags = (SELECT ARRAY(SELECT DISTINCT unnest(assets.tags || EXCLUDED.tags))),
                 last_seen = NOW(),
-                updated_at = NOW()"#,
+                updated_at = NOW(),
+                -- inventory_status precedence (V67):
+                --   declared  > observed_persistent > observed_transient > inactive
+                -- Never demote, only promote. inactive → whatever the new signal
+                -- says (asset is back online).
+                inventory_status = CASE
+                    WHEN assets.inventory_status = 'declared'
+                        THEN 'declared'
+                    WHEN assets.inventory_status = 'observed_persistent'
+                         AND EXCLUDED.inventory_status != 'declared'
+                        THEN 'observed_persistent'
+                    ELSE EXCLUDED.inventory_status
+                END"#,
             &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
               &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
-              &a.services, &a.source, &source_arr, &a.owner, &a.location, &tags],
+              &a.services, &a.source, &source_arr, &a.owner, &a.location, &tags,
+              &new_inventory_status],
         ).await.map_err(query_err)?;
         Ok(a.id.clone())
     }
@@ -2625,20 +2643,20 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let cats: Vec<&str> = billable_categories.iter().map(|s| s.as_str()).collect();
 
-        // Single round-trip aggregation: one CTE for the table-wide
-        // counts the operator wants on the widget ("you have N
-        // discovered, M uncertain..."), then the strict billable count
-        // and category breakdown filtered through the same predicate
-        // the V66 index covers.
+        // V67 model — see src/agent/billing.rs for the rationale.
+        // The "discovered" / "inactive" counts on the widget now read
+        // inventory_status (the V66 billable_status column is left
+        // populated for backward-compat but no longer the source of
+        // truth for the widget breakdown).
         let row = conn
             .query_one(
                 "WITH all_counts AS ( \
                     SELECT \
-                        COUNT(*) FILTER (WHERE TRUE)                                            AS total, \
-                        COUNT(*) FILTER (WHERE billable_status = 'discovered')                  AS discovered, \
-                        COUNT(*) FILTER (WHERE billable_status = 'inactive')                    AS inactive, \
-                        COUNT(*) FILTER (WHERE dedup_confidence = 'uncertain')                  AS uncertain, \
-                        COUNT(*) FILTER (WHERE demo = true)                                     AS demo \
+                        COUNT(*) FILTER (WHERE TRUE)                                                                               AS total, \
+                        COUNT(*) FILTER (WHERE inventory_status = 'observed_transient' AND distinct_days_seen_30d < 3)             AS discovered, \
+                        COUNT(*) FILTER (WHERE inventory_status = 'inactive' OR last_seen <= NOW() - INTERVAL '30 days')           AS inactive, \
+                        COUNT(*) FILTER (WHERE dedup_confidence = 'uncertain')                                                     AS uncertain, \
+                        COUNT(*) FILTER (WHERE demo = true)                                                                        AS demo \
                     FROM assets \
                 ), billable_count AS ( \
                     SELECT COUNT(*) AS billable \
@@ -2647,8 +2665,15 @@ impl ThreatClawStore for PgBackend {
                        AND status = 'active' \
                        AND dedup_confidence != 'uncertain' \
                        AND category = ANY($1) \
-                       AND last_event_at > NOW() - INTERVAL '30 days' \
-                       AND billable_status = 'monitored' \
+                       AND last_seen > NOW() - INTERVAL '30 days' \
+                       AND ( \
+                            inventory_status = 'declared' \
+                            OR inventory_status = 'observed_persistent' \
+                            OR ( \
+                                inventory_status = 'observed_transient' \
+                                AND distinct_days_seen_30d >= 3 \
+                            ) \
+                       ) \
                 ) \
                 SELECT a.total, a.discovered, a.inactive, a.uncertain, a.demo, b.billable \
                   FROM all_counts a CROSS JOIN billable_count b",
@@ -2673,8 +2698,15 @@ impl ThreatClawStore for PgBackend {
                     AND status = 'active' \
                     AND dedup_confidence != 'uncertain' \
                     AND category = ANY($1) \
-                    AND last_event_at > NOW() - INTERVAL '30 days' \
-                    AND billable_status = 'monitored' \
+                    AND last_seen > NOW() - INTERVAL '30 days' \
+                    AND ( \
+                         inventory_status = 'declared' \
+                         OR inventory_status = 'observed_persistent' \
+                         OR ( \
+                             inventory_status = 'observed_transient' \
+                             AND distinct_days_seen_30d >= 3 \
+                         ) \
+                    ) \
                   GROUP BY category \
                   ORDER BY n DESC",
                 &[&cats],
@@ -2702,16 +2734,18 @@ impl ThreatClawStore for PgBackend {
         // Bounded statement — clamp idle_days to a sane range to avoid
         // accidentally setting the cutoff in the future.
         let days = idle_days.clamp(1, 365);
+        // V67 — flip both inventory_status AND legacy billable_status.
+        // last_seen is the inventory connector's heartbeat for the asset
+        // (set at every resolve), so it's the right anchor for "is this
+        // asset still in the parc".
         let n = conn
             .execute(
                 &format!(
                     "UPDATE assets \
-                        SET billable_status = 'inactive' \
-                      WHERE billable_status = 'monitored' \
-                        AND ( \
-                              last_event_at IS NULL \
-                           OR last_event_at < NOW() - INTERVAL '{} days' \
-                        )",
+                        SET inventory_status = 'inactive', \
+                            billable_status = 'inactive' \
+                      WHERE inventory_status != 'inactive' \
+                        AND last_seen < NOW() - INTERVAL '{} days'",
                     days
                 ),
                 &[],
