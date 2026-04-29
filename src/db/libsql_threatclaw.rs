@@ -225,6 +225,29 @@ impl ThreatClawStore for LibSqlBackend {
     async fn set_asset_dedup_confidence(&self, _: &str, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn merge_assets(&self, _: &str, _: &str, _: &str, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn unmerge_asset(&self, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn resolve_canonical_id(&self, id: &str) -> Result<String, DatabaseError> {
+        // libsql backend has no merge_aliases table — every id is its own canonical.
+        Ok(id.to_string())
+    }
+    async fn set_asset_excluded(
+        &self,
+        _: &str,
+        _: bool,
+        _: &str,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+        _: &str,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn expire_asset_exclusions(&self) -> Result<u64, DatabaseError> {
+        Ok(0)
+    }
     async fn list_internal_networks(&self) -> Result<Vec<InternalNetwork>, DatabaseError> {
         Err(not_supported())
     }

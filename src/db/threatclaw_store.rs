@@ -189,6 +189,22 @@ pub struct AssetRecord {
     /// V66 — true if the row was created by the wizard demo path.
     #[serde(default)]
     pub demo: bool,
+    /// V68 — operator manually excluded this asset from billing AND
+    /// monitoring. The touch trigger and the billable filter both
+    /// skip excluded rows.
+    #[serde(default)]
+    pub excluded: bool,
+    /// V68 — free-text reason the operator gave when excluding the
+    /// asset. Required at the API layer; kept here for audit.
+    #[serde(default)]
+    pub exclusion_reason: String,
+    /// V68 — RFC3339 timestamp at which the exclusion auto-expires
+    /// (90 days by default). NULL means "no auto-expire".
+    #[serde(default)]
+    pub exclusion_until: Option<String>,
+    /// V68 — email of the operator who triggered the exclusion.
+    #[serde(default)]
+    pub exclusion_by: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -920,6 +936,52 @@ pub trait ThreatClawStore: Send + Sync {
         id: &str,
         dedup_confidence: &str,
     ) -> Result<(), DatabaseError>;
+
+    // ── V68 — manual merge (alias) ──
+
+    /// Mark `alias_id` as a soft-link to `canonical_id`. Future asset
+    /// resolution upserts that would have hit `alias_id` are redirected
+    /// to `canonical_id`. The alias row is set to status='merged' and
+    /// hidden from the default /assets listing. Reversible within 30
+    /// days via `unmerge_assets`.
+    async fn merge_assets(
+        &self,
+        alias_id: &str,
+        canonical_id: &str,
+        merged_by: &str,
+        reason: &str,
+    ) -> Result<(), DatabaseError>;
+
+    /// Lift the merge: alias row goes back to status='active', the
+    /// merge_aliases entry is soft-deleted (unmerged_at = NOW()).
+    async fn unmerge_asset(&self, alias_id: &str) -> Result<(), DatabaseError>;
+
+    /// Resolve any asset id to its canonical row. If the id is not
+    /// merged, returns the id unchanged. Used by asset_resolution on
+    /// every upsert to avoid recreating aliases.
+    async fn resolve_canonical_id(&self, id: &str) -> Result<String, DatabaseError>;
+
+    // ── V68 — single-toggle exclusion (billing + monitoring) ──
+
+    /// Mark an asset as excluded. The billable filter skips it, and
+    /// the V68 touch trigger no longer updates inventory_status /
+    /// last_event_at on it. `until` is the auto-expire timestamp
+    /// (typically NOW() + 90 days). `by` is the operator email for
+    /// audit.
+    async fn set_asset_excluded(
+        &self,
+        id: &str,
+        excluded: bool,
+        reason: &str,
+        until: Option<chrono::DateTime<chrono::Utc>>,
+        by: &str,
+    ) -> Result<(), DatabaseError>;
+
+    /// Sweep — flip excluded back to false on every asset whose
+    /// `exclusion_until` has passed. Returns the number of rows that
+    /// reverted to active monitoring. Run from the daily cron in
+    /// `agent::billing::reclassify_assets_job`.
+    async fn expire_asset_exclusions(&self) -> Result<u64, DatabaseError>;
 
     // ── Company Profile ──
 
