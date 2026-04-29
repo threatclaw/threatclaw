@@ -471,6 +471,10 @@ pub async fn start_server(
             "/api/tc/licensing/deactivate",
             post(super::handlers::licensing_api::deactivate_handler),
         )
+        .route(
+            "/api/tc/licensing/portal-session",
+            post(super::handlers::licensing_api::portal_session_handler),
+        )
         // Agent control
         .route(
             "/api/tc/agent/mode",

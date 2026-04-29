@@ -778,16 +778,7 @@ function SkillCard({
             </button>
           </div>
         ) : premium ? (
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-            <a
-              href="/setup?tab=licenses"
-              style={{
-                fontSize: "10px", color: "var(--tc-red)", textDecoration: "none",
-                display: "inline-flex", alignItems: "center", gap: "3px",
-              }}
-            >
-              <Lock size={10} /> {locale === "fr" ? "Licence requise pour exécuter" : "License required to run"}
-            </a>
+          <div style={{ display: "flex", gap: "10px", alignItems: "center", justifyContent: "flex-end", flexWrap: "wrap" }}>
             <button
               onClick={onInstall}
               className="tc-btn-embossed"

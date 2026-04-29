@@ -505,8 +505,17 @@ export default function SetupPage() {
       )}
       {activeTab === "endpoints" && <AgentPage />}
       {activeTab === "tests" && <TestsContent />}
-      {activeTab === "licenses" && <LicensesContent />}
-      {activeTab === "about" && <AboutContent />}
+      {(activeTab === "licenses" || activeTab === "about") && <LicenseRedirect />}
     </div>
   );
+}
+
+// /setup?tab=licenses and /setup?tab=about have been merged into a
+// dedicated top-level /license page (pricing pivot 2026-04-28). Old
+// in-app links and bookmarks land here briefly, then bounce.
+function LicenseRedirect() {
+  useEffect(() => {
+    window.location.replace("/license");
+  }, []);
+  return null;
 }

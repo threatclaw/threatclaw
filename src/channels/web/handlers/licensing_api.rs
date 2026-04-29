@@ -189,6 +189,39 @@ pub async fn heartbeat_handler(
     }))
 }
 
+// ── Portal session (Stripe billing portal URL) ──────────────────────
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PortalSessionRequest {
+    pub license_key: String,
+    /// Where Stripe should redirect after the customer closes the
+    /// portal. Defaults server-side to the agent's own /license page
+    /// when empty.
+    #[serde(default)]
+    pub return_url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PortalSessionResponse {
+    pub url: String,
+}
+
+pub async fn portal_session_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<PortalSessionRequest>,
+) -> ApiResult<PortalSessionResponse> {
+    let key = req.license_key.trim();
+    if key.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "license_key is required".into()));
+    }
+    let mgr = manager(&state)?;
+    let response = mgr
+        .portal_session(key, req.return_url.as_deref())
+        .await
+        .map_err(manager_err)?;
+    Ok(Json(PortalSessionResponse { url: response.url }))
+}
+
 // ── Deactivate (release activation slot for one license) ────────────
 
 #[derive(Debug, Deserialize)]
