@@ -23,12 +23,71 @@ interface Asset {
   last_seen: string; first_seen: string; owner: string | null;
   location: string | null; tags: string[]; notes: string | null;
   classification_method: string; classification_confidence: number;
+  // V67 — billable filter dimension.
+  inventory_status?: string;
+  distinct_days_seen_30d?: number;
+  billable_status?: string;
+  demo?: boolean;
+  sources?: string[];
 }
 
 interface Category {
   id: string; label: string; label_en: string | null; icon: string;
   color: string; subcategories: string[]; is_builtin: boolean;
 }
+
+// V67 — billable filter buckets.
+type BillableFilter = "all" | "billable" | "observation" | "duplicates" | "inactive";
+
+const BILLABLE_FILTERS: Array<{
+  id: BillableFilter;
+  labelFr: string;
+  labelEn: string;
+  predicate: (a: Asset) => boolean;
+}> = [
+  { id: "all", labelFr: "Tous", labelEn: "All", predicate: () => true },
+  {
+    id: "billable",
+    labelFr: "Facturables",
+    labelEn: "Billable",
+    predicate: (a) =>
+      !a.demo &&
+      a.status === "active" &&
+      a.inventory_status !== "inactive" &&
+      (a.inventory_status === "declared" ||
+        a.inventory_status === "observed_persistent" ||
+        (a.inventory_status === "observed_transient" &&
+          (a.distinct_days_seen_30d ?? 0) >= 3)),
+  },
+  {
+    id: "observation",
+    labelFr: "En observation",
+    labelEn: "In observation",
+    predicate: (a) =>
+      a.inventory_status === "observed_transient" &&
+      (a.distinct_days_seen_30d ?? 0) < 3 &&
+      a.status === "active",
+  },
+  {
+    id: "duplicates",
+    labelFr: "Doublons probables",
+    labelEn: "Probable duplicates",
+    predicate: (a) => a.classification_confidence < 0.5,
+  },
+  {
+    id: "inactive",
+    labelFr: "Inactifs",
+    labelEn: "Inactive",
+    predicate: (a) => a.inventory_status === "inactive" || a.status !== "active",
+  },
+];
+
+const INVENTORY_BADGE: Record<string, { labelFr: string; labelEn: string; color: string }> = {
+  declared: { labelFr: "Déclaré", labelEn: "Declared", color: "#30a050" },
+  observed_persistent: { labelFr: "Observé · réseau", labelEn: "Observed · network", color: "#4080d0" },
+  observed_transient: { labelFr: "En observation", labelEn: "In observation", color: "#d09020" },
+  inactive: { labelFr: "Inactif", labelEn: "Inactive", color: "#888" },
+};
 
 // ── Constants ──
 
@@ -421,6 +480,7 @@ export default function AssetsPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const [billableFilter, setBillableFilter] = useState<BillableFilter>("all");
   const [search, setSearch] = useState("");
 
   // Modal state
@@ -519,8 +579,28 @@ export default function AssetsPage() {
   };
 
   // ── Filtered assets ──
+  // Two filter dimensions:
+  //   - activeTab: by category (server / workstation / etc.) — drives
+  //     the API `?category=` so the result is server-side narrowed.
+  //   - billableFilter: by billable bucket (V67) — applied client-side
+  //     because the bucket is computed from inventory_status +
+  //     distinct_days_seen_30d and the API doesn't pivot on those yet.
+  //   - search: free-text filter on name/IP/hostname/role/os.
 
-  const filtered = assets.filter(a => {
+  const billablePred =
+    BILLABLE_FILTERS.find((f) => f.id === billableFilter)?.predicate ?? (() => true);
+
+  // Per-bucket counts so the filter row shows e.g. "Billable (12)".
+  const billableCounts: Record<BillableFilter, number> = BILLABLE_FILTERS.reduce(
+    (acc, f) => {
+      acc[f.id] = assets.filter(f.predicate).length;
+      return acc;
+    },
+    {} as Record<BillableFilter, number>,
+  );
+
+  const filtered = assets.filter((a) => {
+    if (!billablePred(a)) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     return a.name.toLowerCase().includes(s) || a.ip_addresses.some(ip => ip.includes(s)) ||
@@ -630,6 +710,54 @@ export default function AssetsPage() {
         })}
       </div>
 
+      {/* Billable filter row (V67) */}
+      <div
+        style={{
+          display: "flex",
+          gap: "4px",
+          marginBottom: "16px",
+          flexWrap: "wrap",
+          alignItems: "center",
+          paddingBottom: "10px",
+          borderBottom: "1px solid var(--tc-border)",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "9px",
+            color: "var(--tc-text-muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            marginRight: "8px",
+          }}
+        >
+          {locale === "fr" ? "Statut facturation" : "Billing status"}
+        </span>
+        {BILLABLE_FILTERS.map((f) => {
+          const n = billableCounts[f.id] ?? 0;
+          const active = billableFilter === f.id;
+          return (
+            <button
+              key={f.id}
+              onClick={() => setBillableFilter(f.id)}
+              style={{
+                padding: "5px 10px",
+                fontSize: "10px",
+                fontWeight: 600,
+                fontFamily: "inherit",
+                borderRadius: "var(--tc-radius-sm)",
+                cursor: "pointer",
+                background: active ? "var(--tc-blue)" : "var(--tc-input)",
+                color: active ? "#fff" : "var(--tc-text-muted)",
+                border: active ? "none" : "1px solid var(--tc-border)",
+              }}
+            >
+              {locale === "fr" ? f.labelFr : f.labelEn} ({n})
+            </button>
+          );
+        })}
+      </div>
+
       {/* Search */}
       <div style={{ marginBottom: "16px", position: "relative" }}>
         <Search size={13} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
@@ -674,6 +802,25 @@ export default function AssetsPage() {
                       {a.subcategory && <span style={{ fontSize: "8px", color: "var(--tc-text-muted)", padding: "1px 4px", borderRadius: "3px", background: "var(--tc-input)" }}>{a.subcategory}</span>}
                       {a.source !== "manual" && <span style={{ fontSize: "8px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)" }}>{a.source}</span>}
                       {a.category === "unknown" && <span style={{ fontSize: "8px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)" }}>auto-détecté</span>}
+                      {/* V67 — inventory_status badge. The transient
+                          bucket also surfaces the days-seen progress
+                          so the operator can guess when it'll flip
+                          to billable. */}
+                      {a.inventory_status && INVENTORY_BADGE[a.inventory_status] && (() => {
+                        const badge = INVENTORY_BADGE[a.inventory_status]!;
+                        const lbl = locale === "fr" ? badge.labelFr : badge.labelEn;
+                        const isTransient = a.inventory_status === "observed_transient";
+                        const days = a.distinct_days_seen_30d ?? 0;
+                        const tail = isTransient ? ` · ${days}/3 j` : "";
+                        return (
+                          <span style={{
+                            fontSize: "8px", fontWeight: 700, padding: "1px 5px",
+                            borderRadius: "3px", textTransform: "uppercase",
+                            background: `${badge.color}15`, color: badge.color,
+                            border: `1px solid ${badge.color}30`,
+                          }}>{lbl}{tail}</span>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                       {a.ip_addresses.length > 0 && <span style={{ fontFamily: "monospace" }}>{a.ip_addresses.join(", ")}</span>}
