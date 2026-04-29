@@ -116,6 +116,19 @@ const BILLABLE_CATEGORIES: &[&str] = &[
     "ot",
 ];
 
+/// Categories that are NEVER billable, even when persistence is high.
+/// They have their own SKU surface (or are intentionally ephemeral).
+/// A declared / observed_persistent asset that lands here is excluded
+/// from the count.
+const EXCLUDED_CATEGORIES: &[&str] = &[
+    "website",   // separate Web Security SKU
+    "cloud",     // separate Cloud Posture SKU
+    "container", // ephemeral, count the cluster/host instead
+    "pod",
+    "lambda",
+    "function",
+];
+
 /// Sources that count as a "declared" enrollment — the customer
 /// explicitly told ThreatClaw about this asset (agent installed,
 /// directory entry, MDM-managed). High-confidence persistence.
@@ -175,20 +188,42 @@ pub fn inventory_status_for(source: &str) -> &'static str {
 const TRANSIENT_DAYS_THRESHOLD: i32 = 3;
 
 fn billable_filter_sql() -> String {
+    // Category logic by persistence bucket:
+    //   declared / observed_persistent → category may be 'unknown' (we
+    //     trust the persistence signal). Still exclude the SKU-isolated
+    //     categories (website / cloud / container / pod / lambda /
+    //     function) which have their own product surface.
+    //   observed_transient → category MUST be in BILLABLE_CATEGORIES
+    //     ($1). A transient 'unknown' is exactly the "random nmap IP"
+    //     case we're trying NOT to count.
+    //
+    // Why category may be 'unknown' for declared assets: the AD /
+    // osquery / connector pipelines often land an asset before the
+    // fingerprint::guess_category classifier has had a chance to look
+    // at it. The asset is still a real device the customer is
+    // monitoring. We bill it.
+    let excluded: String = EXCLUDED_CATEGORIES
+        .iter()
+        .map(|c| format!("'{c}'"))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         "demo = false \
          AND status = 'active' \
          AND dedup_confidence != 'uncertain' \
-         AND category = ANY($1) \
          AND last_seen > NOW() - INTERVAL '30 days' \
          AND ( \
-             inventory_status = 'declared' \
-             OR inventory_status = 'observed_persistent' \
+             ( \
+                 inventory_status IN ('declared','observed_persistent') \
+                 AND category NOT IN ({excluded}) \
+             ) \
              OR ( \
                  inventory_status = 'observed_transient' \
                  AND distinct_days_seen_30d >= {threshold} \
+                 AND category = ANY($1) \
              ) \
          )",
+        excluded = excluded,
         threshold = TRANSIENT_DAYS_THRESHOLD,
     )
 }
@@ -331,17 +366,21 @@ mod tests {
     #[test]
     fn filter_sql_uses_v67_persistence_signals() {
         // V67 — the filter must check inventory_status against the
-        // three billable buckets (declared / observed_persistent /
-        // observed_transient + distinct_days threshold). The V66
-        // billable_status column is no longer the gate.
+        // three billable buckets. Declared / persistent are accepted
+        // even with category 'unknown' (we trust the source); only
+        // transient enforces the strict BILLABLE_CATEGORIES list.
         let sql = billable_filter_sql();
         assert!(sql.contains("demo = false"));
         assert!(sql.contains("dedup_confidence"));
-        assert!(sql.contains("inventory_status = 'declared'"));
-        assert!(sql.contains("inventory_status = 'observed_persistent'"));
+        assert!(sql.contains("inventory_status IN ('declared','observed_persistent')"));
         assert!(sql.contains("inventory_status = 'observed_transient'"));
         assert!(sql.contains("distinct_days_seen_30d"));
         assert!(sql.contains("last_seen > NOW()"));
+        // Excluded categories appear in the NOT IN clause so a 'cloud'
+        // declared-by-connector entity doesn't rack up the count.
+        assert!(sql.contains("'website'"));
+        assert!(sql.contains("'cloud'"));
+        assert!(sql.contains("'container'"));
     }
 
     #[test]

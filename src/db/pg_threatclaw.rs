@@ -2664,14 +2664,16 @@ impl ThreatClawStore for PgBackend {
                      WHERE demo = false \
                        AND status = 'active' \
                        AND dedup_confidence != 'uncertain' \
-                       AND category = ANY($1) \
                        AND last_seen > NOW() - INTERVAL '30 days' \
                        AND ( \
-                            inventory_status = 'declared' \
-                            OR inventory_status = 'observed_persistent' \
+                            ( \
+                                inventory_status IN ('declared','observed_persistent') \
+                                AND category NOT IN ('website','cloud','container','pod','lambda','function') \
+                            ) \
                             OR ( \
                                 inventory_status = 'observed_transient' \
                                 AND distinct_days_seen_30d >= 3 \
+                                AND category = ANY($1) \
                             ) \
                        ) \
                 ) \
@@ -2697,14 +2699,16 @@ impl ThreatClawStore for PgBackend {
                   WHERE demo = false \
                     AND status = 'active' \
                     AND dedup_confidence != 'uncertain' \
-                    AND category = ANY($1) \
                     AND last_seen > NOW() - INTERVAL '30 days' \
                     AND ( \
-                         inventory_status = 'declared' \
-                         OR inventory_status = 'observed_persistent' \
+                         ( \
+                             inventory_status IN ('declared','observed_persistent') \
+                             AND category NOT IN ('website','cloud','container','pod','lambda','function') \
+                         ) \
                          OR ( \
                              inventory_status = 'observed_transient' \
                              AND distinct_days_seen_30d >= 3 \
+                             AND category = ANY($1) \
                          ) \
                     ) \
                   GROUP BY category \
