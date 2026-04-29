@@ -212,6 +212,13 @@ impl LicenseManager {
         }
     }
 
+    /// Stable install identifier (UUID v4 minted on first boot, persisted
+    /// to `~/.threatclaw/licensing/install_id`). Used as the key for
+    /// licensed activations and anonymous telemetry alike.
+    pub fn install_id(&self) -> &str {
+        &self.install_id
+    }
+
     /// True if at least one in-memory gate currently allows the given
     /// premium skill. Returns `false` for unprovisioned builds, missing
     /// certs, or any denial reason. Cheap, suitable for hot paths in
