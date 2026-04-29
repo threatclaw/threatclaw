@@ -173,6 +173,22 @@ pub struct AssetRecord {
     pub sources: Vec<String>,
     pub software: serde_json::Value,
     pub user_modified: Vec<String>,
+    /// V67 — persistence bucket: 'declared' | 'observed_persistent' |
+    /// 'observed_transient' | 'inactive'. Drives the billable filter.
+    #[serde(default)]
+    pub inventory_status: String,
+    /// V67 — distinct days the asset was seen in the last 30. The
+    /// transient → billable threshold is 3.
+    #[serde(default)]
+    pub distinct_days_seen_30d: i32,
+    /// V66 — set by triggers on findings/sigma_alerts/firewall_events.
+    /// Kept for back-compat with the `discovered`/`inactive` widget
+    /// breakdown.
+    #[serde(default)]
+    pub billable_status: String,
+    /// V66 — true if the row was created by the wizard demo path.
+    #[serde(default)]
+    pub demo: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

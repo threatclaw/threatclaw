@@ -3611,5 +3611,17 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
         user_modified: r
             .try_get::<_, Vec<String>>("user_modified")
             .unwrap_or_default(),
+        // V67 — surface the persistence bucket + distinct-days counter
+        // to the dashboard so /assets can filter by billable state.
+        // Defaults match the migration: brand-new rows are transient,
+        // billable_status from V66 is 'discovered'.
+        inventory_status: r
+            .try_get::<_, String>("inventory_status")
+            .unwrap_or_else(|_| "observed_transient".into()),
+        distinct_days_seen_30d: r.try_get::<_, i32>("distinct_days_seen_30d").unwrap_or(0),
+        billable_status: r
+            .try_get::<_, String>("billable_status")
+            .unwrap_or_else(|_| "discovered".into()),
+        demo: r.try_get::<_, bool>("demo").unwrap_or(false),
     }
 }
