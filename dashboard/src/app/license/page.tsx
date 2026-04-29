@@ -17,7 +17,7 @@
 // Wires:
 //   GET  /api/tc/license                     — instance_id + version
 //   GET  /api/tc/licensing/status            — list of active licenses
-//   GET  /api/tc/admin/billable-assets       — current billable count
+//   GET  /api/tc/admin/billing-status       — current billable count
 //   GET  /api/auth/me                        — logged-in user email
 //   POST /api/tc/licensing/activate          — paste license_key
 //   POST /api/tc/licensing/heartbeat         — refresh cert ("Refresh now")
@@ -166,7 +166,7 @@ export default function LicensePage() {
       const [instRes, statusRes, billingRes, meRes] = await Promise.all([
         fetch("/api/tc/license").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/tc/licensing/status").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch("/api/tc/admin/billable-assets").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch("/api/tc/admin/billing-status").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       setInstance(instRes ?? null);
