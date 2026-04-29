@@ -33,7 +33,7 @@ use tokio::sync::RwLock;
 
 use super::api_client::{
     ActivateRequest, ApiError, ApiRejection, CertResponse, DeactivateRequest, HeartbeatRequest,
-    LicenseClient, TrialStartRequest,
+    LicenseClient, PortalSessionRequest, PortalSessionResponse, TrialStartRequest,
 };
 use super::cert::{LicenseTier, SignedLicense, now_secs};
 use super::fingerprint::site_fingerprint;
@@ -545,6 +545,36 @@ impl LicenseManager {
     /// remove that license from local state. Best-effort: if the server
     /// is unreachable we still wipe locally so the user can move the
     /// license to another machine without waiting for the API.
+    /// Ask the license server for a Stripe billing-portal URL bound to
+    /// the given `license_key`. The URL is single-use and short-lived —
+    /// the dashboard opens it in a new tab and discards it. Caller is
+    /// expected to surface the URL to the operator immediately.
+    pub async fn portal_session(
+        &self,
+        license_key: &str,
+        return_url: Option<&str>,
+    ) -> Result<PortalSessionResponse, ManagerError> {
+        if !super::is_provisioned() {
+            return Err(ManagerError::NotProvisioned);
+        }
+        {
+            let inner = self.inner.read().await;
+            if inner.state.find(license_key).is_none() {
+                return Err(ManagerError::UnknownLocalLicense(license_key.to_string()));
+            }
+        }
+        let req = PortalSessionRequest {
+            license_key,
+            install_id: &self.install_id,
+            site_fingerprint: &self.site_fingerprint,
+            return_url,
+        };
+        self.client
+            .portal_session(&req)
+            .await
+            .map_err(ManagerError::Api)
+    }
+
     pub async fn deactivate(&self, license_key: &str) -> Result<(), ManagerError> {
         if !super::is_provisioned() {
             return Err(ManagerError::NotProvisioned);

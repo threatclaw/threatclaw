@@ -143,6 +143,26 @@ pub struct DeactivateRequest<'a> {
     pub install_id: &'a str,
 }
 
+/// Body for `POST /api/portal-session`. The Worker returns a single-use
+/// Stripe billing-portal URL the dashboard opens in a new tab.
+#[derive(Debug, Serialize)]
+pub struct PortalSessionRequest<'a> {
+    pub license_key: &'a str,
+    pub install_id: &'a str,
+    pub site_fingerprint: &'a str,
+    /// Optional URL the customer is redirected to after closing the
+    /// Stripe portal. Defaults server-side to `threatclaw.io/account`
+    /// when empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub return_url: Option<&'a str>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PortalSessionResponse {
+    /// Single-use, short-lived. Open in a new tab and discard.
+    pub url: String,
+}
+
 /// Returned by `/api/activate`, `/api/trial/start`, `/api/heartbeat`.
 /// The `cert` is the base64-encoded `.tcl` envelope ready to feed to
 /// [`crate::licensing::SignedLicense::decode`].
@@ -210,6 +230,16 @@ impl LicenseClient {
     pub async fn deactivate(&self, req: &DeactivateRequest<'_>) -> Result<(), ApiError> {
         let _: serde_json::Value = self.post_json("/api/deactivate", req).await?;
         Ok(())
+    }
+
+    /// Ask the Worker for a Stripe billing-portal URL. Single-use,
+    /// rotated by Stripe within minutes. Caller opens in a new tab and
+    /// throws the URL away.
+    pub async fn portal_session(
+        &self,
+        req: &PortalSessionRequest<'_>,
+    ) -> Result<PortalSessionResponse, ApiError> {
+        self.post_json("/api/portal-session", req).await
     }
 
     pub async fn check_revocation(&self, license_key: &str) -> Result<RevocationStatus, ApiError> {
