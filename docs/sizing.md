@@ -1,284 +1,277 @@
 # Sizing Guide
 
-Comment dimensionner le serveur qui fera tourner ThreatClaw chez votre client ou sur votre infrastructure.
+How to dimension the server that will run ThreatClaw at your client site or on your own infrastructure.
 
-Ce guide repose sur des mesures réelles effectuées sur deux profils de machine très différents (Ryzen 9 7940HS 2023 et Xeon E3-1245 v5 2015) avec les modèles de la stack par défaut.
+This guide is built from real measurements taken on two reference machines spanning a wide hardware era gap (a recent AMD laptop and an older Intel server). The numbers below are conservative — your mileage will vary by workload, by the active LLM mode, and by how aggressively you tune the agent.
 
 ---
 
-## TL;DR — Recommandations express
+## TL;DR — Quick recommendations
 
-| Usage | CPU minimum | RAM minimum | Mode LLM conseillé |
+| Use case | Min CPU | Min RAM | Recommended LLM mode |
 |---|---|---|---|
-| Découverte / POC | 4 cœurs post-2020, AVX2 | 16 GB | Cloud L0 + L1 local |
-| PME 5-50 postes | 6-8 cœurs post-2021 | 24 GB | Cloud L0 + L1/L2 local |
-| PME NIS2 full-local | 8 cœurs Zen3+/Intel 12e gen+ | 32 GB | gemma4:e4b + L1 + L2 à la demande |
-| PME confortable | 8-16 cœurs Zen3+/Raptor Lake | 48 GB | gemma4:26b + L1 + L2 + L2.5 |
-| Enterprise / MSP | 16+ cœurs Zen4+/EPYC | 64+ GB | Mistral Small 24B full stack |
+| Discovery / POC | 4 modern cores, AVX2 | 16 GB | Cloud L0 + L1 local |
+| SMB 5-50 endpoints | 6-8 modern cores | 24 GB | Cloud L0 + L1/L2 local |
+| SMB NIS2 full-local | 8 cores Zen3+ / 12th gen+ | 32 GB | L0 light + L1 + L2 on demand |
+| SMB comfort | 8-16 cores Zen3+ / Raptor Lake | 48 GB | L0 mid + L1 + L2 + L2.5 |
+| Enterprise / MSP | 16+ cores Zen4+ / EPYC | 64+ GB | L0 premium full stack |
 
-**Règle d'or** : CPU post-2020 avec AVX2 obligatoire, DDR4-3200 ou mieux. En dessous de ce seuil, le mode cloud L0 reste la seule expérience utilisable pour le chatbot conversationnel.
+**Rule of thumb**: post-2020 CPU with AVX2 is mandatory, DDR4-3200 or better. Below this threshold, only the cloud-L0 mode produces an acceptable conversational experience.
 
 ---
 
-## 1. Ce que consomme la stack ThreatClaw hors LLM
+## 1. What the ThreatClaw stack consumes outside the LLM
 
-ThreatClaw en lui-même est léger. La consommation de base (sans modèle chargé) est dominée par Ollama et PostgreSQL.
+The agent itself is light. Idle baseline (no model loaded) is dominated by the inference runtime and the database.
 
-| Composant | RAM au repos | RAM en charge | CPU |
+| Component | Idle RAM | Loaded RAM | CPU |
 |---|---|---|---|
-| Core Rust `threatclaw-core` | 174 MB | 400-600 MB | 1-2 threads |
-| Dashboard Next.js | 55 MB | 100-200 MB | moins de 1 thread |
-| PostgreSQL + pgvector + AGE + Timescale | 215 MB | 500 MB à 1 GB | 1-2 threads |
-| ML engine Python | 130 MB | 400-800 MB pendant le retrain nocturne | 1-2 threads |
-| Fluent-bit syslog | 25 MB | 50-100 MB | moins de 1 thread |
-| Nginx reverse proxy | 12 MB | 30 MB | moins de 1 thread |
-| Ollama daemon vide | 500 MB | plus le modèle chargé | selon modèle |
-| Overhead Docker | ~500 MB | ~500 MB | - |
-| **Total hors LLM** | **~1.6 GB** | **~3 GB** | **4-6 threads** |
+| Core agent | 174 MB | 400-600 MB | 1-2 threads |
+| Dashboard | 55 MB | 100-200 MB | < 1 thread |
+| Database (with graph + vector + time-series extensions) | 215 MB | 500 MB - 1 GB | 1-2 threads |
+| ML engine | 130 MB | 400-800 MB during nightly retrain | 1-2 threads |
+| Log shipper | 25 MB | 50-100 MB | < 1 thread |
+| Reverse proxy | 12 MB | 30 MB | < 1 thread |
+| LLM runtime daemon (idle) | 500 MB | + the loaded model | depends on model |
+| Container overhead | ~500 MB | ~500 MB | - |
+| **Total without LLM** | **~1.6 GB** | **~3 GB** | **4-6 threads** |
 
-Un serveur 8 GB sans LLM local pourrait faire tourner toute la stack ThreatClaw. Le vrai consommateur, c'est Ollama et les modèles qu'il charge en mémoire.
+An 8 GB host without local LLM could in principle run the entire ThreatClaw stack. The real consumer is the inference runtime and whichever models it loads.
 
 ---
 
-## 2. Consommation RAM par modèle
+## 2. RAM consumption by LLM tier
 
-Mesures effectuées sur des GGUF quantifiés Q4_K_M avec une fenêtre de contexte de 8 K tokens.
+Memory budget per ThreatClaw LLM tier, with a ~8 K context window:
 
-| Modèle | RAM inference | RAM avec context plein | Rôle typique |
+| Tier | Role | RAM (loaded, light) | RAM (loaded, comfortable) |
 |---|---|---|---|
-| `gemma4:e4b` | 3 GB | 3.5 GB | L0 léger ou L1 léger |
-| `threatclaw-l1` (qwen3:8b) | 5.9 GB | 6.5 GB | L1 triage |
-| `qwen3:14b` | 9.3 GB | 10 GB | L0 intermédiaire |
-| `gemma4:26b` MoE | 10 GB | 11-12 GB | L0 confortable |
-| `mistral-small:24b` | 14 GB | 15.5 GB | L0 premium |
-| `threatclaw-l2` (Foundation-Sec Reasoning) | 8.5 GB | 9.5 GB | L2 forensic |
-| `threatclaw-l3` (Foundation-Sec Instruct) | 5 GB | 5.5 GB | L2.5 playbooks et rapports |
+| **L0 light** | conversational chatbot, low-RAM mode | ~3 GB | ~3.5 GB |
+| **L0 mid** | conversational chatbot, comfort mode | ~10 GB | ~12 GB |
+| **L0 premium** | conversational chatbot, premium mode | ~14 GB | ~15.5 GB |
+| **L1** | first-line triage, always resident | ~6 GB | ~6.5 GB |
+| **L2** | forensic reasoning, on-demand | ~8.5 GB | ~9.5 GB |
+| **L2.5** | playbooks and report generation, on-demand | ~5 GB | ~5.5 GB |
+| **L3** | cloud escalation, anonymized | n/a (remote) | n/a (remote) |
 
-**Le MoE change la donne** : `gemma4:26b` est un Mixture of Experts à 26 milliards de paramètres totaux mais seulement 3.8 milliards actifs par token. En pratique il se comporte comme un 4B en vitesse et comme un 24B en qualité, tout en occupant seulement 10 GB de RAM.
+L1 stays loaded; L2 and L2.5 are loaded only when an investigation or a report needs them. The four L0 modes are mutually exclusive — pick one.
 
 ---
 
-## 3. Vitesse d'inférence par CPU
+## 3. Inference speed by CPU
 
-Tests effectués avec un prompt SOC français "Résume en 2 phrases : un attaquant a brute-forcé SSH sur 192.168.1.50 depuis 185.220.101.42. Quelle sévérité MITRE ?"
+Reference test: a short SOC summarization prompt in French, generation rate measured in tokens per second.
 
-| Modèle | Ryzen 9 7940HS (16 threads, 2023) | Xeon E3-1245 v5 (8 threads, 2015) |
+| Tier | Modern AMD laptop (8c/16t, 2023) | Mid-2010s Intel server (4c/8t, 2015) |
 |---|---|---|
-| `gemma4:e4b` | 16.6 tok/s | ~6 tok/s |
-| `gemma4:26b` MoE | **18.3 tok/s** | 7.2 tok/s |
-| `qwen3:14b` | 6.4 tok/s | ~3 tok/s |
-| `mistral-small:24b` | 4.0 tok/s | ~2 tok/s |
+| L0 light | 16-17 tok/s | ~6 tok/s |
+| L0 mid | 18 tok/s | ~7 tok/s |
+| L0 premium | 4 tok/s | ~2 tok/s |
 
-Le facteur 2.5× entre un CPU de 2015 et un CPU de 2023 est colossal. C'est la différence entre "chatbot utilisable" (15+ tok/s, le RSSI attend 3 secondes) et "chatbot frustrant" (6 tok/s, le RSSI attend 15-30 secondes et finit par ne plus l'utiliser).
+The 2.5× factor between an old Xeon and a recent Zen 4 is the difference between "usable chatbot" (15+ tok/s, the analyst waits ~3 s) and "frustrating chatbot" (6 tok/s, the analyst waits 15-30 s and stops using it).
 
-**Pour un chatbot conversationnel, viser 12 tok/s minimum en génération.** En dessous, passer en cloud L0.
+**For the conversational experience, target 12 tok/s in generation, minimum.** Below that, switch to cloud L0.
 
 ---
 
-## 4. Les quatre profils de déploiement
+## 4. The four deployment profiles
 
-### Profil 1 — Cloud L0 — pour TPE, budget serré, POC
+### Profile 1 — Cloud L0 — small offices, tight budget, POC
 
-Le plus petit setup viable. Le LLM conversationnel (L0) est hébergé chez Claude Haiku ou Mistral Small via API. Les données sensibles sont anonymisées avant envoi. La forensique reste locale.
+Smallest viable setup. The conversational L0 runs on a hosted API; sensitive data is anonymized before any cloud call. Forensic analysis stays local.
 
-| | Minimum | Recommandé |
+| | Minimum | Recommended |
 |---|---|---|
-| CPU | 4 cœurs modernes, AVX2 obligatoire | 6 cœurs modernes |
+| CPU | 4 modern cores, AVX2 mandatory | 6 modern cores |
 | RAM | **16 GB** | **24 GB** |
-| Disque | 100 GB SSD | 200 GB SSD |
-| Modèles locaux | L1 triage uniquement (`threatclaw-l1`, 6 GB) | L1 + L2 reasoning à la demande (~15 GB peak) |
-| Coût cloud LLM | 5-15 € par mois (Claude Haiku / Mistral API) | 15-30 € par mois |
-| Expérience RSSI | Chatbot instantané (cloud), forensique locale OK | Tout rapide |
+| Disk | 100 GB SSD | 200 GB SSD |
+| Local models | L1 only (~6 GB) | L1 + L2 on demand (~15 GB peak) |
+| Cloud LLM cost | ~5-15 €/month | ~15-30 €/month |
+| Analyst experience | Instant chatbot (cloud), local forensics OK | Everything fast |
 
-**Cibles matérielles** : VPS Hetzner CX32 à CX42, OVH Advance-1, Scaleway DEV1-L, NAS Synology haut de gamme (DS1522+, DS923+), petit serveur dédié d'occasion.
+**Hardware fit**: small VPS plans, NAS-class servers, refurbished single-socket boxes.
 
 ---
 
-### Profil 2 — Full local léger — pour PME sous NIS2 stricte
+### Profile 2 — Light full-local — for SMBs under strict NIS2
 
-Tout en local, pas un octet qui sort. Pour les organisations avec des contraintes de souveraineté, les OIV, ou les clients qui veulent maîtriser totalement leur chaîne LLM.
+Everything on-prem, nothing leaves the network. For sovereignty constraints, OIVs, or clients who want to control the entire LLM chain.
 
-| | Minimum | Recommandé |
+| | Minimum | Recommended |
 |---|---|---|
-| CPU | **8 cœurs modernes AVX2** (Zen3+, Alder Lake+ minimum) | 8-12 cœurs Zen4 ou Raptor Lake |
-| RAM | **32 GB** | **32 GB** (confortable) |
-| Disque | 200 GB SSD NVMe | 500 GB SSD NVMe |
-| Modèles locaux | `gemma4:e4b` (L0) + `threatclaw-l1` + `threatclaw-l2` à la demande | Pareil + `threatclaw-l3` |
-| RAM peak | 3 + 6 + 9 = **18 GB de modèles** + 3 GB base = 21 GB | Idem |
-| Expérience RSSI | L0 rapide (10-15 tok/s), forensique L2 en ~30 s | Idem |
+| CPU | **8 modern cores**, AVX2 (Zen3+, Alder Lake+ minimum) | 8-12 cores Zen4 or Raptor Lake |
+| RAM | **32 GB** | **32 GB** comfortable |
+| Disk | 200 GB NVMe SSD | 500 GB NVMe SSD |
+| Local models | L0 light + L1 permanent + L2 on demand | + L2.5 |
+| Peak RAM | 3 + 6 + 9 = **18 GB models** + 3 GB base = 21 GB | Same |
+| Analyst experience | L0 fast (10-15 tok/s), L2 forensics in ~30 s | Same |
 
-**Cibles matérielles** : Dell PowerEdge R240/R340, HP ProLiant ML30/DL20 Gen10, Intel NUC 12/13 Pro, Synology RS/XS haut de gamme, Proxmox sur mini PC Ryzen 7.
+**Hardware fit**: small rack servers (Dell PowerEdge R-series, HPE ProLiant ML/DL), Intel NUC 12/13 Pro, mid-range Synology, mini-PC built around a Ryzen 7.
 
-**À éviter absolument** : tout Xeon antérieur à 2018. Un Xeon E5-2680 v4 ou équivalent plafonne à 4 tok/s sur un 24B, ce n'est pas une expérience viable pour un chatbot. Les seuls Xeon acceptables sont les Xeon Gold 6*** 3e gen ou plus récents (Ice Lake+).
+**Avoid**: Xeons older than 2018. A 2016-era E5-2680 v4 caps around 4 tok/s on a 24B model — not viable for conversational use. The only acceptable Xeons are Gold 6xxx 3rd-gen or newer.
 
 ---
 
-### Profil 3 — Full local confortable — sweet spot PME
+### Profile 3 — Comfort full-local — SMB sweet spot
 
-Le meilleur ratio confort / coût pour une PME qui veut tout local et fluide, sans se poser de questions.
+The best comfort/cost ratio for an SMB that wants everything local and fluid.
 
-| | Recommandé |
+| | Recommended |
 |---|---|
-| CPU | **Ryzen 9 5900X / 7900 / 9900** ou Intel i7-13700 / 14700 (8-16 cœurs Zen3+/Alder Lake+) |
+| CPU | **Ryzen 9 5900X / 7900 / 9900** or Intel i7-13700 / 14700 (8-16 cores Zen3+/Alder Lake+) |
 | RAM | **48 GB** |
-| Disque | 500 GB SSD NVMe (OS + modèles) + 2 TB HDD pour les logs |
-| Modèles locaux | `gemma4:26b` MoE (L0) + `threatclaw-l1` + L2 + L2.5 à la demande |
-| RAM peak | 10 + 6 + 9 = 25 GB + 4 GB base = **~29 GB** |
-| Expérience RSSI | L0 conversationnel 15-20 tok/s, forensique 10 tok/s, tout fluide |
+| Disk | 500 GB NVMe (OS + models) + 2 TB HDD for log retention |
+| Local models | L0 mid + L1 + L2 + L2.5 on demand |
+| Peak RAM | 10 + 6 + 9 = 25 GB + 4 GB base = **~29 GB** |
+| Analyst experience | L0 conversational 15-20 tok/s, forensics 10 tok/s, fluid throughout |
 
-**Cibles matérielles** : Dell PowerEdge R350/R360, HP ProLiant DL325/DL345, serveur dédié sur mesure Ryzen 9, station de travail convertie en serveur.
+**Hardware fit**: rack 1U/2U, custom-built Ryzen 9 dedicated server, workstation reused as a server.
 
 ---
 
-### Profil 4 — Enterprise / MSP — pour RSSI en cabinet ou grosse PME
+### Profile 4 — Enterprise / MSP — RSSI consultancies and large SMBs
 
-Pour les RSSI à temps partagé qui gèrent plusieurs clients, les MSP, ou les PME de 200+ postes avec un gros volume de logs.
+For shared-CISO consultancies that manage several clients, MSPs, or SMBs of 200+ endpoints with high log volume.
 
-| | Recommandé |
+| | Recommended |
 |---|---|
-| CPU | **Ryzen 9 9950X** ou **EPYC 9354** (16-32 cœurs Zen4/Zen5) |
+| CPU | **Ryzen 9 9950X** or **EPYC 9354** (16-32 cores Zen4/Zen5) |
 | RAM | **64-128 GB** |
-| Disque | 1 TB NVMe (OS + modèles ML) + 4 TB SSD (PostgreSQL logs) |
-| GPU optionnel | RTX 4060 Ti 16 GB ou RTX 5060 Ti 16 GB (×10 sur la vitesse L0/L1) |
-| Modèles locaux | `mistral-small:24b` (L0) + `threatclaw-l1` + L2 + L2.5 + tests de modèles concurrents |
-| RAM peak | 14 + 6 + 9 + 5 = 34 GB modèles + 8 GB buffer = **~42 GB** |
-| Expérience RSSI | Tout rapide même sans GPU. Avec GPU, imbattable |
+| Disk | 1 TB NVMe (OS + ML models) + 4 TB SSD (database) |
+| Optional GPU | Mid-range NVIDIA 16 GB (×10 speed-up on L0/L1) |
+| Local models | L0 premium + L1 + L2 + L2.5 + side-by-side model evaluation |
+| Peak RAM | 14 + 6 + 9 + 5 = 34 GB models + 8 GB buffer = **~42 GB** |
+| Analyst experience | Fast across the board even without GPU; with GPU, unbeatable |
 
-**Cibles matérielles** : baies Dell PowerEdge R750xs/R760xs, Supermicro 1U/2U Epyc, workstation ThreadRipper Pro, instances cloud GPU type g5.xlarge AWS.
+**Hardware fit**: rack-mount Dell PowerEdge or Supermicro, Threadripper Pro workstations, GPU-equipped cloud instances.
 
 ---
 
-## 5. Ce qui compte vraiment dans le CPU
+## 5. What actually matters in the CPU
 
-Pour l'inference LLM locale, l'ordre de priorité des caractéristiques CPU est contre-intuitif :
+For local LLM inference, the priority order is counter-intuitive:
 
-| Importance | Critère | Pourquoi |
+| Priority | Criterion | Why |
 |---|---|---|
-| **Critique** | Instructions AVX2 | Sans AVX2, Ollama tourne 5 à 10× plus lentement. C'est un hard requirement |
-| **Critique** | Année du CPU (2020+) | L'IPC (performance par cycle) a progressé de 80 % en 8 ans. Un 8 cœurs récent bat un 16 cœurs de 2016 |
-| **Important** | Bande passante mémoire | L'inference LLM est memory-bound, pas compute-bound. DDR5 bat DDR4, DDR4-3200 bat DDR4-2400 |
-| **Important** | Cœurs physiques (8 à 12) | Au-delà de 12 cœurs, les gains sont marginaux en single-user |
-| **Utile** | AVX-512 | +15 à 25 % sur les CPU qui l'ont (Zen4+, Sapphire Rapids, Ice Lake Server) |
-| **Bonus** | Plus de 16 cœurs | Utile seulement pour du multi-utilisateur ou du batch (plusieurs investigations simultanées) |
+| **Critical** | AVX2 instructions | Without AVX2, inference is 5-10× slower. Hard requirement. |
+| **Critical** | CPU year (2020+) | Per-cycle performance progressed ~80% in 8 years. A modern 8-core beats a 2016 16-core. |
+| **Important** | Memory bandwidth | Inference is memory-bound, not compute-bound. DDR5 > DDR4-3200 > DDR4-2400. |
+| **Important** | Physical cores (8-12) | Above 12 cores, single-user gains are marginal. |
+| **Useful** | AVX-512 | +15-25% on CPUs that support it. |
+| **Bonus** | More than 16 cores | Only useful for batch / multi-user workloads. |
 
-### Le piège Xeon ancien
+### The old-Xeon trap
 
-Un serveur d'occasion à 500 € avec un bi-Xeon E5-2680 v4 (14 cœurs × 2 = 28 cœurs, 128 GB RAM) **semble** idéal sur le papier. En réalité, son IPC est si bas qu'il fait à peine mieux qu'un Ryzen 5 5600 (6 cœurs, 2020) pour l'inference LLM. Pour un client qui veut "juste un serveur pas cher", ce type de machine peut sembler tentant mais l'expérience utilisateur sera mauvaise.
+A 500 € used dual-Xeon E5-2680 v4 server (28 cores total, 128 GB RAM) **looks** ideal on paper. In reality its IPC is so low it barely matches a 2020 Ryzen 5 5600 for inference. For a client looking for "just a cheap server", this kind of machine is tempting but the user experience will be poor.
 
-**Test simple avant achat** : lancer `ollama run gemma4:26b --verbose 'bonjour'` sur la machine cible. Si on n'obtient pas au moins 10 tok/s en génération, il faut soit changer de machine, soit passer en mode cloud L0.
-
----
-
-## 6. Recommandations mémoire RAM
-
-L'inference LLM est **extrêmement sensible à la bande passante mémoire**, plus qu'au compute. Un modèle de 10 GB lit l'équivalent de son poids en RAM à chaque token généré. Donc :
-
-- DDR4-3200 minimum, DDR4-2666 acceptable, DDR4-2133 à éviter
-- DDR5 apporte typiquement 30-50 % de tok/s en plus vs DDR4 équivalent
-- ECC est recommandé en production mais pas obligatoire
-- Ne pas sous-peupler les canaux (dual-channel minimum, quad-channel sur EPYC/Xeon Scalable)
-
-**Règle** : si on a le choix entre 32 GB DDR4-3200 et 64 GB DDR4-2133, **prendre le 32 GB DDR4-3200**. La vitesse compte plus que la capacité pour nos modèles Q4 qui tiennent tous en moins de 32 GB.
+**Pre-purchase test**: run a representative L0 generation locally and check tok/s. Below 10 tok/s on a comfortable L0, change machine or switch to cloud-L0 mode.
 
 ---
 
-## 7. Disque — pourquoi SSD NVMe
+## 6. RAM recommendations
 
-Le disque n'est critique que sur trois scénarios :
+Inference is **extremely sensitive to memory bandwidth**, more than to compute. A loaded model reads its full weight from RAM at every generated token. Therefore:
 
-1. **Chargement initial du modèle** (première requête après boot ou après déchargement). Un NVMe charge un modèle 10 GB en ~5 secondes, un SSD SATA en ~30 secondes, un HDD en ~3 minutes.
-2. **Téléchargement des modèles Ollama** au premier démarrage (via `entrypoint.sh`). 15-20 GB à télécharger puis à écrire.
-3. **Stockage PostgreSQL des logs et sigma alerts**. Sur une PME moyenne, compter 50-200 MB par jour de logs bruts.
+- DDR4-3200 minimum, DDR4-2666 acceptable, DDR4-2133 to avoid
+- DDR5 typically buys 30-50% extra tok/s vs equivalent DDR4
+- ECC recommended in production but not mandatory
+- Don't under-populate channels (dual-channel minimum, quad-channel on EPYC / Xeon Scalable)
 
-**Recommandation** : SSD NVMe pour OS + modèles Ollama. HDD acceptable pour la partition logs PostgreSQL si le volume est important et le budget serré, mais SSD reste préférable.
+**Rule**: between 32 GB DDR4-3200 and 64 GB DDR4-2133, take the **32 GB DDR4-3200**. Speed beats capacity for our quantized models, all of which fit under 32 GB.
 
 ---
 
-## 8. Contexte cloud — le cas des VPS et serveurs loués
+## 7. Disk — why NVMe SSD
 
-| Fournisseur | Offre | CPU | RAM | Profil adapté |
+Disk only matters in three scenarios:
+
+1. **Initial model load** (first request after boot). NVMe loads a 10 GB model in ~5 s, SATA SSD in ~30 s, HDD in ~3 min.
+2. **First-boot model download** (15-20 GB download then write).
+3. **Database storage** for logs and alerts. A typical SMB stores 50-200 MB raw logs per day.
+
+**Recommendation**: NVMe SSD for OS + models. HDD acceptable for the database log partition if budget is tight, but SSD is preferable.
+
+---
+
+## 8. Cloud and rented servers
+
+| Provider | Plan example | CPU | RAM | Profile fit |
 |---|---|---|---|---|
-| **Hetzner** | CX32 | 4 vCPU Intel Xeon | 16 GB | Profil 1 (Cloud L0) |
-| **Hetzner** | CX42 | 8 vCPU | 32 GB | Profil 2 |
-| **Hetzner** | CCX33 (dédié) | 8 vCPU AMD Epyc | 32 GB | Profil 2-3 |
-| **OVH** | Advance-1 | Ryzen 5 Pro 3600 | 32 GB | Profil 2 |
-| **OVH** | Rise-LE-1 | Ryzen 7 | 64 GB | Profil 3 |
-| **Scaleway** | DEV1-L | 4 vCPU | 8 GB | POC seulement |
-| **Scaleway** | PRO2-M | 8 vCPU | 32 GB | Profil 2 |
+| Hetzner | CX32 | 4 vCPU Intel | 16 GB | Profile 1 (Cloud L0) |
+| Hetzner | CX42 | 8 vCPU | 32 GB | Profile 2 |
+| Hetzner | CCX33 (dedicated) | 8 vCPU AMD EPYC | 32 GB | Profile 2-3 |
+| OVH | Advance-1 | Ryzen 5 Pro 3600 | 32 GB | Profile 2 |
+| OVH | Rise-LE-1 | Ryzen 7 | 64 GB | Profile 3 |
+| Scaleway | DEV1-L | 4 vCPU | 8 GB | POC only |
+| Scaleway | PRO2-M | 8 vCPU | 32 GB | Profile 2 |
 
-Les VPS mutualisés avec vCPU partagés sont généralement **décevants** pour l'inference LLM (jitter, throttling). Préférer des instances dédiées ou bare metal dès qu'on dépasse le POC.
-
----
-
-## 9. Le cas air-gap et NIS2 strict
-
-Pour les clients qui ne peuvent **rien** envoyer en cloud (OIV, défense, santé CSPN, administrations) :
-
-- Le mode **Profil 2 full local** est obligatoire
-- Budget serveur à prévoir : 2000-4000 € pour un Dell R340 Ryzen d'occasion récent ou un NUC 13 Pro avec 32 GB
-- Prévoir le **bundle offline** téléchargé une fois par mois sur une machine avec internet puis transféré via USB (`scripts/download-offline-bundle.sh`)
-- L'escalade L3 cloud est désactivée, toute l'analyse reste sur les modèles locaux L1/L2/L2.5
-
-L'expérience conversationnelle sera **moins fluide** qu'en mode cloud (on ne peut pas faire mieux que ~15 tok/s sur un Ryzen 9 moderne), mais la forensique reste très bonne grâce à Foundation-Sec en local.
+Shared-vCPU VPS instances are typically **disappointing** for inference (jitter, throttling). Prefer dedicated instances or bare metal as soon as you go past POC.
 
 ---
 
-## 10. Calcul de la RAM — formule rapide
+## 9. Air-gap and strict NIS2
+
+For clients who cannot send **any** data to the cloud (OIV, defense, regulated healthcare, public administration):
+
+- Profile 2 full-local is mandatory
+- Server budget: 2000-4000 € for a Ryzen-based dedicated server or a NUC 13 Pro with 32 GB
+- Use the offline bundle workflow (downloaded once a month on an internet-connected machine, transferred via USB)
+- Cloud L3 escalation is disabled; everything stays on local L1/L2/L2.5
+
+The conversational experience will be **less fluid** than cloud L0 (you cannot exceed ~15 tok/s on a modern Ryzen 9), but forensics remain strong on local L2.
+
+---
+
+## 10. RAM — quick formula
 
 ```
-RAM requise = 3 GB (base stack)
-            + RAM modèle L0 permanent
-            + RAM modèle L1 permanent (threatclaw-l1 = 6 GB)
-            + max(RAM L2, RAM L2.5) (l'un ou l'autre à la demande, jamais les deux)
-            + 2 GB de buffer kernel et cache
+RAM = 3 GB (base stack)
+    + RAM of permanent L0 (or 0 if cloud L0)
+    + RAM of permanent L1 (~6 GB)
+    + max(RAM L2, RAM L2.5) — only one loaded at a time
+    + 2 GB kernel + cache buffer
 ```
 
-Exemples concrets :
+Concrete examples:
+- Profile 1 (cloud L0): 3 + 0 + 6 + 9 + 2 = **20 GB** → spec for 24 GB
+- Profile 2 (L0 light): 3 + 3 + 6 + 9 + 2 = **23 GB** → spec for 32 GB
+- Profile 3 (L0 mid): 3 + 10 + 6 + 9 + 2 = **30 GB** → spec for 48 GB
+- Profile 4 (L0 premium): 3 + 14 + 6 + 9 + 2 = **34 GB** → spec for 64 GB
 
-- Profil 1 (cloud L0) : 3 + 0 + 6 + 9 + 2 = **20 GB** → prendre 24 GB
-- Profil 2 (gemma4:e4b L0) : 3 + 3 + 6 + 9 + 2 = **23 GB** → prendre 32 GB
-- Profil 3 (gemma4:26b L0) : 3 + 10 + 6 + 9 + 2 = **30 GB** → prendre 48 GB
-- Profil 4 (mistral 24b L0) : 3 + 14 + 6 + 9 + 2 = **34 GB** → prendre 64 GB
-
-Le buffer kernel et cache de 2 GB est conservateur — Docker peut consommer plus selon le nombre de connecteurs actifs (Wazuh, Zeek, ML retrain, etc.). Toujours prévoir de la marge.
-
----
-
-## 11. Installation sur une machine sous-dimensionnée
-
-Si le client a déjà une machine qui ne correspond à aucun profil (ex : vieux Xeon, 16 GB, disque SATA), voici l'ordre des compromis à proposer :
-
-1. **Activer le mode cloud L0** dans Config > IA. Le chatbot devient instantané quel que soit le CPU.
-2. **Choisir `gemma4:e4b`** au lieu de `threatclaw-l1` pour le L1. 3 GB au lieu de 6 GB, ~3× plus rapide.
-3. **Désactiver L2.5 (Instruct)** dans la config. Économie : 5 GB RAM. Les playbooks seront générés par L2 ou pas du tout.
-4. **Désactiver le ML engine** dans `docker-compose.yml`. Économie : 400-800 MB de RAM. Les détections Sigma et Intelligence Engine continuent de fonctionner, seul le scoring ML disparaît.
-5. **Réduire la cadence de l'IE** de 5 min à 15 min dans les settings. Moins de charge CPU moyenne.
-6. **Dernier recours** : passer `threatclaw-l1` en cloud aussi. Tout ThreatClaw devient "thin client" et le serveur n'a plus qu'à faire tourner la stack de base.
-
-Un serveur 8 GB sans aucun modèle local et tout en cloud tient sur **~4 GB utilisés**. Le coût cloud mensuel reste inférieur à 30 € dans 95 % des cas PME.
+The 2 GB buffer is conservative. Active connectors (SIEM, network, ML retrain) can grow it. Always plan margin.
 
 ---
 
-## 12. Résumé pour l'avant-vente
+## 11. Running on under-spec'd hardware
 
-Questions à poser au client pour choisir le profil :
+If the client already has a machine that fits no profile (e.g. old Xeon, 16 GB, SATA SSD), here is the order of compromises to propose:
 
-1. **Quel est votre CPU serveur et son année ?** → élimine les Profils 2-4 si CPU pré-2018
-2. **Combien de RAM est disponible ou budgetable ?** → détermine le profil direct
-3. **Avez-vous des contraintes de souveraineté des données (NIS2 stricte, OIV, santé) ?** → force Profil 2 minimum, bloque le cloud L0
-4. **Combien de postes à surveiller ?** → affine le volume de logs donc le disque
-5. **Le RSSI consultera-t-il le chatbot plusieurs fois par jour ?** → si oui, besoin d'un chatbot rapide (cloud L0 ou profil 3+)
+1. **Switch to cloud L0** in `Settings → AI`. The chatbot becomes instant regardless of CPU.
+2. **Use the L0 light variant** instead of the regular L1 (3 GB instead of 6 GB, ~3× faster).
+3. **Disable L2.5** in config. Saves 5 GB RAM. Playbooks fall back to L2 or are skipped.
+4. **Disable the ML engine** in `docker-compose.yml`. Saves 400-800 MB. Sigma + Intelligence Engine still work; only ML scoring stops.
+5. **Lower the Intelligence Engine cadence** from 5 min to 15 min in the settings. Cuts average CPU load.
+6. **Last resort**: route L1 to cloud as well. ThreatClaw becomes a "thin client" and the host only runs the base stack.
 
-La réponse à ces 5 questions donne le profil recommandé en 30 secondes.
+A pure thin-client setup (everything in cloud) holds in **~4 GB used**. Monthly cloud cost stays under 30 € in 95% of SMB cases.
 
 ---
 
-## Annexe — Mesures brutes
+## 12. Pre-sales checklist
 
-Pour information, voici les deux machines de référence utilisées pour les mesures :
+Five questions to score the right profile in 30 seconds:
 
-**DEV** : laptop AMD Ryzen 9 7940HS (8 cœurs / 16 threads, Zen 4, AVX-512), 30 GB DDR5-4800, SSD NVMe. Représentatif d'un bon Profil 3 en 2026.
+1. **What CPU and what year is the target server?** → eliminates Profiles 2-4 if pre-2018.
+2. **How much RAM is available or budgeted?** → maps directly to a profile.
+3. **Are there sovereignty constraints (strict NIS2, OIV, healthcare)?** → forces Profile 2 minimum, blocks cloud L0.
+4. **How many endpoints to monitor?** → drives the log volume, hence the disk.
+5. **Will the analyst use the chatbot multiple times a day?** → if yes, you need a fast chatbot (cloud L0 or Profile 3+).
 
-**CASE** : serveur Intel Xeon E3-1245 v5 (4 cœurs / 8 threads, Skylake, AVX2 mais pas AVX-512, 2015), 32 GB DDR4-2133, SSD SATA. Représentatif d'un serveur d'occasion "pas cher" typique — en dessous du seuil acceptable pour le chatbot conversationnel, mais acceptable pour la partie batch (L1, L2 on-demand).
+---
 
-Les mesures datent d'avril 2026 avec Ollama 0.20.4 et les modèles GGUF Q4_K_M standard du registry Ollama.
+## Reference machines
+
+The numbers above were measured on:
+
+- **DEV** — modern AMD laptop (8 cores / 16 threads, Zen 4, AVX-512), 30 GB DDR5-4800, NVMe SSD. Representative of a good Profile 3 build in 2026.
+- **CASE** — 2015-era Intel server (4 cores / 8 threads, AVX2 only), 32 GB DDR4-2133, SATA SSD. Representative of a "cheap used server" — below the threshold for conversational use, but acceptable for the batch path (L1, L2 on demand).

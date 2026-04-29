@@ -56,14 +56,14 @@ Open an issue using the [Feature Request template](.github/ISSUE_TEMPLATE/featur
 ### Submit a Skill
 
 See the [Skill Development Guide](docs/SKILL_DEVELOPMENT_GUIDE.md).
-Skills go in `skills-community/` and must include a `skill.json` manifest.
+Community skills go in `community-skills/` and must include a `skill.json` manifest.
 
 ## What We Accept
 
 - Bug fixes with tests
 - New enrichment sources (in `src/enrichment/`)
 - New investigation graphs (in `src/graph/`)
-- Community skills (in `skills-community/`)
+- Community skills (in `community-skills/`)
 - Documentation improvements
 - Dashboard components and pages
 - Translations (FR/EN)
@@ -117,7 +117,7 @@ All contributors with merged PRs are listed in:
 - https://threatclaw.io/contributors — public website listing
 
 Active contributors (3+ merged PRs) receive:
-- ThreatClaw Pro license (free)
+- A complimentary ThreatClaw paid-tier subscription for personal or lab use, sized to their needs (contact us)
 - "Core Contributor" badge on GitHub
 - Direct influence on roadmap priorities
 

@@ -113,34 +113,33 @@ we will not initiate legal action ourselves.
 
 ThreatClaw follows a **Zero Trust Agent** design with defense-in-depth:
 
-- **Immutable agent identity** — Soul manifest compile-time verified
-- **Command allowlisting** — strict validation before any remediation
-- **WASM sandboxed skill execution** — deny-by-default capabilities
+- **Immutable agent identity** — tamper detection on the agent binary itself
+- **Strict allowlist** before any remediation action reaches the network
+- **Sandboxed skill execution** — deny-by-default capabilities, no host filesystem
 - **ClawVault** — encrypted credential storage at rest
-- **Multi-trigger kill switch**
+- **Kill switch** — automatic hard stop on integrity failure
 - **OWASP ASI Top 10 (2026)** mitigations tracked per release
 
 ### ClawShield — Remediation Security (HITL)
 
-All remediation actions require Human-in-the-Loop approval. Five
-independent protection layers:
+All remediation actions are Human-in-the-Loop. ClawShield is a multi-layer
+guard that sits between the agent's reasoning and any change made to a
+client's infrastructure: rule-level constraints, target validation,
+anti-replay protection, and identity-based approver verification.
 
-1. **Immutable rules** — compile-time verified constraints
-2. **Boot-locked configuration** — protected infrastructure list
-3. **Compiled validation** — action allowlist, target validation,
-   input escaping, rate limiting
-4. **Cryptographic nonces** — anti-replay and anti-parameter-swap
-5. **Approver verification** — identity-based authorization
-   (numeric IDs, not spoofable usernames)
+Implementation details (which primitives, how many layers, exact ordering)
+are not published here on purpose. They are documented internally and are
+covered by the responsible-disclosure scope below — please report any
+suspected bypass.
 
 ### Infrastructure
 
-- PostgreSQL TLS enforced (`sslmode=require`)
-- Docker secrets for credential management
-- Docker socket proxy (filtered API access)
-- 5 isolated Docker networks
-- Inter-service authentication via bearer tokens
-- Webhook HMAC authentication with constant-time comparison
+- Encrypted database connections by default
+- Container secrets management (no plain-text credentials on disk)
+- Filtered Docker API surface (no raw socket exposure)
+- Network isolation between agent, dashboard, ML, database and ingest tiers
+- Inter-service authentication on every call
+- Webhook authentication with constant-time validation
 
 ---
 
