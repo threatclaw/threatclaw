@@ -2989,9 +2989,9 @@ impl ThreatClawStore for PgBackend {
         Ok(rows
             .iter()
             .map(|r| {
-                let id: i32 = r.get(0);
+                let id: i64 = r.get(0);
                 crate::agent::incident_dossier::DossierAlert {
-                    id: id as i64,
+                    id,
                     rule_name: r.get(1),
                     level: r.get(2),
                     matched_fields: serde_json::Value::Null,
