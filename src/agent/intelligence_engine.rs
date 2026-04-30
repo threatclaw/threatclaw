@@ -618,7 +618,6 @@ async fn build_dossier_from_situation(
         created_at: chrono::Utc::now(),
         primary_asset: worst_asset.asset.clone(),
         findings: asset_findings,
-        sigma_alerts: vec![],
         enrichment: EnrichmentBundle {
             ip_reputations: vec![],
             cve_details: vec![],
@@ -634,11 +633,25 @@ async fn build_dossier_from_situation(
             campaign_id: None,
         },
         graph_intel: situation.graph_intel.clone(),
-        ml_scores: MlBundle {
-            anomaly_score: 0.5, // Neutral default — will be enriched by ML if available
-            dga_domains: vec![],
-            behavioral_cluster: None,
+        ml_scores: {
+            // Bug 1 fix: read the actual ML anomaly score for this asset from the DB
+            // instead of the hardcoded 0.5 that was making Rules A and B dead letters.
+            let ml_map = store.get_all_ml_scores().await.unwrap_or_default();
+            MlBundle {
+                anomaly_score: ml_map
+                    .get(&worst_asset.asset)
+                    .map(|(s, _)| *s)
+                    .unwrap_or(0.5),
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            }
         },
+        // Bug 2 fix: populate sigma_alerts from the last 24 h for this asset so
+        // the reconciler's sigma_critical_count is non-zero when it should be.
+        sigma_alerts: store
+            .recent_sigma_alerts_for_asset(&worst_asset.asset, 24)
+            .await
+            .unwrap_or_default(),
         asset_score: worst_asset.score,
         global_score: situation.global_score,
         notification_level: situation.notification_level,
@@ -710,6 +723,11 @@ async fn fetch_asset_graph_context(
     // (G2) qui peuple `attack_paths_predicted`. Le but ici est juste de
     // confirmer que l'asset existe en graph (asset_in_graph = true)
     // pour les prédicats CEL côté graphs YAML.
+    // Apache AGE doesn't support variable-length union-of-types patterns like
+    // `[:R1|R2*1..3]`, so lateral_paths cannot be computed via Cypher.
+    // Bug 3 fix: read the count from attack_paths_predicted (populated by the
+    // nightly G2 batch) instead of hardcoding 0, which was making Rule F fire
+    // on every confirmed verdict for graphed assets regardless of actual exposure.
     let cypher = format!(
         "MATCH (a:Asset) \
          WHERE a.hostname = '{esc}' OR a.name = '{esc}' OR a.id = '{esc}' \
@@ -717,7 +735,6 @@ async fn fetch_asset_graph_context(
          OPTIONAL MATCH (u:User)-[l:LOGGED_IN]->(a) \
          WHERE l.timestamp > '{since}' \
          RETURN a.criticality AS criticality, \
-                0 AS lateral_paths, \
                 collect(DISTINCT c.cve_id) AS cves, \
                 collect(DISTINCT u.username) AS users \
          LIMIT 1",
@@ -726,16 +743,17 @@ async fn fetch_asset_graph_context(
     );
     let rows = store.execute_cypher(&cypher).await.ok()?;
     let row = rows.first()?;
+    let lateral_paths = store
+        .count_attack_paths_for_asset(asset)
+        .await
+        .unwrap_or(0);
     Some(crate::agent::incident_dossier::GraphAssetContext {
         criticality: row
             .get("criticality")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string(),
-        lateral_paths: row
-            .get("lateral_paths")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32,
+        lateral_paths,
         linked_cves: row
             .get("cves")
             .and_then(|v| v.as_array())
@@ -1626,7 +1644,9 @@ pub async fn reinvestigate_incident(
         asset
     );
     let l2_raw = tokio::time::timeout(
-        std::time::Duration::from_secs(900),
+        std::time::Duration::from_secs(
+            crate::agent::investigation::llm_call_timeout_secs_pub(),
+        ),
         crate::agent::react_runner::call_ollama_with_schema(
             &l2_base_url,
             &llm_config.forensic.model,
@@ -1635,7 +1655,12 @@ pub async fn reinvestigate_incident(
         ),
     )
     .await
-    .map_err(|_| "L2 timeout (900s)".to_string())?
+    .map_err(|_| {
+        format!(
+            "L2 timeout ({}s)",
+            crate::agent::investigation::llm_call_timeout_secs_pub()
+        )
+    })?
     .map_err(|e| format!("L2 call failed: {e}"))?;
 
     let l2_clean = clean_l2_output(&l2_raw);
@@ -2933,7 +2958,9 @@ pub fn spawn_intelligence_ticker(
                                             llm_config.forensic.base_url.clone()
                                         };
                                     match tokio::time::timeout(
-                                        std::time::Duration::from_secs(900),
+                                        std::time::Duration::from_secs(
+                                            crate::agent::investigation::llm_call_timeout_secs_pub(),
+                                        ),
                                         crate::agent::react_runner::call_ollama_with_schema(
                                             &l2_base_url,
                                             &llm_config.forensic.model,

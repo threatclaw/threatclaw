@@ -832,4 +832,92 @@ mod tests {
             "rule_d_validation_errors"
         );
     }
+
+    // ── Regression tests — fix/pipeline-reconciler-v2 (bugs 1/2/3) ──
+
+    // Bug 1 regression: Rule A must fire when ml_anomaly_score is actually low
+    // (before the fix, anomaly_score was always 0.5 so the < 0.3 condition never triggered).
+    #[test]
+    fn test_rule_a_fires_when_ml_score_correctly_wired() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let mut s = signals_weak();
+        s.ml_anomaly_score = 0.2; // realistic low-anomaly ML output
+        s.global_score = 20.0;
+        s.sigma_critical_count = 0;
+        let m = rule_a_confirmed_but_weak(&llm, &s)
+            .expect("Rule A must fire: ml=0.2 < 0.3, global=20 < 30, sigma_critical=0");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.reason_code, "rule_a_confirmed_but_weak");
+    }
+
+    // Bug 2 regression: SignalsSnapshot must count critical sigma alerts from
+    // dossier.sigma_alerts (before the fix that field was always vec![] so
+    // sigma_critical_count was always 0, making Rule B impossible to trigger).
+    #[test]
+    fn test_signals_snapshot_counts_sigma_critical_from_dossier_alerts() {
+        let mut dossier = empty_dossier();
+        dossier.sigma_alerts = vec![
+            DossierAlert {
+                id: 1,
+                rule_name: "Malicious PowerShell Execution".into(),
+                level: "critical".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+            },
+            DossierAlert {
+                id: 2,
+                rule_name: "SSH Brute Force".into(),
+                level: "high".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+            },
+        ];
+        let report = ValidationReport::default();
+        let snap = SignalsSnapshot::from_context(&dossier, &report);
+        assert_eq!(snap.sigma_critical_count, 1, "critical sigma alert must be counted");
+        assert_eq!(snap.sigma_high_count, 1, "high sigma alert must be counted");
+    }
+
+    // Bug 2 regression: Rule B must fire when sigma_alerts are correctly populated.
+    #[test]
+    fn test_rule_b_fires_when_sigma_alerts_correctly_wired() {
+        let llm = snap("false_positive", "LOW", 0.9);
+        let mut s = signals_strong();
+        s.ml_anomaly_score = 0.9; // anomalous ML
+        s.sigma_critical_count = 1; // critical sigma alert present
+        let m = rule_b_false_positive_but_strong(&llm, &s)
+            .expect("Rule B must fire: ml=0.9 > 0.85, sigma_critical=1");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.reason_code, "rule_b_false_positive_but_strong");
+    }
+
+    // Bug 3 regression: Rule F must not fire when lateral_paths > 0
+    // (before the fix, lateral_paths was always 0 from the hardcoded Cypher query).
+    #[test]
+    fn test_rule_f_skips_when_lateral_paths_nonzero() {
+        let llm = snap("confirmed", "HIGH", 0.9);
+        let mut s = SignalsSnapshot {
+            global_score: 50.0,
+            ml_anomaly_score: 0.5,
+            sigma_critical_count: 0,
+            sigma_high_count: 1,
+            kev_cve_count: 0,
+            validation_error_count: 0,
+            validation_warning_count: 0,
+            graph_lateral_paths: 2, // real lateral paths from attack_paths_predicted
+            graph_linked_cves: 0,
+            graph_known: true,
+        };
+        assert!(
+            rule_f_confirmed_but_isolated_graph(&llm, &s).is_none(),
+            "Rule F must not fire when lateral_paths=2 (asset is not isolated)"
+        );
+
+        // Now set to 0 — Rule F should fire
+        s.graph_lateral_paths = 0;
+        assert!(
+            rule_f_confirmed_but_isolated_graph(&llm, &s).is_some(),
+            "Rule F must fire when lateral_paths=0 and no CVE and no sigma critical"
+        );
+    }
 }

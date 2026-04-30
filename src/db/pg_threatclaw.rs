@@ -2963,6 +2963,63 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
+    async fn recent_sigma_alerts_for_asset(
+        &self,
+        asset: &str,
+        hours: i64,
+    ) -> Result<Vec<crate::agent::incident_dossier::DossierAlert>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let since = chrono::Utc::now() - chrono::Duration::hours(hours);
+        let rows = conn
+            .query(
+                "SELECT id, COALESCE(title, rule_id, 'unknown'), level, matched_at \
+                 FROM sigma_alerts \
+                 WHERE hostname = $1 AND matched_at >= $2 \
+                 ORDER BY \
+                   CASE WHEN level = 'critical' THEN 0 \
+                        WHEN level = 'high'     THEN 1 \
+                        WHEN level = 'medium'   THEN 2 \
+                        ELSE 3 END, \
+                   matched_at DESC \
+                 LIMIT 20",
+                &[&asset, &since],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let id: i32 = r.get(0);
+                crate::agent::incident_dossier::DossierAlert {
+                    id: id as i64,
+                    rule_name: r.get(1),
+                    level: r.get(2),
+                    matched_fields: serde_json::Value::Null,
+                    created_at: r.get(3),
+                }
+            })
+            .collect())
+    }
+
+    async fn count_attack_paths_for_asset(&self, asset: &str) -> Result<u32, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_opt(
+                "WITH last_run AS ( \
+                    SELECT run_id FROM attack_paths_predicted \
+                    ORDER BY computed_at DESC LIMIT 1 \
+                 ) \
+                 SELECT COUNT(*)::bigint \
+                 FROM attack_paths_predicted \
+                 WHERE run_id = (SELECT run_id FROM last_run) \
+                   AND (src_asset = $1 OR dst_asset = $1 OR $1 = ANY(path_assets))",
+                &[&asset],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(|r| r.get::<_, i64>(0) as u32).unwrap_or(0))
+    }
+
     async fn count_mitre_techniques(&self) -> Result<i64, DatabaseError> {
         // MITRE techniques are stored as settings rows under user_id='_mitre',
         // not in the legacy mitre_techniques table (which exists from migration

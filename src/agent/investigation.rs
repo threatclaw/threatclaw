@@ -35,12 +35,13 @@ impl Default for InvestigationConfig {
         // empirically-validated values (CPU-only Ollama on CASE). The
         // plan-spec'd "60 s per call / 180 s total" was the original
         // Phase B target but proved unworkable on CPU-only deployments;
-        // we expose it as TC_INVESTIGATION_TOTAL_TIMEOUT_SECS so an
-        // operator on a faster setup can opt in.
+        // Bug 4 fix: reduced from 1800 s (30 min) to 600 s (10 min).
+        // With SEMAPHORE=1, 1800 s meant at most 2 incidents/h; 600 s gives 6/h
+        // which is adequate for SMB workloads. Overridable via env for slow hardware.
         let total_secs: u64 = std::env::var("TC_INVESTIGATION_TOTAL_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(1800);
+            .unwrap_or(600);
         Self {
             max_iterations: 2,
             timeout: Duration::from_secs(total_secs),
@@ -51,14 +52,20 @@ impl Default for InvestigationConfig {
     }
 }
 
-/// Per-LLM-call timeout (Sprint 6 #1). Env-overridable so an operator on
-/// a fast Ollama instance can tighten it; defaults to 1500 s — the
-/// CPU-only-Ollama safe value validated during Phase B.
+/// Per-LLM-call timeout. Bug 4 fix: reduced from 1500 s (25 min) to 180 s (3 min).
+/// A model that doesn't respond within 3 min on local Ollama is stuck; retrying
+/// makes the queue worse. Operators on very slow hardware can raise this via env.
 fn llm_call_timeout_secs() -> u64 {
+    llm_call_timeout_secs_pub()
+}
+
+/// Public re-export so intelligence_engine.rs can reuse the same value for its
+/// two hardcoded L2 timeout calls (previously hardcoded to 900 s).
+pub fn llm_call_timeout_secs_pub() -> u64 {
     std::env::var("TC_INVESTIGATION_LLM_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1500)
+        .unwrap_or(180)
 }
 
 // ── Registry (one investigation per asset) ──
