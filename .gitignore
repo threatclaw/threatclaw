@@ -88,6 +88,9 @@ docker/secrets/
 *.key
 !docker/generate-certs.sh
 
+# Git worktrees (local dev isolation)
+.worktrees/
+
 # PID files
 *.pid
 .next/
