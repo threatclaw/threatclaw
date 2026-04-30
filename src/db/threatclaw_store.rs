@@ -1328,6 +1328,20 @@ pub trait ThreatClawStore: Send + Sync {
         &self,
         filter: &GraphExecutionsFilter,
     ) -> Result<Vec<crate::agent::task_queue::GraphExecutionRecord>, DatabaseError>;
+
+    // ── Phase G4b — incident_ai_analyses (V69) ──
+
+    /// Insert a new AI analysis row. Returns the allocated id.
+    async fn insert_ai_analysis(
+        &self,
+        analysis: &NewAiAnalysis,
+    ) -> Result<i32, DatabaseError>;
+
+    /// All analyses for an incident, newest first.
+    async fn get_ai_analyses(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<AiAnalysis>, DatabaseError>;
 }
 
 /// Phase G4 — filtre côté list_graph_executions.
@@ -1352,4 +1366,34 @@ pub struct ChokePoint {
     pub weighted_score: f64,
     /// Top-3 des assets cibles (crown jewels) accessibles via ce choke point.
     pub top_targets: Vec<String>,
+}
+
+// ── Phase G4 — incident_ai_analyses (V69) ────────────────────────────────────
+
+/// A stored AI analysis for an incident (react_l1 / react_l2 / manual).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiAnalysis {
+    pub id: i32,
+    pub incident_id: i32,
+    /// "react_l1" | "react_l2" | "manual"
+    pub source: String,
+    pub confidence: Option<f32>,
+    pub summary: String,
+    pub skills_used: Vec<String>,
+    pub mitre_added: Vec<String>,
+    pub raw_output: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Parameters for inserting a new AI analysis row.
+#[derive(Debug, Clone)]
+pub struct NewAiAnalysis {
+    pub incident_id: i32,
+    /// "react_l1" | "react_l2" | "manual"
+    pub source: String,
+    pub confidence: Option<f32>,
+    pub summary: String,
+    pub skills_used: Vec<String>,
+    pub mitre_added: Vec<String>,
+    pub raw_output: Option<serde_json::Value>,
 }

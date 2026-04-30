@@ -554,4 +554,18 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<crate::agent::task_queue::GraphExecutionRecord>, DatabaseError> {
         Err(not_supported())
     }
+
+    async fn insert_ai_analysis(
+        &self,
+        _: &crate::db::threatclaw_store::NewAiAnalysis,
+    ) -> Result<i32, DatabaseError> {
+        Err(not_supported())
+    }
+
+    async fn get_ai_analyses(
+        &self,
+        _: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::AiAnalysis>, DatabaseError> {
+        Ok(vec![])
+    }
 }
