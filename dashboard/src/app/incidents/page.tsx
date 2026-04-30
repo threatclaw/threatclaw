@@ -826,8 +826,8 @@ function IncidentsTab({ locale }: { locale: string }) {
                           border: "1px solid rgba(74,158,255,0.35)", borderRadius: "var(--tc-radius-sm)",
                           display: "flex", alignItems: "center", gap: 6,
                         }}>
-                        <Zap size={12} />
-                        {locale === "fr" ? "Investiguer" : "Investigate"}
+                        <FileText size={12} />
+                        {locale === "fr" ? "Ouvrir le rapport" : "Open report"}
                       </button>
                       <button
                         onClick={() => setSuppressingIncident(inc)}
