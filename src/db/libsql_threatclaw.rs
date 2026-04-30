@@ -568,4 +568,16 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<crate::db::threatclaw_store::AiAnalysis>, DatabaseError> {
         Ok(vec![])
     }
+
+    async fn recent_sigma_alerts_for_asset(
+        &self,
+        _: &str,
+        _: i64,
+    ) -> Result<Vec<crate::agent::incident_dossier::DossierAlert>, DatabaseError> {
+        Err(not_supported())
+    }
+
+    async fn count_attack_paths_for_asset(&self, _: &str) -> Result<u32, DatabaseError> {
+        Ok(0)
+    }
 }

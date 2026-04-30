@@ -1197,6 +1197,22 @@ pub trait ThreatClawStore: Send + Sync {
     /// Returns the number of deleted rows.
     async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError>;
 
+    /// Recent sigma alerts for a specific asset (by hostname match). Returns alerts
+    /// from the last `hours` hours, most severe first, capped at 20 rows. Used to
+    /// populate `IncidentDossier.sigma_alerts` so the reconciler can compute
+    /// `sigma_critical_count` correctly (Bug 2 fix).
+    async fn recent_sigma_alerts_for_asset(
+        &self,
+        asset: &str,
+        hours: i64,
+    ) -> Result<Vec<crate::agent::incident_dossier::DossierAlert>, DatabaseError>;
+
+    /// Count attack paths involving `asset` (as src, dst, or intermediate hop)
+    /// from the latest batch run in `attack_paths_predicted`. Returns 0 if no
+    /// batch has run yet. Used instead of the hardcoded `0 AS lateral_paths`
+    /// in the Cypher query (Bug 3 fix).
+    async fn count_attack_paths_for_asset(&self, asset: &str) -> Result<u32, DatabaseError>;
+
     /// Phase G acceptance check — counts incidents created in the last
     /// `lookback_days` days that have an empty `proposed_actions.actions`
     /// array (or null). Returns `(total, missing)` so the caller can
