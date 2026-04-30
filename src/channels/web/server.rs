@@ -1504,6 +1504,23 @@ pub async fn start_server(
             "/api/tc/incidents/{id}",
             get(super::handlers::threatclaw_api::incident_detail_handler),
         )
+        // Investigation workspace (Phase G4)
+        .route(
+            "/api/tc/incidents/{id}/full",
+            get(super::handlers::threatclaw_api::incident_full_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/investigate",
+            post(super::handlers::threatclaw_api::incident_investigate_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/related",
+            get(super::handlers::threatclaw_api::incident_related_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/report/{report_type}",
+            post(super::handlers::threatclaw_api::incident_report_handler),
+        )
         .route(
             "/api/tc/incidents/{id}/hitl",
             post(super::handlers::threatclaw_api::incident_hitl_handler)
