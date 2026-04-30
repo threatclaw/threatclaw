@@ -8645,6 +8645,288 @@ pub async fn incident_detail_handler(
     }
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  Investigation Workspace — Phase G4
+// ═══════════════════════════════════════════════════════════════
+
+/// GET /api/tc/incidents/:id/full — aggregated investigation dossier.
+///
+/// Returns in a single call: incident base record, graph_executions linked to
+/// this incident, all AI analyses, IP enrichment (if external IP found),
+/// top-10 attack paths that involve the asset, and top-5 choke points.
+pub async fn incident_full_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // 1. Incident
+    let incident = store
+        .get_incident(id)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Incident not found".into()))?;
+
+    let asset = incident["asset"].as_str().unwrap_or("").to_string();
+
+    // 2. Graph executions for this incident
+    let graph_execs = store
+        .list_graph_executions(&crate::db::threatclaw_store::GraphExecutionsFilter {
+            limit: 10,
+            ..Default::default()
+        })
+        .await
+        .map_err(db_err)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.incident_id == Some(id))
+        .collect::<Vec<_>>();
+
+    // 3. AI analyses (newest first)
+    let ai_analyses = store
+        .get_ai_analyses(id)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
+    // 4. IP enrichment — async, best-effort, uses cache
+    let ip_enrichment: Option<serde_json::Value> = {
+        let external_ip = crate::agent::incident_investigator::extract_external_ip_from_incident(
+            &incident,
+        );
+        match external_ip {
+            Some(ip) => {
+                let result = crate::agent::incident_investigator::fetch_ip_enrichment(
+                    &ip,
+                    store,
+                )
+                .await;
+                serde_json::to_value(result).ok()
+            }
+            None => None,
+        }
+    };
+
+    // 5. Attack paths that involve this asset (src or on the path)
+    let attack_paths = store
+        .latest_attack_paths(20)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| {
+            p.src_asset == asset
+                || p.dst_asset == asset
+                || p.path_assets.contains(&asset)
+        })
+        .take(10)
+        .collect::<Vec<_>>();
+
+    // 6. Choke points
+    let choke_points = store
+        .latest_choke_points(5)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
+    Ok(Json(serde_json::json!({
+        "incident": incident,
+        "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
+        "ai_analyses": serde_json::to_value(&ai_analyses).unwrap_or(serde_json::json!([])),
+        "ip_enrichment": ip_enrichment,
+        "attack_paths": serde_json::to_value(&attack_paths).unwrap_or(serde_json::json!([])),
+        "choke_points": serde_json::to_value(&choke_points).unwrap_or(serde_json::json!([])),
+    })))
+}
+
+/// POST /api/tc/incidents/:id/investigate — trigger L1 analysis for a specific incident.
+///
+/// Unlike /reinvestigate (L2, modifies incident record), this:
+///   - Runs focused L1 triage using incident context + IP enrichment
+///   - Stores result in incident_ai_analyses (source = 'react_l1')
+///   - Does NOT modify the incidents record
+///   - Returns immediately; analysis runs in a background task
+pub async fn incident_investigate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    store
+        .get_incident(id)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Incident not found".into()))?;
+
+    let store_clone = store.clone();
+    tokio::spawn(async move {
+        match crate::agent::incident_investigator::run_l1_analysis(id, store_clone).await {
+            Ok(analysis_id) => tracing::info!(
+                "INVESTIGATE: incident #{id} — L1 analysis #{analysis_id} stored"
+            ),
+            Err(e) => tracing::warn!("INVESTIGATE: incident #{id} L1 failed — {e}"),
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "status": "started",
+        "eta_secs": 30,
+        "message": "L1 analysis en cours — résultat disponible dans ~30 secondes"
+    })))
+}
+
+/// GET /api/tc/incidents/:id/related — incidents sharing an IOC or MITRE technique.
+///
+/// Scans the last 30 days. At most 10 results. Two correlation signals:
+///   1. Same external IP in evidence_citations / investigation_log
+///   2. At least one common MITRE technique
+pub async fn incident_related_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i32>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let incident = store
+        .get_incident(id)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Incident not found".into()))?;
+
+    let external_ip =
+        crate::agent::incident_investigator::extract_external_ip_from_incident(&incident);
+    let mitre_techniques: Vec<String> = incident["mitre_techniques"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    // Fetch recent incidents (last 30 days, open+resolved)
+    let all = store
+        .list_incidents(None, 200, 0)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
+    let related: Vec<serde_json::Value> = all
+        .into_iter()
+        .filter(|inc| {
+            let inc_id = inc.get("id").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            if inc_id == id {
+                return false;
+            }
+            // Correlation 1: same external IP
+            if let Some(ref ip) = external_ip {
+                let inc_ip = crate::agent::incident_investigator::extract_external_ip_from_incident(inc);
+                if inc_ip.as_deref() == Some(ip.as_str()) {
+                    return true;
+                }
+            }
+            // Correlation 2: shared MITRE technique
+            if !mitre_techniques.is_empty() {
+                let inc_mitre: Vec<String> = inc["mitre_techniques"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                if inc_mitre.iter().any(|t| mitre_techniques.contains(t)) {
+                    return true;
+                }
+            }
+            false
+        })
+        .take(10)
+        .collect();
+
+    Ok(Json(serde_json::json!({ "related": related })))
+}
+
+/// POST /api/tc/incidents/:id/report/:type — generate a pre-filled IR report.
+///
+/// type: "ir" | "nis2" | "pdf" (pdf is IR format for now)
+/// Returns a structured JSON document ready for download or display.
+pub async fn incident_report_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path((id, report_type)): Path<(i32, String)>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let incident = store
+        .get_incident(id)
+        .await
+        .map_err(db_err)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "Incident not found".into()))?;
+
+    let ai_analyses = store
+        .get_ai_analyses(id)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
+    let recommendations = ai_analyses
+        .iter()
+        .find(|a| a.source == "react_l2")
+        .or_else(|| ai_analyses.iter().find(|a| a.source == "react_l1"))
+        .map(|a| a.summary.clone())
+        .unwrap_or_else(|| "No AI analysis available.".into());
+
+    // Merge MITRE from incident + all analyses
+    let mut mitre: Vec<String> = incident["mitre_techniques"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    for a in &ai_analyses {
+        for t in &a.mitre_added {
+            if !mitre.contains(t) {
+                mitre.push(t.clone());
+            }
+        }
+    }
+
+    let generated_at = chrono::Utc::now().to_rfc3339();
+
+    let report = match report_type.as_str() {
+        "nis2" => serde_json::json!({
+            "type": "NIS2 Article 20 — Notification d'incident",
+            "generated_at": generated_at,
+            "incident_id": id,
+            "notification_24h": {
+                "asset_impacted": incident["asset"],
+                "incident_type": incident["title"],
+                "severity": incident["severity"],
+                "detected_at": incident["created_at"],
+                "initial_description": incident["summary"],
+            },
+            "notification_72h": {
+                "full_summary": incident["summary"],
+                "mitre_techniques": mitre,
+                "verdict": incident["verdict"],
+                "verdict_source": incident["verdict_source"],
+                "initial_assessment": recommendations,
+            },
+            "status": incident["status"],
+        }),
+        _ => serde_json::json!({
+            "type": "Incident Response Report",
+            "generated_at": generated_at,
+            "incident_id": id,
+            "executive_summary": incident["summary"],
+            "asset_impacted": incident["asset"],
+            "severity": incident["severity"],
+            "timeline": {
+                "detected_at": incident["created_at"],
+                "status": incident["status"],
+                "resolved_at": incident["resolved_at"],
+            },
+            "mitre_techniques": mitre,
+            "verdict": incident["verdict"],
+            "verdict_source": incident["verdict_source"],
+            "confidence": incident["confidence"],
+            "ai_analyses_count": ai_analyses.len(),
+            "recommendations": recommendations,
+        }),
+    };
+
+    Ok(Json(report))
+}
+
 /// Inject fallback actions using a pre-built hostname→IP map. Zero DB calls
 /// per incident — everything the caller already loaded in a batch.
 fn enrich_incident_actions_batched(
