@@ -1,0 +1,93 @@
+spec_version: cacao-2.0
+name: enrich-user-context
+description: |
+  Enrichissement contexte utilisateur : evalue si un evenement lie a un
+  compte utilisateur (connexion, escalade, creation) est legitime ou
+  suspect en croisant le profil asset avec les signaux comportementaux.
+
+  Regles de routage :
+  - Compte systeme interne (uid < 1000 ou compte service connu) + action
+    habituelle dans la fenetre de travail → archive (comportement normal)
+  - Escalade de privileges sur compte service (not expected) → incident CRITICAL
+  - Connexion hors plage horaire sur compte admin → incident HIGH
+  - Autres cas → LLM pour analyse comportementale
+
+  Contexte CEL disponible : alert, asset, dossier, signals, graph
+    alert.username          : string
+    alert.action            : "login"|"privilege_escalation"|"account_create"
+    signals.is_service_acct : bool
+    signals.hour_of_day     : int (0-23, heure locale de l'asset)
+    signals.is_admin        : bool
+
+trigger:
+  sigma_rule: enrich-user-context-001
+steps:
+  start:
+    type: start
+    on_completion: check_privilege_escalation
+
+  check_privilege_escalation:
+    type: if-condition
+    condition: "alert.action == 'privilege_escalation' && signals.is_service_acct == true"
+    on_true: emit_critical_escalation
+    on_false: check_after_hours_admin
+
+  check_after_hours_admin:
+    type: if-condition
+    condition: "signals.is_admin == true && (signals.hour_of_day < 7 || signals.hour_of_day > 21)"
+    on_true: emit_high_after_hours
+    on_false: check_normal_service
+
+  check_normal_service:
+    type: if-condition
+    condition: "signals.is_service_acct == true && alert.action == 'login'"
+    on_true: archive_normal_service
+    on_false: route_llm
+
+  emit_critical_escalation:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: CRITICAL
+      proposed_actions:
+        - action: disable_account
+          label: "Desactiver le compte compromis"
+          hitl: true
+        - action: revoke_tokens
+          label: "Revoquer les tokens de session actifs"
+          hitl: true
+        - action: forensic_capture
+          label: "Capturer la memoire du processus d'escalade"
+          hitl: true
+    on_completion: terminal
+
+  emit_high_after_hours:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: HIGH
+      proposed_actions:
+        - action: verify_admin
+          label: "Contacter l'administrateur pour confirmer la connexion"
+          hitl: true
+        - action: force_mfa
+          label: "Forcer re-authentification MFA"
+          hitl: true
+    on_completion: terminal
+
+  archive_normal_service:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "connexion compte service — comportement attendu"
+    on_completion: terminal
+
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 900
+    on_completion: terminal
+
+  terminal:
+    type: end

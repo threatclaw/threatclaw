@@ -1,0 +1,91 @@
+spec_version: cacao-2.0
+name: enrich-asset-context
+description: |
+  Enrichissement contexte asset : evalue le risque d'un evenement en
+  fonction du profil de l'asset cible (criticite, exposition, historique).
+
+  Regles de routage :
+  - Asset de criticite CRITICAL avec CVE active connue → incident CRITICAL
+  - Asset expose sur Internet avec score >= 80 → incident HIGH
+  - Asset interne de faible criticite, score < 40 → archive (bruit)
+  - Sinon → LLM pour analyse contextuelle
+
+  Contexte CEL disponible : alert, asset, dossier, signals, graph
+    asset.criticality      : "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
+    asset.internet_exposed : bool
+    asset.score            : float (0-100, dernier score ML)
+    signals.has_active_cve : bool
+    graph.asset_in_graph   : bool
+
+trigger:
+  sigma_rule: enrich-asset-context-001
+steps:
+  start:
+    type: start
+    on_completion: check_critical_cve
+
+  check_critical_cve:
+    type: if-condition
+    condition: "asset.criticality == 'CRITICAL' && signals.has_active_cve == true"
+    on_true: emit_critical_cve
+    on_false: check_exposed_high_score
+
+  check_exposed_high_score:
+    type: if-condition
+    condition: "asset.internet_exposed == true && asset.score >= 80.0"
+    on_true: emit_high_exposed
+    on_false: check_low_risk
+
+  check_low_risk:
+    type: if-condition
+    condition: "asset.criticality == 'LOW' && asset.score < 40.0"
+    on_true: archive_low_risk
+    on_false: route_llm
+
+  emit_critical_cve:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: CRITICAL
+      proposed_actions:
+        - action: patch_asset
+          label: "Appliquer le correctif CVE immediatement"
+          hitl: true
+        - action: isolate_asset
+          label: "Isoler l'asset du reseau de production"
+          hitl: true
+        - action: vuln_scan
+          label: "Lancer un scan de vulnerabilite complet"
+          hitl: false
+    on_completion: terminal
+
+  emit_high_exposed:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: HIGH
+      proposed_actions:
+        - action: review_exposure
+          label: "Revoir les regles de filtrage Internet"
+          hitl: true
+        - action: enable_waf
+          label: "Activer le WAF ou renforcer le filtrage"
+          hitl: true
+    on_completion: terminal
+
+  archive_low_risk:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "asset faible criticite, score bas — bruit de fond"
+    on_completion: terminal
+
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 900
+    on_completion: terminal
+
+  terminal:
+    type: end

@@ -1,0 +1,82 @@
+spec_version: cacao-2.0
+name: enrich-ip-external
+description: |
+  Enrichissement IP externe : croise les donnees GreyNoise + Spamhaus
+  pre-chargees dans le contexte signals (cles greynoise / spamhaus) pour
+  prendre une decision deterministe avant de deleguer au LLM.
+
+  Regles de routage :
+  - IP classee "malicious" par GreyNoise → incident direct (HIGH)
+  - IP listee Spamhaus SBL/XBL + noise GreyNoise → archive (scanner bruit)
+  - IP RIOT (infrastructure tierce legitime) → archive (faux positif)
+  - Autres cas → deleguer au LLM pour contexte supplementaire
+
+  Contexte CEL disponible : alert, asset, dossier, signals, graph
+    signals.greynoise_classification : "malicious"|"benign"|"unknown"
+    signals.greynoise_noise           : bool
+    signals.greynoise_riot            : bool
+    signals.spamhaus_listed           : bool
+    signals.spamhaus_severity         : "HIGH"|"MEDIUM"|"LOW"|""
+
+trigger:
+  sigma_rule: enrich-ip-external-001
+steps:
+  start:
+    type: start
+    on_completion: check_riot
+
+  check_riot:
+    type: if-condition
+    condition: "signals.greynoise_riot == true"
+    on_true: archive_riot
+    on_false: check_malicious
+
+  check_malicious:
+    type: if-condition
+    condition: "signals.greynoise_classification == 'malicious'"
+    on_true: emit_incident_malicious
+    on_false: check_noise_spam
+
+  check_noise_spam:
+    type: if-condition
+    condition: "signals.greynoise_noise == true && signals.spamhaus_listed == true"
+    on_true: archive_scanner_noise
+    on_false: route_llm
+
+  archive_riot:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "IP RIOT — infrastructure tierce legitime (CDN/DNS/NTP)"
+    on_completion: terminal
+
+  archive_scanner_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "scanner Internet bruit — GreyNoise noise + Spamhaus SBL/XBL"
+    on_completion: terminal
+
+  emit_incident_malicious:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: HIGH
+      proposed_actions:
+        - action: block_ip
+          label: "Bloquer l'IP source sur le pare-feu"
+          hitl: true
+        - action: threat_intel_lookup
+          label: "Croiser avec MISP/VirusTotal"
+          hitl: false
+    on_completion: terminal
+
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 900
+    on_completion: terminal
+
+  terminal:
+    type: end
