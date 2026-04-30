@@ -1,0 +1,94 @@
+spec_version: cacao-2.0
+name: enrich-domain
+description: |
+  Enrichissement domaine : croise les signaux DNS/DGA et reputation pour
+  decider si un domaine contacte est malveillant, suspect ou legitime.
+
+  Regles de routage :
+  - Domaine avec score DGA >= 0.85 (probable DGA) → incident HIGH
+  - Domaine en liste noire OpenPhish/CISA-KEV → incident CRITICAL
+  - Domaine FQDN interne connu (suffix .local / .lan / .corp) → archive
+  - Sinon → LLM pour analyse contextuelle
+
+  Contexte CEL disponible : alert, asset, dossier, signals, graph
+    alert.domain            : string
+    signals.dga_score       : float (0.0-1.0, probabilite DGA)
+    signals.in_blocklist    : bool  (OpenPhish / CISA / MISP)
+    signals.blocklist_source: string
+    signals.is_internal_fqdn: bool
+
+trigger:
+  sigma_rule: enrich-domain-001
+steps:
+  start:
+    type: start
+    on_completion: check_blocklist
+
+  check_blocklist:
+    type: if-condition
+    condition: "signals.in_blocklist == true"
+    on_true: emit_critical_blocklist
+    on_false: check_dga
+
+  check_dga:
+    type: if-condition
+    condition: "signals.dga_score >= 0.85"
+    on_true: emit_high_dga
+    on_false: check_internal
+
+  check_internal:
+    type: if-condition
+    condition: "signals.is_internal_fqdn == true"
+    on_true: archive_internal
+    on_false: route_llm
+
+  emit_critical_blocklist:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: CRITICAL
+      proposed_actions:
+        - action: dns_block
+          label: "Bloquer la resolution DNS du domaine"
+          hitl: true
+        - action: isolate_host
+          label: "Isoler l'hote ayant contacte le domaine"
+          hitl: true
+        - action: ioc_export
+          label: "Exporter l'IoC vers MISP"
+          hitl: false
+    on_completion: terminal
+
+  emit_high_dga:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: HIGH
+      proposed_actions:
+        - action: dns_block
+          label: "Bloquer le domaine DGA suspect"
+          hitl: true
+        - action: check_c2
+          label: "Verifier si le domaine est un C2 connu"
+          hitl: false
+        - action: memory_scan
+          label: "Scanner la memoire de l'hote pour malware"
+          hitl: true
+    on_completion: terminal
+
+  archive_internal:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "FQDN interne connu — trafic DNS interne legitime"
+    on_completion: terminal
+
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 900
+    on_completion: terminal
+
+  terminal:
+    type: end
