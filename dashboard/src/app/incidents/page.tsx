@@ -1,6 +1,7 @@
 "use client";
 // Unified Incidents page — Incidents (confirmed) + Findings (vulns) + Alerts (sigma)
 import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
@@ -286,6 +287,7 @@ const verdictBadge: Record<string, { color: string; labelFr: string; labelEn: st
 };
 
 function IncidentsTab({ locale }: { locale: string }) {
+  const router = useRouter();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -812,6 +814,20 @@ function IncidentsTab({ locale }: { locale: string }) {
                         }}>
                         <Brain size={12} />
                         {locale === "fr" ? "Relancer l'investigation" : "Re-investigate"}
+                      </button>
+                      <button
+                        onClick={() => router.push(`/investigate/${inc.id}`)}
+                        title={locale === "fr"
+                          ? "Ouvre le dossier d'investigation complet : enrichissement IP, timeline IA, chemins d'attaque, rapports."
+                          : "Opens the full investigation dossier: IP enrichment, AI timeline, attack paths, reports."}
+                        style={{
+                          padding: "6px 14px", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                          background: "rgba(74,158,255,0.12)", color: "#4a9eff",
+                          border: "1px solid rgba(74,158,255,0.35)", borderRadius: "var(--tc-radius-sm)",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
+                        <Zap size={12} />
+                        {locale === "fr" ? "Investiguer" : "Investigate"}
                       </button>
                       <button
                         onClick={() => setSuppressingIncident(inc)}
