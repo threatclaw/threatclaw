@@ -874,7 +874,10 @@ mod tests {
         ];
         let report = ValidationReport::default();
         let snap = SignalsSnapshot::from_context(&dossier, &report);
-        assert_eq!(snap.sigma_critical_count, 1, "critical sigma alert must be counted");
+        assert_eq!(
+            snap.sigma_critical_count, 1,
+            "critical sigma alert must be counted"
+        );
         assert_eq!(snap.sigma_high_count, 1, "high sigma alert must be counted");
     }
 
