@@ -484,18 +484,47 @@ pub fn build_investigation_prompt(
         p.push('\n');
     }
 
-    // ── ML ──
+    // ── ML ── (translated to risk language — never expose algo names to the LLM)
     if dossier.ml_scores.anomaly_score > 0.3 {
-        p.push_str(&format!(
-            "### ML: anomaly_score = {:.2} (>0.7 = suspect)\n\n",
-            dossier.ml_scores.anomaly_score
-        ));
+        let ml_level = if dossier.ml_scores.anomaly_score >= 0.9 {
+            if lang == "en" {
+                "very high"
+            } else {
+                "très élevée"
+            }
+        } else if dossier.ml_scores.anomaly_score >= 0.7 {
+            if lang == "en" { "high" } else { "élevée" }
+        } else {
+            if lang == "en" {
+                "moderate"
+            } else {
+                "modérée"
+            }
+        };
+        if lang == "en" {
+            p.push_str(&format!(
+                "### BEHAVIOURAL SIGNAL\n\nUnusual activity detected on this asset — anomaly intensity: {}. This confirms behaviour deviating from the established baseline.\n\n",
+                ml_level
+            ));
+        } else {
+            p.push_str(&format!(
+                "### SIGNAL COMPORTEMENTAL\n\nActivité inhabituelle détectée sur cet asset — intensité de l'anomalie : {}. Cela confirme un comportement déviant de la baseline établie.\n\n",
+                ml_level
+            ));
+        }
     }
     if !dossier.ml_scores.dga_domains.is_empty() {
-        p.push_str(&format!(
-            "### ML: domaines DGA: {}\n\n",
-            dossier.ml_scores.dga_domains.join(", ")
-        ));
+        if lang == "en" {
+            p.push_str(&format!(
+                "### DGA DOMAINS (algorithmically generated, likely C2): {}\n\n",
+                dossier.ml_scores.dga_domains.join(", ")
+            ));
+        } else {
+            p.push_str(&format!(
+                "### DOMAINES DGA (générés algorithmiquement, probable C2) : {}\n\n",
+                dossier.ml_scores.dga_domains.join(", ")
+            ));
+        }
     }
 
     // ── Graph Intel ──
@@ -627,7 +656,12 @@ pub fn build_investigation_prompt(
     // section above.
     if lang == "en" {
         p.push_str(
-            "RULES on `proposed_actions`:\n\
+            "RULES on `analysis`:\n\
+             Write for a non-technical CISO. Describe WHO is attacking WHAT, HOW (attack vector), \
+             and the concrete risk. Do NOT mention algorithm names (Isolation Forest, DBSCAN), \
+             mathematical notation (σ, anomaly_score), or internal scoring. \
+             Translate all technical signals into business risk language.\n\n\
+             RULES on `proposed_actions`:\n\
              - if verdict=\"confirmed\", you MUST return between 1 and 3 actions, taken from the AVAILABLE ACTIONS catalog above.\n\
              - if verdict=\"false_positive\" or \"informational\", return [].\n\
              - if verdict=\"inconclusive\", return either [] or 1 enrichment skill action (skill-* or scan-*).\n\
@@ -638,7 +672,12 @@ pub fn build_investigation_prompt(
         );
     } else {
         p.push_str(
-            "RÈGLES sur `proposed_actions` :\n\
+            "RÈGLES sur le champ `analysis` :\n\
+             Rédige pour un RSSI non-technique. Décris QUI attaque QUOI, COMMENT (vecteur d'attaque), \
+             et quel est le risque concret. N'utilise PAS les noms d'algorithmes (Isolation Forest, DBSCAN), \
+             les notations mathématiques (σ, anomaly_score), ni les scores internes. \
+             Traduis tous les signaux techniques en langage de risque métier.\n\n\
+             RÈGLES sur `proposed_actions` :\n\
              - si verdict=\"confirmed\", tu DOIS retourner entre 1 et 3 actions, choisies dans le catalogue ACTIONS DISPONIBLES ci-dessus.\n\
              - si verdict=\"false_positive\" ou \"informational\", retourne [].\n\
              - si verdict=\"inconclusive\", retourne [] ou 1 action d'enrichissement (skill-* ou scan-*).\n\
