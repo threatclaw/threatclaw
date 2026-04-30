@@ -223,6 +223,25 @@ async fn persist_outcome(
             let inc_id =
                 create_incident_from_graph(store, ctx_payload, trace, severity, proposed_actions)
                     .await;
+
+            // Phase G4: post-graph conditional L1 trigger.
+            // HIGH/CRITICAL incidents get an automatic L1 analysis to enrich
+            // the investigation dossier before the RSSI opens the page.
+            if let Some(iid) = inc_id {
+                let sev_up = severity.to_uppercase();
+                if sev_up == "HIGH" || sev_up == "CRITICAL" {
+                    let store_l1 = store.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            crate::agent::incident_investigator::run_l1_analysis(iid, store_l1)
+                                .await
+                        {
+                            warn!("POST_GRAPH L1: incident #{iid} — {e}");
+                        }
+                    });
+                }
+            }
+
             (GraphExecutionStatus::Incident, None, inc_id)
         }
         ExecutionOutcome::Inconclusive => (GraphExecutionStatus::Inconclusive, None, None),
