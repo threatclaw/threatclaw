@@ -2542,12 +2542,16 @@ async fn check_open_incidents_for_l1(store: &Arc<dyn Database>) {
         };
         let store_l1 = store.clone();
         tokio::spawn(async move {
-            if let Err(e) = crate::agent::incident_investigator::run_l1_analysis(id, store_l1).await {
+            if let Err(e) = crate::agent::incident_investigator::run_l1_analysis(id, store_l1).await
+            {
                 tracing::debug!("L1 MONITOR: incident #{id} — {e}");
             }
         });
     }
-    tracing::debug!("L1 MONITOR: triggered analysis pass for {} open incident(s)", count);
+    tracing::debug!(
+        "L1 MONITOR: triggered analysis pass for {} open incident(s)",
+        count
+    );
 }
 
 /// Spawn the intelligence engine as a background ticker.

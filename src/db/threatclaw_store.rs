@@ -1332,16 +1332,10 @@ pub trait ThreatClawStore: Send + Sync {
     // ── Phase G4b — incident_ai_analyses (V69) ──
 
     /// Insert a new AI analysis row. Returns the allocated id.
-    async fn insert_ai_analysis(
-        &self,
-        analysis: &NewAiAnalysis,
-    ) -> Result<i32, DatabaseError>;
+    async fn insert_ai_analysis(&self, analysis: &NewAiAnalysis) -> Result<i32, DatabaseError>;
 
     /// All analyses for an incident, newest first.
-    async fn get_ai_analyses(
-        &self,
-        incident_id: i32,
-    ) -> Result<Vec<AiAnalysis>, DatabaseError>;
+    async fn get_ai_analyses(&self, incident_id: i32) -> Result<Vec<AiAnalysis>, DatabaseError>;
 }
 
 /// Phase G4 — filtre côté list_graph_executions.
