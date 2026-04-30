@@ -3652,6 +3652,69 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    // ── Phase G4b — incident_ai_analyses (V69) ──
+
+    async fn insert_ai_analysis(
+        &self,
+        analysis: &crate::db::threatclaw_store::NewAiAnalysis,
+    ) -> Result<i32, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO incident_ai_analyses \
+                 (incident_id, source, confidence, summary, skills_used, mitre_added, raw_output) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                &[
+                    &analysis.incident_id,
+                    &analysis.source,
+                    &analysis.confidence,
+                    &analysis.summary,
+                    &analysis.skills_used,
+                    &analysis.mitre_added,
+                    &analysis.raw_output,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get::<_, i32>("id"))
+    }
+
+    async fn get_ai_analyses(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::AiAnalysis>, DatabaseError> {
+        use crate::db::threatclaw_store::AiAnalysis;
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, source, confidence, summary, \
+                 skills_used, mitre_added, raw_output, created_at \
+                 FROM incident_ai_analyses \
+                 WHERE incident_id = $1 ORDER BY created_at DESC",
+                &[&incident_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| AiAnalysis {
+                id: r.get("id"),
+                incident_id: r.get("incident_id"),
+                source: r.get("source"),
+                confidence: r.get("confidence"),
+                summary: r.get("summary"),
+                skills_used: r
+                    .get::<_, Option<Vec<String>>>("skills_used")
+                    .unwrap_or_default(),
+                mitre_added: r
+                    .get::<_, Option<Vec<String>>>("mitre_added")
+                    .unwrap_or_default(),
+                raw_output: r.get("raw_output"),
+                created_at: r.get("created_at"),
+            })
+            .collect())
+    }
+
     async fn finalize_graph_execution(
         &self,
         id: i64,
