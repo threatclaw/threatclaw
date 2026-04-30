@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tracing::{info, warn};
 
 use crate::db::Database;
@@ -113,7 +113,9 @@ pub async fn fetch_ip_enrichment(ip: &str, store: &Arc<dyn Database>) -> IpEnric
 
     // Cache for 1 hour
     if let Ok(v) = serde_json::to_value(&result) {
-        let _ = store.set_enrichment_cache("investigation_ip", ip, &v, 1).await;
+        let _ = store
+            .set_enrichment_cache("investigation_ip", ip, &v, 1)
+            .await;
     }
 
     result
@@ -125,7 +127,10 @@ pub async fn fetch_ip_enrichment(ip: &str, store: &Arc<dyn Database>) -> IpEnric
 /// Checks evidence_citations first, then scans investigation_log text.
 pub fn extract_external_ip_from_incident(incident: &Value) -> Option<String> {
     // evidence_citations: [{ioc: "..."}, ...]
-    if let Some(citations) = incident.get("evidence_citations").and_then(|v| v.as_array()) {
+    if let Some(citations) = incident
+        .get("evidence_citations")
+        .and_then(|v| v.as_array())
+    {
         for c in citations {
             if let Some(ioc) = c.get("ioc").and_then(|v| v.as_str()) {
                 if is_external_ipv4(ioc) {
@@ -243,10 +248,7 @@ pub fn parse_confidence(v: &Value) -> f32 {
 /// 4. Store result in incident_ai_analyses (source = "react_l1")
 ///
 /// Returns the id of the inserted analysis row.
-pub async fn run_l1_analysis(
-    incident_id: i32,
-    store: Arc<dyn Database>,
-) -> Result<i32, String> {
+pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Result<i32, String> {
     // 1. Load incident
     let incident = store
         .get_incident(incident_id)
@@ -255,11 +257,12 @@ pub async fn run_l1_analysis(
         .ok_or("incident not found")?;
 
     // Dedup: skip if L1 ran in the last 5 minutes
-    let recent_analyses = store
-        .get_ai_analyses(incident_id)
-        .await
-        .unwrap_or_default();
-    if let Some(last) = recent_analyses.iter().filter(|a| a.source == "react_l1").max_by_key(|a| a.created_at) {
+    let recent_analyses = store.get_ai_analyses(incident_id).await.unwrap_or_default();
+    if let Some(last) = recent_analyses
+        .iter()
+        .filter(|a| a.source == "react_l1")
+        .max_by_key(|a| a.created_at)
+    {
         let age_secs = (chrono::Utc::now() - last.created_at).num_seconds();
         if age_secs < 300 {
             info!("L1_ANALYSIS: incident #{incident_id} — skipping, last L1 was {age_secs}s ago");

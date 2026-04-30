@@ -8691,16 +8691,12 @@ pub async fn incident_full_handler(
 
     // 4. IP enrichment — async, best-effort, uses cache
     let ip_enrichment: Option<serde_json::Value> = {
-        let external_ip = crate::agent::incident_investigator::extract_external_ip_from_incident(
-            &incident,
-        );
+        let external_ip =
+            crate::agent::incident_investigator::extract_external_ip_from_incident(&incident);
         match external_ip {
             Some(ip) => {
-                let result = crate::agent::incident_investigator::fetch_ip_enrichment(
-                    &ip,
-                    store,
-                )
-                .await;
+                let result =
+                    crate::agent::incident_investigator::fetch_ip_enrichment(&ip, store).await;
                 serde_json::to_value(result).ok()
             }
             None => None,
@@ -8714,11 +8710,7 @@ pub async fn incident_full_handler(
         .map_err(db_err)
         .unwrap_or_default()
         .into_iter()
-        .filter(|p| {
-            p.src_asset == asset
-                || p.dst_asset == asset
-                || p.path_assets.contains(&asset)
-        })
+        .filter(|p| p.src_asset == asset || p.dst_asset == asset || p.path_assets.contains(&asset))
         .take(10)
         .collect::<Vec<_>>();
 
@@ -8761,9 +8753,9 @@ pub async fn incident_investigate_handler(
     let store_clone = store.clone();
     tokio::spawn(async move {
         match crate::agent::incident_investigator::run_l1_analysis(id, store_clone).await {
-            Ok(analysis_id) => tracing::info!(
-                "INVESTIGATE: incident #{id} — L1 analysis #{analysis_id} stored"
-            ),
+            Ok(analysis_id) => {
+                tracing::info!("INVESTIGATE: incident #{id} — L1 analysis #{analysis_id} stored")
+            }
             Err(e) => tracing::warn!("INVESTIGATE: incident #{id} L1 failed — {e}"),
         }
     });
@@ -8796,7 +8788,11 @@ pub async fn incident_related_handler(
         crate::agent::incident_investigator::extract_external_ip_from_incident(&incident);
     let mitre_techniques: Vec<String> = incident["mitre_techniques"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     // Fetch recent incidents (last 30 days, open+resolved)
@@ -8815,7 +8811,8 @@ pub async fn incident_related_handler(
             }
             // Correlation 1: same external IP
             if let Some(ref ip) = external_ip {
-                let inc_ip = crate::agent::incident_investigator::extract_external_ip_from_incident(inc);
+                let inc_ip =
+                    crate::agent::incident_investigator::extract_external_ip_from_incident(inc);
                 if inc_ip.as_deref() == Some(ip.as_str()) {
                     return true;
                 }
@@ -8824,7 +8821,11 @@ pub async fn incident_related_handler(
             if !mitre_techniques.is_empty() {
                 let inc_mitre: Vec<String> = inc["mitre_techniques"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 if inc_mitre.iter().any(|t| mitre_techniques.contains(t)) {
                     return true;
@@ -8870,7 +8871,11 @@ pub async fn incident_report_handler(
     // Merge MITRE from incident + all analyses
     let mut mitre: Vec<String> = incident["mitre_techniques"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     for a in &ai_analyses {
         for t in &a.mitre_added {
