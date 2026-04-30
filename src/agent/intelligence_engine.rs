@@ -743,10 +743,7 @@ async fn fetch_asset_graph_context(
     );
     let rows = store.execute_cypher(&cypher).await.ok()?;
     let row = rows.first()?;
-    let lateral_paths = store
-        .count_attack_paths_for_asset(asset)
-        .await
-        .unwrap_or(0);
+    let lateral_paths = store.count_attack_paths_for_asset(asset).await.unwrap_or(0);
     Some(crate::agent::incident_dossier::GraphAssetContext {
         criticality: row
             .get("criticality")
@@ -1644,9 +1641,7 @@ pub async fn reinvestigate_incident(
         asset
     );
     let l2_raw = tokio::time::timeout(
-        std::time::Duration::from_secs(
-            crate::agent::investigation::llm_call_timeout_secs_pub(),
-        ),
+        std::time::Duration::from_secs(crate::agent::investigation::llm_call_timeout_secs_pub()),
         crate::agent::react_runner::call_ollama_with_schema(
             &l2_base_url,
             &llm_config.forensic.model,
@@ -2959,7 +2954,8 @@ pub fn spawn_intelligence_ticker(
                                         };
                                     match tokio::time::timeout(
                                         std::time::Duration::from_secs(
-                                            crate::agent::investigation::llm_call_timeout_secs_pub(),
+                                            crate::agent::investigation::llm_call_timeout_secs_pub(
+                                            ),
                                         ),
                                         crate::agent::react_runner::call_ollama_with_schema(
                                             &l2_base_url,
