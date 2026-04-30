@@ -312,7 +312,11 @@ pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Resu
             if desc.is_empty() {
                 findings_lines.push(format!("- [{}] {} ({})", f.severity, f.title, f.skill_id));
             } else {
-                let short = if desc.len() > 200 { &desc[..200] } else { &desc };
+                let short = if desc.len() > 200 {
+                    &desc[..200]
+                } else {
+                    &desc
+                };
                 findings_lines.push(format!(
                     "- [{}] {} ({}): {}",
                     f.severity, f.title, f.skill_id, short
@@ -554,7 +558,9 @@ mod tests {
             Some("207.90.244.21".into())
         );
         // Internal asset should NOT match
-        let internal = json!({"asset": "192.168.1.42", "evidence_citations": [], "investigation_log": []});
+        let internal =
+            json!({"asset": "192.168.1.42", "evidence_citations": [], "investigation_log": []});
+
         assert_eq!(extract_external_ip_from_incident(&internal), None);
     }
 }
