@@ -124,7 +124,7 @@ pub async fn fetch_ip_enrichment(ip: &str, store: &Arc<dyn Database>) -> IpEnric
 // ── IP extraction ─────────────────────────────────────────────────────────────
 
 /// Find the first plausible external (non-RFC1918) IPv4 in the incident JSON.
-/// Checks evidence_citations first, then scans investigation_log text.
+/// Priority: evidence_citations → asset field → investigation_log text scan.
 pub fn extract_external_ip_from_incident(incident: &Value) -> Option<String> {
     // evidence_citations: [{ioc: "..."}, ...]
     if let Some(citations) = incident
@@ -137,6 +137,12 @@ pub fn extract_external_ip_from_incident(incident: &Value) -> Option<String> {
                     return Some(ioc.to_string());
                 }
             }
+        }
+    }
+    // Asset field — covers incidents where the asset itself is an external IP
+    if let Some(asset) = incident.get("asset").and_then(|v| v.as_str()) {
+        if is_external_ipv4(asset) {
+            return Some(asset.to_string());
         }
     }
     // investigation_log: ["text...", ...] or [{content: "..."}, ...]
@@ -183,29 +189,38 @@ pub fn build_l1_prompt(
     severity: &str,
     mitre_techniques: &[String],
     enrichment_summary: &str,
+    findings_context: &str,
 ) -> String {
     let mitre_str = if mitre_techniques.is_empty() {
         "aucune technique identifiée".into()
     } else {
         mitre_techniques.join(", ")
     };
+    let findings_section = if findings_context.is_empty() {
+        String::new()
+    } else {
+        format!("Détails des signaux déclencheurs :\n{findings_context}\n\n")
+    };
     format!(
-        "Tu es un analyste SOC L1. Fournis une analyse rapide de cet incident.\n\n\
+        "Tu es un analyste SOC L1. Analyse cet incident en te basant sur les faits fournis.\n\n\
          Asset : {asset}\n\
          Incident : {title}\n\
          Severity : {severity}\n\
          Verdict graph : {graph_verdict}\n\
-         Techniques MITRE : {mitre_str}\n\
+         Techniques MITRE : {mitre_str}\n\n\
+         {findings_section}\
          Contexte enrichissement :\n{enrichment_summary}\n\n\
+         IMPORTANT : si l'enrichissement indique noise=true ou riot=true ou classification=benign,\n\
+         il s'agit probablement d'un scanner Internet légitime — verdic probable : false_positive.\n\n\
          Réponds en JSON avec EXACTEMENT ces clés :\n\
          {{\n\
-           \"summary\": \"2-3 phrases : ce qui s'est passé et pourquoi c'est réel/faux\",\n\
+           \"summary\": \"2-3 phrases : ce qui s'est passé et pourquoi c'est réel ou faux positif\",\n\
            \"confidence\": 0.85,\n\
-           \"verdict\": \"confirmed\",\n\
+           \"verdict\": \"confirmed|false_positive|inconclusive\",\n\
            \"skills_used\": [\"greynoise\"],\n\
-           \"mitre_added\": [\"T1110.001\"]\n\
+           \"mitre_added\": []\n\
          }}\n\
-         Sois factuel. Maximum 10 lignes."
+         Sois factuel. Base-toi sur les données fournies, pas sur le titre seul."
     )
 }
 
@@ -283,7 +298,31 @@ pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Resu
         })
         .unwrap_or_default();
 
-    // 2. Build enrichment summary
+    // 2. Load finding descriptions linked to this incident
+    let finding_ids: Vec<i64> = incident
+        .get("finding_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+        .unwrap_or_default();
+
+    let mut findings_lines: Vec<String> = Vec::new();
+    for fid in finding_ids.iter().take(5) {
+        if let Ok(Some(f)) = store.get_finding(*fid).await {
+            let desc = f.description.as_deref().unwrap_or("").trim().to_string();
+            if desc.is_empty() {
+                findings_lines.push(format!("- [{}] {} ({})", f.severity, f.title, f.skill_id));
+            } else {
+                let short = if desc.len() > 200 { &desc[..200] } else { &desc };
+                findings_lines.push(format!(
+                    "- [{}] {} ({}): {}",
+                    f.severity, f.title, f.skill_id, short
+                ));
+            }
+        }
+    }
+    let findings_context = findings_lines.join("\n");
+
+    // 3. Build enrichment summary
     let mut skills_used: Vec<String> = Vec::new();
     let mut enrichment_lines: Vec<String> = Vec::new();
 
@@ -299,8 +338,13 @@ pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Resu
         } else {
             "Clean".into()
         };
+        let gn_name = enrich
+            .greynoise_name
+            .as_deref()
+            .map(|n| format!(" [{n}]"))
+            .unwrap_or_default();
         enrichment_lines.push(format!(
-            "IP {ip} — GreyNoise: {} (noise={}, riot={}) | Spamhaus: {sp_str}",
+            "IP {ip}{gn_name} — GreyNoise: {} (noise={}, riot={}) | Spamhaus: {sp_str}",
             enrich.classification, enrich.noise, enrich.riot,
         ));
     }
@@ -321,6 +365,7 @@ pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Resu
         severity,
         &mitre_techniques,
         &enrichment_summary,
+        &findings_context,
     );
 
     info!("L1_ANALYSIS: incident #{incident_id} ({asset}) — calling L1 model");
@@ -445,6 +490,7 @@ mod tests {
             "HIGH",
             &["T1110".into(), "T1078".into()],
             "IP 119.147.84.53 — GreyNoise: malicious",
+            "- [HIGH] SSH brute force detected (skill-sigma): 5000 attempts in 10 minutes",
         );
         assert!(prompt.contains("srv-web-01"));
         assert!(prompt.contains("T1110"));
@@ -494,5 +540,21 @@ mod tests {
             extract_external_ip_from_incident(&incident),
             Some("8.8.8.8".into())
         );
+    }
+
+    #[test]
+    fn extract_external_ip_from_asset_field() {
+        let incident = json!({
+            "asset": "207.90.244.21",
+            "evidence_citations": [],
+            "investigation_log": []
+        });
+        assert_eq!(
+            extract_external_ip_from_incident(&incident),
+            Some("207.90.244.21".into())
+        );
+        // Internal asset should NOT match
+        let internal = json!({"asset": "192.168.1.42", "evidence_citations": [], "investigation_log": []});
+        assert_eq!(extract_external_ip_from_incident(&internal), None);
     }
 }
