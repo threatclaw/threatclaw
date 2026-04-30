@@ -1507,8 +1507,8 @@ function AlertsTab({ locale }: { locale: string }) {
               padding: "6px 14px", fontSize: 11, fontWeight: 600,
               border: `1px solid ${active ? color : "var(--tc-border)"}`,
               background: active ? `${color}15` : "var(--tc-surface-alt)",
-              color: active ? color : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase",
-              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+              color: active ? color : "var(--tc-text-muted)", cursor: "pointer",
+              fontFamily: "ui-monospace, 'JetBrains Mono', monospace", textTransform: "uppercase",
             }}>{level}</button>
           );
         })}
