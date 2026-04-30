@@ -2523,6 +2523,33 @@ fn build_asset_summary(asset: &AssetSituation) -> String {
     }
 }
 
+/// Every ~15 min: scan open incidents and trigger L1 analysis for any that
+/// haven't been analysed yet (or whose last analysis is stale). The dedup
+/// inside `run_l1_analysis` (5-min gate) prevents hammering the LLM.
+async fn check_open_incidents_for_l1(store: &Arc<dyn Database>) {
+    let incidents = match store.list_incidents(Some("open"), 50, 0).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("L1 MONITOR: list_incidents failed: {e}");
+            return;
+        }
+    };
+    let count = incidents.len();
+    for inc in incidents {
+        let id = match inc.get("id").and_then(|v| v.as_i64()) {
+            Some(v) => v as i32,
+            None => continue,
+        };
+        let store_l1 = store.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::agent::incident_investigator::run_l1_analysis(id, store_l1).await {
+                tracing::debug!("L1 MONITOR: incident #{id} — {e}");
+            }
+        });
+    }
+    tracing::debug!("L1 MONITOR: triggered analysis pass for {} open incident(s)", count);
+}
+
 /// Spawn the intelligence engine as a background ticker.
 pub fn spawn_intelligence_ticker(
     store: Arc<dyn Database>,
@@ -2564,12 +2591,16 @@ pub fn spawn_intelligence_ticker(
         let mut next_interval = interval;
         let mut last_misp_sync = chrono::Utc::now();
         let mut last_daily_sync = chrono::Utc::now();
+        // Phase G4: continuous investigation monitoring (every ~15 min = 3 × 5min cycles)
+        let mut last_investigation_check = chrono::Utc::now();
+        let mut cycle_count: u64 = 0;
 
         // Skip first tick to let boot complete
         tokio::time::sleep(interval).await;
 
         loop {
             let now = chrono::Utc::now();
+            cycle_count = cycle_count.wrapping_add(1);
 
             // 6-hour MISP sync (timestamp-based, works with any cycle interval)
             if (now - last_misp_sync).num_hours() >= 6 {
@@ -3253,6 +3284,13 @@ pub fn spawn_intelligence_ticker(
                         );
                     }
                 }
+            }
+
+            // Phase G4: every 15 min, scan open incidents for stale L1 coverage.
+            // Uses timestamp gate so the check is interval-independent.
+            if (now - last_investigation_check).num_seconds() >= 900 {
+                last_investigation_check = now;
+                check_open_incidents_for_l1(&store).await;
             }
 
             // See ADR-041: wait dynamic interval before next cycle
