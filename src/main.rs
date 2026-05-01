@@ -755,7 +755,7 @@ async fn async_main() -> anyhow::Result<()> {
         .as_ref()
         .map(|db| Arc::clone(db) as Arc<dyn threatclaw::db::SettingsStore>);
 
-    // Forensic enricher: background task for deep analysis on confirmed incidents.
+    // Forensic enricher: background task for deep analysis on confirmed incidents. See ADR-049.
     if let Some(ref enricher_db) = components.db {
         let enricher_db = Arc::clone(enricher_db) as Arc<dyn threatclaw::db::Database>;
         let enricher_db_for_config = Arc::clone(&enricher_db);

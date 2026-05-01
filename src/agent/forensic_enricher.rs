@@ -6,6 +6,8 @@
 //!
 //! One incident at a time (forensic model is resource-intensive). Idempotent:
 //! `forensic_enriched_at` stays NULL on crash, so the next pass retries cleanly.
+//!
+//! See ADR-049 (two-speed LLM pipeline — triage sync + forensic async).
 
 use std::sync::Arc;
 use std::time::Duration;
