@@ -37,6 +37,7 @@ pub mod firewall_detection;
 mod heartbeat;
 pub mod hitl_bridge;
 pub mod hitl_nonce;
+pub mod forensic_enricher;
 pub mod incident_dossier;
 pub mod incident_investigator;
 pub mod intelligence_engine;

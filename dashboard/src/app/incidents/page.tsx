@@ -191,9 +191,6 @@ function generateRecommendedActions(inc: Incident, locale: string): {
       kind: "fortinet_block_ip",
       description: fr ? `Bloquer ${asset} au firewall Fortinet` : `Block ${asset} at Fortinet firewall`,
     });
-    manual.push(fr
-      ? "Vérifier la réputation IP via les enrichissements (urlscan, greynoise, spamhaus)"
-      : "Check IP reputation via enrichments (urlscan, greynoise, spamhaus)");
   } else if (isHigh && isIp) {
     actions.push({
       kind: "velociraptor_isolate_host",
@@ -291,7 +288,6 @@ const verdictBadge: Record<string, { color: string; labelFr: string; labelEn: st
 function IncidentsTab({ locale }: { locale: string }) {
   const router = useRouter();
   const [incidents, setIncidents] = useState<Incident[]>([]);
-  const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -306,12 +302,11 @@ function IncidentsTab({ locale }: { locale: string }) {
 
   const load = useCallback(async () => {
     try {
-      const url = filter === "all" ? "/api/tc/incidents" : `/api/tc/incidents?status=${filter}`;
-      const res = await fetch(url);
+      const res = await fetch("/api/tc/incidents");
       if (res.ok) { const data = await res.json(); setIncidents(data.incidents || []); }
     } catch {}
     setLoading(false);
-  }, [filter]);
+  }, []);
 
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
 
@@ -322,15 +317,6 @@ function IncidentsTab({ locale }: { locale: string }) {
     });
     load();
   };
-
-  const filters = [
-    { key: "all", label: locale === "fr" ? "Tous" : "All" },
-    { key: "open", label: locale === "fr" ? "Ouverts" : "Open" },
-    { key: "investigating", label: locale === "fr" ? "En cours" : "Investigating" },
-    { key: "resolved", label: locale === "fr" ? "Resolus" : "Resolved" },
-    { key: "closed", label: locale === "fr" ? "Fermes" : "Closed" },
-    { key: "archived", label: locale === "fr" ? "Archives" : "Archived" },
-  ];
 
   const archiveResolved = async () => {
     const msg = locale === "fr"
@@ -434,13 +420,16 @@ function IncidentsTab({ locale }: { locale: string }) {
     }
   };
 
-  // Filter incidents by search
+  // Only confirmed active incidents on this page
+  const confirmedActive = incidents.filter(inc =>
+    inc.verdict === "confirmed" && inc.status !== "closed"
+  );
   const filteredIncidents = search
-    ? incidents.filter(inc =>
+    ? confirmedActive.filter(inc =>
         inc.title.toLowerCase().includes(search.toLowerCase()) ||
         inc.asset.toLowerCase().includes(search.toLowerCase())
       )
-    : incidents;
+    : confirmedActive;
 
   return (
     <div>
@@ -792,17 +781,8 @@ function IncidentsTab({ locale }: { locale: string }) {
         </div>
       )}
 
-      {/* Filter toolbar */}
+      {/* Toolbar */}
       <div className="inc-toolbar">
-        {filters.map(f => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`inc-filter-tab${filter === f.key ? " active" : ""}`}
-          >
-            {f.label}
-          </button>
-        ))}
         <div className="inc-toolbar-right">
           <div className="inc-search-wrap">
             <Search size={11} color="var(--tc-text-muted)" />
@@ -1572,8 +1552,8 @@ export default function IncidentsPage() {
       title={locale === "fr" ? "Incidents" : "Incidents"}
       subtitle={
         locale === "fr"
-          ? "Incidents confirmés par l'Intelligence Engine, à trier par le RSSI."
-          : "IE-confirmed incidents awaiting RSSI triage."
+          ? "Incidents confirmés — menaces avérées à traiter par le RSSI."
+          : "Confirmed incidents — verified threats awaiting RSSI action."
       }
     >
       <IncidentsTab locale={locale} />

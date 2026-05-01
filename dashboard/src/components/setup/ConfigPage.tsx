@@ -77,8 +77,8 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
 
   const [llm, setLlm] = useState({ backend: "ollama", url: "http://127.0.0.1:11434", model: "", apiKey: "", connected: false, testing: false, models: [] as string[] });
   const [conversational, setConversational] = useState({ source: "disabled" as "disabled" | "local" | "cloud", localModel: "gemma4:26b", cloudBackend: "anthropic", cloudModel: "", cloudApiKey: "", anonymize: true });
-  const [forensic, setForensic] = useState({ model: "threatclaw-l2", url: "" });
-  const [instruct, setInstruct] = useState({ model: "threatclaw-l3", url: "" });
+  const [forensic, setForensic] = useState({ model: "threatclaw-forensic", url: "" });
+  const [instruct, setInstruct] = useState({ model: "threatclaw-primary", url: "" });
   const [cloud, setCloud] = useState({ enabled: false, backend: "anthropic", model: "", apiKey: "", escalation: "anonymized" });
   const [shiftReport, setShiftReport] = useState({ enabled: false, interval_minutes: 240, notify_threshold: 20, daily_summary_hour: 8 });
   const [groundingMode, setGroundingMode] = useState<"off" | "lenient" | "strict">("strict");
@@ -914,15 +914,12 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       { value: "qwen3:8b", label: "Qwen3 8B", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
     l1: [
-      { value: "threatclaw-l1", label: "ThreatClaw AI 8B Triage", detail: tr("modelDescL1", locale), ram: 5.8 },
+      { value: "threatclaw-primary", label: "Foundation-Sec 8B Q4 (recommande)", detail: tr("modelDescL1", locale), ram: 4.9 },
       { value: "gemma4:e4b", label: "Gemma 4 E4B Triage", detail: tr("modelDescGemma4_e4b_l1", locale), ram: 3 },
       { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
     ],
     l2: [
-      { value: "threatclaw-l2", label: "ThreatClaw AI 8B Reasoning", detail: tr("modelDescL2", locale), ram: 8.5 },
-    ],
-    l3: [
-      { value: "threatclaw-l3", label: "ThreatClaw AI 8B Instruct", detail: tr("modelDescL3", locale), ram: 5.0 },
+      { value: "threatclaw-forensic", label: "Foundation-Sec 8B Reasoning Q8 (recommande)", detail: tr("modelDescL2", locale), ram: 8.5 },
     ],
   };
 
@@ -930,16 +927,14 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   const l0Ram = conversational.source === "local"
     ? (MODEL_CATALOG.l0.find(m => m.value === conversational.localModel)?.ram || 9.3)
     : 0;
-  const l1Ram = MODEL_CATALOG.l1.find(m => m.value === (llm.model || "threatclaw-l1"))?.ram || 5.8;
+  const l1Ram = MODEL_CATALOG.l1.find(m => m.value === (llm.model || "threatclaw-primary"))?.ram || 4.9;
   const l2Ram = MODEL_CATALOG.l2[0]?.ram || 8.5;
-  const l3Ram = MODEL_CATALOG.l3[0]?.ram || 5.0;
   const permanentRam = l0Ram + l1Ram;
-  const peakRam = permanentRam + Math.max(l2Ram, l3Ram);
+  const peakRam = permanentRam + l2Ram;
 
   const aiLevels = [
-    { id: "l1", level: "L1", name: "ThreatClaw AI 8B Triage", desc: "Pipeline auto — JSON structuré, classification, scoring", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-l1", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
-    { id: "l2", level: "L2", name: "ThreatClaw AI 8B Reasoning", desc: "Pipeline auto — Chain-of-thought, root cause, MITRE ATT&CK", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-l2", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
-    { id: "l3", level: "L3", name: "ThreatClaw AI 8B Instruct", desc: "Enrichit les HITL — Playbooks SOAR, rapports, Sigma rules", color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)", model: instruct.model, defaultModel: "threatclaw-l3", setModel: (v: string) => setInstruct(p => ({ ...p, model: v })) },
+    { id: "l1", level: "Auto", name: "Analyse automatique", desc: "Triage rapide (<60s) — verdict confirme / faux positif / inconclusif sur les cas ambigus", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-primary", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
+    { id: "l2", level: "Forensic", name: "Rapport forensique (async)", desc: "Analyse profonde post-confirmation — narrative RSSI, MITRE ATT&CK, citations de preuves", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-forensic", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
   ];
 
   return (
@@ -948,14 +943,13 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L0", label: "Ops", desc: tr("aiLevelL0Desc", locale), color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
-            { level: "L1", label: "Triage", desc: tr("aiLevelL1Desc", locale), color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "L2", label: "Reasoning", desc: tr("aiLevelL2Desc", locale), color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "L3", label: "Instruct", desc: tr("aiLevelL3Desc", locale), color: "var(--tc-green)", bg: "rgba(48,160,80,0.08)", border: "rgba(48,160,80,0.2)" },
-            { level: "L4", label: "Cloud", desc: tr("aiLevelL4Desc", locale), color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L0", label: "Conversation", desc: "Dialogue RSSI, tool calling (optionnel)", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
+            { level: "Auto", label: "Triage", desc: "Verdict rapide sur cas ambigus (<60s)", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "Forensic", label: "Rapport", desc: "Analyse profonde async post-confirmation", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "Cloud", label: "Escalade", desc: "Rapports NIS2, incidents critiques (optionnel)", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, minWidth: "80px", padding: "10px 8px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
-              <div style={{ fontSize: "16px", fontWeight: 800, color: l.color }}>{l.level}</div>
+              <div style={{ fontSize: "14px", fontWeight: 800, color: l.color }}>{l.level}</div>
               <div style={{ fontSize: "10px", fontWeight: 600, color: "var(--tc-text)", marginTop: "2px" }}>{l.label}</div>
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{l.desc}</div>
             </div>
@@ -973,13 +967,13 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         </div>
         <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)", overflow: "hidden", display: "flex" }}>
           {l0Ram > 0 && <div style={{ width: `${(l0Ram / 64) * 100}%`, background: "#d03020", transition: "width 0.3s" }} title={`L0: ${l0Ram} GB`} />}
-          <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`L1: ${l1Ram} GB`} />
-          <div style={{ width: `${(Math.max(l2Ram, l3Ram) / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`L2/L3: ${Math.max(l2Ram, l3Ram)} GB (on-demand)`} />
+          <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`Analyse auto: ${l1Ram} GB`} />
+          <div style={{ width: `${(l2Ram / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`Forensic: ${l2Ram} GB (async)`} />
         </div>
         <div style={{ display: "flex", gap: "12px", marginTop: "6px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
           {l0Ram > 0 && <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "#d03020", marginRight: "4px" }} />L0: {l0Ram}GB</span>}
-          <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />L1: {l1Ram}GB</span>
-          <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />L2/L3: {Math.max(l2Ram, l3Ram)}GB (swap)</span>
+          <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />Analyse: {l1Ram}GB</span>
+          <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />Forensic: {l2Ram}GB (async)</span>
         </div>
       </ChromeInsetCard>
 

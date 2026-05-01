@@ -855,6 +855,7 @@ export default function AssetsPage() {
   const [modalStep, setModalStep] = useState(0); // 0=pick category, 1=fill form
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [assetTab, setAssetTab] = useState("summary");
 
   // Form state
   const [form, setForm] = useState({
@@ -1205,7 +1206,7 @@ export default function AssetsPage() {
 
                   {/* Actions */}
                   <div style={{ display: "flex", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => setExpandedId(a.id)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
+                    <button onClick={() => { setAssetTab("summary"); setExpandedId(a.id); }} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
                     <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
                   </div>
@@ -1265,10 +1266,8 @@ export default function AssetsPage() {
                   { id: "security", label: "Sécurité" },
                   { id: "findings", label: "Findings" },
                 ];
-                const [activeTab, setActiveTab] = [
-                  (window as any).__assetTab || "summary",
-                  (t: string) => { (window as any).__assetTab = t; setExpandedId(a.id); }
-                ];
+                const activeTab = assetTab;
+                const setActiveTab = setAssetTab;
                 return (
                   <>
                     <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid var(--tc-border)", paddingBottom: "0" }}>

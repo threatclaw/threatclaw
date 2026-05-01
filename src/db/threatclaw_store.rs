@@ -1248,6 +1248,22 @@ pub trait ThreatClawStore: Send + Sync {
     /// Returns the number of rows archived.
     async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError>;
 
+    // ── Forensic enrichment (V70) ──
+
+    /// Return confirmed incidents not yet forensically enriched (forensic_enriched_at IS NULL).
+    /// Returns at most 1 row — the most recent — since Q8_0 takes all available RAM while running.
+    async fn list_confirmed_unenriched_incidents(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Stamp forensic_enriched_at = NOW() on an incident, and optionally update
+    /// summary / mitre_techniques / evidence_citations with the forensic analysis.
+    async fn mark_forensic_enriched(
+        &self,
+        id: i32,
+        summary: Option<&str>,
+        mitre_techniques: Option<&[String]>,
+        evidence_citations: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError>;
+
     /// Permanently delete archived incidents older than `days_old` days.
     /// Only targets rows with status='archived' — fresh open incidents are safe.
     async fn purge_old_archived(&self, days_old: i32) -> Result<(i64, i64), DatabaseError>;
