@@ -1252,7 +1252,9 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Return confirmed incidents not yet forensically enriched (forensic_enriched_at IS NULL).
     /// Returns at most 1 row — the most recent — since Q8_0 takes all available RAM while running.
-    async fn list_confirmed_unenriched_incidents(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn list_confirmed_unenriched_incidents(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     /// Stamp forensic_enriched_at = NOW() on an incident, and optionally update
     /// summary / mitre_techniques / evidence_citations with the forensic analysis.

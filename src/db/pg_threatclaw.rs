@@ -3072,7 +3072,9 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
-    async fn list_confirmed_unenriched_incidents(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_confirmed_unenriched_incidents(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
             .query(

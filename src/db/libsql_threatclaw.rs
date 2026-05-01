@@ -480,10 +480,18 @@ impl ThreatClawStore for LibSqlBackend {
     async fn add_incident_note(&self, _: i32, _: &str, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
-    async fn list_confirmed_unenriched_incidents(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_confirmed_unenriched_incidents(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
-    async fn mark_forensic_enriched(&self, _: i32, _: Option<&str>, _: Option<&[String]>, _: Option<&serde_json::Value>) -> Result<(), DatabaseError> {
+    async fn mark_forensic_enriched(
+        &self,
+        _: i32,
+        _: Option<&str>,
+        _: Option<&[String]>,
+        _: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
 

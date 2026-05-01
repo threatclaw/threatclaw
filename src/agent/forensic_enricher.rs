@@ -24,11 +24,11 @@ use crate::db::Database;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(180); // 3 minutes
 
-pub async fn run_forensic_enricher(
-    db: Arc<dyn Database>,
-    llm_config: LlmRouterConfig,
-) {
-    info!("Forensic enricher started — polling every {}s", POLL_INTERVAL.as_secs());
+pub async fn run_forensic_enricher(db: Arc<dyn Database>, llm_config: LlmRouterConfig) {
+    info!(
+        "Forensic enricher started — polling every {}s",
+        POLL_INTERVAL.as_secs()
+    );
     loop {
         tokio::time::sleep(POLL_INTERVAL).await;
         if let Err(e) = enrich_one(&db, &llm_config).await {
@@ -56,12 +56,25 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
     let existing_summary = inc["summary"].as_str().unwrap_or("").to_string();
     let mitre_existing: Vec<String> = inc["mitre_techniques"]
         .as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     info!("Forensic enricher: processing incident #{id} — {title}");
 
-    let prompt = build_forensic_prompt(&title, &asset, &severity, alert_count, &existing_summary, &mitre_existing, &inc["proposed_actions"], &inc["evidence_citations"]);
+    let prompt = build_forensic_prompt(
+        &title,
+        &asset,
+        &severity,
+        alert_count,
+        &existing_summary,
+        &mitre_existing,
+        &inc["proposed_actions"],
+        &inc["evidence_citations"],
+    );
 
     let result = tokio::time::timeout(
         Duration::from_secs(1200),
@@ -76,7 +89,9 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
 
     match result {
         Err(_) => {
-            warn!("Forensic enricher: timeout on incident #{id} — stamping as enriched without update to avoid retry loop");
+            warn!(
+                "Forensic enricher: timeout on incident #{id} — stamping as enriched without update to avoid retry loop"
+            );
             db.mark_forensic_enriched(id, None, None, None)
                 .await
                 .map_err(|e| format!("DB stamp failed: {e}"))?;
@@ -90,7 +105,11 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                 Ok(parsed) => {
                     let mitre: Vec<String> = parsed["mitre_techniques"]
                         .as_array()
-                        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
                         .unwrap_or_default();
                     let summary = parsed["analysis"].as_str().unwrap_or("").to_string();
                     let evidence_citations = parsed["evidence_citations"].clone();
@@ -200,8 +219,12 @@ fn parse_forensic_response(raw: &str) -> Result<Value, String> {
         trimmed
     };
 
-    let v: Value = serde_json::from_str(json_str)
-        .map_err(|e| format!("JSON parse error: {e} — raw: {}", &raw[..raw.len().min(200)]))?;
+    let v: Value = serde_json::from_str(json_str).map_err(|e| {
+        format!(
+            "JSON parse error: {e} — raw: {}",
+            &raw[..raw.len().min(200)]
+        )
+    })?;
 
     if v["analysis"].as_str().map(|s| s.len()).unwrap_or(0) < 10 {
         return Err("analysis field too short or missing".to_string());
