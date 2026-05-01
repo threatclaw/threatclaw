@@ -15,6 +15,7 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use chrono::Timelike;
 use serde_json::{Value, json};
 use tracing::{info, warn};
 
@@ -126,15 +127,17 @@ pub async fn try_enqueue_graph_for_dossier(
 }
 
 /// Trouve un sigma_rule représentatif du dossier. Stratégie :
-/// 1. Premier sigma_alert du dossier (par rule_name)
-/// 2. Sinon, premier finding qui a `metadata.sigma_rule` ou `metadata.rule_id`
-///    (les findings produits par le sigma_engine natif stockent l'identifiant
-///    de la règle sous la clé `rule_id`, alors que les findings repackagés
-///    par le hub utilisent `sigma_rule` — on supporte les deux).
-/// 3. Sinon `None` (le dossier vient d'ailleurs, pas de graph applicable)
+/// 1. Premier sigma_alert du dossier — utilise `rule_id` (identifiant machine,
+///    ex: "tc-ssh-brute") qui correspond au `trigger.sigma_rule` des graphs CACAO.
+///    NE PAS utiliser `rule_name` (= titre humain, ex: "SSH Brute Force") qui ne
+///    matche jamais les triggers.
+/// 2. Sinon, premier finding qui a `metadata.sigma_rule` ou `metadata.rule_id`.
+/// 3. Sinon `None` (pas de graph applicable, fallback ReAct).
 fn pick_dominant_sigma_rule(dossier: &IncidentDossier) -> Option<String> {
     if let Some(alert) = dossier.sigma_alerts.first() {
-        return Some(alert.rule_name.clone());
+        if !alert.rule_id.is_empty() {
+            return Some(alert.rule_id.clone());
+        }
     }
     dossier
         .findings
@@ -247,6 +250,9 @@ async fn build_ctx_from_dossier(store: &Arc<dyn Database>, dossier: &IncidentDos
             "recent_count_5m": recent_count_5m,
             "recent_count_1h": recent_count_1h,
             "corroborated": recent_count_1h >= 2,
+            "is_service_acct": compute_is_service_acct(dossier),
+            "is_admin": compute_is_admin(dossier),
+            "hour_of_day": chrono::Utc::now().hour() as i64,
         },
         "graph": {
             "asset_in_graph": asset_in_graph,
@@ -255,6 +261,68 @@ async fn build_ctx_from_dossier(store: &Arc<dyn Database>, dossier: &IncidentDos
             "recent_users_count": recent_users_count,
         },
     })
+}
+
+/// Détermine si l'alerte concerne un compte de service.
+/// Critères : suffixe `$` (Windows machine accounts), comptes système Linux connus,
+/// ou champ `matched_fields.service_account` explicitement vrai.
+fn compute_is_service_acct(dossier: &IncidentDossier) -> bool {
+    let username = dossier
+        .sigma_alerts
+        .first()
+        .and_then(|a| {
+            a.username
+                .as_deref()
+                .map(str::to_owned)
+                .or_else(|| a.matched_fields.get("username").and_then(Value::as_str).map(str::to_owned))
+        })
+        .unwrap_or_default();
+    if username.is_empty() {
+        return false;
+    }
+    // Windows machine account (DOMAIN$) or explicit service_account field
+    if username.ends_with('$') {
+        return true;
+    }
+    // Known Linux/Windows system accounts
+    matches!(
+        username.to_lowercase().as_str(),
+        "system"
+            | "localservice"
+            | "networkservice"
+            | "daemon"
+            | "www-data"
+            | "nobody"
+            | "sshd"
+            | "nginx"
+            | "apache"
+            | "mysql"
+            | "postgres"
+            | "redis"
+    )
+}
+
+/// Détermine si l'alerte concerne un compte administrateur.
+fn compute_is_admin(dossier: &IncidentDossier) -> bool {
+    let username = dossier
+        .sigma_alerts
+        .first()
+        .and_then(|a| {
+            a.username
+                .as_deref()
+                .map(str::to_owned)
+                .or_else(|| a.matched_fields.get("username").and_then(Value::as_str).map(str::to_owned))
+        })
+        .unwrap_or_default();
+    if username.is_empty() {
+        return false;
+    }
+    let lc = username.to_lowercase();
+    lc == "root"
+        || lc == "admin"
+        || lc == "administrator"
+        || lc.contains("_admin")
+        || lc.contains("admin_")
 }
 
 /// Convertit `criticality` string ("low" / "medium" / "high" / "critical" /
@@ -304,11 +372,118 @@ mod tests {
     fn pick_returns_first_non_null() {
         let a = json!({"x": null, "y": "from_a"});
         let b = json!({"x": "from_b"});
-        // null in `a` for `x` is skipped → falls through to `b`
         assert_eq!(pick(&[&a, &b], "x"), Some(json!("from_b")));
-        // first match wins for `y`
         assert_eq!(pick(&[&a, &b], "y"), Some(json!("from_a")));
-        // missing field returns None
         assert_eq!(pick(&[&a, &b], "z"), None);
+    }
+
+    #[test]
+    fn pick_dominant_sigma_rule_uses_rule_id_not_rule_name() {
+        use crate::agent::incident_dossier::*;
+        use crate::agent::intelligence_engine::NotificationLevel;
+        use chrono::Utc;
+        use uuid::Uuid;
+
+        let dossier = IncidentDossier {
+            id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            primary_asset: "srv-01".into(),
+            findings: vec![],
+            sigma_alerts: vec![DossierAlert {
+                id: 1,
+                rule_id: "tc-ssh-brute".into(),
+                rule_name: "SSH Brute Force".into(),
+                level: "high".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+                username: None,
+            }],
+            enrichment: EnrichmentBundle {
+                ip_reputations: vec![],
+                cve_details: vec![],
+                threat_intel: vec![],
+                enrichment_lines: vec![],
+            },
+            correlations: CorrelationBundle {
+                kill_chain_detected: false,
+                kill_chain_steps: vec![],
+                active_attack: false,
+                known_exploits: vec![],
+                related_assets: vec![],
+                campaign_id: None,
+            },
+            graph_intel: None,
+            ml_scores: MlBundle {
+                anomaly_score: 0.0,
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            },
+            asset_score: 0.0,
+            global_score: 0.0,
+            notification_level: NotificationLevel::Silence,
+            connected_skills: vec![],
+            graph_context: None,
+        };
+
+        let rule = pick_dominant_sigma_rule(&dossier);
+        assert_eq!(rule, Some("tc-ssh-brute".to_string()));
+        assert_ne!(rule, Some("SSH Brute Force".to_string()));
+    }
+
+    #[test]
+    fn compute_is_service_acct_detects_dollar_suffix() {
+        use crate::agent::incident_dossier::*;
+        use crate::agent::intelligence_engine::NotificationLevel;
+        use chrono::Utc;
+        use uuid::Uuid;
+
+        let make = |username: &str| IncidentDossier {
+            id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            primary_asset: "host".into(),
+            findings: vec![],
+            sigma_alerts: vec![DossierAlert {
+                id: 1,
+                rule_id: "r".into(),
+                rule_name: "r".into(),
+                level: "low".into(),
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+                username: Some(username.into()),
+            }],
+            enrichment: EnrichmentBundle {
+                ip_reputations: vec![],
+                cve_details: vec![],
+                threat_intel: vec![],
+                enrichment_lines: vec![],
+            },
+            correlations: CorrelationBundle {
+                kill_chain_detected: false,
+                kill_chain_steps: vec![],
+                active_attack: false,
+                known_exploits: vec![],
+                related_assets: vec![],
+                campaign_id: None,
+            },
+            graph_intel: None,
+            ml_scores: MlBundle {
+                anomaly_score: 0.0,
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            },
+            asset_score: 0.0,
+            global_score: 0.0,
+            notification_level: NotificationLevel::Silence,
+            connected_skills: vec![],
+            graph_context: None,
+        };
+
+        assert!(compute_is_service_acct(&make("DOMAIN$")));
+        assert!(compute_is_service_acct(&make("www-data")));
+        assert!(compute_is_service_acct(&make("postgres")));
+        assert!(!compute_is_service_acct(&make("alice")));
+        assert!(compute_is_admin(&make("root")));
+        assert!(compute_is_admin(&make("Administrator")));
+        assert!(!compute_is_admin(&make("alice")));
     }
 }

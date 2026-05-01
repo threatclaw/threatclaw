@@ -2754,10 +2754,12 @@ pub fn spawn_intelligence_ticker(
                                 // when neither is available — preserves
                                 // the always-bump behavior on legacy
                                 // dossiers without trigger metadata.
+                                // Use rule_id (machine identifier) for dedup key —
+                                // consistent with Investigation Graph trigger matching.
                                 let pattern_key: Option<String> = dossier
                                     .sigma_alerts
                                     .first()
-                                    .map(|a| a.rule_name.clone())
+                                    .map(|a| a.rule_id.clone())
                                     .or_else(|| {
                                         dossier.findings.first().and_then(|f| {
                                             f.metadata

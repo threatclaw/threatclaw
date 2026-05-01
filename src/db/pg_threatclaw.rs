@@ -2972,9 +2972,16 @@ impl ThreatClawStore for PgBackend {
         let since = chrono::Utc::now() - chrono::Duration::hours(hours);
         let rows = conn
             .query(
-                "SELECT id, COALESCE(title, rule_id, 'unknown'), level, matched_at \
+                // Select rule_id for Investigation Graph matching (CACAO trigger.sigma_rule),
+                // title as human-readable rule_name for prompts and logs,
+                // matched_fields + username for CEL signal computation.
+                // The WHERE clause covers both hostname-based and IP-based assets
+                // so that assets identified by source IP (e.g. "198.177.125.117")
+                // still get their sigma alerts loaded.
+                "SELECT id, rule_id, COALESCE(title, rule_id, 'unknown'), level, \
+                        matched_at, COALESCE(matched_fields, '{}'), username \
                  FROM sigma_alerts \
-                 WHERE hostname = $1 AND matched_at >= $2 \
+                 WHERE (hostname = $1 OR source_ip::text = $1) AND matched_at >= $2 \
                  ORDER BY \
                    CASE WHEN level = 'critical' THEN 0 \
                         WHEN level = 'high'     THEN 1 \
@@ -2992,10 +2999,12 @@ impl ThreatClawStore for PgBackend {
                 let id: i64 = r.get(0);
                 crate::agent::incident_dossier::DossierAlert {
                     id,
-                    rule_name: r.get(1),
-                    level: r.get(2),
-                    matched_fields: serde_json::Value::Null,
-                    created_at: r.get(3),
+                    rule_id: r.get(1),
+                    rule_name: r.get(2),
+                    level: r.get(3),
+                    matched_fields: r.get::<_, serde_json::Value>(5),
+                    created_at: r.get(4),
+                    username: r.get(6),
                 }
             })
             .collect())

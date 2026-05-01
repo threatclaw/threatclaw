@@ -103,10 +103,19 @@ pub struct DossierFinding {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DossierAlert {
     pub id: i64,
+    /// Machine identifier of the Sigma rule (e.g. "tc-ssh-brute").
+    /// Used by the Investigation Graph dispatcher to match CACAO graph triggers.
+    pub rule_id: String,
+    /// Human-readable title of the rule (e.g. "SSH Brute Force — 12 failures").
+    /// Used in prompts and logs. Falls back to rule_id when title is absent.
     pub rule_name: String,
     pub level: String,
     pub matched_fields: Value,
     pub created_at: DateTime<Utc>,
+    /// Username extracted from the alert, used to compute CEL signals
+    /// (is_admin, is_service_acct) for Investigation Graph evaluation.
+    #[serde(default)]
+    pub username: Option<String>,
 }
 
 // ── The Dossier ──

@@ -466,24 +466,30 @@ mod tests {
         dossier.sigma_alerts = vec![
             DossierAlert {
                 id: 1,
+                rule_id: "rule-x".into(),
                 rule_name: "x".into(),
                 level: "critical".into(),
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             },
             DossierAlert {
                 id: 2,
+                rule_id: "rule-y".into(),
                 rule_name: "y".into(),
                 level: "Critical".into(), // case-insensitive
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             },
             DossierAlert {
                 id: 3,
+                rule_id: "rule-z".into(),
                 rule_name: "z".into(),
                 level: "high".into(),
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             },
         ];
         let report = ValidationReport::default();
@@ -859,17 +865,21 @@ mod tests {
         dossier.sigma_alerts = vec![
             DossierAlert {
                 id: 1,
+                rule_id: "ps-obfusc-013".into(),
                 rule_name: "Malicious PowerShell Execution".into(),
                 level: "critical".into(),
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             },
             DossierAlert {
                 id: 2,
+                rule_id: "tc-ssh-brute".into(),
                 rule_name: "SSH Brute Force".into(),
                 level: "high".into(),
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             },
         ];
         let report = ValidationReport::default();

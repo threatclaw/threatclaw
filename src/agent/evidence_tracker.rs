@@ -158,10 +158,12 @@ mod tests {
                 .iter()
                 .map(|&id| DossierAlert {
                     id,
+                    rule_id: format!("rule-{id}"),
                     rule_name: format!("rule {id}"),
                     level: "medium".into(),
                     matched_fields: serde_json::json!({}),
                     created_at: Utc::now(),
+                    username: None,
                 })
                 .collect(),
             enrichment: EnrichmentBundle {
