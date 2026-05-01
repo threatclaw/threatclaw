@@ -79,6 +79,7 @@ COPY templates/ templates/
 COPY skills/ skills/
 COPY skills-src/ skills-src/
 COPY skills-catalog/ skills-catalog/
+COPY graphs/ graphs/
 
 # Touch main.rs to invalidate the dummy and force a real build
 RUN touch src/main.rs
@@ -140,6 +141,9 @@ COPY --from=builder /app/templates /app/templates
 COPY --from=builder /app/skills-catalog /app/skills-catalog
 COPY --from=builder /app/skills /app/skills
 COPY --from=builder /app/skills-src /app/skills-src
+
+# Copy CACAO investigation graphs
+COPY --from=builder /app/graphs /app/graphs
 
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \

@@ -128,10 +128,12 @@ fn build_dossier(fx: &FxDossier) -> IncidentDossier {
             .iter()
             .map(|a| DossierAlert {
                 id: a.id,
+                rule_id: format!("rule-{}", a.id),
                 rule_name: format!("rule {}", a.id),
                 level: a.level.clone(),
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
+                username: None,
             })
             .collect(),
         enrichment: EnrichmentBundle {

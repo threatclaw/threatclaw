@@ -64,17 +64,21 @@ fn brute_force_dossier() -> IncidentDossier {
         sigma_alerts: vec![
             DossierAlert {
                 id: 42,
+                rule_id: "tc-ssh-brute".into(),
                 rule_name: "SSH Brute Force".into(),
                 level: "high".into(),
                 matched_fields: serde_json::json!({"src_ip": "185.220.101.42"}),
                 created_at: Utc::now(),
+                username: None,
             },
             DossierAlert {
                 id: 43,
+                rule_id: "tc-tor-exit".into(),
                 rule_name: "Tor Exit Node Connection".into(),
                 level: "medium".into(),
                 matched_fields: serde_json::json!({"ip": "185.220.101.42"}),
                 created_at: Utc::now(),
+                username: None,
             },
         ],
         enrichment: EnrichmentBundle {
