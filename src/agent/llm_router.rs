@@ -117,11 +117,11 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
         "l1",
         vec![
             ModelInfo {
-                model_id: "threatclaw-l1".into(),
-                display_name: "ThreatClaw AI Triage".into(),
-                ram_gb: 5.8,
+                model_id: "threatclaw-primary".into(),
+                display_name: "Foundation-Sec 8B Q4 (Analyse automatique)".into(),
+                ram_gb: 4.9,
                 tool_call_mode: ToolCallMode::None,
-                detail: "qwen3:8b + SOC prompt · Recommandé".into(),
+                detail: "Foundation-Sec Q4_K_M · Cyber-spécialisé · Recommandé".into(),
                 recommended_ram: "16GB+".into(),
             },
             ModelInfo {
@@ -129,7 +129,7 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
                 display_name: "Gemma 4 E4B Triage".into(),
                 ram_gb: 3.0,
                 tool_call_mode: ToolCallMode::None,
-                detail: "Ultra-léger · 3x plus rapide que qwen3:8b".into(),
+                detail: "Ultra-léger · 3x plus rapide".into(),
                 recommended_ram: "16GB+".into(),
             },
             ModelInfo {
@@ -144,34 +144,24 @@ pub fn model_catalog() -> std::collections::HashMap<&'static str, Vec<ModelInfo>
     );
     catalog.insert(
         "l2",
-        vec![
-            ModelInfo {
-                model_id: "threatclaw-l2".into(),
-                display_name: "ThreatClaw AI Reasoning".into(),
-                ram_gb: 8.5,
-                tool_call_mode: ToolCallMode::None,
-                detail: "Foundation-Sec Q8_0 · Recommandé".into(),
-                recommended_ram: "32GB+".into(),
-            },
-            ModelInfo {
-                model_id: "redsage:8b".into(),
-                display_name: "RedSage 8B (SOC Workflows)".into(),
-                ram_gb: 5.5,
-                tool_call_mode: ToolCallMode::None,
-                detail: "RISYS Lab · Workflows SOC réels · Q4_K_M".into(),
-                recommended_ram: "16GB+".into(),
-            },
-        ],
+        vec![ModelInfo {
+            model_id: "threatclaw-forensic".into(),
+            display_name: "Foundation-Sec 8B Reasoning Q8 (Forensique)".into(),
+            ram_gb: 8.5,
+            tool_call_mode: ToolCallMode::None,
+            detail: "Foundation-Sec Reasoning Q8_0 · Analyse async · Recommandé".into(),
+            recommended_ram: "32GB+".into(),
+        }],
     );
     catalog.insert(
         "l25",
         vec![ModelInfo {
-            model_id: "threatclaw-l3".into(),
-            display_name: "ThreatClaw AI Instruct".into(),
-            ram_gb: 5.0,
+            model_id: "threatclaw-primary".into(),
+            display_name: "Foundation-Sec 8B Q4 (Instruct)".into(),
+            ram_gb: 4.9,
             tool_call_mode: ToolCallMode::None,
-            detail: "Foundation-Sec Q4_K_M · Recommandé".into(),
-            recommended_ram: "32GB+".into(),
+            detail: "Partage le modèle avec Analyse automatique — mutex assuré".into(),
+            recommended_ram: "16GB+".into(),
         }],
     );
     catalog
