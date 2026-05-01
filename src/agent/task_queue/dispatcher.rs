@@ -271,10 +271,12 @@ fn compute_is_service_acct(dossier: &IncidentDossier) -> bool {
         .sigma_alerts
         .first()
         .and_then(|a| {
-            a.username
-                .as_deref()
-                .map(str::to_owned)
-                .or_else(|| a.matched_fields.get("username").and_then(Value::as_str).map(str::to_owned))
+            a.username.as_deref().map(str::to_owned).or_else(|| {
+                a.matched_fields
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
         })
         .unwrap_or_default();
     if username.is_empty() {
@@ -308,10 +310,12 @@ fn compute_is_admin(dossier: &IncidentDossier) -> bool {
         .sigma_alerts
         .first()
         .and_then(|a| {
-            a.username
-                .as_deref()
-                .map(str::to_owned)
-                .or_else(|| a.matched_fields.get("username").and_then(Value::as_str).map(str::to_owned))
+            a.username.as_deref().map(str::to_owned).or_else(|| {
+                a.matched_fields
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
         })
         .unwrap_or_default();
     if username.is_empty() {

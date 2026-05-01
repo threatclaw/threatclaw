@@ -360,7 +360,8 @@ pub struct InstructLlmConfig {
 impl Default for InstructLlmConfig {
     fn default() -> Self {
         Self {
-            model: std::env::var("INSTRUCT_MODEL").unwrap_or_else(|_| "threatclaw-primary".to_string()),
+            model: std::env::var("INSTRUCT_MODEL")
+                .unwrap_or_else(|_| "threatclaw-primary".to_string()),
             base_url: std::env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string()),
             idle_timeout_secs: 300, // 5 minutes — déchargement rapide
