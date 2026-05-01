@@ -1,15 +1,11 @@
-//! Forensic enricher — async post-confirmed incident analysis.
+//! Forensic enricher — async deep analysis on confirmed incidents.
 //!
-//! Runs as a background tokio task. Every 3 minutes it picks the most recent
-//! confirmed incident without `forensic_enriched_at` and runs Foundation-Sec
-//! Reasoning Q8_0 over it (20-minute timeout, no strict cap).
+//! Background task that polls every few minutes, picks the most recent confirmed
+//! incident without `forensic_enriched_at`, runs the forensic LLM over it, and
+//! updates the incident with a detailed narrative + MITRE mapping + evidence citations.
 //!
-//! Design choices (see ia-final.md):
-//! - One incident at a time: Q8_0 saturates all available RAM while loading.
-//! - Scheduler-based (not event-driven): resilient to restarts + retroactively
-//!   enriches incidents created before the feature was deployed.
-//! - `forensic_enriched_at` stays NULL if the enricher crashes mid-run,
-//!   so the next pass retries cleanly.
+//! One incident at a time (forensic model is resource-intensive). Idempotent:
+//! `forensic_enriched_at` stays NULL on crash, so the next pass retries cleanly.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +18,7 @@ use crate::agent::llm_schemas::forensic_schema;
 use crate::agent::react_runner::call_ollama_with_schema;
 use crate::db::Database;
 
-const POLL_INTERVAL: Duration = Duration::from_secs(180); // 3 minutes
+const POLL_INTERVAL: Duration = Duration::from_secs(180);
 
 pub async fn run_forensic_enricher(db: Arc<dyn Database>, llm_config: LlmRouterConfig) {
     info!(

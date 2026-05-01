@@ -755,9 +755,7 @@ async fn async_main() -> anyhow::Result<()> {
         .as_ref()
         .map(|db| Arc::clone(db) as Arc<dyn threatclaw::db::SettingsStore>);
 
-    // Spawn forensic enricher — async post-confirmed incident analysis (see ia-final.md Bloc 2).
-    // Runs every 3 minutes, picks the most recent confirmed incident without forensic_enriched_at,
-    // runs Foundation-Sec Reasoning Q8_0 over it with a 20-minute timeout.
+    // Forensic enricher: background task for deep analysis on confirmed incidents.
     if let Some(ref enricher_db) = components.db {
         let enricher_db = Arc::clone(enricher_db) as Arc<dyn threatclaw::db::Database>;
         let enricher_db_for_config = Arc::clone(&enricher_db);
