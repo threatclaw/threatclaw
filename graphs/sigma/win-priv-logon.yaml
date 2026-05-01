@@ -1,0 +1,47 @@
+spec_version: cacao-2.0
+name: win-priv-logon
+description: |
+  Wazuh "Special privileges assigned to new logon" — Windows Event ID
+  4672 (rule_id wazuh-67028, level low). Se declenche quand un compte
+  disposant de privileges eleves (Domain Admin, Backup Operators,
+  SeDebugPrivilege, etc.) ouvre une session. Moins bruyant que le
+  logon standard 4624 car seuls les privilegies le generent.
+
+  Ce signal vaut plus que le logon ordinaire :
+  - Compte de service avec privileges → daemon qui accumule des tokens
+    privilegies est une cible d'extraction. Route LLM.
+  - Hors horaires (avant 06h ou apres 21h UTC) sur asset critique → un
+    admin qui se connecte la nuit sur un DC merite verification, surtout
+    si ce n'est pas une maintenance planifiee connue. Route LLM.
+  - Contexte normal (humain, horaires de bureau) → archive. Les admins
+    se connectent plusieurs fois par jour, c'est la norme.
+trigger:
+  sigma_rule: wazuh-67028
+steps:
+  start:
+    type: start
+    on_completion: check_service_acct
+  check_service_acct:
+    type: if-condition
+    condition: "signals.is_service_acct == true"
+    on_true: route_llm
+    on_false: check_offhours_critical
+  check_offhours_critical:
+    type: if-condition
+    condition: "(signals.hour_of_day < 6 || signals.hour_of_day >= 21) && asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_legit
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_legit:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "logon privilegie planifie — admin en horaires normaux, aucun signal de contexte suspect"
+    on_completion: terminal
+  terminal:
+    type: end

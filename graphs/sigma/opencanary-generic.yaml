@@ -1,0 +1,45 @@
+spec_version: cacao-2.0
+name: opencanary-generic
+description: |
+  Wazuh OpenCanary honeypot hit — regle generique (rule_id wazuh-100700).
+  Cette regle Wazuh est la regle parente de la famille OpenCanary : elle
+  se declenche pour les protocoles honeypot non couverts par les regles
+  enfants specifiques (100701 MSSQL, 100702 SSH, 100703 MySQL, 100704
+  Telnet, 100705 FTP, 100707 SNMP). Typiquement : HTTP (port 80/8080),
+  NTP, TFTP, VNC ou SIP selon la configuration locale du canary.
+
+  Quel que soit le protocole, la logique reste identique — un honeypot
+  ne doit JAMAIS etre contacte par trafic legitime :
+  - Burst (>= 3 signaux en 5 min) → recon active, probe systematique du
+    reseau interne. INCIDENT + HITL block_ip.
+  - Touche isolee → opportuniste ou scanner internet de passage. Archive
+    "bruit (touch canary unique)".
+trigger:
+  sigma_rule: wazuh-100700
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: emit_incident
+    on_false: archive_noise
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: opnsense_block_ip
+          rationale: "Recon active du honeypot (protocole generique) — bloquer l'IP source"
+          requires_hitl: true
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "touch canary unique (bruit de fond)"
+    on_completion: terminal
+  terminal:
+    type: end

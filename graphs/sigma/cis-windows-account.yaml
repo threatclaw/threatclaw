@@ -1,0 +1,26 @@
+spec_version: cacao-2.0
+name: cis-windows-account
+description: |
+  Wazuh "CIS Microsoft Windows Server 2022 Benchmark v2.0.0 — Accounts:
+  Limit local account use of blank passwords to console logon only"
+  (rule_id wazuh-19008, level low). Finding de conformite : le parametre
+  de securite local "LimitBlankPasswordUse" n'est pas en conformite avec
+  le benchmark CIS.
+
+  Finding de configuration, pas un indicateur d'attaque. Les comptes a
+  mot de passe vide seraient couverts par d'autres regles (logon brute
+  force, spray) si exploites activement. Archive avec motif conformite.
+trigger:
+  sigma_rule: wazuh-19008
+steps:
+  start:
+    type: start
+    on_completion: archive_compliance
+  archive_compliance:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "derive conformite CIS — restriction mot de passe vide non appliquee, a corriger via GPO locale (hors perimetre incident ops)"
+    on_completion: terminal
+  terminal:
+    type: end

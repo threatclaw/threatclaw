@@ -1,0 +1,49 @@
+spec_version: cacao-2.0
+name: sudo-root-success
+description: |
+  Wazuh "Successful sudo to ROOT executed" (rule_id wazuh-5402, level low).
+  Evenement frequen et majoritairement legitime : admins, scripts de
+  provisioning, ansible, cron, etc. Le signal brut est du bruit —
+  seul le contexte permet de distinguer l'operateur legitime de
+  l'attaquant qui a obtenu un shell utilisateur et escalade.
+
+  Arbre de decision :
+  - Compte de service (signals.is_service_acct) → les daemons, www-data,
+    postgres, etc. ne doivent JAMAIS faire sudo root. Route LLM pour
+    qualifier : script compromis ? crontab modifie ? injection de commande ?
+  - Heure creuse (avant 06h ou apres 21h UTC) sur asset critique → un sudo
+    root hors horaires normaux sur un DC, serveur de fichiers ou bastion
+    merite attention. Route LLM.
+  - Cas standard (compte humain, horaires normaux) → archive.
+    Le risque residuel est couvert par les regles de persistance (cron,
+    authorized_keys, passwd) qui s'emballeront si quelque chose suit.
+trigger:
+  sigma_rule: wazuh-5402
+steps:
+  start:
+    type: start
+    on_completion: check_service_acct
+  check_service_acct:
+    type: if-condition
+    condition: "signals.is_service_acct == true"
+    on_true: route_llm
+    on_false: check_offhours_critical
+  check_offhours_critical:
+    type: if-condition
+    condition: "(signals.hour_of_day < 6 || signals.hour_of_day >= 21) && asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_legit
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_legit:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "sudo root sur compte humain en horaires normaux — operations admin standard"
+    on_completion: terminal
+  terminal:
+    type: end

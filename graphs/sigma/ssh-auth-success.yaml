@@ -1,0 +1,48 @@
+spec_version: cacao-2.0
+name: ssh-auth-success
+description: |
+  Wazuh "sshd: authentication success" (rule_id wazuh-5715, level low).
+  Chaque connexion SSH reussie genere cette alerte — c'est du bruit de
+  fond operationnel sur n'importe quelle infrastructure Linux. La grande
+  majorite sont des connexions admin / CI / ansible legitimement attendues.
+
+  Les cas qui valent une investigation :
+  - Compte de service (signals.is_service_acct) → les daemons systemd,
+    www-data, postgres, etc. n'ont aucune raison de se connecter via SSH
+    de facon interactive. Possible exfiltration ou pivoting lateral.
+  - Asset critique + signaux recents corrobores → une session SSH sur un
+    DC ou bastion avec des evenements recents en parallele peut indiquer
+    un attaquant qui vient de cracker un compte et s'active (signals
+    corrobores = plusieurs alertes sur l'asset dans l'heure).
+
+  Tout le reste : archive.
+trigger:
+  sigma_rule: wazuh-5715
+steps:
+  start:
+    type: start
+    on_completion: check_service_acct
+  check_service_acct:
+    type: if-condition
+    condition: "signals.is_service_acct == true"
+    on_true: route_llm
+    on_false: check_critical_corroborated
+  check_critical_corroborated:
+    type: if-condition
+    condition: "asset.criticality_score >= 7 && signals.corroborated == true"
+    on_true: route_llm
+    on_false: archive_noise
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "connexion SSH reussie — operateur legitime, aucun signal de contexte suspect"
+    on_completion: terminal
+  terminal:
+    type: end

@@ -1,0 +1,44 @@
+spec_version: cacao-2.0
+name: ps-env-recon
+description: |
+  Wazuh "PowerShell script querying system environment variables"
+  (rule_id wazuh-91816, level low). Pattern de reconnaissance :
+  $env:COMPUTERNAME, $env:USERNAME, $env:PATH, $env:USERDOMAIN, etc.
+  interroges par un script PowerShell.
+
+  Taux de faux positifs tres eleve : la quasi-totalite des scripts PS
+  legitimes (profils $PROFILE, scripts CI, outils d'admin) consultent
+  des variables d'environnement. Ce n'est pertinent qu'en burst ou
+  en correlation avec d'autres signaux.
+
+  - Signaux corrobores (>= 2 alertes recentes sur l'asset dans l'heure,
+    corroborated == true) → reconnaissance en cours, possible outil post-
+    exploitation qui enumere le contexte avant lateral move. Route LLM.
+  - Evenement isole → archive. La reconnaissance isolee via env vars est
+    du bruit standard — les regles reverse-shell, dropper et AMSI-bypass
+    prennent le relais si l'attaquant passe a l'action.
+trigger:
+  sigma_rule: wazuh-91816
+steps:
+  start:
+    type: start
+    on_completion: check_corroborated
+  check_corroborated:
+    type: if-condition
+    condition: "signals.corroborated == true"
+    on_true: route_llm
+    on_false: archive_noise
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "query env vars PowerShell isolee — bruit de scripting standard"
+    on_completion: terminal
+  terminal:
+    type: end

@@ -1,0 +1,74 @@
+spec_version: cacao-2.0
+name: ps-dropper-executable-winroot
+description: |
+  Wazuh "PowerShell cree un executable dans le dossier racine Windows"
+  (rule_id wazuh-92205, level medium). Pattern : un process powershell.exe
+  ecrit un .exe ou .dll directement dans C:\Windows\ ou C:\Windows\System32\.
+
+  Ce pattern est nettement plus suspect que les depots dans Temp : les
+  installateurs legitimes utilisent des MSI / NSIS / WIX, pas des ecritures
+  directes via PowerShell dans System32. C'est le pattern classique de
+  DLL-hijacking preparation, in-memory stager ou driver de rootkit.
+
+  Arbre de decision :
+  - Burst (>= 2 en 5 min) → staging system-level actif → INCIDENT critical
+    avec isolation immediate : plusieurs binaires dans System32 en rafale =
+    compromission en cours d'installation.
+  - Depot isole sur asset connu dans le graph (asset interne) avec score
+    >= 5 → INCIDENT high + collecte. On abaisse le seuil de criticality
+    ici (medium suffit) car l'ecriture dans System32 via PS est toujours
+    anormale, meme sur un poste utilisateur.
+  - Asset inconnu du graph ou score faible → route LLM : potentiellement
+    un poste de dev ou un environnement de test avec des scripts ad-hoc.
+trigger:
+  sigma_rule: wazuh-92205
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 2"
+    on_true: emit_incident_staging
+    on_false: check_known_asset
+  check_known_asset:
+    type: if-condition
+    condition: "graph.asset_in_graph == true"
+    on_true: check_criticality_medium
+    on_false: route_llm
+  check_criticality_medium:
+    type: if-condition
+    condition: "asset.criticality_score >= 5"
+    on_true: emit_incident_high
+    on_false: route_llm
+  emit_incident_staging:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - cmd_id: velociraptor_isolate_host
+          rationale: "Multiples binaires deposes dans System32 via PowerShell — isolation immediate, la chaine de compromission s'installe"
+          requires_hitl: true
+        - cmd_id: velociraptor_collect_artifacts
+          rationale: "Collecter les binaires deposes, le process parent PowerShell, les DLL chargees et les connexions reseau actives"
+          requires_hitl: true
+    on_completion: terminal
+  emit_incident_high:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - cmd_id: velociraptor_collect_artifacts
+          rationale: "Executable depose dans Windows root via PowerShell sur asset interne — collecter le binaire, le process parent, les signatures et le prefetch"
+          requires_hitl: true
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end
