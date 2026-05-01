@@ -380,7 +380,7 @@ pub struct LlmRouterConfig {
     pub conversational: ConversationalLlmConfig,
     /// IA principale L1/L2 — triage et corrélation (obligatoire).
     pub primary: PrimaryLlmConfig,
-    /// IA forensique L2 — analyse approfondie (chargé à la demande).
+    /// IA forensique L2 — analyse approfondie async (chargé à la demande). See ADR-049.
     #[serde(default)]
     pub forensic: ForensicLlmConfig,
     /// IA instruct L3 — playbooks SOAR, rapports, Sigma rules (à la demande RSSI).
