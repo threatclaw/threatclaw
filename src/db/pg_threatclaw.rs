@@ -3072,6 +3072,71 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
+    async fn list_confirmed_unenriched_incidents(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, asset, title, summary, mitre_techniques, severity, alert_count, \
+                        proposed_actions, evidence_citations, created_at \
+                 FROM incidents \
+                 WHERE verdict = 'confirmed' \
+                   AND forensic_enriched_at IS NULL \
+                   AND status != 'archived' \
+                 ORDER BY created_at DESC \
+                 LIMIT 1",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        let results = rows.iter().map(|r| {
+            serde_json::json!({
+                "id": r.get::<_, i32>("id"),
+                "asset": r.get::<_, String>("asset"),
+                "title": r.get::<_, String>("title"),
+                "summary": r.get::<_, Option<String>>("summary"),
+                "mitre_techniques": r.get::<_, Option<Vec<String>>>("mitre_techniques"),
+                "severity": r.get::<_, Option<String>>("severity"),
+                "alert_count": r.get::<_, Option<i32>>("alert_count"),
+                "proposed_actions": r.try_get::<_, serde_json::Value>("proposed_actions").unwrap_or(serde_json::json!([])),
+                "evidence_citations": r.try_get::<_, serde_json::Value>("evidence_citations").unwrap_or(serde_json::json!([])),
+                "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+            })
+        }).collect();
+        Ok(results)
+    }
+
+    async fn mark_forensic_enriched(
+        &self,
+        id: i32,
+        summary: Option<&str>,
+        mitre_techniques: Option<&[String]>,
+        evidence_citations: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        if let (Some(s), Some(m), Some(e)) = (summary, mitre_techniques, evidence_citations) {
+            conn.execute(
+                "UPDATE incidents SET \
+                    summary = $1, \
+                    mitre_techniques = $2, \
+                    evidence_citations = $3, \
+                    forensic_enriched_at = NOW(), \
+                    updated_at = NOW() \
+                 WHERE id = $4",
+                &[&s, &m.to_vec(), e, &id],
+            )
+            .await
+            .map_err(query_err)?;
+        } else {
+            conn.execute(
+                "UPDATE incidents SET forensic_enriched_at = NOW(), updated_at = NOW() WHERE id = $1",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+        Ok(())
+    }
+
     async fn purge_old_archived(&self, days_old: i32) -> Result<(i64, i64), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let days = days_old.max(1);

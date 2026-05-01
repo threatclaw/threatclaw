@@ -713,8 +713,9 @@ pub async fn call_ollama_with_schema(
     // Keep-alive strategy: by default L0/L1 stay resident (avoid cold-start lag
     // on the RSSI chatbot), L2/L2.5 unload 30s after use to free RAM for the
     // permanent tier. Permanent models are detected by name prefix since the
-    // catalog naming convention is stable (threatclaw-l1 / threatclaw-l2 etc).
-    let is_permanent = model.starts_with("threatclaw-l1")
+    // catalog naming convention is stable (threatclaw-primary / threatclaw-l1 etc).
+    let is_permanent = model.starts_with("threatclaw-primary")
+        || model.starts_with("threatclaw-l1")
         || model.starts_with("gemma4:e4b")
         || model.starts_with("gemma4:26b")
         || model.starts_with("qwen3:8b")

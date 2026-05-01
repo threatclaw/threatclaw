@@ -755,6 +755,22 @@ async fn async_main() -> anyhow::Result<()> {
         .as_ref()
         .map(|db| Arc::clone(db) as Arc<dyn threatclaw::db::SettingsStore>);
 
+    // Spawn forensic enricher — async post-confirmed incident analysis (see ia-final.md Bloc 2).
+    // Runs every 3 minutes, picks the most recent confirmed incident without forensic_enriched_at,
+    // runs Foundation-Sec Reasoning Q8_0 over it with a 20-minute timeout.
+    if let Some(ref enricher_db) = components.db {
+        let enricher_db = Arc::clone(enricher_db) as Arc<dyn threatclaw::db::Database>;
+        let enricher_db_for_config = Arc::clone(&enricher_db);
+        tokio::spawn(async move {
+            let llm_config = threatclaw::agent::llm_router::LlmRouterConfig::from_db_settings(
+                enricher_db_for_config.as_ref(),
+            )
+            .await;
+            threatclaw::agent::forensic_enricher::run_forensic_enricher(enricher_db, llm_config)
+                .await;
+        });
+    }
+
     let deps = AgentDeps {
         owner_id: config.owner_id.clone(),
         store: components.db,
