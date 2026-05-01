@@ -1,0 +1,26 @@
+spec_version: cacao-2.0
+name: win-logoff
+description: |
+  Wazuh "Windows User Logoff" — Event ID 4634 (rule_id wazuh-60137,
+  level low). Evenement de deconnexion de session Windows. Quasi-aucune
+  valeur de securite intrinsèque : chaque fin de session RDP, service
+  restart, ou fermeture de fenetre genere cet evenement.
+
+  Le logoff ne revele pas d'intention malveillante en lui-meme — ce
+  sont les evenements qui precedent (lateral move, credential access,
+  persistence) qui comptent et qui ont leurs propres regles. Archive
+  systematiquement pour eviter de polluer la queue d'incidents.
+trigger:
+  sigma_rule: wazuh-60137
+steps:
+  start:
+    type: start
+    on_completion: archive_noise
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "logoff Windows — telemetrie de session, aucune valeur d'investigation directe"
+    on_completion: terminal
+  terminal:
+    type: end

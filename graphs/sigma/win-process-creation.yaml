@@ -1,0 +1,44 @@
+spec_version: cacao-2.0
+name: win-process-creation
+description: |
+  Wazuh "A process was created" — Windows Event ID 4688 (rule_id
+  wazuh-67027, level low). Cette regle est l'une des plus bruyantes
+  de l'audit Windows : chaque execution de programme, script, service
+  ou tache planifiee genere un evenement. Sans filtrage fin dans la
+  GPO d'audit, le volume est constant et majoritairement legitime.
+
+  La regle n'a de valeur que comme signal contextuel. Deux situations
+  meritent un routage vers le LLM :
+  - Burst dense (>= 15 creations en 5 min) sur un asset critique → une
+    rafale d'executions sur un DC ou serveur de fichiers peut indiquer
+    un outil post-exploitation (BloodHound, Rubeus, Mimikatz) qui enumere
+    ou pivot. Seuil a 15 car les installations legit peuvent creer ~10
+    processus en burst (npm install, build CI).
+  - Sinon : archive. Les regles amont (AMSI bypass, reverse shell, registry
+    run key, dropper) couvrent les executions reellement malveillantes
+    avec une fidelite bien meilleure.
+trigger:
+  sigma_rule: wazuh-67027
+steps:
+  start:
+    type: start
+    on_completion: check_burst_critical
+  check_burst_critical:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 15 && asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_noise
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "creation de process Windows — bruit de fond operationnel, couvert par regles specifiques"
+    on_completion: terminal
+  terminal:
+    type: end

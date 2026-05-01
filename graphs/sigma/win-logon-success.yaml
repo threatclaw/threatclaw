@@ -1,0 +1,47 @@
+spec_version: cacao-2.0
+name: win-logon-success
+description: |
+  Wazuh "Windows Logon Success" — Event ID 4624 (rule_id wazuh-60106,
+  level low). Genere pour chaque logon interactif, reseau, service ou
+  batch sur Windows. Volume constant et majoritairement legitime :
+  sessions RDP des admins, authentifications de services, taches
+  planifiees, etc.
+
+  Situations qui sortent du bruit :
+  - Compte de service faisant un logon corrobore → un daemon qui
+    accumule des logons reseau en rafale peut etre exploite (pass-the-
+    hash, token replay). On envoie au LLM.
+  - Burst de logons (>= 10 en 5 min) → possible spray ou replay attack
+    ayant abouti. Route LLM pour analyser la source et le type de logon.
+  - Sinon : archive. Les regles de bruteforce et pass-the-hash couvrent
+    les patterns reellement dangereux.
+trigger:
+  sigma_rule: wazuh-60106
+steps:
+  start:
+    type: start
+    on_completion: check_service_acct_burst
+  check_service_acct_burst:
+    type: if-condition
+    condition: "signals.is_service_acct == true && signals.corroborated == true"
+    on_true: route_llm
+    on_false: check_logon_burst
+  check_logon_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 10"
+    on_true: route_llm
+    on_false: archive_noise
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_noise:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "logon Windows standard — authentification normale, aucun signal de contexte suspect"
+    on_completion: terminal
+  terminal:
+    type: end

@@ -1,0 +1,30 @@
+spec_version: cacao-2.0
+name: cis-windows-policy
+description: |
+  Wazuh "CIS Microsoft Windows Server 2022 Benchmark v2.0.0 — Enforce
+  password history >= 24 passwords" (rule_id wazuh-19007, level medium).
+  Finding de conformite de politique de mots de passe : le parametre
+  GPO "Enforce password history" est en dessous du seuil CIS.
+
+  Ce n'est pas un signal d'attaque en cours — c'est de la derive de
+  configuration. L'action appropriee est dans le cycle de gestion des
+  vulnerabilites (remediation GPO), pas dans la queue d'incidents de
+  securite operationnelle.
+
+  Archive systematiquement avec motif explicite pour que le RSSI puisse
+  les retrouver dans les rapports de conformite sans polluer les alertes
+  actives.
+trigger:
+  sigma_rule: wazuh-19007
+steps:
+  start:
+    type: start
+    on_completion: archive_compliance
+  archive_compliance:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "derive conformite CIS — politique d'historique de mots de passe insuffisante, a corriger via GPO (hors perimetre incident ops)"
+    on_completion: terminal
+  terminal:
+    type: end
