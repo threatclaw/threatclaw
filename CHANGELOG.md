@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.19-beta] — 2026-05-03
+
+Investigation graphs now ship inside the release image and are downloaded automatically
+by the installer, so a clean install via one-liner or release download is fully operational.
+
+### Fixed
+- **Investigation graphs missing from release image** — the 51 CACAO investigation graphs
+  are now bundled in the `ghcr.io/threatclaw/core` image and used automatically when the
+  host `graphs/sigma/` bind-mount is empty.
+- **Investigation graphs not downloaded by installer** — `install.sh` now downloads the
+  full graph library on first install and on `--update`, so the bind-mount is populated
+  immediately without manual steps.
+
 ## [1.0.18-beta] — 2026-05-02
 
 Fix clean-install reliability: investigation graphs and AI models now work out of the box
