@@ -6,6 +6,40 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.17-beta] — 2026-05-02
+
+Two-speed AI pipeline, 13 new investigation graphs, and investigation workspace.
+
+### Added
+- **Two-speed AI pipeline** — triage runs synchronously on a cyber-specialized model
+  (`threatclaw-primary`); forensic enrichment runs asynchronously after confirmation,
+  one incident at a time, without blocking the detection pipeline.
+- **Async forensic enricher** — background scheduler produces a detailed RSSI-readable
+  narrative with MITRE mapping and evidence citations. Idempotent via
+  `forensic_enriched_at` column (V70 migration).
+- **13 CACAO investigation graphs** — deterministic verdict paths for lab rule IDs
+  not previously covered; wired into the full pipeline alongside the LLM path.
+- **Investigation workspace** — `/incidents/:id/investigate` page with an interactive
+  agent workspace, IP enrichment, and L1 analysis runner.
+- **Incident full-detail API** — `GET /incidents/:id/full`, `POST /investigate`,
+  `GET /incidents/:id/related`, `POST /incidents/:id/report`.
+- **Continuous monitoring** — post-graph L1 trigger with 15-minute re-evaluation window.
+
+### Changed
+- **Verdict summaries** — ML internals (anomaly scores, cluster IDs) removed from
+  RSSI-facing text; summaries now read as plain-language security analysis.
+- **Investigation page** — redesigned incidents table and investigation workspace.
+
+### Fixed
+- Reinvestigate endpoint now correctly parses the LLM JSON response instead of
+  converting it to display text before parsing (systematic silent failure).
+- Reconciler: `sigma_alerts.id` column type corrected (bigint, not int4).
+- Reconciler: ML anomaly score, Sigma alerts, and lateral paths properly wired
+  into the verdict context.
+- Nginx header buffer size corrected, fixing intermittent navigation failures.
+
+---
+
 ## [1.0.16-beta] — 2026-04-29
 
 Asset accounting tightened. Operators can now merge duplicate rows
