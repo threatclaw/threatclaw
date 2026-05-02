@@ -142,8 +142,10 @@ COPY --from=builder /app/skills-catalog /app/skills-catalog
 COPY --from=builder /app/skills /app/skills
 COPY --from=builder /app/skills-src /app/skills-src
 
-# Copy CACAO investigation graphs
+# Copy CACAO investigation graphs — primary path (overrideable by bind-mount)
 COPY --from=builder /app/graphs /app/graphs
+# Bundled fallback — not overridden by bind-mount, used by entrypoint when ./graphs/sigma/ is empty
+COPY --from=builder /app/graphs /app/graphs-bundled
 
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \

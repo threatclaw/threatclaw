@@ -138,40 +138,30 @@ pull_models_background() {
 
   MODELS=$(curl -s "${OLLAMA_URL}/api/tags" 2>/dev/null | python3 -c "import sys,json; print(' '.join(m['name'] for m in json.load(sys.stdin).get('models',[])))" 2>/dev/null || echo "")
 
-  # Pull L1
-  L1_MODEL="${TC_L1_MODEL:-qwen3:8b}"
-  if ! echo "$MODELS" | grep -q "$L1_MODEL"; then
-    echo "[models] Downloading L1 ($L1_MODEL) — ~5 GB..."
-    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$L1_MODEL\",\"stream\":false}" > /dev/null 2>&1
-    echo "[models] L1 ready"
+  # ── threatclaw-primary (Foundation-Sec Q4_K_M) — fast cyber triage, sync L1
+  PRIMARY_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Q4_K_M-GGUF"
+  if ! echo "$MODELS" | grep -q "$PRIMARY_BASE"; then
+    echo "[models] Downloading Primary model (Foundation-Sec Q4_K_M) — ~5 GB..."
+    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$PRIMARY_BASE\",\"stream\":false}" > /dev/null 2>&1
+  fi
+  if ! echo "$MODELS" | grep -q "threatclaw-primary"; then
+    echo "[models] Creating threatclaw-primary..."
+    curl -s -X POST "${OLLAMA_URL}/api/create" \
+      -d "{\"name\":\"threatclaw-primary\",\"from\":\"$PRIMARY_BASE\",\"system\":\"You are ThreatClaw primary triage engine. Analyze security dossiers and return ONLY valid JSON. Never add commentary outside the JSON structure.\",\"parameters\":{\"temperature\":0.1,\"num_ctx\":4096,\"num_predict\":1024}}" --max-time 30 > /dev/null 2>&1
+    echo "[models] threatclaw-primary ready"
   fi
 
-  # Create threatclaw-l1
-  if ! echo "$MODELS" | grep -q "threatclaw-l1"; then
-    echo "[models] Creating threatclaw-l1..."
-    curl -s -X POST "${OLLAMA_URL}/api/create" \
-      -d "{\"name\":\"threatclaw-l1\",\"from\":\"${L1_MODEL}\",\"system\":\"Tu es le moteur d'analyse de ThreatClaw. Réponds UNIQUEMENT en JSON structuré.\"}" > /dev/null 2>&1
-    echo "[models] threatclaw-l1 created"
+  # ── threatclaw-forensic (Foundation-Sec Reasoning Q8_0) — deep async forensic enrichment
+  FORENSIC_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Reasoning-Q8_0-GGUF"
+  if ! echo "$MODELS" | grep -q "$FORENSIC_BASE"; then
+    echo "[models] Downloading Forensic model (Foundation-Sec Reasoning Q8_0) — ~8.5 GB..."
+    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$FORENSIC_BASE\",\"stream\":false}" > /dev/null 2>&1
   fi
-
-  # Pull L2
-  L2_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Reasoning-Q8_0-GGUF"
-  if ! echo "$MODELS" | grep -q "threatclaw-l2"; then
-    echo "[models] Downloading L2 Forensic — ~8.5 GB..."
-    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$L2_BASE\",\"stream\":false}" > /dev/null 2>&1
+  if ! echo "$MODELS" | grep -q "threatclaw-forensic"; then
+    echo "[models] Creating threatclaw-forensic..."
     curl -s -X POST "${OLLAMA_URL}/api/create" \
-      -d "{\"name\":\"threatclaw-l2\",\"from\":\"$L2_BASE\",\"system\":\"Tu es un analyste forensique expert. Raisonne étape par étape. Réponds en JSON.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192}}" --max-time 30 > /dev/null 2>&1
-    echo "[models] L2 ready"
-  fi
-
-  # Pull L3
-  L3_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Q4_K_M-GGUF"
-  if ! echo "$MODELS" | grep -q "threatclaw-l3"; then
-    echo "[models] Downloading L3 Instruct — ~5 GB..."
-    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$L3_BASE\",\"stream\":false}" > /dev/null 2>&1
-    curl -s -X POST "${OLLAMA_URL}/api/create" \
-      -d "{\"name\":\"threatclaw-l3\",\"from\":\"$L3_BASE\",\"system\":\"Tu es un expert SOC. Génère des playbooks SOAR, rapports, règles Sigma. En français.\",\"parameters\":{\"temperature\":0.3,\"num_ctx\":8192}}" --max-time 30 > /dev/null 2>&1
-    echo "[models] L3 ready"
+      -d "{\"name\":\"threatclaw-forensic\",\"from\":\"$FORENSIC_BASE\",\"system\":\"You are ThreatClaw forensic analysis engine. Perform deep investigation and return ONLY valid JSON. Never fabricate evidence or MITRE techniques not directly supported by the provided data.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192,\"num_predict\":2048}}" --max-time 30 > /dev/null 2>&1
+    echo "[models] threatclaw-forensic ready"
   fi
 
   echo "[models] All AI models ready"
@@ -197,6 +187,20 @@ fi
     sleep 5
   done
 ) &
+
+# ── CACAO graph fallback ──
+# docker-compose mounts ./graphs:/app/graphs:ro from the host.
+# If the host directory is empty (release install without git clone),
+# the bind-mount hides the graphs bundled in the image.
+# In that case we point TC_GRAPHS_DIR at the bundled copy.
+_graphs_dir="${TC_GRAPHS_DIR:-/app/graphs/sigma}"
+if [ -z "$(ls -A "$_graphs_dir" 2>/dev/null)" ]; then
+  echo "[init] Graph dir '$_graphs_dir' is empty — using bundled graphs (/app/graphs-bundled/sigma)"
+  export TC_GRAPHS_DIR=/app/graphs-bundled/sigma
+else
+  _count=$(ls -1 "$_graphs_dir"/*.yaml 2>/dev/null | wc -l)
+  echo "[init] Graph dir ready — $_count YAML graphs found"
+fi
 
 # ── Start ThreatClaw core immediately ──
 echo "[init] Starting ThreatClaw core..."

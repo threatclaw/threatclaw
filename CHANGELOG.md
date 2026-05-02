@@ -6,6 +6,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.18-beta] — 2026-05-02
+
+Fix clean-install reliability: investigation graphs and AI models now work out of the box
+without cloning the repository.
+
+### Fixed
+- **CACAO graphs not loading on release installs** — investigation graphs bundled in the
+  Docker image are now used automatically when the host `graphs/sigma/` directory is empty
+  (bind-mount fallback via entrypoint). Previously, any install that did not include a full
+  git clone had zero graphs and fell back entirely to ReAct.
+- **AI models not created on fresh installs** — entrypoint now creates `threatclaw-primary`
+  and `threatclaw-forensic` (the names the pipeline uses) instead of the legacy
+  `threatclaw-l1/l2/l3` aliases. Fresh installs no longer produce 404 errors on every
+  investigation and loop on pending incidents.
+- **Forensic section stuck in spinner** — `forensic_enriched_at` was missing from the
+  `get_incident` SQL query; the dashboard incident page now renders the L2 forensic
+  narrative correctly once enrichment completes.
+
+### Added
+- **Anti-hallucination gate** in forensic enricher — incidents with fewer than 2 alerts
+  and no evidence citations skip the LLM call and store an explicit "insufficient data"
+  message instead of risking fabricated MITRE techniques.
+- **Forensic L2 section in incident report** — dedicated panel shows the async narrative,
+  MITRE ATT&CK tags, and evidence citations; a spinner indicates enrichment in progress.
+- **HITL actions panel** in incident report — proposed remediation actions with
+  approve/reject controls, shown only when actionable commands are present.
+- **Auto-load related incidents** — correlation panel loads automatically on page open.
+
+### Changed
+- **TC_GRAPH_ONLY defaults to 1** — graph-first mode is now the default; dossiers without
+  a matching graph still fall back to ReAct. Set `TC_GRAPH_ONLY=0` in `.env` to revert
+  to parallel mode.
+
 ## [1.0.17-beta] — 2026-05-02
 
 Two-speed AI pipeline, 13 new investigation graphs, and investigation workspace.
