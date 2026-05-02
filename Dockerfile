@@ -77,6 +77,8 @@ COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 COPY --from=builder /app/skills-catalog /app/skills-catalog
 COPY --from=builder /app/templates /app/templates
 COPY --from=typst-bin /bin/typst /usr/local/bin/typst
+# Bundle investigation graphs — fallback when host ./graphs/sigma/ bind-mount is empty
+COPY graphs/sigma/ /app/graphs-bundled/sigma/
 
 # Non-root user with pre-created writable data dir (volume mount target)
 RUN useradd -m -u 1000 -s /bin/bash threatclaw && \

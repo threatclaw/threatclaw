@@ -221,6 +221,9 @@ cmd_update() {
   http_fetch "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" fluent-bit/fluent-bit.conf 2>/dev/null || true
   http_fetch "${REPO_RAW}/docker/fluent-bit/parsers.conf" fluent-bit/parsers.conf 2>/dev/null || true
 
+  # Investigation graphs (sigma YAML library — refresh on update)
+  download_graphs
+
   # Pull latest images + force-recreate containers with new config
   log_info "Pulling latest images..."
   docker compose pull 2>/dev/null || docker-compose pull 2>/dev/null
@@ -315,6 +318,32 @@ http_fetch() {
     wget) wget -q "$url" -O "$out" ;;
     *)    log_error "http_fetch called before ensure_http_fetcher"; return 1 ;;
   esac
+}
+http_fetch_stdout() {
+  case "$TC_FETCH_CMD" in
+    curl) curl -fsSL "$1" ;;
+    wget) wget -q -O- "$1" ;;
+    *)    log_error "http_fetch_stdout called before ensure_http_fetcher"; return 1 ;;
+  esac
+}
+
+download_graphs() {
+  local _dir="graphs/sigma"
+  mkdir -p "$_dir"
+  local _api="https://api.github.com/repos/threatclaw/threatclaw/contents/graphs/sigma"
+  local _files
+  _files=$(http_fetch_stdout "$_api" 2>/dev/null \
+    | grep -o '"name":"[^"]*\.yaml"' | cut -d'"' -f4) || true
+  if [ -z "$_files" ]; then
+    log_warn "Could not list investigation graphs from GitHub — skipping"
+    return 0
+  fi
+  local _n=0
+  for _f in $_files; do
+    http_fetch "${REPO_RAW}/graphs/sigma/${_f}" "${_dir}/${_f}" 2>/dev/null \
+      && _n=$((_n + 1))
+  done
+  log_info "Downloaded $_n investigation graphs"
 }
 
 # ── Preflight ────────────────────────────────────────────────────────────────
@@ -588,6 +617,9 @@ download_configs() {
 
   # Entrypoint (Modelfiles removed — models are created via Ollama API in entrypoint.sh)
   http_fetch "${REPO_RAW}/docker/entrypoint.sh" entrypoint.sh && chmod +x entrypoint.sh
+
+  # Investigation graphs (sigma YAML library — bind-mounted into core container)
+  download_graphs
 
   # Fluent Bit
   mkdir -p fluent-bit
