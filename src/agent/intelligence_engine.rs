@@ -60,11 +60,13 @@ fn investigation_key(asset: &str, _situation: &AssetSituation) -> String {
 }
 
 /// Clean L2 forensic LLM output: strip think blocks, extract text from JSON if needed, trim.
-fn clean_l2_output(raw: &str) -> String {
+/// Strip reasoning traces and markdown fences from a raw LLM response, leaving the content intact.
+/// Use this when the caller needs to parse the result (e.g. as JSON).
+fn strip_llm_noise(raw: &str) -> String {
     let mut text = raw.to_string();
 
-    // 1. Strip <think>...</think> blocks (qwen3 reasoning traces)
-    // Handle both paired <think>...</think> and orphan </think> (common when Ollama strips opening tag)
+    // Strip <think>...</think> blocks (Qwen3 / reasoning model traces).
+    // Also handle orphan </think> — everything before it is chain-of-thought.
     while let Some(start) = text.find("<think>") {
         if let Some(end) = text.find("</think>") {
             text = format!("{}{}", &text[..start], &text[end + 8..]);
@@ -73,28 +75,31 @@ fn clean_l2_output(raw: &str) -> String {
             break;
         }
     }
-    // Handle orphan </think> without <think> — everything before it is think output, take what's after
     if let Some(end) = text.find("</think>") {
         text = text[end + 8..].to_string();
     }
 
-    // 2. Strip markdown code fences
-    let text = text
-        .trim()
+    // Strip markdown code fences.
+    text.trim()
         .trim_start_matches("```json")
         .trim_start_matches("```")
         .trim_end_matches("```")
-        .trim();
+        .trim()
+        .to_string()
+}
 
-    // 3. If it looks like JSON, extract human-readable fields
+fn clean_l2_output(raw: &str) -> String {
+    let text = strip_llm_noise(raw);
+
+    // If it looks like JSON, extract human-readable fields for UI display.
     if text.starts_with('{') {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
             return extract_text_from_l2_json(&v);
         }
     }
 
-    // 4. Return cleaned text as-is (already plain text)
-    text.to_string()
+    // Already plain text — return as-is.
+    text
 }
 
 /// Extract human-readable text from structured L2 JSON output.
@@ -1658,9 +1663,9 @@ pub async fn reinvestigate_incident(
     })?
     .map_err(|e| format!("L2 call failed: {e}"))?;
 
-    let l2_clean = clean_l2_output(&l2_raw);
+    let l2_clean = strip_llm_noise(&l2_raw);
 
-    // Parse the JSON
+    // Parse the JSON — try full string first, then extract first {...} object.
     let parsed = serde_json::from_str::<serde_json::Value>(&l2_clean)
         .ok()
         .or_else(|| {
@@ -2969,7 +2974,7 @@ pub fn spawn_intelligence_ticker(
                                     .await
                                     {
                                         Ok(Ok(l2_raw)) => {
-                                            let l2_clean = clean_l2_output(&l2_raw);
+                                            let l2_clean = strip_llm_noise(&l2_raw);
                                             tracing::info!(
                                                 "INVESTIGATION: L2 enrichment OK for {} ({} chars → {} clean)",
                                                 asset_name,
