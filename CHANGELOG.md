@@ -15,8 +15,8 @@ Two-speed AI pipeline, 13 new investigation graphs, and investigation workspace.
   (`threatclaw-primary`); forensic enrichment runs asynchronously after confirmation,
   one incident at a time, without blocking the detection pipeline.
 - **Async forensic enricher** — background scheduler produces a detailed RSSI-readable
-  narrative with MITRE mapping and evidence citations. Idempotent via
-  `forensic_enriched_at` column (V70 migration).
+  narrative with MITRE mapping and evidence citations. Idempotent: a crash mid-analysis
+  is recovered cleanly on the next cycle.
 - **13 CACAO investigation graphs** — deterministic verdict paths for lab rule IDs
   not previously covered; wired into the full pipeline alongside the LLM path.
 - **Investigation workspace** — `/incidents/:id/investigate` page with an interactive
@@ -33,7 +33,7 @@ Two-speed AI pipeline, 13 new investigation graphs, and investigation workspace.
 ### Fixed
 - Reinvestigate endpoint now correctly parses the LLM JSON response instead of
   converting it to display text before parsing (systematic silent failure).
-- Reconciler: `sigma_alerts.id` column type corrected (bigint, not int4).
+- Reconciler: alert ID column type mismatch corrected, preventing dropped alerts on high-volume rules.
 - Reconciler: ML anomaly score, Sigma alerts, and lateral paths properly wired
   into the verdict context.
 - Nginx header buffer size corrected, fixing intermittent navigation failures.
