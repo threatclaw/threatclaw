@@ -219,12 +219,18 @@ fn build_forensic_prompt(
 
     p.push_str("### Règle absolue\n\n");
     p.push_str("Ne jamais inventer de preuves, de techniques MITRE, ni de narratives non étayées par les données fournies ci-dessus. ");
-    p.push_str("Chaque affirmation doit être directement traçable à une alerte ou une preuve listée. ");
+    p.push_str(
+        "Chaque affirmation doit être directement traçable à une alerte ou une preuve listée. ",
+    );
     p.push_str("Si les preuves sont insuffisantes pour étayer une affirmation, indique-le explicitement plutôt que d'inférer.\n\n");
     p.push_str("### Instructions\n\n");
     p.push_str("1. Rédige une narrative forensique (200-400 mots) lisible par un RSSI non-technique, basée uniquement sur les données fournies.\n");
-    p.push_str("2. Ne liste que les techniques MITRE ATT&CK attestées par les preuves ci-dessus.\n");
-    p.push_str("3. Pour chaque affirmation, cite la preuve concrète (alerte, log, IoC) qui l'étaye.\n");
+    p.push_str(
+        "2. Ne liste que les techniques MITRE ATT&CK attestées par les preuves ci-dessus.\n",
+    );
+    p.push_str(
+        "3. Pour chaque affirmation, cite la preuve concrète (alerte, log, IoC) qui l'étaye.\n",
+    );
     p.push_str("4. Propose des actions de remédiation précises si pertinent.\n\n");
     p.push_str("Réponds en JSON structuré avec les champs: verdict (confirmed), severity, confidence, analysis (narrative RSSI), mitre_techniques, evidence_citations.\n");
 
