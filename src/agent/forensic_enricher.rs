@@ -61,6 +61,24 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
         })
         .unwrap_or_default();
 
+    // Anti-hallucination gate: skip LLM when evidence is too thin to support any narrative.
+    // A single alert with no corroborating citations is not enough for a reliable forensic report.
+    let evidence_citations_array = inc["evidence_citations"].as_array();
+    let has_evidence = evidence_citations_array
+        .map(|a| !a.is_empty())
+        .unwrap_or(false);
+    if alert_count < 2 && !has_evidence {
+        info!(
+            "Forensic enricher: incident #{id} — insufficient evidence (alert_count={alert_count}, no citations) — skipping LLM"
+        );
+        let msg = "Données insuffisantes pour produire une analyse forensique fiable. \
+            Une seule alerte sans preuves corroborantes ne permet pas d'établir une narrative avec certitude.";
+        db.mark_forensic_enriched(id, Some(msg), None, None)
+            .await
+            .map_err(|e| format!("DB stamp failed: {e}"))?;
+        return Ok(());
+    }
+
     info!("Forensic enricher: processing incident #{id} — {title}");
 
     let prompt = build_forensic_prompt(
@@ -199,10 +217,14 @@ fn build_forensic_prompt(
         }
     }
 
+    p.push_str("### Règle absolue\n\n");
+    p.push_str("Ne jamais inventer de preuves, de techniques MITRE, ni de narratives non étayées par les données fournies ci-dessus. ");
+    p.push_str("Chaque affirmation doit être directement traçable à une alerte ou une preuve listée. ");
+    p.push_str("Si les preuves sont insuffisantes pour étayer une affirmation, indique-le explicitement plutôt que d'inférer.\n\n");
     p.push_str("### Instructions\n\n");
-    p.push_str("1. Rédige une narrative forensique complète (200-400 mots) lisible par un RSSI non-technique.\n");
-    p.push_str("2. Confirme ou complète la liste des techniques MITRE ATT&CK.\n");
-    p.push_str("3. Identifie les preuves concrètes (alertes, logs, IoC) qui supportent chaque affirmation.\n");
+    p.push_str("1. Rédige une narrative forensique (200-400 mots) lisible par un RSSI non-technique, basée uniquement sur les données fournies.\n");
+    p.push_str("2. Ne liste que les techniques MITRE ATT&CK attestées par les preuves ci-dessus.\n");
+    p.push_str("3. Pour chaque affirmation, cite la preuve concrète (alerte, log, IoC) qui l'étaye.\n");
     p.push_str("4. Propose des actions de remédiation précises si pertinent.\n\n");
     p.push_str("Réponds en JSON structuré avec les champs: verdict (confirmed), severity, confidence, analysis (narrative RSSI), mitre_techniques, evidence_citations.\n");
 
