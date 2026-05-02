@@ -2690,7 +2690,7 @@ impl ThreatClawStore for PgBackend {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, forensic_enriched_at, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
             &[&id],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| serde_json::json!({
@@ -2717,6 +2717,7 @@ impl ThreatClawStore for PgBackend {
             "notified_channels": r.get::<_, Option<Vec<String>>>("notified_channels"),
             "notes": r.try_get::<_, serde_json::Value>("notes").unwrap_or(serde_json::json!([])),
             "evidence_citations": r.try_get::<_, serde_json::Value>("evidence_citations").unwrap_or(serde_json::json!([])),
+            "forensic_enriched_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("forensic_enriched_at").map(|t| t.to_rfc3339()),
             "blast_radius_snapshot": r.try_get::<_, Option<serde_json::Value>>("blast_radius_snapshot").unwrap_or(None),
             "blast_radius_score": r.get::<_, Option<i16>>("blast_radius_score"),
             "blast_radius_computed_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("blast_radius_computed_at").map(|t| t.to_rfc3339()),
