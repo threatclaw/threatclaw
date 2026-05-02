@@ -16,10 +16,9 @@ without cloning the repository.
   Docker image are now used automatically when the host `graphs/sigma/` directory is empty
   (bind-mount fallback via entrypoint). Previously, any install that did not include a full
   git clone had zero graphs and fell back entirely to ReAct.
-- **AI models not created on fresh installs** — entrypoint now creates `threatclaw-primary`
-  and `threatclaw-forensic` (the names the pipeline uses) instead of the legacy
-  `threatclaw-l1/l2/l3` aliases. Fresh installs no longer produce 404 errors on every
-  investigation and loop on pending incidents.
+- **AI models not created on fresh installs** — the triage and forensic analysis models
+  are now created automatically on first boot. Fresh installs no longer produce errors on
+  every investigation and loop on pending incidents.
 - **Forensic section stuck in spinner** — `forensic_enriched_at` was missing from the
   `get_incident` SQL query; the dashboard incident page now renders the L2 forensic
   narrative correctly once enrichment completes.
@@ -35,9 +34,9 @@ without cloning the repository.
 - **Auto-load related incidents** — correlation panel loads automatically on page open.
 
 ### Changed
-- **TC_GRAPH_ONLY defaults to 1** — graph-first mode is now the default; dossiers without
-  a matching graph still fall back to ReAct. Set `TC_GRAPH_ONLY=0` in `.env` to revert
-  to parallel mode.
+- **Graph-first mode is now the default** — the investigation engine delegates to
+  deterministic graphs when a matching rule exists; unmatched dossiers still fall back
+  to the reasoning engine. Can be overridden in `.env`.
 
 ## [1.0.17-beta] — 2026-05-02
 
