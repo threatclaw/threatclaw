@@ -217,6 +217,7 @@ cmd_update() {
   ensure_http_fetcher || exit 1
   http_fetch "${REPO_RAW}/docker/docker-compose.yml" docker-compose.yml
   http_fetch "${REPO_RAW}/docker/.env.example" .env.example
+  http_fetch "${REPO_RAW}/docker/entrypoint.sh" entrypoint.sh && chmod +x entrypoint.sh
   http_fetch "${REPO_RAW}/docker/fluent-bit/fluent-bit.conf" fluent-bit/fluent-bit.conf 2>/dev/null || true
   http_fetch "${REPO_RAW}/docker/fluent-bit/parsers.conf" fluent-bit/parsers.conf 2>/dev/null || true
 
