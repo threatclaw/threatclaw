@@ -44,11 +44,12 @@ services:
       TC_DB_PORT: "5432"
       TC_DB_PASSWORD_FILE: /run/secrets/tc_db_password
       LLM_BACKEND: ollama
-      OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-l1}
+      OLLAMA_MODEL: ${TC_LLM_MODEL:-threatclaw-primary}
       OLLAMA_BASE_URL: http://ollama:11434
-      FORENSIC_MODEL: ${TC_FORENSIC_MODEL:-threatclaw-l2}
+      FORENSIC_MODEL: ${TC_FORENSIC_MODEL:-threatclaw-forensic}
       TC_AUTO_PULL_MODELS: "${TC_AUTO_PULL_MODELS:-true}"
-      TC_L1_MODEL: ${TC_L1_BASE_MODEL:-qwen3:8b}
+      TC_L1_MODEL: ${TC_L1_BASE_MODEL:-threatclaw-primary}
+      TC_INVESTIGATION_LLM_TIMEOUT_SECS: "${TC_INVESTIGATION_LLM_TIMEOUT_SECS:-300}"
       GATEWAY_HOST: "0.0.0.0"
       GATEWAY_PORT: "3000"
       GATEWAY_AUTH_TOKEN_FILE: /run/secrets/tc_auth_token
