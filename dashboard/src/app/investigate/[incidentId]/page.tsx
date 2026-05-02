@@ -12,6 +12,18 @@ import {
 
 // ─────────────────────────── types ───────────────────────────
 
+interface IncidentAction {
+  kind: string;
+  description: string;
+}
+
+interface EvidenceCitation {
+  claim: string;
+  evidence_type: "alert" | "finding" | "log" | "graph_node";
+  evidence_id: string;
+  excerpt?: string;
+}
+
 interface AiAnalysis {
   id: number;
   incident_id: number;
@@ -68,8 +80,12 @@ interface Incident {
   verdict_source: string | null;
   confidence: number | null;
   summary: string | null;
+  forensic_enriched_at: string | null;
   mitre_techniques: string[];
-  proposed_actions: unknown[];
+  proposed_actions: { actions?: IncidentAction[]; iocs?: string[] } | null;
+  evidence_citations: EvidenceCitation[];
+  hitl_status: string | null;
+  hitl_responded_at: string | null;
   created_at: string;
   resolved_at: string | null;
 }
@@ -328,25 +344,14 @@ function RelatedCard({ incidentId, locale }: { incidentId: number; locale: strin
     }
   }, [incidentId]);
 
+  useEffect(() => { load(); }, [load]);
+
   return (
     <div>
-      {related === null ? (
-        <div style={{ padding: "12px 14px" }}>
-          <button
-            onClick={load}
-            disabled={loading}
-            style={{
-              padding: "7px 14px", fontSize: 11, fontWeight: 600,
-              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-              cursor: loading ? "default" : "pointer",
-              background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
-              border: "1px solid var(--tc-border)", display: "flex", alignItems: "center", gap: 6,
-              textTransform: "uppercase", letterSpacing: "0.05em",
-            }}
-          >
-            {loading ? <RefreshCw size={11} className="inv-spin" /> : <Link2 size={11} />}
-            {locale === "fr" ? "Rechercher des corrélations" : "Find correlations"}
-          </button>
+      {related === null || loading ? (
+        <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: 6, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
+          <RefreshCw size={11} className="inv-spin" />
+          {locale === "fr" ? "Recherche de corrélations..." : "Looking for correlations..."}
         </div>
       ) : related.length === 0 ? (
         <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--tc-text-muted)" }}>
@@ -404,7 +409,8 @@ export default function InvestigatePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
-  const [showEnrich, setShowEnrich] = useState(false);
+  const [showEnrich, setShowEnrich] = useState(true);
+  const [hitlExecuting, setHitlExecuting] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -446,6 +452,21 @@ export default function InvestigatePage() {
       setAnalyzeMsg((locale === "fr" ? "Erreur : " : "Error: ") + (e instanceof Error ? e.message : "?"));
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleHitl = async (response: "approve" | "reject") => {
+    if (!inc) return;
+    setHitlExecuting(true);
+    try {
+      await fetch(`/api/tc/incidents/${incidentId}/hitl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response, responded_by: "dashboard" }),
+      });
+      await load();
+    } finally {
+      setHitlExecuting(false);
     }
   };
 
@@ -1060,14 +1081,9 @@ export default function InvestigatePage() {
                     #{inc.id} · {inc.asset} · {timeAgo(inc.created_at)}
                   </span>
                 </div>
-                <h1 style={{ margin: "0 0 8px 0", fontSize: 20, fontWeight: 600, color: "var(--tc-text)", lineHeight: 1.3 }}>
+                <h1 style={{ margin: "0 0 0 0", fontSize: 20, fontWeight: 600, color: "var(--tc-text)", lineHeight: 1.3 }}>
                   {inc.title}
                 </h1>
-                {inc.summary && (
-                  <p className="lede" style={{ margin: "0 0 0 0", fontSize: 13, color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
-                    {inc.summary}
-                  </p>
-                )}
 
                 {/* Strip */}
                 <div className="inv-strip">
@@ -1171,12 +1187,89 @@ export default function InvestigatePage() {
                 </div>
               </section>
 
+              {/* Forensic L2 enrichment section */}
+              <section className="inv-sec">
+                <div className="inv-card">
+                  <div className="inv-card-head">
+                    <div className="inv-card-head-left">
+                      <strong>Enrichissement forensique</strong> · L2
+                    </div>
+                    <div className="inv-card-head-right">
+                      {inc.forensic_enriched_at
+                        ? `${fmtDate(inc.forensic_enriched_at)} ${fmtTime(inc.forensic_enriched_at)}`
+                        : "en attente"}
+                    </div>
+                  </div>
+                  <div className="inv-ai-body">
+                    {!inc.forensic_enriched_at ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--tc-text-muted)" }}>
+                        <RefreshCw size={11} className="inv-spin" />
+                        Analyse forensique en file d&apos;attente...
+                      </div>
+                    ) : inc.summary?.startsWith("Données insuffisantes") ? (
+                      <div style={{
+                        padding: "8px 10px", fontSize: 12, lineHeight: 1.5,
+                        background: "rgba(224,160,32,0.08)", border: "1px solid rgba(224,160,32,0.3)",
+                        color: "#c08820", fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                      }}>
+                        {inc.summary}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="inv-verdict" style={{ whiteSpace: "pre-wrap" }}>{inc.summary}</div>
+                        {inc.mitre_techniques?.length > 0 && (
+                          <div style={{ marginBottom: 12 }}>
+                            {inc.mitre_techniques.map(t => (
+                              <span key={t} className="inv-tag">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                        {inc.evidence_citations?.length > 0 && (
+                          <div style={{ borderTop: "1px dashed var(--tc-border)", paddingTop: 10 }}>
+                            <div style={{
+                              fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                              letterSpacing: "0.08em", color: "var(--tc-text-muted)",
+                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace", marginBottom: 6,
+                            }}>
+                              Preuves ({inc.evidence_citations.length})
+                            </div>
+                            {inc.evidence_citations.map((c, i) => (
+                              <div key={i} style={{
+                                padding: "6px 0", borderBottom: "1px dashed var(--tc-border)",
+                                display: "grid", gridTemplateColumns: "80px 1fr", gap: 8,
+                              }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700,
+                                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                  color: "var(--tc-text-muted)", textTransform: "uppercase",
+                                  paddingTop: 2,
+                                }}>{c.evidence_type}</span>
+                                <div>
+                                  <div style={{ fontSize: 11, color: "var(--tc-text)", lineHeight: 1.4 }}>{c.claim}</div>
+                                  {c.excerpt && (
+                                    <div style={{
+                                      fontSize: 10, color: "var(--tc-text-muted)",
+                                      fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                      marginTop: 2, lineHeight: 1.4,
+                                    }}>{c.excerpt}</div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </section>
+
               {/* Signals timeline */}
               <section className="inv-sec">
                 <div className="inv-card">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Signaux</strong> · {timelineEntries.length} événements
+                      <strong>Chronologie d&apos;analyse</strong> · {timelineEntries.length} événements
                     </div>
                     {timelineEntries.length > 0 && (
                       <div className="inv-card-head-right">
@@ -1375,6 +1468,95 @@ export default function InvestigatePage() {
                   </div>
                 </div>
               )}
+
+              {/* HITL proposed actions */}
+              {(() => {
+                const hitlActions = inc.proposed_actions?.actions?.filter(a => a.kind !== "manual") || [];
+                if (hitlActions.length === 0) return null;
+                const alreadyActed = !!inc.hitl_responded_at;
+                return (
+                  <div className="inv-card">
+                    <div className="inv-card-head" style={{ borderLeft: "3px solid #ff6030" }}>
+                      <div className="inv-card-head-left" style={{ color: "#ff6030" }}>
+                        <strong>Actions proposees</strong>
+                        {inc.hitl_status && (
+                          <span style={{
+                            marginLeft: 6, fontSize: 9, padding: "1px 5px",
+                            background: alreadyActed ? "rgba(48,160,80,0.15)" : "rgba(255,96,48,0.12)",
+                            color: alreadyActed ? "#30a050" : "#ff6030",
+                            border: `1px solid ${alreadyActed ? "rgba(48,160,80,0.3)" : "rgba(255,96,48,0.3)"}`,
+                            fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                          }}>{inc.hitl_status}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {hitlActions.map((act, i) => (
+                        <div key={i} style={{
+                          padding: "8px 10px",
+                          background: "var(--tc-surface-alt)",
+                          border: "1px solid var(--tc-border)",
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: "1px 5px",
+                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                              background: "rgba(255,96,48,0.1)", color: "#ff6030",
+                              border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
+                            }}>{act.kind}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--tc-text-sec)", lineHeight: 1.4, marginBottom: 6 }}>
+                            {act.description}
+                          </div>
+                        </div>
+                      ))}
+                      {!alreadyActed && (
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <button
+                            onClick={() => handleHitl("approve")}
+                            disabled={hitlExecuting}
+                            style={{
+                              flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 700,
+                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                              textTransform: "uppercase", letterSpacing: "0.05em",
+                              cursor: hitlExecuting ? "default" : "pointer",
+                              background: "#d03020", color: "#fff", border: "1px solid #d03020",
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                            }}
+                          >
+                            {hitlExecuting ? <RefreshCw size={10} className="inv-spin" /> : <Zap size={10} />}
+                            Approuver
+                          </button>
+                          <button
+                            onClick={() => handleHitl("reject")}
+                            disabled={hitlExecuting}
+                            style={{
+                              flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 700,
+                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                              textTransform: "uppercase", letterSpacing: "0.05em",
+                              cursor: hitlExecuting ? "default" : "pointer",
+                              background: "var(--tc-surface-alt)", color: "var(--tc-text-muted)",
+                              border: "1px solid var(--tc-border)",
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                            }}
+                          >
+                            Rejeter
+                          </button>
+                        </div>
+                      )}
+                      {alreadyActed && (
+                        <div style={{
+                          fontSize: 10, textAlign: "center", color: "#30a050",
+                          fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                          padding: "4px 0",
+                        }}>
+                          Decision enregistree · {fmtDate(inc.hitl_responded_at!)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Audit note */}
               <div className="inv-audit">
