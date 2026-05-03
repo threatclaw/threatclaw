@@ -95,6 +95,10 @@ pub struct DossierFinding {
     pub severity: String,
     pub asset: Option<String>,
     pub source: Option<String>,
+    /// Machine identifier of the skill that produced this finding
+    /// (e.g. "ml-anomaly-detector"). Used by the graph dispatcher to
+    /// route dossiers to CACAO graphs when no sigma_rule is set.
+    pub skill_id: Option<String>,
     pub metadata: Value,
     pub detected_at: DateTime<Utc>,
 }
