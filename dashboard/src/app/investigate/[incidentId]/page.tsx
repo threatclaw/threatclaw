@@ -5,10 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { useLocale } from "@/lib/useLocale";
 import { PageShell } from "@/components/chrome/PageShell";
 import {
-  AlertTriangle, Brain, CheckCircle2, Clock, Download,
+  AlertTriangle, CheckCircle2, Clock, Download,
   Globe, RefreshCw, Shield, Target, Zap, Link2, BarChart2,
   FileText, Siren, Lock, X, Loader2, ArrowRight,
-  MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft,
+  MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft, Brain,
 } from "lucide-react";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 
@@ -99,6 +99,18 @@ interface Incident {
   notes: IncidentNote[];
 }
 
+interface AttackEvent {
+  kind: "alert" | "finding";
+  id: number;
+  title: string;
+  level: string;
+  hostname: string | null;
+  username: string | null;
+  source_ip: string | null;
+  ts: string;
+  matched_fields: Record<string, unknown>;
+}
+
 interface FullData {
   incident: Incident;
   graph_executions: GraphExecution[];
@@ -106,6 +118,7 @@ interface FullData {
   ip_enrichment: IpEnrichment | null;
   attack_paths: AttackPath[];
   choke_points: unknown[];
+  attack_events: AttackEvent[];
 }
 
 interface RelatedIncident {
@@ -415,10 +428,8 @@ export default function InvestigatePage() {
   const [data, setData] = useState<FullData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeMsg, setAnalyzeMsg] = useState<string | null>(null);
   const [showReport, setShowReport] = useState(false);
-  const [showEnrich, setShowEnrich] = useState(true);
+  const [reinvestigating, setReinvestigating] = useState(false);
   const [hitlExecuting, setHitlExecuting] = useState(false);
   const [noteInput, setNoteInput] = useState("");
   const [notePosting, setNotePosting] = useState(false);
@@ -452,21 +463,6 @@ export default function InvestigatePage() {
     }
     return () => { if (refreshTimer.current) clearInterval(refreshTimer.current); };
   }, [data?.incident.status, load]);
-
-  const triggerL1 = async () => {
-    setAnalyzing(true);
-    setAnalyzeMsg(null);
-    try {
-      const res = await fetch(`/api/tc/incidents/${incidentId}/investigate`, { method: "POST" });
-      const d = await res.json();
-      setAnalyzeMsg(d.message || (locale === "fr" ? "Analyse démarrée" : "Analysis started"));
-      setTimeout(load, 35000);
-    } catch (e: unknown) {
-      setAnalyzeMsg((locale === "fr" ? "Erreur : " : "Error: ") + (e instanceof Error ? e.message : "?"));
-    } finally {
-      setAnalyzing(false);
-    }
-  };
 
   const handleHitl = async (response: "approve" | "reject") => {
     if (!inc) return;
@@ -514,9 +510,12 @@ export default function InvestigatePage() {
   };
 
   const reinvestigateInv = async () => {
-    const res = await fetch(`/api/tc/incidents/${incidentId}/reinvestigate`, { method: "POST" });
-    if (res.ok) {
-      await load();
+    setReinvestigating(true);
+    try {
+      const res = await fetch(`/api/tc/incidents/${incidentId}/reinvestigate`, { method: "POST" });
+      if (res.ok) await load();
+    } finally {
+      setReinvestigating(false);
     }
   };
 
@@ -1029,15 +1028,6 @@ export default function InvestigatePage() {
         .inv-primary-btn:hover {
           opacity: 0.9;
         }
-        .inv-analyze-banner {
-          margin-top: 12px;
-          padding: 8px 12px;
-          background: rgba(74,158,255,0.1);
-          border: 1px solid rgba(74,158,255,0.3);
-          font-size: 12px;
-          color: #4a9eff;
-          font-family: ui-monospace, 'JetBrains Mono', monospace;
-        }
       `}</style>
 
       <div className="inv-wrap">
@@ -1071,6 +1061,10 @@ export default function InvestigatePage() {
           <button className="inv-ghost-btn" onClick={load}>
             <RefreshCw size={11} />
             Rafraichir
+          </button>
+          <button className="inv-ghost-btn" onClick={() => setShowReport(true)}>
+            <Download size={11} />
+            Export
           </button>
         </div>
 
@@ -1169,9 +1163,6 @@ export default function InvestigatePage() {
                   </div>
                 </div>
 
-                {analyzeMsg && (
-                  <div className="inv-analyze-banner">{analyzeMsg}</div>
-                )}
               </div>
 
               {/* AI Analysis section */}
@@ -1318,7 +1309,64 @@ export default function InvestigatePage() {
                 </div>
               </section>
 
-              {/* Signals timeline */}
+              {/* Attack timeline */}
+              <section className="inv-sec">
+                <div className="inv-card">
+                  <div className="inv-card-head">
+                    <div className="inv-card-head-left">
+                      <strong>Chronologie de l&apos;attaque</strong> · {data.attack_events.length} signal{data.attack_events.length !== 1 ? "s" : ""}
+                    </div>
+                    {data.attack_events.length > 0 && (
+                      <div className="inv-card-head-right">
+                        {fmtDate(data.attack_events[0].ts)} — {fmtDate(data.attack_events[data.attack_events.length - 1].ts)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="inv-signals">
+                    {data.attack_events.length === 0 ? (
+                      <div style={{ padding: "16px 14px", fontSize: 12, color: "var(--tc-text-muted)" }}>
+                        Aucun signal brut enregistré pour cet incident.
+                      </div>
+                    ) : (
+                      data.attack_events.map((ev, idx) => {
+                        const lvlColor = ev.level === "critical" ? "#ff2020"
+                          : ev.level === "high" ? "#ff6030"
+                          : ev.level === "medium" ? "#e0a020"
+                          : "#30a050";
+                        const context = [ev.source_ip, ev.hostname, ev.username].filter(Boolean).join(" · ");
+                        return (
+                          <div key={`ev-${idx}`} className="inv-signal-row">
+                            <div className="inv-signal-ts">
+                              {fmtTime(ev.ts)}<br />
+                              <span style={{ color: "var(--tc-text-muted)", fontWeight: 400, fontSize: 9 }}>{fmtDate(ev.ts)}</span>
+                            </div>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, padding: "1px 5px",
+                                  fontFamily: "ui-monospace,'JetBrains Mono',monospace",
+                                  background: lvlColor + "22", color: lvlColor,
+                                  border: `1px solid ${lvlColor}44`, textTransform: "uppercase",
+                                }}>{ev.level}</span>
+                                <span style={{
+                                  fontSize: 9, fontFamily: "ui-monospace,'JetBrains Mono',monospace",
+                                  color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em",
+                                }}>{ev.kind}</span>
+                              </div>
+                              <div className="inv-signal-content-title">{ev.title}</div>
+                              {context && (
+                                <div className="inv-signal-source">{context}</div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {/* Analysis timeline */}
               <section className="inv-sec">
                 <div className="inv-card">
                   <div className="inv-card-head">
@@ -1438,10 +1486,10 @@ export default function InvestigatePage() {
                       <span>Marquer faux positif</span>
                       <ArrowRight size={11} className="act-arrow" />
                     </button>
-                    <button className="inv-act-btn" onClick={reinvestigateInv} disabled={analyzing}>
-                      {analyzing ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
-                      <span>{analyzing ? "En cours..." : "Relancer l'investigation"}</span>
-                      {!analyzing && <ArrowRight size={11} className="act-arrow" />}
+                    <button className="inv-act-btn" onClick={reinvestigateInv} disabled={reinvestigating}>
+                      {reinvestigating ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
+                      <span>{reinvestigating ? "En cours..." : "Relancer l'investigation"}</span>
+                      {!reinvestigating && <ArrowRight size={11} className="act-arrow" />}
                     </button>
                     <button className="inv-act-btn" onClick={() => setSuppressingIncident(true)}>
                       <Filter size={14} />
@@ -1457,32 +1505,8 @@ export default function InvestigatePage() {
                 </div>
               )}
 
-              {/* Actions card */}
-              <div className="inv-actions">
-                <div className="inv-actions-head">Decisions disponibles</div>
-                <div className="inv-actions-body">
-                  <button className="inv-act-btn primary" onClick={() => setShowReport(true)}>
-                    <Download size={14} />
-                    <span>Export</span>
-                    <ArrowRight size={11} style={{ marginLeft: "auto", color: "rgba(255,255,255,0.6)" }} />
-                  </button>
-                  <button className="inv-act-btn" onClick={triggerL1} disabled={analyzing}>
-                    {analyzing ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
-                    <span>{analyzing ? "Analyse en cours..." : "Analyser (L1)"}</span>
-                    {!analyzing && <ArrowRight size={11} className="act-arrow" />}
-                  </button>
-                  {enrichData && (
-                    <button className="inv-act-btn" onClick={() => setShowEnrich(v => !v)}>
-                      <Globe size={14} />
-                      <span>Enrichissement IP</span>
-                      <span className="act-arrow">{showEnrich ? "masquer" : "afficher"}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
               {/* IP Enrichment card */}
-              {enrichData && showEnrich && (
+              {enrichData && (
                 <div className="inv-enrich">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
@@ -1552,10 +1576,9 @@ export default function InvestigatePage() {
                 </div>
               )}
 
-              {/* HITL proposed actions */}
+              {/* HITL proposed actions — always visible */}
               {(() => {
                 const hitlActions = inc.proposed_actions?.actions?.filter(a => a.kind !== "manual") || [];
-                if (hitlActions.length === 0) return null;
                 const alreadyActed = !!inc.hitl_responded_at;
                 return (
                   <div className="inv-card">
@@ -1574,26 +1597,35 @@ export default function InvestigatePage() {
                       </div>
                     </div>
                     <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                      {hitlActions.map((act, i) => (
-                        <div key={i} style={{
-                          padding: "8px 10px",
-                          background: "var(--tc-surface-alt)",
-                          border: "1px solid var(--tc-border)",
+                      {hitlActions.length === 0 ? (
+                        <div style={{
+                          fontSize: 11, color: "var(--tc-text-muted)", fontStyle: "italic",
+                          padding: "4px 0",
                         }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                            <span style={{
-                              fontSize: 9, fontWeight: 700, padding: "1px 5px",
-                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                              background: "rgba(255,96,48,0.1)", color: "#ff6030",
-                              border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
-                            }}>{act.kind}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: "var(--tc-text-sec)", lineHeight: 1.4, marginBottom: 6 }}>
-                            {act.description}
-                          </div>
+                          Aucune action proposee pour cette attaque.
                         </div>
-                      ))}
-                      {!alreadyActed && (
+                      ) : (
+                        hitlActions.map((act, i) => (
+                          <div key={i} style={{
+                            padding: "8px 10px",
+                            background: "var(--tc-surface-alt)",
+                            border: "1px solid var(--tc-border)",
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "1px 5px",
+                                fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                background: "rgba(255,96,48,0.1)", color: "#ff6030",
+                                border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
+                              }}>{act.kind}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--tc-text-sec)", lineHeight: 1.4, marginBottom: 6 }}>
+                              {act.description}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      {hitlActions.length > 0 && !alreadyActed && (
                         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                           <button
                             onClick={() => handleHitl("approve")}

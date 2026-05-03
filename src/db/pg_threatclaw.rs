@@ -3073,6 +3073,21 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
+    async fn bulk_archive_stale_pending(&self, hours: i64) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let count = conn
+            .execute(
+                "UPDATE incidents SET status = 'archived', updated_at = NOW() \
+                 WHERE status = 'open' \
+                   AND verdict = 'pending' \
+                   AND created_at < NOW() - ($1 * INTERVAL '1 hour')",
+                &[&hours],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(count as i64)
+    }
+
     async fn list_confirmed_unenriched_incidents(
         &self,
     ) -> Result<Vec<serde_json::Value>, DatabaseError> {
@@ -3845,6 +3860,77 @@ impl ThreatClawStore for PgBackend {
                     .unwrap_or_default(),
                 raw_output: r.get("raw_output"),
                 created_at: r.get("created_at"),
+            })
+            .collect())
+    }
+
+    async fn get_sigma_alerts_by_ids(
+        &self,
+        ids: &[i32],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, title, level, hostname, username, host(source_ip)::text, \
+                 matched_at, matched_fields \
+                 FROM sigma_alerts WHERE id = ANY($1) ORDER BY matched_at ASC",
+                &[&ids],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let matched_at: chrono::DateTime<chrono::Utc> = r.get(6);
+                serde_json::json!({
+                    "kind": "alert",
+                    "id": r.get::<_, i32>(0),
+                    "title": r.get::<_, String>(1),
+                    "level": r.get::<_, String>(2),
+                    "hostname": r.get::<_, Option<String>>(3),
+                    "username": r.get::<_, Option<String>>(4),
+                    "source_ip": r.get::<_, Option<String>>(5),
+                    "ts": matched_at.to_rfc3339(),
+                    "matched_fields": r.try_get::<_, serde_json::Value>(7).unwrap_or(serde_json::json!({})),
+                })
+            })
+            .collect())
+    }
+
+    async fn get_findings_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, title, severity, asset, description, detected_at, metadata \
+                 FROM findings WHERE id = ANY($1) ORDER BY detected_at ASC",
+                &[&ids],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let detected_at: chrono::DateTime<chrono::Utc> = r.get(5);
+                serde_json::json!({
+                    "kind": "finding",
+                    "id": r.get::<_, i64>(0),
+                    "title": r.get::<_, String>(1),
+                    "level": r.get::<_, String>(2),
+                    "hostname": r.get::<_, Option<String>>(3),
+                    "username": Option::<String>::None,
+                    "source_ip": Option::<String>::None,
+                    "ts": detected_at.to_rfc3339(),
+                    "matched_fields": r.try_get::<_, serde_json::Value>(6).unwrap_or(serde_json::json!({})),
+                })
             })
             .collect())
     }

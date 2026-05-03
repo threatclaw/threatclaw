@@ -70,6 +70,8 @@ export default function DashTest() {
   const [situation, setSituation] = useState<Situation | null>(null);
   const [alertsTotal, setAlertsTotal] = useState<number>(0);
   const [now, setNow] = useState(new Date());
+  const [archiving, setArchiving] = useState(false);
+  const [archiveResult, setArchiveResult] = useState<number | null>(null);
 
   // Wall clock tick for relative timestamps + cycle countdown
   useEffect(() => {
@@ -112,6 +114,19 @@ export default function DashTest() {
     openCritical ||
     pending.sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0] ||
     null;
+
+  async function bulkArchiveStale() {
+    setArchiving(true);
+    try {
+      const r = await fetch("/api/tc/incidents/bulk-archive-stale", { method: "POST" });
+      const d = await r.json();
+      setArchiveResult(d.archived ?? 0);
+      const incR = await fetch("/api/tc/incidents?limit=500").then((res) => res.json());
+      setIncidents(incR?.incidents ?? []);
+    } finally {
+      setArchiving(false);
+    }
+  }
 
   const triaged = pending.length + confirmed.length;
   const noisePct = alertsTotal > 0 ? (1 - triaged / alertsTotal) * 100 : null;
@@ -171,6 +186,9 @@ export default function DashTest() {
           noisePct={noisePct}
           activeIncident={activeIncident}
           now={now}
+          archiving={archiving}
+          archiveResult={archiveResult}
+          onBulkArchiveStale={bulkArchiveStale}
         />
       </main>
 
@@ -590,7 +608,7 @@ function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
 
       <div style={{ padding: "10px 14px", display: "flex", gap: "8px", alignItems: "center", borderLeft: "1px solid var(--tc-border)" }}>
         <Link
-          href={`/incidents?id=${incident.id}`}
+          href={`/investigate/${incident.id}`}
           style={{
             padding: "7px 12px",
             border: "1px solid var(--tc-red)",
@@ -694,7 +712,7 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
                 {sev}
               </span>
               <Link
-                href={`/incidents?id=${i.id}`}
+                href={`/investigate/${i.id}`}
                 style={{ fontSize: "9px", color: "var(--tc-red)", textDecoration: "none", textAlign: "right", letterSpacing: "0.1em" }}
               >
                 ouvrir →
@@ -1052,6 +1070,9 @@ function RightAxis({
   noisePct,
   activeIncident,
   now,
+  archiving,
+  archiveResult,
+  onBulkArchiveStale,
 }: {
   pending: number;
   confirmed: number;
@@ -1059,6 +1080,9 @@ function RightAxis({
   noisePct: number | null;
   activeIncident: Incident | null;
   now: Date;
+  archiving: boolean;
+  archiveResult: number | null;
+  onBulkArchiveStale: () => void;
 }) {
   return (
     <aside
@@ -1147,6 +1171,41 @@ function RightAxis({
             <div>aucune décision en attente</div>
           </div>
         )}
+
+        {/* Maintenance — visible only when a stale backlog is detected */}
+        {pending > 50 && (
+          <div style={{ padding: "14px 18px", borderTop: "1px solid var(--tc-border)" }}>
+            <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
+              Maintenance
+            </div>
+            <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px", lineHeight: 1.6 }}>
+              {pending} incidents en attente. Archiver les incidents sans décision &gt; 24h (reliquats pré-correction).
+            </div>
+            {archiveResult !== null && (
+              <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "8px" }}>
+                {archiveResult} incidents archivés.
+              </div>
+            )}
+            <button
+              onClick={onBulkArchiveStale}
+              disabled={archiving}
+              style={{
+                width: "100%",
+                padding: "7px 10px",
+                border: "1px solid var(--tc-border)",
+                color: archiving ? "var(--tc-text-muted)" : "var(--tc-text)",
+                background: "transparent",
+                cursor: archiving ? "wait" : "pointer",
+                fontSize: "10px",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontFamily: "inherit",
+              }}
+            >
+              {archiving ? "archivage..." : "purger l'arriéré"}
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -1167,7 +1226,7 @@ function ActiveIncidentHitl({ incident, now }: { incident: Incident; now: Date }
 
       <div style={{ display: "flex", gap: "8px" }}>
         <Link
-          href={`/incidents?id=${incident.id}`}
+          href={`/investigate/${incident.id}`}
           style={{
             flex: 1,
             padding: "8px 10px",
@@ -1180,7 +1239,7 @@ function ActiveIncidentHitl({ incident, now }: { incident: Incident; now: Date }
             textDecoration: "none",
           }}
         >
-          trier →
+          ouvrir →
         </Link>
       </div>
 
