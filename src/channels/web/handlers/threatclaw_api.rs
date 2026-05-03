@@ -4886,6 +4886,25 @@ pub async fn alerts_archive_resolved_handler(
     Ok(Json(serde_json::json!({ "archived": count })))
 }
 
+/// POST /api/tc/incidents/bulk-archive-stale — archive open+pending incidents older than 24h.
+/// Used by the RSSI to flush pre-fix artifact backlogs without touching recent incidents.
+pub async fn incidents_bulk_archive_stale_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let count = store.bulk_archive_stale_pending(24).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("bulk archive failed: {e}"),
+        )
+    })?;
+    tracing::info!(
+        "BULK-ARCHIVE-STALE: {} incidents archived (>24h open+pending)",
+        count
+    );
+    Ok(Json(serde_json::json!({ "archived": count })))
+}
+
 /// POST /api/tc/incidents/{id}/execute-action — execute a proposed action on an incident.
 /// Body: {"action": "block_ip"|"create_ticket"|"disable_account"|"kill_states"|"reset_password"|"manual"}
 /// Routes to the remediation engine, which validates via remediation_guard.
@@ -8721,6 +8740,45 @@ pub async fn incident_full_handler(
         .map_err(db_err)
         .unwrap_or_default();
 
+    // 7. Attack events — sigma alerts + findings that triggered this incident,
+    //    sorted chronologically to reconstruct the attack timeline.
+    let attack_events: Vec<serde_json::Value> = {
+        let alert_ids: Vec<i32> = incident["alert_ids"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_i64().map(|n| n as i32))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let finding_ids: Vec<i64> = incident["finding_ids"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+            .unwrap_or_default();
+
+        let mut events: Vec<serde_json::Value> = vec![];
+
+        let alert_events = store
+            .get_sigma_alerts_by_ids(&alert_ids)
+            .await
+            .unwrap_or_default();
+        events.extend(alert_events);
+
+        let finding_events = store
+            .get_findings_by_ids(&finding_ids)
+            .await
+            .unwrap_or_default();
+        events.extend(finding_events);
+
+        events.sort_by(|a, b| {
+            let ta = a["ts"].as_str().unwrap_or("");
+            let tb = b["ts"].as_str().unwrap_or("");
+            ta.cmp(tb)
+        });
+        events
+    };
+
     Ok(Json(serde_json::json!({
         "incident": incident,
         "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
@@ -8728,6 +8786,7 @@ pub async fn incident_full_handler(
         "ip_enrichment": ip_enrichment,
         "attack_paths": serde_json::to_value(&attack_paths).unwrap_or(serde_json::json!([])),
         "choke_points": serde_json::to_value(&choke_points).unwrap_or(serde_json::json!([])),
+        "attack_events": attack_events,
     })))
 }
 

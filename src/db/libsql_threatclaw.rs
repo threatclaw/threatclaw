@@ -474,6 +474,9 @@ impl ThreatClawStore for LibSqlBackend {
     async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }
+    async fn bulk_archive_stale_pending(&self, _hours: i64) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
     async fn purge_old_archived(&self, _: i32) -> Result<(i64, i64), DatabaseError> {
         Err(not_supported())
     }
@@ -593,5 +596,19 @@ impl ThreatClawStore for LibSqlBackend {
 
     async fn count_attack_paths_for_asset(&self, _: &str) -> Result<u32, DatabaseError> {
         Ok(0)
+    }
+
+    async fn get_sigma_alerts_by_ids(
+        &self,
+        _: &[i32],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn get_findings_by_ids(
+        &self,
+        _: &[i64],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Ok(vec![])
     }
 }

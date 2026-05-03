@@ -1244,6 +1244,10 @@ pub trait ThreatClawStore: Send + Sync {
     /// Returns the number of rows archived. Reversible — archived rows stay in DB.
     async fn archive_resolved_incidents(&self) -> Result<i64, DatabaseError>;
 
+    /// Archive open+pending incidents older than `hours` hours.
+    /// Used to flush pre-fix artifacts that accumulated before the CACAO graph fix.
+    async fn bulk_archive_stale_pending(&self, hours: i64) -> Result<i64, DatabaseError>;
+
     /// Archive all sigma alerts with status 'acknowledged' or 'resolved'.
     /// Returns the number of rows archived.
     async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError>;
@@ -1370,6 +1374,20 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// All analyses for an incident, newest first.
     async fn get_ai_analyses(&self, incident_id: i32) -> Result<Vec<AiAnalysis>, DatabaseError>;
+
+    /// Fetch sigma alerts by IDs for the attack timeline. Returns rows ordered
+    /// by matched_at ASC. Missing IDs are silently skipped.
+    async fn get_sigma_alerts_by_ids(
+        &self,
+        ids: &[i32],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Fetch findings by IDs for the attack timeline. Returns rows ordered
+    /// by detected_at ASC. Missing IDs are silently skipped.
+    async fn get_findings_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 }
 
 /// Phase G4 — filtre côté list_graph_executions.

@@ -755,6 +755,10 @@ pub async fn start_server(
             "/api/tc/alerts/archive-resolved",
             post(super::handlers::threatclaw_api::alerts_archive_resolved_handler),
         )
+        .route(
+            "/api/tc/incidents/bulk-archive-stale",
+            post(super::handlers::threatclaw_api::incidents_bulk_archive_stale_handler),
+        )
         // Incident V1 — execute action + RSSI note + reinvestigate
         .route(
             "/api/tc/incidents/{id}/execute-action",
