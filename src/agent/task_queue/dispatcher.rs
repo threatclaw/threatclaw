@@ -229,9 +229,7 @@ async fn build_ctx_from_dossier(store: &Arc<dyn Database>, dossier: &IncidentDos
             .firewall_events_for_ip(&dossier.primary_asset, since, 200)
             .await
         {
-            Ok(events) => {
-                !events.is_empty() && events.iter().all(|e| e.action == "block")
-            }
+            Ok(events) => !events.is_empty() && events.iter().all(|e| e.action == "block"),
             _ => false,
         }
     };
