@@ -196,7 +196,7 @@ base64 = "0.22.1"
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto", "use_pem"] }  # PS256 client assertion for Microsoft Graph certificate auth (CVE-2026-25537 fix)
 mime_guess = "2.0.5"
 clap_complete = "4.6.0"
-lru = "0.16.3"
+lru = "0.18.0"
 
 # HTML to Markdown conversion (feature gated)
 html-to-markdown-rs = { version = "2.3", optional = true }
