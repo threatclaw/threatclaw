@@ -2740,36 +2740,43 @@ pub fn spawn_intelligence_ticker(
                                 _ => format!("{:?}", situation.notification_level).to_uppercase(),
                             });
 
-                        // Rule G — perimeter-mitigated: pure ML dossier (zero sigma alerts)
-                        // where every known firewall event for the asset in the last 7 days
-                        // is a block. The threat is already handled at the perimeter; cap at
-                        // MEDIUM so the RSSI is not paged on already-neutralised traffic.
-                        let incident_severity = if dossier.sigma_alerts.is_empty()
-                            && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
-                        {
+                        // Perimeter-mitigation check (Rule G).
+                        // Query firewall events once — result drives both the severity cap
+                        // and the investigation-spawn suppression below.
+                        let is_perimeter_mitigated = dossier.sigma_alerts.is_empty() && {
                             let since = chrono::Utc::now() - chrono::Duration::days(7);
                             match store
                                 .firewall_events_for_ip(&worst_asset.asset, since, 200)
                                 .await
                             {
-                                Ok(ref events)
+                                Ok(events)
                                     if !events.is_empty()
                                         && events.iter().all(|e| e.action == "block") =>
                                 {
                                     tracing::info!(
                                         asset = %worst_asset.asset,
                                         events = events.len(),
-                                        "INTELLIGENCE: perimeter-mitigated — all firewall \
-                                         events are blocks, capping {} → MEDIUM",
-                                        incident_severity
+                                        "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
                                     );
-                                    "MEDIUM".to_string()
+                                    true
                                 }
-                                _ => incident_severity,
+                                _ => false,
                             }
-                        } else {
-                            incident_severity
                         };
+                        // Rule G — cap severity for perimeter-mitigated dossiers.
+                        let incident_severity =
+                            if is_perimeter_mitigated
+                                && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
+                            {
+                                tracing::info!(
+                                    asset = %worst_asset.asset,
+                                    "INTELLIGENCE: Rule G — capping {} → MEDIUM",
+                                    incident_severity
+                                );
+                                "MEDIUM".to_string()
+                            } else {
+                                incident_severity
+                            };
 
                         // Deduplicate: if an open incident exists for this asset within the last 4h,
                         // touch it (update alert_count + updated_at) instead of creating a duplicate.
@@ -2849,7 +2856,19 @@ pub fn spawn_intelligence_ticker(
                         };
 
                         let dossier_id = dossier.id;
-                        if registry.try_register(&worst_asset.asset, dossier_id).await {
+                        if is_perimeter_mitigated {
+                            // Threat is already neutralised at the perimeter.
+                            // Auto-archive the incident so it appears in the dashboard
+                            // with context, but suppress the LLM investigation entirely.
+                            let _ = store
+                                .update_incident_status(incident_id, "archived")
+                                .await;
+                            tracing::info!(
+                                "INTELLIGENCE: perimeter-mitigated — incident #{} \
+                                 auto-archived, LLM investigation suppressed",
+                                incident_id
+                            );
+                        } else if registry.try_register(&worst_asset.asset, dossier_id).await {
                             let store_inv = store.clone();
                             let asset_name = worst_asset.asset.clone();
                             let registry_ref = crate::agent::investigation::get_registry();
