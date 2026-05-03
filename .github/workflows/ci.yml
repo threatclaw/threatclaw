@@ -33,7 +33,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libssl-dev libpq-dev protobuf-compiler nmap
+            libssl-dev libpq-dev protobuf-compiler libprotobuf-dev nmap
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
