@@ -2747,8 +2747,7 @@ pub fn spawn_intelligence_ticker(
                         let incident_severity = if dossier.sigma_alerts.is_empty()
                             && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
                         {
-                            let since =
-                                chrono::Utc::now() - chrono::Duration::days(7);
+                            let since = chrono::Utc::now() - chrono::Duration::days(7);
                             match store
                                 .firewall_events_for_ip(&worst_asset.asset, since, 200)
                                 .await
