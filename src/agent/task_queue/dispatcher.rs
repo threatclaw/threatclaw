@@ -139,16 +139,24 @@ fn pick_dominant_sigma_rule(dossier: &IncidentDossier) -> Option<String> {
             return Some(alert.rule_id.clone());
         }
     }
+    // Explicit sigma_rule / rule_id in finding metadata (highest fidelity)
+    if let Some(rule) = dossier.findings.iter().find_map(|f| {
+        f.metadata
+            .get("sigma_rule")
+            .or_else(|| f.metadata.get("rule_id"))
+            .and_then(Value::as_str)
+            .map(String::from)
+    }) {
+        return Some(rule);
+    }
+    // Fallback to skill_id — lets CACAO graphs target ML skill outputs directly
+    // (e.g. `trigger: sigma_rule: ml-anomaly-detector`) without requiring the
+    // Python ML engine to embed a sigma_rule field in every finding.
     dossier
         .findings
-        .iter()
-        .find_map(|f| {
-            f.metadata
-                .get("sigma_rule")
-                .or_else(|| f.metadata.get("rule_id"))
-                .and_then(Value::as_str)
-        })
-        .map(String::from)
+        .first()
+        .map(|f| f.skill_id.clone())
+        .filter(|s| !s.is_empty())
 }
 
 /// Construit le payload `ctx` que le `graph_step_worker` injectera dans
@@ -212,6 +220,22 @@ async fn build_ctx_from_dossier(store: &Arc<dyn Database>, dossier: &IncidentDos
         .await
         .unwrap_or(0);
 
+    // Perimeter-mitigated signal: true when the asset has firewall events in
+    // the last 7 days AND every one of them is a block. Used by the
+    // ml-anomaly-perimeter-blocked graph to short-circuit LLM dispatch.
+    let all_fw_blocked = {
+        let since = chrono::Utc::now() - chrono::Duration::days(7);
+        match store
+            .firewall_events_for_ip(&dossier.primary_asset, since, 200)
+            .await
+        {
+            Ok(events) => {
+                !events.is_empty() && events.iter().all(|e| e.action == "block")
+            }
+            _ => false,
+        }
+    };
+
     // Graph context — Phase C2. Quand `graph_context` est `Some`, l'asset
     // a été résolu dans le graph AGE — on a criticality, lateral_paths,
     // CVE liées, users récents.
@@ -253,6 +277,7 @@ async fn build_ctx_from_dossier(store: &Arc<dyn Database>, dossier: &IncidentDos
             "is_service_acct": compute_is_service_acct(dossier),
             "is_admin": compute_is_admin(dossier),
             "hour_of_day": chrono::Utc::now().hour() as i64,
+            "all_fw_blocked": all_fw_blocked,
         },
         "graph": {
             "asset_in_graph": asset_in_graph,
