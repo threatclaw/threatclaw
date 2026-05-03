@@ -41,7 +41,7 @@ jobs:
         run: cargo test --test grounding_benchmark benchmark_emit_report -- --ignored --nocapture
 
       - name: Upload report artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: grounding-benchmark-report
           path: eval/latest-benchmark-report.json
