@@ -2739,6 +2739,38 @@ pub fn spawn_intelligence_ticker(
                                 _ => format!("{:?}", situation.notification_level).to_uppercase(),
                             });
 
+                        // Rule G — perimeter-mitigated: pure ML dossier (zero sigma alerts)
+                        // where every known firewall event for the asset in the last 7 days
+                        // is a block. The threat is already handled at the perimeter; cap at
+                        // MEDIUM so the RSSI is not paged on already-neutralised traffic.
+                        let incident_severity = if dossier.sigma_alerts.is_empty()
+                            && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
+                        {
+                            let since =
+                                chrono::Utc::now() - chrono::Duration::days(7);
+                            match store
+                                .firewall_events_for_ip(&worst_asset.asset, since, 200)
+                                .await
+                            {
+                                Ok(ref events)
+                                    if !events.is_empty()
+                                        && events.iter().all(|e| e.action == "block") =>
+                                {
+                                    tracing::info!(
+                                        asset = %worst_asset.asset,
+                                        events = events.len(),
+                                        "INTELLIGENCE: perimeter-mitigated — all firewall \
+                                         events are blocks, capping {} → MEDIUM",
+                                        incident_severity
+                                    );
+                                    "MEDIUM".to_string()
+                                }
+                                _ => incident_severity,
+                            }
+                        } else {
+                            incident_severity
+                        };
+
                         // Deduplicate: if an open incident exists for this asset within the last 4h,
                         // touch it (update alert_count + updated_at) instead of creating a duplicate.
                         // Prevents Telegram spam when a recurring pattern keeps firing.

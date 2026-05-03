@@ -1,0 +1,62 @@
+spec_version: cacao-2.0
+name: ml-anomaly-perimeter-blocked
+description: |
+  ML behavioral anomaly (Isolation Forest / DBSCAN) on an asset where the
+  firewall has blocked 100% of the observed traffic in the last 7 days and
+  there is no corroborating sigma alert.
+
+  Decision tree:
+  1. No sigma alert in the dossier (pure ML signal) → continue
+  2. All firewall events for this asset are blocks (signals.all_fw_blocked)
+     → the threat is already neutralised at the perimeter
+  3. Asset is not a known internal node (graph.asset_in_graph == false)
+     → not a lateral-movement risk from a compromised internal host
+
+  All three conditions true → archive, no incident created, no LLM call.
+  Any condition false → route to LLM for full investigation.
+
+  Trigger: matches dossiers produced by the ml-anomaly-detector skill
+  (skill_id fallback in pick_dominant_sigma_rule).
+
+trigger:
+  sigma_rule: ml-anomaly-detector
+
+steps:
+  start:
+    type: start
+    on_completion: check_sigma_clean
+
+  check_sigma_clean:
+    type: if-condition
+    condition: "dossier.alerts_count == 0"
+    on_true: check_perimeter_blocked
+    on_false: route_llm
+
+  check_perimeter_blocked:
+    type: if-condition
+    condition: "signals.all_fw_blocked == true"
+    on_true: check_external
+    on_false: route_llm
+
+  check_external:
+    type: if-condition
+    condition: "!graph.asset_in_graph"
+    on_true: archive_mitigated
+    on_false: route_llm
+
+  archive_mitigated:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "perimeter-mitigated — firewall blocking 100% of traffic, no sigma alert, external IP"
+    on_completion: terminal
+
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+
+  terminal:
+    type: end
