@@ -576,6 +576,7 @@ async fn build_dossier_from_situation(
             severity: f.severity.clone(),
             asset: f.asset.clone(),
             source: f.source.clone(),
+            skill_id: Some(f.skill_id.clone()),
             metadata: f.metadata.clone(),
             detected_at: chrono::DateTime::parse_from_rfc3339(&f.detected_at)
                 .map(|dt| dt.with_timezone(&chrono::Utc))

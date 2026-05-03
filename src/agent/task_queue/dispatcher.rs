@@ -155,8 +155,9 @@ fn pick_dominant_sigma_rule(dossier: &IncidentDossier) -> Option<String> {
     dossier
         .findings
         .first()
-        .map(|f| f.skill_id.clone())
+        .and_then(|f| f.skill_id.as_deref())
         .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Construit le payload `ctx` que le `graph_step_worker` injectera dans

@@ -150,6 +150,7 @@ mod tests {
                     severity: "MEDIUM".into(),
                     asset: None,
                     source: None,
+                    skill_id: None,
                     metadata: serde_json::json!({}),
                     detected_at: Utc::now(),
                 })
