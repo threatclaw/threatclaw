@@ -8,7 +8,9 @@ import {
   AlertTriangle, Brain, CheckCircle2, Clock, Download,
   Globe, RefreshCw, Shield, Target, Zap, Link2, BarChart2,
   FileText, Siren, Lock, X, Loader2, ArrowRight,
+  MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft,
 } from "lucide-react";
+import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 
 // ─────────────────────────── types ───────────────────────────
 
@@ -70,6 +72,12 @@ interface AttackPath {
   hop_count: number;
 }
 
+interface IncidentNote {
+  text: string;
+  author: string;
+  at: string;
+}
+
 interface Incident {
   id: number;
   asset: string;
@@ -88,6 +96,7 @@ interface Incident {
   hitl_responded_at: string | null;
   created_at: string;
   resolved_at: string | null;
+  notes: IncidentNote[];
 }
 
 interface FullData {
@@ -411,6 +420,10 @@ export default function InvestigatePage() {
   const [showReport, setShowReport] = useState(false);
   const [showEnrich, setShowEnrich] = useState(true);
   const [hitlExecuting, setHitlExecuting] = useState(false);
+  const [noteInput, setNoteInput] = useState("");
+  const [notePosting, setNotePosting] = useState(false);
+  const [confirmFp, setConfirmFp] = useState(false);
+  const [suppressingIncident, setSuppressingIncident] = useState(false);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -467,6 +480,43 @@ export default function InvestigatePage() {
       await load();
     } finally {
       setHitlExecuting(false);
+    }
+  };
+
+  const addNote = async (text: string) => {
+    if (!text.trim()) return;
+    setNotePosting(true);
+    try {
+      await fetch(`/api/tc/incidents/${incidentId}/note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text.trim(), author: "dashboard" }),
+      });
+      setNoteInput("");
+      await load();
+    } catch {}
+    setNotePosting(false);
+  };
+
+  const markFalsePositive = async () => {
+    await fetch(`/api/tc/incidents/${incidentId}/hitl`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ response: "false_positive", responded_by: "dashboard" }),
+    });
+    setConfirmFp(false);
+    await load();
+  };
+
+  const archiveIncident = async () => {
+    await fetch(`/api/tc/incidents/${incidentId}/archive`, { method: "POST" });
+    router.push("/incidents");
+  };
+
+  const reinvestigateInv = async () => {
+    const res = await fetch(`/api/tc/incidents/${incidentId}/reinvestigate`, { method: "POST" });
+    if (res.ok) {
+      await load();
     }
   };
 
@@ -1006,8 +1056,12 @@ export default function InvestigatePage() {
           )}
         </div>
 
-        {/* Top action bar — refresh only, main actions live in the sidebar */}
+        {/* Top action bar */}
         <div className="inv-topbar">
+          <button className="inv-ghost-btn" onClick={() => router.push("/incidents")} style={{ marginRight: "auto" }}>
+            <ArrowLeft size={11} />
+            Incidents
+          </button>
           {inc?.status === "open" && (
             <span style={{ fontSize: 10, color: statusColor, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
               <span className="inv-live-dot" style={{ background: statusColor }} />
@@ -1374,6 +1428,35 @@ export default function InvestigatePage() {
 
             {/* RIGHT COLUMN */}
             <aside className="inv-right">
+              {/* RSSI decisions */}
+              {inc && inc.status !== "archived" && (
+                <div className="inv-actions">
+                  <div className="inv-actions-head">Decisions RSSI</div>
+                  <div className="inv-actions-body">
+                    <button className="inv-act-btn" onClick={() => setConfirmFp(true)}>
+                      <XCircle size={14} />
+                      <span>Marquer faux positif</span>
+                      <ArrowRight size={11} className="act-arrow" />
+                    </button>
+                    <button className="inv-act-btn" onClick={reinvestigateInv} disabled={analyzing}>
+                      {analyzing ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
+                      <span>{analyzing ? "En cours..." : "Relancer l'investigation"}</span>
+                      {!analyzing && <ArrowRight size={11} className="act-arrow" />}
+                    </button>
+                    <button className="inv-act-btn" onClick={() => setSuppressingIncident(true)}>
+                      <Filter size={14} />
+                      <span>Ignorer ce pattern</span>
+                      <ArrowRight size={11} className="act-arrow" />
+                    </button>
+                    <button className="inv-act-btn" onClick={archiveIncident}>
+                      <Archive size={14} />
+                      <span>Archiver</span>
+                      <ArrowRight size={11} className="act-arrow" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Actions card */}
               <div className="inv-actions">
                 <div className="inv-actions-head">Decisions disponibles</div>
@@ -1558,6 +1641,57 @@ export default function InvestigatePage() {
                 );
               })()}
 
+              {/* Notes & historique */}
+              <div className="inv-actions">
+                <div className="inv-actions-head">
+                  <MessageSquare size={11} style={{ display: "inline", marginRight: 5 }} />
+                  Notes & historique
+                </div>
+                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                  {inc && inc.notes && inc.notes.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, maxHeight: 220, overflowY: "auto" }}>
+                      {inc.notes.map((n, i) => (
+                        <div key={i} style={{ padding: "6px 8px", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", fontSize: 11 }}>
+                          <div style={{ color: "var(--tc-text)", marginBottom: 2, lineHeight: 1.5 }}>{n.text}</div>
+                          <div style={{ color: "var(--tc-text-muted)", fontSize: 9, fontFamily: "ui-monospace,'JetBrains Mono',monospace" }}>
+                            {n.author} · {new Date(n.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "var(--tc-text-muted)", fontStyle: "italic", marginBottom: 8 }}>Aucune note.</div>
+                  )}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="text"
+                      value={noteInput}
+                      onChange={e => setNoteInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addNote(noteInput); }}
+                      placeholder="Ajouter une note..."
+                      style={{
+                        flex: 1, padding: "6px 8px", fontSize: 11,
+                        fontFamily: "ui-monospace,'JetBrains Mono',monospace",
+                        background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                        color: "var(--tc-text)", outline: "none",
+                      }}
+                    />
+                    <button
+                      onClick={() => addNote(noteInput)}
+                      disabled={notePosting || !noteInput.trim()}
+                      style={{
+                        padding: "6px 10px", background: "var(--tc-red)", color: "#fff",
+                        border: "none", cursor: noteInput.trim() ? "pointer" : "not-allowed",
+                        opacity: noteInput.trim() ? 1 : 0.5,
+                        display: "flex", alignItems: "center",
+                      }}
+                    >
+                      {notePosting ? <RefreshCw size={11} className="inv-spin" /> : <Send size={11} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Audit note */}
               <div className="inv-audit">
                 Decisions tracees · ISO 27001 A.16 · NIS2 Art.23
@@ -1575,6 +1709,35 @@ export default function InvestigatePage() {
           </div>
         )}
       </div>
+
+      {suppressingIncident && inc && (
+        <SuppressionWizard
+          incident={{ id: inc.id, asset: inc.asset, title: inc.title, severity: inc.severity, mitre_techniques: inc.mitre_techniques, evidence_citations: inc.evidence_citations }}
+          locale={locale}
+          onClose={() => setSuppressingIncident(false)}
+          onCreated={() => { setSuppressingIncident(false); load(); }}
+        />
+      )}
+
+      {confirmFp && inc && (
+        <div onClick={() => setConfirmFp(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ maxWidth: 460, width: "90%", background: "var(--tc-surface)", border: "1px solid var(--tc-border)", padding: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "ui-monospace,'JetBrains Mono',monospace", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>
+              Marquer faux positif ?
+            </div>
+            <p style={{ fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: 16 }}>
+              Cela classe l&apos;incident #{inc.id} en faux positif et le déplace dans les archives. L&apos;asset reste surveillé.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmFp(false)} className="inv-ghost-btn">Annuler</button>
+              <button onClick={markFalsePositive} className="inv-primary-btn">
+                <XCircle size={12} />
+                Confirmer faux positif
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Report modal */}
       {showReport && inc && (

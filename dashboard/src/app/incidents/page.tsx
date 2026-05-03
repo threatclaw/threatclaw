@@ -12,7 +12,7 @@ import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
 import {
   AlertTriangle, Shield, Bell, ChevronDown, RefreshCw, CheckCircle2, XCircle,
-  Clock, Search, X, FileText, Eye, Zap, Ban, MessageSquare, Ticket, UserX, Send, Brain, Filter,
+  Clock, Search, X, FileText, Eye, Zap, Ban, Ticket, UserX, Brain, Filter,
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
@@ -150,87 +150,6 @@ function splitTitle(raw: string | null): { title: string; description: string | 
   };
 }
 
-// Recommandations rules-based pour un incident dont l'IA n'a pas
-// proposé d'action HITL automatisable. Distingue deux choses :
-//
-//  - `actions` : recommandations qui correspondent à un skill actionnable
-//    (ex. opnsense_block_ip). Elles passent par le MÊME chemin HITL que
-//    les actions produites par l'IA — boutons rouge dans "Que faire
-//    maintenant", confirmation dialog, license check, audit. Si le skill
-//    n'est pas installé, le backend rejette l'exec avec un message clair.
-//
-//  - `manual` : recommandations purement humaines (reviewer findings,
-//    documenter décision). Pas de bouton — juste une checklist.
-//
-// Pas de LLM call — c'est rules-based.
-function generateRecommendedActions(inc: Incident, locale: string): {
-  actions: IncidentAction[];
-  manual: string[];
-} {
-  const actions: IncidentAction[] = [];
-  const manual: string[] = [];
-  const sev = inc.severity || "MEDIUM";
-  const asset = inc.asset || "";
-  const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(asset);
-  const isRfc1918 = isIp && (
-    asset.startsWith("10.") ||
-    asset.startsWith("192.168.") ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(asset) ||
-    asset.startsWith("127.")
-  );
-  const isPublicIp = isIp && !isRfc1918;
-  const isHigh = sev === "CRITICAL" || sev === "HIGH";
-  const fr = locale === "fr";
-
-  if (isHigh && isPublicIp) {
-    actions.push({
-      kind: "opnsense_block_ip",
-      description: fr ? `Bloquer ${asset} au firewall OPNsense` : `Block ${asset} at OPNsense firewall`,
-    });
-    actions.push({
-      kind: "fortinet_block_ip",
-      description: fr ? `Bloquer ${asset} au firewall Fortinet` : `Block ${asset} at Fortinet firewall`,
-    });
-  } else if (isHigh && isIp) {
-    actions.push({
-      kind: "velociraptor_isolate_host",
-      description: fr ? `Isoler ${asset} du réseau via Velociraptor` : `Isolate ${asset} from network via Velociraptor`,
-    });
-    actions.push({
-      kind: "velociraptor_collect_artifacts",
-      description: fr ? `Collecter les artefacts forensiques de ${asset}` : `Collect forensic artifacts from ${asset}`,
-    });
-  } else if (isHigh) {
-    // Asset par hostname — on a souvent un user dans les findings, mais
-    // sans nom certain on suggère les actions sans cible précise. Le
-    // backend résoudra le username depuis le contexte de l'incident.
-    actions.push({
-      kind: "velociraptor_isolate_host",
-      description: fr ? `Isoler ${asset} (Velociraptor)` : `Isolate ${asset} (Velociraptor)`,
-    });
-    actions.push({
-      kind: "ad_disable_account",
-      description: fr ? "Désactiver le compte AD compromis" : "Disable compromised AD account",
-    });
-    actions.push({
-      kind: "ad_reset_password",
-      description: fr ? "Forcer le reset password du compte" : "Force account password reset",
-    });
-    manual.push(fr
-      ? "Vérifier les logs d'authentification récents sur cet asset"
-      : "Review recent authentication logs on this asset");
-  }
-
-  manual.push(fr
-    ? "Reviewer les findings et alertes liés (contexte ci-dessus)"
-    : "Review related findings and alerts (context above)");
-  manual.push(fr
-    ? "Documenter la décision RSSI dans une note pour traçabilité"
-    : "Document the CISO decision in a note for traceability");
-
-  return { actions, manual };
-}
-
 // Identifie la source du verdict pour distinguer une décision graph
 // déterministe (rapide, traçable) d'une investigation ReAct (LLM, plus
 // lente). Sprint 1 #2 : on lit la colonne `verdict_source` en DB. Pour les
@@ -290,7 +209,6 @@ function IncidentsTab({ locale }: { locale: string }) {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<number | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ incident: Incident; action: IncidentAction } | null>(null);
   const [suppressingIncident, setSuppressingIncident] = useState<Incident | null>(null);
   // Dialog de confirmation pour les décisions RSSI irréversibles (FP).
@@ -298,7 +216,6 @@ function IncidentsTab({ locale }: { locale: string }) {
   // propre flow de confirmation, donc pas besoin ici.
   const [confirmFp, setConfirmFp] = useState<Incident | null>(null);
   const [executing, setExecuting] = useState(false);
-  const [noteInput, setNoteInput] = useState<Record<number, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -333,15 +250,6 @@ function IncidentsTab({ locale }: { locale: string }) {
     }
   };
 
-  const archiveOne = async (id: number) => {
-    try {
-      await fetch(`/api/tc/incidents/${id}/archive`, { method: "POST" });
-      load();
-    } catch (e: any) {
-      alert("Erreur: " + e.message);
-    }
-  };
-
   const executeAction = async () => {
     if (!confirmAction) return;
     setExecuting(true);
@@ -366,21 +274,6 @@ function IncidentsTab({ locale }: { locale: string }) {
     setExecuting(false);
   };
 
-  const addNote = async (id: number) => {
-    const text = (noteInput[id] || "").trim();
-    if (!text) return;
-    try {
-      await fetch(`/api/tc/incidents/${id}/note`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, author: "dashboard" }),
-      });
-      setNoteInput(prev => ({ ...prev, [id]: "" }));
-      load();
-    } catch (e: any) {
-      alert("Erreur: " + e.message);
-    }
-  };
 
   const markFalsePositive = async (id: number) => {
     try {
@@ -836,7 +729,6 @@ function IncidentsTab({ locale }: { locale: string }) {
 
           <div className="inc-table-wrap">
             {filteredIncidents.map(inc => {
-              const isExpanded = expanded === inc.id;
               const badge = verdictBadge[inc.verdict] || verdictBadge.pending;
               const sevColor = severityColor[inc.severity || "MEDIUM"] || "#888";
               const split = splitTitle(inc.title);
@@ -854,7 +746,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                   className={`inc-row sev-${inc.severity || "MEDIUM"}`}
                 >
                   {/* Main row grid */}
-                  <div className="inc-grid" onClick={() => setExpanded(isExpanded ? null : inc.id)}>
+                  <div className="inc-grid" onClick={() => router.push(`/investigate/${inc.id}`)}>
                     {/* Col 1: severity */}
                     <div>
                       <span
@@ -925,288 +817,6 @@ function IncidentsTab({ locale }: { locale: string }) {
                     </div>
                   </div>
 
-                  {/* Expanded detail panel */}
-                  {isExpanded && (() => {
-                    const actions: IncidentAction[] = (inc.proposed_actions?.actions || []) as IncidentAction[];
-                    const iocs: string[] = (inc.proposed_actions?.iocs || []) as string[];
-                    const isOpen = inc.status !== "resolved" && inc.status !== "closed" && inc.status !== "archived";
-                    const aiActions = actions.filter(a => a.kind !== "manual");
-                    const recoBundle = aiActions.length === 0
-                      ? generateRecommendedActions(inc, locale)
-                      : { actions: [] as IncidentAction[], manual: [] as string[] };
-                    const executableActions = [...aiActions, ...recoBundle.actions];
-                    const recoSource: "ai" | "rules" = aiActions.length > 0 ? "ai" : "rules";
-                    return (
-                      <div className="inc-expanded">
-                        {/* Summary */}
-                        {(split.description || inc.summary) && (
-                          <div style={{ marginBottom: 14 }}>
-                            {split.description && (
-                              <div style={{
-                                fontSize: 13, lineHeight: 1.5, color: "var(--tc-text)",
-                                marginBottom: inc.summary ? 8 : 0, fontWeight: 500,
-                              }}>
-                                {split.description}
-                              </div>
-                            )}
-                            {inc.summary && (
-                              <div style={{
-                                fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-sec)",
-                                whiteSpace: "pre-wrap",
-                              }}>
-                                {inc.summary}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {!split.description && !inc.summary && (
-                          <div style={{
-                            marginBottom: 14, fontSize: 12,
-                            color: "var(--tc-text-muted)", fontStyle: "italic",
-                          }}>
-                            {locale === "fr"
-                              ? "Investigation en cours — pas encore de résumé disponible."
-                              : "Investigation in progress — no summary yet."}
-                          </div>
-                        )}
-
-                        {/* Executable actions */}
-                        {isOpen && executableActions.length > 0 && (
-                          <div style={{
-                            marginBottom: 16,
-                            padding: "12px 14px",
-                            background: "rgba(208,48,32,0.06)",
-                            border: "1px solid rgba(208,48,32,0.2)",
-                          }}>
-                            <div className="inc-exp-section-head" style={{ color: "#d03020" }}>
-                              <Zap size={11} />
-                              {locale === "fr" ? "Que faire maintenant" : "What to do now"}
-                            </div>
-                            {recoSource === "rules" && (
-                              <div style={{ fontSize: 10, color: "var(--tc-text-muted)", marginBottom: 10, fontStyle: "italic", fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                                {locale === "fr"
-                                  ? "Actions suggérées automatiquement. Chaque exécution passe par confirmation + license check."
-                                  : "Auto-suggested actions. Each execution goes through confirmation + license check."}
-                              </div>
-                            )}
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: recoSource === "ai" ? 6 : 0 }}>
-                              {executableActions.map((act, i) => (
-                                <button
-                                  key={i}
-                                  onClick={() => setConfirmAction({ incident: inc, action: act })}
-                                  className="inc-action-exec-btn"
-                                  title={act.description}
-                                >
-                                  {actionIcon(act.kind)}
-                                  <span style={{ flex: 1, textAlign: "left" }}>{act.description}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Manual checklist */}
-                        {isOpen && recoBundle.manual.length > 0 && (
-                          <div style={{
-                            marginBottom: 14, padding: "10px 12px",
-                            background: "var(--tc-surface)",
-                            border: "1px solid var(--tc-border)",
-                          }}>
-                            <div className="inc-exp-section-head">
-                              <CheckCircle2 size={10} />
-                              {locale === "fr" ? "À faire à la main" : "Manual checklist"}
-                            </div>
-                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
-                              {recoBundle.manual.map((r, i) => (
-                                <li key={i} style={{ marginBottom: 3 }}>{r}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* Blast Radius */}
-                        <BlastRadiusCard
-                          incidentId={inc.id}
-                          snapshot={inc.blast_radius_snapshot}
-                          score={inc.blast_radius_score}
-                          computedAt={inc.blast_radius_computed_at}
-                          locale={locale}
-                          onRecomputed={(fresh) => {
-                            setIncidents((prev) =>
-                              prev.map((p) =>
-                                p.id === inc.id
-                                  ? {
-                                      ...p,
-                                      blast_radius_snapshot: fresh,
-                                      blast_radius_score: fresh.score,
-                                      blast_radius_computed_at: new Date().toISOString(),
-                                    }
-                                  : p,
-                              ),
-                            );
-                          }}
-                        />
-
-                        {/* Context: IOCs + MITRE */}
-                        {(iocs.length > 0 || (inc.mitre_techniques && inc.mitre_techniques.length > 0)) && (
-                          <div style={{ marginBottom: 14, padding: "10px 12px", background: "var(--tc-surface)", border: "1px solid var(--tc-border)" }}>
-                            <div className="inc-exp-section-head">
-                              <Search size={10} />
-                              {locale === "fr" ? "Contexte" : "Context"}
-                            </div>
-                            {iocs.length > 0 && (
-                              <div style={{ marginBottom: 6, fontSize: 11 }}>
-                                <span style={{ color: "var(--tc-text-muted)", marginRight: 6, fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 10 }}>IOCs :</span>
-                                {iocs.map((ioc, i) => (
-                                  <span key={i} style={{ fontSize: 10, padding: "2px 6px", background: "rgba(208,48,32,0.12)", color: "#d03020", marginRight: 4, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>{ioc}</span>
-                                ))}
-                              </div>
-                            )}
-                            {inc.mitre_techniques && inc.mitre_techniques.length > 0 && (
-                              <div style={{ fontSize: 11 }}>
-                                <span style={{ color: "var(--tc-text-muted)", marginRight: 6, fontFamily: "ui-monospace, 'JetBrains Mono', monospace", fontSize: 10 }}>MITRE :</span>
-                                {inc.mitre_techniques.map(t => (
-                                  <span key={t} style={{ fontSize: 10, padding: "2px 6px", background: "rgba(64,144,255,0.15)", color: "#4090ff", marginRight: 4, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>{t}</span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Manual/informational actions */}
-                        {isOpen && actions.length > executableActions.length && (
-                          <div style={{ marginBottom: 14 }}>
-                            <div className="inc-exp-section-head">
-                              <Search size={10} />
-                              {locale === "fr" ? "Actions manuelles suggérées" : "Suggested manual actions"}
-                            </div>
-                            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--tc-text-muted)" }}>
-                              {actions.filter(a => a.kind === "manual").map((act, i) => (
-                                <li key={i} style={{ marginBottom: 4 }}>{act.description}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* RSSI decisions */}
-                        {isOpen && (
-                          <div style={{ marginBottom: 14 }}>
-                            <div className="inc-exp-section-head">
-                              <CheckCircle2 size={10} />
-                              {locale === "fr" ? "Décision RSSI" : "CISO decision"}
-                            </div>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              <button
-                                className="inc-decision-btn"
-                                onClick={() => setConfirmFp(inc)}
-                                title={locale === "fr"
-                                  ? "Ferme l'incident et le classe en faux positif."
-                                  : "Closes the incident and classifies it as false positive."}
-                              >
-                                <XCircle size={11} />
-                                {locale === "fr" ? "Marquer faux positif" : "Mark false positive"}
-                              </button>
-                              <button
-                                className="inc-decision-btn"
-                                onClick={() => reinvestigate(inc.id)}
-                                title={locale === "fr"
-                                  ? "Relance l'investigation IA avec les données fraîches."
-                                  : "Re-runs AI investigation with fresh data."}
-                              >
-                                <Brain size={11} />
-                                {locale === "fr" ? "Relancer l'investigation" : "Re-investigate"}
-                              </button>
-                              <button
-                                className="inc-decision-btn"
-                                onClick={() => router.push(`/investigate/${inc.id}`)}
-                                style={{ color: "#4a9eff", borderColor: "rgba(74,158,255,0.35)", background: "rgba(74,158,255,0.1)" }}
-                                title={locale === "fr"
-                                  ? "Ouvre le dossier d'investigation complet."
-                                  : "Opens the full investigation dossier."}
-                              >
-                                <FileText size={11} />
-                                {locale === "fr" ? "Ouvrir le rapport" : "Open report"}
-                              </button>
-                              <button
-                                className="inc-decision-btn"
-                                onClick={() => setSuppressingIncident(inc)}
-                                title={locale === "fr"
-                                  ? "Crée une règle de suppression pour ce pattern."
-                                  : "Creates a suppression rule for this pattern."}
-                              >
-                                <Filter size={11} />
-                                {locale === "fr" ? "Ignorer ce pattern" : "Ignore this pattern"}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Archive when resolved */}
-                        {!isOpen && inc.status !== "archived" && (
-                          <div style={{ marginBottom: 14 }}>
-                            <button className="inc-decision-btn" onClick={() => archiveOne(inc.id)}>
-                              <FileText size={11} />
-                              {locale === "fr" ? "Archiver" : "Archive"}
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Notes */}
-                        <div style={{ marginBottom: 8 }}>
-                          <div className="inc-exp-section-head">
-                            <MessageSquare size={10} />
-                            {locale === "fr" ? "Notes & historique" : "Notes & history"}
-                          </div>
-                          {inc.notes && inc.notes.length > 0 && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8, maxHeight: 200, overflowY: "auto" }}>
-                              {inc.notes.map((n, i) => (
-                                <div key={i} style={{ padding: "6px 10px", background: "var(--tc-surface)", border: "1px solid var(--tc-border)", fontSize: 11 }}>
-                                  <div style={{ color: "var(--tc-text)", marginBottom: 2 }}>{n.text}</div>
-                                  <div style={{ color: "var(--tc-text-muted)", fontSize: 9, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                                    {n.author} · {new Date(n.at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "short", timeStyle: "short" })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div style={{ display: "flex", gap: 6 }}>
-                            <input
-                              type="text"
-                              value={noteInput[inc.id] || ""}
-                              onChange={e => setNoteInput(prev => ({ ...prev, [inc.id]: e.target.value }))}
-                              onKeyDown={e => { if (e.key === "Enter") addNote(inc.id); }}
-                              placeholder={locale === "fr" ? "Ajouter une note..." : "Add a note..."}
-                              style={{
-                                flex: 1, padding: "6px 10px", fontSize: 11, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                                background: "var(--tc-input)", border: "1px solid var(--tc-border)",
-                                color: "var(--tc-text)",
-                              }}
-                            />
-                            <button
-                              onClick={() => addNote(inc.id)}
-                              disabled={!(noteInput[inc.id] || "").trim()}
-                              style={{
-                                padding: "6px 12px", fontSize: 11, fontWeight: 700, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                                cursor: (noteInput[inc.id] || "").trim() ? "pointer" : "not-allowed",
-                                background: "var(--tc-red)", color: "#fff", border: "none",
-                                display: "flex", alignItems: "center", gap: 4,
-                                opacity: (noteInput[inc.id] || "").trim() ? 1 : 0.5,
-                              }}
-                            >
-                              <Send size={11} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Legacy HITL response badge */}
-                        {inc.hitl_response && (
-                          <div style={{ marginTop: 8, fontSize: 10, color: "var(--tc-text-muted)", fontStyle: "italic", fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                            HITL: {inc.hitl_response} (via {inc.hitl_status})
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
                 </div>
               );
             })}
