@@ -3075,14 +3075,14 @@ impl ThreatClawStore for PgBackend {
 
     async fn bulk_archive_stale_pending(&self, hours: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let interval_str = format!("{} hours", hours);
+        let hours_i32 = hours.clamp(1, 24 * 365 * 10) as i32;
         let count = conn
             .execute(
                 "UPDATE incidents SET status = 'archived', updated_at = NOW() \
                  WHERE status = 'open' \
                    AND verdict = 'pending' \
-                   AND created_at < NOW() - $1::interval",
-                &[&interval_str],
+                   AND created_at < NOW() - make_interval(hours => $1)",
+                &[&hours_i32],
             )
             .await
             .map_err(query_err)?;
