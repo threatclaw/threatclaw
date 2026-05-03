@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.20-beta] — 2026-05-03
+
+### Added
+- Attack timeline on the incident report — alerts and findings shown in chronological order.
+- `POST /api/tc/incidents/bulk-archive-stale` — archive open+pending incidents older than 24h.
+- Perimeter-mitigated rule — drop dossiers whose evidence is fully blocked at the firewall.
+
+### Changed
+- Incident report page is the single triage destination — no more inline expansion.
+
+### Fixed
+- CI: install missing protobuf dev headers so the proto build stage succeeds in GitHub Actions.
+- Align version strings across the Cargo manifest, README badge and installer script.
+
 ## [1.0.19-beta] — 2026-05-03
 
 Investigation graphs now ship inside the release image and are downloaded automatically
