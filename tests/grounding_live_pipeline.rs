@@ -58,6 +58,7 @@ fn brute_force_dossier() -> IncidentDossier {
             severity: "HIGH".into(),
             asset: Some("srv-web-01".into()),
             source: Some("sshd".into()),
+            skill_id: None,
             metadata: serde_json::json!({"attempts": 13, "src_ip": "185.220.101.42"}),
             detected_at: Utc::now(),
         }],
