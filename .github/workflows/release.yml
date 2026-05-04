@@ -47,6 +47,9 @@ jobs:
           docker build -t "ghcr.io/threatclaw/dashboard:${VERSION}" \
                        -t ghcr.io/threatclaw/dashboard:latest \
                        -f dashboard/Dockerfile ./dashboard
+          # ml-engine: trains its DGA models from public sources (Tranco +
+          # synthetic DGA generation) inside the trainer stage, so no
+          # gitignored artefact is required at build time.
           docker build -t "ghcr.io/threatclaw/ml-engine:${VERSION}" \
                        -t ghcr.io/threatclaw/ml-engine:latest \
                        -f ml-engine/Dockerfile ./ml-engine

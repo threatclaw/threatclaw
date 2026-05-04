@@ -61,6 +61,9 @@ __pycache__/
 # ML models and training artifacts (generated, not committed)
 ml-engine/models/
 ml-engine/datasets/
+# `ml-engine/data/` (committed) holds the small fallback corpora the build
+# consumes when live sources are unreachable. Generated artifacts go to
+# `ml-engine/datasets/` instead — that one stays ignored.
 /tmp/ml-models/
 *.pkl
 *.onnx
