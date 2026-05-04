@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.22-beta] — 2026-05-04
+
+Major signal-to-noise rework. The console now stays quiet on a healthy
+infrastructure and only escalates events that touch monitored assets.
+
+### Changed
+- **Inventory gate**: incidents are escalated only when the asset matches a declared entry (`assets` table or `internal_networks` CIDR), with RFC1918 as a universal fallback. External IPs are kept as forensic findings but never spawn incidents.
+- **ML clustering and anomaly detection** now build their behavioural baseline from monitored assets only. Cluster membership is no longer polluted by Internet scanners.
+- IDS findings route to the destination asset when private; outbound flags from a private host still surface that host as the asset.
+
+### Fixed
+- L1 prompt no longer copies a hardcoded SSH brute-force example into unrelated incident titles.
+
+### Note
+- 1.0.21-beta is deprecated — its perimeter-mitigated bulk-archive query was inert. Skip directly to 1.0.22-beta.
+
 ## [1.0.21-beta] — 2026-05-04
 
 ### Changed
