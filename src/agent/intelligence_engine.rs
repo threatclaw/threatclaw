@@ -1670,6 +1670,32 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Inventory gate (situation level): drop external IPs from the asset
+    // list before building digest / alert / dashboard topAssets. Same rules
+    // as the incident-creation gate — only monitored assets surface to the
+    // RSSI. We fetch `internal_networks` once here and reuse it for every
+    // classification call.
+    let internal_networks_for_filter = store.list_internal_networks().await.unwrap_or_default();
+    let mut monitored_assets: Vec<AssetSituation> = Vec::with_capacity(assets.len());
+    let mut dropped_external = 0usize;
+    for asset in assets {
+        let scope =
+            classify_asset(store.as_ref(), &asset.asset, &internal_networks_for_filter).await;
+        if matches!(scope, AssetScope::Monitored(_)) {
+            monitored_assets.push(asset);
+        } else {
+            dropped_external += 1;
+        }
+    }
+    if dropped_external > 0 {
+        tracing::debug!(
+            "INTELLIGENCE: situation.assets — kept {} monitored, dropped {} external observations",
+            monitored_assets.len(),
+            dropped_external
+        );
+    }
+    let assets = monitored_assets;
+
     let digest_message =
         build_digest_message(&assets, global_score, findings.len(), alerts.len(), &lang);
     // Build graph intel summary

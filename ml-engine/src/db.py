@@ -80,6 +80,19 @@ def get_assets():
         conn.close()
 
 
+def get_internal_networks():
+    """Return the customer-declared internal CIDR list. Empty list when the
+    operator hasn't configured any — caller should fall back to RFC1918.
+    """
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT cidr, label, zone FROM internal_networks")
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
 def get_company_profile():
     """Get company profile for context."""
     conn = get_conn()

@@ -1,9 +1,69 @@
 """Feature extraction from PostgreSQL data for ML models."""
 
+import ipaddress
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta
 from . import db
+
+
+def _is_private_ipv4(s):
+    """True for RFC1918 / loopback / link-local IPv4. Mirrors the Rust
+    classifier in src/agent/intelligence_engine.rs. Used as a fallback when
+    the customer hasn't declared their own internal_networks yet.
+    """
+    try:
+        ip = ipaddress.ip_address(s)
+    except (ValueError, TypeError):
+        return False
+    return isinstance(ip, ipaddress.IPv4Address) and ip.is_private
+
+
+def _build_monitored_predicate(assets, internal_networks):
+    """Return a predicate ``is_monitored(asset_id) -> bool`` that mirrors the
+    Rust ``classify_asset`` doctrine. The pool of features fed into DBSCAN
+    must contain only assets the customer asked us to monitor — otherwise
+    the cluster baseline gets polluted by Internet scanners and every
+    legitimate internal host becomes an outlier.
+    """
+    declared_ids = set()
+    for a in assets:
+        if a.get("id"):
+            declared_ids.add(a["id"])
+        if a.get("hostname"):
+            declared_ids.add(a["hostname"])
+        for ip in (a.get("ip_addresses") or []):
+            declared_ids.add(ip)
+
+    declared_networks = []
+    for net in internal_networks or []:
+        cidr = net.get("cidr") if isinstance(net, dict) else net
+        if not cidr:
+            continue
+        try:
+            declared_networks.append(ipaddress.ip_network(cidr, strict=False))
+        except ValueError:
+            continue
+
+    def is_monitored(asset_id):
+        if not asset_id:
+            return False
+        if asset_id in declared_ids:
+            return True
+        # Try to parse as IPv4 for the network checks.
+        try:
+            ip = ipaddress.ip_address(asset_id)
+        except ValueError:
+            return False
+        # Customer-declared networks take precedence.
+        for net in declared_networks:
+            if ip in net:
+                return True
+        # RFC1918 fallback — keeps fresh installs working without the
+        # operator having to fill internal_networks immediately.
+        return _is_private_ipv4(asset_id)
+
+    return is_monitored
 
 
 def extract_asset_features(hours_back=24):
@@ -29,6 +89,14 @@ def extract_asset_features(hours_back=24):
     alerts = db.get_alerts(hours_back=hours_back)
     logs = db.get_logs(hours_back=hours_back)
     assets = db.get_assets()
+    try:
+        internal_networks = db.get_internal_networks()
+    except Exception:
+        internal_networks = []
+
+    # Inventory predicate — drops external IPs from the pool so the cluster
+    # baseline is built from monitored assets only.
+    is_monitored = _build_monitored_predicate(assets, internal_networks)
 
     # Build IP → asset mapping
     ip_to_asset = {}
@@ -50,7 +118,7 @@ def extract_asset_features(hours_back=24):
     for a in alerts:
         hostname = a.get("hostname") or ""
         asset_id = ip_to_asset.get(hostname, hostname)
-        if not asset_id:
+        if not asset_id or not is_monitored(asset_id):
             continue
 
         f = features[asset_id]
@@ -84,7 +152,7 @@ def extract_asset_features(hours_back=24):
     for log in logs:
         hostname = log.get("hostname") or ""
         asset_id = ip_to_asset.get(hostname, hostname)
-        if not asset_id:
+        if not asset_id or not is_monitored(asset_id):
             continue
 
         f = features[asset_id]
