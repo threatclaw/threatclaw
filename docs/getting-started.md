@@ -239,6 +239,56 @@ docker compose logs ollama | tail -20
 docker compose exec ollama ollama pull <model-name>
 ```
 
+## Endpoint Agents — inventory & CVE coverage
+
+The ThreatClaw Endpoint Agent is a lightweight read-only collector that
+reports each host's OS, software, listening ports, users, scheduled
+tasks and SSH keys to ThreatClaw every 5 minutes. It does **not**
+remediate anything on the machine — pure inventory.
+
+### Generate a webhook token
+
+In the dashboard, open **Setup → Endpoints**. The page shows the
+server URL clients should use, the webhook token, and one-line
+install commands for Linux/macOS and Windows. Both the URL and the
+token are copy-paste-ready.
+
+### Install on a Linux endpoint
+
+```bash
+curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- \
+  --url https://your-tc-server --token <WEBHOOK_TOKEN>
+```
+
+Supported : Debian 12+, Ubuntu 22.04+, RHEL 9+, Fedora, macOS (Homebrew).
+
+### Install on a Windows endpoint
+
+PowerShell as Administrator:
+
+```powershell
+$env:TC_URL='https://your-tc-server'
+$env:TC_TOKEN='<WEBHOOK_TOKEN>'
+irm https://get.threatclaw.io/agent/windows | iex
+```
+
+The installer creates a Scheduled Task that syncs every 5 minutes as SYSTEM.
+
+### Verify the agent registered
+
+The **Setup → Endpoints** page lists every registered agent with its
+hostname and last sync timestamp. Each agent's host then appears in
+**Inventaire → Assets** with its software, OS and a CVE finding for
+every package matched against public vulnerability feeds.
+
+## Declare critical assets
+
+Attack-path prediction only works once at least one asset is flagged
+as `critical`. From the dashboard, open **Inventaire → Assets**, click
+the asset (typically a domain controller, file server or production
+database) and set its criticality to `critical`. The next prediction
+cycle will compute paths from exposed entry points to that target.
+
 ## Next steps
 
 - [Configuration options](configuration.md) — All settings

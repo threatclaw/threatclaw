@@ -82,6 +82,48 @@ findings_days = 365     # Vulnerability findings
 audit_log = -1          # Never delete (legal requirement)
 ```
 
+## Inventory & monitored scope
+
+ThreatClaw escalates an event to an incident **only** when its asset
+matches the customer inventory. Out-of-scope events (random Internet
+scanners hitting the perimeter, threat actors hammering blocked ports,
+…) are kept as forensic findings but never reach the operator queue.
+The match works in this order :
+
+1. The asset string is a known entry in the `assets` table (by id,
+   hostname, FQDN, or any of the listed `ip_addresses`).
+2. The asset string parses as an IPv4 inside one of the customer-
+   declared CIDRs in the `internal_networks` table.
+3. The asset string parses as an IPv4 in RFC1918 (`10.0.0.0/8`,
+   `172.16.0.0/12`, `192.168.0.0/16`) — universal fallback for fresh
+   installs that haven't filled `internal_networks` yet.
+
+Anything else is treated as an external observation.
+
+### Declare an internal network
+
+```bash
+psql -U threatclaw -d threatclaw -c \
+  "INSERT INTO internal_networks (cidr, label, zone) VALUES \
+   ('10.42.0.0/16', 'Office LAN', 'lan'), \
+   ('172.20.0.0/24', 'DMZ', 'dmz');"
+```
+
+### Declare a critical asset
+
+Attack-path prediction needs at least one asset flagged as `critical`
+(domain controller, file server, production database, …). Use the
+dashboard's asset detail page or :
+
+```bash
+psql -U threatclaw -d threatclaw -c \
+  "UPDATE assets SET criticality='critical', user_modified=ARRAY['criticality'] \
+   WHERE hostname='srv-01-dom';"
+```
+
+The `user_modified` flag prevents subsequent endpoint-agent syncs from
+resetting the field to its auto-detected default.
+
 ## Agent Modes
 
 | Mode | Description | Requires permissions |

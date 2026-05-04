@@ -51,6 +51,33 @@ The token is displayed at startup or set via `GATEWAY_AUTH_TOKEN`.
 
 Agent control routes (mode, audit, HITL callback, integrity verification) are authenticated and documented in the runtime OpenAPI spec once logged in. They are not listed here to reduce unauthorized enumeration.
 
+### Endpoint Agents
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/api/tc/endpoint-agents` | List registered endpoint agents (id, hostname, last_seen) |
+| POST | `/api/tc/webhook/token/{source}` | Generate a webhook token for a source (e.g. `osquery`, `zeek`, `suricata`) |
+| GET  | `/api/tc/webhook/token/{source}` | Read the existing token without regenerating |
+| POST | `/api/tc/webhook/ingest/{source}` | Endpoint agents POST inventory snapshots here. Auth via `X-Webhook-Token` header. |
+
+### Incidents — bulk operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/tc/incidents/bulk-archive-stale` | Archive open incidents in `pending` verdict older than 24h (legacy artefacts) |
+| POST | `/api/tc/incidents/bulk-archive-perimeter-mitigated` | Archive open incidents whose evidence is fully blocked at the firewall. Add `?dry_run=true` to preview the count without mutating. |
+| POST | `/api/tc/incidents/{id}/archive` | Archive a single incident |
+| POST | `/api/tc/incidents/archive-resolved` | Archive every incident in resolved/closed/false_positive verdict |
+
+### Attack Prediction
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/api/tc/graph/attack-paths` | CVE-chain analyzer — paths from external IPs through vulnerable pivots to critical assets, derived from inventory + CVE findings |
+| GET  | `/api/tc/security/attack-paths` | Graph-walker — paths derived from observed authentication and detection events (LATERAL_PATH / ATTACKS edges) |
+| POST | `/api/tc/security/attack-paths/recompute` | Trigger a new computation cycle synchronously |
+| GET  | `/api/tc/security/choke-points` | Top assets whose hardening would break the most predicted paths |
+
 ### Infrastructure
 
 | Method | Path | Description |

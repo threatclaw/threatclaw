@@ -108,6 +108,20 @@ ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and pr
 - **ClawShield** — Multi-layer protection preventing unauthorized remediation
 - **ClawVault** — Encrypted credential storage for all integrations
 
+### Endpoint Agents
+Lightweight read-only agents (Linux + Windows + macOS) that report OS, installed software, listening ports, users, scheduled tasks and SSH keys to ThreatClaw every 5 minutes. **No remediation, no daemon spawning** — pure inventory. The collected software is automatically cross-referenced against NVD, CISA KEV and EPSS to surface vulnerable packages without any extra setup.
+
+```bash
+# One-line install on a Linux/macOS endpoint
+curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- \
+  --url https://your-tc-server --token $TOKEN
+```
+
+### CVE & Attack Prediction
+- **Auto-CVE correlation** — every package reported by an agent is checked against NVD, CISA KEV (active exploitation) and EPSS (probability of exploitation). Vulnerabilities are filed as findings on the right asset, not in a separate scan list.
+- **Attack-path prediction** — the dashboard's "Prédiction d'attaque" page chains exposed entry points, vulnerable pivots and critical assets to show the most likely paths an attacker would take, with priority fixes for each.
+- **Inventory gate** — incidents are escalated only when the asset matches the customer inventory or a declared internal network. External scanners hammering the perimeter are kept as forensic evidence but never reach the operator queue.
+
 ### Behavioral Intelligence
 - **Per-asset anomaly detection** — Continuous baseline learning per host
 - **Peer Analysis** — Behavioral grouping, outlier detection ("the black sheep")
@@ -121,6 +135,8 @@ CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, V
 
 **Connectors (plug your existing tools):**
 Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh, Nmap, Zeek, Suricata, Pi-hole, UniFi, Cloudflare, and more.
+
+**Endpoint inventory (push from the host):** ThreatClaw Endpoint Agent (Linux, Windows, macOS).
 
 **Remediation connectors:**
 Firewall block, account disable, ticket creation — all gated by ClawShield HITL.
@@ -164,22 +180,25 @@ HITL remediation (firewall block, account disable, ticket creation, …) is **in
 ## Architecture
 
 ```
-       Sources (syslog, webhooks, connectors)
+       Sources (syslog, webhooks, connectors, endpoint agents)
               │
               ▼
        ClawMatch + ClawTrace        (real-time detection)
               │
               ▼
-       Behavioral Intelligence      (ML anomalies, peer analysis)
+       Behavioral Intelligence      (per-asset baseline, peer analysis)
               │
               ▼
-       Intelligence Engine          (correlation, scoring)
+       Inventory Gate               (only declared assets reach the queue)
+              │
+              ▼
+       Intelligence Engine          (correlation, scoring, CVE chaining)
               │
               ▼
        ClawMind                     (AI investigation on threats)
               │
               ▼
-       Incidents                    (synthesized view)
+       Incidents + Attack Prediction (synthesized view, paths to crown jewels)
               │
               ▼
        ClawResponse + ClawShield    (HITL remediation, protected)
@@ -192,9 +211,11 @@ HITL remediation (firewall block, account disable, ticket creation, …) is **in
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) — Installation and first steps
-- [Configuration](docs/configuration.md) — All settings and options
-- [API Reference](docs/api.md) — REST API endpoints
+- [Getting Started](docs/getting-started.md) — Installation, endpoint agents, first critical asset
+- [Configuration](docs/configuration.md) — Settings, internal networks, criticality
+- [Inventory Gate Doctrine](docs/inventory-gate.md) — Why incidents are scoped to declared assets
+- [Attack Prediction](docs/attack-prediction.md) — How the prediction page computes paths and what it needs
+- [API Reference](docs/api.md) — REST API endpoints (incl. endpoint agents, prediction, bulk operations)
 - [Skill Development](docs/SKILL_DEVELOPMENT_GUIDE.md) — Build custom skills
 - [Telemetry](docs/telemetry.md) — What we collect anonymously, how to opt out
 - [Security Policy](SECURITY.md) — Vulnerability reporting
