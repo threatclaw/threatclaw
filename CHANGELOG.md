@@ -6,13 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
-## [Unreleased]
-
-> Two tag attempts (1.0.23-beta, 1.0.24-beta) were cut today and rolled back
-> because the GitHub Container Registry refused to publish the new ml-engine
-> package from CI before the package was linked to the repository. The fixes
-> below land in the next clean release — the code is on `main`, the version
-> bump is held until the publication path is validated end to end.
+## [1.0.23-beta] — 2026-05-04
 
 ### Added
 - Endpoint inventory: hardened agent installer for Debian 13 (apt-key removed in trixie) and for Windows hosts with multi-NIC layouts. The agent now filters virtual / Docker / WSL interfaces so a single host no longer surfaces as multiple assets.
