@@ -47,10 +47,15 @@ jobs:
           docker build -t "ghcr.io/threatclaw/dashboard:${VERSION}" \
                        -t ghcr.io/threatclaw/dashboard:latest \
                        -f dashboard/Dockerfile ./dashboard
+          docker build -t "ghcr.io/threatclaw/ml-engine:${VERSION}" \
+                       -t ghcr.io/threatclaw/ml-engine:latest \
+                       -f ml-engine/Dockerfile ./ml-engine
           docker push "ghcr.io/threatclaw/core:${VERSION}"
           docker push ghcr.io/threatclaw/core:latest
           docker push "ghcr.io/threatclaw/dashboard:${VERSION}"
           docker push ghcr.io/threatclaw/dashboard:latest
+          docker push "ghcr.io/threatclaw/ml-engine:${VERSION}"
+          docker push ghcr.io/threatclaw/ml-engine:latest
 
       - name: Extract release binary from core image
         env:
