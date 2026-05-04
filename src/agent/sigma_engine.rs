@@ -615,31 +615,51 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     }
                 }
 
-                // First pass — direct lookup of common field names.
+                // First pass — direct lookup of common field names. Records
+                // both source and destination so we can pick the side that
+                // belongs to the customer infrastructure (see asset
+                // re-attribution below).
                 let mut source_ip = m
                     .matched_fields
                     .iter()
                     .find(|(f, _)| f.contains("ip") || f.contains("addr") || f.contains("source"))
                     .map(|(_, v)| v.as_str());
+                let mut dest_ip: Option<&str> = m
+                    .matched_fields
+                    .iter()
+                    .find(|(f, _)| f.contains("dst") || f.contains("dest"))
+                    .map(|(_, v)| v.as_str());
                 // Fallback — Suricata IDS connectors expose the raw eve.json
-                // line under matched_fields[*].0 == "line" with the actual
-                // src_ip nested inside the JSON. Without this we'd attribute
-                // the alert to the firewall (raw_hostname) instead of the
-                // actual external source.
+                // line under matched_fields[*].0 == "line" with src/dest
+                // nested inside the JSON. Pull both out so the asset
+                // re-attribution can work on either side.
                 let mut suricata_src_ip_owned: Option<String> = None;
-                if source_ip.is_none() {
+                let mut suricata_dst_ip_owned: Option<String> = None;
+                if source_ip.is_none() || dest_ip.is_none() {
                     for (k, v) in m.matched_fields.iter() {
                         if k != "line" {
                             continue;
                         }
-                        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(v.trim())
-                            && let Some(s) = payload.get("src_ip").and_then(|x| x.as_str())
-                        {
-                            suricata_src_ip_owned = Some(s.to_string());
+                        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(v.trim()) {
+                            if source_ip.is_none()
+                                && let Some(s) = payload.get("src_ip").and_then(|x| x.as_str())
+                            {
+                                suricata_src_ip_owned = Some(s.to_string());
+                            }
+                            if dest_ip.is_none()
+                                && let Some(s) = payload.get("dest_ip").and_then(|x| x.as_str())
+                            {
+                                suricata_dst_ip_owned = Some(s.to_string());
+                            }
                             break;
                         }
                     }
-                    source_ip = suricata_src_ip_owned.as_deref();
+                    if source_ip.is_none() {
+                        source_ip = suricata_src_ip_owned.as_deref();
+                    }
+                    if dest_ip.is_none() {
+                        dest_ip = suricata_dst_ip_owned.as_deref();
+                    }
                 }
                 let username = m
                     .matched_fields
@@ -647,33 +667,34 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     .find(|(f, _)| f.contains("user") || f.contains("account"))
                     .map(|(_, v)| v.as_str());
 
-                // Asset re-attribution: when the resolved source_ip is a
-                // public IPv4 and the log hostname is the firewall itself,
-                // route the finding to the actual external source rather
-                // than to the firewall — that's what Rule G and the L1
-                // queue expect to see.
-                let canonical_asset = match source_ip {
-                    Some(ip)
-                        if {
-                            if let Ok(p) = ip.parse::<std::net::Ipv4Addr>() {
-                                let o = p.octets();
-                                let private = o[0] == 10
-                                    || (o[0] == 172 && (16..=31).contains(&o[1]))
-                                    || (o[0] == 192 && o[1] == 168);
-                                !(private
-                                    || o[0] == 127
-                                    || (o[0] == 169 && o[1] == 254)
-                                    || o[0] >= 224
-                                    || p.is_unspecified()
-                                    || p.is_broadcast())
-                            } else {
-                                false
-                            }
-                        } =>
-                    {
-                        ip.to_string()
-                    }
-                    _ => canonical_asset,
+                // Asset re-attribution. The connector that emitted the log
+                // typically records its own hostname as `raw_hostname` (e.g.
+                // the firewall for pf / Suricata logs). We want the asset to
+                // be the entity ThreatClaw is supposed to protect, so we
+                // pick the IP that looks "internal" first:
+                //   1. dest_ip if it's RFC1918 — likely an inbound attack
+                //      against an internal target
+                //   2. src_ip if it's RFC1918 — likely outbound from a
+                //      compromised internal host
+                //   3. Otherwise, leave the canonical_asset alone — the
+                //      inventory gate downstream will decide whether to
+                //      escalate.
+                fn is_private_ipv4(s: &str) -> bool {
+                    let p = match s.parse::<std::net::Ipv4Addr>() {
+                        Ok(v) => v,
+                        Err(_) => return false,
+                    };
+                    let o = p.octets();
+                    o[0] == 10
+                        || (o[0] == 172 && (16..=31).contains(&o[1]))
+                        || (o[0] == 192 && o[1] == 168)
+                }
+                let canonical_asset = if dest_ip.map(is_private_ipv4).unwrap_or(false) {
+                    dest_ip.unwrap().to_string()
+                } else if source_ip.map(is_private_ipv4).unwrap_or(false) {
+                    source_ip.unwrap().to_string()
+                } else {
+                    canonical_asset
                 };
 
                 let _ = store
