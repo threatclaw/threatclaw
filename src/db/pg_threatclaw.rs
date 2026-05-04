@@ -3075,33 +3075,45 @@ impl ThreatClawStore for PgBackend {
 
     async fn bulk_archive_perimeter_mitigated(&self, dry_run: bool) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // CTE selects open incidents whose linked findings, when they carry a
-        // firewall "action" matched_field, are uniformly "block". Incidents
-        // without any firewall-flavoured finding are excluded — the rule only
-        // makes sense when at least one block has been observed.
+        // For each open incident with no sigma alerts (alert_ids empty) and a
+        // non-null asset, look at every recent finding for that asset over the
+        // last 7 days — not only the ids snapshotted at creation, since
+        // firewall events for the same external IP often arrive later and are
+        // never appended to the original finding_ids array.
+        // An incident is "perimeter-mitigated" iff:
+        //   - at least one finding for the asset is a firewall event
+        //     (metadata.matched_fields contains an ["action", _] pair)
+        //   - every firewall event observed has action='block'
+        // ML / behavioural findings (no matched_fields with action) don't
+        // disqualify the incident.
         let select_ids = r#"
             WITH candidate AS (
-                SELECT i.id, i.finding_ids
+                SELECT i.id, i.asset
                 FROM incidents i
                 WHERE i.status = 'open'
-                  AND i.alert_count = 0
-                  AND i.finding_ids IS NOT NULL
-                  AND array_length(i.finding_ids, 1) > 0
+                  AND (i.alert_ids IS NULL
+                       OR array_length(i.alert_ids, 1) IS NULL
+                       OR array_length(i.alert_ids, 1) = 0)
+                  AND i.asset IS NOT NULL
             ),
             analysis AS (
                 SELECT c.id,
                        BOOL_OR(
-                           EXISTS (
+                           jsonb_typeof(f.metadata::jsonb->'matched_fields') = 'array'
+                           AND EXISTS (
                                SELECT 1
                                FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
                                WHERE pair->>0 = 'action'
                            )
                        ) AS has_firewall_finding,
                        BOOL_AND(
-                           NOT EXISTS (
-                               SELECT 1
-                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
-                               WHERE pair->>0 = 'action'
+                           NOT (
+                               jsonb_typeof(f.metadata::jsonb->'matched_fields') = 'array'
+                               AND EXISTS (
+                                   SELECT 1
+                                   FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
+                                   WHERE pair->>0 = 'action'
+                               )
                            )
                            OR EXISTS (
                                SELECT 1
@@ -3110,7 +3122,9 @@ impl ThreatClawStore for PgBackend {
                            )
                        ) AS all_blocked
                 FROM candidate c
-                JOIN findings f ON f.id = ANY(c.finding_ids)
+                JOIN findings f
+                  ON f.asset = c.asset
+                 AND f.detected_at > NOW() - INTERVAL '7 days'
                 GROUP BY c.id
             )
             SELECT id FROM analysis
