@@ -107,8 +107,12 @@ export default function DashTest() {
     };
   }, []);
 
-  const pending = incidents.filter((i) => i.verdict === "pending");
-  const confirmed = incidents.filter((i) => i.verdict === "confirmed");
+  // Counts only consider OPEN incidents — archived/closed are
+  // historical and shouldn't inflate the live "à trier" / "confirmés"
+  // numbers on the console.
+  const openIncidents = incidents.filter((i) => i.status === "open");
+  const pending = openIncidents.filter((i) => i.verdict === "pending");
+  const confirmed = openIncidents.filter((i) => i.verdict === "confirmed");
   const confirmedHigh = confirmed.filter((i) => isSevere(i.severity));
   const openCritical = incidents
     .filter((i) => (i.severity ?? "").toUpperCase() === "CRITICAL" && i.status !== "closed")
