@@ -71,6 +71,14 @@ RUN python -c "import json, hashlib, datetime, pathlib; \
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
+# Link the published GHCR package back to its source repo. Without this
+# label the GitHub Container Registry refuses to auto-create the package
+# for the workflow's GITHUB_TOKEN ("denied: permission_denied: write_package").
+LABEL org.opencontainers.image.source="https://github.com/threatclaw/threatclaw" \
+      org.opencontainers.image.title="ThreatClaw ML Engine" \
+      org.opencontainers.image.description="Behavioural anomaly + clustering + DGA detection (read-only inference)" \
+      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+
 WORKDIR /app
 
 COPY requirements.txt .
