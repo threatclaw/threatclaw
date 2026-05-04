@@ -3073,10 +3073,7 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
-    async fn bulk_archive_perimeter_mitigated(
-        &self,
-        dry_run: bool,
-    ) -> Result<i64, DatabaseError> {
+    async fn bulk_archive_perimeter_mitigated(&self, dry_run: bool) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // CTE selects open incidents whose linked findings, when they carry a
         // firewall "action" matched_field, are uniformly "block". Incidents

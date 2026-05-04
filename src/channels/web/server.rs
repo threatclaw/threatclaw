@@ -761,7 +761,9 @@ pub async fn start_server(
         )
         .route(
             "/api/tc/incidents/bulk-archive-perimeter-mitigated",
-            post(super::handlers::threatclaw_api::incidents_bulk_archive_perimeter_mitigated_handler),
+            post(
+                super::handlers::threatclaw_api::incidents_bulk_archive_perimeter_mitigated_handler,
+            ),
         )
         // Incident V1 — execute action + RSSI note + reinvestigate
         .route(

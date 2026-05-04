@@ -477,10 +477,7 @@ impl ThreatClawStore for LibSqlBackend {
     async fn bulk_archive_stale_pending(&self, _hours: i64) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }
-    async fn bulk_archive_perimeter_mitigated(
-        &self,
-        _dry_run: bool,
-    ) -> Result<i64, DatabaseError> {
+    async fn bulk_archive_perimeter_mitigated(&self, _dry_run: bool) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }
     async fn purge_old_archived(&self, _: i32) -> Result<(i64, i64), DatabaseError> {
