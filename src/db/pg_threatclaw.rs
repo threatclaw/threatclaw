@@ -3073,6 +3073,76 @@ impl ThreatClawStore for PgBackend {
         Ok(count as i64)
     }
 
+    async fn bulk_archive_perimeter_mitigated(
+        &self,
+        dry_run: bool,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // CTE selects open incidents whose linked findings, when they carry a
+        // firewall "action" matched_field, are uniformly "block". Incidents
+        // without any firewall-flavoured finding are excluded — the rule only
+        // makes sense when at least one block has been observed.
+        let select_ids = r#"
+            WITH candidate AS (
+                SELECT i.id, i.finding_ids
+                FROM incidents i
+                WHERE i.status = 'open'
+                  AND i.alert_count = 0
+                  AND i.finding_ids IS NOT NULL
+                  AND array_length(i.finding_ids, 1) > 0
+            ),
+            analysis AS (
+                SELECT c.id,
+                       BOOL_OR(
+                           EXISTS (
+                               SELECT 1
+                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
+                               WHERE pair->>0 = 'action'
+                           )
+                       ) AS has_firewall_finding,
+                       BOOL_AND(
+                           NOT EXISTS (
+                               SELECT 1
+                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
+                               WHERE pair->>0 = 'action'
+                           )
+                           OR EXISTS (
+                               SELECT 1
+                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
+                               WHERE pair->>0 = 'action' AND pair->>1 = 'block'
+                           )
+                       ) AS all_blocked
+                FROM candidate c
+                JOIN findings f ON f.id = ANY(c.finding_ids)
+                GROUP BY c.id
+            )
+            SELECT id FROM analysis
+            WHERE has_firewall_finding = TRUE AND all_blocked = TRUE
+        "#;
+        if dry_run {
+            let row = conn
+                .query_one(
+                    &format!("SELECT COUNT(*)::BIGINT AS n FROM ({}) m", select_ids),
+                    &[],
+                )
+                .await
+                .map_err(query_err)?;
+            return Ok(row.get("n"));
+        }
+        let updated = conn
+            .execute(
+                &format!(
+                    "UPDATE incidents SET status='archived', verdict='false_positive', \
+                     updated_at = NOW() WHERE id IN ({})",
+                    select_ids
+                ),
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(updated as i64)
+    }
+
     async fn bulk_archive_stale_pending(&self, hours: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let hours_i32 = hours.clamp(1, 24 * 365 * 10) as i32;
