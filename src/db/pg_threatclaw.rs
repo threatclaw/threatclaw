@@ -3125,8 +3125,7 @@ impl ThreatClawStore for PgBackend {
                        ) AS has_pass
                 FROM incident_ips ii
                 JOIN findings f
-                  ON (f.asset = ii.ip
-                      OR f.metadata::text LIKE '%"src_ip":"' || ii.ip || '"%')
+                  ON f.asset = ii.ip
                  AND f.detected_at > NOW() - INTERVAL '7 days'
                 GROUP BY ii.incident_id
             )
