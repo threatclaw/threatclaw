@@ -6,6 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.24-beta] — 2026-05-04
+
+### Fixed
+- ml-engine release publication: the image declares its source repository so the GitHub Container Registry can create the package the first time the workflow pushes (1.0.23-beta failed to publish for this reason).
+
+### Documentation
+- New "Endpoint Agents", "CVE & Attack Prediction" and "Inventory Gate" sections in the README.
+- New `docs/inventory-gate.md` and `docs/attack-prediction.md` reference pages.
+- Getting-started walks through agent install on Linux and Windows and how to declare a critical asset.
+- API reference lists endpoint-agent webhook routes, bulk archive operations and both attack-prediction endpoints.
+
 ## [1.0.23-beta] — 2026-05-04
 
 ### Added
