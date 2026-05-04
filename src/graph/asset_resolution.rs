@@ -127,32 +127,33 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
         }
     }
 
-    // Priority 2: Match by hostname (reliable in AD environments)
+    // Priority 2: Match by hostname (reliable in AD environments).
+    //
+    // Doctrine: hostname is the strongest identity signal in an operational
+    // SOC. A single host commonly exposes multiple MACs (Docker bridges,
+    // veth, virtual NICs, hypervisor interfaces) — different connectors see
+    // different sides of the same machine. Treating "different MAC" as a
+    // hard conflict generates duplicate assets at every sync. We now merge
+    // into the existing asset and log the discrepancy. The legacy "conflict
+    // = create new asset" behaviour fired on every osquery sync from a host
+    // running Docker, which created `debian` (Docker bridge) alongside the
+    // real `asset-XXX` populated by Fortinet/DHCP. See lab incident
+    // 2026-05-04 for context.
     if let Some(ref hostname) = discovered.hostname {
         let hostname_clean = hostname.to_lowercase().trim().to_string();
         if let Some(existing) = find_asset_by_hostname(store, &hostname_clean).await {
-            // Check for conflict: same hostname but different MAC
             if let (Some(existing_mac), Some(new_mac)) = (&existing.mac, &discovered.mac) {
                 let existing_norm = normalize_mac(existing_mac);
                 let new_norm = normalize_mac(new_mac);
                 if existing_norm != new_norm {
-                    // CONFLICT: same hostname, different MAC = different machines
                     tracing::warn!(
-                        "ASSET CONFLICT: hostname '{}' has MAC {} in graph but discovery reports MAC {}",
+                        "ASSET MERGE: hostname '{}' had MAC {} in graph, discovery reports {} \
+                         — merging anyway (likely a virtual interface or NIC change). \
+                         Use the assets UI to split if these are actually distinct hosts.",
                         hostname_clean,
                         existing_norm,
                         new_norm
                     );
-                    // Create a new asset with conflict flag
-                    let result = create_new_asset(store, discovered, &now).await;
-                    return ResolutionResult {
-                        conflict: Some(format!(
-                            "Hostname '{}' exists with MAC {} but new MAC {} detected — possible reinstall or duplicate",
-                            hostname_clean, existing_norm, new_norm
-                        )),
-                        action: ResolutionAction::Conflict,
-                        ..result
-                    };
                 }
             }
             return merge_asset(store, &existing, discovered, &now).await;

@@ -689,10 +689,26 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                         || (o[0] == 172 && (16..=31).contains(&o[1]))
                         || (o[0] == 192 && o[1] == 168)
                 }
+                // For IDS findings the host that emitted the log (raw_hostname)
+                // is NEVER the right asset — the alert is about observed
+                // traffic, not about the firewall itself. We pick:
+                //   1. dest_ip when private — inbound attack against internal
+                //   2. src_ip when private — outbound exfil from a private host
+                //   3. src_ip otherwise — perimeter-only traffic; the
+                //      inventory gate downstream will classify the external
+                //      IP as External and drop the incident (right answer:
+                //      that's an Internet scanner hammering the WAN, not an
+                //      attack on a monitored asset).
+                //   4. dest_ip otherwise — same logic, last resort
+                //   5. raw_hostname only when neither IP could be extracted
                 let canonical_asset = if dest_ip.map(is_private_ipv4).unwrap_or(false) {
                     dest_ip.unwrap().to_string()
                 } else if source_ip.map(is_private_ipv4).unwrap_or(false) {
                     source_ip.unwrap().to_string()
+                } else if let Some(s) = source_ip {
+                    s.to_string()
+                } else if let Some(d) = dest_ip {
+                    d.to_string()
                 } else {
                     canonical_asset
                 };
