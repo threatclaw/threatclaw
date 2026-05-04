@@ -80,7 +80,7 @@ impl ModeConfig {
             AgentMode::Investigator => Self {
                 mode,
                 name: "Investigateur",
-                description: "Agent qui corrèle et propose. Le RSSI décide et exécute.",
+                description: "Agent qui corrèle et propose. L'opérateur décide et exécute.",
                 react_enabled: true,
                 autonomous_investigation: true,
                 remediation_proposals: true,

@@ -290,7 +290,7 @@ export default function TestPage() {
               Chaque scenario injecte des <strong style={{ color: "var(--tc-text)" }}>vrais logs</strong> dans PostgreSQL,
               cree des <strong style={{ color: "var(--tc-text)" }}>findings</strong> et des <strong style={{ color: "var(--tc-text)" }}>alertes Sigma</strong>.
               <br /><br />
-              {"L'Intelligence Engine traite ces donnees exactement comme en production : extraction d'IoCs, enrichissement (EPSS, GreyNoise, IPinfo), calcul du score, notification au RSSI."}
+              {"L'Intelligence Engine traite ces donnees exactement comme en production : extraction d'IoCs, enrichissement (EPSS, GreyNoise, IPinfo), calcul du score, notification operateur."}
               <br /><br />
               <strong style={{ color: "var(--tc-green)" }}>Toutes les donnees sont taguees [DEMO]</strong> et isolees de la production.
               Elles sont supprimees automatiquement apres 1 heure. Le baseline ML n'est pas affecte.
@@ -301,7 +301,7 @@ export default function TestPage() {
               Each scenario injects <strong style={{ color: "var(--tc-text)" }}>real logs</strong> into PostgreSQL,
               creates <strong style={{ color: "var(--tc-text)" }}>findings</strong> and <strong style={{ color: "var(--tc-text)" }}>Sigma alerts</strong>.
               <br /><br />
-              The Intelligence Engine processes this data exactly like production: IoC extraction, enrichment (EPSS, GreyNoise, IPinfo), scoring, RSSI notification.
+              The Intelligence Engine processes this data exactly like production: IoC extraction, enrichment (EPSS, GreyNoise, IPinfo), scoring, operator notification.
               <br /><br />
               <strong style={{ color: "var(--tc-green)" }}>All data is tagged [DEMO]</strong> and isolated from production.
               Automatically deleted after 1 hour. ML baseline is not affected.

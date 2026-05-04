@@ -1479,7 +1479,7 @@ export default function InvestigatePage() {
               {/* RSSI decisions */}
               {inc && inc.status !== "archived" && (
                 <div className="inv-actions">
-                  <div className="inv-actions-head">Decisions RSSI</div>
+                  <div className="inv-actions-head">Décisions opérateur</div>
                   <div className="inv-actions-body">
                     <button className="inv-act-btn" onClick={() => setConfirmFp(true)}>
                       <XCircle size={14} />

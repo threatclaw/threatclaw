@@ -87,7 +87,7 @@ export default function MonthlyRssiCard({ locale }: { locale: string }) {
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--tc-text-sec)" }}>
-          📄 {fr ? "Rapport RSSI du mois" : "Monthly CISO report"}
+          {fr ? "Rapport mensuel" : "Monthly report"}
         </div>
         <div style={{ fontSize: 10, color: "var(--tc-text-muted)" }}>{report?.period ?? yyyyMm}</div>
       </div>

@@ -934,7 +934,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
 
   const aiLevels = [
     { id: "l1", level: "Auto", name: "Analyse automatique", desc: "Triage rapide (<60s) — verdict confirme / faux positif / inconclusif sur les cas ambigus", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-primary", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
-    { id: "l2", level: "Forensic", name: "Rapport forensique (async)", desc: "Analyse profonde post-confirmation — narrative RSSI, MITRE ATT&CK, citations de preuves", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-forensic", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
+    { id: "l2", level: "Forensic", name: "Rapport forensique (async)", desc: "Analyse profonde post-confirmation — narrative opérateur, MITRE ATT&CK, citations de preuves", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-forensic", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
   ];
 
   return (
@@ -943,7 +943,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L0", label: "Conversation", desc: "Dialogue RSSI, tool calling (optionnel)", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
+            { level: "L0", label: "Conversation", desc: "Dialogue opérateur, tool calling (optionnel)", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
             { level: "Auto", label: "Triage", desc: "Verdict rapide sur cas ambigus (<60s)", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
             { level: "Forensic", label: "Rapport", desc: "Analyse profonde async post-confirmation", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
             { level: "Cloud", label: "Escalade", desc: "Rapports NIS2, incidents critiques (optionnel)", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },

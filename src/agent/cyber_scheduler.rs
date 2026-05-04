@@ -152,8 +152,8 @@ IMPORTANT: Requires human approval before launch. Never auto-launch."#,
     },
     CyberRoutineTemplate {
         name: "threatclaw-weekly-report",
-        title: "Rapport RSSI hebdomadaire",
-        description: "Rapport hebdomadaire RSSI (synthèse + NIS2)",
+        title: "Rapport hebdomadaire",
+        description: "Rapport hebdomadaire (synthèse + NIS2)",
         schedule_fn: |s| &s.report_weekly,
         prompt: r#"Generate the weekly RSSI security report:
 1. Aggregate vulnerability scan results from the past week

@@ -587,7 +587,7 @@ const T: Record<string, Record<Locale, string>> = {
   modelDescL3: { fr: "Playbooks SOAR — Recommandé", en: "SOAR Playbooks — Recommended" },
 
   // ── AI level descriptions ──
-  aiLevelL0Desc: { fr: "Dialogue RSSI, tool calling", en: "CISO dialogue, tool calling" },
+  aiLevelL0Desc: { fr: "Conversation, tool calling", en: "Conversation, tool calling" },
   aiLevelL1Desc: { fr: "JSON structuré, scoring", en: "Structured JSON, scoring" },
   aiLevelL2Desc: { fr: "Critical/High, MITRE", en: "Critical/High, MITRE" },
   aiLevelL3Desc: { fr: "Playbooks, HITL", en: "Playbooks, HITL" },
@@ -718,7 +718,7 @@ const T: Record<string, Record<Locale, string>> = {
   notifNever: { fr: "Jamais", en: "Never" },
   notifOff: { fr: "Désactivé", en: "Off" },
   notifHowTitle: { fr: "Comment ça marche", en: "How it works" },
-  notifHowBody: { fr: "L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :\n\n• Silence (score ≥ 80) — rien à signaler, pas de notification\n• Digest (score 50-80) — résumé quotidien des activités\n• Alerte (score < 50) — notification immédiate, corrélation suspecte\n• Critique (kill chain, exploit connu) — tous les canaux, HITL\n\nLe RSSI n'est jamais noyé de notifications. L'absence de message = tout va bien.", en: "The Intelligence Engine analyzes findings and alerts every 5 min. It calculates a global security score and decides the notification level:\n\n• Silence (score ≥ 80) — nothing to report, no notification\n• Digest (score 50-80) — daily activity summary\n• Alert (score < 50) — immediate notification, suspicious correlation\n• Critical (kill chain, known exploit) — all channels, HITL\n\nThe CISO is never flooded with notifications. No message = all clear." },
+  notifHowBody: { fr: "L'Intelligence Engine analyse toutes les 5 min les findings et alertes. Il calcule un score de sécurité global et décide du niveau de notification :\n\n• Silence (score ≥ 80) — rien à signaler, pas de notification\n• Digest (score 50-80) — résumé quotidien des activités\n• Alerte (score < 50) — notification immédiate, corrélation suspecte\n• Critique (kill chain, exploit connu) — tous les canaux, HITL\n\nL'opérateur n'est jamais noyé de notifications. L'absence de message = tout va bien.", en: "The Intelligence Engine analyzes findings and alerts every 5 min. It calculates a global security score and decides the notification level:\n\n• Silence (score ≥ 80) — nothing to report, no notification\n• Digest (score 50-80) — daily activity summary\n• Alert (score < 50) — immediate notification, suspicious correlation\n• Critical (kill chain, known exploit) — all channels, HITL\n\nThe operator is never flooded with notifications. No message = all clear." },
 
   // ── Shift Report (Quart de Veille) ──
   shiftReportTitle: { fr: "Quart de Veille (IA L2)", en: "Shift Report (AI L2)" },

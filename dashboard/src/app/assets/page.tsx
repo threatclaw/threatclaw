@@ -1626,7 +1626,7 @@ export default function AssetsPage() {
                 <div>
                   <label style={labelStyle}>Notes</label>
                   <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                    placeholder="Informations complémentaires pour le RSSI..."
+                    placeholder="Informations complémentaires..."
                     style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }} />
                 </div>
 

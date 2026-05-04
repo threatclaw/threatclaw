@@ -183,7 +183,7 @@ function getVerdictSource(inc: Incident, locale: string): {
   if (kind === "manual") {
     return {
       kind: "manual",
-      label: locale === "fr" ? "Décision RSSI" : "Manual decision",
+      label: locale === "fr" ? "Décision opérateur" : "Manual decision",
       color: "#888",
       detail: "",
     };
@@ -1162,8 +1162,8 @@ export default function IncidentsPage() {
       title={locale === "fr" ? "Incidents" : "Incidents"}
       subtitle={
         locale === "fr"
-          ? "Incidents confirmés — menaces avérées à traiter par le RSSI."
-          : "Confirmed incidents — verified threats awaiting RSSI action."
+          ? "Incidents confirmés"
+          : "Confirmed incidents"
       }
     >
       <IncidentsTab locale={locale} />

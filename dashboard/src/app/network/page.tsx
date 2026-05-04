@@ -180,7 +180,7 @@ export default function NetworkPage() {
           </div>
         </NeuCard>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginTop: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "1rem", marginTop: "1rem" }}>
           {/* Card 2 — Top sources bloquées */}
           <NeuCard>
             <div style={{ padding: "1rem" }}>

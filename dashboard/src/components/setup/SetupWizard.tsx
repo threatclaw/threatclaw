@@ -270,7 +270,7 @@ export default function SetupWizard() {
       { id: "host", label: "Serveur SMTP", placeholder: "smtp.example.com" },
       { id: "port", label: "Port", placeholder: "587" },
       { id: "from", label: "Expéditeur", placeholder: "threatclaw@example.com" },
-      { id: "to", label: "Destinataire RSSI", placeholder: "rssi@example.com" },
+      { id: "to", label: "Destinataire", placeholder: "admin@example.com" },
     ]},
   ];
 

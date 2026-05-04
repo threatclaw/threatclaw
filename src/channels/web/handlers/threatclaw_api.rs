@@ -5030,7 +5030,7 @@ pub async fn incident_reinvestigate_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     // Append a note saying the RSSI requested a re-investigation
     let _ = store
-        .add_incident_note(id, "Investigation relancée par le RSSI", "dashboard")
+        .add_incident_note(id, "Investigation relancée par l'opérateur", "dashboard")
         .await;
 
     let store_clone = store.clone();
@@ -7541,7 +7541,7 @@ pub async fn export_report_handler(
                 "sector": sector,
                 "sub_sector": company.nace_code.as_deref().unwrap_or("—"),
                 "nis2_status": "Entité Essentielle / Importante",
-                "security_contact": "RSSI",
+                "security_contact": "—",
                 "contact_email": "—",
                 "contact_phone": "—",
                 "notification_id": notification_id,
@@ -7761,7 +7761,7 @@ pub async fn export_report_handler(
                 "sector": sector,
                 "notification_id": format!("TC-RGPD-{}-001", now.format("%Y%m%d")),
                 "generated_at_display": generated_display,
-                "security_contact": "RSSI",
+                "security_contact": "—",
                 "contact_email": "—",
                 "contact_phone": "—",
                 "dpo_contact": "DPO",
@@ -7786,7 +7786,7 @@ pub async fn export_report_handler(
                 "sector": sector,
                 "generated_at_display": generated_display,
                 "incident_id": incident_id,
-                "security_contact": "RSSI",
+                "security_contact": "—",
                 "contact_email": "—",
                 "contact_phone": "—",
                 "alerts_count": alerts.len().to_string(),

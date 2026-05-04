@@ -73,7 +73,7 @@ const EXPORTS: ExportItem[] = [
     legal: { region: "eu", standard: "NIS2 Art.23", deadlineHours: 720, mandatory: true } },
 
   { id: "gdpr-art33", titleKey: "export_gdpr", titleFallback: "GDPR — Data Breach (Art. 33)",
-    descKey: "export_gdpr_desc", descFallback: "Personal data breach notification to CNIL. Auto-detect PII involvement, RSSI override available.",
+    descKey: "export_gdpr_desc", descFallback: "Personal data breach notification to CNIL. Auto-detect PII involvement, operator override available.",
     icon: Shield, formats: ["PDF", "JSON"], color: "#e04040", category: "incident-response",
     endpoint: "/api/tc/exports/gdpr-article33", regions: ["eu"],
     temporality: "incident-bound", requiresIncident: false, supportsGdprOverride: true,
@@ -192,8 +192,8 @@ const SECTIONS: { id: ExportCategory; titleFr: string; titleEn: string; subtitle
     subtitleEn: "Legal reports triggered by an attack — 24h / 72h / 30d deadlines",
     icon: Siren, color: "#e04040" },
   { id: "compliance-audit", titleFr: "Conformité & audit", titleEn: "Compliance & Audit",
-    subtitleFr: "Rapports périodiques et audit rétrospectif pour direction, RSSI, auditeurs",
-    subtitleEn: "Periodic and retrospective audit reports for management, CISO, auditors",
+    subtitleFr: "Rapports périodiques et audit rétrospectif pour direction, équipe sécurité, auditeurs",
+    subtitleEn: "Periodic and retrospective audit reports for management, security team, auditors",
     icon: Gavel, color: "#3080d0" },
   { id: "threat-intel", titleFr: "Threat intelligence & CTI", titleEn: "Threat Intelligence & CTI",
     subtitleFr: "Snapshots temps réel pour partage avec autres SOC / alimenter firewall / EDR",
@@ -454,8 +454,8 @@ function ExportModal({
             </div>
             <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "3px" }}>
               {locale === "fr"
-                ? "Auto : détection par l'algorithme (PII, bases de données, exfiltration). Force yes/no si le RSSI sait mieux."
-                : "Auto: algorithm detects (PII, databases, exfiltration). Force yes/no when the CISO has better context."}
+                ? "Auto : détection par l'algorithme (PII, bases de données, exfiltration). Force yes/no si l'opérateur sait mieux."
+                : "Auto: algorithm detects (PII, databases, exfiltration). Force yes/no when the operator has better context."}
             </div>
           </div>
         )}

@@ -268,7 +268,7 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
       {!selected && (
         <>
           <p style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "16px", lineHeight: 1.6 }}>
-            Choisis un type de scan. Les outils <strong>principaux</strong> couvrent le quotidien d&apos;un RSSI ;
+            Choisis un type de scan. Les outils <strong>principaux</strong> couvrent le quotidien sécurité ;
             les <strong>avancés</strong> servent surtout pour audits ponctuels, équipes dev ou pentests.
           </p>
 
@@ -898,7 +898,7 @@ function LibraryTab({ locale: _ }: { locale: "fr" | "en" }) {
           {showAdvanced && (
             <div style={{ marginTop: "12px" }}>
               <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px", fontStyle: "italic" }}>
-                Niche / pentesting / CI-CD — sortis du parcours RSSI standard mais conservés pour les usages
+                Niche / pentesting / CI-CD — sortis du parcours sécurité standard mais conservés pour les usages
                 avancés (équipes dev, MSP, audits ponctuels).
               </p>
               <SkillSection title="" skills={advanced} />
