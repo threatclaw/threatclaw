@@ -6,6 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.23-beta] — 2026-05-04
+
+### Added
+- Endpoint inventory: hardened agent installer for Debian 13 (apt-key removed in trixie) and for Windows hosts with multi-NIC layouts. The agent now filters virtual / Docker / WSL interfaces so a single host no longer surfaces as multiple assets.
+- ml-engine ships a reproducible Docker image: training corpora and DGA models are rebuilt from public sources (Tranco + synthetic) at image build time, with a SHA256 provenance sidecar. No customer or telemetry data ever enters the image.
+- Attack-prediction page now exposes two tabs: a static CVE-chain analyzer that works as soon as inventory + CVE + one critical asset exist, and the existing graph-walker for analyst drill-down.
+- CVE auto-correlation list extended with Windows server stack, Microsoft desktop apps, virtualization platforms and common security/monitoring tools so Windows inventories trigger NVD lookups too.
+
+### Changed
+- Asset resolution merges discoveries that share a hostname even when their MACs differ (Docker bridges, virtual NICs). Prevents phantom assets on every osquery sync.
+- IDS findings route to the destination internal asset, with a fallback to the source IP when both ends are external. The firewall hostname is no longer used as the asset for traffic it merely observed.
+- Generic operator labels across the UI and back-office prompts where the audience may be a CISO, DSI, MSP analyst or internal IT lead.
+
+### Fixed
+- Network page IDS card no longer scrolls horizontally when an IDS snippet is wide.
+
 ## [1.0.22-beta] — 2026-05-04
 
 Major signal-to-noise rework. The console now stays quiet on a healthy

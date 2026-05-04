@@ -20,7 +20,7 @@ exclude = [
 
 [package]
 name = "threatclaw"
-version = "1.0.22-beta"
+version = "1.0.23-beta"
 edition = "2024"
 rust-version = "1.92"
 description = "Autonomous open-source cybersecurity agent for SMBs"
