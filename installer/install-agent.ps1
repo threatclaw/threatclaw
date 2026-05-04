@@ -227,8 +227,12 @@ $LogFile  = "C:\ProgramData\ThreatClaw\agent-sync.log"
 function Run-Query {
     param([string]$Query)
     try {
+        # osqueryi emits prettified JSON across multiple lines; PowerShell's
+        # ConvertFrom-Json refuses an array of strings, so join into one.
         $result = & $OsqueryI --json $Query 2>$null
-        if ($result) { return $result } else { return "[]" }
+        if ($result) {
+            if ($result -is [array]) { return ($result -join "`n") } else { return $result }
+        } else { return "[]" }
     } catch { return "[]" }
 }
 
@@ -250,33 +254,52 @@ $dns        = Run-Query "SELECT name, type, answer FROM dns_cache LIMIT 200;"
 $autoexec   = Run-Query "SELECT name, path, source FROM autoexec;"
 $patches    = Run-Query "SELECT hotfix_id, description, installed_on FROM patches;"
 $osVer      = Run-Query "SELECT name, version, build, platform FROM os_version;"
-$ifaces     = Run-Query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%';"
+$ifaces     = Run-Query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.description NOT LIKE 'Hyper-V%' AND i.description NOT LIKE 'WSL%' AND i.description NOT LIKE 'vEthernet%' AND i.description NOT LIKE 'TAP-Windows%';"
 $secEvents  = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Security' AND eventid IN (4624,4625,4648,4672,4720,4726,4732,4756,1102) AND datetime > datetime('now', '-6 minutes') LIMIT 100;"
 $psEvents   = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Microsoft-Windows-PowerShell/Operational' AND eventid IN (4103,4104) AND datetime > datetime('now', '-6 minutes') LIMIT 50;"
 
-# Parse JSON safely
-function Safe-Parse { param([string]$Json) try { $Json | ConvertFrom-Json } catch { @() } }
+# PowerShell's pipeline behaviour around arrays makes ConvertTo-Json wrap
+# inner arrays as `{"value":[...]}` whenever the array transits through a
+# function return. We bypass that entirely by assembling the JSON payload
+# as a string template — each $X holds the *raw* JSON string returned by
+# osqueryi, so there's no parse/re-serialize round-trip and arrays stay
+# arrays. JsonChunk sanitises empty/null inputs into "[]" / "{}".
+function JsonChunk {
+    param([string]$Raw, [string]$Default = "[]")
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return $Default }
+    $t = $Raw.Trim()
+    if ($t -eq "null" -or $t.Length -eq 0) { return $Default }
+    return $t
+}
 
-# Build payload
-$payload = @{
-    hostname             = $env:COMPUTERNAME
-    agent_id             = $AGENT_ID
-    platform             = "windows"
-    software             = Safe-Parse $software
-    process_open_sockets = Safe-Parse $sockets
-    listening_ports      = Safe-Parse $ports
-    users                = Safe-Parse $users
-    logged_in_users      = Safe-Parse $logins
-    scheduled_tasks      = Safe-Parse $tasks
-    services             = Safe-Parse $services
-    dns_cache            = Safe-Parse $dns
-    autoexec             = Safe-Parse $autoexec
-    patches              = Safe-Parse $patches
-    os_version           = Safe-Parse $osVer
-    interface_details    = Safe-Parse $ifaces
-    windows_security_events = Safe-Parse $secEvents
-    powershell_events    = Safe-Parse $psEvents
-} | ConvertTo-Json -Depth 4 -Compress
+function JsonString {
+    param([string]$S)
+    if ($null -eq $S) { return '""' }
+    return '"' + ($S -replace '\\','\\\\' -replace '"','\\"') + '"'
+}
+
+# os_version is the only field TC expects as a single object rather than
+# an array. Fall back to "{}" when the query returned an empty list.
+function FirstObject {
+    param([string]$Raw)
+    if ([string]::IsNullOrWhiteSpace($Raw)) { return "{}" }
+    try {
+        $arr = $Raw | ConvertFrom-Json
+        if ($null -eq $arr) { return "{}" }
+        if ($arr -is [array]) {
+            if ($arr.Count -eq 0) { return "{}" }
+            return ($arr[0] | ConvertTo-Json -Compress -Depth 4)
+        }
+        return ($arr | ConvertTo-Json -Compress -Depth 4)
+    } catch { return "{}" }
+}
+
+$hostnameJson = JsonString $env:COMPUTERNAME
+$agentIdJson  = JsonString $AGENT_ID
+
+$payload = @"
+{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","software":$(JsonChunk $software),"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"users":$(JsonChunk $users),"logged_in_users":$(JsonChunk $logins),"scheduled_tasks":$(JsonChunk $tasks),"services":$(JsonChunk $services),"dns_cache":$(JsonChunk $dns),"autoexec":$(JsonChunk $autoexec),"patches":$(JsonChunk $patches),"os_version":$(FirstObject $osVer),"interface_details":$(JsonChunk $ifaces),"windows_security_events":$(JsonChunk $secEvents),"powershell_events":$(JsonChunk $psEvents)}
+"@
 
 # Skip cert validation for self-signed TLS
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"

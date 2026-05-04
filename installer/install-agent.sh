@@ -86,10 +86,18 @@ install_osquery() {
 
   case $OS in
     debian)
-      export OSQUERY_KEY=1484120AC4E9F8A1A577AEEE97A80C63C9D8B80B
-      apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys $OSQUERY_KEY 2>/dev/null || true
-      add-apt-repository -y "deb [arch=amd64] https://pkg.osquery.io/deb deb main" 2>/dev/null || \
-        echo "deb [arch=amd64] https://pkg.osquery.io/deb deb main" > /etc/apt/sources.list.d/osquery.list
+      # Modern apt key handling — apt-key is deprecated since Debian 11, removed
+      # in Debian 13. Drop the GPG key into /etc/apt/keyrings/ and reference it
+      # via signed-by= in the sources.list.d entry. Ensure gnupg + curl are
+      # present first; minimal Debian images don't ship them.
+      apt-get update -qq
+      apt-get install -y -qq --no-install-recommends gnupg curl ca-certificates
+      install -d -m 0755 /etc/apt/keyrings
+      curl -fsSL https://pkg.osquery.io/deb/pubkey.gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/osquery.gpg
+      chmod 0644 /etc/apt/keyrings/osquery.gpg
+      echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/osquery.gpg] https://pkg.osquery.io/deb deb main" \
+        > /etc/apt/sources.list.d/osquery.list
       apt-get update -qq
       apt-get install -y -qq osquery
       ;;
@@ -254,20 +262,26 @@ TC_TOKEN="$tc_token"
 AGENT_ID="$agent_id"
 HOSTNAME="\$(hostname -s)"
 
+# Run an osqueryi query and return its JSON output (or "[]" on failure).
+# stderr is dropped — osquery prints harmless config-flag warnings there.
 run_query() {
   osqueryi --json "\$1" 2>/dev/null || echo "[]"
 }
 
-# Collect all data
-SOFTWARE=\$(run_query "SELECT name, version, source FROM deb_packages UNION SELECT name, version, source FROM rpm_packages UNION SELECT name, version, 'programs' as source FROM programs;" 2>/dev/null || echo "[]")
+# Each table is queried separately because mixing platform-specific tables
+# (deb_packages / rpm_packages / programs) in a single UNION breaks the JSON
+# output on systems where one of the tables is unavailable.
+SOFT_DEB=\$(run_query "SELECT name, version, 'deb' AS source FROM deb_packages;")
+SOFT_RPM=\$(run_query "SELECT name, version, 'rpm' AS source FROM rpm_packages;")
+SOFT_PROG=\$(run_query "SELECT name, version, 'programs' AS source FROM programs;")
 SOCKETS=\$(run_query "SELECT p.name, p.path as process_path, s.remote_address, s.remote_port, s.local_port, s.state FROM process_open_sockets s JOIN processes p ON s.pid = p.pid WHERE s.remote_address != '' AND s.remote_address != '127.0.0.1' AND s.state = 'ESTABLISHED';")
 PORTS=\$(run_query "SELECT l.port, l.protocol, l.address, p.name FROM listening_ports l LEFT JOIN processes p ON l.pid = p.pid;")
 USERS=\$(run_query "SELECT uid, gid, username, shell FROM users WHERE shell NOT IN ('/usr/sbin/nologin', '/bin/false', '/sbin/nologin');")
 LOGINS=\$(run_query "SELECT user, tty, host, type FROM logged_in_users;")
 CRONTAB=\$(run_query "SELECT command, path FROM crontab;")
 SSH_KEYS=\$(run_query "SELECT uid, algorithm, comment, key_file FROM authorized_keys;")
-OS_VER=\$(run_query "SELECT name, version, platform FROM os_version;" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[0] if d else {}))" 2>/dev/null || echo "{}")
-IFACES=\$(run_query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%';")
+OS_VER=\$(run_query "SELECT name, version, platform FROM os_version;")
+IFACES=\$(run_query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.interface NOT LIKE 'docker%' AND i.interface NOT LIKE 'br-%' AND i.interface NOT LIKE 'veth%' AND i.interface NOT LIKE 'virbr%' AND i.interface NOT LIKE 'lxc%' AND i.interface NOT LIKE 'cni%' AND i.interface NOT LIKE 'flannel%';")
 
 # DNS cache (Linux: read /etc/resolv.conf, not a true cache like Windows)
 DNS='[]'
@@ -281,31 +295,55 @@ if command -v docker >/dev/null; then
   DOCKER=\$(run_query "SELECT id, name, image, status, state FROM docker_containers;" 2>/dev/null || echo "[]")
 fi
 
-# Build payload
-PAYLOAD=\$(cat << JSONEOF
-{
-  "hostname": "\$HOSTNAME",
-  "agent_id": "\$AGENT_ID",
-  "software": \$SOFTWARE,
-  "process_open_sockets": \$SOCKETS,
-  "listening_ports": \$PORTS,
-  "users": \$USERS,
-  "logged_in_users": \$LOGINS,
-  "scheduled_tasks": \$CRONTAB,
-  "authorized_keys": \$SSH_KEYS,
-  "os_version": \$OS_VER,
-  "interface_details": \$IFACES,
-  "dns_cache": \$DNS,
-  "docker_containers": \$DOCKER
+# Assemble the final JSON in Python — safer than a bash heredoc, which would
+# turn malformed osquery output (rare but happens when a table doesn't exist
+# on this OS) into broken global JSON. Each per-table chunk is parsed in
+# isolation so a bad chunk only blanks itself out.
+PAYLOAD=\$(HOSTNAME="\$HOSTNAME" AGENT_ID="\$AGENT_ID" \\
+  SOFT_DEB="\$SOFT_DEB" SOFT_RPM="\$SOFT_RPM" SOFT_PROG="\$SOFT_PROG" \\
+  SOCKETS="\$SOCKETS" PORTS="\$PORTS" USERS="\$USERS" LOGINS="\$LOGINS" \\
+  CRONTAB="\$CRONTAB" SSH_KEYS="\$SSH_KEYS" OS_VER="\$OS_VER" \\
+  IFACES="\$IFACES" DNS="\$DNS" DOCKER="\$DOCKER" python3 << 'PYEOF'
+import json, os
+def load(name, default):
+    raw = os.environ.get(name) or ''
+    try:
+        v = json.loads(raw)
+        return v if v is not None else default
+    except Exception:
+        return default
+# Software: union of all available package sources (deb / rpm / programs).
+software = []
+for k in ("SOFT_DEB", "SOFT_RPM", "SOFT_PROG"):
+    software.extend(load(k, []))
+# os_version: osquery returns a list with one row.
+os_rows = load("OS_VER", [])
+os_version = os_rows[0] if os_rows else {}
+payload = {
+    "hostname": os.environ["HOSTNAME"],
+    "agent_id": os.environ["AGENT_ID"],
+    "software": software,
+    "process_open_sockets": load("SOCKETS", []),
+    "listening_ports": load("PORTS", []),
+    "users": load("USERS", []),
+    "logged_in_users": load("LOGINS", []),
+    "scheduled_tasks": load("CRONTAB", []),
+    "authorized_keys": load("SSH_KEYS", []),
+    "os_version": os_version,
+    "interface_details": load("IFACES", []),
+    "dns_cache": load("DNS", []),
+    "docker_containers": load("DOCKER", []),
 }
-JSONEOF
+print(json.dumps(payload))
+PYEOF
 )
 
-# Send to ThreatClaw
+# Send to ThreatClaw — header takes precedence over query token; the query
+# arg is left as a fallback for proxies that strip custom headers.
 curl -fsSL -X POST \\
   -H "Content-Type: application/json" \\
   -H "X-Webhook-Token: \$TC_TOKEN" \\
-  --data "\$PAYLOAD" \\
+  --data-binary "\$PAYLOAD" \\
   "\${TC_URL}/api/tc/webhook/ingest/osquery?token=\$TC_TOKEN" \\
   --max-time 30 \\
   -k \\
