@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.21-beta] — 2026-05-04
+
+### Changed
+- Perimeter-mitigated rule now also recognises firewall events that arrive as findings (direct-API connectors), not only rows in the legacy firewall events table.
+
+### Added
+- `POST /api/tc/incidents/bulk-archive-perimeter-mitigated` with `?dry_run=true` preview. Backfills the rule across existing open incidents.
+- Dashboard maintenance: two-step button to preview then archive perimeter-mitigated incidents from the console.
+
 ## [1.0.20-beta] — 2026-05-03
 
 ### Added

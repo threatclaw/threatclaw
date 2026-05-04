@@ -434,9 +434,7 @@ fn translate_finding_title_fr(raw: &str) -> String {
 /// This helper lets Rule G inspect the dossier evidence the same way regardless
 /// of whether events came in through the legacy `firewall_events` table or the
 /// new finding pipeline.
-fn extract_firewall_action(
-    f: &crate::agent::incident_dossier::DossierFinding,
-) -> Option<&str> {
+fn extract_firewall_action(f: &crate::agent::incident_dossier::DossierFinding) -> Option<&str> {
     let matched = f.metadata.get("matched_fields")?.as_array()?;
     for pair in matched {
         let arr = pair.as_array()?;

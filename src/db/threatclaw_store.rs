@@ -1256,10 +1256,7 @@ pub trait ThreatClawStore: Send + Sync {
     /// `dry_run = true` returns the matching count without mutating anything.
     /// `dry_run = false` archives the matching incidents (status='archived',
     /// verdict='false_positive') and returns the count that was archived.
-    async fn bulk_archive_perimeter_mitigated(
-        &self,
-        dry_run: bool,
-    ) -> Result<i64, DatabaseError>;
+    async fn bulk_archive_perimeter_mitigated(&self, dry_run: bool) -> Result<i64, DatabaseError>;
 
     /// Archive all sigma alerts with status 'acknowledged' or 'resolved'.
     /// Returns the number of rows archived.
