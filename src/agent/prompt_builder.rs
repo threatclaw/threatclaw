@@ -635,7 +635,7 @@ pub fn build_investigation_prompt(
   "analysis": "ton analyse détaillée",
   "severity": "LOW|MEDIUM|HIGH|CRITICAL",
   "confidence": 0.85,
-  "incident_title_fr": "Titre court FR pour la carte d'incident (max 110 chars, factuel, ex : « Brute force SSH sur srv-01-dom (12 échecs en 3 min) »)",
+  "incident_title_fr": "Titre court FR factuel basé UNIQUEMENT sur le dossier ci-dessus (max 110 chars). N'invente pas d'asset, d'utilisateur ni de service. Ne produis pas un titre de type 'Brute force SSH' sauf si le dossier mentionne explicitement une signature SSH/compte cible. À défaut, commence par le type d'événement réellement observé (anomalie comportementale, alerte IDS, scan…).",
   "correlations": ["corrélation 1"],
   "needs_more_info": false,
   "skill_requests": [

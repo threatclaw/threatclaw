@@ -426,20 +426,85 @@ fn translate_finding_title_fr(raw: &str) -> String {
     t
 }
 
-/// Returns the firewall action of a finding (`"block"`, `"pass"`, …) when the
-/// finding is a firewall event, or `None` when it isn't firewall-related.
+/// Returns the firewall action of a finding (`"block"`, `"pass"`, `"allowed"`,
+/// …) when the finding is a firewall or IDS event, or `None` when it isn't.
 ///
-/// Direct-API firewall connectors (opnsense pf log poller, fortigate poller)
-/// store events as findings with `metadata.matched_fields = [["action", "block"], …]`.
-/// This helper lets Rule G inspect the dossier evidence the same way regardless
-/// of whether events came in through the legacy `firewall_events` table or the
-/// new finding pipeline.
-fn extract_firewall_action(f: &crate::agent::incident_dossier::DossierFinding) -> Option<&str> {
+/// Two ingestion formats are recognised:
+///   1. pf log connectors store `metadata.matched_fields = [["action", "block"], …]`.
+///   2. Suricata IDS connectors store `metadata.matched_fields = [["line", "{...alert json...}"]]`
+///      where the value is a stringified Suricata `eve.json` line. We parse it
+///      and pull `alert.action` (Suricata uses `"allowed"` for IDS-mode and
+///      `"blocked"` for IPS-mode).
+///
+/// Returns owned `String` because the Suricata branch parses a fresh JSON value.
+fn extract_firewall_action(f: &crate::agent::incident_dossier::DossierFinding) -> Option<String> {
     let matched = f.metadata.get("matched_fields")?.as_array()?;
     for pair in matched {
         let arr = pair.as_array()?;
-        if arr.len() == 2 && arr[0].as_str() == Some("action") {
-            return arr[1].as_str();
+        if arr.len() != 2 {
+            continue;
+        }
+        let key = arr[0].as_str()?;
+        // (1) pf log direct format
+        if key == "action" {
+            return arr[1].as_str().map(String::from);
+        }
+        // (2) Suricata `eve.json` line carried as a raw string
+        if key == "line"
+            && let Some(line) = arr[1].as_str()
+            && let Ok(payload) = serde_json::from_str::<serde_json::Value>(line.trim())
+            && let Some(action) = payload
+                .get("alert")
+                .and_then(|a| a.get("action"))
+                .and_then(|a| a.as_str())
+        {
+            return Some(action.to_string());
+        }
+    }
+    None
+}
+
+/// `true` when the string is a routable, public IPv4 address. Returns false
+/// for hostnames, IPv6, RFC1918 (10/8, 172.16/12, 192.168/16), loopback,
+/// link-local and benchmark ranges. Used by the Doctrine C gate to decide
+/// whether to skip L1 on assets that look like external scanners.
+fn is_external_public_ipv4(s: &str) -> bool {
+    let ip: std::net::Ipv4Addr = match s.parse() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let o = ip.octets();
+    let private = matches!(o[0], 10)
+        || (o[0] == 172 && (16..=31).contains(&o[1]))
+        || (o[0] == 192 && o[1] == 168);
+    let loopback = o[0] == 127;
+    let link_local = o[0] == 169 && o[1] == 254;
+    let benchmark = o[0] == 198 && (o[1] == 18 || o[1] == 19);
+    let multicast = o[0] >= 224;
+    let unspec_or_broadcast = ip.is_unspecified() || ip.is_broadcast();
+    !(private || loopback || link_local || benchmark || multicast || unspec_or_broadcast)
+}
+
+/// Best-effort source-IP extractor for a finding. Returns the external source
+/// of the event regardless of which connector ingested it. Used by Rule G to
+/// cross-reference a Suricata IDS finding (asset = firewall) with pf log
+/// findings on the same actual source.
+fn extract_source_ip(f: &crate::agent::incident_dossier::DossierFinding) -> Option<String> {
+    // Top-level metadata.source_ip — set by some connectors directly
+    if let Some(s) = f.metadata.get("source_ip").and_then(|v| v.as_str()) {
+        return Some(s.to_string());
+    }
+    // Suricata `eve.json` line — extract `src_ip`
+    let matched = f.metadata.get("matched_fields")?.as_array()?;
+    for pair in matched {
+        let arr = pair.as_array()?;
+        if arr.len() == 2
+            && arr[0].as_str() == Some("line")
+            && let Some(line) = arr[1].as_str()
+            && let Ok(payload) = serde_json::from_str::<serde_json::Value>(line.trim())
+            && let Some(s) = payload.get("src_ip").and_then(|v| v.as_str())
+        {
+            return Some(s.to_string());
         }
     }
     None
@@ -2785,20 +2850,31 @@ pub fn spawn_intelligence_ticker(
                                     _ => false,
                                 }
                             };
-                            let firewall_actions: Vec<&str> = dossier
+                            // Collect firewall/IDS actions across all findings.
+                            // Suricata IDS in detection mode returns "allowed"
+                            // — it observed the traffic without dropping it.
+                            // pf logs return "block" / "pass". We treat "block"
+                            // and "blocked" as proof the perimeter dropped the
+                            // packet, and "pass" / "allow" as proof traffic
+                            // got through. Suricata "allowed" is informational
+                            // and on its own doesn't prove mitigation, but
+                            // doesn't disqualify either when paired with a pf
+                            // block elsewhere in the dossier.
+                            let actions: Vec<String> = dossier
                                 .findings
                                 .iter()
                                 .filter_map(extract_firewall_action)
                                 .collect();
-                            let from_findings = !firewall_actions.is_empty()
-                                && firewall_actions.iter().all(|a| *a == "block");
+                            let has_block = actions.iter().any(|a| a == "block" || a == "blocked");
+                            let has_pass = actions.iter().any(|a| a == "pass" || a == "allow");
+                            let from_findings = has_block && !has_pass;
                             let mitigated = from_events || from_findings;
                             if mitigated {
                                 tracing::info!(
                                     asset = %worst_asset.asset,
                                     from_events,
                                     from_findings,
-                                    findings_inspected = firewall_actions.len(),
+                                    findings_inspected = actions.len(),
                                     "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
                                 );
                             }
@@ -2896,6 +2972,31 @@ pub fn spawn_intelligence_ticker(
                         };
 
                         let dossier_id = dossier.id;
+                        // Doctrine C — external IP + no firewall evidence + no
+                        // sigma alert + ML-only findings → low-priority
+                        // inconclusive WITHOUT spending an L1 LLM call. This is
+                        // the dominant noise pattern in the staging data
+                        // (background Internet scanning that the firewall
+                        // blocks but whose pf log hasn't been ingested yet).
+                        // We keep the incident visible (status=open) so the
+                        // RSSI can review it, but skip investigation.
+                        let actions_count = dossier
+                            .findings
+                            .iter()
+                            .filter(|f| extract_firewall_action(f).is_some())
+                            .count();
+                        let only_ml_findings = !dossier.findings.is_empty()
+                            && dossier.findings.iter().all(|f| {
+                                f.skill_id
+                                    .as_deref()
+                                    .map(|s| s.starts_with("ml-"))
+                                    .unwrap_or(false)
+                            });
+                        let is_external_no_evidence = !is_perimeter_mitigated
+                            && dossier.sigma_alerts.is_empty()
+                            && actions_count == 0
+                            && only_ml_findings
+                            && is_external_public_ipv4(&worst_asset.asset);
                         if is_perimeter_mitigated {
                             // Threat is already neutralised at the perimeter.
                             // Auto-archive the incident so it appears in the dashboard
@@ -2905,6 +3006,33 @@ pub fn spawn_intelligence_ticker(
                                 "INTELLIGENCE: perimeter-mitigated — incident #{} \
                                  auto-archived, LLM investigation suppressed",
                                 incident_id
+                            );
+                        } else if is_external_no_evidence {
+                            // No positive signal yet — record the dossier but
+                            // don't escalate. If firewall evidence catches up
+                            // later, the periodic perimeter-mitigated backfill
+                            // will pick it up; if a sigma alert lands, the
+                            // next IE cycle will re-evaluate.
+                            let _ = store
+                                .update_incident_verdict(
+                                    incident_id,
+                                    "inconclusive",
+                                    0.30,
+                                    "External source with no firewall evidence yet — \
+                                     deferred (Doctrine C). Will be re-evaluated when \
+                                     firewall logs catch up.",
+                                    &[],
+                                    &serde_json::json!([]),
+                                    &serde_json::json!([]),
+                                    &serde_json::json!([]),
+                                    Some("rule"),
+                                )
+                                .await;
+                            tracing::info!(
+                                "INTELLIGENCE: doctrine-C — incident #{} on {} \
+                                 deferred (external IP, ML-only, no firewall evidence)",
+                                incident_id,
+                                worst_asset.asset
                             );
                         } else if registry.try_register(&worst_asset.asset, dossier_id).await {
                             let store_inv = store.clone();
@@ -3028,7 +3156,7 @@ pub fn spawn_intelligence_ticker(
                                          Analyse initiale : {l1}\n\n\
                                          Réponds en JSON avec EXACTEMENT ces clés :\n\
                                          {{\n\
-                                           \"incident_title_fr\": \"Titre court FR pour la carte d'incident (max 110 caractères, factuel, format ≪ Brute force SSH sur srv-01-dom (12 échecs en 3 min) ≫)\",\n\
+                                           \"incident_title_fr\": \"Titre court FR pour la carte d'incident (max 110 caractères, factuel — décris ce qui est RÉELLEMENT dans le dossier ci-dessus ; n'invente pas d'asset, d'utilisateur ni de service ; ne produis pas un titre 'Brute force SSH' sauf si une signature SSH ou un compte cible est explicitement présent dans le dossier ; à défaut commence par le type de finding observé)\",\n\
                                            \"summary\": \"1-2 phrases décrivant ce qui s'est passé\",\n\
                                            \"mitre_attck\": [\"T1110 Brute Force\", \"T1078 Valid Accounts\"],\n\
                                            \"ioc\": [\"IP: 1.2.3.4\", \"hash: abc123\"],\n\

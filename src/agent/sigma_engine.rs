@@ -615,16 +615,66 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     }
                 }
 
-                let source_ip = m
+                // First pass — direct lookup of common field names.
+                let mut source_ip = m
                     .matched_fields
                     .iter()
                     .find(|(f, _)| f.contains("ip") || f.contains("addr") || f.contains("source"))
                     .map(|(_, v)| v.as_str());
+                // Fallback — Suricata IDS connectors expose the raw eve.json
+                // line under matched_fields[*].0 == "line" with the actual
+                // src_ip nested inside the JSON. Without this we'd attribute
+                // the alert to the firewall (raw_hostname) instead of the
+                // actual external source.
+                let mut suricata_src_ip_owned: Option<String> = None;
+                if source_ip.is_none() {
+                    for (k, v) in m.matched_fields.iter() {
+                        if k != "line" {
+                            continue;
+                        }
+                        if let Ok(payload) = serde_json::from_str::<serde_json::Value>(v.trim())
+                            && let Some(s) = payload.get("src_ip").and_then(|x| x.as_str())
+                        {
+                            suricata_src_ip_owned = Some(s.to_string());
+                            break;
+                        }
+                    }
+                    source_ip = suricata_src_ip_owned.as_deref();
+                }
                 let username = m
                     .matched_fields
                     .iter()
                     .find(|(f, _)| f.contains("user") || f.contains("account"))
                     .map(|(_, v)| v.as_str());
+
+                // Asset re-attribution: when the resolved source_ip is a
+                // public IPv4 and the log hostname is the firewall itself,
+                // route the finding to the actual external source rather
+                // than to the firewall — that's what Rule G and the L1
+                // queue expect to see.
+                let canonical_asset = match source_ip {
+                    Some(ip)
+                        if {
+                            if let Ok(p) = ip.parse::<std::net::Ipv4Addr>() {
+                                let o = p.octets();
+                                let private = o[0] == 10
+                                    || (o[0] == 172 && (16..=31).contains(&o[1]))
+                                    || (o[0] == 192 && o[1] == 168);
+                                !(private
+                                    || o[0] == 127
+                                    || (o[0] == 169 && o[1] == 254)
+                                    || o[0] >= 224
+                                    || p.is_unspecified()
+                                    || p.is_broadcast())
+                            } else {
+                                false
+                            }
+                        } =>
+                    {
+                        ip.to_string()
+                    }
+                    _ => canonical_asset,
+                };
 
                 let _ = store
                     .insert_sigma_alert(

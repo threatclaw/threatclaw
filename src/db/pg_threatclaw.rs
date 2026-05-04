@@ -3075,20 +3075,17 @@ impl ThreatClawStore for PgBackend {
 
     async fn bulk_archive_perimeter_mitigated(&self, dry_run: bool) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // For each open incident with no sigma alerts (alert_ids empty) and a
-        // non-null asset, look at every recent finding for that asset over the
-        // last 7 days — not only the ids snapshotted at creation, since
-        // firewall events for the same external IP often arrive later and are
-        // never appended to the original finding_ids array.
-        // An incident is "perimeter-mitigated" iff:
-        //   - at least one finding for the asset is a firewall event
-        //     (metadata.matched_fields contains an ["action", _] pair)
-        //   - every firewall event observed has action='block'
-        // ML / behavioural findings (no matched_fields with action) don't
-        // disqualify the incident.
+        // Cross-reference incident assets with src_ip values extracted from
+        // any linked Suricata IDS finding's `matched_fields[*][1]` JSON line.
+        // For each candidate (open, no sigma alerts), build a set of
+        // "related IPs": the asset itself when it's an IPv4, plus any src_ip
+        // pulled out of a Suricata payload. An incident is perimeter-
+        // mitigated iff one of those IPs has at least one firewall block
+        // event (action ∈ {block, blocked}) AND no firewall pass event
+        // (action ∈ {pass, allow}) anywhere in the last 7 days.
         let select_ids = r#"
             WITH candidate AS (
-                SELECT i.id, i.asset
+                SELECT i.id, i.asset, i.finding_ids
                 FROM incidents i
                 WHERE i.status = 'open'
                   AND (i.alert_ids IS NULL
@@ -3096,39 +3093,45 @@ impl ThreatClawStore for PgBackend {
                        OR array_length(i.alert_ids, 1) = 0)
                   AND i.asset IS NOT NULL
             ),
+            incident_ips AS (
+                SELECT c.id AS incident_id, c.asset AS ip
+                FROM candidate c
+                WHERE c.asset ~ '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+                UNION
+                SELECT DISTINCT c.id,
+                       (regexp_match(pair->>1, '"src_ip":"([^"]+)"'))[1]
+                FROM candidate c
+                JOIN findings cf ON cf.id = ANY(c.finding_ids::bigint[])
+                CROSS JOIN LATERAL jsonb_array_elements(cf.metadata::jsonb->'matched_fields') AS pair
+                WHERE jsonb_typeof(cf.metadata::jsonb->'matched_fields') = 'array'
+                  AND pair->>0 = 'line'
+                  AND pair->>1 ~ '"src_ip":"([^"]+)"'
+            ),
             analysis AS (
-                SELECT c.id,
+                SELECT ii.incident_id,
                        BOOL_OR(
                            jsonb_typeof(f.metadata::jsonb->'matched_fields') = 'array'
                            AND EXISTS (
-                               SELECT 1
-                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
-                               WHERE pair->>0 = 'action'
+                               SELECT 1 FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') p
+                               WHERE p->>0 = 'action' AND p->>1 IN ('block', 'blocked')
                            )
-                       ) AS has_firewall_finding,
-                       BOOL_AND(
-                           NOT (
-                               jsonb_typeof(f.metadata::jsonb->'matched_fields') = 'array'
-                               AND EXISTS (
-                                   SELECT 1
-                                   FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
-                                   WHERE pair->>0 = 'action'
-                               )
+                       ) AS has_block,
+                       BOOL_OR(
+                           jsonb_typeof(f.metadata::jsonb->'matched_fields') = 'array'
+                           AND EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') p
+                               WHERE p->>0 = 'action' AND p->>1 IN ('pass', 'allow')
                            )
-                           OR EXISTS (
-                               SELECT 1
-                               FROM jsonb_array_elements(f.metadata::jsonb->'matched_fields') AS pair
-                               WHERE pair->>0 = 'action' AND pair->>1 = 'block'
-                           )
-                       ) AS all_blocked
-                FROM candidate c
+                       ) AS has_pass
+                FROM incident_ips ii
                 JOIN findings f
-                  ON f.asset = c.asset
+                  ON (f.asset = ii.ip
+                      OR f.metadata::text LIKE '%"src_ip":"' || ii.ip || '"%')
                  AND f.detected_at > NOW() - INTERVAL '7 days'
-                GROUP BY c.id
+                GROUP BY ii.incident_id
             )
-            SELECT id FROM analysis
-            WHERE has_firewall_finding = TRUE AND all_blocked = TRUE
+            SELECT incident_id AS id FROM analysis
+            WHERE has_block = TRUE AND has_pass = FALSE
         "#;
         if dry_run {
             let row = conn
