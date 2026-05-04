@@ -6,24 +6,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
-## [1.0.24-beta] — 2026-05-04
+## [Unreleased]
 
-### Fixed
-- ml-engine release publication: the image declares its source repository so the GitHub Container Registry can create the package the first time the workflow pushes (1.0.23-beta failed to publish for this reason).
-
-### Documentation
-- New "Endpoint Agents", "CVE & Attack Prediction" and "Inventory Gate" sections in the README.
-- New `docs/inventory-gate.md` and `docs/attack-prediction.md` reference pages.
-- Getting-started walks through agent install on Linux and Windows and how to declare a critical asset.
-- API reference lists endpoint-agent webhook routes, bulk archive operations and both attack-prediction endpoints.
-
-## [1.0.23-beta] — 2026-05-04
+> Two tag attempts (1.0.23-beta, 1.0.24-beta) were cut today and rolled back
+> because the GitHub Container Registry refused to publish the new ml-engine
+> package from CI before the package was linked to the repository. The fixes
+> below land in the next clean release — the code is on `main`, the version
+> bump is held until the publication path is validated end to end.
 
 ### Added
 - Endpoint inventory: hardened agent installer for Debian 13 (apt-key removed in trixie) and for Windows hosts with multi-NIC layouts. The agent now filters virtual / Docker / WSL interfaces so a single host no longer surfaces as multiple assets.
 - ml-engine ships a reproducible Docker image: training corpora and DGA models are rebuilt from public sources (Tranco + synthetic) at image build time, with a SHA256 provenance sidecar. No customer or telemetry data ever enters the image.
 - Attack-prediction page now exposes two tabs: a static CVE-chain analyzer that works as soon as inventory + CVE + one critical asset exist, and the existing graph-walker for analyst drill-down.
 - CVE auto-correlation list extended with Windows server stack, Microsoft desktop apps, virtualization platforms and common security/monitoring tools so Windows inventories trigger NVD lookups too.
+- New "Endpoint Agents", "CVE & Attack Prediction" and "Inventory Gate" sections in the README, plus dedicated `docs/inventory-gate.md` and `docs/attack-prediction.md` reference pages.
+- Getting-started walks through agent install on Linux and Windows and how to declare a critical asset.
+- API reference lists endpoint-agent webhook routes, bulk archive operations and both attack-prediction endpoints.
 
 ### Changed
 - Asset resolution merges discoveries that share a hostname even when their MACs differ (Docker bridges, virtual NICs). Prevents phantom assets on every osquery sync.
@@ -32,6 +30,7 @@ Earlier `v0.x` entries below cover pre-public internal development and are kept 
 
 ### Fixed
 - Network page IDS card no longer scrolls horizontally when an IDS snippet is wide.
+- ml-engine image declares its source repository label so the GitHub Container Registry can attach a fresh container package to this repo on first push.
 
 ## [1.0.22-beta] — 2026-05-04
 
