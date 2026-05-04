@@ -1248,6 +1248,19 @@ pub trait ThreatClawStore: Send + Sync {
     /// Used to flush pre-fix artifacts that accumulated before the CACAO graph fix.
     async fn bulk_archive_stale_pending(&self, hours: i64) -> Result<i64, DatabaseError>;
 
+    /// Bulk operation for "perimeter-mitigated" backfill (Rule G applied to existing
+    /// open incidents). An incident matches when it has no sigma alerts attached
+    /// and at least one of its findings is a firewall event whose `matched_fields`
+    /// pair `("action", _)` is uniformly `"block"` across the dossier.
+    ///
+    /// `dry_run = true` returns the matching count without mutating anything.
+    /// `dry_run = false` archives the matching incidents (status='archived',
+    /// verdict='false_positive') and returns the count that was archived.
+    async fn bulk_archive_perimeter_mitigated(
+        &self,
+        dry_run: bool,
+    ) -> Result<i64, DatabaseError>;
+
     /// Archive all sigma alerts with status 'acknowledged' or 'resolved'.
     /// Returns the number of rows archived.
     async fn archive_resolved_alerts(&self) -> Result<i64, DatabaseError>;

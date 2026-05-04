@@ -426,6 +426,27 @@ fn translate_finding_title_fr(raw: &str) -> String {
     t
 }
 
+/// Returns the firewall action of a finding (`"block"`, `"pass"`, …) when the
+/// finding is a firewall event, or `None` when it isn't firewall-related.
+///
+/// Direct-API firewall connectors (opnsense pf log poller, fortigate poller)
+/// store events as findings with `metadata.matched_fields = [["action", "block"], …]`.
+/// This helper lets Rule G inspect the dossier evidence the same way regardless
+/// of whether events came in through the legacy `firewall_events` table or the
+/// new finding pipeline.
+fn extract_firewall_action(
+    f: &crate::agent::incident_dossier::DossierFinding,
+) -> Option<&str> {
+    let matched = f.metadata.get("matched_fields")?.as_array()?;
+    for pair in matched {
+        let arr = pair.as_array()?;
+        if arr.len() == 2 && arr[0].as_str() == Some("action") {
+            return arr[1].as_str();
+        }
+    }
+    None
+}
+
 fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDossier) -> String {
     let top = dossier.findings.first();
     let asset = if dossier.primary_asset.is_empty() {
@@ -2741,10 +2762,17 @@ pub fn spawn_intelligence_ticker(
                             });
 
                         // Perimeter-mitigation check (Rule G).
-                        // Query firewall events once — result drives both the severity cap
-                        // and the investigation-spawn suppression below.
-                        let is_perimeter_mitigated = dossier.sigma_alerts.is_empty()
-                            && {
+                        // Triggers in two cases:
+                        //  (a) firewall_events table populated by legacy Suricata/syslog
+                        //      connectors — all rows for this asset are action=block.
+                        //  (b) dossier findings stamped as firewall events by direct-API
+                        //      connectors (e.g. opnsense pf log poller) — all firewall-
+                        //      flavoured findings carry action=block in matched_fields.
+                        // Either side proves the perimeter has neutralised the threat.
+                        let is_perimeter_mitigated = if !dossier.sigma_alerts.is_empty() {
+                            false
+                        } else {
+                            let from_events = {
                                 let since = chrono::Utc::now() - chrono::Duration::days(7);
                                 match store
                                     .firewall_events_for_ip(&worst_asset.asset, since, 200)
@@ -2754,16 +2782,30 @@ pub fn spawn_intelligence_ticker(
                                         if !events.is_empty()
                                             && events.iter().all(|e| e.action == "block") =>
                                     {
-                                        tracing::info!(
-                                            asset = %worst_asset.asset,
-                                            events = events.len(),
-                                            "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
-                                        );
                                         true
                                     }
                                     _ => false,
                                 }
                             };
+                            let firewall_actions: Vec<&str> = dossier
+                                .findings
+                                .iter()
+                                .filter_map(extract_firewall_action)
+                                .collect();
+                            let from_findings = !firewall_actions.is_empty()
+                                && firewall_actions.iter().all(|a| *a == "block");
+                            let mitigated = from_events || from_findings;
+                            if mitigated {
+                                tracing::info!(
+                                    asset = %worst_asset.asset,
+                                    from_events,
+                                    from_findings,
+                                    findings_inspected = firewall_actions.len(),
+                                    "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
+                                );
+                            }
+                            mitigated
+                        };
                         // Rule G — cap severity for perimeter-mitigated dossiers.
                         let incident_severity = if is_perimeter_mitigated
                             && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")

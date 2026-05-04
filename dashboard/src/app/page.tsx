@@ -72,6 +72,9 @@ export default function DashTest() {
   const [now, setNow] = useState(new Date());
   const [archiving, setArchiving] = useState(false);
   const [archiveResult, setArchiveResult] = useState<number | null>(null);
+  const [perimPreview, setPerimPreview] = useState<number | null>(null);
+  const [perimArchiving, setPerimArchiving] = useState(false);
+  const [perimResult, setPerimResult] = useState<number | null>(null);
 
   // Wall clock tick for relative timestamps + cycle countdown
   useEffect(() => {
@@ -125,6 +128,33 @@ export default function DashTest() {
       setIncidents(incR?.incidents ?? []);
     } finally {
       setArchiving(false);
+    }
+  }
+
+  // Two-step UX: first click previews via dry-run, second click confirms.
+  // Reset preview to null after a real archive so the next visit starts fresh.
+  async function archivePerimeterMitigated() {
+    if (perimPreview === null) {
+      const r = await fetch(
+        "/api/tc/incidents/bulk-archive-perimeter-mitigated?dry_run=true",
+        { method: "POST" },
+      );
+      const d = await r.json();
+      setPerimPreview(d.would_archive ?? 0);
+      return;
+    }
+    setPerimArchiving(true);
+    try {
+      const r = await fetch("/api/tc/incidents/bulk-archive-perimeter-mitigated", {
+        method: "POST",
+      });
+      const d = await r.json();
+      setPerimResult(d.archived ?? 0);
+      setPerimPreview(null);
+      const incR = await fetch("/api/tc/incidents?limit=500").then((res) => res.json());
+      setIncidents(incR?.incidents ?? []);
+    } finally {
+      setPerimArchiving(false);
     }
   }
 
@@ -189,6 +219,10 @@ export default function DashTest() {
           archiving={archiving}
           archiveResult={archiveResult}
           onBulkArchiveStale={bulkArchiveStale}
+          perimPreview={perimPreview}
+          perimArchiving={perimArchiving}
+          perimResult={perimResult}
+          onArchivePerimeter={archivePerimeterMitigated}
         />
       </main>
 
@@ -1073,6 +1107,10 @@ function RightAxis({
   archiving,
   archiveResult,
   onBulkArchiveStale,
+  perimPreview,
+  perimArchiving,
+  perimResult,
+  onArchivePerimeter,
 }: {
   pending: number;
   confirmed: number;
@@ -1083,6 +1121,10 @@ function RightAxis({
   archiving: boolean;
   archiveResult: number | null;
   onBulkArchiveStale: () => void;
+  perimPreview: number | null;
+  perimArchiving: boolean;
+  perimResult: number | null;
+  onArchivePerimeter: () => void;
 }) {
   return (
     <aside
@@ -1172,38 +1214,83 @@ function RightAxis({
           </div>
         )}
 
-        {/* Maintenance — visible only when a stale backlog is detected */}
-        {pending > 50 && (
+        {/* Maintenance — visible when a backlog (pending or confirmed) is detected */}
+        {(pending + confirmed) > 50 && (
           <div style={{ padding: "14px 18px", borderTop: "1px solid var(--tc-border)" }}>
-            <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
+            <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>
               Maintenance
             </div>
-            <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px", lineHeight: 1.6 }}>
-              {pending} incidents en attente. Archiver les incidents sans décision &gt; 24h (reliquats pré-correction).
-            </div>
-            {archiveResult !== null && (
-              <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "8px" }}>
-                {archiveResult} incidents archivés.
+
+            {/* (1) Stale pending — pre-fix artefacts > 24h */}
+            {pending > 50 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
+                  {pending} incidents en attente sans décision &gt; 24h (reliquats).
+                </div>
+                {archiveResult !== null && (
+                  <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "6px" }}>
+                    {archiveResult} archivés.
+                  </div>
+                )}
+                <button
+                  onClick={onBulkArchiveStale}
+                  disabled={archiving}
+                  style={{
+                    width: "100%",
+                    padding: "7px 10px",
+                    border: "1px solid var(--tc-border)",
+                    color: archiving ? "var(--tc-text-muted)" : "var(--tc-text)",
+                    background: "transparent",
+                    cursor: archiving ? "wait" : "pointer",
+                    fontSize: "10px",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {archiving ? "archivage..." : "purger l'arriéré"}
+                </button>
               </div>
             )}
-            <button
-              onClick={onBulkArchiveStale}
-              disabled={archiving}
-              style={{
-                width: "100%",
-                padding: "7px 10px",
-                border: "1px solid var(--tc-border)",
-                color: archiving ? "var(--tc-text-muted)" : "var(--tc-text)",
-                background: "transparent",
-                cursor: archiving ? "wait" : "pointer",
-                fontSize: "10px",
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-                fontFamily: "inherit",
-              }}
-            >
-              {archiving ? "archivage..." : "purger l'arriéré"}
-            </button>
+
+            {/* (2) Perimeter-mitigated cleanup — Rule G backfill */}
+            <div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
+                Scanners externes bloqués au pare-feu, sans alerte sigma. Aucune action requise.
+              </div>
+              {perimResult !== null && (
+                <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "6px" }}>
+                  {perimResult} incidents archivés.
+                </div>
+              )}
+              {perimPreview !== null && perimResult === null && (
+                <div style={{ fontSize: "10px", color: "var(--tc-text)", marginBottom: "6px" }}>
+                  {perimPreview} incidents seraient archivés. Cliquer à nouveau pour confirmer.
+                </div>
+              )}
+              <button
+                onClick={onArchivePerimeter}
+                disabled={perimArchiving}
+                style={{
+                  width: "100%",
+                  padding: "7px 10px",
+                  border: "1px solid var(--tc-border)",
+                  color: perimArchiving ? "var(--tc-text-muted)" : "var(--tc-text)",
+                  background: "transparent",
+                  cursor: perimArchiving ? "wait" : "pointer",
+                  fontSize: "10px",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  fontFamily: "inherit",
+                }}
+              >
+                {perimArchiving
+                  ? "archivage..."
+                  : perimPreview === null
+                    ? "scanners externes : aperçu"
+                    : "confirmer l'archivage"}
+              </button>
+            </div>
           </div>
         )}
       </div>

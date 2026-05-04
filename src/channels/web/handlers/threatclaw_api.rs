@@ -4886,6 +4886,44 @@ pub async fn alerts_archive_resolved_handler(
     Ok(Json(serde_json::json!({ "archived": count })))
 }
 
+/// POST /api/tc/incidents/bulk-archive-perimeter-mitigated — Rule G backfill for
+/// existing open incidents whose evidence is fully blocked at the firewall.
+///
+/// Query params:
+///   - `dry_run=true` — return the matching count without mutating
+///
+/// Response: `{"archived": N}` for a real run, `{"would_archive": N}` for dry-run.
+#[derive(Debug, Deserialize)]
+pub struct PerimeterMitigatedQuery {
+    pub dry_run: Option<bool>,
+}
+
+pub async fn incidents_bulk_archive_perimeter_mitigated_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<PerimeterMitigatedQuery>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let dry_run = q.dry_run.unwrap_or(false);
+    let count = store
+        .bulk_archive_perimeter_mitigated(dry_run)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("perimeter-mitigated archive failed: {e}"),
+            )
+        })?;
+    if dry_run {
+        Ok(Json(serde_json::json!({ "would_archive": count })))
+    } else {
+        tracing::info!(
+            "BULK-ARCHIVE-PERIMETER: {} incidents archived (Rule G backfill)",
+            count
+        );
+        Ok(Json(serde_json::json!({ "archived": count })))
+    }
+}
+
 /// POST /api/tc/incidents/bulk-archive-stale — archive open+pending incidents older than 24h.
 /// Used by the RSSI to flush pre-fix artifact backlogs without touching recent incidents.
 pub async fn incidents_bulk_archive_stale_handler(
