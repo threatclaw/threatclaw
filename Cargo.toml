@@ -231,7 +231,7 @@ tokio-tungstenite = "0.26"
 pretty_assertions = "1"
 tempfile = "3"
 insta = "1.46.3"
-criterion = "0.5"
+criterion = "0.8"
 
 [[bench]]
 name = "safety_check"
