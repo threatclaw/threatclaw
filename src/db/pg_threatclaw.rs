@@ -1355,6 +1355,56 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    async fn insert_sigma_alert_with_fields(
+        &self,
+        rule_id: &str,
+        level: &str,
+        title: &str,
+        hostname: &str,
+        source_ip: Option<&str>,
+        username: Option<&str>,
+        matched_fields: &serde_json::Value,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Stub rule (idempotent)
+        let rule_yaml = format!(
+            "title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test",
+            title, level
+        );
+        let empty_json = serde_json::json!({});
+        conn.execute(
+            "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) \
+             VALUES ($1, $2, $3, $4, $5::jsonb, true) ON CONFLICT (id) DO NOTHING",
+            &[&rule_id, &title, &level, &rule_yaml, &empty_json],
+        )
+        .await
+        .map_err(query_err)?;
+
+        let user_str = username.unwrap_or("");
+        let parsed_ip: Option<std::net::IpAddr> = source_ip
+            .filter(|ip| !ip.is_empty())
+            .and_then(|ip| ip.parse().ok());
+
+        let row = if let Some(ip) = parsed_ip {
+            conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip, matched_fields) \
+                 VALUES ($1, $2, $3, $4, $5, 'new', $6, $7) RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str, &ip, matched_fields],
+            )
+            .await
+            .map_err(query_err)?
+        } else {
+            conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, matched_fields) \
+                 VALUES ($1, $2, $3, $4, $5, 'new', $6) RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str, matched_fields],
+            )
+            .await
+            .map_err(query_err)?
+        };
+        Ok(row.get(0))
+    }
+
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
@@ -2690,7 +2740,7 @@ impl ThreatClawStore for PgBackend {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, forensic_enriched_at, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, forensic_enriched_at, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, enrichment, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
             &[&id],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| serde_json::json!({
@@ -2721,6 +2771,7 @@ impl ThreatClawStore for PgBackend {
             "blast_radius_snapshot": r.try_get::<_, Option<serde_json::Value>>("blast_radius_snapshot").unwrap_or(None),
             "blast_radius_score": r.get::<_, Option<i16>>("blast_radius_score"),
             "blast_radius_computed_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("blast_radius_computed_at").map(|t| t.to_rfc3339()),
+            "enrichment": r.try_get::<_, serde_json::Value>("enrichment").unwrap_or(serde_json::json!({})),
             "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
             "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
             "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),
@@ -2776,6 +2827,36 @@ impl ThreatClawStore for PgBackend {
                  updated_at = NOW() \
              WHERE id = $1",
             &[&id, &alert_count_delta, &key_owned],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn set_incident_enrichment(
+        &self,
+        id: i32,
+        enrichment: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET enrichment = $2, updated_at = NOW() WHERE id = $1",
+            &[&id, enrichment],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn set_incident_proposed_actions(
+        &self,
+        id: i32,
+        proposed_actions: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET proposed_actions = $2, updated_at = NOW() WHERE id = $1",
+            &[&id, proposed_actions],
         )
         .await
         .map_err(query_err)?;
@@ -2979,10 +3060,32 @@ impl ThreatClawStore for PgBackend {
                 // The WHERE clause covers both hostname-based and IP-based assets
                 // so that assets identified by source IP (e.g. "198.177.125.117")
                 // still get their sigma alerts loaded.
-                "SELECT id, rule_id, COALESCE(title, rule_id, 'unknown'), level, \
-                        matched_at, COALESCE(matched_fields, '{}'), username \
+                // Match sigma alerts via :
+                //   - hostname = asset_id / name / hostname (canonical)
+                //   - hostname IN asset.ip_addresses (sigma alert keyed par IP au lieu du hostname)
+                //   - source_ip = asset_id (asset identifié par IP brute)
+                //   - source_ip IN asset.ip_addresses (IDS alert où source_ip = une IP de l'asset)
+                //
+                // Le `$1` peut être l'asset.id, .name ou .hostname selon la source —
+                // on les teste tous via OR. Ensuite on dérive `ip_addresses` par
+                // unnest() puisque le strip des ports (`10.77.0.174:51788` → `10.77.0.174`)
+                // se fait côté SQL via split_part. Sans cette résolution, asset
+                // 'debian' (id=asset-bc24..., ip=[10.77.0.136]) manque les
+                // sigma_alerts hostname='10.77.0.136'. Voir #1577 cas d'école.
+                "WITH asset_ips AS ( \
+                   SELECT split_part(unnest(ip_addresses), ':', 1) AS ip \
+                   FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                 ) \
+                 SELECT id, rule_id, COALESCE(title, rule_id, 'unknown'), level, \
+                        matched_at, COALESCE(matched_fields, '{}'), username, \
+                        source_ip::text \
                  FROM sigma_alerts \
-                 WHERE (hostname = $1 OR source_ip::text = $1) AND matched_at >= $2 \
+                 WHERE ( \
+                     hostname = $1 OR source_ip::text = $1 \
+                     OR hostname IN (SELECT ip FROM asset_ips) \
+                     OR source_ip::text IN (SELECT ip FROM asset_ips) \
+                 ) AND matched_at >= $2 \
                  ORDER BY \
                    CASE WHEN level = 'critical' THEN 0 \
                         WHEN level = 'high'     THEN 1 \
@@ -3003,6 +3106,7 @@ impl ThreatClawStore for PgBackend {
                     rule_id: r.get(1),
                     rule_name: r.get(2),
                     level: r.get(3),
+                    source_ip: r.get::<_, Option<String>>(7),
                     matched_fields: r.get::<_, serde_json::Value>(5),
                     created_at: r.get(4),
                     username: r.get(6),
@@ -3179,7 +3283,8 @@ impl ThreatClawStore for PgBackend {
         let rows = conn
             .query(
                 "SELECT id, asset, title, summary, mitre_techniques, severity, alert_count, \
-                        proposed_actions, evidence_citations, created_at \
+                        proposed_actions, evidence_citations, created_at, \
+                        alert_ids, finding_ids \
                  FROM incidents \
                  WHERE verdict = 'confirmed' \
                    AND forensic_enriched_at IS NULL \
@@ -3202,6 +3307,10 @@ impl ThreatClawStore for PgBackend {
                 "proposed_actions": r.try_get::<_, serde_json::Value>("proposed_actions").unwrap_or(serde_json::json!([])),
                 "evidence_citations": r.try_get::<_, serde_json::Value>("evidence_citations").unwrap_or(serde_json::json!([])),
                 "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
+                // Phase 2a — re-fetch findings/alerts in forensic_enricher to build a rich
+                // grounded prompt (avoids the L2 hallucinating from a bare title+summary)
+                "alert_ids": r.try_get::<_, Vec<i32>>("alert_ids").unwrap_or_default(),
+                "finding_ids": r.try_get::<_, Vec<i32>>("finding_ids").unwrap_or_default(),
             })
         }).collect();
         Ok(results)
@@ -3950,7 +4059,7 @@ impl ThreatClawStore for PgBackend {
 
     async fn get_sigma_alerts_by_ids(
         &self,
-        ids: &[i32],
+        ids: &[i64],
     ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         if ids.is_empty() {
             return Ok(vec![]);
@@ -3971,7 +4080,7 @@ impl ThreatClawStore for PgBackend {
                 let matched_at: chrono::DateTime<chrono::Utc> = r.get(6);
                 serde_json::json!({
                     "kind": "alert",
-                    "id": r.get::<_, i32>(0),
+                    "id": r.get::<_, i64>(0),
                     "title": r.get::<_, String>(1),
                     "level": r.get::<_, String>(2),
                     "hostname": r.get::<_, Option<String>>(3),

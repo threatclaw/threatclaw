@@ -822,6 +822,25 @@ pub trait ThreatClawStore: Send + Sync {
         username: Option<&str>,
     ) -> Result<i64, DatabaseError>;
 
+    /// Phase 5 — Insert sigma alert AVEC `matched_fields` propagés (signature
+    /// Suricata, dest_port, proto, bytes, etc.). Sans ces champs en DB, le
+    /// dossier reçu par le L2 reste flou et favorise les hallucinations.
+    /// Default impl forward vers `insert_sigma_alert` pour les backends qui
+    /// n'ont pas encore migré.
+    async fn insert_sigma_alert_with_fields(
+        &self,
+        rule_id: &str,
+        level: &str,
+        title: &str,
+        hostname: &str,
+        source_ip: Option<&str>,
+        username: Option<&str>,
+        _matched_fields: &serde_json::Value,
+    ) -> Result<i64, DatabaseError> {
+        self.insert_sigma_alert(rule_id, level, title, hostname, source_ip, username)
+            .await
+    }
+
     /// List all enabled Sigma rules with their detection_json for the native engine.
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
@@ -1193,6 +1212,26 @@ pub trait ThreatClawStore: Send + Sync {
         pattern_key: Option<&str>,
     ) -> Result<(), DatabaseError>;
 
+    /// Phase 4 — persist le bundle d'enrichment (cve_details, ip_reputations,
+    /// threat_intel, enrichment_lines) sur l'incident. Consommé par le
+    /// dashboard `/incidents/[id]` pour la chronologie d'attaque enrichie.
+    /// Voir migration V71.
+    async fn set_incident_enrichment(
+        &self,
+        id: i32,
+        enrichment: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
+    /// Phase 6 — persist les actions proposées par le L2 forensic
+    /// (typiquement opnsense_block_ip avec source_ip externe). Consommé par
+    /// l'UI HITL pour afficher les boutons Approuver/Rejeter.
+    /// Le `Value` attendu est : `{"actions": [{"cmd_id": "...", "params": {...}, "rationale": "..."}], "iocs": []}`.
+    async fn set_incident_proposed_actions(
+        &self,
+        id: i32,
+        proposed_actions: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
     /// Cleanup: delete acknowledged/resolved sigma alerts older than `days_old` days.
     /// Returns the number of deleted rows.
     async fn cleanup_old_sigma_alerts(&self, days_old: i32) -> Result<i64, DatabaseError>;
@@ -1387,9 +1426,15 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Fetch sigma alerts by IDs for the attack timeline. Returns rows ordered
     /// by matched_at ASC. Missing IDs are silently skipped.
+    ///
+    /// Phase 7g — IDs sont des `i64` car la colonne `sigma_alerts.id` est
+    /// `bigint`. Avant on passait `&[i32]` et `WHERE id = ANY($1)` plantait
+    /// silencieusement (type mismatch `int8 vs int4[]`), retournant 0 rows.
+    /// Conséquence : forensic enricher récupérait un context vide → derive
+    /// returned 0 actions → proposed_actions vide même avec source_ip externe.
     async fn get_sigma_alerts_by_ids(
         &self,
-        ids: &[i32],
+        ids: &[i64],
     ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     /// Fetch findings by IDs for the attack timeline. Returns rows ordered

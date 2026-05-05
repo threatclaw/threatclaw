@@ -162,6 +162,7 @@ mod tests {
                     rule_id: format!("rule-{id}"),
                     rule_name: format!("rule {id}"),
                     level: "medium".into(),
+                    source_ip: None,
                     matched_fields: serde_json::json!({}),
                     created_at: Utc::now(),
                     username: None,

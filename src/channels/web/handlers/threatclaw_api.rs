@@ -8781,13 +8781,13 @@ pub async fn incident_full_handler(
     // 7. Attack events — sigma alerts + findings that triggered this incident,
     //    sorted chronologically to reconstruct the attack timeline.
     let attack_events: Vec<serde_json::Value> = {
-        let alert_ids: Vec<i32> = incident["alert_ids"]
+        // Phase 7g — `sigma_alerts.id` est bigint donc on garde i64 jusqu'à la
+        // query. Le cast i64 → i32 historique faisait planter `WHERE id = ANY($1)`
+        // (type mismatch int8 vs int4[]) silencieusement → events.len()=0 dans
+        // l'attack timeline UI.
+        let alert_ids: Vec<i64> = incident["alert_ids"]
             .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_i64().map(|n| n as i32))
-                    .collect()
-            })
+            .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
             .unwrap_or_default();
 
         let finding_ids: Vec<i64> = incident["finding_ids"]

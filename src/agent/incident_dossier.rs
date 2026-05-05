@@ -114,6 +114,13 @@ pub struct DossierAlert {
     /// Used in prompts and logs. Falls back to rule_id when title is absent.
     pub rule_name: String,
     pub level: String,
+    /// Source IP of the alert (e.g. external attacker IP for an IDS hit on
+    /// the OPNsense gateway). Required by `dossier_enrichment::enrich_ip_reputations`
+    /// to populate IP reputation lookups (Spamhaus, ThreatFox, GreyNoise) into
+    /// the structured `EnrichmentBundle.ip_reputations` instead of leaving the
+    /// L2 prompt with a bare `source_ip` it has to interpret without context.
+    #[serde(default)]
+    pub source_ip: Option<String>,
     pub matched_fields: Value,
     pub created_at: DateTime<Utc>,
     /// Username extracted from the alert, used to compute CEL signals

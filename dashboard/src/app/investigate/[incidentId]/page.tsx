@@ -11,6 +11,7 @@ import {
   MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft, Brain,
 } from "lucide-react";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
+import AttackTimeline from "@/components/incidents/AttackTimeline";
 
 // ─────────────────────────── types ───────────────────────────
 
@@ -97,6 +98,9 @@ interface Incident {
   created_at: string;
   resolved_at: string | null;
   notes: IncidentNote[];
+  // Phase 4 — bundle d'enrichment persisté à la création de l'incident
+  // (cve_details, ip_reputations, threat_intel, enrichment_lines firewall).
+  enrichment?: import("@/components/incidents/AttackTimeline").EnrichmentBundle;
 }
 
 interface AttackEvent {
@@ -1230,6 +1234,13 @@ export default function InvestigatePage() {
                     )}
                   </div>
                 </div>
+              </section>
+
+              {/* Phase 4 — chronologie d'attaque enrichie (firewall logs cross-correlation,
+                  IP reputations, CVE details). Nourri par EnrichmentBundle persisté
+                  par l'IE au moment de la création de l'incident (V71 + dossier_enrichment). */}
+              <section className="inv-sec">
+                <AttackTimeline enrichment={inc.enrichment} />
               </section>
 
               {/* Forensic L2 enrichment section */}

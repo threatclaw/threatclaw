@@ -132,6 +132,7 @@ fn build_dossier(fx: &FxDossier) -> IncidentDossier {
                 rule_id: format!("rule-{}", a.id),
                 rule_name: format!("rule {}", a.id),
                 level: a.level.clone(),
+                source_ip: None,
                 matched_fields: serde_json::json!({}),
                 created_at: Utc::now(),
                 username: None,

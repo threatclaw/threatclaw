@@ -444,6 +444,20 @@ impl ThreatClawStore for LibSqlBackend {
     async fn touch_incident(&self, _: i32, _: i32, _: Option<&str>) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn set_incident_enrichment(
+        &self,
+        _: i32,
+        _: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn set_incident_proposed_actions(
+        &self,
+        _: i32,
+        _: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn phase_g_acceptance_stats(
         &self,
         _: i32,
@@ -603,7 +617,7 @@ impl ThreatClawStore for LibSqlBackend {
 
     async fn get_sigma_alerts_by_ids(
         &self,
-        _: &[i32],
+        _: &[i64],
     ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Ok(vec![])
     }

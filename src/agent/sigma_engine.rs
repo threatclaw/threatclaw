@@ -596,6 +596,28 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     for log in &logs {
         for rule in rules.iter() {
             if let Some(m) = match_rule(rule, &log.data, log.tag.as_deref()) {
+                // Phase 8b — Filtre FP IDS multi-vendor.
+                //
+                // Sur un parc client typique (10 srv + 50 postes), Windows
+                // Update / antivirus update / app self-update génèrent des
+                // centaines d'alertes IDS "informational" par jour, quel que
+                // soit le vendor (Suricata, Fortinet, Stormshield, pfSense).
+                // Sans filtre on crée ~1500 incidents/jour de FP — système
+                // inutilisable.
+                //
+                // Le filtre est délégué au registre `ids_normalizer` qui
+                // dispatch sur le vendor adapté via `try_normalize`. Si la
+                // règle n'est pas un IDS générique (ex: tc-ssh-brute,
+                // opnsense-001 auth failed), `try_normalize` retourne None
+                // et le pipeline garde l'alerte intacte. Voir
+                // `agent/ids_normalizer/mod.rs::is_benign` pour les critères.
+                if let Some(normalized) =
+                    crate::agent::ids_normalizer::try_normalize(&m.rule_id, &m.matched_fields)
+                    && crate::agent::ids_normalizer::is_benign(&normalized)
+                {
+                    continue;
+                }
+
                 let raw_hostname = log.hostname.as_deref().unwrap_or("unknown");
                 let canonical_asset = resolve_canonical_asset(store.as_ref(), raw_hostname).await;
 
@@ -713,14 +735,27 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     canonical_asset
                 };
 
+                // Phase 5 (Bug 8) — sérialise les `matched_fields` extraits par
+                // l'engine sigma (ex: signature Suricata, dest_port, proto, action
+                // firewall, bytes échangés) et les persiste en DB pour qu'ils
+                // remontent dans le dossier passé au L2. Sans ça `matched_fields`
+                // restait `{}` et le L2 inventait des détails plausibles
+                // (88.88.88.88, EternalBlue, fail2ban...).
+                let mut mf_obj = serde_json::Map::new();
+                for (k, v) in &m.matched_fields {
+                    mf_obj.insert(k.clone(), serde_json::Value::String(v.clone()));
+                }
+                let mf_value = serde_json::Value::Object(mf_obj);
+
                 let _ = store
-                    .insert_sigma_alert(
+                    .insert_sigma_alert_with_fields(
                         &m.rule_id,
                         &m.level,
                         &m.rule_title,
                         &canonical_asset,
                         source_ip,
                         username,
+                        &mf_value,
                     )
                     .await;
                 let _ = store
@@ -839,3 +874,10 @@ async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> 
     }
     raw.to_string()
 }
+
+// Phase 8b — La logique IDS multi-vendor (Suricata + futurs Fortinet,
+// Stormshield, pfSense, Cisco Firepower) vit dans
+// `agent/ids_normalizer/`. Voir le trait `IdsAlertNormalizer` et la
+// fonction `is_benign` côté module dédié pour la matrice complète des
+// critères de drop. Le sigma_engine n'invoque que `try_normalize +
+// is_benign` ; aucune logique vendor-specific ici.

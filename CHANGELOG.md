@@ -6,6 +6,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.24-beta] — 2026-05-05
+
+### Added
+- IDS alert normalizer layer with a vendor-agnostic schema (severity, category, signature, flowbits, direction). The first adapter ships for the bundled IDS sensor; adding a new vendor is one file plus one registry line, with the false-positive policy shared across vendors.
+- False-positive filter for IDS alerts that drops perimeter informational events tied to legitimate update / policy traffic before they create incidents (Windows Defender signature updates, Adobe / Google / Mozilla / Dropbox auto-updaters, dotted-quad executable downloads from CDN). On a typical small-business fleet this removes around 1 500 false-positive incidents per day.
+- Cross-skill incident enrichment: each incident dossier is now pre-enriched with CVE details, IP reputation lookups, threat-intel matches and correlated firewall lines from every connected firewall skill, in parallel, before any LLM step.
+- Attack timeline panel on the incident page renders the structured enrichment (color-coded IP reputation, CVSS / EPSS / KEV badges on CVEs, threat-intel matches, factual firewall lines).
+- Deterministic remediation suggestion: every confirmed incident with an external source IP attested by at least one detection rule now surfaces an `opnsense_block_ip` proposal in the human-in-the-loop queue, even when the forensic analyst service is busy or times out.
+- Outbound-direction awareness on generic IDS alerts: when telemetry indicates an internal asset reaching out (update CDN, dotted-quad host, packed executable download), the incident title is rephrased as “Suspicious outbound traffic from X to Y (review)” instead of presenting the remote endpoint as an attacker.
+
+### Changed
+- Forensic analyst pipeline serialises model calls through a global single-permit semaphore so multiple incidents queued at the same time no longer starve the deeper analysis stage. Conversational L0 bot stays out of the queue and remains responsive.
+- Forensic analyst timeout reduced from 20 minutes to 5 minutes; on timeout, the deterministic block-IP fallback persists a remediation proposal so the operator always has an actionable next step.
+- Forensic prompt hides static software-vulnerability findings when at least one live detection rule is present in the incident, so the narrative stays anchored on the observed attack rather than on contextual patch state.
+- Incident title prioritisation now favours the live detection rule over static vulnerability findings (a brute-force burst is described as a brute-force burst, not as a CVE list on the same host).
+
+### Fixed
+- Forensic enrichment no longer skipped when the eligibility gate is computed from the persisted record: we now use the actual count of attested detection IDs and finding IDs instead of a stale aggregate column that was always zero.
+- Detection-rule lookup by ID was silently returning zero rows because of an integer-width mismatch on the primary key. Identifier handling normalised across the database trait, the SQL adapter, and all call sites; structured forensic context is now reliably hydrated.
+- Asset resolution for detection rules now joins on the asset’s recorded IP addresses (with port stripping), so an asset known by canonical name can still be linked to detection events keyed on its IP. This unblocked alert correlation, source-IP visibility in titles, and the deterministic block-IP proposal.
+- Hallucination guardrails extended with new sentinels (generic threat-actor placeholders, exfiltration / ransomware terms, well-known APT names) so unverifiable narrative claims trigger a rejection and a deterministic summary instead of being persisted.
+
 ## [1.0.23-beta] — 2026-05-04
 
 ### Added

@@ -10,6 +10,212 @@ use serde_json::json;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 
+// ── Predictive-only gate ───────────────────────────────────────────
+// Liste des skills qui produisent des findings PRÉDICTIFS (état de
+// patch, exposition statique). Un dossier composé uniquement de ces
+// findings — sans aucun signal observable ailleurs — alimente
+// `/threat-map` et n'a pas à entrer dans la queue incidents. Voir
+// `is_predictive_only` ci-dessous et la doctrine inventory-gate.
+//
+// Si on ajoute un skill prédictif (par ex. `cloud-misconfig`,
+// `tls-expiry`), il se déclare ici. Les skills observationnels
+// (sigma, ml-*, ids-*, firewall-*) n'apparaissent JAMAIS dans cette
+// liste — un finding d'observation invalide la prédiction-only.
+const PREDICTIVE_SKILLS: &[&str] = &[
+    "software-vuln",   // CISA KEV × osquery, NVD × osquery
+    "wordpress-vuln",  // wpscan
+    "container-vuln",  // Trivy / image scan
+    "wazuh-vuln",      // Wazuh vuln-detector
+    "vuln-scan",       // generic vuln scan
+    "darkweb-monitor", // credential leaks
+    "shodan",          // port exposure
+];
+
+/// Returns true if the dossier represents a purely *predictive* risk.
+///
+/// A dossier is predictive-only when:
+///   1. its findings are non-empty AND every finding's `skill_id` is in
+///      [`PREDICTIVE_SKILLS`] (whitelist of static-exposure sources), AND
+///   2. no observable signal lives elsewhere in the dossier:
+///        - no sigma alerts attached
+///        - `correlations.active_attack` is false
+///        - `correlations.kill_chain_detected` is false
+///        - `enrichment.threat_intel` is empty (no IOC match)
+///        - no IP in `enrichment.ip_reputations` is classified malicious
+///        - `ml_scores.anomaly_score` is below 0.7
+///
+/// Predictive dossiers belong on `/threat-map` (consumed by
+/// `path_risk` and `threat_graph`), not in the incident queue. The
+/// underlying findings stay in the DB so the prediction layer can
+/// still pick them up.
+fn is_predictive_only(dossier: &crate::agent::incident_dossier::IncidentDossier) -> bool {
+    // (A) findings non vides et tous d'origine prédictive
+    if dossier.findings.is_empty() {
+        return false;
+    }
+    let all_predictive = dossier.findings.iter().all(|f| {
+        f.skill_id
+            .as_deref()
+            .is_some_and(|s| PREDICTIVE_SKILLS.contains(&s))
+    });
+    if !all_predictive {
+        return false;
+    }
+
+    // (B) aucun signal observable
+    if !dossier.sigma_alerts.is_empty() {
+        return false;
+    }
+    if dossier.correlations.active_attack {
+        return false;
+    }
+    if dossier.correlations.kill_chain_detected {
+        return false;
+    }
+    if !dossier.enrichment.threat_intel.is_empty() {
+        return false;
+    }
+    let has_malicious_ip = dossier
+        .enrichment
+        .ip_reputations
+        .iter()
+        .any(|r| r.is_malicious || r.classification == "malicious");
+    if has_malicious_ip {
+        return false;
+    }
+    if dossier.ml_scores.anomaly_score >= 0.7 {
+        return false;
+    }
+
+    true
+}
+
+// ── Bug 4 — Graph CACAO score adjustment ──────────────────────────
+// Réconciliation des deux paths de création d'incident.
+// Voir `internal/roadmap-mai.md` Phase 1c pour le design détaillé.
+
+/// Fenêtre de réconciliation : on ne regarde que les graph_executions des
+/// 4 dernières heures pour ajuster le score d'asset. Au-delà, l'archive est
+/// considérée comme contextuellement périmée.
+const GRAPH_ADJUSTMENT_WINDOW_HOURS: i64 = 4;
+
+/// Combien de graph_executions au max on consulte par asset. Cap pour éviter
+/// qu'un flot d'alertes archivées n'écrase complètement le score.
+const GRAPH_ADJUSTMENT_MAX_EXECUTIONS: i64 = 20;
+
+/// Pondération (en points de score asset) à soustraire selon le motif d'archive
+/// retourné par un graph CACAO. Ces valeurs reflètent le degré de confiance
+/// qu'on accorde à la décision du graph :
+///
+/// - "perimeter-mitigated" : le firewall a bloqué le trafic — preuve forte
+///   que la menace n'a pas atteint l'asset, on réduit beaucoup
+/// - "bruit IDS classique" : alerte IDS isolée sans corrélation — réduction
+///   modérée (un IDS qui parle seul n'est pas un incident)
+/// - "compliance-only" : finding de conformité (CIS, etc.) — pas un événement
+///   opérationnel, réduction forte
+/// - "low-criticality archive" : asset de criticité faible — réduction faible
+///   (on ne veut pas zapper toutes les alertes des assets non critiques)
+///
+/// Le matching est par préfixe / substring (l'`archive_reason` retourné par
+/// les graphs CACAO est en français libre). Reason inconnu = pénalité par défaut.
+fn score_penalty_for_reason(reason: Option<&str>) -> f64 {
+    let r = match reason {
+        Some(s) => s.to_lowercase(),
+        None => return 5.0, // Pas de raison : pénalité minimale par défaut
+    };
+
+    if r.contains("perimeter-mitigated") || r.contains("perimeter mitigated") {
+        25.0
+    } else if r.contains("compliance") || r.contains("cis ") {
+        20.0
+    } else if r.contains("bruit") || r.contains("noise") || r.contains("isolated") {
+        15.0
+    } else if r.contains("low-criticality") || r.contains("low criticality") {
+        10.0
+    } else {
+        5.0 // Default pour reason inconnu / non listé
+    }
+}
+
+/// Calcule la pénalité totale à soustraire du score d'un asset à partir de la
+/// liste de ses graph_executions archivées récentes. Pure, sans I/O —
+/// testable directement.
+fn compute_total_penalty(executions: &[crate::agent::task_queue::GraphExecutionRecord]) -> f64 {
+    executions
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.status,
+                crate::agent::task_queue::GraphExecutionStatus::Archived
+            )
+        })
+        .map(|e| score_penalty_for_reason(e.archive_reason.as_deref()))
+        .sum()
+}
+
+/// Pour chaque asset dans le map, applique l'ajustement de score selon les
+/// graph_executions archivées dans la fenêtre récente. Bypass complet quand
+/// l'asset a déjà `has_kill_chain` ou `has_active_attack` activé : dans ces
+/// cas on garde le score brut, le graph CACAO ne peut pas masquer une attaque
+/// confirmée par corrélation.
+async fn apply_graph_score_adjustments(
+    store: &dyn Database,
+    asset_map: &mut HashMap<String, AssetSituation>,
+) {
+    use crate::db::threatclaw_store::{GraphExecutionsFilter, ThreatClawStore};
+
+    for (asset_id, situation) in asset_map.iter_mut() {
+        // Filet de sécurité : on ne dégrade JAMAIS le score d'un asset qui
+        // porte un kill chain confirmé ou une attaque active. Même si des
+        // graphs ont archivé des composants individuels, la corrélation
+        // multi-source prévaut.
+        if situation.has_kill_chain || situation.has_active_attack {
+            continue;
+        }
+
+        let filter = GraphExecutionsFilter {
+            status: Some("archived".to_string()),
+            asset_id: Some(asset_id.clone()),
+            archive_reason: None,
+            since_hours: Some(GRAPH_ADJUSTMENT_WINDOW_HOURS),
+            limit: GRAPH_ADJUSTMENT_MAX_EXECUTIONS,
+        };
+
+        let executions = match store.list_graph_executions(&filter).await {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::debug!(
+                    asset = %asset_id,
+                    error = %e,
+                    "INTELLIGENCE: graph_score_adjustment — list_graph_executions failed, skipping"
+                );
+                continue;
+            }
+        };
+
+        if executions.is_empty() {
+            continue;
+        }
+
+        let penalty = compute_total_penalty(&executions);
+        if penalty <= 0.0 {
+            continue;
+        }
+
+        let original = situation.score;
+        situation.score = (situation.score - penalty).max(0.0);
+
+        tracing::debug!(
+            asset = %asset_id,
+            executions_count = executions.len(),
+            original_score = original,
+            penalty,
+            adjusted_score = situation.score,
+            "INTELLIGENCE: graph CACAO score adjustment applied"
+        );
+    }
+}
+
 // See ADR-030: investigation dedup (24h window)
 static INVESTIGATION_BLOOM: std::sync::LazyLock<Arc<tokio::sync::RwLock<InvestigationDedup>>> =
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::RwLock::new(InvestigationDedup::new())));
@@ -614,12 +820,123 @@ fn extract_source_ip(f: &crate::agent::incident_dossier::DossierFinding) -> Opti
 }
 
 fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDossier) -> String {
-    let top = dossier.findings.first();
     let asset = if dossier.primary_asset.is_empty() {
         "asset inconnu".to_string()
     } else {
         dossier.primary_asset.clone()
     };
+
+    // Phase 6 — Prioriser les sigma alerts sur les findings dans le titre.
+    // Les sigma alerts représentent le TRIGGER réactif (attaque observée).
+    // Les findings software-vuln sont des annotations contextuelles (état de
+    // patch). Mettre les CVE au premier plan trompe l'opérateur — un incident
+    // avec un sigma SSH brute + 5 CVE KEV doit lire "SSH brute force depuis
+    // <ip>", pas "5 signaux critical sur asset — tcl-expect CVE-...".
+    if let Some(alert) = dossier.sigma_alerts.first() {
+        let from = alert
+            .source_ip
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|ip| format!(" depuis {ip}"))
+            .unwrap_or_default();
+        let user = alert
+            .username
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|u| format!(" (user {u})"))
+            .unwrap_or_default();
+        let rule_lc = alert.rule_id.to_lowercase();
+        let title_lc = alert.rule_name.to_lowercase();
+
+        // Patterns Sigma typiques mappés au libellé RSSI
+        if rule_lc.contains("ssh-brute")
+            || rule_lc.contains("ssh-auth")
+            || title_lc.contains("ssh brute")
+            || title_lc.contains("brute force")
+        {
+            return format!("SSH brute force sur {asset}{from}{user}");
+        }
+        if rule_lc.contains("rdp-brute") || title_lc.contains("rdp brute") {
+            return format!("RDP brute force sur {asset}{from}{user}");
+        }
+        if rule_lc.contains("opnsense-004")
+            || title_lc.contains("ids alert")
+            || title_lc.contains("suricata")
+        {
+            // Phase 7c — Direction du flow.
+            //
+            // opnsense-004 est une rule IDS générique qui couvre AUSSI le
+            // trafic sortant (asset interne contacte une IP externe). Quand
+            // les flowbits Suricata indiquent du Windows Update / téléchargement
+            // d'exécutable / dottedquadhost outbound, présenter "depuis <ip
+            // externe>" est trompeur : ce n'est PAS un attaquant qui frappe
+            // l'asset, c'est l'asset qui sort. Cas vu sur cyb06 #1581 où
+            // SRV-01-DOM télécharge un patch Windows Defender et le titre
+            // affichait "Alerte IDS / IPS sur SRV-01-DOM depuis 14.102.231.203/32".
+            //
+            // Heuristique : on inspecte `matched_fields.alert.signature` et
+            // `matched_fields.metadata.flowbits` du sigma alert (champ jsonb
+            // qui transporte le flow Suricata enrichi). Si on voit un pattern
+            // d'outbound bénin/suspect, on inverse la sémantique.
+            let outbound_signals = [
+                "windowsupdate",
+                "windows update",
+                "exe.no.referer",
+                "http.dottedquadhost",
+                "packed executable download",
+                "et.info.windowsupdate",
+                "outbound",
+            ];
+            let signature = alert.matched_fields["alert"]["signature"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase();
+            let flowbits = alert.matched_fields["metadata"]["flowbits"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_lowercase()
+                })
+                .unwrap_or_default();
+            let outbound_match = outbound_signals
+                .iter()
+                .any(|s| signature.contains(s) || flowbits.contains(s));
+            if outbound_match {
+                let to = alert
+                    .source_ip
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|ip| format!(" vers {ip}"))
+                    .unwrap_or_default();
+                return format!("Trafic sortant suspect depuis {asset}{to} (à vérifier)");
+            }
+            return format!("Alerte IDS / IPS sur {asset}{from}");
+        }
+        if rule_lc.contains("opensql") || title_lc.contains("auth failed") {
+            return format!("Échec d'authentification sur {asset}{from}{user}");
+        }
+        if rule_lc.contains("port-scan") || title_lc.contains("port scan") {
+            return format!("Port scan sur {asset}{from}");
+        }
+        // Fallback générique sigma : on garde le rule_name et l'IP source
+        let cve_count = dossier
+            .findings
+            .iter()
+            .filter(|f| f.skill_id.as_deref() == Some("software-vuln"))
+            .count();
+        let cve_suffix = if cve_count > 0 {
+            format!(" — {cve_count} CVE KEV exploitables")
+        } else {
+            String::new()
+        };
+        return format!("{} sur {asset}{from}{cve_suffix}", alert.rule_name);
+    }
+
+    // Pas de sigma alert : titre basé sur les findings (ancien comportement).
+    let top = dossier.findings.first();
     let count = dossier.findings.len();
     if let Some(f) = top {
         // Keep the original English title for pattern matching below
@@ -806,7 +1123,7 @@ async fn build_dossier_from_situation(
         })
         .collect();
 
-    IncidentDossier {
+    let mut dossier = IncidentDossier {
         id: uuid::Uuid::new_v4(),
         created_at: chrono::Utc::now(),
         primary_asset: worst_asset.asset.clone(),
@@ -850,7 +1167,16 @@ async fn build_dossier_from_situation(
         notification_level: situation.notification_level,
         connected_skills: list_connected_skills(store).await,
         graph_context: fetch_asset_graph_context(store, &worst_asset.asset).await,
-    }
+    };
+
+    // Phase 1d (Bug 3) — pré-enrichissement déterministe opportuniste.
+    // Remplit `dossier.enrichment` (cve_details, ip_reputations, threat_intel)
+    // depuis le cache local + les sources gratuites (Spamhaus, ThreatFox).
+    // Cap latence : 10 CVEs + 5 IPs max, timeouts courts par lookup.
+    // Voir `internal/roadmap-mai.md` Phase 1d et `dossier_enrichment.rs`.
+    crate::agent::dossier_enrichment::pre_enrich_dossier(store, &mut dossier).await;
+
+    dossier
 }
 
 /// Phase C — names of skills currently enabled in skill_configs. Used
@@ -1653,6 +1979,21 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
         "ENRICHMENT: {} enrichment lines collected",
         enrichment_lines.len()
     );
+
+    // ── 6.5 Bug 4 fix — graph CACAO score adjustment ──
+    // Réconcilier les deux paths de création d'incident (graph CACAO vs IE
+    // escalation). Si des graphs CACAO ont récemment archivé les sigma_alerts
+    // d'un asset (= classifiés comme bruit ou perimeter-mitigated), on réduit
+    // proportionnellement son score avant la décision de notification.
+    //
+    // Les vrais kill chains (multi-finding multi-source) gardent leur score
+    // au-dessus du seuil parce que :
+    //  (a) leur score initial est élevé (cumulé sur findings + alerts + flags)
+    //  (b) on bypass complètement l'adjustment quand
+    //      `has_kill_chain || has_active_attack` est true (filet de sécurité)
+    //
+    // Voir `internal/roadmap-mai.md` Phase 1c pour le design détaillé.
+    apply_graph_score_adjustments(store.as_ref(), &mut asset_map).await;
 
     // ── 7. Decide notification level (after enrichment may have changed scores) ──
     // Recompute summaries after enrichment
@@ -2945,370 +3286,421 @@ pub fn spawn_intelligence_ticker(
                                 worst_asset.asset
                             );
                         } else if !registry.is_investigating(&worst_asset.asset).await {
-                            // Build dossier from the worst asset's data
-                            let dossier = build_dossier_from_situation(
-                                store.as_ref(),
-                                worst_asset,
-                                &situation,
-                            )
-                            .await;
+                            'incident_creation: {
+                                // Build dossier from the worst asset's data
+                                let dossier = build_dossier_from_situation(
+                                    store.as_ref(),
+                                    worst_asset,
+                                    &situation,
+                                )
+                                .await;
 
-                            tracing::info!(
-                                "INTELLIGENCE: Escalating to investigation — {}",
-                                dossier.summary()
-                            );
-
-                            // See ADR-043: create incident in DB before investigation
-                            let alert_ids: Vec<i32> = vec![];
-                            let finding_ids: Vec<i32> =
-                                dossier.findings.iter().map(|f| f.id as i32).collect();
-
-                            // Derive security severity from worst finding, or fallback to notification level
-                            let incident_severity = dossier
-                                .findings
-                                .iter()
-                                .map(|f| f.severity.to_uppercase())
-                                .max_by_key(|s| match s.as_str() {
-                                    "CRITICAL" => 4,
-                                    "HIGH" => 3,
-                                    "MEDIUM" => 2,
-                                    "LOW" => 1,
-                                    _ => 0,
-                                })
-                                .unwrap_or_else(|| match situation.notification_level {
-                                    NotificationLevel::Alert => "HIGH".to_string(),
-                                    _ => {
-                                        format!("{:?}", situation.notification_level).to_uppercase()
-                                    }
-                                });
-
-                            // Perimeter-mitigation check (Rule G).
-                            // Triggers in two cases:
-                            //  (a) firewall_events table populated by legacy Suricata/syslog
-                            //      connectors — all rows for this asset are action=block.
-                            //  (b) dossier findings stamped as firewall events by direct-API
-                            //      connectors (e.g. opnsense pf log poller) — all firewall-
-                            //      flavoured findings carry action=block in matched_fields.
-                            // Either side proves the perimeter has neutralised the threat.
-                            let is_perimeter_mitigated = if !dossier.sigma_alerts.is_empty() {
-                                false
-                            } else {
-                                let from_events = {
-                                    let since = chrono::Utc::now() - chrono::Duration::days(7);
-                                    match store
-                                        .firewall_events_for_ip(&worst_asset.asset, since, 200)
-                                        .await
-                                    {
-                                        Ok(events)
-                                            if !events.is_empty()
-                                                && events.iter().all(|e| e.action == "block") =>
-                                        {
-                                            true
-                                        }
-                                        _ => false,
-                                    }
-                                };
-                                // Collect firewall/IDS actions across all findings.
-                                // Suricata IDS in detection mode returns "allowed"
-                                // — it observed the traffic without dropping it.
-                                // pf logs return "block" / "pass". We treat "block"
-                                // and "blocked" as proof the perimeter dropped the
-                                // packet, and "pass" / "allow" as proof traffic
-                                // got through. Suricata "allowed" is informational
-                                // and on its own doesn't prove mitigation, but
-                                // doesn't disqualify either when paired with a pf
-                                // block elsewhere in the dossier.
-                                let actions: Vec<String> = dossier
-                                    .findings
-                                    .iter()
-                                    .filter_map(extract_firewall_action)
-                                    .collect();
-                                let has_block =
-                                    actions.iter().any(|a| a == "block" || a == "blocked");
-                                let has_pass = actions.iter().any(|a| a == "pass" || a == "allow");
-                                let from_findings = has_block && !has_pass;
-                                let mitigated = from_events || from_findings;
-                                if mitigated {
+                                // ── Predictive-only gate ────────────────────
+                                // Si le dossier ne contient que des findings
+                                // d'exposition statique (CVE × KEV, etc.) sans
+                                // signal observable, il alimente /threat-map
+                                // via path_risk + threat_graph. Pas d'incident
+                                // créé. Les findings restent en DB.
+                                if is_predictive_only(&dossier) {
                                     tracing::info!(
                                         asset = %worst_asset.asset,
-                                        from_events,
-                                        from_findings,
-                                        findings_inspected = actions.len(),
-                                        "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
+                                        findings = dossier.findings.len(),
+                                        "INTELLIGENCE: skipping predictive-only dossier — surfaced via /threat-map"
                                     );
+                                    break 'incident_creation;
                                 }
-                                mitigated
-                            };
-                            // Rule G — cap severity for perimeter-mitigated dossiers.
-                            let incident_severity = if is_perimeter_mitigated
-                                && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
-                            {
-                                tracing::info!(
-                                    asset = %worst_asset.asset,
-                                    "INTELLIGENCE: Rule G — capping {} → MEDIUM",
-                                    incident_severity
-                                );
-                                "MEDIUM".to_string()
-                            } else {
-                                incident_severity
-                            };
 
-                            // Deduplicate: if an open incident exists for this asset within the last 4h,
-                            // touch it (update alert_count + updated_at) instead of creating a duplicate.
-                            // Prevents Telegram spam when a recurring pattern keeps firing.
-                            let incident_id = match store
-                                .find_open_incident_for_asset(&worst_asset.asset)
-                                .await
-                            {
-                                Ok(Some(existing_id)) => {
-                                    tracing::info!(
-                                        "INTELLIGENCE: Reusing existing incident #{} for {} (within 4h dedup window)",
-                                        existing_id,
-                                        worst_asset.asset
-                                    );
-                                    // Sprint 5 #2 — pattern key from the
-                                    // dominant sigma rule of this dossier.
-                                    // Falls back to the top finding's source
-                                    // if no sigma alert is in play. None
-                                    // when neither is available — preserves
-                                    // the always-bump behavior on legacy
-                                    // dossiers without trigger metadata.
-                                    // Use rule_id (machine identifier) for dedup key —
-                                    // consistent with Investigation Graph trigger matching.
-                                    let pattern_key: Option<String> = dossier
-                                        .sigma_alerts
-                                        .first()
-                                        .map(|a| a.rule_id.clone())
-                                        .or_else(|| {
-                                            dossier.findings.first().and_then(|f| {
-                                                f.metadata
-                                                    .get("rule_id")
-                                                    .or_else(|| f.metadata.get("sigma_rule"))
-                                                    .and_then(|v| v.as_str())
-                                                    .map(String::from)
-                                                    .or_else(|| f.source.clone())
-                                            })
-                                        });
-                                    let _ = store
-                                        .touch_incident(
-                                            existing_id,
-                                            worst_asset.active_alerts as i32,
-                                            pattern_key.as_deref(),
-                                        )
-                                        .await;
-                                    existing_id
-                                }
-                                _ => {
-                                    // Phase B — human-friendly title even before
-                                    // L2 has a chance to refine. dossier.summary()
-                                    // produces "Dossier de88d8aa — asset=...
-                                    // findings=8 alerts=0 score=100 level=Alert"
-                                    // which is unreadable for a RSSI. The
-                                    // rules-based title derived from the top
-                                    // finding is the fallback that always works,
-                                    // even if Ollama is down.
-                                    let title = humanize_incident_title(&dossier);
-                                    let new_id = store
-                                        .create_incident(
-                                            &worst_asset.asset,
-                                            &title,
-                                            &incident_severity,
-                                            &alert_ids,
-                                            &finding_ids,
-                                            worst_asset.active_alerts as i32,
-                                        )
-                                        .await
-                                        .unwrap_or(-1);
-                                    if new_id > 0 {
+                                tracing::info!(
+                                    "INTELLIGENCE: Escalating to investigation — {}",
+                                    dossier.summary()
+                                );
+
+                                // See ADR-043: create incident in DB before investigation
+                                // alert_ids must reference the sigma_alerts attached to this
+                                // dossier so the dashboard can render the attack timeline
+                                // (source IPs, signatures, firewall actions). Previously this
+                                // field was hardcoded to vec![] which broke the UI lookup
+                                // even when alert_count was correctly populated.
+                                let alert_ids: Vec<i32> =
+                                    dossier.sigma_alerts.iter().map(|a| a.id as i32).collect();
+                                let finding_ids: Vec<i32> =
+                                    dossier.findings.iter().map(|f| f.id as i32).collect();
+
+                                // Derive security severity from worst finding, or fallback to notification level
+                                let incident_severity = dossier
+                                    .findings
+                                    .iter()
+                                    .map(|f| f.severity.to_uppercase())
+                                    .max_by_key(|s| match s.as_str() {
+                                        "CRITICAL" => 4,
+                                        "HIGH" => 3,
+                                        "MEDIUM" => 2,
+                                        "LOW" => 1,
+                                        _ => 0,
+                                    })
+                                    .unwrap_or_else(|| match situation.notification_level {
+                                        NotificationLevel::Alert => "HIGH".to_string(),
+                                        _ => format!("{:?}", situation.notification_level)
+                                            .to_uppercase(),
+                                    });
+
+                                // Perimeter-mitigation check (Rule G).
+                                // Triggers in two cases:
+                                //  (a) firewall_events table populated by legacy Suricata/syslog
+                                //      connectors — all rows for this asset are action=block.
+                                //  (b) dossier findings stamped as firewall events by direct-API
+                                //      connectors (e.g. opnsense pf log poller) — all firewall-
+                                //      flavoured findings carry action=block in matched_fields.
+                                // Either side proves the perimeter has neutralised the threat.
+                                let is_perimeter_mitigated = if !dossier.sigma_alerts.is_empty() {
+                                    false
+                                } else {
+                                    let from_events = {
+                                        let since = chrono::Utc::now() - chrono::Duration::days(7);
+                                        match store
+                                            .firewall_events_for_ip(&worst_asset.asset, since, 200)
+                                            .await
+                                        {
+                                            Ok(events)
+                                                if !events.is_empty()
+                                                    && events
+                                                        .iter()
+                                                        .all(|e| e.action == "block") =>
+                                            {
+                                                true
+                                            }
+                                            _ => false,
+                                        }
+                                    };
+                                    // Collect firewall/IDS actions across all findings.
+                                    // Suricata IDS in detection mode returns "allowed"
+                                    // — it observed the traffic without dropping it.
+                                    // pf logs return "block" / "pass". We treat "block"
+                                    // and "blocked" as proof the perimeter dropped the
+                                    // packet, and "pass" / "allow" as proof traffic
+                                    // got through. Suricata "allowed" is informational
+                                    // and on its own doesn't prove mitigation, but
+                                    // doesn't disqualify either when paired with a pf
+                                    // block elsewhere in the dossier.
+                                    let actions: Vec<String> = dossier
+                                        .findings
+                                        .iter()
+                                        .filter_map(extract_firewall_action)
+                                        .collect();
+                                    let has_block =
+                                        actions.iter().any(|a| a == "block" || a == "blocked");
+                                    let has_pass =
+                                        actions.iter().any(|a| a == "pass" || a == "allow");
+                                    let from_findings = has_block && !has_pass;
+                                    let mitigated = from_events || from_findings;
+                                    if mitigated {
                                         tracing::info!(
-                                            "INTELLIGENCE: Incident #{} created for {}",
-                                            new_id,
-                                            worst_asset.asset
+                                            asset = %worst_asset.asset,
+                                            from_events,
+                                            from_findings,
+                                            findings_inspected = actions.len(),
+                                            "INTELLIGENCE: perimeter-mitigated — all firewall events are blocks",
                                         );
                                     }
-                                    new_id
-                                }
-                            };
+                                    mitigated
+                                };
+                                // Rule G — cap severity for perimeter-mitigated dossiers.
+                                let incident_severity = if is_perimeter_mitigated
+                                    && matches!(incident_severity.as_str(), "CRITICAL" | "HIGH")
+                                {
+                                    tracing::info!(
+                                        asset = %worst_asset.asset,
+                                        "INTELLIGENCE: Rule G — capping {} → MEDIUM",
+                                        incident_severity
+                                    );
+                                    "MEDIUM".to_string()
+                                } else {
+                                    incident_severity
+                                };
 
-                            let dossier_id = dossier.id;
-                            // Doctrine C — external IP + no firewall evidence + no
-                            // sigma alert + ML-only findings → low-priority
-                            // inconclusive WITHOUT spending an L1 LLM call. This is
-                            // the dominant noise pattern in the staging data
-                            // (background Internet scanning that the firewall
-                            // blocks but whose pf log hasn't been ingested yet).
-                            // We keep the incident visible (status=open) so the
-                            // RSSI can review it, but skip investigation.
-                            let actions_count = dossier
-                                .findings
-                                .iter()
-                                .filter(|f| extract_firewall_action(f).is_some())
-                                .count();
-                            let only_ml_findings = !dossier.findings.is_empty()
-                                && dossier.findings.iter().all(|f| {
-                                    f.skill_id
-                                        .as_deref()
-                                        .map(|s| s.starts_with("ml-"))
-                                        .unwrap_or(false)
-                                });
-                            let is_external_no_evidence = !is_perimeter_mitigated
-                                && dossier.sigma_alerts.is_empty()
-                                && actions_count == 0
-                                && only_ml_findings
-                                && is_external_public_ipv4(&worst_asset.asset);
-                            if is_perimeter_mitigated {
-                                // Threat is already neutralised at the perimeter.
-                                // Auto-archive the incident so it appears in the dashboard
-                                // with context, but suppress the LLM investigation entirely.
-                                let _ = store.update_incident_status(incident_id, "archived").await;
-                                tracing::info!(
-                                    "INTELLIGENCE: perimeter-mitigated — incident #{} \
+                                // Deduplicate: if an open incident exists for this asset within the last 4h,
+                                // touch it (update alert_count + updated_at) instead of creating a duplicate.
+                                // Prevents Telegram spam when a recurring pattern keeps firing.
+                                let incident_id = match store
+                                    .find_open_incident_for_asset(&worst_asset.asset)
+                                    .await
+                                {
+                                    Ok(Some(existing_id)) => {
+                                        tracing::info!(
+                                            "INTELLIGENCE: Reusing existing incident #{} for {} (within 4h dedup window)",
+                                            existing_id,
+                                            worst_asset.asset
+                                        );
+                                        // Sprint 5 #2 — pattern key from the
+                                        // dominant sigma rule of this dossier.
+                                        // Falls back to the top finding's source
+                                        // if no sigma alert is in play. None
+                                        // when neither is available — preserves
+                                        // the always-bump behavior on legacy
+                                        // dossiers without trigger metadata.
+                                        // Use rule_id (machine identifier) for dedup key —
+                                        // consistent with Investigation Graph trigger matching.
+                                        let pattern_key: Option<String> = dossier
+                                            .sigma_alerts
+                                            .first()
+                                            .map(|a| a.rule_id.clone())
+                                            .or_else(|| {
+                                                dossier.findings.first().and_then(|f| {
+                                                    f.metadata
+                                                        .get("rule_id")
+                                                        .or_else(|| f.metadata.get("sigma_rule"))
+                                                        .and_then(|v| v.as_str())
+                                                        .map(String::from)
+                                                        .or_else(|| f.source.clone())
+                                                })
+                                            });
+                                        let _ = store
+                                            .touch_incident(
+                                                existing_id,
+                                                worst_asset.active_alerts as i32,
+                                                pattern_key.as_deref(),
+                                            )
+                                            .await;
+                                        existing_id
+                                    }
+                                    _ => {
+                                        // Phase B — human-friendly title even before
+                                        // L2 has a chance to refine. dossier.summary()
+                                        // produces "Dossier de88d8aa — asset=...
+                                        // findings=8 alerts=0 score=100 level=Alert"
+                                        // which is unreadable for a RSSI. The
+                                        // rules-based title derived from the top
+                                        // finding is the fallback that always works,
+                                        // even if Ollama is down.
+                                        let title = humanize_incident_title(&dossier);
+                                        let new_id = store
+                                            .create_incident(
+                                                &worst_asset.asset,
+                                                &title,
+                                                &incident_severity,
+                                                &alert_ids,
+                                                &finding_ids,
+                                                worst_asset.active_alerts as i32,
+                                            )
+                                            .await
+                                            .unwrap_or(-1);
+                                        if new_id > 0 {
+                                            tracing::info!(
+                                                "INTELLIGENCE: Incident #{} created for {}",
+                                                new_id,
+                                                worst_asset.asset
+                                            );
+                                            // Phase 4 — persist le bundle d'enrichment construit
+                                            // par dossier_enrichment::pre_enrich_dossier (cve_details,
+                                            // ip_reputations, threat_intel, enrichment_lines avec
+                                            // cross-correlation firewall logs). Consommé par le
+                                            // dashboard /incidents/[id] pour la chronologie d'attaque.
+                                            if let Ok(enrichment_json) =
+                                                serde_json::to_value(&dossier.enrichment)
+                                            {
+                                                if let Err(e) = store
+                                                    .set_incident_enrichment(
+                                                        new_id,
+                                                        &enrichment_json,
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::warn!(
+                                                        "INTELLIGENCE: persist enrichment for #{} failed: {}",
+                                                        new_id,
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        new_id
+                                    }
+                                };
+
+                                let dossier_id = dossier.id;
+                                // Doctrine C — external IP + no firewall evidence + no
+                                // sigma alert + ML-only findings → low-priority
+                                // inconclusive WITHOUT spending an L1 LLM call. This is
+                                // the dominant noise pattern in the staging data
+                                // (background Internet scanning that the firewall
+                                // blocks but whose pf log hasn't been ingested yet).
+                                // We keep the incident visible (status=open) so the
+                                // RSSI can review it, but skip investigation.
+                                let actions_count = dossier
+                                    .findings
+                                    .iter()
+                                    .filter(|f| extract_firewall_action(f).is_some())
+                                    .count();
+                                let only_ml_findings = !dossier.findings.is_empty()
+                                    && dossier.findings.iter().all(|f| {
+                                        f.skill_id
+                                            .as_deref()
+                                            .map(|s| s.starts_with("ml-"))
+                                            .unwrap_or(false)
+                                    });
+                                let is_external_no_evidence = !is_perimeter_mitigated
+                                    && dossier.sigma_alerts.is_empty()
+                                    && actions_count == 0
+                                    && only_ml_findings
+                                    && is_external_public_ipv4(&worst_asset.asset);
+                                if is_perimeter_mitigated {
+                                    // Threat is already neutralised at the perimeter.
+                                    // Auto-archive the incident so it appears in the dashboard
+                                    // with context, but suppress the LLM investigation entirely.
+                                    let _ =
+                                        store.update_incident_status(incident_id, "archived").await;
+                                    tracing::info!(
+                                        "INTELLIGENCE: perimeter-mitigated — incident #{} \
                                  auto-archived, LLM investigation suppressed",
-                                    incident_id
-                                );
-                            } else if is_external_no_evidence {
-                                // No positive signal yet — record the dossier but
-                                // don't escalate. If firewall evidence catches up
-                                // later, the periodic perimeter-mitigated backfill
-                                // will pick it up; if a sigma alert lands, the
-                                // next IE cycle will re-evaluate.
-                                let _ = store
-                                    .update_incident_verdict(
-                                        incident_id,
-                                        "inconclusive",
-                                        0.30,
-                                        "External source with no firewall evidence yet — \
+                                        incident_id
+                                    );
+                                } else if is_external_no_evidence {
+                                    // No positive signal yet — record the dossier but
+                                    // don't escalate. If firewall evidence catches up
+                                    // later, the periodic perimeter-mitigated backfill
+                                    // will pick it up; if a sigma alert lands, the
+                                    // next IE cycle will re-evaluate.
+                                    let _ = store
+                                        .update_incident_verdict(
+                                            incident_id,
+                                            "inconclusive",
+                                            0.30,
+                                            "External source with no firewall evidence yet — \
                                      deferred (Doctrine C). Will be re-evaluated when \
                                      firewall logs catch up.",
-                                        &[],
-                                        &serde_json::json!([]),
-                                        &serde_json::json!([]),
-                                        &serde_json::json!([]),
-                                        Some("rule"),
-                                    )
-                                    .await;
-                                tracing::info!(
-                                    "INTELLIGENCE: doctrine-C — incident #{} on {} \
+                                            &[],
+                                            &serde_json::json!([]),
+                                            &serde_json::json!([]),
+                                            &serde_json::json!([]),
+                                            Some("rule"),
+                                        )
+                                        .await;
+                                    tracing::info!(
+                                        "INTELLIGENCE: doctrine-C — incident #{} on {} \
                                  deferred (external IP, ML-only, no firewall evidence)",
-                                    incident_id,
-                                    worst_asset.asset
-                                );
-                            } else if registry.try_register(&worst_asset.asset, dossier_id).await {
-                                let store_inv = store.clone();
-                                let asset_name = worst_asset.asset.clone();
-                                let registry_ref = crate::agent::investigation::get_registry();
-                                let nm_ref = nonce_manager.clone();
-                                let inv_key_owned = inv_key.clone();
+                                        incident_id,
+                                        worst_asset.asset
+                                    );
+                                } else if registry
+                                    .try_register(&worst_asset.asset, dossier_id)
+                                    .await
+                                {
+                                    let store_inv = store.clone();
+                                    let asset_name = worst_asset.asset.clone();
+                                    let registry_ref = crate::agent::investigation::get_registry();
+                                    let nm_ref = nonce_manager.clone();
+                                    let inv_key_owned = inv_key.clone();
 
-                                tokio::spawn(async move {
-                                    // Phase G1b/G1e — Investigation Graph dispatch.
-                                    // Deux modes contrôlés par TC_GRAPH_ONLY :
-                                    //  - default (parallel-run) : on enqueue le
-                                    //    graph en plus du ReAct. Les deux verdicts
-                                    //    coexistent (graph dans `graph_executions`,
-                                    //    ReAct dans `incidents.verdict`) et sont
-                                    //    comparés offline pour calibrer.
-                                    //  - TC_GRAPH_ONLY=1 : si un graph matche le
-                                    //    sigma_rule, on lui délègue entièrement et
-                                    //    on coupe ReAct. Si pas de match, on
-                                    //    fallback sur ReAct comme d'habitude.
-                                    let graph_enqueued =
+                                    tokio::spawn(async move {
+                                        // Phase G1b/G1e — Investigation Graph dispatch.
+                                        // Deux modes contrôlés par TC_GRAPH_ONLY :
+                                        //  - default (parallel-run) : on enqueue le
+                                        //    graph en plus du ReAct. Les deux verdicts
+                                        //    coexistent (graph dans `graph_executions`,
+                                        //    ReAct dans `incidents.verdict`) et sont
+                                        //    comparés offline pour calibrer.
+                                        //  - TC_GRAPH_ONLY=1 : si un graph matche le
+                                        //    sigma_rule, on lui délègue entièrement et
+                                        //    on coupe ReAct. Si pas de match, on
+                                        //    fallback sur ReAct comme d'habitude.
+                                        let graph_enqueued =
                                         crate::agent::task_queue::try_enqueue_graph_for_dossier(
                                             &store_inv, &dossier,
                                         )
                                         .await;
-                                    let graph_only = std::env::var("TC_GRAPH_ONLY")
-                                        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-                                        .unwrap_or(false);
-                                    if let Some(dispatch) = graph_enqueued {
-                                        // Sprint 5 #1 — only short-circuit
-                                        // ReAct in TC_GRAPH_ONLY mode if the
-                                        // matched graph commits to a final
-                                        // outcome on its own. If it can emit
-                                        // PendingAsync(investigate-llm), we
-                                        // MUST keep ReAct running otherwise
-                                        // the verdict never lands and the
-                                        // graph_execution row dies in
-                                        // `running` forever.
-                                        if graph_only && !dispatch.requires_llm {
+                                        let graph_only = std::env::var("TC_GRAPH_ONLY")
+                                            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                                            .unwrap_or(false);
+                                        if let Some(dispatch) = graph_enqueued {
+                                            // Sprint 5 #1 — only short-circuit
+                                            // ReAct in TC_GRAPH_ONLY mode if the
+                                            // matched graph commits to a final
+                                            // outcome on its own. If it can emit
+                                            // PendingAsync(investigate-llm), we
+                                            // MUST keep ReAct running otherwise
+                                            // the verdict never lands and the
+                                            // graph_execution row dies in
+                                            // `running` forever.
+                                            if graph_only && !dispatch.requires_llm {
+                                                tracing::info!(
+                                                    "GRAPH-FIRST: dossier {} delegated to graph (exec_id={}) — ReAct skipped",
+                                                    dossier.id,
+                                                    dispatch.exec_id
+                                                );
+                                                return;
+                                            }
+                                            if graph_only && dispatch.requires_llm {
+                                                tracing::info!(
+                                                    "GRAPH-FIRST: dossier {} graph (exec_id={}) may delegate to LLM — ReAct kept active for verdict",
+                                                    dossier.id,
+                                                    dispatch.exec_id
+                                                );
+                                            } else {
+                                                tracing::info!(
+                                                    "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
+                                                    dossier.id,
+                                                    dispatch.exec_id
+                                                );
+                                            }
+                                        } else if graph_only {
                                             tracing::info!(
-                                                "GRAPH-FIRST: dossier {} delegated to graph (exec_id={}) — ReAct skipped",
-                                                dossier.id,
-                                                dispatch.exec_id
+                                                "GRAPH-FIRST: dossier {} no matching graph — ReAct fallback",
+                                                dossier.id
                                             );
-                                            return;
                                         }
-                                        if graph_only && dispatch.requires_llm {
-                                            tracing::info!(
-                                                "GRAPH-FIRST: dossier {} graph (exec_id={}) may delegate to LLM — ReAct kept active for verdict",
-                                                dossier.id,
-                                                dispatch.exec_id
-                                            );
-                                        } else {
-                                            tracing::info!(
-                                                "GRAPH PARALLEL-RUN: dossier {} enqueued (exec_id={}) — ReAct continue en doublon",
-                                                dossier.id,
-                                                dispatch.exec_id
-                                            );
-                                        }
-                                    } else if graph_only {
-                                        tracing::info!(
-                                            "GRAPH-FIRST: dossier {} no matching graph — ReAct fallback",
-                                            dossier.id
-                                        );
-                                    }
 
-                                    // Serialize: only 1 LLM investigation at a time (CPU-bound Ollama).
-                                    let _permit = INVESTIGATION_SEMAPHORE.acquire().await.ok();
-                                    let llm_config =
+                                        // Serialize: only 1 LLM investigation at a time (CPU-bound Ollama).
+                                        let _permit = INVESTIGATION_SEMAPHORE.acquire().await.ok();
+                                        let llm_config =
                                     crate::agent::llm_router::LlmRouterConfig::from_db_settings(
                                         store_inv.as_ref(),
                                     )
                                     .await;
-                                    let inv_config =
+                                        let inv_config =
                                         crate::agent::investigation::InvestigationConfig::default();
 
-                                    let result = crate::agent::investigation::run_investigation(
-                                        dossier.clone(),
-                                        store_inv.clone(),
-                                        &llm_config,
-                                        &inv_config,
-                                    )
-                                    .await;
+                                        let result =
+                                            crate::agent::investigation::run_investigation(
+                                                dossier.clone(),
+                                                store_inv.clone(),
+                                                &llm_config,
+                                                &inv_config,
+                                            )
+                                            .await;
 
-                                    // Record in dedup cache with verdict-based cooldown.
-                                    // Skip recording on error so we retry next cycle.
-                                    if result.verdict.verdict_type() != "error" {
-                                        INVESTIGATION_BLOOM.write().await.record(
-                                            inv_key_owned,
-                                            result.verdict.verdict_type().to_string(),
-                                        );
-                                    }
+                                        // Record in dedup cache with verdict-based cooldown.
+                                        // Skip recording on error so we retry next cycle.
+                                        if result.verdict.verdict_type() != "error" {
+                                            INVESTIGATION_BLOOM.write().await.record(
+                                                inv_key_owned,
+                                                result.verdict.verdict_type().to_string(),
+                                            );
+                                        }
 
-                                    tracing::info!(
-                                        "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
-                                        asset_name,
-                                        result.verdict.verdict_type(),
-                                        result.verdict.confidence() * 100.0,
-                                        result.duration_secs
-                                    );
-
-                                    // L2 enrichment: on confirmed/inconclusive, ask Foundation-Sec-Reasoning for a deeper forensic analysis.
-                                    let mut final_analysis = result.verdict.analysis_text();
-                                    // Structured output from L2 — populated if the JSON parses.
-                                    let mut parsed_mitre: Vec<String> = vec![];
-                                    let mut parsed_iocs: Vec<String> = vec![];
-                                    let mut parsed_actions: Vec<serde_json::Value> = vec![];
-                                    // Short FR title — prefer L2's rewrite, fall back to L1's, then to the heuristic.
-                                    let mut parsed_title_fr: Option<String> =
-                                        result.incident_title_fr.clone();
-                                    if result.verdict.should_notify() {
                                         tracing::info!(
-                                            "INVESTIGATION: Enriching verdict with L2 (forensic) for {}",
-                                            asset_name
+                                            "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
+                                            asset_name,
+                                            result.verdict.verdict_type(),
+                                            result.verdict.confidence() * 100.0,
+                                            result.duration_secs
                                         );
-                                        let l2_prompt = format!(
-                                            "Tu es un analyste SOC senior. Analyse cet incident et produis un rapport JSON structuré pour un RSSI.\n\n\
+
+                                        // L2 enrichment: on confirmed/inconclusive, ask Foundation-Sec-Reasoning for a deeper forensic analysis.
+                                        let mut final_analysis = result.verdict.analysis_text();
+                                        // Structured output from L2 — populated if the JSON parses.
+                                        let mut parsed_mitre: Vec<String> = vec![];
+                                        let mut parsed_iocs: Vec<String> = vec![];
+                                        let mut parsed_actions: Vec<serde_json::Value> = vec![];
+                                        // Short FR title — prefer L2's rewrite, fall back to L1's, then to the heuristic.
+                                        let mut parsed_title_fr: Option<String> =
+                                            result.incident_title_fr.clone();
+                                        if result.verdict.should_notify() {
+                                            tracing::info!(
+                                                "INVESTIGATION: Enriching verdict with L2 (forensic) for {}",
+                                                asset_name
+                                            );
+                                            let l2_prompt = format!(
+                                                "Tu es un analyste SOC senior. Analyse cet incident et produis un rapport JSON structuré pour un RSSI.\n\n\
                                          CONTEXTE :\n\
                                          Asset : {asset}\n\
                                          Dossier : {dossier}\n\
@@ -3322,22 +3714,25 @@ pub fn spawn_intelligence_ticker(
                                            \"actions\": [\"Bloquer l'IP source\", \"Réinitialiser les mots de passe\", \"Vérifier les logs\"]\n\
                                          }}\n\
                                          Sois factuel, concis, maximum 15 lignes au total.",
-                                            asset = asset_name,
-                                            dossier = dossier.summary(),
-                                            l1 = result.verdict.analysis_text()
-                                        );
-                                        // Use primary base_url (L1/L2 share same Ollama instance)
-                                        let l2_base_url = if llm_config
-                                            .forensic
-                                            .base_url
-                                            .contains("127.0.0.1")
-                                            || llm_config.forensic.base_url.contains("localhost")
-                                        {
-                                            llm_config.primary.base_url.clone()
-                                        } else {
-                                            llm_config.forensic.base_url.clone()
-                                        };
-                                        match tokio::time::timeout(
+                                                asset = asset_name,
+                                                dossier = dossier.summary(),
+                                                l1 = result.verdict.analysis_text()
+                                            );
+                                            // Use primary base_url (L1/L2 share same Ollama instance)
+                                            let l2_base_url = if llm_config
+                                                .forensic
+                                                .base_url
+                                                .contains("127.0.0.1")
+                                                || llm_config
+                                                    .forensic
+                                                    .base_url
+                                                    .contains("localhost")
+                                            {
+                                                llm_config.primary.base_url.clone()
+                                            } else {
+                                                llm_config.forensic.base_url.clone()
+                                            };
+                                            match tokio::time::timeout(
                                         std::time::Duration::from_secs(
                                             crate::agent::investigation::llm_call_timeout_secs_pub(
                                             ),
@@ -3502,23 +3897,23 @@ pub fn spawn_intelligence_ticker(
                                             asset_name
                                         ),
                                     }
-                                    }
+                                        }
 
-                                    // See ADR-043: update incident with verdict
-                                    if incident_id > 0 {
-                                        // Use the structured data parsed from L2 (fallback to empty if unavailable).
-                                        let proposed = serde_json::json!({
-                                            "actions": parsed_actions,
-                                            "iocs": parsed_iocs,
-                                        });
-                                        let inv_log = serde_json::json!({
-                                            "duration_secs": result.duration_secs,
-                                            "iterations": result.iterations,
-                                            "skill_calls": result.skill_calls,
-                                        });
-                                        // Phase 4: extract evidence_citations from the Confirmed
-                                        // variant of the verdict if present; empty array otherwise.
-                                        let evidence_citations_json = match &result.verdict {
+                                        // See ADR-043: update incident with verdict
+                                        if incident_id > 0 {
+                                            // Use the structured data parsed from L2 (fallback to empty if unavailable).
+                                            let proposed = serde_json::json!({
+                                                "actions": parsed_actions,
+                                                "iocs": parsed_iocs,
+                                            });
+                                            let inv_log = serde_json::json!({
+                                                "duration_secs": result.duration_secs,
+                                                "iterations": result.iterations,
+                                                "skill_calls": result.skill_calls,
+                                            });
+                                            // Phase 4: extract evidence_citations from the Confirmed
+                                            // variant of the verdict if present; empty array otherwise.
+                                            let evidence_citations_json = match &result.verdict {
                                         crate::agent::verdict::InvestigationVerdict::Confirmed {
                                             evidence_citations,
                                             ..
@@ -3526,90 +3921,94 @@ pub fn spawn_intelligence_ticker(
                                             .unwrap_or(serde_json::json!([])),
                                         _ => serde_json::json!([]),
                                     };
-                                        // Sprint 5 #1 — race protection. If a graph
-                                        // already committed to this incident
-                                        // (verdict_source='graph'), don't downgrade
-                                        // its deterministic verdict by overwriting
-                                        // with ReAct. Happens when a `requires_llm`
-                                        // graph took the deterministic branch
-                                        // (emit_incident) instead of route_llm and
-                                        // ReAct ran in parallel anyway.
-                                        let existing_source = store_inv
-                                            .get_incident(incident_id)
-                                            .await
-                                            .ok()
-                                            .flatten()
-                                            .and_then(|v| {
-                                                v.get("verdict_source")
-                                                    .and_then(|s| s.as_str())
-                                                    .map(String::from)
-                                            });
-                                        if existing_source.as_deref() == Some("graph") {
-                                            tracing::info!(
-                                                "INCIDENT #{}: graph already decided (deterministic) — skipping ReAct overwrite",
-                                                incident_id
-                                            );
-                                        } else {
-                                            let _ = store_inv
-                                                .update_incident_verdict(
-                                                    incident_id,
-                                                    result.verdict.verdict_type(),
-                                                    result.verdict.confidence() as f64,
-                                                    &final_analysis,
-                                                    &parsed_mitre,
-                                                    &proposed,
-                                                    &inv_log,
-                                                    &evidence_citations_json,
-                                                    // Sprint 1 #2 — initial L2 verdict
-                                                    // = ReAct LLM decision.
-                                                    Some("react"),
-                                                )
-                                                .await;
-                                            tracing::info!(
-                                                "INCIDENT #{}: verdict={} confidence={:.0}%",
-                                                incident_id,
-                                                result.verdict.verdict_type(),
-                                                result.verdict.confidence() * 100.0
-                                            );
-                                        }
-
-                                        // If the LLM produced a clean FR title, overwrite the
-                                        // heuristic title set at incident creation. Cap at 120
-                                        // chars (schema enforces ≤120 — defense in depth).
-                                        if let Some(t) = parsed_title_fr.as_ref() {
-                                            let t = t.trim();
-                                            if !t.is_empty() {
-                                                let trimmed: String = if t.chars().count() > 120 {
-                                                    t.chars().take(120).collect()
-                                                } else {
-                                                    t.to_string()
-                                                };
+                                            // Sprint 5 #1 — race protection. If a graph
+                                            // already committed to this incident
+                                            // (verdict_source='graph'), don't downgrade
+                                            // its deterministic verdict by overwriting
+                                            // with ReAct. Happens when a `requires_llm`
+                                            // graph took the deterministic branch
+                                            // (emit_incident) instead of route_llm and
+                                            // ReAct ran in parallel anyway.
+                                            let existing_source = store_inv
+                                                .get_incident(incident_id)
+                                                .await
+                                                .ok()
+                                                .flatten()
+                                                .and_then(|v| {
+                                                    v.get("verdict_source")
+                                                        .and_then(|s| s.as_str())
+                                                        .map(String::from)
+                                                });
+                                            if existing_source.as_deref() == Some("graph") {
+                                                tracing::info!(
+                                                    "INCIDENT #{}: graph already decided (deterministic) — skipping ReAct overwrite",
+                                                    incident_id
+                                                );
+                                            } else {
                                                 let _ = store_inv
-                                                    .update_incident_title(incident_id, &trimmed)
+                                                    .update_incident_verdict(
+                                                        incident_id,
+                                                        result.verdict.verdict_type(),
+                                                        result.verdict.confidence() as f64,
+                                                        &final_analysis,
+                                                        &parsed_mitre,
+                                                        &proposed,
+                                                        &inv_log,
+                                                        &evidence_citations_json,
+                                                        // Sprint 1 #2 — initial L2 verdict
+                                                        // = ReAct LLM decision.
+                                                        Some("react"),
+                                                    )
                                                     .await;
                                                 tracing::info!(
-                                                    "INCIDENT #{}: title rewritten by LLM ({} chars)",
+                                                    "INCIDENT #{}: verdict={} confidence={:.0}%",
                                                     incident_id,
-                                                    trimmed.chars().count()
+                                                    result.verdict.verdict_type(),
+                                                    result.verdict.confidence() * 100.0
                                                 );
                                             }
-                                        }
 
-                                        // See ADR-048.
-                                        crate::agent::blast_radius_trigger::try_auto_trigger(
-                                            store_inv.as_ref(),
-                                            incident_id,
-                                            &asset_name,
-                                            &parsed_mitre,
-                                            &incident_severity,
-                                        )
-                                        .await;
+                                            // If the LLM produced a clean FR title, overwrite the
+                                            // heuristic title set at incident creation. Cap at 120
+                                            // chars (schema enforces ≤120 — defense in depth).
+                                            if let Some(t) = parsed_title_fr.as_ref() {
+                                                let t = t.trim();
+                                                if !t.is_empty() {
+                                                    let trimmed: String = if t.chars().count() > 120
+                                                    {
+                                                        t.chars().take(120).collect()
+                                                    } else {
+                                                        t.to_string()
+                                                    };
+                                                    let _ = store_inv
+                                                        .update_incident_title(
+                                                            incident_id,
+                                                            &trimmed,
+                                                        )
+                                                        .await;
+                                                    tracing::info!(
+                                                        "INCIDENT #{}: title rewritten by LLM ({} chars)",
+                                                        incident_id,
+                                                        trimmed.chars().count()
+                                                    );
+                                                }
+                                            }
 
-                                        // Send incident notification (gated by NotificationSettings: severity threshold,
-                                        // per-severity cooldown, quiet hours, escalation bypass).
-                                        let verdict_type_str =
-                                            result.verdict.verdict_type().to_string();
-                                        if result.verdict.should_notify()
+                                            // See ADR-048.
+                                            crate::agent::blast_radius_trigger::try_auto_trigger(
+                                                store_inv.as_ref(),
+                                                incident_id,
+                                                &asset_name,
+                                                &parsed_mitre,
+                                                &incident_severity,
+                                            )
+                                            .await;
+
+                                            // Send incident notification (gated by NotificationSettings: severity threshold,
+                                            // per-severity cooldown, quiet hours, escalation bypass).
+                                            let verdict_type_str =
+                                                result.verdict.verdict_type().to_string();
+                                            if result.verdict.should_notify()
                                         && crate::agent::production_safeguards::should_notify_incident(
                                             store_inv.as_ref(), &asset_name, &verdict_type_str, &incident_severity
                                         ).await
@@ -3628,11 +4027,11 @@ pub fn spawn_intelligence_ticker(
                                             store_inv.as_ref(), &asset_name, &verdict_type_str
                                         ).await;
                                     }
-                                    }
+                                        }
 
-                                    // Notify only if verdict warrants it + delta check
-                                    if result.verdict.should_notify() {
-                                        if crate::agent::production_safeguards::should_renotify_verdict(
+                                        // Notify only if verdict warrants it + delta check
+                                        if result.verdict.should_notify() {
+                                            if crate::agent::production_safeguards::should_renotify_verdict(
                                         store_inv.as_ref(),
                                         &asset_name,
                                         &result.verdict,
@@ -3677,18 +4076,19 @@ pub fn spawn_intelligence_ticker(
                                             asset_name
                                         );
                                     }
-                                    }
+                                        }
 
-                                    // Auto-close findings if false positive
-                                    if let crate::agent::verdict::InvestigationVerdict::FalsePositive { ref reason, .. } = result.verdict {
+                                        // Auto-close findings if false positive
+                                        if let crate::agent::verdict::InvestigationVerdict::FalsePositive { ref reason, .. } = result.verdict {
                                     tracing::info!("INVESTIGATION: False positive for {} — {}", asset_name, reason);
                                     // TODO: auto-close findings for this asset
                                 }
 
-                                    // Unregister investigation
-                                    registry_ref.unregister(&asset_name).await;
-                                });
-                            }
+                                        // Unregister investigation
+                                        registry_ref.unregister(&asset_name).await;
+                                    });
+                                }
+                            } // close 'incident_creation
                         } else {
                             tracing::debug!(
                                 "INTELLIGENCE: Investigation already in progress for {}",
@@ -4023,5 +4423,295 @@ mod tests {
             decide_notification_level(&assets, 20.0),
             NotificationLevel::Critical
         );
+    }
+
+    // ── Bug 4 — Graph CACAO score adjustment tests ──────────────
+    use crate::agent::task_queue::{GraphExecutionRecord, GraphExecutionStatus};
+
+    fn mk_archived(reason: &str) -> GraphExecutionRecord {
+        GraphExecutionRecord {
+            id: 1,
+            graph_name: "test".into(),
+            sigma_alert_id: Some(1),
+            asset_id: Some("a".into()),
+            status: GraphExecutionStatus::Archived,
+            archive_reason: Some(reason.into()),
+            incident_id: None,
+            trace: None,
+            started_at: chrono::Utc::now(),
+            finished_at: Some(chrono::Utc::now()),
+            duration_ms: Some(100),
+            error: None,
+        }
+    }
+
+    fn mk_inconclusive() -> GraphExecutionRecord {
+        let mut r = mk_archived("");
+        r.status = GraphExecutionStatus::Inconclusive;
+        r.archive_reason = None;
+        r
+    }
+
+    #[test]
+    fn penalty_perimeter_mitigated_is_25() {
+        assert_eq!(
+            score_penalty_for_reason(Some("perimeter-mitigated — all firewall events block")),
+            25.0
+        );
+        assert_eq!(score_penalty_for_reason(Some("perimeter mitigated")), 25.0);
+    }
+
+    #[test]
+    fn penalty_bruit_classique_is_15() {
+        assert_eq!(
+            score_penalty_for_reason(Some("bruit IDS classique — alertes isolees")),
+            15.0
+        );
+        assert_eq!(score_penalty_for_reason(Some("isolated noise")), 15.0);
+    }
+
+    #[test]
+    fn penalty_compliance_is_20() {
+        assert_eq!(
+            score_penalty_for_reason(Some("compliance-only finding")),
+            20.0
+        );
+        assert_eq!(score_penalty_for_reason(Some("CIS Windows policy")), 20.0);
+    }
+
+    #[test]
+    fn penalty_low_criticality_is_10() {
+        assert_eq!(
+            score_penalty_for_reason(Some("low-criticality asset archive")),
+            10.0
+        );
+    }
+
+    #[test]
+    fn penalty_unknown_reason_is_5() {
+        assert_eq!(score_penalty_for_reason(Some("some random reason")), 5.0);
+    }
+
+    #[test]
+    fn penalty_none_reason_is_5() {
+        assert_eq!(score_penalty_for_reason(None), 5.0);
+    }
+
+    #[test]
+    fn compute_total_penalty_sums_archived() {
+        let executions = vec![
+            mk_archived("perimeter-mitigated"),
+            mk_archived("bruit IDS classique"),
+        ];
+        assert_eq!(compute_total_penalty(&executions), 40.0);
+    }
+
+    #[test]
+    fn compute_total_penalty_ignores_inconclusive() {
+        let executions = vec![mk_archived("perimeter-mitigated"), mk_inconclusive()];
+        assert_eq!(compute_total_penalty(&executions), 25.0);
+    }
+
+    #[test]
+    fn compute_total_penalty_empty_is_zero() {
+        let executions: Vec<GraphExecutionRecord> = vec![];
+        assert_eq!(compute_total_penalty(&executions), 0.0);
+    }
+
+    #[test]
+    fn compute_total_penalty_three_bruit_classique_is_45() {
+        // Scénario roadmap : score 80 - 3×15 = 35 (passe sous seuil Alert)
+        let executions = vec![
+            mk_archived("bruit IDS classique"),
+            mk_archived("bruit IDS classique"),
+            mk_archived("bruit IDS classique"),
+        ];
+        assert_eq!(compute_total_penalty(&executions), 45.0);
+    }
+
+    // ── Predictive-only gate ─────────────────────────────────────
+    use crate::agent::incident_dossier::{
+        CorrelationBundle, DossierAlert, DossierFinding, EnrichmentBundle, IncidentDossier,
+        IpReputation, MlBundle, ThreatIntelMatch,
+    };
+
+    fn mk_finding(skill_id: &str) -> DossierFinding {
+        DossierFinding {
+            id: 1,
+            title: "f".into(),
+            description: None,
+            severity: "MEDIUM".into(),
+            asset: Some("a1".into()),
+            source: None,
+            skill_id: Some(skill_id.into()),
+            metadata: serde_json::json!({}),
+            detected_at: chrono::Utc::now(),
+        }
+    }
+
+    fn mk_dossier(findings: Vec<DossierFinding>) -> IncidentDossier {
+        IncidentDossier {
+            id: uuid::Uuid::nil(),
+            created_at: chrono::Utc::now(),
+            primary_asset: "a1".into(),
+            findings,
+            sigma_alerts: vec![],
+            enrichment: EnrichmentBundle {
+                ip_reputations: vec![],
+                cve_details: vec![],
+                threat_intel: vec![],
+                enrichment_lines: vec![],
+            },
+            correlations: CorrelationBundle {
+                kill_chain_detected: false,
+                kill_chain_steps: vec![],
+                active_attack: false,
+                known_exploits: vec![],
+                related_assets: vec![],
+                campaign_id: None,
+            },
+            graph_intel: None,
+            ml_scores: MlBundle {
+                anomaly_score: 0.0,
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            },
+            asset_score: 0.0,
+            global_score: 0.0,
+            notification_level: NotificationLevel::Alert,
+            connected_skills: vec![],
+            graph_context: None,
+        }
+    }
+
+    #[test]
+    fn predictive_only_software_vuln_no_signal() {
+        let d = mk_dossier(vec![
+            mk_finding("software-vuln"),
+            mk_finding("software-vuln"),
+        ]);
+        assert!(is_predictive_only(&d));
+    }
+
+    #[test]
+    fn predictive_only_other_predictive_skills() {
+        for skill in [
+            "wordpress-vuln",
+            "container-vuln",
+            "darkweb-monitor",
+            "shodan",
+            "wazuh-vuln",
+            "vuln-scan",
+        ] {
+            let d = mk_dossier(vec![mk_finding(skill)]);
+            assert!(is_predictive_only(&d), "{} should be predictive", skill);
+        }
+    }
+
+    #[test]
+    fn empty_dossier_is_not_predictive() {
+        let d = mk_dossier(vec![]);
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn ml_finding_breaks_predictive() {
+        let d = mk_dossier(vec![
+            mk_finding("software-vuln"),
+            mk_finding("ml-clustering"),
+        ]);
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn sigma_finding_breaks_predictive() {
+        let d = mk_dossier(vec![mk_finding("software-vuln"), mk_finding("sigma")]);
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn unknown_skill_breaks_predictive() {
+        // Unknown skill = treated as observational by default (safer)
+        let d = mk_dossier(vec![mk_finding("custom-detector")]);
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn no_skill_id_breaks_predictive() {
+        let mut f = mk_finding("software-vuln");
+        f.skill_id = None;
+        let d = mk_dossier(vec![f]);
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn sigma_alert_present_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.sigma_alerts.push(DossierAlert {
+            id: 1,
+            rule_id: "r".into(),
+            rule_name: "n".into(),
+            level: "high".into(),
+            source_ip: None,
+            matched_fields: serde_json::json!({}),
+            created_at: chrono::Utc::now(),
+            username: None,
+        });
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn active_attack_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.correlations.active_attack = true;
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn kill_chain_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.correlations.kill_chain_detected = true;
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn threat_intel_match_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.enrichment.threat_intel.push(ThreatIntelMatch {
+            indicator: "1.2.3.4".into(),
+            indicator_type: "ip".into(),
+            source: "threatfox".into(),
+            threat_type: "c2".into(),
+            malware: None,
+            confidence: 80,
+        });
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn malicious_ip_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.enrichment.ip_reputations.push(IpReputation {
+            ip: "1.2.3.4".into(),
+            is_malicious: true,
+            classification: "malicious".into(),
+            source: "greynoise".into(),
+            details: String::new(),
+        });
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn high_anomaly_score_breaks_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.ml_scores.anomaly_score = 0.85;
+        assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn low_anomaly_score_keeps_predictive() {
+        let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
+        d.ml_scores.anomaly_score = 0.5;
+        assert!(is_predictive_only(&d));
     }
 }

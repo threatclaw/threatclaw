@@ -1,9 +1,32 @@
 //! ReAct Runner — multi-level AI orchestration. See ADR-011.
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use serde_json::json;
+use tokio::sync::Semaphore;
+
+/// Phase 7f — Sémaphore global qui sérialise les appels Ollama L1+L2+L2.5
+/// (toutes les invocations passant par `call_ollama_with_schema`).
+///
+/// Ollama 0.5 charge UN modèle à la fois en VRAM/RAM. Quand 5 incidents
+/// déclenchent simultanément un L1_ANALYSIS sur `threatclaw-primary`,
+/// puis le forensic enricher veut appeler `threatclaw-forensic` sur le
+/// même container, on observe :
+/// - swap-in/out répété du modèle (chaque L1 met l'ancien out, charge primary)
+/// - une queue interne ollama qui peut faire timeout 20min un appel L2
+/// - bottleneck CPU à 600 % (pas de GPU sur cyb06).
+///
+/// Avec capacity=1 : un seul appel LLM passe à la fois ; les autres
+/// attendent leur tour. L'ordre devient predictable (FIFO tokio), le L2
+/// forensique n'est plus famine'd, et le timeout de 1200s n'est plus
+/// déclenché par contention. Le L0 conversationnel passe par
+/// `call_ollama_l0` (autre fonction) et reste hors-sémaphore pour ne pas
+/// bloquer le chatbot RSSI quand un L2 lourd tourne.
+fn ollama_serial_semaphore() -> &'static Semaphore {
+    static SEM: OnceLock<Semaphore> = OnceLock::new();
+    SEM.get_or_init(|| Semaphore::new(1))
+}
 
 use crate::agent::cloud_caller::{self, AnonymizationMap};
 use crate::agent::kill_switch::{KillSwitch, KillSwitchConfig};
@@ -706,6 +729,14 @@ pub async fn call_ollama_with_schema(
     prompt: &str,
     schema: Option<serde_json::Value>,
 ) -> Result<String, String> {
+    // Phase 7f — sérialisation. Tous les appels L1/L2/L2.5 passent ici. On
+    // attend un permit du sémaphore avant de toucher ollama. Le permit est
+    // libéré dès qu'on sort de cette fonction (Drop sur _permit).
+    let _permit = ollama_serial_semaphore()
+        .acquire()
+        .await
+        .map_err(|e| format!("ollama semaphore closed: {e}"))?;
+
     let _call_start = std::time::Instant::now();
     let _schema_used = schema.is_some();
     let url = format!("{}/api/chat", base_url);

@@ -458,11 +458,16 @@ async fn find_shortest_path(
 
     let mut best: Option<Vec<String>> = None;
     for rel in &["LATERAL_PATH", "ATTACKS"] {
+        // AGE 1.5 ne supporte ni `shortestPath(...)` ni les list
+        // comprehensions `[n IN nodes(p) | n.id]`. On émule le shortest
+        // path via un MATCH variable-length classique + ORDER BY length
+        // + LIMIT 1, et on parse les ids des vertices côté Rust depuis
+        // le payload agtype retourné par `nodes(path)`.
         let cypher = format!(
-            "MATCH path = shortestPath( \
-               (s:Asset {{id: '{src}'}})-[:{rel}*1..{hops}]->(d:Asset {{id: '{dst}'}}) \
-             ) \
-             RETURN [n IN nodes(path) | n.id] AS assets",
+            "MATCH path = (s:Asset {{id: '{src}'}})-[:{rel}*1..{hops}]->(d:Asset {{id: '{dst}'}}) \
+             RETURN nodes(path) AS path_nodes \
+             ORDER BY length(path) ASC \
+             LIMIT 1",
             src = src_esc,
             dst = dst_esc,
             rel = rel,
@@ -472,23 +477,13 @@ async fn find_shortest_path(
             Ok(r) => r,
             Err(e) => {
                 warn!(
-                    "PATH RISK: shortestPath {rel} {src}→{dst} failed: {e}",
+                    "PATH RISK: shortest path {rel} {src}→{dst} failed: {e}",
                     rel = rel
                 );
                 continue;
             }
         };
-        let assets: Vec<String> = match rows
-            .first()
-            .and_then(|r| r.get("assets"))
-            .and_then(|v| v.as_array())
-        {
-            Some(arr) => arr
-                .iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect(),
-            None => continue,
-        };
+        let assets = extract_path_node_ids(rows.first().and_then(|r| r.get("path_nodes")));
         if assets.is_empty() {
             continue;
         }
@@ -498,6 +493,42 @@ async fn find_shortest_path(
         }
     }
     best
+}
+
+/// Parse l'`agtype` `nodes(path)` retourné par AGE.
+///
+/// Selon que `strip_agtype_quotes` ait pu le JSON-décoder ou pas, on
+/// reçoit soit déjà un `Value::Array` de vertex objects, soit une
+/// `Value::String` qui contient l'array sérialisé avec des annotations
+/// `::vertex` non-standard (`"[{...}::vertex, ...]"`). On gère les
+/// deux formes et on extrait `properties.id` de chaque vertex.
+fn extract_path_node_ids(node_value: Option<&serde_json::Value>) -> Vec<String> {
+    let nodes_array: Vec<serde_json::Value> = match node_value {
+        Some(serde_json::Value::Array(arr)) => arr.clone(),
+        Some(serde_json::Value::String(s)) => {
+            // Strip AGE's `::vertex` / `::edge` / `::path` annotations
+            // before JSON parsing.
+            let cleaned = s
+                .replace("::vertex", "")
+                .replace("::edge", "")
+                .replace("::path", "");
+            match serde_json::from_str::<Vec<serde_json::Value>>(&cleaned) {
+                Ok(arr) => arr,
+                Err(_) => return Vec::new(),
+            }
+        }
+        _ => return Vec::new(),
+    };
+
+    nodes_array
+        .iter()
+        .filter_map(|node| {
+            node.get("properties")
+                .and_then(|p| p.get("id"))
+                .and_then(|id| id.as_str())
+                .map(String::from)
+        })
+        .collect()
 }
 
 /// Pour un path brut, agrège CVE+EPSS+KEV et calcule le score final.
@@ -663,5 +694,61 @@ mod tests {
         assert!(exp.contains("CVE-2024-1234"));
         assert!(exp.contains("EPSS"));
         assert!(exp.contains("KEV"));
+    }
+
+    // ── extract_path_node_ids — AGE 1.5 agtype parsing ─────────────
+
+    #[test]
+    fn extract_ids_from_string_with_vertex_annotations() {
+        // Format réel observé dans cyb06: agtype renvoyé comme string
+        // avec des `::vertex` markers à stripper avant parsing.
+        let raw = r#"[{"id": 1, "label": "Asset", "properties": {"id": "srv-01-dom"}}::vertex, {"id": 2, "label": "Asset", "properties": {"id": "debian"}}::vertex]"#;
+        let v = serde_json::Value::String(raw.to_string());
+        let ids = extract_path_node_ids(Some(&v));
+        assert_eq!(ids, vec!["srv-01-dom".to_string(), "debian".to_string()]);
+    }
+
+    #[test]
+    fn extract_ids_from_already_parsed_array() {
+        // Si strip_agtype_quotes a déjà JSON-décodé l'array, on doit
+        // le gérer aussi.
+        let v = serde_json::json!([
+            {"id": 1, "label": "Asset", "properties": {"id": "a"}},
+            {"id": 2, "label": "Asset", "properties": {"id": "b"}},
+        ]);
+        let ids = extract_path_node_ids(Some(&v));
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn extract_ids_returns_empty_on_none() {
+        assert!(extract_path_node_ids(None).is_empty());
+    }
+
+    #[test]
+    fn extract_ids_returns_empty_on_invalid_string() {
+        let v = serde_json::Value::String("not a json array".to_string());
+        assert!(extract_path_node_ids(Some(&v)).is_empty());
+    }
+
+    #[test]
+    fn extract_ids_skips_vertex_without_properties_id() {
+        let v = serde_json::json!([
+            {"id": 1, "label": "Asset", "properties": {"id": "a"}},
+            {"id": 2, "label": "Asset", "properties": {}},
+            {"id": 3, "label": "Asset"},
+        ]);
+        let ids = extract_path_node_ids(Some(&v));
+        assert_eq!(ids, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn extract_ids_strips_edge_and_path_markers() {
+        // Bonus: nodes(path) ne devrait jamais contenir d'edge mais on
+        // garde le strip défensif en cas d'évolution de la query.
+        let raw = r#"[{"id": 1, "properties": {"id": "x"}}::vertex, {"id": 2, "properties": {"id": "y"}}::edge]"#;
+        let v = serde_json::Value::String(raw.to_string());
+        let ids = extract_path_node_ids(Some(&v));
+        assert_eq!(ids, vec!["x".to_string(), "y".to_string()]);
     }
 }
