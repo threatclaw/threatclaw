@@ -11,6 +11,7 @@ use tracing::{info, warn};
 
 use super::pool::{WorkerError, WorkerFn};
 use super::store::GraphExecutionStatus;
+use crate::agent::incident_action::parse_proposed_actions_legacy;
 use crate::agent::investigation_graph::{
     EvalContext, ExecutionOutcome, GraphExecutor, GraphLibrary,
 };
@@ -369,7 +370,21 @@ async fn create_incident_from_graph(
         }
     };
 
-    let actions_json = Value::Array(proposed_actions.to_vec());
+    // Phase 9c — convertir le format legacy CACAO YAML
+    // (`[{cmd_id, rationale, requires_hitl}]` flat array) vers le wrapper
+    // canonique `{actions: IncidentAction[], iocs: []}`. Sans ça l'UI affiche
+    // "Aucune action proposée" car elle attend le wrapper.
+    let actions_json = {
+        let raw = Value::Array(proposed_actions.to_vec());
+        let mut bundle = parse_proposed_actions_legacy(&raw);
+        // Tagguer l'origin avec le graph qui a produit l'action — utile
+        // pour l'audit trail RSSI ("d'où vient cette proposition ?").
+        let origin = format!("cacao_graph:{}", trace.graph_name);
+        for a in &mut bundle.actions {
+            a.origin = origin.clone();
+        }
+        bundle.to_value()
+    };
     let investigation_log = json!({
         "source": "investigation_graph",
         "graph_name": trace.graph_name,

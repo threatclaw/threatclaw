@@ -8648,11 +8648,118 @@ pub async fn incidents_list_handler(
 
     for inc in incidents.iter_mut() {
         enrich_incident_actions_batched(inc, has_firewall, has_glpi, &host_to_ip);
+        // Phase 9f — also hydrate asset_name / asset_hostname / asset_ips so
+        // the list view can render "debian (10.77.0.136)" instead of the raw
+        // canonical id. One indexed PK lookup per incident — at the typical
+        // page size of 50 this is sub-100ms total.
+        hydrate_asset_fields(store.as_ref(), inc).await;
+        // Phase 9d — same normalisation as the detail handler so the list
+        // view also sees the canonical proposed_actions shape.
+        normalise_proposed_actions(inc);
     }
 
     Ok(Json(
         serde_json::json!({ "incidents": incidents, "total": incidents.len() }),
     ))
+}
+
+/// Phase 9d — normalise the `proposed_actions` JSON of an incident to the
+/// canonical `{actions: IncidentAction[], iocs: string[]}` shape before it
+/// hits the dashboard.
+///
+/// Some incidents in the database carry one of three legacy shapes:
+///   * Phase 7b wrapper without `kind` / `description` / `skill_id`
+///   * CACAO graph flat array `[{cmd_id, rationale, requires_hitl}]`
+///   * Empty `[]` or `null`
+///
+/// We could rewrite them all in SQL, but the legacy parser already knows
+/// how to coerce all of them into the canonical bundle — so we apply it
+/// at read time instead. This keeps the database untouched (safer for
+/// archive incidents) and means the dashboard never has to handle a
+/// stale shape.
+///
+/// No-op when `proposed_actions` is already canonical (the parser
+/// returns the same content) or absent.
+fn normalise_proposed_actions(incident: &mut serde_json::Value) {
+    let raw = match incident.get("proposed_actions") {
+        Some(v) if !v.is_null() => v.clone(),
+        _ => return,
+    };
+    let canonical = crate::agent::incident_action::parse_proposed_actions_legacy(&raw);
+    if let Some(map) = incident.as_object_mut() {
+        map.insert("proposed_actions".into(), canonical.to_value());
+    }
+}
+
+/// Phase 9f — hydrate the human-friendly asset fields on an incident JSON
+/// payload.
+///
+/// The `incidents.asset` column stores the canonical asset identifier
+/// (`asset-bc2411e4af27`). The dashboard wants to surface a name + IP for
+/// the operator (`debian (10.77.0.136)`). Rather than have every UI page
+/// re-join, we resolve once on the API edge and inject three new fields:
+///   * `asset_name`      — `assets.name` (e.g. `debian`)
+///   * `asset_hostname`  — `assets.hostname` (often equal to name, may differ
+///                         for AD-joined hosts where the hostname carries a
+///                         domain suffix)
+///   * `asset_ips`       — `assets.ip_addresses[]` (port-stripped — one IP
+///                         per array element)
+///
+/// `asset` is left untouched so legacy callers keep working. Resolution
+/// strategy (in order):
+///   1. by canonical id (`get_asset(asset)`)
+///   2. by hostname (incident may store a raw hostname for legacy data)
+///   3. by IP (incident may store a raw IP)
+///
+/// Failure is silent: when the asset cannot be resolved we leave the
+/// payload alone. The UI then falls back to the raw `asset` string. This
+/// matters because some incidents (older or archived) reference assets that
+/// have been removed from the inventory.
+async fn hydrate_asset_fields(store: &dyn crate::db::Database, incident: &mut serde_json::Value) {
+    let asset_str = match incident.get("asset").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return,
+    };
+
+    let record = match store.get_asset(&asset_str).await {
+        Ok(Some(rec)) => Some(rec),
+        _ => match store.find_asset_by_hostname(&asset_str).await {
+            Ok(Some(rec)) => Some(rec),
+            _ => match store.find_asset_by_ip(&asset_str).await {
+                Ok(Some(rec)) => Some(rec),
+                _ => None,
+            },
+        },
+    };
+
+    let Some(rec) = record else {
+        return;
+    };
+
+    if let Some(map) = incident.as_object_mut() {
+        map.insert(
+            "asset_name".to_string(),
+            serde_json::Value::String(rec.name),
+        );
+        if let Some(h) = rec.hostname {
+            map.insert("asset_hostname".to_string(), serde_json::Value::String(h));
+        }
+        // Strip ports / CIDR from the listed IPs so the UI can render a
+        // clean "name (ip)" without preprocessing.
+        let cleaned_ips: Vec<serde_json::Value> = rec
+            .ip_addresses
+            .iter()
+            .map(|raw| {
+                let no_port = raw.split(':').next().unwrap_or(raw);
+                let no_mask = no_port.split('/').next().unwrap_or(no_port);
+                serde_json::Value::String(no_mask.to_string())
+            })
+            .collect();
+        map.insert(
+            "asset_ips".to_string(),
+            serde_json::Value::Array(cleaned_ips),
+        );
+    }
 }
 
 /// GET /api/tc/incidents/:id — get incident detail (with per-incident full enrichment)
@@ -8663,6 +8770,15 @@ pub async fn incident_detail_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.get_incident(id).await.map_err(db_err)? {
         Some(mut incident) => {
+            // Phase 9f — expose `asset_name` / `asset_hostname` / `asset_ips`
+            // alongside the raw `asset` id so the UI can render
+            // "debian (10.77.0.136)" instead of "asset-bc2411e4af27".
+            hydrate_asset_fields(store.as_ref(), &mut incident).await;
+            // Phase 9d — coerce legacy proposed_actions shapes (flat array,
+            // missing kind/description) into the canonical bundle so the
+            // dashboard receives a consistent payload.
+            normalise_proposed_actions(&mut incident);
+
             // Single incident: use the full remediation_engine helper.
             let has_actions = incident
                 .get("proposed_actions")
@@ -8718,11 +8834,18 @@ pub async fn incident_full_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
 
     // 1. Incident
-    let incident = store
+    let mut incident = store
         .get_incident(id)
         .await
         .map_err(db_err)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "Incident not found".into()))?;
+
+    // Phase 9f — enrich with the human-friendly asset fields. Same payload
+    // shape as `incident_detail_handler` so the UI can rely on the same
+    // resolver logic.
+    hydrate_asset_fields(store.as_ref(), &mut incident).await;
+    // Phase 9d — normalise legacy proposed_actions.
+    normalise_proposed_actions(&mut incident);
 
     let asset = incident["asset"].as_str().unwrap_or("").to_string();
 
@@ -8817,6 +8940,16 @@ pub async fn incident_full_handler(
         events
     };
 
+    // Phase 9o — investigation timeline. Read after the rest so the
+    // accordion is populated even if the rest of the dossier is sparse.
+    // Best-effort: persistence errors fall back to an empty array so the
+    // /full endpoint never 5xx-s on a missing audit feature.
+    let investigation_steps = store
+        .list_investigation_steps(id)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
     Ok(Json(serde_json::json!({
         "incident": incident,
         "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
@@ -8825,6 +8958,7 @@ pub async fn incident_full_handler(
         "attack_paths": serde_json::to_value(&attack_paths).unwrap_or(serde_json::json!([])),
         "choke_points": serde_json::to_value(&choke_points).unwrap_or(serde_json::json!([])),
         "attack_events": attack_events,
+        "investigation_steps": serde_json::to_value(&investigation_steps).unwrap_or(serde_json::json!([])),
     })))
 }
 
@@ -9099,6 +9233,19 @@ fn enrich_incident_actions_batched(
 }
 
 /// POST /api/tc/incidents/:id/hitl — HITL response (approve/reject) — See ADR-044
+///
+/// Phase 9i — accepts an optional `cmd_id` in the request body. When
+/// supplied, the remediation engine executes that exact action only;
+/// when omitted, the legacy approve-all flow runs (back-compat with
+/// Slack/Discord URL buttons that just send `response=approve`).
+///
+/// Body shape (all fields optional):
+/// ```json
+/// { "response": "approve" | "reject" | "false_positive",
+///   "responded_by": "operator-name",
+///   "cmd_id": "opnsense_block_ip" | "velociraptor_isolate_host" | ...
+/// }
+/// ```
 pub async fn incident_hitl_handler(
     State(state): State<Arc<GatewayState>>,
     Path(id): Path<i32>,
@@ -9107,6 +9254,10 @@ pub async fn incident_hitl_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let response = body["response"].as_str().unwrap_or("reject");
     let responded_by = body["responded_by"].as_str().unwrap_or("dashboard");
+    let cmd_id = body["cmd_id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     store
         .update_incident_hitl(id, "responded", responded_by, response)
@@ -9114,30 +9265,44 @@ pub async fn incident_hitl_handler(
         .map_err(db_err)?;
 
     if response.starts_with("approve") || response == "execute" {
-        // ADR-044: Execute real remediation through the guard
-        let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation(
+        // ADR-044 + Phase 9i: route through the granular variant so a
+        // per-action approval only executes that specific cmd_id.
+        let (success, msg) = crate::agent::remediation_engine::execute_incident_remediation_for(
             store.clone(),
             id,
             response,
+            cmd_id,
         )
         .await;
         tracing::info!(
-            "INCIDENT #{}: HITL {} via {} — success={} msg={}",
+            "INCIDENT #{}: HITL {} cmd_id={:?} via {} — success={} msg={}",
             id,
             response,
+            cmd_id,
             responded_by,
             success,
             msg
         );
         if success {
-            store
-                .update_incident_status(id, "resolved")
-                .await
-                .map_err(db_err)?;
+            // Phase 9i — only mark the whole incident resolved when the
+            // operator approved the *whole* incident (no specific cmd_id).
+            // A per-action approval keeps the incident open so the
+            // operator can validate or reject the remaining proposed
+            // actions.
+            if cmd_id.is_none() {
+                store
+                    .update_incident_status(id, "resolved")
+                    .await
+                    .map_err(db_err)?;
+            }
         }
-        return Ok(Json(
-            serde_json::json!({ "status": "ok", "incident_id": id, "response": response, "remediation": { "success": success, "message": msg } }),
-        ));
+        return Ok(Json(serde_json::json!({
+            "status": "ok",
+            "incident_id": id,
+            "response": response,
+            "cmd_id": cmd_id,
+            "remediation": { "success": success, "message": msg }
+        })));
     } else if response == "false_positive" {
         store
             .update_incident_status(id, "closed")

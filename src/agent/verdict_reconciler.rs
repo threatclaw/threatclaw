@@ -447,6 +447,7 @@ mod tests {
             notification_level: NotificationLevel::Silence,
             connected_skills: vec![],
             graph_context: None,
+            investigation_log: Default::default(),
         }
     }
 

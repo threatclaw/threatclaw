@@ -4057,6 +4057,78 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    // ── Phase 9o — incident_investigation_steps (V72) ──
+
+    async fn append_investigation_step(
+        &self,
+        step: &crate::db::threatclaw_store::NewInvestigationStep,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let kind = step.kind.as_str();
+        let status = step.status.as_str();
+        let row = conn
+            .query_one(
+                "INSERT INTO incident_investigation_steps \
+                 (incident_id, kind, skill_id, summary, payload, duration_ms, status) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+                &[
+                    &step.incident_id,
+                    &kind,
+                    &step.skill_id,
+                    &step.summary,
+                    &step.payload,
+                    &step.duration_ms,
+                    &status,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get::<_, i64>("id"))
+    }
+
+    async fn list_investigation_steps(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::InvestigationStepRecord>, DatabaseError> {
+        use crate::db::threatclaw_store::{InvestigationStepRecord, StepKind, StepStatus};
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, kind, skill_id, summary, payload, \
+                 duration_ms, status, created_at \
+                 FROM incident_investigation_steps \
+                 WHERE incident_id = $1 \
+                 ORDER BY created_at ASC, id ASC",
+                &[&incident_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let kind_str: String = r.get("kind");
+                let status_str: String = r.get("status");
+                InvestigationStepRecord {
+                    id: r.get("id"),
+                    incident_id: r.get("incident_id"),
+                    // serde_json indirection lets us reuse the StepKind /
+                    // StepStatus #[serde(rename_all)] mapping rather than
+                    // duplicate it here. `Other` covers any future db
+                    // value the binary doesn't know yet.
+                    kind: serde_json::from_value(serde_json::Value::String(kind_str))
+                        .unwrap_or(StepKind::Other),
+                    skill_id: r.get("skill_id"),
+                    summary: r.get("summary"),
+                    payload: r.get("payload"),
+                    duration_ms: r.get("duration_ms"),
+                    status: serde_json::from_value(serde_json::Value::String(status_str))
+                        .unwrap_or(StepStatus::Other),
+                    created_at: r.get("created_at"),
+                }
+            })
+            .collect())
+    }
+
     async fn get_sigma_alerts_by_ids(
         &self,
         ids: &[i64],

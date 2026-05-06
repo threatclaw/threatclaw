@@ -1424,6 +1424,25 @@ pub trait ThreatClawStore: Send + Sync {
     /// All analyses for an incident, newest first.
     async fn get_ai_analyses(&self, incident_id: i32) -> Result<Vec<AiAnalysis>, DatabaseError>;
 
+    // ── Phase 9o — incident_investigation_steps (V72) ──
+
+    /// Append one investigation step to the timeline of an incident.
+    /// Append-only: callers never UPDATE or DELETE, so the trace stays
+    /// audit-trail trustable. Returns the allocated id for cross-reference
+    /// (e.g. linking a `derive_actions` step to the actions it produced).
+    async fn append_investigation_step(
+        &self,
+        step: &NewInvestigationStep,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Read the timeline of an incident sorted ASC by `created_at`. The UI
+    /// renders it as a collapsible accordion — the frontend never needs
+    /// to re-sort.
+    async fn list_investigation_steps(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<InvestigationStepRecord>, DatabaseError>;
+
     /// Fetch sigma alerts by IDs for the attack timeline. Returns rows ordered
     /// by matched_at ASC. Missing IDs are silently skipped.
     ///
@@ -1497,4 +1516,114 @@ pub struct NewAiAnalysis {
     pub skills_used: Vec<String>,
     pub mitre_added: Vec<String>,
     pub raw_output: Option<serde_json::Value>,
+}
+
+// ── Phase 9o — investigation timeline ─────────────────────────────────────
+
+/// Taxonomie d'un step de la chronologie d'analyse. Garde la liste close
+/// pour que le dashboard puisse mapper chaque kind à un badge / couleur
+/// stable. Les variantes inconnues lues de la DB (forward-compat) sont
+/// rendues via [`StepKind::Other`] avec la string brute.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    /// Appel à un skill connecté (firewall, SIEM, EDR, IP rep…).
+    SkillCall,
+    /// Appel LLM (L1 ReAct triage, L2 forensic narrative).
+    LlmCall,
+    /// Étape franchie par un playbook CACAO (graph node).
+    GraphStep,
+    /// Production déterministe d'un panel d'actions par
+    /// `derive_response_actions` (Phase 9b).
+    DeriveActions,
+    /// Marqueur "incident créé" — première entry de la timeline.
+    IncidentCreated,
+    /// Une remediation a été exécutée via `remediation_engine`.
+    RemediationExecuted,
+    /// Note manuelle déposée par l'opérateur.
+    Note,
+    /// Variante inconnue lue de la DB. Rare, traitée comme un kind
+    /// générique côté UI.
+    #[serde(other)]
+    Other,
+}
+
+impl StepKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StepKind::SkillCall => "skill_call",
+            StepKind::LlmCall => "llm_call",
+            StepKind::GraphStep => "graph_step",
+            StepKind::DeriveActions => "derive_actions",
+            StepKind::IncidentCreated => "incident_created",
+            StepKind::RemediationExecuted => "remediation_executed",
+            StepKind::Note => "note",
+            StepKind::Other => "other",
+        }
+    }
+}
+
+/// Statut d'un step. Chaque step de l'investigation peut réussir, échouer,
+/// timeout, ne pas matcher, ou tomber en fallback (cas Phase 7f). C'est ce
+/// qui drive la couleur du badge côté UI : vert ok, ambre fallback /
+/// no_match, rouge error / timeout.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatus {
+    Ok,
+    Error,
+    Timeout,
+    NoMatch,
+    Fallback,
+    #[serde(other)]
+    Other,
+}
+
+impl StepStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StepStatus::Ok => "ok",
+            StepStatus::Error => "error",
+            StepStatus::Timeout => "timeout",
+            StepStatus::NoMatch => "no_match",
+            StepStatus::Fallback => "fallback",
+            StepStatus::Other => "other",
+        }
+    }
+}
+
+/// Step persisté en DB. Sérialisable directement vers le payload JSON
+/// renvoyé par l'API et consommé par le dashboard.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct InvestigationStepRecord {
+    pub id: i64,
+    pub incident_id: i32,
+    pub kind: StepKind,
+    /// Vide pour les steps non-skill (LLM, graph). Ex.
+    /// "skill-greynoise" pour un IP-rep lookup.
+    pub skill_id: Option<String>,
+    /// Une ligne lisible RSSI dans l'accordéon collapsed.
+    pub summary: String,
+    /// Détails structurés affichés au clic (raw API response, prompt
+    /// length, derived action ids, etc).
+    pub payload: serde_json::Value,
+    /// Wall-clock du step quand mesuré (None = timing dans le payload).
+    pub duration_ms: Option<i32>,
+    pub status: StepStatus,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Paramètres d'append d'un nouveau step. Utilise le builder
+/// `StepBuilder` (`agent::investigation_log`) plutôt que de remplir
+/// le struct manuellement — il garantit la cohérence kind / skill_id /
+/// status entre call sites.
+#[derive(Debug, Clone)]
+pub struct NewInvestigationStep {
+    pub incident_id: i32,
+    pub kind: StepKind,
+    pub skill_id: Option<String>,
+    pub summary: String,
+    pub payload: serde_json::Value,
+    pub duration_ms: Option<i32>,
+    pub status: StepStatus,
 }

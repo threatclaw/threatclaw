@@ -8,10 +8,31 @@ use std::sync::Arc;
 
 /// Execute remediation for an approved incident.
 /// Returns (success, message) for notification.
+///
+/// Phase 9i — `cmd_id` lets the operator approve **one specific action**
+/// from the panel proposed by `derive_response_actions`. Pass `None` to
+/// keep the legacy behaviour (single-action incidents driven by `action`,
+/// e.g. "approve" → block_ip). Pass `Some("velociraptor_isolate_host")` to
+/// execute exactly that. The `cmd_id` matching is exhaustive and falls
+/// back to the action-based switch when unrecognised so older buttons
+/// keep working.
 pub async fn execute_incident_remediation(
     store: Arc<dyn Database>,
     incident_id: i32,
     action: &str,
+) -> (bool, String) {
+    execute_incident_remediation_for(store, incident_id, action, None).await
+}
+
+/// Phase 9i — granular variant that targets a specific `cmd_id`. The
+/// public `execute_incident_remediation` keeps a single-arg signature for
+/// existing callers (Slack/Discord URL buttons, legacy approve-all UI);
+/// this is what the new per-action HITL handler invokes.
+pub async fn execute_incident_remediation_for(
+    store: Arc<dyn Database>,
+    incident_id: i32,
+    action: &str,
+    cmd_id: Option<&str>,
 ) -> (bool, String) {
     // Load incident
     let incident = match store.get_incident(incident_id).await {
@@ -23,8 +44,14 @@ pub async fn execute_incident_remediation(
     let title = incident["title"].as_str().unwrap_or("");
 
     // ADR-044 Layer 2+3: validate target through remediation guard
-    if let Err(e) = crate::agent::remediation_guard::validate_remediation(action, asset) {
-        tracing::error!("REMEDIATION BLOCKED: {} on {} — {}", action, asset, e);
+    let guard_subject = cmd_id.unwrap_or(action);
+    if let Err(e) = crate::agent::remediation_guard::validate_remediation(guard_subject, asset) {
+        tracing::error!(
+            "REMEDIATION BLOCKED: {} on {} — {}",
+            guard_subject,
+            asset,
+            e
+        );
         return (false, e);
     }
 
@@ -36,48 +63,104 @@ pub async fn execute_incident_remediation(
     }
 
     tracing::info!(
-        "REMEDIATION: Executing {} on {} (incident #{})",
+        "REMEDIATION: Executing action='{}' cmd_id={:?} on {} (incident #{})",
         action,
+        cmd_id,
         asset,
         incident_id
     );
 
-    // Determine what to do based on action + available connectors
-    let result = match action {
-        "approve_remediate" | "block_ip" => {
-            execute_block_ip(store.as_ref(), asset, incident_id).await
+    // Phase 9i — when an explicit cmd_id is supplied, match on it exactly.
+    // Each `cmd_id` belongs to the canonical taxonomy in
+    // `agent::incident_action::ActionKind`. Multiple vendor cmd_ids
+    // (`opnsense_block_ip`, `fortinet_block_ip`...) collapse to the same
+    // execution path because `execute_block_ip` re-reads the active
+    // firewall config from the DB.
+    let dispatched = match cmd_id {
+        Some("opnsense_block_ip")
+        | Some("fortinet_block_ip")
+        | Some("pfsense_block_ip")
+        | Some("mikrotik_block_ip")
+        | Some("proxmox_block_ip") => {
+            Some(execute_block_ip(store.as_ref(), asset, incident_id).await)
         }
-        "disable_account" => execute_disable_account(store.as_ref(), asset, incident_id).await,
-        "kill_states" => execute_kill_states(store.as_ref(), asset, incident_id).await,
-        "reset_password" => execute_reset_password(store.as_ref(), asset, incident_id).await,
-        "quarantine_endpoint" | "velociraptor_quarantine_endpoint" => {
-            execute_quarantine_endpoint(store.as_ref(), asset, incident_id).await
+        Some("velociraptor_isolate_host") | Some("edr_isolate_host") => {
+            Some(execute_isolate_host(store.as_ref(), asset, incident_id).await)
         }
-        "isolate_host" | "velociraptor_isolate_host" => {
-            execute_isolate_host(store.as_ref(), asset, incident_id).await
+        Some("velociraptor_kill_process") | Some("edr_kill_process") => {
+            Some(execute_kill_process(store.as_ref(), asset, incident_id).await)
         }
-        "kill_process" | "velociraptor_kill_process" => {
-            execute_kill_process(store.as_ref(), asset, incident_id).await
+        Some("ad_disable_user")
+        | Some("azuread_disable_user")
+        | Some("keycloak_disable_user")
+        | Some("authentik_disable_user") => {
+            Some(execute_disable_account(store.as_ref(), asset, incident_id).await)
         }
-        "create_ticket" => execute_create_ticket(store.as_ref(), asset, title, incident_id).await,
-        _ => {
+        Some("ad_reset_password")
+        | Some("azuread_reset_password")
+        | Some("keycloak_reset_password") => {
+            Some(execute_reset_password(store.as_ref(), asset, incident_id).await)
+        }
+        Some("manual") => Some((
+            true,
+            format!(
+                "Action manuelle marquée résolue (incident #{} — pas d'automation)",
+                incident_id
+            ),
+        )),
+        Some(unknown) => {
             tracing::warn!(
-                "REMEDIATION: Unknown action '{}' — marking resolved without execution",
-                action
+                "REMEDIATION: cmd_id='{}' has no Phase 9i handler — falling back to action match",
+                unknown
             );
-            (
-                true,
-                format!(
-                    "Incident #{} marque resolu (action: {})",
-                    incident_id, action
-                ),
-            )
+            None
+        }
+        None => None,
+    };
+
+    let result = if let Some(r) = dispatched {
+        r
+    } else {
+        // Legacy action-based dispatch (URL buttons, approve-all flow).
+        match action {
+            "approve_remediate" | "block_ip" => {
+                execute_block_ip(store.as_ref(), asset, incident_id).await
+            }
+            "disable_account" => execute_disable_account(store.as_ref(), asset, incident_id).await,
+            "kill_states" => execute_kill_states(store.as_ref(), asset, incident_id).await,
+            "reset_password" => execute_reset_password(store.as_ref(), asset, incident_id).await,
+            "quarantine_endpoint" | "velociraptor_quarantine_endpoint" => {
+                execute_quarantine_endpoint(store.as_ref(), asset, incident_id).await
+            }
+            "isolate_host" | "velociraptor_isolate_host" => {
+                execute_isolate_host(store.as_ref(), asset, incident_id).await
+            }
+            "kill_process" | "velociraptor_kill_process" => {
+                execute_kill_process(store.as_ref(), asset, incident_id).await
+            }
+            "create_ticket" => {
+                execute_create_ticket(store.as_ref(), asset, title, incident_id).await
+            }
+            _ => {
+                tracing::warn!(
+                    "REMEDIATION: Unknown action '{}' — marking resolved without execution",
+                    action
+                );
+                (
+                    true,
+                    format!(
+                        "Incident #{} marque resolu (action: {})",
+                        incident_id, action
+                    ),
+                )
+            }
         }
     };
 
     // Update incident with executed action
     let executed = json!({
         "action": action,
+        "cmd_id": cmd_id,
         "success": result.0,
         "message": result.1,
         "timestamp": chrono::Utc::now().to_rfc3339(),

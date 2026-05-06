@@ -603,6 +603,23 @@ impl ThreatClawStore for LibSqlBackend {
         Ok(vec![])
     }
 
+    async fn append_investigation_step(
+        &self,
+        _: &crate::db::threatclaw_store::NewInvestigationStep,
+    ) -> Result<i64, DatabaseError> {
+        // Phase 9o — libsql build is dev-only; the investigation timeline
+        // is a Postgres feature. Stub returns Err so callers know nothing
+        // was persisted, but they can decide to ignore.
+        Err(not_supported())
+    }
+
+    async fn list_investigation_steps(
+        &self,
+        _: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::InvestigationStepRecord>, DatabaseError> {
+        Ok(vec![])
+    }
+
     async fn recent_sigma_alerts_for_asset(
         &self,
         _: &str,

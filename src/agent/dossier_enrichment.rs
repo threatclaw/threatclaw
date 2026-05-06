@@ -113,99 +113,315 @@ async fn enrich_cves(store: &dyn Database, dossier: &mut IncidentDossier) {
 }
 
 /// Pour chaque sigma_alert du dossier avec un `source_ip` routable, récupérer
-/// la réputation depuis cache (GreyNoise + IPinfo) + Spamhaus DROP (gratuit,
-/// pas de clé) + ThreatFox (gratuit).
+/// la réputation depuis 3 sources **en live** :
+///
+/// 1. **GreyNoise Community** — gratuit, sans clé. Détecte les IPs scanners
+///    (noise=true → bénin, deprioritise) vs targeted (classification=malicious).
+///    Si le client a configuré une clé GreyNoise dans `skill_configs`, on
+///    bascule sur l'API authentifiée (quotas plus généreux). Le résultat
+///    est mis en cache 24h.
+/// 2. **Spamhaus DROP/EDROP** — gratuit, sans clé. Liste l'IP comme
+///    hostile-connue (botnet, hijack).
+/// 3. **ThreatFox abuse.ch** — gratuit, sans clé. Match d'IOC threat intel
+///    (C2, malware-bridge).
+///
+/// Phase 9g — Avant ce refactor, GreyNoise n'était lu que depuis le cache
+/// (jamais peuplé pour les IPs sigma_alerts), et aucune source ne loguait
+/// → l'opérateur voyait `ip_reputations: []` sans savoir si on avait
+/// cherché ou pas. Le pipeline live + logs `info!` rend la transparence.
 async fn enrich_ip_reputations(store: &dyn Database, dossier: &mut IncidentDossier) {
-    let ips = collect_unique_routable_source_ips(dossier);
-    let mut reputations = Vec::new();
+    use crate::agent::investigation_log::StepBuilder;
+    use crate::db::threatclaw_store::{StepKind, StepStatus};
 
+    let ips = collect_unique_routable_source_ips(dossier);
+    if ips.is_empty() {
+        tracing::debug!(
+            "DOSSIER_ENRICHMENT: 0 routable source IPs in dossier — skipping IP reputation"
+        );
+        return;
+    }
+
+    let greynoise_key = load_skill_api_key(store, "skill-enrichment-greynoise").await;
+    if greynoise_key.is_some() {
+        tracing::debug!("DOSSIER_ENRICHMENT: GreyNoise API key found in skill_configs");
+    }
+
+    let mut reputations = Vec::new();
     for ip in ips.iter().take(MAX_IPS_PER_DOSSIER) {
-        // (a) GreyNoise depuis cache — déjà peuplé par le cycle IE si applicable
-        if let Some(cached) =
-            crate::agent::production_safeguards::get_cached_ioc(store, "greynoise", ip).await
-        {
-            let classification = cached["classification"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string();
-            let is_malicious = classification == "malicious";
-            let noise = cached["noise"].as_bool().unwrap_or(false);
-            let riot = cached["riot"].as_bool().unwrap_or(false);
-            reputations.push(IpReputation {
-                ip: ip.clone(),
-                is_malicious,
+        let mut matches = 0u32;
+
+        // Phase 9o — chaque skill call est instrumenté pour la timeline
+        // d'investigation : durée, résultat, status. Buffered tant que
+        // l'incident n'a pas d'id (drainé par l'IE après create_incident).
+
+        let t0 = std::time::Instant::now();
+        if let Some(rep) = lookup_greynoise(store, ip, greynoise_key.as_deref()).await {
+            tracing::info!(
+                "DOSSIER_ENRICHMENT: ip={ip} source=greynoise classification={} ({})",
+                rep.classification,
+                rep.details
+            );
+            StepBuilder::new(
+                StepKind::SkillCall,
+                format!(
+                    "GreyNoise · {ip} → {} ({})",
+                    rep.classification, rep.details
+                ),
+            )
+            .skill("skill-enrichment-greynoise")
+            .duration_from(t0)
+            .payload(serde_json::json!({
+                "ip": ip,
+                "classification": rep.classification,
+                "details": rep.details,
+                "is_malicious": rep.is_malicious,
+            }))
+            .enqueue(&mut dossier.investigation_log);
+            matches += 1;
+            reputations.push(rep);
+        } else {
+            tracing::debug!("DOSSIER_ENRICHMENT: ip={ip} source=greynoise no_result");
+            StepBuilder::new(
+                StepKind::SkillCall,
+                format!("GreyNoise · {ip} → aucun signal"),
+            )
+            .skill("skill-enrichment-greynoise")
+            .duration_from(t0)
+            .status(StepStatus::NoMatch)
+            .payload(serde_json::json!({"ip": ip}))
+            .enqueue(&mut dossier.investigation_log);
+        }
+
+        let t0 = std::time::Instant::now();
+        if let Some(rep) = lookup_spamhaus(ip).await {
+            tracing::info!(
+                "DOSSIER_ENRICHMENT: ip={ip} source=spamhaus classification={} ({})",
+                rep.classification,
+                rep.details
+            );
+            StepBuilder::new(
+                StepKind::SkillCall,
+                format!("Spamhaus · {ip} → {} ({})", rep.classification, rep.details),
+            )
+            .skill("skill-enrichment-spamhaus")
+            .duration_from(t0)
+            .payload(serde_json::json!({
+                "ip": ip,
+                "classification": rep.classification,
+                "details": rep.details,
+            }))
+            .enqueue(&mut dossier.investigation_log);
+            matches += 1;
+            reputations.push(rep);
+        } else {
+            tracing::debug!("DOSSIER_ENRICHMENT: ip={ip} source=spamhaus not_listed");
+            StepBuilder::new(StepKind::SkillCall, format!("Spamhaus · {ip} → non listé"))
+                .skill("skill-enrichment-spamhaus")
+                .duration_from(t0)
+                .status(StepStatus::NoMatch)
+                .payload(serde_json::json!({"ip": ip}))
+                .enqueue(&mut dossier.investigation_log);
+        }
+
+        let t0 = std::time::Instant::now();
+        if let Some(rep) = lookup_threatfox(ip).await {
+            tracing::info!(
+                "DOSSIER_ENRICHMENT: ip={ip} source=threatfox classification={} ({})",
+                rep.classification,
+                rep.details
+            );
+            StepBuilder::new(
+                StepKind::SkillCall,
+                format!(
+                    "ThreatFox · {ip} → {} ({})",
+                    rep.classification, rep.details
+                ),
+            )
+            .skill("skill-enrichment-threatfox")
+            .duration_from(t0)
+            .payload(serde_json::json!({
+                "ip": ip,
+                "classification": rep.classification,
+                "details": rep.details,
+            }))
+            .enqueue(&mut dossier.investigation_log);
+            matches += 1;
+            reputations.push(rep);
+        } else {
+            tracing::debug!("DOSSIER_ENRICHMENT: ip={ip} source=threatfox no_match");
+            StepBuilder::new(
+                StepKind::SkillCall,
+                format!("ThreatFox · {ip} → aucun match"),
+            )
+            .skill("skill-enrichment-threatfox")
+            .duration_from(t0)
+            .status(StepStatus::NoMatch)
+            .payload(serde_json::json!({"ip": ip}))
+            .enqueue(&mut dossier.investigation_log);
+        }
+
+        tracing::info!("DOSSIER_ENRICHMENT: ip={ip} — {matches} reputation source(s) matched");
+    }
+
+    tracing::info!(
+        "DOSSIER_ENRICHMENT: ip_reputations populated with {} entries from {} IP(s)",
+        reputations.len(),
+        ips.len()
+    );
+    dossier.enrichment.ip_reputations = reputations;
+}
+
+/// Lookup GreyNoise — cache hit returns immediately, otherwise live fetch
+/// against the Community endpoint (or authenticated when a key is provided).
+/// Result is cached 24h on success.
+///
+/// Returns `None` when the IP is unknown (`classification=unknown` AND no
+/// noise/riot signal) so we don't pollute the dossier with empty entries
+/// — the caller logs the miss.
+async fn lookup_greynoise(
+    store: &dyn Database,
+    ip: &str,
+    api_key: Option<&str>,
+) -> Option<IpReputation> {
+    // (1) Cache — hit if the IE cycle or a prior dossier touched the IP.
+    if let Some(cached) =
+        crate::agent::production_safeguards::get_cached_ioc(store, "greynoise", ip).await
+    {
+        let classification = cached["classification"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        let noise = cached["noise"].as_bool().unwrap_or(false);
+        let riot = cached["riot"].as_bool().unwrap_or(false);
+        if classification != "unknown" || noise || riot {
+            return Some(IpReputation {
+                ip: ip.into(),
+                is_malicious: classification == "malicious",
                 classification,
                 source: "greynoise".into(),
-                details: format!("noise={} riot={}", noise, riot),
+                details: format!("noise={noise} riot={riot} (cache)"),
             });
-        }
-
-        // (b) Spamhaus DROP/EDROP — gratuit, sans clé, listings d'IPs hostiles
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            crate::enrichment::spamhaus::check_ip(ip),
-        )
-        .await
-        {
-            Ok(Ok(spam)) if !spam.listings.is_empty() => {
-                let lists: Vec<String> = spam.listings.iter().map(|l| l.list.clone()).collect();
-                reputations.push(IpReputation {
-                    ip: ip.clone(),
-                    is_malicious: true,
-                    classification: "malicious".into(),
-                    source: "spamhaus".into(),
-                    details: format!("listed in {}", lists.join(", ")),
-                });
-            }
-            Ok(Ok(_)) => {
-                // Not listed — informational, pas de rep ajoutée
-            }
-            Ok(Err(e)) => {
-                tracing::debug!("DOSSIER_ENRICHMENT: spamhaus failed for {ip}: {e}");
-            }
-            Err(_) => {
-                tracing::debug!("DOSSIER_ENRICHMENT: spamhaus timeout for {ip}");
-            }
-        }
-
-        // (c) ThreatFox lookup — gratuit, sans clé, IOC threat intel
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            crate::enrichment::threatfox::lookup_ioc(ip, None),
-        )
-        .await
-        {
-            Ok(Ok(iocs)) if !iocs.is_empty() => {
-                // Premier IOC suffit pour la rep — on garde le plus représentatif
-                let first = &iocs[0];
-                reputations.push(IpReputation {
-                    ip: ip.clone(),
-                    is_malicious: true,
-                    classification: "malicious".into(),
-                    source: "threatfox".into(),
-                    details: format!(
-                        "threat_type={} confidence={}",
-                        first.threat_type,
-                        first
-                            .confidence_level
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "n/a".into())
-                    ),
-                });
-            }
-            Ok(Ok(_)) => {
-                // Pas de match — informational
-            }
-            Ok(Err(e)) => {
-                tracing::debug!("DOSSIER_ENRICHMENT: threatfox failed for {ip}: {e}");
-            }
-            Err(_) => {
-                tracing::debug!("DOSSIER_ENRICHMENT: threatfox timeout for {ip}");
-            }
         }
     }
 
-    dossier.enrichment.ip_reputations = reputations;
+    // (2) Live fetch — Community endpoint, with optional auth key.
+    let result = match tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        crate::enrichment::greynoise::lookup_ip(ip, api_key),
+    )
+    .await
+    {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            tracing::debug!("DOSSIER_ENRICHMENT: greynoise live fetch for {ip} failed: {e}");
+            return None;
+        }
+        Err(_) => {
+            tracing::debug!("DOSSIER_ENRICHMENT: greynoise live fetch for {ip} timed out");
+            return None;
+        }
+    };
+
+    // (3) Cache the result for 24h regardless — even "unknown" is worth
+    // caching so the next dossier doesn't re-tap GreyNoise.
+    let cache_payload = serde_json::json!({
+        "ip": result.ip,
+        "noise": result.noise,
+        "riot": result.riot,
+        "classification": result.classification,
+        "name": result.name,
+    });
+    crate::agent::production_safeguards::cache_ioc(store, "greynoise", ip, &cache_payload).await;
+
+    // (4) Only surface the reputation when GreyNoise has an actual signal.
+    if result.classification != "unknown" || result.noise || result.riot {
+        Some(IpReputation {
+            ip: ip.into(),
+            is_malicious: result.classification == "malicious",
+            classification: result.classification,
+            source: "greynoise".into(),
+            details: format!(
+                "noise={} riot={}{}",
+                result.noise,
+                result.riot,
+                result
+                    .name
+                    .as_deref()
+                    .map(|n| format!(" name={n}"))
+                    .unwrap_or_default()
+            ),
+        })
+    } else {
+        None
+    }
+}
+
+/// Spamhaus DROP/EDROP lookup — free, no key required, hard-coded
+/// drop-list of hostile IPs (botnets, hijacked ranges).
+async fn lookup_spamhaus(ip: &str) -> Option<IpReputation> {
+    let spam = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        crate::enrichment::spamhaus::check_ip(ip),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if spam.listings.is_empty() {
+        return None;
+    }
+    let lists: Vec<String> = spam.listings.iter().map(|l| l.list.clone()).collect();
+    Some(IpReputation {
+        ip: ip.into(),
+        is_malicious: true,
+        classification: "malicious".into(),
+        source: "spamhaus".into(),
+        details: format!("listed in {}", lists.join(", ")),
+    })
+}
+
+/// ThreatFox abuse.ch IOC lookup — free, no key required, matches against
+/// the public C2 / malware-bridge feeds.
+async fn lookup_threatfox(ip: &str) -> Option<IpReputation> {
+    let iocs = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::enrichment::threatfox::lookup_ioc(ip, None),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if iocs.is_empty() {
+        return None;
+    }
+    let first = &iocs[0];
+    Some(IpReputation {
+        ip: ip.into(),
+        is_malicious: true,
+        classification: "malicious".into(),
+        source: "threatfox".into(),
+        details: format!(
+            "threat_type={} confidence={}",
+            first.threat_type,
+            first
+                .confidence_level
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "n/a".into())
+        ),
+    })
+}
+
+/// Read an `api_key` value from `skill_configs` for the given skill. Returns
+/// `None` when the skill isn't configured or the key is empty (the public
+/// Community endpoint will then be used). Trimmed for safety against
+/// trailing whitespace from copy-paste configuration.
+async fn load_skill_api_key(store: &dyn Database, skill_id: &str) -> Option<String> {
+    match store.get_setting(skill_id, "api_key").await.ok().flatten() {
+        Some(v) => v
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        None => None,
+    }
 }
 
 /// Pour les threat intel matches (URLs, hashes) — actuellement skip parce que
@@ -318,10 +534,34 @@ fn format_firewall_entry(e: &crate::agent::skills::firewall::FirewallLogEntry) -
 
 // ── Helpers de collecte (pure, testable) ───────────────────────────
 
+/// Liste les CVE uniques attestées par les findings du dossier.
+///
+/// Phase 9e — Quand au moins un `sigma_alert` est présent (= attaque
+/// observée), on exclut les findings dont le `skill_id` est listé dans
+/// `PREDICTIVE_SKILLS` (`software-vuln`, `wordpress-vuln`, ...). Ces
+/// findings sont des **CVE statiques** liées à la posture de l'asset, pas
+/// à l'attaque en cours. Les inclure dans `enrichment.cve_details`
+/// pollue la chronologie d'attaque et fait croire au RSSI que l'attaque
+/// exploite ces CVE, alors qu'un SSH brute force n'a rien à voir avec
+/// une CVE tcl-expect par exemple. La posture vulnérabilité reste
+/// disponible sur la page asset.
 fn collect_unique_cves(dossier: &IncidentDossier) -> Vec<String> {
+    use crate::agent::intelligence_engine::PREDICTIVE_SKILLS;
+
+    let sigma_driven = !dossier.sigma_alerts.is_empty();
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for f in &dossier.findings {
+        if sigma_driven {
+            let is_predictive = f
+                .skill_id
+                .as_deref()
+                .map(|s| PREDICTIVE_SKILLS.contains(&s))
+                .unwrap_or(false);
+            if is_predictive {
+                continue;
+            }
+        }
         if let Some(cve) = f.metadata.get("cve").and_then(|v| v.as_str()) {
             if seen.insert(cve.to_string()) {
                 out.push(cve.to_string());
@@ -432,6 +672,7 @@ mod tests {
             notification_level: NotificationLevel::Alert,
             connected_skills: vec![],
             graph_context: None,
+            investigation_log: Default::default(),
         }
     }
 
@@ -468,6 +709,29 @@ mod tests {
         let d = mk_dossier(vec![mk_finding_no_cve(1)], vec![]);
         let cves = collect_unique_cves(&d);
         assert!(cves.is_empty());
+    }
+
+    #[test]
+    fn collect_unique_cves_drops_predictive_when_sigma_driven() {
+        // Phase 9e — un incident sigma-driven (au moins 1 sigma_alert) ne doit
+        // pas remonter les CVE des findings prédictifs (software-vuln). Sans
+        // sigma_alert le filtrage ne s'applique pas (cas posture asset).
+        let predictive = mk_finding_with_cve(1, "CVE-2021-42237"); // software-vuln
+        let mut behavioural = mk_finding_with_cve(2, "CVE-2099-1234");
+        behavioural.skill_id = Some("ml-clustering".into()); // non-prédictif
+
+        // (1) Sans sigma_alert : tout est gardé (page asset).
+        let d_static = mk_dossier(vec![predictive.clone(), behavioural.clone()], vec![]);
+        let cves_static = collect_unique_cves(&d_static);
+        assert_eq!(cves_static.len(), 2);
+        assert!(cves_static.contains(&"CVE-2021-42237".to_string()));
+        assert!(cves_static.contains(&"CVE-2099-1234".to_string()));
+
+        // (2) Avec sigma_alert (incident d'attaque) : on drop le predictif.
+        let alert = mk_alert_with_ip(99, Some("62.210.201.235"));
+        let d_attack = mk_dossier(vec![predictive, behavioural], vec![alert]);
+        let cves_attack = collect_unique_cves(&d_attack);
+        assert_eq!(cves_attack, vec!["CVE-2099-1234"]);
     }
 
     #[test]

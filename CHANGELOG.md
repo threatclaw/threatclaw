@@ -6,6 +6,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.25-beta] — 2026-05-06
+
+### Added
+- Canonical schema for human-in-the-loop response actions exposed on incidents (`kind`, `cmd_id`, `description`, `params`, `rationale`, `requires_hitl`, `skill_id`, `origin`). The dashboard, the forensic analyst service and the playbook workers now share the same shape — incidents persisted by older code paths are coerced into the canonical shape on read.
+- Multi-action HITL panel: when an incident with an external source IP is confirmed, the operator now sees a panel of proposed actions adapted to the connected skills (firewall block, EDR isolation / process kill / artifact collection, IAM disable user / reset password / Kerberos rotation). When the relevant skill is not connected, the action is downgraded to a manual recommendation so the operator still has guidance instead of an empty list.
+- Per-action HITL approval: the operator can now approve or reject one specific action of the panel without committing the whole incident, while keeping the global "Approve all" shortcut.
+- Live IP reputation lookups: the incident dossier now actually queries the configured threat-intel sources at incident creation time (community community-tier services, with optional API keys read from skill configuration), with response time and result status logged.
+- Investigation timeline: every agent action on an incident — skill call, model call, playbook step, deterministic action derivation, incident open, remediation, operator note — is captured as an append-only audit trail. The dashboard renders it as a collapsible accordion below the attack timeline so the operator can audit what the agent actually did, when, and with what payload.
+- Asset hydration on the API edge: incident endpoints expose `asset_name`, `asset_hostname` and `asset_ips` alongside the canonical asset id so the dashboard can render "debian (10.77.0.136)" everywhere instead of the raw identifier.
+- Predictive vulnerability findings are now filtered out of an incident driven by a live detection rule. Static CVE inventories belong on the asset's posture page, not in the chronology of an SSH brute force. The vulnerability section on the incident page now reads "Vulnerabilities tied to this attack" and links to the asset page when no CVE is directly tied to the observed attack.
+
+### Changed
+- `docker-compose.yml` memory limits revised: core service raised to 2 GB (was 512 MB, hitting cgroup OOM under steady load) and database service raised to 1 GB. Core healthcheck loosened (interval 30s, timeout 15s, retries 20, start_period 120s) so the deeper analysis cycle does not race the liveness probe under CPU contention.
+- Daemon main loop now survives the closing of all conversational channels: background investigation tasks (intelligence engine, forensic analyst, detection engine, schedulers) keep running and the process waits for an explicit shutdown signal instead of exiting silently.
+- Incident dossier carries a buffer of pending investigation steps, drained into the timeline both at incident creation and on incident dedup so no skill call is lost.
+
+### Fixed
+- Triple-shape mismatch on `proposed_actions`: the dashboard, the forensic analyst writer and the playbook worker writer were producing three incompatible shapes, leaving the operator with an empty HITL section even when a real block-IP proposal had been persisted. All writers now emit the canonical bundle, and a forward-compatible parser coerces any legacy row on read.
+- Forensic analyst service now records a structured timeline entry on success, on validator rejection, and on timeout (with the deterministic block-IP fallback that was already shipping). The operator sees exactly which path the incident took.
+
 ## [1.0.24-beta] — 2026-05-05
 
 ### Added

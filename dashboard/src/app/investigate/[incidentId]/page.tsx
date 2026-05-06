@@ -12,13 +12,18 @@ import {
 } from "lucide-react";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 import AttackTimeline from "@/components/incidents/AttackTimeline";
+import InvestigationTimeline from "@/components/incidents/InvestigationTimeline";
+import type { InvestigationStep } from "@/components/incidents/InvestigationTimeline";
+import type { IncidentAction } from "@/types/incident_action";
+import { kindShortLabel } from "@/types/incident_action";
+import { displayAsset, displayAssetVerbose } from "@/types/asset_display";
 
 // ─────────────────────────── types ───────────────────────────
 
-interface IncidentAction {
-  kind: string;
-  description: string;
-}
+// Phase 9a — `IncidentAction` is now imported from the shared TS module
+// `@/types/incident_action`, which mirrors `src/agent/incident_action.rs`.
+// The wire shape on `incidents.proposed_actions` is the canonical
+// `{actions: IncidentAction[], iocs: string[]}` wrapper.
 
 interface EvidenceCitation {
   claim: string;
@@ -82,6 +87,12 @@ interface IncidentNote {
 interface Incident {
   id: number;
   asset: string;
+  // Phase 9f — backend hydrates these from the assets table so the UI never
+  // has to render the raw canonical id. Stay nullable: legacy incidents and
+  // assets removed from inventory will not have them.
+  asset_name?: string | null;
+  asset_hostname?: string | null;
+  asset_ips?: string[] | null;
   title: string;
   severity: string;
   status: string;
@@ -123,6 +134,8 @@ interface FullData {
   attack_paths: AttackPath[];
   choke_points: unknown[];
   attack_events: AttackEvent[];
+  /** Phase 9o — investigation timeline (skill calls, LLM, derive, …). */
+  investigation_steps?: InvestigationStep[];
 }
 
 interface RelatedIncident {
@@ -483,6 +496,31 @@ export default function InvestigatePage() {
     }
   };
 
+  // Phase 9i — granular HITL: approve/reject a single action by `cmd_id`.
+  // The backend marks only that action executed and keeps the incident open
+  // so the operator can decide on the remaining proposals.
+  const handleHitlAction = async (
+    response: "approve" | "reject",
+    cmdId: string,
+  ) => {
+    if (!inc) return;
+    setHitlExecuting(true);
+    try {
+      await fetch(`/api/tc/incidents/${incidentId}/hitl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response,
+          responded_by: "dashboard",
+          cmd_id: cmdId,
+        }),
+      });
+      await load();
+    } finally {
+      setHitlExecuting(false);
+    }
+  };
+
   const addNote = async (text: string) => {
     if (!text.trim()) return;
     setNotePosting(true);
@@ -562,7 +600,7 @@ export default function InvestigatePage() {
   const isKnownScanner = enrichData?.noise && enrichData?.classification === "benign";
 
   return (
-    <PageShell title={inc ? `#${inc.id} — ${inc.asset}` : "Investigation"}>
+    <PageShell title={inc ? `#${inc.id} — ${displayAsset(inc)}` : "Investigation"}>
       <style>{`
         .inv-wrap {
           max-width: 1280px;
@@ -1045,7 +1083,7 @@ export default function InvestigatePage() {
           {inc && (
             <>
               <span>/</span>
-              <span className="inv-crumb-ip">{inc.asset}</span>
+              <span className="inv-crumb-ip" title={displayAssetVerbose(inc)}>{displayAsset(inc)}</span>
             </>
           )}
         </div>
@@ -1130,7 +1168,7 @@ export default function InvestigatePage() {
                     fontSize: 10, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                     color: "var(--tc-text-muted)",
                   }}>
-                    #{inc.id} · {inc.asset} · {timeAgo(inc.created_at)}
+                    #{inc.id} · {displayAsset(inc)} · {timeAgo(inc.created_at)}
                   </span>
                 </div>
                 <h1 style={{ margin: "0 0 0 0", fontSize: 20, fontWeight: 600, color: "var(--tc-text)", lineHeight: 1.3 }}>
@@ -1141,7 +1179,7 @@ export default function InvestigatePage() {
                 <div className="inv-strip">
                   <div className="inv-strip-cell" style={{ paddingLeft: 0 }}>
                     <div className="inv-strip-label">Asset</div>
-                    <div className="inv-strip-val" style={{ color: "var(--tc-red)" }}>{inc.asset}</div>
+                    <div className="inv-strip-val" style={{ color: "var(--tc-red)" }} title={displayAssetVerbose(inc)}>{displayAsset(inc)}</div>
                   </div>
                   <div className="inv-strip-cell" style={{ paddingLeft: 12 }}>
                     <div className="inv-strip-label">MITRE</div>
@@ -1238,9 +1276,26 @@ export default function InvestigatePage() {
 
               {/* Phase 4 — chronologie d'attaque enrichie (firewall logs cross-correlation,
                   IP reputations, CVE details). Nourri par EnrichmentBundle persisté
-                  par l'IE au moment de la création de l'incident (V71 + dossier_enrichment). */}
+                  par l'IE au moment de la création de l'incident (V71 + dossier_enrichment).
+                  Phase 9h — passer l'asset id et le flag sigma-driven pour que la
+                  section CVE puisse afficher un message clair quand l'attaque n'est
+                  pas tied à un CVE (brute force, scan...) et linker vers la posture
+                  vuln complète sur la page asset. */}
               <section className="inv-sec">
-                <AttackTimeline enrichment={inc.enrichment} />
+                <AttackTimeline
+                  enrichment={inc.enrichment}
+                  assetId={inc.asset}
+                  sigmaDriven={
+                    data?.attack_events?.some((e) => e.kind === "alert") ?? false
+                  }
+                />
+              </section>
+
+              {/* Phase 9o — chronologie d'analyse pliable. Sous l'AttackTimeline
+                  pour rester secondaire à la chronologie d'attaque (qui est ce
+                  que le RSSI veut voir d'abord). Collapsed par défaut. */}
+              <section className="inv-sec">
+                <InvestigationTimeline steps={data?.investigation_steps} />
               </section>
 
               {/* Forensic L2 enrichment section */}
@@ -1616,31 +1671,119 @@ export default function InvestigatePage() {
                           Aucune action proposee pour cette attaque.
                         </div>
                       ) : (
-                        hitlActions.map((act, i) => (
-                          <div key={i} style={{
-                            padding: "8px 10px",
-                            background: "var(--tc-surface-alt)",
-                            border: "1px solid var(--tc-border)",
-                          }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                              <span style={{
-                                fontSize: 9, fontWeight: 700, padding: "1px 5px",
-                                fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                                background: "rgba(255,96,48,0.1)", color: "#ff6030",
-                                border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
-                              }}>{act.kind}</span>
+                        hitlActions.map((act, i) => {
+                          // Phase 9c — `act` is the canonical IncidentAction with
+                          // kind / cmd_id / description / params / rationale /
+                          // skill_id / origin. Older incidents persisted before
+                          // Phase 9 may be missing some fields; we render what
+                          // we have rather than crash.
+                          const params = act.params ?? {};
+                          const paramEntries = Object.entries(params);
+                          return (
+                            <div key={i} style={{
+                              padding: "8px 10px",
+                              background: "var(--tc-surface-alt)",
+                              border: "1px solid var(--tc-border)",
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
+                                <span style={{
+                                  fontSize: 9, fontWeight: 700, padding: "1px 5px",
+                                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                  background: "rgba(255,96,48,0.1)", color: "#ff6030",
+                                  border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
+                                }}>{kindShortLabel(act.kind)}</span>
+                                {act.skill_id && (
+                                  <span style={{
+                                    fontSize: 9, padding: "1px 5px",
+                                    fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                    background: "var(--tc-surface)", color: "var(--tc-text-muted)",
+                                    border: "1px solid var(--tc-border)",
+                                  }}>{act.skill_id}</span>
+                                )}
+                                {act.cmd_id && (
+                                  <span style={{
+                                    fontSize: 9, color: "var(--tc-text-muted)",
+                                    fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                    marginLeft: "auto",
+                                  }}>{act.cmd_id}</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--tc-text-sec)", lineHeight: 1.4, marginBottom: 6 }}>
+                                {act.description || act.cmd_id || "—"}
+                              </div>
+                              {paramEntries.length > 0 && (
+                                <div style={{
+                                  fontSize: 10, color: "var(--tc-text-muted)",
+                                  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                  marginBottom: 4, lineHeight: 1.5,
+                                }}>
+                                  {paramEntries.map(([k, v]) => (
+                                    <span key={k} style={{ marginRight: 10 }}>
+                                      <span style={{ color: "var(--tc-text-muted)" }}>{k}=</span>
+                                      <span style={{ color: "var(--tc-text-sec)" }}>{String(v)}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {act.rationale && (
+                                <div style={{
+                                  fontSize: 10, color: "var(--tc-text-muted)",
+                                  fontStyle: "italic", lineHeight: 1.4,
+                                }}>
+                                  {act.rationale}
+                                </div>
+                              )}
+                              {/* Phase 9i — granular per-action HITL buttons.
+                                  Skipped on `manual` actions (nothing to execute)
+                                  and on already-acted incidents. */}
+                              {!alreadyActed && act.kind !== "manual" && act.cmd_id && (
+                                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                                  <button
+                                    onClick={() => handleHitlAction("approve", act.cmd_id!)}
+                                    disabled={hitlExecuting}
+                                    style={{
+                                      padding: "5px 10px", fontSize: 10, fontWeight: 700,
+                                      fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                      textTransform: "uppercase", letterSpacing: "0.05em",
+                                      cursor: hitlExecuting ? "default" : "pointer",
+                                      background: "rgba(208,48,32,0.15)", color: "#d03020",
+                                      border: "1px solid rgba(208,48,32,0.4)",
+                                      display: "inline-flex", alignItems: "center", gap: 4,
+                                    }}
+                                  >
+                                    <Zap size={9} />
+                                    Approuver cette action
+                                  </button>
+                                  <button
+                                    onClick={() => handleHitlAction("reject", act.cmd_id!)}
+                                    disabled={hitlExecuting}
+                                    style={{
+                                      padding: "5px 10px", fontSize: 10,
+                                      fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                                      textTransform: "uppercase", letterSpacing: "0.05em",
+                                      cursor: hitlExecuting ? "default" : "pointer",
+                                      background: "var(--tc-surface)", color: "var(--tc-text-muted)",
+                                      border: "1px solid var(--tc-border)",
+                                      display: "inline-flex", alignItems: "center", gap: 4,
+                                    }}
+                                  >
+                                    Rejeter
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                            <div style={{ fontSize: 11, color: "var(--tc-text-sec)", lineHeight: 1.4, marginBottom: 6 }}>
-                              {act.description}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                       {hitlActions.length > 0 && !alreadyActed && (
-                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                        <div style={{
+                          display: "flex", gap: 6, marginTop: 4,
+                          paddingTop: 8, borderTop: "1px dashed var(--tc-border)",
+                        }}>
                           <button
                             onClick={() => handleHitl("approve")}
                             disabled={hitlExecuting}
+                            title="Approuver toutes les actions du panel"
                             style={{
                               flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 700,
                               fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
@@ -1651,7 +1794,7 @@ export default function InvestigatePage() {
                             }}
                           >
                             {hitlExecuting ? <RefreshCw size={10} className="inv-spin" /> : <Zap size={10} />}
-                            Approuver
+                            Tout approuver
                           </button>
                           <button
                             onClick={() => handleHitl("reject")}

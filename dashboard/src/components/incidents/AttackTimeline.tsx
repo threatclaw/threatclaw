@@ -53,6 +53,21 @@ export interface EnrichmentBundle {
 
 interface Props {
   enrichment: EnrichmentBundle | null | undefined;
+  /**
+   * Phase 9h — when set, the CVE block links to the asset's posture page
+   * for the complete vulnerability inventory. Without it, the section
+   * still renders but has no way to redirect the operator to the static
+   * exposure view.
+   */
+  assetId?: string;
+  /**
+   * Phase 9h — `true` when the incident is driven by at least one
+   * sigma alert (live attack signal). Used to render the "no CVE
+   * directly tied to this attack" notice instead of an empty section,
+   * since Phase 9e filters predictive software-vuln findings out of
+   * `enrichment.cve_details` for sigma-driven incidents.
+   */
+  sigmaDriven?: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -96,7 +111,11 @@ function epssBadge(epss: number | null): React.ReactElement | null {
 
 // ── Composant ─────────────────────────────────────────────────────
 
-export function AttackTimeline({ enrichment }: Props): React.ReactElement | null {
+export function AttackTimeline({
+  enrichment,
+  assetId,
+  sigmaDriven,
+}: Props): React.ReactElement | null {
   if (!enrichment) return null;
 
   const ipReps = enrichment.ip_reputations ?? [];
@@ -104,9 +123,14 @@ export function AttackTimeline({ enrichment }: Props): React.ReactElement | null
   const threatIntel = enrichment.threat_intel ?? [];
   const lines = enrichment.enrichment_lines ?? [];
 
+  // Phase 9h — render the attack-vs-posture notice on a sigma-driven
+  // incident even when every other section is empty, so the operator
+  // never sees a silent "no CVE here" without context.
+  const showCveSection = cves.length > 0 || sigmaDriven === true;
+
   if (
     ipReps.length === 0 &&
-    cves.length === 0 &&
+    !showCveSection &&
     threatIntel.length === 0 &&
     lines.length === 0
   ) {
@@ -151,41 +175,67 @@ export function AttackTimeline({ enrichment }: Props): React.ReactElement | null
         </div>
       )}
 
-      {cves.length > 0 && (
+      {showCveSection && (
         <div className="space-y-2">
           <h4 className="text-[12px] uppercase tracking-wider text-slate-400">
-            Vulnérabilités exploitées ou exploitables
+            {/* Phase 9h — title clarified to make the scope explicit. The
+                full asset posture lives on /assets/<id> ; this block only
+                lists CVEs directly tied to the observed attack. */}
+            Vulnérabilités liées à cette attaque
           </h4>
-          <ul className="space-y-1.5">
-            {cves.map((cve, i) => (
-              <li
-                key={`${cve.cve_id}-${i}`}
-                className="flex flex-wrap items-center gap-2 px-3 py-2 rounded border border-slate-700 bg-slate-900/40 text-sm"
+          {cves.length > 0 ? (
+            <ul className="space-y-1.5">
+              {cves.map((cve, i) => (
+                <li
+                  key={`${cve.cve_id}-${i}`}
+                  className="flex flex-wrap items-center gap-2 px-3 py-2 rounded border border-slate-700 bg-slate-900/40 text-sm"
+                >
+                  <span className="font-mono text-slate-200">{cve.cve_id}</span>
+                  {cve.cvss_score !== null && (
+                    <span
+                      className={`px-2 py-0.5 text-[11px] rounded ${cveSeverityColor(
+                        cve.cvss_score,
+                      )}`}
+                    >
+                      CVSS {cve.cvss_score.toFixed(1)}
+                    </span>
+                  )}
+                  {epssBadge(cve.epss_score)}
+                  {cve.is_kev && (
+                    <span className="px-2 py-0.5 text-[11px] rounded bg-red-900/60 text-red-200">
+                      CISA KEV
+                    </span>
+                  )}
+                  {cve.description && (
+                    <span className="text-[12px] text-slate-400 ml-1">
+                      {cve.description}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            // Phase 9h — sigma-driven incident with no CVE pinned to the
+            // attack. Make it explicit so the operator doesn't think we
+            // missed something. The asset's full vuln posture is one click
+            // away on the asset page.
+            <p className="text-[12px] text-slate-400 italic px-3 py-2 rounded border border-slate-700 bg-slate-900/30">
+              Aucune CVE directement liée à cette attaque (typique pour un
+              brute force d&apos;authentification ou un scan). La posture
+              vulnérabilité complète de l&apos;asset reste consultable sur
+              sa page dédiée.
+            </p>
+          )}
+          {assetId && (
+            <div className="text-[11px] text-slate-500">
+              <a
+                href={`/assets/${encodeURIComponent(assetId)}`}
+                className="text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
               >
-                <span className="font-mono text-slate-200">{cve.cve_id}</span>
-                {cve.cvss_score !== null && (
-                  <span
-                    className={`px-2 py-0.5 text-[11px] rounded ${cveSeverityColor(
-                      cve.cvss_score,
-                    )}`}
-                  >
-                    CVSS {cve.cvss_score.toFixed(1)}
-                  </span>
-                )}
-                {epssBadge(cve.epss_score)}
-                {cve.is_kev && (
-                  <span className="px-2 py-0.5 text-[11px] rounded bg-red-900/60 text-red-200">
-                    CISA KEV
-                  </span>
-                )}
-                {cve.description && (
-                  <span className="text-[12px] text-slate-400 ml-1">
-                    {cve.description}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+                Voir la posture vulnérabilité de l&apos;asset →
+              </a>
+            </div>
+          )}
         </div>
       )}
 

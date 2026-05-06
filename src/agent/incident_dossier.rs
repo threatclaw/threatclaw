@@ -159,6 +159,13 @@ pub struct IncidentDossier {
     /// consumed by the reconciler to downgrade an unsupported verdict.
     #[serde(default)]
     pub graph_context: Option<GraphAssetContext>,
+    /// Phase 9o — pre-incident investigation steps buffered while the
+    /// dossier is built (skill calls, enrichments). Drained by the IE
+    /// right after `create_incident` to push them into the timeline of
+    /// the freshly-created incident. Not serialized to the LLM prompt
+    /// — pure infrastructure log.
+    #[serde(default, skip_serializing)]
+    pub investigation_log: crate::agent::investigation_log::InvestigationLogBuffer,
 }
 
 /// Pre-resolved graph context for the primary asset. Fed into the L1/L2

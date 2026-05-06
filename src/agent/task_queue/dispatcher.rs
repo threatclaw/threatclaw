@@ -452,6 +452,7 @@ mod tests {
             notification_level: NotificationLevel::Silence,
             connected_skills: vec![],
             graph_context: None,
+            investigation_log: Default::default(),
         };
 
         let rule = pick_dominant_sigma_rule(&dossier);
@@ -506,6 +507,7 @@ mod tests {
             notification_level: NotificationLevel::Silence,
             connected_skills: vec![],
             graph_context: None,
+            investigation_log: Default::default(),
         };
 
         assert!(compute_is_service_acct(&make("DOMAIN$")));

@@ -15,9 +15,11 @@ use std::time::Duration;
 use serde_json::Value;
 use tracing::{debug, info, warn};
 
+use crate::agent::incident_action::{IncidentAction, ProposedActionsBundle};
 use crate::agent::llm_router::LlmRouterConfig;
 use crate::agent::llm_schemas::forensic_schema;
 use crate::agent::react_runner::call_ollama_with_schema;
+use crate::agent::skills::registry::SkillRegistry;
 use crate::db::Database;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(180);
@@ -133,12 +135,18 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
         mitre_existing: mitre_existing.clone(),
     };
 
+    // Phase 9b — registry des skills connectés. Un seul probe DB par
+    // incident, utilisé par `derive_response_actions` pour adapter le
+    // panel d'actions au stack effectivement câblé chez le client.
+    let registry = SkillRegistry::from_db(db.as_ref()).await;
+
     let prompt = build_forensic_prompt(&context);
 
     // Phase 7f — timeout 1200s → 300s. Au-delà de 5 min, le L2 a soit crashé
     // soit le hardware sature ; pas la peine d'attendre 20 min pour stamper.
     // Le derive_block_actions déterministe garantit une proposition HITL
     // même si le L2 timeout.
+    let llm_start = std::time::Instant::now();
     let result = tokio::time::timeout(
         Duration::from_secs(300),
         call_ollama_with_schema(
@@ -155,15 +163,30 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
             warn!(
                 "Forensic enricher: timeout on incident #{id} (300s) — stamping as enriched, deriving fallback actions"
             );
+            // Phase 9o — log le timeout L2 dans la timeline d'investigation.
+            crate::agent::investigation_log::StepBuilder::new(
+                crate::db::threatclaw_store::StepKind::LlmCall,
+                "L2 forensic Foundation-Sec — timeout 300s",
+            )
+            .duration_from(llm_start)
+            .status(crate::db::threatclaw_store::StepStatus::Timeout)
+            .payload(serde_json::json!({
+                "model": llm_config.forensic.model,
+                "prompt_len": prompt.len(),
+            }))
+            .record(db.as_ref(), id)
+            .await;
             db.mark_forensic_enriched(id, None, None, None)
                 .await
                 .map_err(|e| format!("DB stamp failed: {e}"))?;
 
-            // Phase 7f — fallback Phase 7b déterministe en cas de timeout L2.
-            // Sans ça, l'incident reste sans action proposée alors qu'on a
-            // une IP source externe attestée. Le RSSI valide via HITL avant
-            // exécution donc aucun risque.
-            let derived = derive_block_actions(&context);
+            // Phase 7f / 9b — fallback déterministe en cas de timeout L2.
+            // Sans ça, l'incident reste sans action proposée. Phase 9b
+            // élargit du single block_ip à un panel multi-skill (block_ip,
+            // isolate_host, disable_user...) selon le type d'attaque
+            // classifié et les skills connectés. Le RSSI valide via HITL
+            // avant exécution.
+            let derived = derive_response_actions(&context, &registry);
             // Diagnostic : confirme que le contexte sigma_alerts a bien été
             // hydraté avant le call L2 — si vide ici, c'est qu'on a perdu
             // l'enrichment dans le pipe (DB error sur get_sigma_alerts_by_ids).
@@ -180,22 +203,52 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                 derived.len()
             );
             if !derived.is_empty() {
-                let pa = serde_json::json!({
-                    "actions": derived,
-                    "iocs": []
-                });
-                if let Err(e) = db.set_incident_proposed_actions(id, &pa).await {
+                let action_count = derived.len();
+                let bundle = ProposedActionsBundle::new(derived.clone());
+                if let Err(e) = db
+                    .set_incident_proposed_actions(id, &bundle.to_value())
+                    .await
+                {
                     warn!("Forensic enricher: timeout fallback persist for #{id} failed: {e}");
                 } else {
                     info!(
-                        "Forensic enricher: incident #{id} timeout — derived {} block_ip persisted (HITL)",
-                        derived.len()
+                        "Forensic enricher: incident #{id} timeout — derived {action_count} block_ip persisted (HITL)"
                     );
                 }
+                // Phase 9o — log le derive fallback dans la timeline.
+                crate::agent::investigation_log::StepBuilder::new(
+                    crate::db::threatclaw_store::StepKind::DeriveActions,
+                    format!(
+                        "Fallback déterministe (L2 timeout) — {action_count} action(s) HITL proposée(s)"
+                    ),
+                )
+                .status(crate::db::threatclaw_store::StepStatus::Fallback)
+                .payload(serde_json::json!({
+                    "actions": derived
+                        .iter()
+                        .map(|a| serde_json::json!({
+                            "kind": a.kind,
+                            "cmd_id": a.cmd_id,
+                            "skill_id": a.skill_id,
+                        }))
+                        .collect::<Vec<_>>(),
+                }))
+                .record(db.as_ref(), id)
+                .await;
             }
         }
         Ok(Err(e)) => {
             warn!("Forensic enricher: LLM error on incident #{id}: {e}");
+            // Phase 9o — log l'erreur LLM (transient) dans la timeline.
+            crate::agent::investigation_log::StepBuilder::new(
+                crate::db::threatclaw_store::StepKind::LlmCall,
+                format!("L2 forensic — erreur LLM transient ({e})"),
+            )
+            .duration_from(llm_start)
+            .status(crate::db::threatclaw_store::StepStatus::Error)
+            .payload(serde_json::json!({"error": e}))
+            .record(db.as_ref(), id)
+            .await;
             // Do not stamp — will retry next pass (transient error)
         }
         Ok(Ok(raw)) => {
@@ -224,12 +277,46 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                     // summary auto-généré déterministe — pas de hallucination en DB.
                     let validation = validate_l2_response(&parsed, &context);
                     let (final_summary, final_mitre, final_citations) = if validation.is_valid() {
+                        // Phase 9o — log un succès LLM L2.
+                        crate::agent::investigation_log::StepBuilder::new(
+                            crate::db::threatclaw_store::StepKind::LlmCall,
+                            format!(
+                                "L2 forensic — narrative {} chars · {} MITRE technique(s) · validation OK",
+                                summary.len(),
+                                mitre.len()
+                            ),
+                        )
+                        .duration_from(llm_start)
+                        .payload(serde_json::json!({
+                            "model": llm_config.forensic.model,
+                            "prompt_len": prompt.len(),
+                            "summary_len": summary.len(),
+                            "mitre_techniques": mitre,
+                        }))
+                        .record(db.as_ref(), id)
+                        .await;
                         (summary, mitre, evidence_citations)
                     } else {
                         warn!(
                             "Forensic enricher: incident #{id} — L2 response REJECTED ({}) — falling back to deterministic summary",
                             validation.violations.join("; ")
                         );
+                        // Phase 9o — log la réponse rejetée par le reconciler.
+                        crate::agent::investigation_log::StepBuilder::new(
+                            crate::db::threatclaw_store::StepKind::LlmCall,
+                            format!(
+                                "L2 forensic — réponse rejetée par le reconciler ({} violation(s)) — fallback déterministe",
+                                validation.violations.len()
+                            ),
+                        )
+                        .duration_from(llm_start)
+                        .status(crate::db::threatclaw_store::StepStatus::Fallback)
+                        .payload(serde_json::json!({
+                            "violations": validation.violations,
+                            "rejected_summary_preview": summary.chars().take(200).collect::<String>(),
+                        }))
+                        .record(db.as_ref(), id)
+                        .await;
                         (
                             build_fallback_summary(&context, &validation.violations),
                             ctx_mitre_only(&context),
@@ -257,43 +344,70 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                     // IP unique. Le RSSI valide ou refuse via HITL — pas
                     // d'execution auto.
                     if validation.is_valid() {
-                        let l2_actions: Vec<Value> = parsed["proposed_actions"]
-                            .as_array()
-                            .cloned()
-                            .unwrap_or_default();
+                        // Phase 9c — normaliser ce que le L2 a renvoyé vers le
+                        // schéma canonique via le parser rétrocompat. Le L2 peut
+                        // sortir un array plat `[{cmd_id, ...}]` ou un wrapper
+                        // `{actions: [...], iocs: [...]}` ; les deux atterrissent
+                        // ici sur `ProposedActionsBundle`.
+                        let l2_bundle =
+                            crate::agent::incident_action::parse_proposed_actions_legacy(
+                                &parsed["proposed_actions"],
+                            );
 
                         info!(
                             "Forensic enricher: incident #{id} — Phase 7b gate: L2 returned {} action(s), context has {} sigma_alerts",
-                            l2_actions.len(),
+                            l2_bundle.actions.len(),
                             context.sigma_alerts.len()
                         );
 
-                        let final_actions = if l2_actions.is_empty() {
-                            let derived = derive_block_actions(&context);
+                        let final_bundle = if l2_bundle.actions.is_empty() {
+                            // Le L2 n'a rien proposé : on dérive déterministe via
+                            // les builders canoniques + Phase 9b multi-skill.
+                            let derived = derive_response_actions(&context, &registry);
                             info!(
-                                "Forensic enricher: incident #{id} — derive_block_actions returned {} action(s)",
+                                "Forensic enricher: incident #{id} — derive_response_actions returned {} action(s)",
                                 derived.len()
                             );
-                            derived
+                            ProposedActionsBundle::new(derived)
                         } else {
-                            l2_actions
+                            // L2 OK + non-vide : on garde son output (déjà
+                            // normalisé canonique par `parse_legacy`).
+                            l2_bundle
                         };
 
-                        if !final_actions.is_empty() {
-                            let pa = serde_json::json!({
-                                "actions": final_actions,
-                                "iocs": []
-                            });
-                            if let Err(e) = db.set_incident_proposed_actions(id, &pa).await {
+                        if !final_bundle.actions.is_empty() {
+                            let n = final_bundle.actions.len();
+                            if let Err(e) = db
+                                .set_incident_proposed_actions(id, &final_bundle.to_value())
+                                .await
+                            {
                                 warn!(
                                     "Forensic enricher: persist proposed_actions for #{id} failed: {e}"
                                 );
                             } else {
                                 info!(
-                                    "Forensic enricher: incident #{id} — {} proposed_actions persisted",
-                                    final_actions.len()
+                                    "Forensic enricher: incident #{id} — {n} proposed_actions persisted"
                                 );
                             }
+                            // Phase 9o — log le panel d'actions HITL produit.
+                            crate::agent::investigation_log::StepBuilder::new(
+                                crate::db::threatclaw_store::StepKind::DeriveActions,
+                                format!("Panel HITL — {n} action(s) proposée(s)"),
+                            )
+                            .payload(serde_json::json!({
+                                "actions": final_bundle
+                                    .actions
+                                    .iter()
+                                    .map(|a| serde_json::json!({
+                                        "kind": a.kind,
+                                        "cmd_id": a.cmd_id,
+                                        "skill_id": a.skill_id,
+                                        "description": a.description,
+                                    }))
+                                    .collect::<Vec<_>>(),
+                            }))
+                            .record(db.as_ref(), id)
+                            .await;
                         } else {
                             info!(
                                 "Forensic enricher: incident #{id} — no actions to persist (L2 empty AND no external IP)"
@@ -563,51 +677,325 @@ fn is_private_ipv4(s: &str) -> bool {
     )
 }
 
-/// Phase 7b — Dérive déterministe d'actions de blocage à partir des IPs
-/// sources externes attestées par les sigma_alerts du dossier.
+/// Type d'attaque détecté à partir des sigma_alerts du dossier. Drive le
+/// panel d'actions HITL proposé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttackKind {
+    /// Brute force d'authentification (SSH, RDP, web login, fortinet auth
+    /// failed). L'attaquant teste des mots de passe — block IP + isolate
+    /// + disable user pertinents.
+    AuthBruteForce,
+    /// Alerte IDS/IPS générique sur trafic externe → asset interne (scan,
+    /// exploit attempt). Suppose que Phase 8b a déjà filtré les FP update.
+    IdsAlert,
+    /// Crypto-mining détecté (process pkr, outbound vers pool). Killer le
+    /// process est l'action prioritaire.
+    Cryptomining,
+    /// Mouvement latéral / abus AD (golden ticket, dcsync, escalade
+    /// privilèges). Reset krbtgt + isolation prioritaires.
+    LateralMovement,
+    /// Trafic outbound suspect (Phase 7c — Windows Update etc.) — analyse
+    /// manuelle recommandée plutôt que blocage automatique pour éviter de
+    /// casser des updates légitimes.
+    SuspiciousOutbound,
+    /// Pattern non classifié — au mieux on propose un block_ip si IP
+    /// externe attestée.
+    Generic,
+}
+
+/// Classifie un dossier d'incident selon ses sigma_alerts. Le premier
+/// pattern reconnu gagne — l'ordre des matches est conçu pour être
+/// déterministe : les attaques actives (cryptomining, golden ticket)
+/// dominent sur les patterns plus génériques (auth, IDS).
+fn classify_attack(sigma_alerts: &[Value]) -> AttackKind {
+    let rule_ids: Vec<&str> = sigma_alerts
+        .iter()
+        .filter_map(|a| a["rule_id"].as_str())
+        .collect();
+    let titles_lower: Vec<String> = sigma_alerts
+        .iter()
+        .filter_map(|a| a["title"].as_str())
+        .map(|s| s.to_lowercase())
+        .collect();
+
+    let any_rule = |needles: &[&str]| -> bool {
+        rule_ids
+            .iter()
+            .any(|r| needles.iter().any(|n| r.contains(n)))
+    };
+    let any_title = |needles: &[&str]| -> bool {
+        titles_lower
+            .iter()
+            .any(|t| needles.iter().any(|n| t.contains(n)))
+    };
+
+    // Patterns spécifiques d'abord (haute confiance)
+    if any_rule(&["cryptomining"]) || any_title(&["cryptomining", "miner", "monero"]) {
+        return AttackKind::Cryptomining;
+    }
+    if any_rule(&["golden-ticket", "dcsync"]) || any_title(&["golden ticket", "dcsync"]) {
+        return AttackKind::LateralMovement;
+    }
+    if any_title(&[
+        "trafic sortant suspect",
+        "suspicious outbound",
+        "outbound suspect",
+    ]) {
+        return AttackKind::SuspiciousOutbound;
+    }
+    if any_rule(&[
+        "ssh-brute",
+        "rdp-brute",
+        "tc-ssh-brute",
+        "opnsense-001",
+        "fortinet-auth-failed",
+    ]) || any_title(&["brute force", "auth failed", "failed login"])
+    {
+        return AttackKind::AuthBruteForce;
+    }
+    if any_rule(&["opnsense-004", "ids-alert"])
+        || any_title(&["ids alert", "ips alert", "suricata", "snort"])
+    {
+        return AttackKind::IdsAlert;
+    }
+    AttackKind::Generic
+}
+
+/// Phase 9b — Dérive déterministe du panel d'actions HITL à partir du
+/// dossier + des skills connectés. Remplace `derive_block_actions`
+/// (Phase 7b, single-action `opnsense_block_ip`) par un panel adapté au
+/// type d'attaque détecté ET aux capacités effectivement câblées chez le
+/// client.
 ///
-/// Quand le L2 ignore l'instruction `proposed_actions`, on construit nous-mêmes
-/// une action `opnsense_block_ip` par IP externe unique. Le résultat est un
-/// `Vec<Value>` au même format que ce que renvoie le L2, donc directement
-/// persistable. Le RSSI valide via HITL avant exécution.
-fn derive_block_actions(ctx: &ForensicContext) -> Vec<Value> {
+/// Doctrine :
+///   * Toujours `block_ip` quand IP externe attestée + firewall connecté.
+///   * `isolate_host` quand EDR connecté ET attaque suggère compromission
+///     (brute force OU exploit OU lateral OU mining).
+///   * `disable_user` quand IAM connecté ET un username est attesté dans
+///     les sigma_alerts.
+///   * `kill_process` pour mining (PID requis dans le sigma).
+///   * `reset_krbtgt` pour golden ticket attesté.
+///   * `collect_artifacts` pour incidents forensiques (lateral, exploit,
+///     mining) quand EDR connecté.
+///
+/// Quand un skill **n'est pas connecté**, on génère une `IncidentAction`
+/// `Manual` avec une description recommandant l'opération hors-bande
+/// plutôt que rien — l'opérateur garde la guidance.
+///
+/// Les call sites wrap le `Vec<IncidentAction>` dans
+/// `ProposedActionsBundle` avant persist. Aucune action n'est exécutée
+/// automatiquement : tout passe par HITL.
+fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> Vec<IncidentAction> {
     let mut external_ips: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut usernames: std::collections::HashSet<String> = std::collections::HashSet::new();
     for a in &ctx.sigma_alerts {
         if let Some(ip) = a["source_ip"].as_str() {
-            // Strip CIDR mask (62.210.201.235/32 → 62.210.201.235)
             let stripped = ip.split('/').next().unwrap_or(ip);
             if !stripped.is_empty() && !is_private_ipv4(stripped) {
                 external_ips.insert(stripped.to_string());
             }
         }
+        if let Some(user) = a["username"].as_str() {
+            let trimmed = user.trim();
+            if !trimmed.is_empty() {
+                usernames.insert(trimmed.to_string());
+            }
+        }
     }
 
-    let mut actions: Vec<Value> = Vec::with_capacity(external_ips.len());
-    for ip in external_ips {
-        let alert_ids: Vec<i64> = ctx
-            .sigma_alerts
-            .iter()
-            .filter(|a| {
-                a["source_ip"]
-                    .as_str()
-                    .and_then(|s| s.split('/').next())
-                    .map(|s| s == ip)
-                    .unwrap_or(false)
-            })
-            .filter_map(|a| a["id"].as_i64())
-            .collect();
-        actions.push(serde_json::json!({
-            "cmd_id": "opnsense_block_ip",
-            "params": { "ip": ip },
-            "rationale": format!(
+    let kind = classify_attack(&ctx.sigma_alerts);
+    let mut actions: Vec<IncidentAction> = Vec::new();
+
+    // Helper : pick le firewall skill préféré (1er enregistré, OPNsense
+    // en fallback pour le stack bundlé même si le registry est vide —
+    // l'exécution râlera mais le RSSI aura la guidance).
+    let firewall_skill: &str = registry
+        .firewall_skill_ids()
+        .first()
+        .copied()
+        .unwrap_or("skill-opnsense");
+    let edr_skill: Option<&str> = registry.edr_skill_ids().first().copied();
+    let iam_skill: Option<String> = registry.iam_skill_ids.first().cloned();
+
+    // ── (1) Block IP — toujours pertinent pour AuthBruteForce / IdsAlert
+    //        / Cryptomining / Generic avec IP externe.
+    let propose_block_ip = matches!(
+        kind,
+        AttackKind::AuthBruteForce
+            | AttackKind::IdsAlert
+            | AttackKind::Cryptomining
+            | AttackKind::Generic
+    );
+    if propose_block_ip {
+        for ip in &external_ips {
+            let alert_ids: Vec<i64> = ctx
+                .sigma_alerts
+                .iter()
+                .filter(|a| {
+                    a["source_ip"]
+                        .as_str()
+                        .and_then(|s| s.split('/').next())
+                        .map(|s| s == ip.as_str())
+                        .unwrap_or(false)
+                })
+                .filter_map(|a| a["id"].as_i64())
+                .collect();
+            let rationale = format!(
                 "IP externe attestée par {} sigma alert(s) (ids={:?}) sur l'asset {} — proposition de blocage HITL",
                 alert_ids.len(),
                 alert_ids,
                 ctx.asset
-            ),
-            "derived_by": "forensic_enricher_phase7b"
-        }));
+            );
+            if registry.has_firewall() {
+                actions.push(IncidentAction::block_ip(ip, firewall_skill, rationale));
+            } else {
+                actions.push(IncidentAction::manual(
+                    format!("Bloquer manuellement l'IP {ip} au pare-feu (aucun firewall ThreatClaw connecté)"),
+                    rationale,
+                ));
+            }
+        }
     }
+
+    // ── (2) Isolate host — compromission suspectée pour AuthBruteForce
+    //        confirmé, IdsAlert critique, Cryptomining, LateralMovement.
+    let propose_isolate = matches!(
+        kind,
+        AttackKind::AuthBruteForce
+            | AttackKind::IdsAlert
+            | AttackKind::Cryptomining
+            | AttackKind::LateralMovement
+    );
+    if propose_isolate {
+        let alert_ids: Vec<i64> = ctx
+            .sigma_alerts
+            .iter()
+            .filter_map(|a| a["id"].as_i64())
+            .collect();
+        let rationale = format!(
+            "Compromission suspectée — {} alert(s) ({:?}) — isolation EDR du host {}",
+            alert_ids.len(),
+            alert_ids,
+            ctx.asset
+        );
+        match edr_skill {
+            Some(skill) => actions.push(IncidentAction::isolate_host(&ctx.asset, skill, rationale)),
+            None => actions.push(IncidentAction::manual(
+                format!(
+                    "Isoler manuellement {} au niveau EDR (aucun EDR ThreatClaw connecté)",
+                    ctx.asset
+                ),
+                rationale,
+            )),
+        }
+    }
+
+    // ── (3) Disable user — quand un username est attesté ET attaque
+    //        d'authentification ou lateral movement.
+    let propose_disable_user = matches!(
+        kind,
+        AttackKind::AuthBruteForce | AttackKind::LateralMovement
+    );
+    if propose_disable_user {
+        for user in &usernames {
+            let rationale = format!(
+                "Compte ciblé par tentatives d'authentification — désactivation HITL recommandée pour {user}"
+            );
+            match iam_skill.as_deref() {
+                Some(skill) => actions.push(IncidentAction::disable_user(user, skill, rationale)),
+                None => actions.push(IncidentAction::manual(
+                    format!("Désactiver manuellement le compte {user} dans l'annuaire (aucun IAM ThreatClaw connecté)"),
+                    rationale,
+                )),
+            }
+        }
+    }
+
+    // ── (4) Kill process — Cryptomining quand PID attesté.
+    if matches!(kind, AttackKind::Cryptomining) {
+        let pids: Vec<u32> = ctx
+            .sigma_alerts
+            .iter()
+            .filter_map(|a| a["matched_fields"]["pid"].as_u64().map(|p| p as u32))
+            .collect();
+        for pid in pids {
+            let rationale = format!("PID {pid} attesté par les sigma alerts cryptomining");
+            match edr_skill {
+                Some(skill) => actions.push(IncidentAction::kill_process(
+                    &ctx.asset, pid, skill, rationale,
+                )),
+                None => actions.push(IncidentAction::manual(
+                    format!(
+                        "Tuer manuellement le PID {pid} sur {} (aucun EDR connecté)",
+                        ctx.asset
+                    ),
+                    rationale,
+                )),
+            }
+        }
+    }
+
+    // ── (5) Reset krbtgt — golden ticket confirmé.
+    if matches!(kind, AttackKind::LateralMovement)
+        && ctx.sigma_alerts.iter().any(|a| {
+            a["rule_id"]
+                .as_str()
+                .map(|r| r.contains("golden-ticket"))
+                .unwrap_or(false)
+        })
+    {
+        let rationale = "Golden ticket attesté — rotation immédiate du krbtgt (impact: tous les TGT existants invalidés)".to_string();
+        match iam_skill.as_deref() {
+            Some(skill) if skill == "skill-active-directory" => {
+                actions.push(IncidentAction::reset_krbtgt(skill, rationale))
+            }
+            _ => actions.push(IncidentAction::manual(
+                "Faire tourner manuellement le krbtgt AD deux fois (aucun connecteur AD)"
+                    .to_string(),
+                rationale,
+            )),
+        }
+    }
+
+    // ── (6) Collect artifacts — Lateral / Cryptomining / IdsAlert critique.
+    if matches!(
+        kind,
+        AttackKind::LateralMovement | AttackKind::Cryptomining | AttackKind::IdsAlert
+    ) && edr_skill.is_some()
+    {
+        let rationale = format!(
+            "Collecte forensique sur {} pour reconstituer la chaîne d'attaque",
+            ctx.asset
+        );
+        actions.push(IncidentAction::collect_artifacts(
+            &ctx.asset,
+            "Generic.Forensic.Timeline",
+            edr_skill.unwrap(),
+            rationale,
+        ));
+    }
+
+    // ── (7) SuspiciousOutbound — pas de blocage automatique (risque de
+    //        casser un Windows Update légitime). Action manual de
+    //        vérification.
+    if matches!(kind, AttackKind::SuspiciousOutbound) {
+        let dest_ips: std::collections::HashSet<String> = ctx
+            .sigma_alerts
+            .iter()
+            .filter_map(|a| a["dest_ip"].as_str().map(str::to_string))
+            .filter(|ip| !is_private_ipv4(ip))
+            .collect();
+        let dest_list = if dest_ips.is_empty() {
+            "(IP externe non attestée)".into()
+        } else {
+            dest_ips.into_iter().collect::<Vec<_>>().join(", ")
+        };
+        actions.push(IncidentAction::manual(
+            format!("Vérifier le trafic sortant de {} vers {dest_list}", ctx.asset),
+            "Trafic outbound suspect — possible Windows Update / auto-updater légitime, OU exfiltration. Analyse manuelle requise avant blocage.".to_string(),
+        ));
+    }
+
     actions
 }
 

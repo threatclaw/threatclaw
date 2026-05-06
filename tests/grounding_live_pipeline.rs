@@ -112,6 +112,7 @@ fn brute_force_dossier() -> IncidentDossier {
         notification_level: NotificationLevel::Alert,
         connected_skills: vec![],
         graph_context: None,
+        investigation_log: Default::default(),
     }
 }
 

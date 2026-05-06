@@ -661,18 +661,42 @@ impl Agent {
         // Main message loop
         tracing::debug!("Agent {} ready and listening", self.config.name);
 
+        // Phase 9p — Le coeur de l'agent (intelligence_engine, forensic_enricher,
+        // sigma_engine, schedulers) tourne en background tasks et survit
+        // indépendamment de cette boucle conversationnelle. Quand on déploie
+        // ThreatClaw en docker daemon (stdin = /dev/null), le REPL ferme son
+        // tx immédiatement sur EOF ; les channels HTTP/gateway peuvent aussi
+        // fermer leur stream à la suite d'une déconnexion réseau ou d'un
+        // shutdown axum. Avant ce patch, `message_stream.next() == None`
+        // faisait break du main loop → exit(0) propre → docker compose
+        // restart → loop. Crash loop documenté à 21+ restarts sur cyb06.
+        //
+        // Désormais : si tous les channels conversationnels se ferment, on
+        // log un warn et on attend Ctrl+C / SIGTERM. Les tasks background
+        // continuent de tourner.
         loop {
             let message = tokio::select! {
                 biased;
                 _ = tokio::signal::ctrl_c() => {
-                    tracing::debug!("Ctrl+C received, shutting down...");
+                    tracing::info!("Ctrl+C received, shutting down...");
                     break;
                 }
                 msg = message_stream.next() => {
                     match msg {
                         Some(m) => m,
                         None => {
-                            tracing::debug!("All channel streams ended, shutting down...");
+                            tracing::warn!(
+                                "All conversational channel streams ended — daemon mode: \
+                                 background tasks (intelligence_engine, forensic_enricher, \
+                                 sigma_engine) continue. Waiting for SIGTERM/Ctrl+C."
+                            );
+                            // Park on Ctrl+C / SIGTERM. The background tasks
+                            // spawned in main.rs keep running independently
+                            // (they hold their own Arc<dyn Database> and are
+                            // not joined here). This avoids the docker
+                            // restart-loop the previous `break` caused.
+                            tokio::signal::ctrl_c().await.ok();
+                            tracing::info!("Shutdown signal received after daemon idle.");
                             break;
                         }
                     }

@@ -21,7 +21,14 @@ use crate::db::threatclaw_store::ThreatClawStore;
 // `tls-expiry`), il se déclare ici. Les skills observationnels
 // (sigma, ml-*, ids-*, firewall-*) n'apparaissent JAMAIS dans cette
 // liste — un finding d'observation invalide la prédiction-only.
-const PREDICTIVE_SKILLS: &[&str] = &[
+/// Skill ids that produce *predictive* (= static-exposure) findings — CVE
+/// inventories, leaked credentials, exposure scanners. These are valuable
+/// on the asset's posture page but should NOT pollute a sigma-driven
+/// incident's chronology. Phase 9e uses the same list to filter
+/// `incident.finding_ids` and `enrichment.cve_details` when at least one
+/// sigma alert (live attack signal) is attached. Crate-public so
+/// `dossier_enrichment` shares the same definition.
+pub(crate) const PREDICTIVE_SKILLS: &[&str] = &[
     "software-vuln",   // CISA KEV × osquery, NVD × osquery
     "wordpress-vuln",  // wpscan
     "container-vuln",  // Trivy / image scan
@@ -1167,6 +1174,7 @@ async fn build_dossier_from_situation(
         notification_level: situation.notification_level,
         connected_skills: list_connected_skills(store).await,
         graph_context: fetch_asset_graph_context(store, &worst_asset.asset).await,
+        investigation_log: Default::default(),
     };
 
     // Phase 1d (Bug 3) — pré-enrichissement déterministe opportuniste.
@@ -3288,7 +3296,7 @@ pub fn spawn_intelligence_ticker(
                         } else if !registry.is_investigating(&worst_asset.asset).await {
                             'incident_creation: {
                                 // Build dossier from the worst asset's data
-                                let dossier = build_dossier_from_situation(
+                                let mut dossier = build_dossier_from_situation(
                                     store.as_ref(),
                                     worst_asset,
                                     &situation,
@@ -3323,8 +3331,42 @@ pub fn spawn_intelligence_ticker(
                                 // even when alert_count was correctly populated.
                                 let alert_ids: Vec<i32> =
                                     dossier.sigma_alerts.iter().map(|a| a.id as i32).collect();
-                                let finding_ids: Vec<i32> =
-                                    dossier.findings.iter().map(|f| f.id as i32).collect();
+
+                                // Phase 9e — Quand l'incident est sigma-driven (= attaque
+                                // observée temps-réel), exclure les findings prédictifs
+                                // (software-vuln, wordpress-vuln, container-vuln, ...) des
+                                // `finding_ids` rattachés à l'incident. Ces findings
+                                // restent sur l'asset (posture vuln statique) mais ne
+                                // polluent plus la chronologie d'attaque ni
+                                // l'`enrichment.cve_details` consommé par l'UI. Voir
+                                // doctrine séparation prédiction/attaque dans
+                                // `roadmap-mai.md` Phase 9e/h.
+                                let predictive_filtered_count;
+                                let finding_ids: Vec<i32> = if !dossier.sigma_alerts.is_empty() {
+                                    let attack_findings: Vec<_> = dossier
+                                        .findings
+                                        .iter()
+                                        .filter(|f| {
+                                            f.skill_id
+                                                .as_deref()
+                                                .map(|s| !PREDICTIVE_SKILLS.contains(&s))
+                                                .unwrap_or(true)
+                                        })
+                                        .collect();
+                                    predictive_filtered_count =
+                                        dossier.findings.len() - attack_findings.len();
+                                    attack_findings.iter().map(|f| f.id as i32).collect()
+                                } else {
+                                    predictive_filtered_count = 0;
+                                    dossier.findings.iter().map(|f| f.id as i32).collect()
+                                };
+                                if predictive_filtered_count > 0 {
+                                    tracing::info!(
+                                        "INTELLIGENCE: incident sigma-driven on {} — {} predictive finding(s) excluded from incident.finding_ids (kept on asset posture)",
+                                        worst_asset.asset,
+                                        predictive_filtered_count
+                                    );
+                                }
 
                                 // Derive security severity from worst finding, or fallback to notification level
                                 let incident_severity = dossier
@@ -3461,6 +3503,36 @@ pub fn spawn_intelligence_ticker(
                                                 pattern_key.as_deref(),
                                             )
                                             .await;
+
+                                        // Phase 9o — flush le buffer même en cas de
+                                        // dedup. Le pipeline a fait des skill calls
+                                        // (GreyNoise / Spamhaus / ThreatFox / firewall
+                                        // logs) pendant `pre_enrich_dossier` et il
+                                        // serait dommage de les perdre côté timeline
+                                        // sous prétexte que l'incident existait déjà.
+                                        crate::agent::investigation_log::flush_buffer(
+                                            store.as_ref(),
+                                            existing_id,
+                                            &mut dossier.investigation_log,
+                                        )
+                                        .await;
+                                        crate::agent::investigation_log::StepBuilder::new(
+                                            crate::db::threatclaw_store::StepKind::IncidentCreated,
+                                            format!(
+                                                "Récurrence — incident dedupé (4h window) · {} alert(s) · pattern='{}'",
+                                                worst_asset.active_alerts,
+                                                pattern_key.as_deref().unwrap_or("?")
+                                            ),
+                                        )
+                                        .payload(serde_json::json!({
+                                            "asset": worst_asset.asset,
+                                            "active_alerts": worst_asset.active_alerts,
+                                            "pattern_key": pattern_key,
+                                            "global_score": situation.global_score,
+                                            "dedup": true,
+                                        }))
+                                        .record(store.as_ref(), existing_id)
+                                        .await;
                                         existing_id
                                     }
                                     _ => {
@@ -3490,6 +3562,38 @@ pub fn spawn_intelligence_ticker(
                                                 new_id,
                                                 worst_asset.asset
                                             );
+
+                                            // Phase 9o — drain le buffer des steps
+                                            // d'investigation pré-création (skill calls
+                                            // GreyNoise / Spamhaus / ThreatFox / firewall
+                                            // logs) puis ajoute un marqueur "incident_created".
+                                            // Ça donne au RSSI une timeline lisible "qu'a
+                                            // fait l'agent avant que l'incident apparaisse".
+                                            crate::agent::investigation_log::flush_buffer(
+                                                store.as_ref(),
+                                                new_id,
+                                                &mut dossier.investigation_log,
+                                            )
+                                            .await;
+                                            crate::agent::investigation_log::StepBuilder::new(
+                                                crate::db::threatclaw_store::StepKind::IncidentCreated,
+                                                format!(
+                                                    "Incident créé · {} alert(s) sigma · {} finding(s) attaque · sévérité {}",
+                                                    alert_ids.len(),
+                                                    finding_ids.len(),
+                                                    incident_severity
+                                                ),
+                                            )
+                                            .payload(serde_json::json!({
+                                                "asset": worst_asset.asset,
+                                                "alert_ids": alert_ids,
+                                                "finding_ids": finding_ids,
+                                                "severity": incident_severity,
+                                                "global_score": situation.global_score,
+                                            }))
+                                            .record(store.as_ref(), new_id)
+                                            .await;
+
                                             // Phase 4 — persist le bundle d'enrichment construit
                                             // par dossier_enrichment::pre_enrich_dossier (cve_details,
                                             // ip_reputations, threat_intel, enrichment_lines avec
@@ -4581,6 +4685,7 @@ mod tests {
             notification_level: NotificationLevel::Alert,
             connected_skills: vec![],
             graph_context: None,
+            investigation_log: Default::default(),
         }
     }
 

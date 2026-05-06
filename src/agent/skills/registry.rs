@@ -14,10 +14,20 @@ use crate::db::Database;
 
 /// Snapshot des skills disponibles à un instant T. Reconstruit à chaque cycle
 /// IE (cheap : ~5-10 reads en DB).
+///
+/// Phase 9b — `iam_skills` est probé en mode "is connected ?" plutôt qu'avec
+/// un trait dédié car la Phase 9n (write methods sur trait `IamSkill`)
+/// arrivera plus tard. Pour Phase 9b on a juste besoin de SAVOIR si un IAM
+/// est branché, pour proposer des actions `disable_user` / `reset_password`
+/// au RSSI sans encore implémenter l'exécution.
 pub struct SkillRegistry {
     pub firewalls: Vec<Arc<dyn FirewallSkill>>,
     pub siems: Vec<Arc<dyn SiemSkill>>,
     pub edrs: Vec<Arc<dyn EdrSkill>>,
+    /// Identifiants des skills IAM/IdP connectés (`skill-active-directory`,
+    /// `skill-microsoft-graph`, `skill-keycloak`, `skill-authentik`...). Vide
+    /// quand aucun IAM n'est configuré chez le client.
+    pub iam_skill_ids: Vec<String>,
 }
 
 impl SkillRegistry {
@@ -59,10 +69,16 @@ impl SkillRegistry {
             edrs.push(edr);
         }
 
+        // ── IAM / IdP ─────────────────────────────────────────────
+        // Probed by config presence rather than instantiated impls — see
+        // doc on the struct for why (Phase 9b vs 9n split).
+        let iam_skill_ids = probe_iam_skill_ids(store).await;
+
         Self {
             firewalls,
             siems,
             edrs,
+            iam_skill_ids,
         }
     }
 
@@ -75,6 +91,42 @@ impl SkillRegistry {
     pub fn has_edr(&self) -> bool {
         !self.edrs.is_empty()
     }
+    pub fn has_iam(&self) -> bool {
+        !self.iam_skill_ids.is_empty()
+    }
+
+    /// Skill IDs of every connected firewall, in registration order. Used
+    /// by `derive_response_actions` to pick the canonical `cmd_id` for a
+    /// `block_ip` proposal (`opnsense_block_ip` vs `fortinet_block_ip`...).
+    pub fn firewall_skill_ids(&self) -> Vec<&'static str> {
+        self.firewalls.iter().map(|s| s.skill_id()).collect()
+    }
+
+    /// Skill IDs of every connected EDR. Used by `derive_response_actions`
+    /// to pick the right `cmd_id` for `isolate_host` / `kill_process` /
+    /// `collect_artifacts` proposals.
+    pub fn edr_skill_ids(&self) -> Vec<&'static str> {
+        self.edrs.iter().map(|s| s.skill_id()).collect()
+    }
+}
+
+/// Probe `skill_configs` for IAM / IdP skills with `enabled=true`. Each
+/// directory exposes a different write API; we only need the identifier
+/// here so `derive_response_actions` can target the right `cmd_id`.
+async fn probe_iam_skill_ids(store: &dyn Database) -> Vec<String> {
+    const IAM_SKILLS: &[&str] = &[
+        "skill-active-directory",
+        "skill-microsoft-graph",
+        "skill-keycloak",
+        "skill-authentik",
+    ];
+    let mut connected: Vec<String> = Vec::new();
+    for sid in IAM_SKILLS {
+        if read_skill_config_map(store, sid).await.is_some() {
+            connected.push((*sid).to_string());
+        }
+    }
+    connected
 }
 
 async fn read_skill_config_map(

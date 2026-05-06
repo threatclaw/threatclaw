@@ -108,14 +108,14 @@ services:
     healthcheck:
       # bash /dev/tcp built-in — works even when curl/wget aren't installed
       test: ["CMD-SHELL", "bash -c ': </dev/tcp/127.0.0.1/3000'"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
+      interval: 30s
+      timeout: 15s
+      retries: 20
+      start_period: 120s
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 2G
           cpus: "2.0"
     networks:
       - threatclaw-internal   # DB, ML, Fluent-bit, Dashboard
@@ -214,7 +214,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
           cpus: "1.0"
     networks:
       - threatclaw-internal

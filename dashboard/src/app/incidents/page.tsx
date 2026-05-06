@@ -16,15 +16,15 @@ import {
 } from "lucide-react";
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
+import type { IncidentAction } from "@/types/incident_action";
+import { displayAsset, displayAssetVerbose } from "@/types/asset_display";
 
 // ═══════════════════════════════════════════════
 // INCIDENTS TAB
 // ═══════════════════════════════════════════════
 
-interface IncidentAction {
-  kind: string;       // "block_ip" | "create_ticket" | "disable_account" | "manual"
-  description: string;
-}
+// Phase 9a — `IncidentAction` is now imported from `@/types/incident_action`,
+// the shared TS mirror of the Rust struct in `src/agent/incident_action.rs`.
 
 interface IncidentNote {
   text: string;
@@ -104,6 +104,12 @@ function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: str
 interface Incident {
   id: number;
   asset: string;
+  // Phase 9f — backend hydrates these from the assets table. Optional
+  // because legacy incidents and assets removed from inventory don't have
+  // them.
+  asset_name?: string | null;
+  asset_hostname?: string | null;
+  asset_ips?: string[] | null;
   title: string;
   summary: string | null;
   verdict: string;
@@ -318,10 +324,18 @@ function IncidentsTab({ locale }: { locale: string }) {
     inc.verdict === "confirmed" && inc.status !== "closed"
   );
   const filteredIncidents = search
-    ? confirmedActive.filter(inc =>
-        inc.title.toLowerCase().includes(search.toLowerCase()) ||
-        inc.asset.toLowerCase().includes(search.toLowerCase())
-      )
+    ? confirmedActive.filter(inc => {
+        const q = search.toLowerCase();
+        // Phase 9k — search across every operator-meaningful identifier so
+        // typing "debian" or "10.77" both surface the same asset.
+        return (
+          inc.title.toLowerCase().includes(q) ||
+          inc.asset.toLowerCase().includes(q) ||
+          (inc.asset_name?.toLowerCase().includes(q) ?? false) ||
+          (inc.asset_hostname?.toLowerCase().includes(q) ?? false) ||
+          (inc.asset_ips?.some((ip) => ip.toLowerCase().includes(q)) ?? false)
+        );
+      })
     : confirmedActive;
 
   return (
@@ -768,7 +782,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                     <div style={{ minWidth: 0 }}>
                       <div className="inc-signal-title">{split.title}</div>
                       <div className="inc-sub">
-                        <span className="ip">{inc.asset}</span>
+                        <span className="ip" title={displayAssetVerbose(inc)}>{displayAsset(inc)}</span>
                         <span>·</span>
                         <span>{inc.alert_count || 0} alerts</span>
                         <span>·</span>
@@ -853,7 +867,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                 {confirmAction.action.description}
               </div>
               <div style={{ fontSize: 10, color: "var(--tc-text-muted)", fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                kind: {confirmAction.action.kind}  ·  asset: {confirmAction.incident.asset}
+                kind: {confirmAction.action.kind}  ·  asset: {displayAsset(confirmAction.incident)}
               </div>
             </div>
 
