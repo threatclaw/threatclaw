@@ -160,9 +160,9 @@ wasmparser = "0.230"  # WASM binary parsing for validation
 # Cryptography for secrets management
 aes-gcm = "0.10"
 hkdf = "0.12"
-hmac = "0.12"
+hmac = "0.13"
 sha1 = "0.10"
-sha2 = "0.10"
+sha2 = "0.11"
 getrandom = "0.2"
 blake3 = "1"
 rand = "0.8"
@@ -220,7 +220,7 @@ zbus = "4"
 argon2 = "0.5"
 
 [build-dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 # Compile Velociraptor v0.76 .proto files into Rust stubs at build time.
 tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
 
