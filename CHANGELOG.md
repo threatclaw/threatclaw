@@ -15,7 +15,7 @@ Earlier `v0.x` entries below cover pre-public internal development and are kept 
 - Asset hydration on incidents: incident endpoints now expose the linked asset's name, hostname and IP list alongside the canonical id, and the attack timeline carries that asset context next to every event so the operator no longer has to look up raw identifiers.
 
 ### Changed
-- IP addresses stored on assets are now normalized at write time (migration `V73__assets_ip_normalize.sql`): port stripping, IPv4-in-IPv6 collapsing, lowercasing, and dedup. The same host known by different representations no longer surfaces as multiple assets, and asset resolution / forensic enrichment rely on the normalized form.
+- IP addresses stored on assets are now normalized at write time: port stripping, IPv4-in-IPv6 collapsing, lowercasing, and dedup. The same host known by different representations no longer surfaces as multiple assets, and asset resolution and forensic enrichment rely on the normalized form.
 - Container entrypoint applies the new migration on startup; existing rows are rewritten in place so the dedup effect is visible immediately after the upgrade.
 
 ## [1.0.25-beta] — 2026-05-06
