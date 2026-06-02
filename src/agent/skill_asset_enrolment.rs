@@ -90,17 +90,15 @@ fn template_for(skill_id: &str) -> Option<AssetTemplate> {
             tags: &["enrolled"],
         }),
         // ── SIEM / EDR ─────────────────────────────────────────
-        "skill-wazuh" | "skill-wazuh-connector" | "skill-wazuh-alerts" => {
-            Some(AssetTemplate {
-                id: "skill-wazuh-host",
-                name: "Wazuh",
-                category: "server",
-                subcategory: "siem",
-                os: Some("Linux"),
-                criticality: "critical",
-                tags: &["enrolled", "siem"],
-            })
-        }
+        "skill-wazuh" | "skill-wazuh-connector" | "skill-wazuh-alerts" => Some(AssetTemplate {
+            id: "skill-wazuh-host",
+            name: "Wazuh",
+            category: "server",
+            subcategory: "siem",
+            os: Some("Linux"),
+            criticality: "critical",
+            tags: &["enrolled", "siem"],
+        }),
         "skill-elastic-siem" => Some(AssetTemplate {
             id: "skill-elastic-host",
             name: "Elastic SIEM",
@@ -204,10 +202,7 @@ fn url_to_ip(url: &str) -> Option<String> {
         return None;
     }
     // Strip scheme.
-    let after_scheme = s
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(s);
+    let after_scheme = s.split_once("://").map(|(_, rest)| rest).unwrap_or(s);
     // Strip path / query / fragment.
     let host_only = after_scheme
         .split(['/', '?', '#'])
@@ -242,8 +237,14 @@ fn url_to_hostname(url: &str) -> Option<String> {
         return None;
     }
     let after_scheme = s.split_once("://").map(|(_, r)| r).unwrap_or(s);
-    let host_only = after_scheme.split(['/', '?', '#']).next().unwrap_or(after_scheme);
-    let host_only = host_only.rsplit_once('@').map(|(_, h)| h).unwrap_or(host_only);
+    let host_only = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(after_scheme);
+    let host_only = host_only
+        .rsplit_once('@')
+        .map(|(_, h)| h)
+        .unwrap_or(host_only);
     let host_only = host_only.split(':').next().unwrap_or(host_only);
     let trimmed = host_only.trim();
     if trimmed.is_empty() {
@@ -274,10 +275,7 @@ fn pick_url(map: &std::collections::HashMap<String, String>) -> Option<&str> {
 /// after every config update. Best-effort: errors are logged by the
 /// caller, not propagated to the operator (we don't want a typo in a
 /// connector form to surface as a confusing 500).
-pub async fn try_self_register(
-    store: &dyn Database,
-    skill_id: &str,
-) -> Result<bool, String> {
+pub async fn try_self_register(store: &dyn Database, skill_id: &str) -> Result<bool, String> {
     let Some(template) = template_for(skill_id) else {
         return Ok(false);
     };
@@ -287,10 +285,8 @@ pub async fn try_self_register(
         .get_skill_config(skill_id)
         .await
         .map_err(|e| e.to_string())?;
-    let map: std::collections::HashMap<String, String> = kvs
-        .into_iter()
-        .map(|r| (r.key, r.value))
-        .collect();
+    let map: std::collections::HashMap<String, String> =
+        kvs.into_iter().map(|r| (r.key, r.value)).collect();
 
     // Skill explicitly disabled → don't enrol an asset for an
     // off connector. The asset may already exist from a previous

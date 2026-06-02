@@ -640,16 +640,8 @@ pub async fn skill_config_set_handler(
     // SIEM, EDR, IAM…). Best-effort : un échec d'enrolment ne doit jamais
     // surfacer comme un 500 sur la sauvegarde de config — l'opérateur a juste
     // tapé une URL dans un formulaire.
-    match crate::agent::skill_asset_enrolment::try_self_register(
-        store.as_ref(),
-        &skill_id,
-    )
-    .await
-    {
-        Ok(true) => tracing::info!(
-            "skill_config_set: auto-enrolled asset for {}",
-            skill_id
-        ),
+    match crate::agent::skill_asset_enrolment::try_self_register(store.as_ref(), &skill_id).await {
+        Ok(true) => tracing::info!("skill_config_set: auto-enrolled asset for {}", skill_id),
         Ok(false) => {} // skill non-éligible ou config incomplète, normal
         Err(e) => tracing::warn!(
             "skill_config_set: auto-enrolment failed for {}: {}",
@@ -5987,14 +5979,8 @@ pub async fn assets_list_handler(
                 .map(|a| {
                     let mut v = serde_json::to_value(&a).unwrap_or_default();
                     if let Some(obj) = v.as_object_mut() {
-                        obj.insert(
-                            "software".into(),
-                            serde_json::Value::Array(vec![]),
-                        );
-                        obj.insert(
-                            "services".into(),
-                            serde_json::Value::Array(vec![]),
-                        );
+                        obj.insert("software".into(), serde_json::Value::Array(vec![]));
+                        obj.insert("services".into(), serde_json::Value::Array(vec![]));
                     }
                     v
                 })
@@ -6121,13 +6107,7 @@ pub async fn assets_full_handler(
     // Phase 10c-cov — coverage matrix : pour chaque catégorie de skill on
     // calcule (skill configuré chez le client ?) × (asset effectivement
     // observé ?). 3 états déterministes : covered / gap / not_configured.
-    let coverage = compute_asset_coverage(
-        store.as_ref(),
-        &asset,
-        &asset_findings,
-        &scans,
-    )
-    .await;
+    let coverage = compute_asset_coverage(store.as_ref(), &asset, &asset_findings, &scans).await;
 
     Ok(Json(serde_json::json!({
         "asset": asset,
@@ -6184,7 +6164,9 @@ async fn first_configured_skill(
             continue;
         }
         // enabled=false short-circuits the whole skill.
-        let disabled = rows.iter().any(|r| r.key == "enabled" && r.value == "false");
+        let disabled = rows
+            .iter()
+            .any(|r| r.key == "enabled" && r.value == "false");
         if disabled {
             continue;
         }
@@ -6205,14 +6187,9 @@ async fn first_configured_skill(
 /// asset.sources entries. Used to decide whether the asset has been
 /// observed by a given category of connector.
 fn asset_seen_by(asset: &AssetRecord, needles: &[&str]) -> bool {
-    let mut bag: Vec<String> = asset
-        .sources
-        .iter()
-        .map(|s| s.to_lowercase())
-        .collect();
+    let mut bag: Vec<String> = asset.sources.iter().map(|s| s.to_lowercase()).collect();
     bag.push(asset.source.to_lowercase());
-    bag.iter()
-        .any(|s| needles.iter().any(|n| s.contains(n)))
+    bag.iter().any(|s| needles.iter().any(|n| s.contains(n)))
 }
 
 /// Returns the most recent finding (by `detected_at`) whose `skill_id`
@@ -6285,9 +6262,13 @@ async fn compute_asset_coverage(
         let observed_src = asset_seen_by(asset, &["wazuh", "edr", "elastic"]);
         let observed_finding = latest_finding_for(findings, &["wazuh", "elastic"]);
         let observed = observed_src || observed_finding.is_some();
-        let last_seen = observed_finding
-            .map(|f| f.detected_at.clone())
-            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let last_seen = observed_finding.map(|f| f.detected_at.clone()).or_else(|| {
+            if observed_src {
+                Some(asset.last_seen.clone())
+            } else {
+                None
+            }
+        });
         let item = match (configured.as_ref(), observed) {
             (Some(sid), true) => CoverageItem {
                 kind: "edr",
@@ -6333,14 +6314,20 @@ async fn compute_asset_coverage(
             ],
         )
         .await;
-        let observed_src =
-            asset_seen_by(asset, &["opnsense", "pfsense", "fortinet", "mikrotik", "firewall"]);
+        let observed_src = asset_seen_by(
+            asset,
+            &["opnsense", "pfsense", "fortinet", "mikrotik", "firewall"],
+        );
         let observed_finding =
             latest_finding_for(findings, &["opnsense", "pfsense", "fortinet", "mikrotik"]);
         let observed = observed_src || observed_finding.is_some();
-        let last_seen = observed_finding
-            .map(|f| f.detected_at.clone())
-            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let last_seen = observed_finding.map(|f| f.detected_at.clone()).or_else(|| {
+            if observed_src {
+                Some(asset.last_seen.clone())
+            } else {
+                None
+            }
+        });
         let item = match (configured.as_ref(), observed) {
             (Some(sid), true) => CoverageItem {
                 kind: "firewall",
@@ -6375,14 +6362,17 @@ async fn compute_asset_coverage(
 
     // ── 4. IDS / Sigma ───────────────────────────────────────────
     {
-        let configured =
-            first_configured_skill(store, &["skill-suricata", "skill-zeek"]).await;
+        let configured = first_configured_skill(store, &["skill-suricata", "skill-zeek"]).await;
         let observed_src = asset_seen_by(asset, &["suricata", "sigma", "zeek"]);
         let observed_finding = latest_finding_for(findings, &["suricata", "zeek", "sigma"]);
         let observed = observed_src || observed_finding.is_some();
-        let last_seen = observed_finding
-            .map(|f| f.detected_at.clone())
-            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let last_seen = observed_finding.map(|f| f.detected_at.clone()).or_else(|| {
+            if observed_src {
+                Some(asset.last_seen.clone())
+            } else {
+                None
+            }
+        });
         let item = match (configured.as_ref(), observed) {
             (Some(sid), true) => CoverageItem {
                 kind: "ids",
@@ -6419,14 +6409,23 @@ async fn compute_asset_coverage(
     {
         let configured = first_configured_skill(
             store,
-            &["skill-nmap-discovery", "skill-vuln-scan", "skill-nuclei", "skill-trivy"],
+            &[
+                "skill-nmap-discovery",
+                "skill-vuln-scan",
+                "skill-nuclei",
+                "skill-trivy",
+            ],
         )
         .await;
         let recent_completed = scans.iter().find(|s| s.status == "done");
         let observed_finding = latest_finding_for(findings, &["nmap", "nuclei", "trivy", "vuln"]);
         let observed = recent_completed.is_some() || observed_finding.is_some();
         let last_seen = recent_completed
-            .and_then(|s| s.finished_at.clone().or_else(|| Some(s.requested_at.clone())))
+            .and_then(|s| {
+                s.finished_at
+                    .clone()
+                    .or_else(|| Some(s.requested_at.clone()))
+            })
             .or_else(|| observed_finding.map(|f| f.detected_at.clone()));
         let item = match (configured.as_ref(), observed) {
             (Some(sid), true) => CoverageItem {
@@ -6441,7 +6440,10 @@ async fn compute_asset_coverage(
                 kind: "vuln_scan",
                 label: "Scan vulnérabilités",
                 state: "gap",
-                detail: format!("{} configuré, aucun scan récent sur cet asset", short_skill_label(sid)),
+                detail: format!(
+                    "{} configuré, aucun scan récent sur cet asset",
+                    short_skill_label(sid)
+                ),
                 last_seen: None,
                 action_hint: Some("Lancer un scan ad-hoc".into()),
             },
@@ -6479,10 +6481,7 @@ async fn compute_asset_coverage(
                 kind: "iam",
                 label: "IAM / Annuaire",
                 state: "covered",
-                detail: format!(
-                    "{} actif · owner identifié",
-                    short_skill_label(sid)
-                ),
+                detail: format!("{} actif · owner identifié", short_skill_label(sid)),
                 last_seen: None,
                 action_hint: None,
             },

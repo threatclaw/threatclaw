@@ -1653,7 +1653,11 @@ impl ThreatClawStore for PgBackend {
                         None
                     } else {
                         let s = trimmed.to_string();
-                        if seen.insert(s.clone()) { Some(s) } else { None }
+                        if seen.insert(s.clone()) {
+                            Some(s)
+                        } else {
+                            None
+                        }
                     }
                 })
                 .collect()
