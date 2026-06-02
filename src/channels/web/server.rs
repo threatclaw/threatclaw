@@ -1150,6 +1150,11 @@ pub async fn start_server(
             "/api/tc/assets/{id}",
             get(super::handlers::threatclaw_api::assets_get_handler),
         )
+        // Phase 10c — aggregated payload for the dedicated asset page.
+        .route(
+            "/api/tc/assets/{id}/full",
+            get(super::handlers::threatclaw_api::assets_full_handler),
+        )
         .route(
             "/api/tc/assets/{id}/security",
             get(super::handlers::threatclaw_api::asset_security_handler),

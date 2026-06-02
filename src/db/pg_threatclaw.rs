@@ -1636,7 +1636,29 @@ impl ThreatClawStore for PgBackend {
 
     async fn upsert_asset(&self, a: &NewAsset) -> Result<String, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let ips: Vec<&str> = a.ip_addresses.iter().map(|s| s.as_str()).collect();
+        // Phase 11d — normalise IPs at write-time so the in-DB array stays
+        // canonical: strip `:port` (ephemeral source-port logs were polluting
+        // assets with `10.77.0.174:51788` etc.), strip `/mask`, drop empties,
+        // dedup. Without this the UPSERT's UNION DISTINCT keeps every
+        // variant because they're treated as opaque strings.
+        let ips_owned: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            a.ip_addresses
+                .iter()
+                .filter_map(|raw| {
+                    let no_port = raw.split(':').next().unwrap_or(raw);
+                    let no_mask = no_port.split('/').next().unwrap_or(no_port);
+                    let trimmed = no_mask.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        let s = trimmed.to_string();
+                        if seen.insert(s.clone()) { Some(s) } else { None }
+                    }
+                })
+                .collect()
+        };
+        let ips: Vec<&str> = ips_owned.iter().map(|s| s.as_str()).collect();
         let tags: Vec<&str> = a.tags.iter().map(|s| s.as_str()).collect();
         let source_arr = vec![a.source.as_str()];
         // V67 — classify the incoming source to map onto inventory_status.

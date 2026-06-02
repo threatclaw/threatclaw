@@ -48,7 +48,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::mode_manager::{AgentMode, ModeConfig, parse_mode};
 use crate::channels::web::server::GatewayState;
 use crate::db::threatclaw_store::{
-    AlertRecord, DashboardMetrics, FindingRecord, NewFinding, SkillConfigRecord,
+    AlertRecord, AssetRecord, DashboardMetrics, FindingRecord, NewFinding, SkillConfigRecord,
 };
 
 // ── DTOs ──
@@ -635,6 +635,29 @@ pub async fn skill_config_set_handler(
         .set_skill_config(&skill_id, &req.key, &req.value)
         .await
         .map_err(db_err)?;
+
+    // Phase 11f — auto-enrôler l'asset associé au skill connecteur (firewall,
+    // SIEM, EDR, IAM…). Best-effort : un échec d'enrolment ne doit jamais
+    // surfacer comme un 500 sur la sauvegarde de config — l'opérateur a juste
+    // tapé une URL dans un formulaire.
+    match crate::agent::skill_asset_enrolment::try_self_register(
+        store.as_ref(),
+        &skill_id,
+    )
+    .await
+    {
+        Ok(true) => tracing::info!(
+            "skill_config_set: auto-enrolled asset for {}",
+            skill_id
+        ),
+        Ok(false) => {} // skill non-éligible ou config incomplète, normal
+        Err(e) => tracing::warn!(
+            "skill_config_set: auto-enrolment failed for {}: {}",
+            skill_id,
+            e
+        ),
+    }
+
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
 
@@ -5950,8 +5973,34 @@ pub async fn assets_list_handler(
     match store.list_assets(category, status, limit, offset).await {
         Ok(assets) => {
             let pages = (total + limit - 1) / limit;
+            // Phase 11h hotfix (2026-05-07) — strip the heavy `software`
+            // array (osquery package dumps that grow to several MB per
+            // host and accumulate duplicates across syncs) and
+            // `services` (port scan output) from the listing payload.
+            // Both are only useful on the dedicated `/assets/[id]`
+            // page, fetched separately via `/api/tc/assets/{id}/full`.
+            // Without this strip a 10-asset list payload routinely
+            // breached 30 MB and the dashboard's 10 s `AbortSignal`
+            // killed the request → "Backend non accessible".
+            let trimmed: Vec<serde_json::Value> = assets
+                .into_iter()
+                .map(|a| {
+                    let mut v = serde_json::to_value(&a).unwrap_or_default();
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert(
+                            "software".into(),
+                            serde_json::Value::Array(vec![]),
+                        );
+                        obj.insert(
+                            "services".into(),
+                            serde_json::Value::Array(vec![]),
+                        );
+                    }
+                    v
+                })
+                .collect();
             Ok(Json(serde_json::json!({
-                "assets": assets,
+                "assets": trimmed,
                 "total": total,
                 "page": page,
                 "pages": pages,
@@ -5972,6 +6021,516 @@ pub async fn assets_get_handler(
         Ok(None) => Ok(Json(serde_json::json!({ "error": "Asset not found" }))),
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
+}
+
+/// GET /api/tc/assets/:id/full — Phase 10c
+///
+/// Aggregated payload that powers the dedicated asset page (`/assets/[id]`).
+/// Mirrors the design of `/incidents/:id/full` so the dashboard relies on
+/// the same data-shape conventions across the two main entity pages.
+///
+/// Sections (one round-trip, parallel SQL via `tokio::join!`):
+///   * `asset`      — full record (or 404 if unknown)
+///   * `findings`   — vulnerabilities tied to this asset, severity desc
+///   * `incidents`  — past + open incidents impacting this asset, recent first
+///   * `scans`      — last 10 scan jobs targeting this asset
+///
+/// Filtering is done in-memory after a bounded fetch (1000 findings / 200
+/// incidents) — at SMB scale this is fast and avoids adding two new
+/// asset-keyed methods to the storage trait. If the volume crosses
+/// usefulness thresholds we'll switch to a `WHERE asset = $1` indexed
+/// query, but the present approach unblocks the page today.
+pub async fn assets_full_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    // 1. Asset record — gate everything: 404 if not found.
+    let asset = match store.get_asset(&id).await.map_err(db_err)? {
+        Some(a) => a,
+        None => return Err((StatusCode::NOT_FOUND, "Asset not found".into())),
+    };
+
+    // Build the set of strings we'll match findings/incidents against.
+    // The `asset` column on findings/incidents may carry the canonical id,
+    // the hostname, or one of the IPs depending on which ingestion path
+    // produced the row — match all three to recover the full surface.
+    let mut keys: Vec<String> = Vec::new();
+    keys.push(asset.id.clone());
+    keys.push(asset.name.to_lowercase());
+    if let Some(h) = &asset.hostname {
+        keys.push(h.to_lowercase());
+    }
+    for ip in &asset.ip_addresses {
+        let no_port = ip.split(':').next().unwrap_or(ip);
+        let no_mask = no_port.split('/').next().unwrap_or(no_port);
+        keys.push(no_mask.to_string());
+    }
+    keys.sort();
+    keys.dedup();
+
+    // 2-4. Parallel fetches.
+    let (findings_res, incidents_res, scans_res) = tokio::join!(
+        store.list_findings(None, None, None, 1000, 0),
+        store.list_incidents(None, 200, 0),
+        store.recent_scans_for_asset(&id, 10),
+    );
+
+    let findings = findings_res.unwrap_or_default();
+    let all_incidents = incidents_res.unwrap_or_default();
+    let scans = scans_res.unwrap_or_default();
+
+    let key_lower: std::collections::HashSet<String> =
+        keys.iter().map(|s| s.to_lowercase()).collect();
+
+    // Filter findings that match this asset by canonical id / hostname / ip.
+    let asset_findings: Vec<&FindingRecord> = findings
+        .iter()
+        .filter(|f| {
+            let asset_match = f
+                .asset
+                .as_ref()
+                .map(|s| key_lower.contains(&s.to_lowercase()))
+                .unwrap_or(false);
+            asset_match
+                || f.metadata
+                    .get("agent_ip")
+                    .and_then(|v| v.as_str())
+                    .map(|s| key_lower.contains(&s.to_lowercase()))
+                    .unwrap_or(false)
+                || f.metadata
+                    .get("src_ip")
+                    .and_then(|v| v.as_str())
+                    .map(|s| key_lower.contains(&s.to_lowercase()))
+                    .unwrap_or(false)
+        })
+        .collect();
+
+    // Filter incidents that target this asset.
+    let asset_incidents: Vec<&serde_json::Value> = all_incidents
+        .iter()
+        .filter(|inc| {
+            inc.get("asset")
+                .and_then(|v| v.as_str())
+                .map(|s| key_lower.contains(&s.to_lowercase()))
+                .unwrap_or(false)
+        })
+        .collect();
+
+    // Phase 10c-cov — coverage matrix : pour chaque catégorie de skill on
+    // calcule (skill configuré chez le client ?) × (asset effectivement
+    // observé ?). 3 états déterministes : covered / gap / not_configured.
+    let coverage = compute_asset_coverage(
+        store.as_ref(),
+        &asset,
+        &asset_findings,
+        &scans,
+    )
+    .await;
+
+    Ok(Json(serde_json::json!({
+        "asset": asset,
+        "findings": asset_findings,
+        "incidents": asset_incidents,
+        "scans": scans,
+        "coverage": coverage,
+    })))
+}
+
+/// Phase 10c-cov — Single coverage tile rendered on the asset page sidebar
+/// "Couverture" section. Purely deterministic (no LLM); the operator can
+/// trust each badge as a factual statement of what's wired vs what's not.
+#[derive(Debug, serde::Serialize)]
+struct CoverageItem {
+    /// Stable identifier ("edr", "velociraptor", "firewall", "ids",
+    /// "vuln_scan", "iam") — kept in English so it doubles as a CSS hook.
+    kind: &'static str,
+    /// Human-friendly label. French — the dashboard is FR-first; the UI
+    /// can still localise with a small dictionary if EN is requested.
+    label: &'static str,
+    /// One of `covered` (skill installed AND data observed),
+    /// `gap` (skill installed but no data on this asset),
+    /// `not_configured` (no connector of this kind on the install).
+    state: &'static str,
+    /// One-line explanation of how we landed on this state. Always
+    /// human-readable, never references internal table names.
+    detail: String,
+    /// Optional ISO8601 of the most recent observation that justifies
+    /// `covered`. Lets the UI render a "il y a 2 h" hint.
+    last_seen: Option<String>,
+    /// Optional CTA when the state is `gap` or `not_configured` — what
+    /// the RSSI should do next. Empty for `covered`.
+    action_hint: Option<String>,
+}
+
+/// Helper for compute_asset_coverage — given a list of skill_ids that
+/// belong to a category, returns the first one that is actively wired
+/// on this install. "Wired" means at least one row exists in the
+/// `skill_configs` key/value table for that skill, the `enabled` flag
+/// (when present) is not "false", and at least one of the connection
+/// fields (`url`, `api_url`, `host`) is non-empty — a connector with
+/// only `enabled=true` and no endpoint is a half-configured stub, not a
+/// live connector, so we treat it as `not_configured` for coverage.
+async fn first_configured_skill(
+    store: &dyn crate::db::Database,
+    skill_ids: &[&str],
+) -> Option<String> {
+    for sid in skill_ids {
+        let Ok(rows) = store.get_skill_config(sid).await else {
+            continue;
+        };
+        if rows.is_empty() {
+            continue;
+        }
+        // enabled=false short-circuits the whole skill.
+        let disabled = rows.iter().any(|r| r.key == "enabled" && r.value == "false");
+        if disabled {
+            continue;
+        }
+        // Need at least one connection-target field to consider the
+        // connector live (vs a half-typed config form).
+        let has_endpoint = rows.iter().any(|r| {
+            matches!(r.key.as_str(), "url" | "api_url" | "host" | "endpoint")
+                && !r.value.trim().is_empty()
+        });
+        if has_endpoint {
+            return Some((*sid).to_string());
+        }
+    }
+    None
+}
+
+/// Returns true if any of `needles` (lowercased) appears in any of the
+/// asset.sources entries. Used to decide whether the asset has been
+/// observed by a given category of connector.
+fn asset_seen_by(asset: &AssetRecord, needles: &[&str]) -> bool {
+    let mut bag: Vec<String> = asset
+        .sources
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
+    bag.push(asset.source.to_lowercase());
+    bag.iter()
+        .any(|s| needles.iter().any(|n| s.contains(n)))
+}
+
+/// Returns the most recent finding (by `detected_at`) whose `skill_id`
+/// matches one of the given prefixes.
+fn latest_finding_for<'a>(
+    findings: &'a [&FindingRecord],
+    prefixes: &[&str],
+) -> Option<&'a FindingRecord> {
+    findings
+        .iter()
+        .filter(|f| {
+            let sid = f.skill_id.to_lowercase();
+            prefixes.iter().any(|p| sid.contains(p))
+        })
+        .max_by(|a, b| a.detected_at.cmp(&b.detected_at))
+        .copied()
+}
+
+/// Phase 10c-cov — produce the 6 coverage tiles displayed on the asset
+/// page. The function is intentionally side-effect-free (only reads) so
+/// it can run on every `/full` request without amplifying load.
+async fn compute_asset_coverage(
+    store: &dyn crate::db::Database,
+    asset: &AssetRecord,
+    findings: &[&FindingRecord],
+    scans: &[crate::db::threatclaw_store::ScanJob],
+) -> Vec<CoverageItem> {
+    let mut out: Vec<CoverageItem> = Vec::with_capacity(6);
+
+    // ── 1. Velociraptor (DFIR agent) ─────────────────────────────
+    {
+        let configured = first_configured_skill(store, &["skill-velociraptor"]).await;
+        let observed = asset_seen_by(asset, &["velociraptor"]);
+        let item = match (configured.as_ref(), observed) {
+            (Some(_), true) => CoverageItem {
+                kind: "velociraptor",
+                label: "Velociraptor (DFIR)",
+                state: "covered",
+                detail: "Agent enrôlé · collecte forensique disponible".into(),
+                last_seen: Some(asset.last_seen.clone()),
+                action_hint: None,
+            },
+            (Some(_), false) => CoverageItem {
+                kind: "velociraptor",
+                label: "Velociraptor (DFIR)",
+                state: "gap",
+                detail: "Configuré mais agent non enrôlé sur cet asset".into(),
+                last_seen: None,
+                action_hint: Some("Déployer l'agent Velociraptor".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "velociraptor",
+                label: "Velociraptor (DFIR)",
+                state: "not_configured",
+                detail: "Aucun connecteur Velociraptor sur cette installation".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    // ── 2. Endpoint EDR ──────────────────────────────────────────
+    {
+        let configured = first_configured_skill(
+            store,
+            &["skill-wazuh", "skill-wazuh-connector", "skill-elastic-siem"],
+        )
+        .await;
+        let observed_src = asset_seen_by(asset, &["wazuh", "edr", "elastic"]);
+        let observed_finding = latest_finding_for(findings, &["wazuh", "elastic"]);
+        let observed = observed_src || observed_finding.is_some();
+        let last_seen = observed_finding
+            .map(|f| f.detected_at.clone())
+            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let item = match (configured.as_ref(), observed) {
+            (Some(sid), true) => CoverageItem {
+                kind: "edr",
+                label: "Endpoint EDR",
+                state: "covered",
+                detail: format!("{} actif sur cet asset", short_skill_label(sid)),
+                last_seen,
+                action_hint: None,
+            },
+            (Some(sid), false) => CoverageItem {
+                kind: "edr",
+                label: "Endpoint EDR",
+                state: "gap",
+                detail: format!(
+                    "{} configuré mais aucun signal observé sur cet asset",
+                    short_skill_label(sid)
+                ),
+                last_seen: None,
+                action_hint: Some("Vérifier l'enrôlement de l'agent".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "edr",
+                label: "Endpoint EDR",
+                state: "not_configured",
+                detail: "Aucun EDR connecté (Wazuh, Elastic Endpoint…)".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    // ── 3. Firewall ──────────────────────────────────────────────
+    {
+        let configured = first_configured_skill(
+            store,
+            &[
+                "skill-opnsense",
+                "skill-pfsense",
+                "skill-fortinet",
+                "skill-mikrotik",
+                "skill-cloudflare",
+            ],
+        )
+        .await;
+        let observed_src =
+            asset_seen_by(asset, &["opnsense", "pfsense", "fortinet", "mikrotik", "firewall"]);
+        let observed_finding =
+            latest_finding_for(findings, &["opnsense", "pfsense", "fortinet", "mikrotik"]);
+        let observed = observed_src || observed_finding.is_some();
+        let last_seen = observed_finding
+            .map(|f| f.detected_at.clone())
+            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let item = match (configured.as_ref(), observed) {
+            (Some(sid), true) => CoverageItem {
+                kind: "firewall",
+                label: "Firewall",
+                state: "covered",
+                detail: format!("{} · trafic visible sur cet asset", short_skill_label(sid)),
+                last_seen,
+                action_hint: None,
+            },
+            (Some(sid), false) => CoverageItem {
+                kind: "firewall",
+                label: "Firewall",
+                state: "gap",
+                detail: format!(
+                    "{} configuré mais aucun log lié à cet asset",
+                    short_skill_label(sid)
+                ),
+                last_seen: None,
+                action_hint: Some("Vérifier le routage des logs vers ThreatClaw".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "firewall",
+                label: "Firewall",
+                state: "not_configured",
+                detail: "Aucun firewall connecté".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    // ── 4. IDS / Sigma ───────────────────────────────────────────
+    {
+        let configured =
+            first_configured_skill(store, &["skill-suricata", "skill-zeek"]).await;
+        let observed_src = asset_seen_by(asset, &["suricata", "sigma", "zeek"]);
+        let observed_finding = latest_finding_for(findings, &["suricata", "zeek", "sigma"]);
+        let observed = observed_src || observed_finding.is_some();
+        let last_seen = observed_finding
+            .map(|f| f.detected_at.clone())
+            .or_else(|| if observed_src { Some(asset.last_seen.clone()) } else { None });
+        let item = match (configured.as_ref(), observed) {
+            (Some(sid), true) => CoverageItem {
+                kind: "ids",
+                label: "IDS / Sigma",
+                state: "covered",
+                detail: format!("{} · règles évaluées sur cet asset", short_skill_label(sid)),
+                last_seen,
+                action_hint: None,
+            },
+            (Some(sid), false) => CoverageItem {
+                kind: "ids",
+                label: "IDS / Sigma",
+                state: "gap",
+                detail: format!(
+                    "{} configuré, aucune alerte ne touche cet asset",
+                    short_skill_label(sid)
+                ),
+                last_seen: None,
+                action_hint: Some("Vérifier que les logs réseau couvrent ce host".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "ids",
+                label: "IDS / Sigma",
+                state: "not_configured",
+                detail: "Aucun IDS connecté (Suricata, Zeek…)".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    // ── 5. Vulnerability scan ────────────────────────────────────
+    {
+        let configured = first_configured_skill(
+            store,
+            &["skill-nmap-discovery", "skill-vuln-scan", "skill-nuclei", "skill-trivy"],
+        )
+        .await;
+        let recent_completed = scans.iter().find(|s| s.status == "done");
+        let observed_finding = latest_finding_for(findings, &["nmap", "nuclei", "trivy", "vuln"]);
+        let observed = recent_completed.is_some() || observed_finding.is_some();
+        let last_seen = recent_completed
+            .and_then(|s| s.finished_at.clone().or_else(|| Some(s.requested_at.clone())))
+            .or_else(|| observed_finding.map(|f| f.detected_at.clone()));
+        let item = match (configured.as_ref(), observed) {
+            (Some(sid), true) => CoverageItem {
+                kind: "vuln_scan",
+                label: "Scan vulnérabilités",
+                state: "covered",
+                detail: format!("{} · scans récents disponibles", short_skill_label(sid)),
+                last_seen,
+                action_hint: None,
+            },
+            (Some(sid), false) => CoverageItem {
+                kind: "vuln_scan",
+                label: "Scan vulnérabilités",
+                state: "gap",
+                detail: format!("{} configuré, aucun scan récent sur cet asset", short_skill_label(sid)),
+                last_seen: None,
+                action_hint: Some("Lancer un scan ad-hoc".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "vuln_scan",
+                label: "Scan vulnérabilités",
+                state: "not_configured",
+                detail: "Aucun scanner installé (Nmap, Nuclei…)".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    // ── 6. IAM ───────────────────────────────────────────────────
+    {
+        let configured = first_configured_skill(
+            store,
+            &[
+                "skill-active-directory",
+                "skill-keycloak",
+                "skill-authentik",
+                "skill-microsoft-graph",
+            ],
+        )
+        .await;
+        let owner_known = asset
+            .owner
+            .as_ref()
+            .map(|o| !o.trim().is_empty())
+            .unwrap_or(false);
+        let item = match (configured.as_ref(), owner_known) {
+            (Some(sid), true) => CoverageItem {
+                kind: "iam",
+                label: "IAM / Annuaire",
+                state: "covered",
+                detail: format!(
+                    "{} actif · owner identifié",
+                    short_skill_label(sid)
+                ),
+                last_seen: None,
+                action_hint: None,
+            },
+            (Some(sid), false) => CoverageItem {
+                kind: "iam",
+                label: "IAM / Annuaire",
+                state: "gap",
+                detail: format!(
+                    "{} configuré mais aucun owner rattaché à cet asset",
+                    short_skill_label(sid)
+                ),
+                last_seen: None,
+                action_hint: Some("Renseigner manuellement le responsable".into()),
+            },
+            (None, _) => CoverageItem {
+                kind: "iam",
+                label: "IAM / Annuaire",
+                state: "not_configured",
+                detail: "Aucun annuaire d'identité connecté".into(),
+                last_seen: None,
+                action_hint: None,
+            },
+        };
+        out.push(item);
+    }
+
+    out
+}
+
+/// Strip the leading `skill-` prefix and capitalise so a config skill_id
+/// renders as a brand the operator recognises (e.g. `skill-opnsense` →
+/// `Opnsense`).
+fn short_skill_label(skill_id: &str) -> String {
+    let trimmed = skill_id.trim_start_matches("skill-");
+    let mut s = String::with_capacity(trimmed.len());
+    let mut up = true;
+    for ch in trimmed.chars() {
+        if ch == '-' {
+            s.push(' ');
+            up = true;
+        } else if up {
+            s.extend(ch.to_uppercase());
+            up = false;
+        } else {
+            s.push(ch);
+        }
+    }
+    s
 }
 
 /// PUT /api/tc/assets/{id}/criticality — RSSI override of asset criticality.
@@ -8646,15 +9205,22 @@ pub async fn incidents_list_handler(
         }
     }
 
+    // Phase 10b reverted (2026-05-07) — pre-loading all assets into 3
+    // cloned hashmaps caused the per-call allocations to overshoot the
+    // cgroup limit on cyb06 (2.7 GB RSS after 5 hits, OOM-killing the
+    // core). Cause: even at 9 assets the path allocates a large
+    // transient working set per request (incidents × proposed_actions
+    // JSON × normalisation × hashmaps), and Rust's allocator only
+    // returns pages to the OS under pressure — by which point cgroup
+    // already SIGKILLs.
+    //
+    // Returning to the per-incident hydrate path: 1-3 indexed SQL
+    // queries per row. Slower on big lists but bounded memory. A
+    // future, properly-bounded batch should call a real `WHERE id =
+    // ANY($1)` instead of cloning N records into 3 maps.
     for inc in incidents.iter_mut() {
         enrich_incident_actions_batched(inc, has_firewall, has_glpi, &host_to_ip);
-        // Phase 9f — also hydrate asset_name / asset_hostname / asset_ips so
-        // the list view can render "debian (10.77.0.136)" instead of the raw
-        // canonical id. One indexed PK lookup per incident — at the typical
-        // page size of 50 this is sub-100ms total.
         hydrate_asset_fields(store.as_ref(), inc).await;
-        // Phase 9d — same normalisation as the detail handler so the list
-        // view also sees the canonical proposed_actions shape.
         normalise_proposed_actions(inc);
     }
 
@@ -8736,13 +9302,23 @@ async fn hydrate_asset_fields(store: &dyn crate::db::Database, incident: &mut se
         return;
     };
 
+    inject_asset_fields(incident, &rec);
+}
+
+/// Shared writer used by `hydrate_asset_fields`. Kept as a separate fn
+/// so a future batch hydration helper can reuse the exact same payload
+/// shape without copy-paste.
+fn inject_asset_fields(incident: &mut serde_json::Value, rec: &AssetRecord) {
     if let Some(map) = incident.as_object_mut() {
         map.insert(
             "asset_name".to_string(),
-            serde_json::Value::String(rec.name),
+            serde_json::Value::String(rec.name.clone()),
         );
-        if let Some(h) = rec.hostname {
-            map.insert("asset_hostname".to_string(), serde_json::Value::String(h));
+        if let Some(h) = &rec.hostname {
+            map.insert(
+                "asset_hostname".to_string(),
+                serde_json::Value::String(h.clone()),
+            );
         }
         // Strip ports / CIDR from the listed IPs so the UI can render a
         // clean "name (ip)" without preprocessing.

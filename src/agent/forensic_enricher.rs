@@ -1067,6 +1067,22 @@ const HALLUCINATION_SENTINELS: &[&str] = &[
     "Conti",
     "LockBit",
     "Black Basta",
+    // Phase 10b — placeholders prompt-leak observés sur Foundation-Sec
+    // quand la génération échoue ("ton analyse détaillée" rendu littéral
+    // dans le champ analysis). Ces tokens n'apparaîtront jamais dans le
+    // dossier réel (haystack), donc le check sentinel les rejettera
+    // systématiquement et déclenchera le fallback déterministe.
+    "ton analyse",
+    "ta analyse",
+    "votre analyse",
+    "your analysis",
+    "your detailed analysis",
+    "[insert",
+    "[your ",
+    "[detailed",
+    "[placeholder",
+    "placeholder text",
+    "lorem ipsum",
 ];
 
 #[derive(Default, Debug)]

@@ -164,6 +164,28 @@ pull_models_background() {
     echo "[models] threatclaw-forensic ready"
   fi
 
+  # ── threatclaw-forensic-fast (Foundation-Sec Reasoning Q4_K_M) —
+  # Phase 10a alternative for CPU-only / RAM-constrained installs.
+  # ~2× faster than Q8_0 at the cost of marginal narrative quality
+  # (-1 to -3% on equivalent Llama 8B benchmarks). The Phase 2c
+  # reconciler + Phase 7a hallucination sentinels catch the small
+  # quality drop in practice. Operator picks the active model in the
+  # /setup?tab=llm UI; both are pulled at init so switching is a hot
+  # swap with no extra download.
+  FORENSIC_FAST_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Reasoning-Q4_K_M-GGUF"
+  if [ "${TC_PULL_FORENSIC_FAST:-true}" = "true" ]; then
+    if ! echo "$MODELS" | grep -q "$FORENSIC_FAST_BASE"; then
+      echo "[models] Downloading Forensic-fast model (Foundation-Sec Reasoning Q4_K_M) — ~5 GB..."
+      curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$FORENSIC_FAST_BASE\",\"stream\":false}" > /dev/null 2>&1
+    fi
+    if ! echo "$MODELS" | grep -q "threatclaw-forensic-fast"; then
+      echo "[models] Creating threatclaw-forensic-fast..."
+      curl -s -X POST "${OLLAMA_URL}/api/create" \
+        -d "{\"name\":\"threatclaw-forensic-fast\",\"from\":\"$FORENSIC_FAST_BASE\",\"system\":\"You are ThreatClaw forensic analysis engine. Perform deep investigation and return ONLY valid JSON. Never fabricate evidence or MITRE techniques not directly supported by the provided data.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192,\"num_predict\":2048}}" --max-time 30 > /dev/null 2>&1
+      echo "[models] threatclaw-forensic-fast ready"
+    fi
+  fi
+
   echo "[models] All AI models ready"
 }
 

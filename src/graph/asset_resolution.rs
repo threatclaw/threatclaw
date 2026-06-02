@@ -18,6 +18,35 @@ fn esc(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
+/// Phase 11e — build the tag list for an upsert. Always carries
+/// `discovered`. Adds `public_ip` when:
+///   - the discovered asset has at least one IP, **and**
+///   - every IP is non-RFC1918 / non-special (i.e. routable on the
+///     public internet), **and**
+///   - the source is automatic (not a manual operator declaration).
+///
+/// The tag is what the billable filter (V67/V68) uses to keep public-IP
+/// shadows out of the customer-facing inventory: they were created by an
+/// ingestion pipeline because the firewall logs surfaced them, but they
+/// don't represent owned assets and shouldn't be billed nor monitored
+/// like one. The operator can still see them under the dedicated filter
+/// and merge them onto a real asset (e.g. fold a public-IP shadow into
+/// the OPNsense asset that NATs through it).
+fn build_discovery_tags(discovered: &DiscoveredAsset) -> Vec<String> {
+    let mut tags: Vec<String> = vec!["discovered".into()];
+    let is_manual = discovered.source.eq_ignore_ascii_case("manual");
+    if !is_manual {
+        if let Some(ref ip) = discovered.ip {
+            // Single IP for now (DiscoveredAsset.ip is one). Extends naturally
+            // when DiscoveredAsset grows a multi-IP field.
+            if !ip.is_empty() && !crate::agent::ip_classifier::is_non_routable(ip) {
+                tags.push("public_ip".into());
+            }
+        }
+    }
+    tags
+}
+
 /// An asset discovered from any source, before resolution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredAsset {
@@ -446,7 +475,7 @@ async fn merge_asset(
             source: discovered.source.clone(),
             owner: None,
             location: None,
-            tags: vec!["discovered".into()],
+            tags: build_discovery_tags(discovered),
         })
         .await;
 
@@ -551,7 +580,7 @@ async fn create_new_asset(
             source: discovered.source.clone(),
             owner: None,
             location: None,
-            tags: vec!["discovered".into()],
+            tags: build_discovery_tags(discovered),
         })
         .await;
 
