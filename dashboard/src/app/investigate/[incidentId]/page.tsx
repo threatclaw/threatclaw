@@ -565,29 +565,13 @@ export default function InvestigatePage() {
   const statusColor = inc ? STATUS_COLOR[inc.status] || "#888" : "#888";
   const sevColor = inc ? SEV_COLOR[inc.severity] || "#888" : "#888";
 
-  // Build timeline entries from graph_executions + ai_analyses sorted ASC
-  type TimelineEntry =
-    | { kind: "graph"; data: GraphExecution; ts: string }
-    | { kind: "ai"; data: AiAnalysis; ts: string };
-
-  const timelineEntries: TimelineEntry[] = data ? [
-    ...(data.graph_executions.map(g => ({ kind: "graph" as const, data: g, ts: g.started_at }))),
-    ...(data.ai_analyses.map(a => ({ kind: "ai" as const, data: a, ts: a.created_at }))),
-  ].sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()) : [];
-
-  // Latest L1 analysis
+  // Phase 10b — `latestL1` reste calculé pour alimenter la strip "Confiance L1"
+  // (haut de page). Les anciens blocs "Analyse · agent L1 · ReAct" et
+  // "Chronologie d'analyse · ai_analyses" ont été retirés au profit de
+  // l'InvestigationTimeline (Phase 9o) qui agrège skill / llm_call / decision.
   const latestL1 = data?.ai_analyses
     .filter(a => a.source === "react_l1")
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] || null;
-
-  const latestVerdict = latestL1
-    ? ((latestL1.raw_output as Record<string, unknown> | null)?.parsed
-        ? ((latestL1.raw_output as { parsed?: { verdict?: string } }).parsed?.verdict ?? null)
-        : null)
-    : null;
-
-  const verdictColor = latestVerdict === "false_positive" ? "#30a050"
-    : latestVerdict === "confirmed" ? "#ff6030" : "#888";
 
   const allMitre = inc
     ? [
@@ -1207,72 +1191,11 @@ export default function InvestigatePage() {
 
               </div>
 
-              {/* AI Analysis section */}
-              <section className="inv-sec">
-                <div className="inv-card">
-                  <div className="inv-card-head">
-                    <div className="inv-card-head-left">
-                      <strong>Analyse</strong> · agent L1 · ReAct
-                    </div>
-                    {latestL1 && (
-                      <div className="inv-card-head-right">
-                        {latestL1.source} · {fmtDate(latestL1.created_at)} {fmtTime(latestL1.created_at)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="inv-ai-body">
-                    {!latestL1 ? (
-                      <div style={{ fontSize: 12, color: "var(--tc-text-muted)" }}>
-                        Aucune analyse — cliquez sur Analyser pour lancer L1.
-                      </div>
-                    ) : (
-                      <>
-                        <div className="inv-ai-head">
-                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                            <span
-                              className="inv-blink"
-                              style={{
-                                background: verdictColor,
-                              }}
-                            />
-                            <span style={{
-                              fontSize: 11, fontWeight: 700, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                              textTransform: "uppercase", letterSpacing: "0.06em", color: verdictColor,
-                            }}>
-                              {latestVerdict || "inconclusive"}
-                            </span>
-                          </div>
-                          {latestL1.confidence != null && (
-                            <span style={{
-                              fontSize: 13, fontWeight: 700,
-                              fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                              color: latestL1.confidence >= 0.8 ? "#30a050"
-                                : latestL1.confidence >= 0.5 ? "#e0a020" : "#ff6030",
-                            }}>
-                              {pct(latestL1.confidence)}
-                            </span>
-                          )}
-                        </div>
-                        <div className="inv-verdict">{latestL1.summary}</div>
-                        <div className="inv-ai-foot">
-                          <div className="inv-ai-foot-cell">
-                            <label>Source</label>
-                            <span>{latestL1.source}</span>
-                          </div>
-                          <div className="inv-ai-foot-cell">
-                            <label>Verdict</label>
-                            <span style={{ color: verdictColor }}>{latestVerdict || "—"}</span>
-                          </div>
-                          <div className="inv-ai-foot-cell">
-                            <label>Skills</label>
-                            <span>{latestL1.skills_used.length > 0 ? latestL1.skills_used.join(", ") : "—"}</span>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </section>
+              {/* Phase 10b — bloc "Analyse · agent L1 · ReAct" retiré.
+                  Il rendait toujours soit "Aucune analyse" soit le dernier
+                  cycle de polling react_l1 sans valeur opérateur. La trace
+                  L1/L2 vit désormais dans InvestigationTimeline (Phase 9o)
+                  où chaque step est typé skill/llm_call/decision/action. */}
 
               {/* Phase 4 — chronologie d'attaque enrichie (firewall logs cross-correlation,
                   IP reputations, CVE details). Nourri par EnrichmentBundle persisté
@@ -1432,100 +1355,12 @@ export default function InvestigatePage() {
                 </div>
               </section>
 
-              {/* Analysis timeline */}
-              <section className="inv-sec">
-                <div className="inv-card">
-                  <div className="inv-card-head">
-                    <div className="inv-card-head-left">
-                      <strong>Chronologie d&apos;analyse</strong> · {timelineEntries.length} événements
-                    </div>
-                    {timelineEntries.length > 0 && (
-                      <div className="inv-card-head-right">
-                        {fmtDate(timelineEntries[0].ts)} — {fmtDate(timelineEntries[timelineEntries.length - 1].ts)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="inv-signals">
-                    {timelineEntries.length === 0 ? (
-                      <div style={{ padding: "16px 14px", fontSize: 12, color: "var(--tc-text-muted)" }}>
-                        Aucun signal enregistré.
-                      </div>
-                    ) : (
-                      timelineEntries.map((entry, idx) => {
-                        if (entry.kind === "graph") {
-                          const g = entry.data;
-                          const outcomeColor = g.outcome === "Incident" ? "#ff6030"
-                            : g.outcome === "Archive" ? "#30a050" : "#888";
-                          return (
-                            <div key={`g-${g.id}`} className="inv-signal-row">
-                              <div className="inv-signal-ts">
-                                {fmtTime(g.started_at)}<br />
-                                <span style={{ color: "var(--tc-text-muted)", fontWeight: 400, fontSize: 9 }}>{fmtDate(g.started_at)}</span>
-                              </div>
-                              <div>
-                                <div className="inv-signal-content-title">{g.graph_name}</div>
-                                <div className="inv-signal-source">
-                                  graph · {g.status}
-                                  {g.duration_ms != null && ` · ${fmtDuration(g.duration_ms)}`}
-                                </div>
-                                {g.outcome && (
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: outcomeColor, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                                    → {g.outcome}
-                                  </span>
-                                )}
-                                {g.archive_reason && (
-                                  <span style={{ fontSize: 11, color: "var(--tc-text-muted)", marginLeft: 6, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                                    ({g.archive_reason})
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        }
-                        const a = entry.data;
-                        const aVerdict = (a.raw_output as Record<string, unknown> | null)?.parsed
-                          ? ((a.raw_output as { parsed?: { verdict?: string } }).parsed?.verdict ?? null)
-                          : null;
-                        const aVColor = aVerdict === "false_positive" ? "#30a050"
-                          : aVerdict === "confirmed" ? "#ff6030" : "#888";
-                        return (
-                          <div key={`a-${a.id}`} className="inv-signal-row">
-                            <div className="inv-signal-ts">
-                              {fmtTime(a.created_at)}<br />
-                              <span style={{ color: "var(--tc-text-muted)", fontWeight: 400, fontSize: 9 }}>{fmtDate(a.created_at)}</span>
-                            </div>
-                            <div>
-                              <div className="inv-signal-content-title" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                {a.source}
-                                {a.confidence != null && (
-                                  <span style={{
-                                    fontSize: 11, fontWeight: 700, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
-                                    color: a.confidence >= 0.8 ? "#30a050" : a.confidence >= 0.5 ? "#e0a020" : "#ff6030",
-                                  }}>{pct(a.confidence)}</span>
-                                )}
-                                {aVerdict && (
-                                  <span style={{ fontSize: 10, fontWeight: 700, color: aVColor, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                                    {aVerdict}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="inv-signal-content-body">{a.summary}</div>
-                              <div className="inv-signal-source">ai-analysis · {a.source}</div>
-                              {a.mitre_added.length > 0 && (
-                                <div>
-                                  {a.mitre_added.map(t => (
-                                    <span key={t} className="inv-tag">{t}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </section>
+              {/* Phase 10b — bloc "Chronologie d'analyse · ai_analyses" retiré.
+                  Il rendait essentiellement le polling react_l1 toutes les
+                  ~15 min ("Aucun résumé produit · 50%"), pas une vraie trace
+                  d'investigation. Remplacé par <InvestigationTimeline> ci-dessus
+                  (Phase 9o) qui agrège skill / llm_call / decision / action sur
+                  la table append-only `incident_investigation_steps` (V72). */}
 
               {/* Related incidents */}
               <section className="inv-sec">

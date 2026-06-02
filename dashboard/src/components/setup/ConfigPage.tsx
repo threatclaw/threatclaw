@@ -919,16 +919,27 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
     ],
     l2: [
-      { value: "threatclaw-forensic", label: "Foundation-Sec 8B Reasoning Q8 (recommande)", detail: tr("modelDescL2", locale), ram: 8.5 },
+      // Phase 10a — sélecteur L2 forensic adaptable au hardware client.
+      // Foundation-Sec Q8 reste la référence qualité. Q4 divise par ~2 le
+      // temps d'inférence sur CPU pur sans GPU, avec une perte qualité
+      // narrative marginale (-1 à -3% sur les benchmarks Llama 8B
+      // équivalents) rattrapée par les guardrails Phase 2c + 7a.
+      // Qwen3 8B en backup : pas spécialisé cyber mais raisonnement
+      // solide, utile quand Foundation-Sec ne convient pas.
+      { value: "threatclaw-forensic", label: "Foundation-Sec 8B Reasoning Q8 — qualité max", detail: tr("modelDescL2", locale), ram: 8.5 },
+      { value: "threatclaw-forensic-fast", label: "Foundation-Sec 8B Reasoning Q4 — perf max (CPU)", detail: tr("modelDescL2Fast", locale), ram: 5.5 },
+      { value: "qwen3:8b", label: "Qwen3 8B — alternative généraliste", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
   };
 
-  // RAM calculator
+  // RAM calculator — Phase 10a: l2Ram suit désormais le modèle sélectionné
+  // par l'opérateur (forensic.model) au lieu d'être figé sur le 1er entry
+  // du catalogue. Permet le warning RAM dynamique quand on switche Q8 → Q4.
   const l0Ram = conversational.source === "local"
     ? (MODEL_CATALOG.l0.find(m => m.value === conversational.localModel)?.ram || 9.3)
     : 0;
   const l1Ram = MODEL_CATALOG.l1.find(m => m.value === (llm.model || "threatclaw-primary"))?.ram || 4.9;
-  const l2Ram = MODEL_CATALOG.l2[0]?.ram || 8.5;
+  const l2Ram = MODEL_CATALOG.l2.find(m => m.value === (forensic.model || "threatclaw-forensic"))?.ram || 8.5;
   const permanentRam = l0Ram + l1Ram;
   const peakRam = permanentRam + l2Ram;
 

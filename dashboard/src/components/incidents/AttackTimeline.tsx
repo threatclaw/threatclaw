@@ -1,7 +1,7 @@
 /**
- * AttackTimeline — Phase 4 UI
+ * AttackTimeline — Phase 4 UI (refactor Phase 10b)
  *
- * Affiche la chronologie d'attaque enrichie d'un incident :
+ * Affiche les données factuelles d'enrichissement d'un incident :
  *  - lignes firewall cross-correlation (Suricata + pf logs OPNsense/Fortinet/etc.)
  *    récupérées par dossier_enrichment::enrich_firewall_logs
  *  - réputations IP source (Spamhaus, ThreatFox, GreyNoise)
@@ -13,6 +13,11 @@
  *
  * Aucune donnée n'est inventée côté UI — on affiche uniquement ce que le
  * backend a peuplé (cohérent avec la doctrine anti-hallucination).
+ *
+ * Phase 10b — refactor pour utiliser les classes/variables CSS de la page
+ * investigate (`.inv-card`, `var(--tc-*)`) au lieu des classes Tailwind.
+ * Le titre "Chronologie d'attaque enrichie" était trompeur (ce bloc n'est
+ * pas une vraie chronologie temporelle), il devient "Données factuelles".
  */
 
 import React from "react";
@@ -70,43 +75,83 @@ interface Props {
   sigmaDriven?: boolean;
 }
 
-// ── Helpers ───────────────────────────────────────────────────────
+// ── Helpers couleurs (alignées sur la palette ThreatClaw) ─────────
 
-function classificationColor(rep: IpReputation): string {
+function classificationColor(rep: IpReputation): {
+  border: string;
+  bg: string;
+  fg: string;
+} {
   if (rep.is_malicious || rep.classification === "malicious") {
-    return "bg-red-900/40 border-red-700 text-red-200";
+    return { border: "#ff6030", bg: "rgba(255,96,48,0.08)", fg: "#ff6030" };
   }
   if (rep.classification === "benign") {
-    return "bg-emerald-900/40 border-emerald-700 text-emerald-200";
+    return { border: "#30a050", bg: "rgba(48,160,80,0.08)", fg: "#30a050" };
   }
   if (rep.classification === "noise" || rep.classification === "scanner") {
-    return "bg-amber-900/40 border-amber-700 text-amber-200";
+    return { border: "#e0a020", bg: "rgba(224,160,32,0.08)", fg: "#e0a020" };
   }
-  return "bg-slate-800/40 border-slate-700 text-slate-300";
+  return {
+    border: "var(--tc-border)",
+    bg: "transparent",
+    fg: "var(--tc-text-sec)",
+  };
 }
 
-function cveSeverityColor(cvss: number | null): string {
-  if (cvss === null) return "bg-slate-700 text-slate-300";
-  if (cvss >= 9) return "bg-red-900/60 text-red-200";
-  if (cvss >= 7) return "bg-orange-900/60 text-orange-200";
-  if (cvss >= 4) return "bg-amber-900/60 text-amber-200";
-  return "bg-slate-700 text-slate-300";
+function cveSeverityColor(cvss: number | null): { bg: string; fg: string } {
+  if (cvss === null) return { bg: "var(--tc-surface-alt)", fg: "var(--tc-text-muted)" };
+  if (cvss >= 9) return { bg: "rgba(255,32,32,0.15)", fg: "#ff2020" };
+  if (cvss >= 7) return { bg: "rgba(255,96,48,0.15)", fg: "#ff6030" };
+  if (cvss >= 4) return { bg: "rgba(224,160,32,0.15)", fg: "#e0a020" };
+  return { bg: "var(--tc-surface-alt)", fg: "var(--tc-text-muted)" };
 }
 
 function epssBadge(epss: number | null): React.ReactElement | null {
   if (epss === null) return null;
   const pct = (epss * 100).toFixed(1);
-  const color =
+  const c =
     epss > 0.8
-      ? "bg-red-900/60 text-red-200"
+      ? { bg: "rgba(255,96,48,0.15)", fg: "#ff6030" }
       : epss > 0.5
-        ? "bg-orange-900/60 text-orange-200"
-        : "bg-slate-700 text-slate-300";
+        ? { bg: "rgba(224,160,32,0.15)", fg: "#e0a020" }
+        : { bg: "var(--tc-surface-alt)", fg: "var(--tc-text-muted)" };
   return (
-    <span className={`px-2 py-0.5 text-[11px] rounded ${color}`}>
-      EPSS {pct}%
-    </span>
+    <span style={badgeStyle(c.bg, c.fg)}>EPSS {pct}%</span>
   );
+}
+
+const sectionLabelStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: "var(--tc-text-muted)",
+  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+  padding: "10px 14px 6px",
+};
+
+const rowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 14px",
+  fontSize: 12,
+  fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+  borderTop: "1px dashed var(--tc-border)",
+};
+
+function badgeStyle(bg: string, fg: string): React.CSSProperties {
+  return {
+    fontSize: 10,
+    fontWeight: 700,
+    fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+    padding: "1px 6px",
+    background: bg,
+    color: fg,
+    border: `1px solid ${fg === "#ff2020" || fg === "#ff6030" || fg === "#e0a020" || fg === "#30a050" ? fg + "44" : "var(--tc-border)"}`,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  };
 }
 
 // ── Composant ─────────────────────────────────────────────────────
@@ -138,151 +183,211 @@ export function AttackTimeline({
   }
 
   return (
-    <section className="rounded-lg border border-slate-700 bg-slate-900/50 p-4 space-y-4">
-      <header className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-200">
-          Chronologie d&apos;attaque enrichie
-        </h3>
-        <span className="text-[11px] text-slate-500">
-          Données factuelles · sources externes + skills connectés
-        </span>
-      </header>
+    <div className="inv-card">
+      <div className="inv-card-head">
+        <div className="inv-card-head-left">
+          <strong>Données factuelles</strong> · enrichissement externe
+        </div>
+        <div className="inv-card-head-right">
+          sources externes + skills connectés
+        </div>
+      </div>
 
       {ipReps.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-[12px] uppercase tracking-wider text-slate-400">
-            Réputations IP source
-          </h4>
-          <ul className="space-y-1.5">
-            {ipReps.map((rep, i) => (
-              <li
+        <>
+          <div style={sectionLabelStyle}>Réputations IP source</div>
+          {ipReps.map((rep, i) => {
+            const c = classificationColor(rep);
+            return (
+              <div
                 key={`${rep.ip}-${rep.source}-${i}`}
-                className={`flex items-center gap-3 px-3 py-2 rounded border text-sm ${classificationColor(
-                  rep,
-                )}`}
+                style={{
+                  ...rowStyle,
+                  background: c.bg,
+                  color: c.fg,
+                  borderLeft: `2px solid ${c.border}`,
+                }}
               >
-                <span className="font-mono">{rep.ip}</span>
-                <span className="text-[11px] uppercase opacity-70">
+                <span style={{ fontWeight: 600 }}>{rep.ip}</span>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--tc-text-muted)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
                   {rep.source}
                 </span>
-                <span className="ml-auto text-[12px]">
+                <span style={{ marginLeft: "auto", fontSize: 11 }}>
                   {rep.classification}
                   {rep.details ? ` — ${rep.details}` : ""}
                 </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+              </div>
+            );
+          })}
+        </>
       )}
 
       {showCveSection && (
-        <div className="space-y-2">
-          <h4 className="text-[12px] uppercase tracking-wider text-slate-400">
-            {/* Phase 9h — title clarified to make the scope explicit. The
-                full asset posture lives on /assets/<id> ; this block only
-                lists CVEs directly tied to the observed attack. */}
-            Vulnérabilités liées à cette attaque
-          </h4>
+        <>
+          <div style={sectionLabelStyle}>Vulnérabilités liées à cette attaque</div>
           {cves.length > 0 ? (
-            <ul className="space-y-1.5">
-              {cves.map((cve, i) => (
-                <li
+            cves.map((cve, i) => {
+              const sev = cveSeverityColor(cve.cvss_score);
+              return (
+                <div
                   key={`${cve.cve_id}-${i}`}
-                  className="flex flex-wrap items-center gap-2 px-3 py-2 rounded border border-slate-700 bg-slate-900/40 text-sm"
+                  style={{
+                    ...rowStyle,
+                    flexWrap: "wrap",
+                    color: "var(--tc-text-sec)",
+                  }}
                 >
-                  <span className="font-mono text-slate-200">{cve.cve_id}</span>
+                  <span style={{ color: "var(--tc-text)", fontWeight: 600 }}>
+                    {cve.cve_id}
+                  </span>
                   {cve.cvss_score !== null && (
-                    <span
-                      className={`px-2 py-0.5 text-[11px] rounded ${cveSeverityColor(
-                        cve.cvss_score,
-                      )}`}
-                    >
+                    <span style={badgeStyle(sev.bg, sev.fg)}>
                       CVSS {cve.cvss_score.toFixed(1)}
                     </span>
                   )}
                   {epssBadge(cve.epss_score)}
                   {cve.is_kev && (
-                    <span className="px-2 py-0.5 text-[11px] rounded bg-red-900/60 text-red-200">
+                    <span style={badgeStyle("rgba(255,32,32,0.15)", "#ff2020")}>
                       CISA KEV
                     </span>
                   )}
                   {cve.description && (
-                    <span className="text-[12px] text-slate-400 ml-1">
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "var(--tc-text-muted)",
+                        marginLeft: 4,
+                        flex: 1,
+                      }}
+                    >
                       {cve.description}
                     </span>
                   )}
-                </li>
-              ))}
-            </ul>
+                </div>
+              );
+            })
           ) : (
             // Phase 9h — sigma-driven incident with no CVE pinned to the
             // attack. Make it explicit so the operator doesn't think we
             // missed something. The asset's full vuln posture is one click
             // away on the asset page.
-            <p className="text-[12px] text-slate-400 italic px-3 py-2 rounded border border-slate-700 bg-slate-900/30">
+            <div
+              style={{
+                padding: "10px 14px",
+                fontSize: 12,
+                fontStyle: "italic",
+                color: "var(--tc-text-muted)",
+                borderTop: "1px dashed var(--tc-border)",
+              }}
+            >
               Aucune CVE directement liée à cette attaque (typique pour un
               brute force d&apos;authentification ou un scan). La posture
               vulnérabilité complète de l&apos;asset reste consultable sur
               sa page dédiée.
-            </p>
+            </div>
           )}
           {assetId && (
-            <div className="text-[11px] text-slate-500">
+            <div
+              style={{
+                padding: "6px 14px 10px",
+                fontSize: 11,
+                fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+              }}
+            >
               <a
                 href={`/assets/${encodeURIComponent(assetId)}`}
-                className="text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
+                style={{
+                  color: "var(--tc-red)",
+                  textDecoration: "none",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.textDecoration =
+                    "underline";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.textDecoration =
+                    "none";
+                }}
               >
                 Voir la posture vulnérabilité de l&apos;asset →
               </a>
             </div>
           )}
-        </div>
+        </>
       )}
 
       {threatIntel.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-[12px] uppercase tracking-wider text-slate-400">
-            Threat intel
-          </h4>
-          <ul className="space-y-1.5">
-            {threatIntel.map((ti, i) => (
-              <li
-                key={`${ti.indicator}-${ti.source}-${i}`}
-                className="flex items-center gap-3 px-3 py-2 rounded border border-amber-700 bg-amber-900/20 text-sm"
+        <>
+          <div style={sectionLabelStyle}>Threat intel</div>
+          {threatIntel.map((ti, i) => (
+            <div
+              key={`${ti.indicator}-${ti.source}-${i}`}
+              style={{
+                ...rowStyle,
+                background: "rgba(224,160,32,0.05)",
+                borderLeft: "2px solid #e0a020",
+                color: "#e0a020",
+              }}
+            >
+              <span style={{ fontWeight: 600 }}>{ti.indicator}</span>
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "var(--tc-text-muted)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                }}
               >
-                <span className="font-mono text-amber-200">{ti.indicator}</span>
-                <span className="text-[11px] uppercase opacity-70">
-                  {ti.indicator_type}
-                </span>
-                <span className="text-[11px] text-slate-400">{ti.source}</span>
-                <span className="ml-auto text-[12px] text-slate-300">
-                  {ti.threat_type}
-                  {ti.malware ? ` · ${ti.malware}` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+                {ti.indicator_type}
+              </span>
+              <span
+                style={{ fontSize: 10, color: "var(--tc-text-muted)" }}
+              >
+                {ti.source}
+              </span>
+              <span
+                style={{
+                  marginLeft: "auto",
+                  fontSize: 11,
+                  color: "var(--tc-text-sec)",
+                }}
+              >
+                {ti.threat_type}
+                {ti.malware ? ` · ${ti.malware}` : ""}
+              </span>
+            </div>
+          ))}
+        </>
       )}
 
       {lines.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-[12px] uppercase tracking-wider text-slate-400">
+        <>
+          <div style={sectionLabelStyle}>
             Cross-correlation skills connectés
-          </h4>
-          <ul className="space-y-1 font-mono text-[12px] text-slate-300">
-            {lines.map((line, i) => (
-              <li
-                key={i}
-                className="px-3 py-1.5 rounded bg-slate-950/60 border border-slate-800 break-all"
-              >
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
+          </div>
+          {lines.map((line, i) => (
+            <div
+              key={i}
+              style={{
+                ...rowStyle,
+                color: "var(--tc-text-sec)",
+                wordBreak: "break-all",
+                fontSize: 11,
+              }}
+            >
+              {line}
+            </div>
+          ))}
+        </>
       )}
-    </section>
+    </div>
   );
 }
 

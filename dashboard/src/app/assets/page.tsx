@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
@@ -11,6 +12,12 @@ import {
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
+// Phase 11b — single source of truth for criticality colour/label so the
+// list view and the dedicated /assets/[id] page never drift apart.
+import {
+  ICON_MAP as SHARED_ICON_MAP,
+  CRIT_COLORS as SHARED_CRIT_COLORS,
+} from "@/lib/asset-shared";
 
 // ── Types ──
 
@@ -55,10 +62,14 @@ const BILLABLE_FILTERS: Array<{
     id: "billable",
     labelFr: "Facturables",
     labelEn: "Billable",
+    // Phase 11e — `public_ip` shadows (auto-created from firewall logs
+    // for IPs routed on the public internet) are excluded. They're not
+    // owned assets and shouldn't bloat the billable count.
     predicate: (a) =>
       !a.demo &&
       a.status === "active" &&
       a.inventory_status !== "inactive" &&
+      !(a.tags || []).includes("public_ip") &&
       (a.inventory_status === "declared" ||
         a.inventory_status === "observed_persistent" ||
         (a.inventory_status === "observed_transient" &&
@@ -92,7 +103,7 @@ const BILLABLE_FILTERS: Array<{
 // 'all' (because excluded → not billable, not in observation, not inactive
 // per V67 rules — they live in their own bucket).
 const EXTRA_FILTERS: Array<{
-  id: BillableFilter | "excluded" | "merged";
+  id: BillableFilter | "excluded" | "merged" | "public_ip";
   labelFr: string;
   labelEn: string;
   predicate: (a: Asset) => boolean;
@@ -109,6 +120,16 @@ const EXTRA_FILTERS: Array<{
     labelEn: "Merged",
     predicate: (a) => a.status === "merged",
   },
+  // Phase 11e — assets auto-shadowed from public IPs seen in firewall logs.
+  // Surfaced under their own filter so the operator can decide whether to
+  // merge them into an existing asset (e.g. fold the WAN IP into the
+  // OPNsense host) or leave them as raw observation pegs.
+  {
+    id: "public_ip",
+    labelFr: "IPs publiques",
+    labelEn: "Public IPs",
+    predicate: (a) => (a.tags || []).includes("public_ip"),
+  },
 ];
 
 const INVENTORY_BADGE: Record<string, { labelFr: string; labelEn: string; color: string }> = {
@@ -120,18 +141,8 @@ const INVENTORY_BADGE: Record<string, { labelFr: string; labelEn: string; color:
 
 // ── Constants ──
 
-const ICON_MAP: Record<string, React.ElementType> = {
-  server: Server, monitor: Monitor, smartphone: Smartphone, globe: Globe,
-  network: Network, printer: Printer, cpu: Cpu, factory: Factory,
-  cloud: Cloud, "help-circle": HelpCircle,
-};
-
-const CRIT_COLORS: Record<string, { color: string; label: string }> = {
-  critical: { color: "#e04040", label: "Critique" },
-  high: { color: "#d07020", label: "Haut" },
-  medium: { color: "#d09020", label: "Moyen" },
-  low: { color: "#30a050", label: "Bas" },
-};
+const ICON_MAP = SHARED_ICON_MAP;
+const CRIT_COLORS = SHARED_CRIT_COLORS;
 
 const CAT_DESCRIPTIONS: Record<string, string> = {
   server: "Serveurs physiques ou virtuels (web, base de données, mail, AD...)",
@@ -186,7 +197,7 @@ const SEV_COLORS: Record<string, string> = {
 // detail modal. Single source of truth for "this asset shouldn't be
 // counted or analysed any more" and "this asset is a duplicate of
 // another, redirect future events to it".
-function ExclusionPanel({ asset, onChanged }: { asset: Asset; onChanged: () => void }) {
+export function ExclusionPanel({ asset, onChanged }: { asset: Asset; onChanged: () => void }) {
   const locale = useLocale();
   const fr = locale === "fr";
 
@@ -520,7 +531,7 @@ function ExclusionPanel({ asset, onChanged }: { asset: Asset; onChanged: () => v
   );
 }
 
-function SecurityTab({ assetId }: { assetId: string }) {
+export function SecurityTab({ assetId }: { assetId: string }) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const locale = useLocale();
@@ -654,7 +665,7 @@ function SecurityTab({ assetId }: { assetId: string }) {
 // X" + "Re-scanner" button. The button forces ttl_seconds=0 so the
 // dedup window is bypassed.
 // ─────────────────────────────────────────────────────────────────────
-function AssetScanSurface({ asset }: { asset: any }) {
+export function AssetScanSurface({ asset }: { asset: any }) {
   const [scans, setScans] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -755,7 +766,7 @@ function relTimeShort(iso: string | null): string {
   return new Date(iso).toLocaleDateString("fr-FR");
 }
 
-function AssetFindings({ asset }: { asset: any }) {
+export function AssetFindings({ asset }: { asset: any }) {
   const locale = useLocale();
   const [findings, setFindings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -841,6 +852,7 @@ function AssetFindings({ asset }: { asset: any }) {
 }
 
 export default function AssetsPage() {
+  const router = useRouter();
   const locale = useLocale();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -854,8 +866,8 @@ export default function AssetsPage() {
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState(0); // 0=pick category, 1=fill form
   const [editAsset, setEditAsset] = useState<Asset | null>(null);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [assetTab, setAssetTab] = useState("summary");
+  // Phase 10c — popup retiré au profit de la page dédiée /assets/[id].
+  // Le bouton "Détails" navigue désormais via router.push.
 
   // Form state
   const [form, setForm] = useState({
@@ -1168,8 +1180,9 @@ export default function AssetsPage() {
                         {crit.label}
                       </span>
                       {a.subcategory && <span style={{ fontSize: "8px", color: "var(--tc-text-muted)", padding: "1px 4px", borderRadius: "3px", background: "var(--tc-input)" }}>{a.subcategory}</span>}
-                      {a.source !== "manual" && <span style={{ fontSize: "8px", color: "var(--tc-blue)", padding: "1px 4px", borderRadius: "3px", background: "rgba(48,128,208,0.08)" }}>{a.source}</span>}
-                      {a.category === "unknown" && <span style={{ fontSize: "8px", color: "var(--tc-amber)", padding: "1px 4px", borderRadius: "3px", background: "rgba(208,144,32,0.08)" }}>auto-détecté</span>}
+                      {/* Phase 11a — badges `source` brute (dhcp/opnsense/...) et `auto-détecté`
+                          retirés de la liste : info technique secondaire qui surchargeait la
+                          ligne. Toujours visibles dans la page détail (footer Sources du Résumé). */}
                       {/* V67 — inventory_status badge. The transient
                           bucket also surfaces the days-seen progress
                           so the operator can guess when it'll flip
@@ -1206,7 +1219,7 @@ export default function AssetsPage() {
 
                   {/* Actions */}
                   <div style={{ display: "flex", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => { setAssetTab("summary"); setExpandedId(a.id); }} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
+                    <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
                     <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
                   </div>
@@ -1219,228 +1232,7 @@ export default function AssetsPage() {
           })}
         </div>
 
-        {/* Asset Detail Modal */}
-        {expandedId && (() => {
-          const a = assets.find(x => x.id === expandedId);
-          if (!a) return null;
-          const cat = categories.find(c => c.id === a.category);
-          const crit = CRIT_COLORS[a.criticality] || { color: "var(--tc-text-muted)", label: a.criticality };
-          const Icon = ICON_MAP[cat?.icon || "help-circle"] || HelpCircle;
-          return (
-            <div onClick={e => { if (e.target === e.currentTarget) setExpandedId(null); }}
-              style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{
-              background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)",
-              padding: "24px", width: "700px", maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto",
-            }}>
-              {/* Header */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div style={{ width: "40px", height: "40px", borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: cat?.color || "var(--tc-text-muted)" }}>
-                    <Icon size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)" }}>{a.name}</div>
-                    <div style={{ display: "flex", gap: "6px", marginTop: "2px" }}>
-                      <span style={{ fontSize: "9px", fontWeight: 700, padding: "1px 6px", borderRadius: "3px", background: `${crit.color}15`, color: crit.color, border: `1px solid ${crit.color}30`, textTransform: "uppercase" }}>{crit.label}</span>
-                      <span style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", background: "var(--tc-input)", color: "var(--tc-text-muted)" }}>{cat?.label || a.category}</span>
-                      {(a as any).sources?.length > 0 && <span style={{ fontSize: "8px", padding: "1px 6px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)" }}>Sources: {(a as any).sources.join(", ")}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                  <button onClick={() => openEdit(a)} style={{ padding: "6px 10px", fontSize: "10px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text-sec)", cursor: "pointer" }}>Modifier</button>
-                  <button onClick={() => setExpandedId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><X size={16} /></button>
-                </div>
-              </div>
-
-              {/* Tabs */}
-              {(() => {
-                const software = (a as any).software || [];
-                const hasSoftware = Array.isArray(software) && software.length > 0;
-                const hasServices = a.services && Array.isArray(a.services) && a.services.length > 0;
-                const tabs = [
-                  { id: "summary", label: "Résumé" },
-                  { id: "software", label: `Logiciels${hasSoftware ? ` (${software.length})` : ""}` },
-                  { id: "network", label: "Réseau" },
-                  { id: "security", label: "Sécurité" },
-                  { id: "findings", label: "Findings" },
-                ];
-                const activeTab = assetTab;
-                const setActiveTab = setAssetTab;
-                return (
-                  <>
-                    <div style={{ display: "flex", gap: "2px", marginBottom: "16px", borderBottom: "1px solid var(--tc-border)", paddingBottom: "0" }}>
-                      {tabs.map(tab => (
-                        <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-                          padding: "8px 14px", fontSize: "10px", fontWeight: 700, fontFamily: "inherit",
-                          background: "transparent", border: "none", borderBottom: activeTab === tab.id ? "2px solid var(--tc-red)" : "2px solid transparent",
-                          color: activeTab === tab.id ? "var(--tc-text)" : "var(--tc-text-muted)",
-                          cursor: "pointer", transition: "all 150ms",
-                        }}>{tab.label}</button>
-                      ))}
-                    </div>
-
-                    {/* ── Tab: Résumé ── */}
-                    {activeTab === "summary" && (
-                      <div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "10px", marginBottom: "16px" }}>
-                          <div><span style={labelStyle}>IP</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.ip_addresses.join(", ") || "—"}</div></div>
-                          <div><span style={labelStyle}>MAC</span><div style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.mac_address || "—"} {a.mac_vendor && <span style={{ color: "var(--tc-text-muted)" }}>({a.mac_vendor})</span>}</div></div>
-                          <div><span style={labelStyle}>Hostname</span><div style={{ color: "var(--tc-text)" }}>{a.hostname || "—"}{a.fqdn ? ` (${a.fqdn})` : ""}</div></div>
-                          <div><span style={labelStyle}>OS</span><div style={{ color: "var(--tc-text)" }}>{a.os || "—"}</div></div>
-                          <div><span style={labelStyle}>Rôle</span><div style={{ color: "var(--tc-text)" }}>{a.role || "—"}</div></div>
-                          <div><span style={labelStyle}>Responsable</span><div style={{ color: "var(--tc-text)" }}>{a.owner || "—"}</div></div>
-                          <div>
-                            <span style={labelStyle}>Criticité</span>
-                            <select
-                              value={a.criticality}
-                              onChange={async (e) => {
-                                const next = e.target.value;
-                                const prev = a.criticality;
-                                // Optimistic update so the badge in the header
-                                // reflects the new value immediately.
-                                setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: next } : r));
-                                try {
-                                  const res = await fetch(`/api/tc/assets/${a.id}/criticality`, {
-                                    method: "PUT",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ criticality: next }),
-                                  });
-                                  const j = await res.json().catch(() => ({}));
-                                  if (j?.error) {
-                                    setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: prev } : r));
-                                    alert("Criticité non sauvegardée : " + j.error);
-                                  }
-                                } catch (err) {
-                                  setAssets(rows => rows.map(r => r.id === a.id ? { ...r, criticality: prev } : r));
-                                  alert("Criticité non sauvegardée (réseau)");
-                                }
-                              }}
-                              style={{
-                                width: "100%", padding: "4px 6px", fontSize: "10px", fontFamily: "inherit",
-                                background: "var(--tc-input)", border: "1px solid var(--tc-border)",
-                                borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)", cursor: "pointer",
-                              }}
-                            >
-                              <option value="low">Bas</option>
-                              <option value="medium">Moyen</option>
-                              <option value="high">Haut</option>
-                              <option value="critical">Critique</option>
-                              <option value="unknown">Inconnu</option>
-                            </select>
-                          </div>
-                          {a.url && <div style={{ gridColumn: "1/3" }}><span style={labelStyle}>URL</span><div style={{ color: "var(--tc-blue)", fontFamily: "monospace", fontSize: "9px" }}>{a.url}</div></div>}
-                        </div>
-                        <GraphIntelSection assetId={a.id} />
-                        {a.tags && a.tags.length > 0 && (
-                          <div style={{ marginTop: "12px" }}>
-                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Tags</div>
-                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                              {a.tags.map((t: string, i: number) => <span key={i} style={{ fontSize: "8px", padding: "1px 5px", borderRadius: "3px", background: "rgba(48,128,208,0.08)", color: "var(--tc-blue)", border: "1px solid rgba(48,128,208,0.15)" }}>{t}</span>)}
-                            </div>
-                          </div>
-                        )}
-                        {a.notes && (
-                          <div style={{ marginTop: "10px" }}>
-                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>Notes</div>
-                            <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", fontStyle: "italic" }}>{a.notes}</div>
-                          </div>
-                        )}
-                        <div style={{ marginTop: "14px", paddingTop: "10px", borderTop: "1px solid var(--tc-border)", display: "flex", gap: "12px", flexWrap: "wrap", fontSize: "9px", color: "var(--tc-text-muted)" }}>
-                          <span>Source: {a.source}</span>
-                          <span>Première vue: {new Date(a.first_seen).toLocaleDateString("fr-FR")}</span>
-                          <span>Dernière vue: {new Date(a.last_seen).toLocaleDateString("fr-FR")}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Tab: Logiciels ── */}
-                    {activeTab === "software" && (
-                      <div>
-                        {hasSoftware ? (
-                          <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-                            <table style={{ width: "100%", fontSize: "10px", borderCollapse: "collapse" }}>
-                              <thead>
-                                <tr style={{ borderBottom: "1px solid var(--tc-border)", textAlign: "left" }}>
-                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Nom</th>
-                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Version</th>
-                                  <th style={{ padding: "6px 8px", fontWeight: 700, color: "var(--tc-text-muted)" }}>Source</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {software.map((s: any, i: number) => (
-                                  <tr key={i} style={{ borderBottom: "1px solid var(--tc-border)" }}>
-                                    <td style={{ padding: "5px 8px", color: "var(--tc-text)", fontWeight: 600 }}>{s.name}</td>
-                                    <td style={{ padding: "5px 8px", fontFamily: "monospace", color: "var(--tc-text-sec)" }}>{s.version || "—"}</td>
-                                    <td style={{ padding: "5px 8px", color: "var(--tc-text-muted)" }}>{s.source || "—"}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        ) : (
-                          <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
-                            Aucun logiciel détecté. Installez l&apos;agent ThreatClaw sur cette machine pour obtenir l&apos;inventaire logiciel.
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── Tab: Réseau ── */}
-                    {activeTab === "network" && (
-                      <div>
-                        <AssetScanSurface asset={a} />
-                        {hasServices ? (
-                          <>
-                            <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Services / Ports ({a.services.length})</div>
-                            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "16px" }}>
-                              {a.services.map((s: any, i: number) => (
-                                <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                  <span style={{ fontWeight: 700, color: "var(--tc-blue)" }}>{s.port}</span>
-                                  <span style={{ color: "var(--tc-text-muted)" }}>/</span>
-                                  <span>{s.proto || "tcp"}</span>
-                                  {s.service && <span style={{ color: "var(--tc-text-sec)" }}>{s.service}</span>}
-                                  {s.product && <span style={{ color: "var(--tc-amber)", fontWeight: 600 }}>{s.product}</span>}
-                                  {s.version && <span style={{ color: "var(--tc-text-muted)", fontSize: "8px" }}>v{s.version}</span>}
-                                </span>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
-                            Aucun service réseau détecté. Le scan Nmap se déclenche automatiquement à la première observation de l&apos;asset (TTL 1h). Sinon, utilisez le bouton « Re-scanner » ci-dessus.
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── Tab: Sécurité ── */}
-                    {activeTab === "security" && (
-                      <SecurityTab assetId={a.id} />
-                    )}
-
-                    {/* ── Tab: Findings ── */}
-                    {activeTab === "findings" && (
-                      <AssetFindings asset={a} />
-                    )}
-                  </>
-                );
-              })()}
-
-              {/* V68 — Exclusion + Merge actions (always shown, ops surface) */}
-              <ExclusionPanel asset={a} onChanged={loadData} />
-
-              {/* Delete button (bottom) */}
-              <div style={{ marginTop: "14px", textAlign: "right" }}>
-                <button onClick={() => handleDelete(a.id)} style={{ padding: "6px 12px", fontSize: "10px", fontWeight: 600, fontFamily: "inherit", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020", cursor: "pointer" }}>
-                  <Trash2 size={10} /> Supprimer
-                </button>
-              </div>
-            </div>
-            </div>
-          );
-        })()}
+        {/* Phase 10c — popup retiré : la page dédiée /assets/[id] le remplace. */}
         </div>
       )}
 
@@ -1529,7 +1321,7 @@ export default function AssetsPage() {
                   <div>
                     <label style={labelStyle}>Criticité</label>
                     <select value={form.criticality} onChange={e => setForm(f => ({ ...f, criticality: e.target.value }))} style={inputStyle}>
-                      <option value="critical">Critique — essentiel au fonctionnement</option>
+                      <option value="critical">Essentiel — au fonctionnement</option>
                       <option value="high">Haut — impact fort si compromis</option>
                       <option value="medium">Moyen — impact modéré</option>
                       <option value="low">Bas — impact limité</option>
@@ -1660,7 +1452,7 @@ export default function AssetsPage() {
 
 // ── Graph Intelligence Section (loaded on expand) ──
 
-function GraphIntelSection({ assetId }: { assetId: string }) {
+export function GraphIntelSection({ assetId }: { assetId: string }) {
   const [data, setData] = useState<{ attackers?: any[]; cves?: any[]; blast?: any; confidence?: number; loading: boolean }>({ loading: true });
 
   useEffect(() => {

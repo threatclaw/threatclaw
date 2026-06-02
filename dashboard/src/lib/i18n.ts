@@ -583,7 +583,8 @@ const T: Record<string, Record<Locale, string>> = {
   modelDescQwen8b: { fr: "Basique · Très léger", en: "Basic · Very light" },
   modelDescL1: { fr: "SOC prompt — Recommandé", en: "SOC prompt — Recommended" },
   modelDescL1Alt: { fr: "Meilleur parsing · Plus lourd", en: "Better parsing · Heavier" },
-  modelDescL2: { fr: "Forensique — Recommandé", en: "Forensic — Recommended" },
+  modelDescL2: { fr: "Forensique — Recommandé qualité max", en: "Forensic — Recommended (max quality)" },
+  modelDescL2Fast: { fr: "Forensique — ~2× plus rapide sur CPU", en: "Forensic — ~2× faster on CPU" },
   modelDescL3: { fr: "Playbooks SOAR — Recommandé", en: "SOAR Playbooks — Recommended" },
 
   // ── AI level descriptions ──
