@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.26-beta] — 2026-06-02
+
+### Added
+- Asset detail page in the dashboard at `/assets/[assetId]` rendering the canonical asset record (name, hostname, normalized IPs) alongside a per-skill coverage grid (IDS, EDR, vulnerability scanner, IAM, etc.). Each gap surfaces an operator-facing action hint that adapts to which skills are actually connected, so a missing capability is presented as a concrete next step instead of a blank cell.
+- API endpoint `GET /api/assets/{id}/full` and the `compute_asset_coverage` helper that exposes the hydrated asset view consumed by the new page: per-skill coverage state (covered / partial / gap / not_configured), short human-readable detail, last-seen timestamp where relevant, and the recommended action when the state is below covered.
+- Asset enrolment skill (`skill_asset_enrolment`) which automatically enrols a freshly observed host into the asset inventory when the dedicated skill is configured, cutting the manual onboarding step previously required for new endpoints.
+- Asset hydration on incidents: incident endpoints now expose the linked asset's name, hostname and IP list alongside the canonical id, and the attack timeline carries that asset context next to every event so the operator no longer has to look up raw identifiers.
+
+### Changed
+- IP addresses stored on assets are now normalized at write time (migration `V73__assets_ip_normalize.sql`): port stripping, IPv4-in-IPv6 collapsing, lowercasing, and dedup. The same host known by different representations no longer surfaces as multiple assets, and asset resolution / forensic enrichment rely on the normalized form.
+- Container entrypoint applies the new migration on startup; existing rows are rewritten in place so the dedup effect is visible immediately after the upgrade.
+
 ## [1.0.25-beta] — 2026-05-06
 
 ### Added
