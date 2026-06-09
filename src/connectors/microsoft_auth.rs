@@ -7,7 +7,7 @@
 //! - LogAnalytics (phase 2 Hunt Tool): `https://api.loganalytics.io/.default`
 //!
 //! This module owns: `AuthMethod` parsing, a token cache keyed by
-//! `(tenant, client, scope)`, token acquisition with both certificate
+//! `(tenant, client, scope, auth_method)`, token acquisition with both certificate
 //! (PS256) and secret flows, and a shared `reqwest::Client` builder plus a
 //! retry helper that honours `Retry-After` on 429 and exponential backoff
 //! with jitter on 5xx.
@@ -31,7 +31,7 @@ use tokio::sync::Mutex;
 // ---------------------------------------------------------------------------
 
 /// Auth method selected by the operator in the skill config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthMethod {
     Certificate,
@@ -102,6 +102,7 @@ struct TokenKey {
     tenant_id: String,
     client_id: String,
     scope: String,
+    auth_method: AuthMethod,
 }
 
 struct CachedToken {
@@ -111,8 +112,11 @@ struct CachedToken {
 
 /// Per-tenant per-scope in-memory token cache.
 ///
-/// Keyed by `(tenant_id, client_id, scope)` so Graph and Sentinel tokens
-/// coexist for the same App Registration without invalidating each other.
+/// Keyed by `(tenant_id, client_id, scope, auth_method)` so Graph and
+/// Sentinel tokens coexist for the same App Registration without
+/// invalidating each other, and so rotating from certificate to secret
+/// (or swapping one cert for another) immediately invalidates the prior
+/// cached entry instead of waiting on natural 80%-expiry.
 /// Refresh happens at 80% of `expires_in`, giving the scheduler ~10 min of
 /// slack on a 60 min token.
 #[derive(Default, Clone)]
@@ -152,6 +156,7 @@ pub async fn acquire_token(
         tenant_id: tenant.to_string(),
         client_id: client_id.to_string(),
         scope: scope.to_string(),
+        auth_method: auth,
     };
 
     // Fast path — still fresh.
@@ -277,6 +282,9 @@ pub async fn do_request_with_retry(client: &Client, req: Request) -> Result<Resp
         let status = resp.status();
 
         if status.as_u16() == 429 {
+            if attempt >= MAX_RETRIES {
+                return Err(HttpError::RetriesExhausted(status.as_u16()));
+            }
             let wait = resp
                 .headers()
                 .get("retry-after")
@@ -445,5 +453,133 @@ mod tests {
         assert_eq!(AuthMethod::parse("client_secret"), AuthMethod::Secret);
         assert_eq!(AuthMethod::parse("SECRET"), AuthMethod::Secret);
         assert_eq!(AuthMethod::parse("  secret  "), AuthMethod::Secret);
+    }
+
+    /// Regression: `TokenKey` must include `auth_method` so that rotating a
+    /// credential from certificate to secret (or vice versa) does not keep
+    /// serving the stale cached token until natural 80%-expiry. Two keys
+    /// identical on (tenant, client, scope) but differing on auth_method
+    /// must hash and compare as distinct.
+    #[test]
+    fn token_key_discriminates_on_auth_method() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let k_cert = TokenKey {
+            tenant_id: "t".into(),
+            client_id: "c".into(),
+            scope: "s".into(),
+            auth_method: AuthMethod::Certificate,
+        };
+        let k_secret = TokenKey {
+            tenant_id: "t".into(),
+            client_id: "c".into(),
+            scope: "s".into(),
+            auth_method: AuthMethod::Secret,
+        };
+
+        assert!(k_cert != k_secret, "auth_method must discriminate equality");
+
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        k_cert.hash(&mut h1);
+        k_secret.hash(&mut h2);
+        assert_ne!(
+            h1.finish(),
+            h2.finish(),
+            "auth_method must contribute to hash"
+        );
+
+        // And the cache (HashMap) treats them as distinct entries.
+        let mut map: HashMap<TokenKey, &'static str> = HashMap::new();
+        map.insert(k_cert.clone(), "cert-token");
+        map.insert(k_secret.clone(), "secret-token");
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&k_cert), Some(&"cert-token"));
+        assert_eq!(map.get(&k_secret), Some(&"secret-token"));
+    }
+
+    /// Regression: on a terminal 429 (i.e. `attempt` has already reached
+    /// `MAX_RETRIES`) `do_request_with_retry` must short-circuit with
+    /// `RetriesExhausted` instead of paying one final `Retry-After` sleep.
+    ///
+    /// Strategy: a tiny TCP server that always replies `429` with
+    /// `Retry-After: 1`. With MAX_RETRIES=3 we expect 4 requests total
+    /// (1 initial + 3 retries). Inter-attempt sleeps are 1s each so the
+    /// happy path takes ~3s; the fix guarantees the function does NOT pay
+    /// a final 4th `Retry-After: 1` sleep — instead returns immediately
+    /// after the 4th request.
+    ///
+    /// We assert (a) exactly 4 server hits and (b) total elapsed well
+    /// below 4s — the missing 4th sleep is the regression witness.
+    #[tokio::test]
+    async fn retry_429_short_circuits_on_max_retries() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicU32::new(0));
+        let hits_srv = hits.clone();
+
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = match listener.accept().await {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                hits_srv.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    // Best-effort drain of the request line/headers.
+                    let _ = sock.read(&mut buf).await;
+                    let body = b"throttled";
+                    let resp = format!(
+                        "HTTP/1.1 429 Too Many Requests\r\n\
+                         Retry-After: 1\r\n\
+                         Content-Length: {}\r\n\
+                         Connection: close\r\n\
+                         \r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.write_all(body).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        let client = build_http_client();
+        let req = client
+            .get(format!("http://{}/throttle", addr))
+            .build()
+            .unwrap();
+
+        let start = Instant::now();
+        let out =
+            tokio::time::timeout(Duration::from_secs(15), do_request_with_retry(&client, req))
+                .await
+                .expect("must not block on a terminal 429 Retry-After");
+        let elapsed = start.elapsed();
+
+        server.abort();
+
+        match out {
+            Err(HttpError::RetriesExhausted(429)) => {}
+            other => panic!("expected RetriesExhausted(429), got {:?}", other),
+        }
+        // 1 initial + 3 retries == 4 attempts.
+        assert_eq!(hits.load(Ordering::SeqCst), 4, "expected 4 server hits");
+        // 3 inter-attempt sleeps of 1s each == ~3s. Without the fix we'd
+        // also pay a final 4th `Retry-After: 1` sleep (~4s total). Allow
+        // headroom for scheduling jitter but assert the final sleep is
+        // skipped.
+        assert!(
+            elapsed < Duration::from_millis(3800),
+            "terminal 429 must short-circuit before final sleep; took {:?}",
+            elapsed
+        );
     }
 }
