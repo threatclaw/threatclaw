@@ -43,19 +43,23 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN_ARM" -H "Content-Length: 0" \
 
 curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules?api-version=${API}" > "$DEST/analytic_rules_list.json"
 
-# 404 fixture for XDR-managed rule (the rule referenced by the XDR incident is not fetchable)
-XDR_RULE=$(python3 -c "
+# Capture a Scheduled rule detail (200) — pick the first rule from the list
+echo "Capturing a Scheduled rule detail (200)..."
+SCHED_RULE=$(python3 -c "
 import json
-data = json.load(open('$DEST/incidents_list.json'))
-for inc in data['value']:
-    if inc['properties'].get('providerName', '').startswith('Microsoft XDR'):
-        rule_ids = inc['properties'].get('relatedAnalyticRuleIds', [])
-        if rule_ids:
-            print(rule_ids[0].split('/')[-1]); break
+rules = json.load(open('$DEST/analytic_rules_list.json'))['value']
+for r in rules:
+    if r.get('kind') == 'Scheduled':
+        print(r['name']); break
 ")
-if [ -n "$XDR_RULE" ]; then
-  curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules/${XDR_RULE}?api-version=${API}" > "$DEST/analytic_rule_xdr_404.json"
+if [ -n "$SCHED_RULE" ]; then
+  curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules/${SCHED_RULE}?api-version=${API}" > "$DEST/analytic_rule_scheduled_detail.json"
 fi
+
+# Capture a deliberate 404 for fallback path coverage
+echo "Capturing a deliberate 404 (random non-existent rule UUID)..."
+FAKE_RULE=$(python3 -c "import uuid; print(uuid.uuid4())")
+curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules/${FAKE_RULE}?api-version=${API}" > "$DEST/analytic_rule_not_found_404.json"
 
 echo "Capturing KQL probe..."
 curl -s -X POST -H "Authorization: Bearer $TOKEN_LA" -H "Content-Type: application/json" \
@@ -80,12 +84,19 @@ sample = {
 json.dump(sample, open('$DEST/token_response.json', 'w'), indent=2)
 "
 
-# Redact tenant and subscription identifiers from captured fixtures so they
-# are commit-safe (Microsoft response shapes are not secret, but tenant IDs are
-# considered confidential by the customer)
-echo "Redacting tenant + subscription IDs in fixtures..."
+# Redact tenant, subscription, workspace, client and SP identifiers from
+# captured fixtures so they are commit-safe (Microsoft response shapes are not
+# secret, but customer tenant + app registration IDs are considered confidential)
+echo "Redacting tenant + subscription + client + SP identifiers..."
+SP_OBJECT_ID="5dc8323e-302d-4139-8fda-b0e691692e5c"
 for f in "$DEST"/*.json; do
-  sed -i "s/${TENANT}/00000000-0000-0000-0000-000000000000/g; s/${SUB}/11111111-1111-1111-1111-111111111111/g; s/${WS_ID}/22222222-2222-2222-2222-222222222222/g" "$f"
+  sed -i \
+    -e "s/${TENANT}/00000000-0000-0000-0000-000000000000/g" \
+    -e "s/${SUB}/11111111-1111-1111-1111-111111111111/g" \
+    -e "s/${WS_ID}/22222222-2222-2222-2222-222222222222/g" \
+    -e "s/${CLIENT_ID}/33333333-3333-3333-3333-333333333333/g" \
+    -e "s/${SP_OBJECT_ID}/44444444-4444-4444-4444-444444444444/g" \
+    "$f"
 done
 
 echo "Done. Captured $(ls "$DEST" | wc -l) fixtures."
