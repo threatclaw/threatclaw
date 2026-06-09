@@ -898,6 +898,12 @@ async fn run_connector_sync(
             // applies). An empty credential is allowed here so the no-op skeleton
             // can still run during Task 8; Task 17 will harden validation once
             // there is a real authentication path to fail.
+            //
+            // TODO(skill-microsoft-sentinel:task17): add auth-method-aware credential
+            // validation analogous to MicrosoftGraphConfig::validate() in the graph arm.
+            // Must reject Certificate mode with empty PEM and Secret mode with empty
+            // client_secret. Today the inner sync is a no-op so empty credential is harmless,
+            // but the moment Task 17 wires up real token acquisition this check is mandatory.
             let credential =
                 secrecy::SecretString::from(config.get("credential").cloned().unwrap_or_default());
 
@@ -930,31 +936,19 @@ async fn run_connector_sync(
 
             let auth_cache = crate::connectors::microsoft_auth::MicrosoftAuthCache::new();
 
-            let (result, _new_cursors) =
+            let (result, new_cursors) =
                 sentinel::sync_microsoft_sentinel(&cfg, cursors, &auth_cache)
                     .await
                     .map_err(|e| format!("{}", e))?;
 
-            // TODO(skill-microsoft-sentinel:task17): persist new cursors via
-            // SentinelStore. The no-op skeleton currently echoes the input
-            // cursor back, so there is nothing to write yet, but the call
-            // shape is in place.
+            // TODO(skill-microsoft-sentinel:task17): persist new_cursors via
+            // store.set_skill_config(...). The no-op skeleton currently echoes
+            // the input cursor back, so there is nothing to write yet, but the
+            // call shape is in place.
+            let _ = new_cursors;
 
-            tracing::info!(
-                "SYNC SCHEDULER: sentinel incidents_pulled={} incidents_new={} incidents_updated={} alerts={} entities={} comments={} dedup_skipped={} errors={}",
-                result.incidents_pulled,
-                result.incidents_new,
-                result.incidents_updated,
-                result.alerts_pulled,
-                result.entities_pulled,
-                result.comments_posted,
-                result.dedup_skipped,
-                result.errors,
-            );
-
-            // skill_id is currently unused here because cursor persistence is
-            // deferred to Task 17. Reference it so clippy does not flag the
-            // dead binding once this arm is the only one that does not touch it.
+            // skill_id is unused here because cursor persistence is deferred to Task 17.
+            // Remove this binding when set_skill_config calls for cursor persistence land.
             let _ = skill_id;
 
             Ok(format!(
