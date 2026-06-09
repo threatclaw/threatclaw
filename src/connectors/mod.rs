@@ -78,6 +78,7 @@ pub mod graylog;
 pub mod keycloak;
 pub mod microsoft_auth;
 pub mod microsoft_graph;
+pub mod microsoft_sentinel;
 pub mod mikrotik;
 pub mod nmap_discovery;
 pub mod olvid;
