@@ -2861,6 +2861,14 @@ mod tests {
     }
 }
 
+/// Characterization tests for `AuthMethod::parse` and `GRAPH_BASE`.
+///
+/// These tests are intentionally separate from the sibling `mod tests`
+/// so they survive intact when `AuthMethod` and the auth flow are
+/// extracted into a shared `microsoft_auth` module (Task 3 of the
+/// skill-microsoft-sentinel plan). They lock the observable behaviour
+/// at the boundary that callers depend on. Do not merge into `mod tests`
+/// and do not remove after the extraction.
 #[cfg(test)]
 mod auth_characterization_tests {
     use super::*;
