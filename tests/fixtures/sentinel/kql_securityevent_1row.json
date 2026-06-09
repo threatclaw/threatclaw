@@ -1,0 +1,1 @@
+{"tables":[{"name":"PrimaryResult","columns":[{"name":"TimeGenerated","type":"datetime"},{"name":"EventID","type":"int"},{"name":"Computer","type":"string"},{"name":"Account","type":"string"}],"rows":[["2026-06-03T16:28:49.2685217Z",4625,"SHIR-Hive","\\AZUREUSER"]]}]}
