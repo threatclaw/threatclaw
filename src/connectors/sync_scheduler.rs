@@ -36,6 +36,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-pfsense", "pfsense"),
     ("skill-velociraptor", "velociraptor"),
     ("skill-microsoft-graph", "microsoft_graph"),
+    ("skill-microsoft-sentinel", "microsoft_sentinel"),
 ];
 
 /// Spawn the connector sync scheduler.
@@ -863,6 +864,109 @@ async fn run_connector_sync(
                 r.alerts_inserted,
                 r.insert_errors,
                 r.errors.len()
+            ))
+        }
+        "microsoft_sentinel" => {
+            use crate::connectors::microsoft_sentinel as sentinel;
+
+            let tenant_id = config.get("tenant_id").cloned().unwrap_or_default();
+            let client_id = config.get("client_id").cloned().unwrap_or_default();
+            let subscription_id = config.get("subscription_id").cloned().unwrap_or_default();
+            let resource_group = config.get("resource_group").cloned().unwrap_or_default();
+            let workspace_name = config.get("workspace_name").cloned().unwrap_or_default();
+            if tenant_id.is_empty()
+                || client_id.is_empty()
+                || subscription_id.is_empty()
+                || resource_group.is_empty()
+                || workspace_name.is_empty()
+            {
+                return Err(
+                    "sentinel needs tenant_id + client_id + subscription_id + resource_group + workspace_name".into(),
+                );
+            }
+
+            let auth_method = crate::connectors::microsoft_auth::AuthMethod::parse(
+                config
+                    .get("auth_method")
+                    .map(|s| s.as_str())
+                    .unwrap_or("certificate"),
+            );
+
+            // The credential field is whichever one matches the selected auth
+            // method. Operators store either a client secret or a PEM-encoded
+            // private key under `credential` (the skill UI handles which one
+            // applies). An empty credential is allowed here so the no-op skeleton
+            // can still run during Task 8; Task 17 will harden validation once
+            // there is a real authentication path to fail.
+            let credential =
+                secrecy::SecretString::from(config.get("credential").cloned().unwrap_or_default());
+
+            let workspace_id = config
+                .get("workspace_id")
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+                .unwrap_or(uuid::Uuid::nil());
+
+            let cfg = sentinel::MicrosoftSentinelConfig {
+                tenant_id,
+                client_id,
+                auth_method,
+                credential,
+                subscription_id,
+                resource_group,
+                workspace_name,
+                workspace_id,
+                enable_comment_write: config
+                    .get("enable_comment_write")
+                    .map(|s| s == "true")
+                    .unwrap_or(false),
+                arm_base_override: None,
+            };
+
+            // TODO(skill-microsoft-sentinel:task17): load cursor from DB via
+            // the SentinelStore trait (PgStore impl). Until then each cycle
+            // restarts from the beginning, which is harmless while the inner
+            // sync is a no-op.
+            let cursors = sentinel::SentinelSyncCursors::default();
+
+            let auth_cache = crate::connectors::microsoft_auth::MicrosoftAuthCache::new();
+
+            let (result, _new_cursors) =
+                sentinel::sync_microsoft_sentinel(&cfg, cursors, &auth_cache)
+                    .await
+                    .map_err(|e| format!("{}", e))?;
+
+            // TODO(skill-microsoft-sentinel:task17): persist new cursors via
+            // SentinelStore. The no-op skeleton currently echoes the input
+            // cursor back, so there is nothing to write yet, but the call
+            // shape is in place.
+
+            tracing::info!(
+                "SYNC SCHEDULER: sentinel incidents_pulled={} incidents_new={} incidents_updated={} alerts={} entities={} comments={} dedup_skipped={} errors={}",
+                result.incidents_pulled,
+                result.incidents_new,
+                result.incidents_updated,
+                result.alerts_pulled,
+                result.entities_pulled,
+                result.comments_posted,
+                result.dedup_skipped,
+                result.errors,
+            );
+
+            // skill_id is currently unused here because cursor persistence is
+            // deferred to Task 17. Reference it so clippy does not flag the
+            // dead binding once this arm is the only one that does not touch it.
+            let _ = skill_id;
+
+            Ok(format!(
+                "incidents_pulled={} new={} updated={} alerts={} entities={} comments={} dedup_skipped={} errors={}",
+                result.incidents_pulled,
+                result.incidents_new,
+                result.incidents_updated,
+                result.alerts_pulled,
+                result.entities_pulled,
+                result.comments_posted,
+                result.dedup_skipped,
+                result.errors,
             ))
         }
         "unifi" | "ad" => Err(format!("{} auto-sync not yet implemented", connector_type)),
