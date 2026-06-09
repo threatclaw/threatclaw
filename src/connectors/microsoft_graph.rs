@@ -410,35 +410,28 @@ fn current_unix_secs() -> u64 {
 
 // ---------------------------------------------------------------------------
 // JWT client assertion (certificate auth)
+//
+// The actual JWT builder, `AssertionClaims`, the PS256 header helper, and
+// the PEM decoder were moved verbatim into
+// `crate::connectors::microsoft_auth` so both Graph and Sentinel reuse
+// them. The thin adapter below preserves this file's existing call sites
+// and tests (signature + behaviour identical) until Task 4 rewires
+// `acquire_token` to consume the shared module end-to-end and the
+// adapter can go away.
 // ---------------------------------------------------------------------------
 
-/// Header that jsonwebtoken will serialise for our client-assertion JWT.
-/// We cannot use `jsonwebtoken::Header` directly because it emits `alg`
-/// but we also need `typ=JWT` and `x5t#S256` — the library handles all of
-/// them via its struct fields, so this helper just wires them.
-fn build_assertion_header(x5t_s256: &str) -> jsonwebtoken::Header {
-    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::PS256);
-    header.typ = Some("JWT".into());
-    header.x5t_s256 = Some(x5t_s256.to_string());
-    header
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct AssertionClaims {
-    aud: String,
-    iss: String,
-    sub: String,
-    jti: String,
-    nbf: u64,
-    exp: u64,
-    iat: u64,
-}
+use crate::connectors::microsoft_auth as auth_shared;
+// `AssertionClaims` and `pem_body_decode` live in `microsoft_auth` now; they
+// are only referenced from this module's tests, so the re-imports are gated
+// on `cfg(test)` to keep the non-test build warning-free.
+#[cfg(test)]
+use crate::connectors::microsoft_auth::{AssertionClaims, pem_body_decode};
 
 /// Build the signed client-assertion JWT required by certificate auth.
 ///
-/// `now_unix` is injected so unit tests can assert the exact payload
-/// without clock-dependent flakiness. Production callers pass
-/// `current_unix_secs()`.
+/// Adapter around `crate::connectors::microsoft_auth::build_client_assertion`
+/// that preserves the historical return type (`Result<String, GraphError>`)
+/// for graph callers and tests. The function body lives in `microsoft_auth`.
 pub fn build_client_assertion(
     tenant_id: &str,
     client_id: &str,
@@ -446,70 +439,8 @@ pub fn build_client_assertion(
     key_pem: &str,
     now_unix: u64,
 ) -> Result<String, GraphError> {
-    use base64::Engine;
-
-    // 1. Thumbprint — base64url(SHA-256(cert DER)). Microsoft docs (2025-10)
-    //    require x5t#S256, not the legacy SHA-1 `x5t`.
-    let cert_der = pem_body_decode(cert_pem, "CERTIFICATE")
-        .map_err(|e| GraphError::Jwt(format!("cert pem: {e}")))?;
-    let digest = {
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(&cert_der);
-        hasher.finalize()
-    };
-    let x5t_s256 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest);
-
-    // 2. Claims — 10 min max lifetime per Microsoft recommendation.
-    let claims = AssertionClaims {
-        aud: format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"),
-        iss: client_id.into(),
-        sub: client_id.into(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        nbf: now_unix,
-        exp: now_unix + 600,
-        iat: now_unix,
-    };
-
-    // 3. Sign with PS256 (RSA-PSS / SHA-256). EncodingKey::from_rsa_pem
-    //    accepts both PKCS#1 (BEGIN RSA PRIVATE KEY) and PKCS#8 (BEGIN
-    //    PRIVATE KEY) — Entra's portal exports PKCS#8 by default.
-    let key = jsonwebtoken::EncodingKey::from_rsa_pem(key_pem.as_bytes())
-        .map_err(|e| GraphError::Jwt(format!("private key pem: {e}")))?;
-    let header = build_assertion_header(&x5t_s256);
-
-    jsonwebtoken::encode(&header, &claims, &key).map_err(|e| GraphError::Jwt(format!("sign: {e}")))
-}
-
-/// Extract the base64-encoded body of a PEM block and decode it to bytes.
-///
-/// Handles CRLF/LF line endings, leading/trailing whitespace, and ignores
-/// any content outside the BEGIN/END markers so multi-block PEMs (for
-/// instance a cert followed by its issuer chain) degrade gracefully to
-/// returning the first block — which is the leaf cert, the one we need.
-fn pem_body_decode(pem: &str, label: &str) -> Result<Vec<u8>, String> {
-    use base64::Engine;
-
-    let begin = format!("-----BEGIN {label}-----");
-    let end = format!("-----END {label}-----");
-
-    let start = pem
-        .find(&begin)
-        .ok_or_else(|| format!("missing '{begin}'"))?;
-    let after_begin = start + begin.len();
-    let stop = pem[after_begin..]
-        .find(&end)
-        .ok_or_else(|| format!("missing '{end}'"))?
-        + after_begin;
-
-    let body: String = pem[after_begin..stop]
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect();
-
-    base64::engine::general_purpose::STANDARD
-        .decode(body.as_bytes())
-        .map_err(|e| format!("base64: {e}"))
+    auth_shared::build_client_assertion(tenant_id, client_id, cert_pem, key_pem, now_unix)
+        .map_err(|e| GraphError::Jwt(e.to_string()))
 }
 
 // ---------------------------------------------------------------------------
