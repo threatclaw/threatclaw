@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS sentinel_alerts (
   graph_alert_id        UUID,
   inserted_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- provider_alert_id is intentionally non-unique: the same Defender alert
+-- can be referenced by multiple Sentinel-wrapped alerts. The actual
+-- per-alert uniqueness is enforced by system_alert_id (declared UNIQUE
+-- above). This index supports the dedup SELECT lookup against the
+-- defender_alerts_graph view fed by skill-microsoft-graph.
 CREATE INDEX IF NOT EXISTS sa_provider_alert_id_idx ON sentinel_alerts (provider_alert_id);
 CREATE INDEX IF NOT EXISTS sa_incident_idx ON sentinel_alerts (incident_id);
 
