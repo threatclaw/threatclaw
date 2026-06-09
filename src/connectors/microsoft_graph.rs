@@ -2860,3 +2860,29 @@ mod tests {
         assert!(!decoded.claims.jti.is_empty());
     }
 }
+
+#[cfg(test)]
+mod auth_characterization_tests {
+    use super::*;
+
+    #[test]
+    fn auth_method_parse_certificate_default() {
+        assert_eq!(AuthMethod::parse(""), AuthMethod::Certificate);
+        assert_eq!(AuthMethod::parse("unknown"), AuthMethod::Certificate);
+        assert_eq!(AuthMethod::parse("certificate"), AuthMethod::Certificate);
+        assert_eq!(AuthMethod::parse("Certificate"), AuthMethod::Certificate);
+    }
+
+    #[test]
+    fn auth_method_parse_secret_variants() {
+        assert_eq!(AuthMethod::parse("secret"), AuthMethod::Secret);
+        assert_eq!(AuthMethod::parse("client_secret"), AuthMethod::Secret);
+        assert_eq!(AuthMethod::parse("SECRET"), AuthMethod::Secret);
+        assert_eq!(AuthMethod::parse("  secret  "), AuthMethod::Secret);
+    }
+
+    #[test]
+    fn graph_base_constant_unchanged() {
+        assert_eq!(GRAPH_BASE, "https://graph.microsoft.com/v1.0");
+    }
+}
