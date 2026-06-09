@@ -70,8 +70,6 @@ pub enum SentinelError {
     Auth(#[from] crate::connectors::microsoft_auth::AuthError),
     #[error("http: {0}")]
     Http(#[from] crate::connectors::microsoft_auth::HttpError),
-    #[error("transport: {0}")]
-    Transport(#[from] reqwest::Error),
     #[error("parse: {0}")]
     Parse(String),
 }
