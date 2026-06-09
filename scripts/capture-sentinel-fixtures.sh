@@ -52,9 +52,11 @@ for r in rules:
     if r.get('kind') == 'Scheduled':
         print(r['name']); break
 ")
-if [ -n "$SCHED_RULE" ]; then
-  curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules/${SCHED_RULE}?api-version=${API}" > "$DEST/analytic_rule_scheduled_detail.json"
+if [ -z "$SCHED_RULE" ]; then
+  echo "ERROR: no Scheduled rule found in the workspace; analytic_rule_scheduled_detail.json cannot be captured" >&2
+  exit 1
 fi
+curl -s -H "Authorization: Bearer $TOKEN_ARM" "${BASE}/alertRules/${SCHED_RULE}?api-version=${API}" > "$DEST/analytic_rule_scheduled_detail.json"
 
 # Capture a deliberate 404 for fallback path coverage
 echo "Capturing a deliberate 404 (random non-existent rule UUID)..."
@@ -87,7 +89,7 @@ json.dump(sample, open('$DEST/token_response.json', 'w'), indent=2)
 # Redact tenant, subscription, workspace, client and SP identifiers from
 # captured fixtures so they are commit-safe (Microsoft response shapes are not
 # secret, but customer tenant + app registration IDs are considered confidential)
-echo "Redacting tenant + subscription + client + SP identifiers..."
+echo "Redacting tenant + subscription + client + SP + RG + WS identifiers..."
 SP_OBJECT_ID="5dc8323e-302d-4139-8fda-b0e691692e5c"
 for f in "$DEST"/*.json; do
   sed -i \
@@ -96,6 +98,9 @@ for f in "$DEST"/*.json; do
     -e "s/${WS_ID}/22222222-2222-2222-2222-222222222222/g" \
     -e "s/${CLIENT_ID}/33333333-3333-3333-3333-333333333333/g" \
     -e "s/${SP_OBJECT_ID}/44444444-4444-4444-4444-444444444444/g" \
+    -e "s/${RG}/lab-rg/g" \
+    -e "s/${WS}/lab-workspace/g" \
+    -e "s/SHIR-Hive/LAB-VM-01/g" \
     "$f"
 done
 
