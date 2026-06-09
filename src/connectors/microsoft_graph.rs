@@ -212,12 +212,19 @@ impl From<reqwest::Error> for GraphError {
 impl From<AuthError> for GraphError {
     fn from(e: AuthError) -> Self {
         match e {
-            AuthError::TokenEndpoint(_, body) => {
+            AuthError::TokenEndpoint(status, body) => {
                 let (code, desc) = match serde_json::from_str::<TokenErrorResponse>(&body) {
                     Ok(err) => (err.error, err.error_description),
                     Err(_) => ("token_endpoint".to_string(), body),
                 };
-                GraphError::AuthRejected(format!("{code} — {}", scrub_correlation(&desc)))
+                // Preserve the HTTP status code so operators can distinguish
+                // 400 (bad request shape) from 401 (rejected credentials)
+                // from 403 (tenant policy) in the dashboard. The colon is a
+                // plain ASCII separator (em-dashes are banned project-wide).
+                GraphError::AuthRejected(format!(
+                    "[HTTP {status}] {code}: {}",
+                    scrub_correlation(&desc)
+                ))
             }
             AuthError::JwtSigning(s) => GraphError::Jwt(s),
             AuthError::Parse(s) => GraphError::Parse(format!("token response: {s}")),
@@ -2652,6 +2659,77 @@ mod tests {
         assert_eq!(decoded.claims.nbf, now);
         assert_eq!(decoded.claims.exp, now + 600);
         assert!(!decoded.claims.jti.is_empty());
+    }
+
+    /// Regression for the combined-PEM signing path: the bundle produced by
+    /// `credential_from_config` must be consumable end-to-end by
+    /// `build_client_assertion_from_combined_pem`. The previous code passed
+    /// the full combined blob as both `cert_pem` and `key_pem` to
+    /// `build_client_assertion`; jsonwebtoken's `from_rsa_pem` then picked
+    /// the FIRST PEM block (the CERTIFICATE) as the signing key and
+    /// produced a `JwtSigning("private key pem: ...")` error at every
+    /// production token acquisition. This test reuses the same openssl
+    /// helper as `build_client_assertion_round_trip` to generate a real
+    /// 2048-bit RSA cert+key, asks `credential_from_config` to assemble the
+    /// combined blob, and verifies the assertion builder returns a
+    /// 3-part JWT.
+    #[test]
+    fn credential_from_config_certificate_yields_signable_combined_pem() {
+        use crate::connectors::microsoft_auth::build_client_assertion_from_combined_pem;
+        use secrecy::ExposeSecret;
+
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let key_path = tmp.path().join("k.pem");
+        let cert_path = tmp.path().join("c.pem");
+
+        let status = std::process::Command::new("openssl")
+            .args([
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                key_path.to_str().unwrap(),
+                "-out",
+                cert_path.to_str().unwrap(),
+                "-days",
+                "30",
+                "-nodes",
+                "-subj",
+                "/CN=threatclaw-test",
+            ])
+            .output()
+            .expect("openssl must be on PATH to run this test");
+        assert!(
+            status.status.success(),
+            "openssl failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+
+        let cert_pem = std::fs::read_to_string(&cert_path).unwrap();
+        let key_pem = std::fs::read_to_string(&key_path).unwrap();
+
+        let cfg = MicrosoftGraphConfig {
+            tenant_id: "00000000-0000-0000-0000-000000000001".into(),
+            client_id: "00000000-0000-0000-0000-000000000002".into(),
+            auth_method: AuthMethod::Certificate,
+            client_secret: None,
+            client_cert_pem: Some(cert_pem),
+            client_key_pem: Some(key_pem),
+        };
+        cfg.validate().expect("cfg validates");
+
+        let combined = credential_from_config(&cfg);
+
+        let assertion = build_client_assertion_from_combined_pem(
+            &cfg.tenant_id,
+            &cfg.client_id,
+            combined.expose_secret(),
+        )
+        .expect("assertion built and signed successfully");
+
+        // Sanity-check the assertion is a 3-part JWT (header.payload.signature).
+        assert_eq!(assertion.matches('.').count(), 2);
     }
 }
 

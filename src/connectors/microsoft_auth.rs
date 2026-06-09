@@ -249,13 +249,48 @@ pub async fn acquire_token(
 /// Helper for `acquire_token`'s certificate path: the credential carries a
 /// concatenated PEM bundle (cert + key) and we feed it to the canonical
 /// `build_client_assertion` builder after splitting on its label markers.
-fn build_client_assertion_from_combined_pem(
+pub(crate) fn build_client_assertion_from_combined_pem(
     tenant: &str,
     client_id: &str,
     combined_pem: &str,
 ) -> Result<String, AuthError> {
     let now_unix = current_unix_secs();
-    build_client_assertion(tenant, client_id, combined_pem, combined_pem, now_unix)
+    // jsonwebtoken's `EncodingKey::from_rsa_pem` uses `pem::parse` under the
+    // hood, which is a SINGLE-BLOCK parser. It picks up only the FIRST PEM
+    // block in the input. If the combined blob has the CERTIFICATE first
+    // (which `credential_from_config` in `microsoft_graph.rs` does),
+    // `from_rsa_pem` returns the public key extracted from the cert's
+    // SubjectPublicKeyInfo and signing then fails with a misleading
+    // "private key pem" error. Fix: extract the private-key block from the
+    // combined blob and pass only that as `key_pem`. The `cert_pem` argument
+    // can keep the full combined blob because `pem_body_decode(cert_pem,
+    // "CERTIFICATE")` uses `find()` and locates the cert block correctly.
+    let key_pem = extract_private_key_block(combined_pem)?;
+    build_client_assertion(tenant, client_id, combined_pem, &key_pem, now_unix)
+}
+
+/// Returns the PEM-encoded private-key block (PKCS#1 or PKCS#8) from a
+/// combined blob. Accepts either `-----BEGIN PRIVATE KEY-----` (PKCS#8) or
+/// `-----BEGIN RSA PRIVATE KEY-----` (PKCS#1) markers. Errors if neither is
+/// found.
+fn extract_private_key_block(combined: &str) -> Result<String, AuthError> {
+    const PKCS8_BEGIN: &str = "-----BEGIN PRIVATE KEY-----";
+    const PKCS8_END: &str = "-----END PRIVATE KEY-----";
+    const PKCS1_BEGIN: &str = "-----BEGIN RSA PRIVATE KEY-----";
+    const PKCS1_END: &str = "-----END RSA PRIVATE KEY-----";
+
+    for (begin, end) in [(PKCS8_BEGIN, PKCS8_END), (PKCS1_BEGIN, PKCS1_END)] {
+        if let Some(start) = combined.find(begin) {
+            let after_begin = &combined[start..];
+            if let Some(rel_end) = after_begin.find(end) {
+                let block_end = start + rel_end + end.len();
+                return Ok(combined[start..block_end].to_string());
+            }
+        }
+    }
+    Err(AuthError::JwtSigning(
+        "combined PEM missing PRIVATE KEY block (PKCS#1 or PKCS#8)".to_string(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -596,5 +631,44 @@ mod tests {
             "terminal 429 must short-circuit before final sleep; took {:?}",
             elapsed
         );
+    }
+
+    /// Regression: a combined PEM bundle ordered as CERTIFICATE-then-KEY
+    /// must yield a `PKCS#8` private-key block from
+    /// `extract_private_key_block`. Without this the previous code passed
+    /// the full combined blob as `key_pem` to `EncodingKey::from_rsa_pem`,
+    /// whose `pem::parse` would silently pick up the first block (the
+    /// CERT) and treat its SubjectPublicKeyInfo as a private key.
+    #[test]
+    fn extract_pkcs8_key_block_from_combined_pem() {
+        let combined = "-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n\
+                        -----BEGIN PRIVATE KEY-----\nXYZ\n-----END PRIVATE KEY-----\n";
+        let key = extract_private_key_block(combined).expect("key found");
+        assert!(key.starts_with("-----BEGIN PRIVATE KEY-----"));
+        assert!(key.ends_with("-----END PRIVATE KEY-----"));
+        assert!(!key.contains("CERTIFICATE"));
+    }
+
+    /// Same regression as above but for PKCS#1 (`BEGIN RSA PRIVATE KEY`)
+    /// keys, which `EncodingKey::from_rsa_pem` also accepts.
+    #[test]
+    fn extract_pkcs1_key_block_from_combined_pem() {
+        let combined = "-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n\
+                        -----BEGIN RSA PRIVATE KEY-----\nXYZ\n-----END RSA PRIVATE KEY-----\n";
+        let key = extract_private_key_block(combined).expect("key found");
+        assert!(key.starts_with("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(key.ends_with("-----END RSA PRIVATE KEY-----"));
+        assert!(!key.contains("CERTIFICATE"));
+    }
+
+    /// A blob with only a CERTIFICATE block and no key must surface a
+    /// `JwtSigning` error mentioning `PRIVATE KEY` so operators can
+    /// diagnose a misconfigured credential without spelunking logs.
+    #[test]
+    fn extract_returns_err_when_no_key_block() {
+        let combined = "-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n";
+        let err = extract_private_key_block(combined).expect_err("must err");
+        let msg = err.to_string();
+        assert!(msg.contains("PRIVATE KEY"), "got: {msg}");
     }
 }
