@@ -74,6 +74,39 @@ pub enum SentinelError {
     Parse(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreatclawStatus {
+    Open,
+    Investigating,
+    Resolved,
+    FalsePositive,
+}
+
+impl ThreatclawStatus {
+    pub fn as_db_value(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Investigating => "investigating",
+            Self::Resolved => "resolved",
+            Self::FalsePositive => "false_positive",
+        }
+    }
+}
+
+/// Map a Sentinel incident status + classification pair to the equivalent
+/// ThreatClaw status. Unknown values fall back to `Open` so we never silently
+/// hide an incident on shape changes (Microsoft has added status values
+/// over the years; failing open is safer than failing closed).
+pub fn map_sentinel_status(status: &str, classification: Option<&str>) -> ThreatclawStatus {
+    match (status, classification) {
+        ("New", _) => ThreatclawStatus::Open,
+        ("Active", _) => ThreatclawStatus::Investigating,
+        ("Closed", Some("FalsePositive")) => ThreatclawStatus::FalsePositive,
+        ("Closed", _) => ThreatclawStatus::Resolved,
+        _ => ThreatclawStatus::Open,
+    }
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -119,5 +152,62 @@ mod tests {
         assert_eq!(cfg.arm_base(), "https://management.azure.com");
         cfg.arm_base_override = Some("http://localhost:9999".into());
         assert_eq!(cfg.arm_base(), "http://localhost:9999");
+    }
+
+    #[test]
+    fn map_status_new_to_open() {
+        assert_eq!(map_sentinel_status("New", None), ThreatclawStatus::Open);
+    }
+
+    #[test]
+    fn map_status_active_to_investigating() {
+        assert_eq!(
+            map_sentinel_status("Active", None),
+            ThreatclawStatus::Investigating
+        );
+    }
+
+    #[test]
+    fn map_status_closed_true_positive_to_resolved() {
+        assert_eq!(
+            map_sentinel_status("Closed", Some("TruePositive")),
+            ThreatclawStatus::Resolved
+        );
+    }
+
+    #[test]
+    fn map_status_closed_false_positive_to_false_positive() {
+        assert_eq!(
+            map_sentinel_status("Closed", Some("FalsePositive")),
+            ThreatclawStatus::FalsePositive
+        );
+    }
+
+    #[test]
+    fn map_status_closed_benign_positive_to_resolved() {
+        assert_eq!(
+            map_sentinel_status("Closed", Some("BenignPositive")),
+            ThreatclawStatus::Resolved
+        );
+    }
+
+    #[test]
+    fn map_status_closed_undetermined_to_resolved() {
+        assert_eq!(
+            map_sentinel_status("Closed", Some("Undetermined")),
+            ThreatclawStatus::Resolved
+        );
+    }
+
+    #[test]
+    fn map_status_unknown_defaults_to_open() {
+        assert_eq!(
+            map_sentinel_status("WeirdValue", None),
+            ThreatclawStatus::Open
+        );
+        assert_eq!(
+            map_sentinel_status("", Some("Anything")),
+            ThreatclawStatus::Open
+        );
     }
 }
