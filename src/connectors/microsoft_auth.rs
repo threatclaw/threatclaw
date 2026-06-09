@@ -128,6 +128,21 @@ impl MicrosoftAuthCache {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Force the cached entry for `(tenant, client, scope, auth)` to be
+    /// re-acquired on the next call. Used by callers that receive a 401
+    /// from a downstream API to bust a stale cached token before retrying.
+    /// No-op if the key is not currently cached.
+    pub async fn invalidate(&self, tenant: &str, client_id: &str, scope: &str, auth: AuthMethod) {
+        let key = TokenKey {
+            tenant_id: tenant.to_string(),
+            client_id: client_id.to_string(),
+            scope: scope.to_string(),
+            auth_method: auth,
+        };
+        let mut guard = self.inner.lock().await;
+        guard.remove(&key);
+    }
 }
 
 // ---------------------------------------------------------------------------

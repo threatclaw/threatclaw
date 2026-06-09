@@ -35,37 +35,27 @@
 //! For 5xx responses we fall back to exponential backoff with jitter.
 
 use reqwest::{Client, Response, StatusCode};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Auth method selected by the operator in the skill config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AuthMethod {
-    Certificate,
-    Secret,
-}
+// `AuthMethod`, the auth-token cache, and the token acquisition routine all
+// live in the shared `microsoft_auth` module so both Graph and Sentinel
+// connectors reuse the same code path. We re-export `AuthMethod` here so
+// `sync_scheduler` and other callers that historically referenced
+// `microsoft_graph::AuthMethod` keep compiling without a rename.
+pub use crate::connectors::microsoft_auth::{AuthError, AuthMethod, MicrosoftAuthCache};
 
-impl AuthMethod {
-    /// Parse the raw string stored in `skill_configs`.
-    ///
-    /// Defaults to `Certificate` for any unrecognised value — that matches
-    /// the recommended production path in the plan and avoids accidentally
-    /// falling back to the weaker credential type on a typo.
-    pub fn parse(s: &str) -> Self {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "secret" | "client_secret" => Self::Secret,
-            _ => Self::Certificate,
-        }
-    }
-}
+/// Scope requested for Microsoft Graph access tokens. The shared
+/// `acquire_token` keys its cache on `(tenant, client, scope, auth_method)`
+/// so this constant doubles as the cache discriminator that keeps Graph
+/// tokens from colliding with Sentinel/ARM tokens issued from the same
+/// App Registration.
+const GRAPH_SCOPE: &str = "https://graph.microsoft.com/.default";
 
 /// Configuration for a single Microsoft 365 tenant.
 ///
@@ -206,184 +196,45 @@ impl From<reqwest::Error> for GraphError {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Token acquisition + cache
-// ---------------------------------------------------------------------------
-
-/// A live Graph access token with its expiry wall-clock deadline.
-#[derive(Debug, Clone)]
-struct CachedToken {
-    access_token: String,
-    /// Refresh moment — 80% of `expires_in` past the issue instant, not the
-    /// raw `exp`. Gives the scheduler ~10 min of slack on a 60 min token.
-    refresh_at: Instant,
-}
-
-/// Per-tenant in-memory token cache.
+/// Map the shared `AuthError` into `GraphError` so callers in this file
+/// keep their historical error surface. The mapping mirrors what the local
+/// `acquire_token` used to produce before it was deleted in favour of
+/// `microsoft_auth::acquire_token`:
 ///
-/// The cache is keyed by `(tenant_id, client_id, auth_method)` so that
-/// switching credentials (rotating a secret to a cert) invalidates the old
-/// entry automatically. In the single-tenant ThreatClaw deployment model
-/// (rule absolue #1), the cache has exactly one entry most of the time.
-#[derive(Default)]
-pub struct TokenCache {
-    entries: Mutex<HashMap<String, CachedToken>>,
-}
-
-impl TokenCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn key(config: &MicrosoftGraphConfig) -> String {
-        format!(
-            "{}|{}|{:?}",
-            config.tenant_id, config.client_id, config.auth_method
-        )
-    }
-
-    /// Return the cached token if it is still within its refresh window,
-    /// otherwise acquire a new one.
-    pub async fn get_or_refresh(
-        &self,
-        http: &Client,
-        config: &MicrosoftGraphConfig,
-    ) -> Result<String, GraphError> {
-        let key = Self::key(config);
-
-        // Fast path — still fresh.
-        {
-            let guard = self.entries.lock().await;
-            if let Some(tok) = guard.get(&key) {
-                if Instant::now() < tok.refresh_at {
-                    return Ok(tok.access_token.clone());
-                }
+/// - `TokenEndpoint` carries the raw HTTP body from AAD. We try to parse
+///   it as the standard `{"error":"...","error_description":"..."}` envelope
+///   so we can scrub the trace/correlation IDs and surface a clean message
+///   in the dashboard — identical behaviour to the deleted local function.
+/// - `JwtSigning` is the certificate-auth JWT build failure, mapped onto
+///   `GraphError::Jwt`.
+/// - `Parse` is a malformed token response (very rare; AAD is well-behaved).
+/// - `Transport` covers DNS / TLS / connection failures.
+impl From<AuthError> for GraphError {
+    fn from(e: AuthError) -> Self {
+        match e {
+            AuthError::TokenEndpoint(_, body) => {
+                let (code, desc) = match serde_json::from_str::<TokenErrorResponse>(&body) {
+                    Ok(err) => (err.error, err.error_description),
+                    Err(_) => ("token_endpoint".to_string(), body),
+                };
+                GraphError::AuthRejected(format!("{code} — {}", scrub_correlation(&desc)))
             }
+            AuthError::JwtSigning(s) => GraphError::Jwt(s),
+            AuthError::Parse(s) => GraphError::Parse(format!("token response: {s}")),
+            AuthError::Transport(s) => GraphError::Http(format!("token endpoint: {s}")),
         }
-
-        // Slow path — acquire a new token. We release the lock during the
-        // network call so concurrent callers don't serialise on the mutex;
-        // worst case we acquire twice on first boot, which AAD tolerates.
-        let fresh = acquire_token(http, config).await?;
-        let mut guard = self.entries.lock().await;
-        guard.insert(key, fresh.clone());
-        Ok(fresh.access_token)
-    }
-
-    /// Force the cached entry to be re-acquired on the next call. Useful
-    /// for test hooks and for responding to an `invalid_token` 401 from a
-    /// downstream call that was served from a stale cache.
-    pub async fn invalidate(&self, config: &MicrosoftGraphConfig) {
-        let key = Self::key(config);
-        let mut guard = self.entries.lock().await;
-        guard.remove(&key);
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    expires_in: u64,
-}
+// ---------------------------------------------------------------------------
+// Token endpoint error envelope + correlation scrubber
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct TokenErrorResponse {
     error: String,
     #[serde(default)]
     error_description: String,
-}
-
-/// Raw token acquisition — talks to
-/// `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`.
-async fn acquire_token(
-    http: &Client,
-    config: &MicrosoftGraphConfig,
-) -> Result<CachedToken, GraphError> {
-    config.validate().map_err(GraphError::Config)?;
-
-    let token_url = format!(
-        "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
-        config.tenant_id
-    );
-
-    let mut form: Vec<(&str, String)> = vec![
-        ("client_id", config.client_id.clone()),
-        ("grant_type", "client_credentials".into()),
-        ("scope", "https://graph.microsoft.com/.default".into()),
-    ];
-
-    match config.auth_method {
-        AuthMethod::Secret => {
-            let secret = config
-                .client_secret
-                .as_ref()
-                .expect("validate() enforces presence");
-            form.push(("client_secret", secret.clone()));
-        }
-        AuthMethod::Certificate => {
-            let cert_pem = config
-                .client_cert_pem
-                .as_ref()
-                .expect("validate() enforces presence");
-            let key_pem = config
-                .client_key_pem
-                .as_ref()
-                .expect("validate() enforces presence");
-            let assertion = build_client_assertion(
-                &config.tenant_id,
-                &config.client_id,
-                cert_pem,
-                key_pem,
-                current_unix_secs(),
-            )?;
-            form.push((
-                "client_assertion_type",
-                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer".into(),
-            ));
-            form.push(("client_assertion", assertion));
-        }
-    }
-
-    let issued_at = Instant::now();
-    let res = http
-        .post(&token_url)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| GraphError::Http(format!("token endpoint: {e}")))?;
-
-    let status = res.status();
-    let body = res
-        .text()
-        .await
-        .map_err(|e| GraphError::Http(format!("token body: {e}")))?;
-
-    if !status.is_success() {
-        // AAD error envelope is well-defined: {"error":"...","error_description":"..."}.
-        // We strip the correlation IDs from the description so it is safe
-        // to surface but we keep the error code for the dashboard mapping.
-        let (code, desc) = match serde_json::from_str::<TokenErrorResponse>(&body) {
-            Ok(err) => (err.error, err.error_description),
-            Err(_) => (status.as_str().into(), body.clone()),
-        };
-        return Err(GraphError::AuthRejected(format!(
-            "{code} — {}",
-            scrub_correlation(&desc)
-        )));
-    }
-
-    let parsed: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| GraphError::Parse(format!("token response: {e}")))?;
-
-    // Refresh at 80% of expires_in. A typical Graph token is 3600s, so
-    // that gives ~720s of headroom between the client-side refresh and
-    // the server-side expiry — enough to survive a stalled sync cycle
-    // without hitting a mid-request 401.
-    let refresh_window = Duration::from_secs(parsed.expires_in.saturating_mul(80) / 100);
-    Ok(CachedToken {
-        access_token: parsed.access_token,
-        refresh_at: issued_at + refresh_window,
-    })
 }
 
 /// Drop AAD `Trace ID` / `Correlation ID` blobs from an error description.
@@ -400,48 +251,43 @@ fn scrub_correlation(desc: &str) -> String {
         .to_string()
 }
 
-fn current_unix_secs() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+/// Build the `SecretString` credential expected by
+/// `microsoft_auth::acquire_token` for this config's `auth_method`.
+///
+/// - `Secret` → the raw `client_secret` value.
+/// - `Certificate` → cert PEM and key PEM concatenated (the shared module
+///   extracts both blocks from a single combined PEM).
+///
+/// `validate()` is called by `GraphClient::new()` before any token is
+/// acquired, so the `expect()` paths here are unreachable in practice.
+fn credential_from_config(config: &MicrosoftGraphConfig) -> SecretString {
+    match config.auth_method {
+        AuthMethod::Secret => {
+            let secret = config
+                .client_secret
+                .as_deref()
+                .expect("validate() enforces presence");
+            SecretString::from(secret.to_string())
+        }
+        AuthMethod::Certificate => {
+            let cert_pem = config
+                .client_cert_pem
+                .as_deref()
+                .expect("validate() enforces presence");
+            let key_pem = config
+                .client_key_pem
+                .as_deref()
+                .expect("validate() enforces presence");
+            SecretString::from(format!("{cert_pem}\n{key_pem}"))
+        }
+    }
 }
 
-// ---------------------------------------------------------------------------
-// JWT client assertion (certificate auth)
-//
-// The actual JWT builder, `AssertionClaims`, the PS256 header helper, and
-// the PEM decoder were moved verbatim into
-// `crate::connectors::microsoft_auth` so both Graph and Sentinel reuse
-// them. The thin adapter below preserves this file's existing call sites
-// and tests (signature + behaviour identical) until Task 4 rewires
-// `acquire_token` to consume the shared module end-to-end and the
-// adapter can go away.
-// ---------------------------------------------------------------------------
-
-use crate::connectors::microsoft_auth as auth_shared;
 // `AssertionClaims` and `pem_body_decode` live in `microsoft_auth` now; they
 // are only referenced from this module's tests, so the re-imports are gated
 // on `cfg(test)` to keep the non-test build warning-free.
 #[cfg(test)]
-use crate::connectors::microsoft_auth::{AssertionClaims, pem_body_decode};
-
-/// Build the signed client-assertion JWT required by certificate auth.
-///
-/// Adapter around `crate::connectors::microsoft_auth::build_client_assertion`
-/// that preserves the historical return type (`Result<String, GraphError>`)
-/// for graph callers and tests. The function body lives in `microsoft_auth`.
-pub fn build_client_assertion(
-    tenant_id: &str,
-    client_id: &str,
-    cert_pem: &str,
-    key_pem: &str,
-    now_unix: u64,
-) -> Result<String, GraphError> {
-    auth_shared::build_client_assertion(tenant_id, client_id, cert_pem, key_pem, now_unix)
-        .map_err(|e| GraphError::Jwt(e.to_string()))
-}
+use crate::connectors::microsoft_auth::{AssertionClaims, build_client_assertion, pem_body_decode};
 
 // ---------------------------------------------------------------------------
 // Graph HTTP client with retry logic
@@ -457,7 +303,11 @@ const GRAPH_BASE: &str = "https://graph.microsoft.com/v1.0";
 pub struct GraphClient {
     http: Client,
     config: MicrosoftGraphConfig,
-    tokens: Arc<TokenCache>,
+    /// Shared token cache from `microsoft_auth`. Internally `Arc<Mutex<...>>`
+    /// already, so cloning a `GraphClient` (none today, but the door is
+    /// open) shares the same cache. Keyed on `(tenant, client, scope,
+    /// auth_method)`, scope = `GRAPH_SCOPE`.
+    auth_cache: MicrosoftAuthCache,
     /// Max retry attempts on 429 / 5xx before giving up. 4 is enough to
     /// survive a typical AAD maintenance blip (~30 s) without turning a
     /// transient blip into a sync-blocking hang.
@@ -467,15 +317,11 @@ pub struct GraphClient {
 impl GraphClient {
     pub fn new(config: MicrosoftGraphConfig) -> Result<Self, GraphError> {
         config.validate().map_err(GraphError::Config)?;
-        let http = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .user_agent("ThreatClaw/0.1 (skill-microsoft-graph)")
-            .build()
-            .map_err(|e| GraphError::Http(format!("build client: {e}")))?;
+        let http = crate::connectors::microsoft_auth::build_http_client();
         Ok(Self {
             http,
             config,
-            tokens: Arc::new(TokenCache::new()),
+            auth_cache: MicrosoftAuthCache::new(),
             max_retries: 4,
         })
     }
@@ -511,7 +357,17 @@ impl GraphClient {
         let mut tried_refresh = false;
 
         loop {
-            let token = self.tokens.get_or_refresh(&self.http, &self.config).await?;
+            let credential = credential_from_config(&self.config);
+            let token = crate::connectors::microsoft_auth::acquire_token(
+                &self.auth_cache,
+                &self.http,
+                &self.config.tenant_id,
+                &self.config.client_id,
+                self.config.auth_method,
+                &credential,
+                GRAPH_SCOPE,
+            )
+            .await?;
             let res = self
                 .http
                 .get(&url)
@@ -526,7 +382,14 @@ impl GraphClient {
             // 401 — stale cached token. Force refresh exactly once, then retry.
             if status == StatusCode::UNAUTHORIZED && !tried_refresh {
                 tried_refresh = true;
-                self.tokens.invalidate(&self.config).await;
+                self.auth_cache
+                    .invalidate(
+                        &self.config.tenant_id,
+                        &self.config.client_id,
+                        GRAPH_SCOPE,
+                        self.config.auth_method,
+                    )
+                    .await;
                 continue;
             }
 
