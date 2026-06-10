@@ -747,6 +747,108 @@ pub async fn fetch_entities_for_incident(
     parse_entities_response(&body)
 }
 
+/// Storage abstraction for the Sentinel sync loop. The orchestrator
+/// (`sync_microsoft_sentinel_inner`) is generic over this trait so the
+/// HTTP-driven sync logic can be unit-tested against an in-memory mock
+/// while production wires up a Postgres-backed implementation in a
+/// follow-up commit.
+#[async_trait::async_trait]
+pub trait SentinelStore: Send + Sync {
+    async fn load_known_graph_provider_alert_ids(
+        &self,
+    ) -> Result<std::collections::HashSet<String>, SentinelError>;
+    async fn load_cursor(&self) -> Result<Option<DateTime<Utc>>, SentinelError>;
+    async fn save_cursor(&self, cursor: DateTime<Utc>) -> Result<(), SentinelError>;
+    async fn upsert_incident_with_metadata(
+        &self,
+        inc: &ParsedSentinelIncident,
+        workspace_id: Uuid,
+    ) -> Result<i32, SentinelError>;
+    async fn upsert_sentinel_alert(
+        &self,
+        threatclaw_incident_id: i32,
+        alert: &ParsedSentinelAlert,
+        dedup: DedupDecision,
+    ) -> Result<(), SentinelError>;
+    async fn upsert_sentinel_entity(
+        &self,
+        threatclaw_incident_id: i32,
+        ent: &ParsedSentinelEntity,
+    ) -> Result<(), SentinelError>;
+    async fn upsert_analytic_rule(
+        &self,
+        workspace_id: Uuid,
+        rule: &ParsedAnalyticRule,
+    ) -> Result<(), SentinelError>;
+    async fn maybe_get_cached_analytic_rule(
+        &self,
+        workspace_id: Uuid,
+        rule_id: Uuid,
+        ttl_secs: i64,
+    ) -> Result<Option<ParsedAnalyticRule>, SentinelError>;
+}
+
+/// Orchestrates a single Sentinel sync cycle: poll incidents delta, fetch
+/// alerts + entities per incident, decide dedup against the Graph
+/// Defender ingestion set, and persist via the `SentinelStore` trait.
+///
+/// Cursor handling: returns the maximum `lastModifiedTimeUtc` observed
+/// across the batch as the new cursor, and also calls `save_cursor` on
+/// the store so the next cycle resumes from that point.
+pub async fn sync_microsoft_sentinel_inner(
+    store: std::sync::Arc<dyn SentinelStore>,
+    cfg: &MicrosoftSentinelConfig,
+    cursors: SentinelSyncCursors,
+    auth: &MicrosoftAuthCache,
+) -> Result<(SentinelSyncResult, SentinelSyncCursors), SentinelError> {
+    let http = crate::connectors::microsoft_auth::build_http_client();
+    let mut result = SentinelSyncResult::default();
+    let known_graph = store.load_known_graph_provider_alert_ids().await?;
+
+    let incidents = poll_incidents_delta(cfg, auth, &http, cursors.last_incident_modified).await?;
+    result.incidents_pulled = incidents.len() as u32;
+
+    let mut max_modified = cursors.last_incident_modified;
+    for inc in &incidents {
+        let tc_id = store
+            .upsert_incident_with_metadata(inc, cfg.workspace_id)
+            .await?;
+        result.incidents_new += 1;
+        max_modified =
+            Some(max_modified.map_or(inc.last_modified_utc, |m| m.max(inc.last_modified_utc)));
+
+        let alerts = fetch_alerts_for_incident(cfg, auth, &http, inc.sentinel_incident_id).await?;
+        for a in &alerts {
+            let dec = decide_dedup(a, &known_graph);
+            if dec == DedupDecision::SkipMergeWithGraph {
+                result.dedup_skipped += 1;
+            }
+            store.upsert_sentinel_alert(tc_id, a, dec).await?;
+            result.alerts_pulled += 1;
+        }
+
+        let entities =
+            fetch_entities_for_incident(cfg, auth, &http, inc.sentinel_incident_id).await?;
+        for e in &entities {
+            store.upsert_sentinel_entity(tc_id, e).await?;
+            result.entities_pulled += 1;
+        }
+
+        // Asset hydration TODO(skill-microsoft-sentinel:task17b): plumb each
+        // entity through the asset_resolution pipeline to populate asset_id
+        // on the sentinel_entities row. For now the entity is stored with
+        // asset_id NULL; the resolver will be called from the PgStore impl.
+    }
+
+    let new_cursors = SentinelSyncCursors {
+        last_incident_modified: max_modified,
+    };
+    if let Some(m) = max_modified {
+        store.save_cursor(m).await?;
+    }
+    Ok((result, new_cursors))
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -1178,5 +1280,149 @@ mod tests {
         // Non-Microsoft vendors are NOT in the Graph Defender ingestion path,
         // so we don't bother checking and always Insert.
         assert_eq!(decide_dedup(&alert, &known), DedupDecision::Insert);
+    }
+
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct MockStore {
+        known: std::collections::HashSet<String>,
+        incidents: Mutex<Vec<ParsedSentinelIncident>>,
+        alerts: Mutex<Vec<(i32, ParsedSentinelAlert, DedupDecision)>>,
+        entities: Mutex<Vec<ParsedSentinelEntity>>,
+        next_tc_id: Mutex<i32>,
+    }
+
+    #[async_trait::async_trait]
+    impl SentinelStore for MockStore {
+        async fn load_known_graph_provider_alert_ids(
+            &self,
+        ) -> Result<std::collections::HashSet<String>, SentinelError> {
+            Ok(self.known.clone())
+        }
+        async fn load_cursor(&self) -> Result<Option<DateTime<Utc>>, SentinelError> {
+            Ok(None)
+        }
+        async fn save_cursor(&self, _c: DateTime<Utc>) -> Result<(), SentinelError> {
+            Ok(())
+        }
+        async fn upsert_incident_with_metadata(
+            &self,
+            inc: &ParsedSentinelIncident,
+            _w: Uuid,
+        ) -> Result<i32, SentinelError> {
+            self.incidents.lock().unwrap().push(inc.clone());
+            let mut id_guard = self.next_tc_id.lock().unwrap();
+            *id_guard += 1;
+            Ok(*id_guard)
+        }
+        async fn upsert_sentinel_alert(
+            &self,
+            id: i32,
+            alert: &ParsedSentinelAlert,
+            dedup: DedupDecision,
+        ) -> Result<(), SentinelError> {
+            self.alerts.lock().unwrap().push((id, alert.clone(), dedup));
+            Ok(())
+        }
+        async fn upsert_sentinel_entity(
+            &self,
+            _id: i32,
+            ent: &ParsedSentinelEntity,
+        ) -> Result<(), SentinelError> {
+            self.entities.lock().unwrap().push(ent.clone());
+            Ok(())
+        }
+        async fn upsert_analytic_rule(
+            &self,
+            _w: Uuid,
+            _rule: &ParsedAnalyticRule,
+        ) -> Result<(), SentinelError> {
+            Ok(())
+        }
+        async fn maybe_get_cached_analytic_rule(
+            &self,
+            _w: Uuid,
+            _id: Uuid,
+            _ttl: i64,
+        ) -> Result<Option<ParsedAnalyticRule>, SentinelError> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn full_cycle_with_dedup_match_skips_inserts() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(INCIDENTS_LIST_FIXTURE))
+            .mount(&server)
+            .await;
+
+        // Synthetic Defender-XDR alert so the dedup branch can fire. The real
+        // captured ALERTS_FIXTURE contains a Sentinel-native alert which never
+        // overlaps with skill-microsoft-graph's Defender ingestion path.
+        let synthetic_xdr_alert = r#"{
+            "value": [{
+                "name": "9e21bea4-d8c8-43d0-9716-5dc4daa01bce",
+                "type": "Microsoft.SecurityInsights/Entities",
+                "kind": "SecurityAlert",
+                "properties": {
+                    "systemAlertId": "9e21bea4-d8c8-43d0-9716-5dc4daa01bce",
+                    "providerAlertId": "defender-xdr-alert-id-001",
+                    "productName": "Microsoft XDR",
+                    "vendorName": "Microsoft",
+                    "alertDisplayName": "Suspicious sign-in from Tor",
+                    "severity": "High",
+                    "tactics": ["InitialAccess"],
+                    "additionalData": {"MitreTechniques": "[\"T1078\"]"}
+                }
+            }]
+        }"#;
+
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/alerts"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(synthetic_xdr_alert))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/entities"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ENTITIES_FIXTURE))
+            .mount(&server)
+            .await;
+
+        let mut store = MockStore::default();
+        store.known.insert("defender-xdr-alert-id-001".to_string());
+        let store = std::sync::Arc::new(store);
+
+        let auth = MicrosoftAuthCache::new();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+
+        let (result, _new_cursors) = sync_microsoft_sentinel_inner(
+            store.clone(),
+            &cfg,
+            SentinelSyncCursors::default(),
+            &auth,
+        )
+        .await
+        .expect("ok");
+
+        assert!(
+            result.incidents_pulled >= 1,
+            "should have pulled at least 1 incident"
+        );
+        assert!(
+            result.dedup_skipped >= 1,
+            "synthetic XDR alert with pre-seeded provider_alert_id should trigger SkipMergeWithGraph"
+        );
+        let recorded = store.alerts.lock().unwrap();
+        assert!(
+            recorded
+                .iter()
+                .any(|(_, _, d)| *d == DedupDecision::SkipMergeWithGraph),
+            "at least one alert recorded as SkipMergeWithGraph"
+        );
     }
 }
