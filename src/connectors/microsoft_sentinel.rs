@@ -7,6 +7,7 @@
 //! API version: 2024-09-01 across all Microsoft.SecurityInsights endpoints.
 
 use chrono::{DateTime, Utc};
+use reqwest::Client;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -71,8 +72,16 @@ pub enum SentinelError {
     Auth(#[from] crate::connectors::microsoft_auth::AuthError),
     #[error("http: {0}")]
     Http(#[from] crate::connectors::microsoft_auth::HttpError),
+    #[error("transport: {0}")]
+    Transport(String),
     #[error("parse: {0}")]
     Parse(String),
+}
+
+impl From<reqwest::Error> for SentinelError {
+    fn from(e: reqwest::Error) -> Self {
+        SentinelError::Transport(e.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -399,6 +408,111 @@ pub fn parse_entities_response(body: &str) -> Result<Vec<ParsedSentinelEntity>, 
     Ok(out)
 }
 
+/// Acquire an ARM bearer token, routing the OAuth call to `arm_base_override`
+/// when set so wiremock-based tests do not have to escape to the real
+/// `login.microsoftonline.com`. In production (override == None) this
+/// delegates straight to the shared `microsoft_auth::acquire_token` and uses
+/// the standard token cache.
+///
+/// The test-only branch implements only the `Secret` flow (sufficient for our
+/// integration tests; certificate auth is exercised exhaustively by the auth
+/// module's own unit tests) and intentionally skips the shared cache so each
+/// test starts from a clean slate.
+async fn acquire_arm_token(
+    cfg: &MicrosoftSentinelConfig,
+    auth: &MicrosoftAuthCache,
+    http: &Client,
+) -> Result<String, SentinelError> {
+    if let Some(base) = cfg.arm_base_override.as_deref() {
+        use secrecy::ExposeSecret;
+        let token_endpoint = format!(
+            "{}/{}/oauth2/v2.0/token",
+            base.trim_end_matches('/'),
+            cfg.tenant_id
+        );
+        let form: Vec<(&str, String)> = vec![
+            ("client_id", cfg.client_id.clone()),
+            ("scope", ARM_SCOPE.to_string()),
+            ("grant_type", "client_credentials".to_string()),
+            ("client_secret", cfg.credential.expose_secret().to_string()),
+        ];
+        let resp = http.post(&token_endpoint).form(&form).send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(SentinelError::Parse(format!(
+                "token endpoint HTTP {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+        #[derive(Deserialize)]
+        struct TokenResp {
+            access_token: String,
+        }
+        let parsed: TokenResp = resp
+            .json()
+            .await
+            .map_err(|e| SentinelError::Parse(e.to_string()))?;
+        return Ok(parsed.access_token);
+    }
+
+    let token = crate::connectors::microsoft_auth::acquire_token(
+        auth,
+        http,
+        &cfg.tenant_id,
+        &cfg.client_id,
+        cfg.auth_method,
+        &cfg.credential,
+        ARM_SCOPE,
+    )
+    .await?;
+    Ok(token)
+}
+
+/// Poll Sentinel for incidents that have changed since `cursor`. When
+/// `cursor` is `None` (cold start) the call omits `$filter` and lets Sentinel
+/// return the full incident list. When `cursor` is `Some`, we attach
+/// `$filter=properties/lastModifiedTimeUtc gt <cursor>` plus
+/// `$orderby=properties/lastModifiedTimeUtc asc` so the next cursor advance is
+/// monotonic and so we can stop pagination as soon as an item lands earlier
+/// than the cursor (defensive — Sentinel respects the order param).
+///
+/// The function only issues the first page; pagination over `nextLink` is a
+/// follow-up task. Parsing is delegated to `parse_incidents_response`.
+pub async fn poll_incidents_delta(
+    cfg: &MicrosoftSentinelConfig,
+    auth: &MicrosoftAuthCache,
+    http: &Client,
+    cursor: Option<DateTime<Utc>>,
+) -> Result<Vec<ParsedSentinelIncident>, SentinelError> {
+    let token = acquire_arm_token(cfg, auth, http).await?;
+
+    let base_url = format!("{}{}/incidents", cfg.arm_base(), cfg.workspace_path());
+
+    let mut query: Vec<(&str, String)> = vec![("api-version", API_VERSION.to_string())];
+    if let Some(c) = cursor {
+        let f = c.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        query.push((
+            "$filter",
+            format!("properties/lastModifiedTimeUtc gt {}", f),
+        ));
+        query.push(("$orderby", "properties/lastModifiedTimeUtc asc".to_string()));
+    }
+
+    let req = http
+        .get(&base_url)
+        .bearer_auth(&token)
+        .query(&query)
+        .build()?;
+    let resp = crate::connectors::microsoft_auth::do_request_with_retry(http, req).await?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| SentinelError::Parse(e.to_string()))?;
+    parse_incidents_response(&body)
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -413,6 +527,19 @@ pub async fn sync_microsoft_sentinel(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+    use wiremock::matchers::{header, method, path_regex, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    async fn mock_token_endpoint(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/[^/]+/oauth2/v2\.0/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "token_type": "Bearer", "expires_in": 3599, "access_token": "MOCK"
+            })))
+            .mount(server)
+            .await;
+    }
 
     fn test_cfg() -> MicrosoftSentinelConfig {
         MicrosoftSentinelConfig {
@@ -600,5 +727,59 @@ mod tests {
         let json = r#"{}"#;
         let parsed = parse_entities_response(json).expect("missing entities ok");
         assert!(parsed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn poll_incidents_delta_attaches_filter_and_parses_fixture() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .and(header("authorization", "Bearer MOCK"))
+            .and(query_param(
+                "$filter",
+                "properties/lastModifiedTimeUtc gt 2026-06-01T00:00:00Z",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string(INCIDENTS_LIST_FIXTURE))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+
+        let cursor = Some(Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap());
+        let parsed = poll_incidents_delta(&cfg, &auth, &http, cursor)
+            .await
+            .expect("ok");
+        assert!(
+            !parsed.is_empty(),
+            "fixture should yield at least one incident"
+        );
+    }
+
+    #[tokio::test]
+    async fn poll_incidents_delta_omits_filter_when_no_cursor() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+
+        // No $filter param expected (cold start)
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(INCIDENTS_LIST_FIXTURE))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+
+        let parsed = poll_incidents_delta(&cfg, &auth, &http, None)
+            .await
+            .expect("ok");
+        assert!(!parsed.is_empty());
     }
 }
