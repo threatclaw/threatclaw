@@ -29,8 +29,18 @@ pub struct MicrosoftSentinelConfig {
     pub workspace_name: String,
     pub workspace_id: Uuid,
     pub enable_comment_write: bool,
-    /// Overridable for tests: when Some, points the connector at a wiremock
-    /// URL instead of management.azure.com. Production builds always leave None.
+    /// Test-only override: when Some, redirects BOTH the ARM endpoint
+    /// (management.azure.com) AND the OAuth token endpoint
+    /// (login.microsoftonline.com/<tenant>/oauth2/v2.0/token) to this base URL,
+    /// AND bypasses the shared MicrosoftAuthCache + certificate-flow path in
+    /// favor of an inline Secret-flow token request. Production builds MUST
+    /// leave this None. See `acquire_arm_token` for the gory details.
+    ///
+    /// TODO(skill-microsoft-sentinel): a future refactor should plumb a
+    /// token-endpoint override through microsoft_auth.rs itself (e.g. a
+    /// new `acquire_token_with_token_base` helper) so this field can become
+    /// a single-endpoint override and the test branch in acquire_arm_token
+    /// can go away.
     pub arm_base_override: Option<String>,
 }
 
@@ -78,6 +88,20 @@ pub enum SentinelError {
     Parse(String),
 }
 
+// Manual impl rather than #[from] on the Transport variant.
+//
+// Task 7 of this skill plan previously removed a Transport(#[from] reqwest::Error)
+// variant because thiserror's #[from] generation conflicted with the
+// existing Http(#[from] HttpError) variant (HttpError itself has
+// From<reqwest::Error>, creating two From<reqwest::Error> paths and
+// breaking ? propagation).
+//
+// This manual impl re-introduces a direct reqwest::Error -> SentinelError
+// path without triggering that conflict because thiserror does NOT
+// generate a transitive From<reqwest::Error> for SentinelError through
+// Http(#[from] HttpError) -- it only generates the direct newtype
+// conversions. Do NOT replace this with a #[from] annotation on a
+// Transport variant: it will reintroduce the Task 7 conflict.
 impl From<reqwest::Error> for SentinelError {
     fn from(e: reqwest::Error) -> Self {
         SentinelError::Transport(e.to_string())
@@ -408,16 +432,24 @@ pub fn parse_entities_response(body: &str) -> Result<Vec<ParsedSentinelEntity>, 
     Ok(out)
 }
 
-/// Acquire an ARM bearer token, routing the OAuth call to `arm_base_override`
-/// when set so wiremock-based tests do not have to escape to the real
-/// `login.microsoftonline.com`. In production (override == None) this
-/// delegates straight to the shared `microsoft_auth::acquire_token` and uses
-/// the standard token cache.
+/// Token acquisition with optional ARM/token-endpoint override.
 ///
-/// The test-only branch implements only the `Secret` flow (sufficient for our
-/// integration tests; certificate auth is exercised exhaustively by the auth
-/// module's own unit tests) and intentionally skips the shared cache so each
-/// test starts from a clean slate.
+/// Production path (`cfg.arm_base_override == None`): delegates to
+/// `microsoft_auth::acquire_token`, which uses the shared cache and the
+/// configured auth method (cert or secret).
+///
+/// Test path (`cfg.arm_base_override == Some(uri)`): performs an inline
+/// Secret-flow token request against `<uri>/<tenant>/oauth2/v2.0/token`
+/// so wiremock can intercept it. This branch bypasses the cache,
+/// hard-codes Secret flow (no certificate support in tests yet), and is
+/// reachable ONLY when `arm_base_override` is set, which is documented
+/// as test-only at the field declaration.
+///
+/// TODO(skill-microsoft-sentinel): replace this helper entirely with a
+/// proper token-endpoint override plumbed through microsoft_auth.rs.
+/// The test branch here exists because acquire_token in microsoft_auth.rs
+/// hard-codes "https://login.microsoftonline.com" and there is no way to
+/// stub that endpoint from a wiremock server short of an HTTP proxy.
 async fn acquire_arm_token(
     cfg: &MicrosoftSentinelConfig,
     auth: &MicrosoftAuthCache,
@@ -528,7 +560,7 @@ pub async fn sync_microsoft_sentinel(
 mod tests {
     use super::*;
     use chrono::TimeZone;
-    use wiremock::matchers::{header, method, path_regex, query_param};
+    use wiremock::matchers::{header, method, path_regex, query_param, query_param_is_missing};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn mock_token_endpoint(server: &MockServer) {
@@ -765,9 +797,12 @@ mod tests {
         let server = MockServer::start().await;
         mock_token_endpoint(&server).await;
 
-        // No $filter param expected (cold start)
+        // No $filter param expected (cold start). query_param_is_missing
+        // enforces the absence; without it wiremock would happily match a
+        // request that incorrectly attached $filter.
         Mock::given(method("GET"))
             .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .and(query_param_is_missing("$filter"))
             .respond_with(ResponseTemplate::new(200).set_body_string(INCIDENTS_LIST_FIXTURE))
             .mount(&server)
             .await;
