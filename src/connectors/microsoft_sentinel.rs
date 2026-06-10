@@ -432,6 +432,106 @@ pub fn parse_entities_response(body: &str) -> Result<Vec<ParsedSentinelEntity>, 
     Ok(out)
 }
 
+#[derive(Debug, Clone)]
+pub struct ParsedAnalyticRule {
+    pub rule_id: Uuid,
+    pub kind: Option<String>,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub severity: Option<String>,
+    pub tactics: Vec<String>,
+    pub techniques: Vec<String>,
+    pub query: Option<String>,
+    pub query_frequency: Option<String>,
+    pub query_period: Option<String>,
+    pub trigger_operator: Option<String>,
+    pub trigger_threshold: Option<i32>,
+    pub enabled: Option<bool>,
+    pub raw: JsonValue,
+}
+
+pub fn parse_analytic_rules_list(body: &str) -> Result<Vec<ParsedAnalyticRule>, SentinelError> {
+    let wire: JsonValue =
+        serde_json::from_str(body).map_err(|e| SentinelError::Parse(e.to_string()))?;
+    let mut out = Vec::new();
+    if let Some(arr) = wire.get("value").and_then(|v| v.as_array()) {
+        for r in arr {
+            let name = r.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            // Microsoft sometimes returns non-UUID names like "BuiltInFusion"
+            // for built-in rules. Our cache PK requires a UUID. Skip silently.
+            let Ok(rule_id) = Uuid::parse_str(name) else {
+                continue;
+            };
+            let p = r.get("properties").cloned().unwrap_or(JsonValue::Null);
+            out.push(ParsedAnalyticRule {
+                rule_id,
+                kind: r.get("kind").and_then(|v| v.as_str()).map(str::to_string),
+                display_name: p
+                    .get("displayName")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                description: p
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                severity: p
+                    .get("severity")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                tactics: p
+                    .get("tactics")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                techniques: p
+                    .get("techniques")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                query: p.get("query").and_then(|v| v.as_str()).map(str::to_string),
+                query_frequency: p
+                    .get("queryFrequency")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                query_period: p
+                    .get("queryPeriod")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                trigger_operator: p
+                    .get("triggerOperator")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                trigger_threshold: p
+                    .get("triggerThreshold")
+                    .and_then(|v| v.as_i64())
+                    .map(|x| x as i32),
+                enabled: p.get("enabled").and_then(|v| v.as_bool()),
+                raw: p,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Whether an incident's provider name suggests its analytic rule is reachable
+/// via the Sentinel `alertRules/{id}` endpoint. Microsoft Defender / XDR
+/// incidents reference rules managed by Defender, which return 404 from
+/// Sentinel's API. Skip the fetch for those.
+pub fn should_fetch_analytic_rule(provider_name: &str) -> bool {
+    !matches!(
+        provider_name,
+        "Microsoft XDR" | "Microsoft Defender" | "Microsoft Defender XDR"
+    )
+}
+
 /// Token acquisition with optional ARM/token-endpoint override.
 ///
 /// Production path (`cfg.arm_base_override == None`): delegates to
@@ -908,6 +1008,52 @@ mod tests {
             .expect("ok");
         assert!(!alerts.is_empty());
         assert!(!alerts[0].provider_alert_id.is_empty());
+    }
+
+    const RULES_LIST_FIXTURE: &str =
+        include_str!("../../tests/fixtures/sentinel/analytic_rules_list.json");
+
+    #[test]
+    fn parse_analytic_rules_list_extracts_native_rules() {
+        let parsed = parse_analytic_rules_list(RULES_LIST_FIXTURE).expect("ok");
+        assert!(!parsed.is_empty());
+        // The fixture has at least one Fusion or Scheduled rule
+        let has_known_kind = parsed.iter().any(|r| {
+            matches!(
+                r.kind.as_deref(),
+                Some("Fusion") | Some("Scheduled") | Some("NRT")
+            )
+        });
+        assert!(
+            has_known_kind,
+            "fixture should contain at least one Fusion/Scheduled/NRT rule"
+        );
+    }
+
+    #[test]
+    fn parse_analytic_rules_list_skips_non_uuid_names() {
+        // Some Microsoft rules (e.g., BuiltInFusion) have non-UUID names that would
+        // break our cache PK (UUID). The parser must silently skip them.
+        let json = r#"{"value":[
+            {"name":"BuiltInFusion","kind":"Fusion","properties":{"displayName":"Fusion","severity":"High","tactics":[],"techniques":[]}},
+            {"name":"550e8400-e29b-41d4-a716-446655440000","kind":"Scheduled","properties":{"displayName":"S","severity":"Medium","tactics":[],"techniques":[]}}
+        ]}"#;
+        let parsed = parse_analytic_rules_list(json).expect("ok");
+        assert_eq!(parsed.len(), 1, "non-UUID name should be filtered");
+        assert_eq!(parsed[0].display_name.as_deref(), Some("S"));
+    }
+
+    #[test]
+    fn rule_fetch_skipped_for_xdr_provider() {
+        assert!(!should_fetch_analytic_rule("Microsoft XDR"));
+        assert!(!should_fetch_analytic_rule("Microsoft Defender"));
+        assert!(!should_fetch_analytic_rule("Microsoft Defender XDR"));
+    }
+
+    #[test]
+    fn rule_fetch_attempted_for_sentinel_native() {
+        assert!(should_fetch_analytic_rule("Azure Sentinel"));
+        assert!(should_fetch_analytic_rule("Microsoft Sentinel"));
     }
 
     #[tokio::test]
