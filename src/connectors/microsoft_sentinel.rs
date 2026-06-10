@@ -545,6 +545,74 @@ pub async fn poll_incidents_delta(
     parse_incidents_response(&body)
 }
 
+/// Fetch the alerts attached to a Sentinel incident via
+/// `POST /incidents/{id}/alerts?api-version=...`.
+///
+/// Microsoft API quirk: this is a POST with an empty body, not a GET. The
+/// Content-Length: 0 header is set explicitly because reqwest does not emit
+/// it on POSTs with no body, and ARM rejects bodyless POSTs that omit it.
+/// Parsing is delegated to `parse_alerts_response`.
+pub async fn fetch_alerts_for_incident(
+    cfg: &MicrosoftSentinelConfig,
+    auth: &MicrosoftAuthCache,
+    http: &Client,
+    incident_id: Uuid,
+) -> Result<Vec<ParsedSentinelAlert>, SentinelError> {
+    let token = acquire_arm_token(cfg, auth, http).await?;
+    let url = format!(
+        "{}{}/incidents/{}/alerts?api-version={}",
+        cfg.arm_base(),
+        cfg.workspace_path(),
+        incident_id,
+        API_VERSION
+    );
+    let req = http
+        .post(&url)
+        .bearer_auth(&token)
+        .header("Content-Length", "0")
+        .build()?;
+    let resp = crate::connectors::microsoft_auth::do_request_with_retry(http, req).await?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| SentinelError::Parse(e.to_string()))?;
+    parse_alerts_response(&body)
+}
+
+/// Fetch the entities attached to a Sentinel incident via
+/// `POST /incidents/{id}/entities?api-version=...`.
+///
+/// Microsoft API quirk: this is a POST with an empty body, not a GET. The
+/// Content-Length: 0 header is set explicitly because reqwest does not emit
+/// it on POSTs with no body, and ARM rejects bodyless POSTs that omit it.
+/// Parsing is delegated to `parse_entities_response`.
+pub async fn fetch_entities_for_incident(
+    cfg: &MicrosoftSentinelConfig,
+    auth: &MicrosoftAuthCache,
+    http: &Client,
+    incident_id: Uuid,
+) -> Result<Vec<ParsedSentinelEntity>, SentinelError> {
+    let token = acquire_arm_token(cfg, auth, http).await?;
+    let url = format!(
+        "{}{}/incidents/{}/entities?api-version={}",
+        cfg.arm_base(),
+        cfg.workspace_path(),
+        incident_id,
+        API_VERSION
+    );
+    let req = http
+        .post(&url)
+        .bearer_auth(&token)
+        .header("Content-Length", "0")
+        .build()?;
+    let resp = crate::connectors::microsoft_auth::do_request_with_retry(http, req).await?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| SentinelError::Parse(e.to_string()))?;
+    parse_entities_response(&body)
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -816,5 +884,53 @@ mod tests {
             .await
             .expect("ok");
         assert!(!parsed.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_alerts_for_incident_returns_parsed_alerts() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/alerts"))
+            .and(header("authorization", "Bearer MOCK"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ALERTS_FIXTURE))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+
+        let incident_id = Uuid::new_v4();
+        let alerts = fetch_alerts_for_incident(&cfg, &auth, &http, incident_id)
+            .await
+            .expect("ok");
+        assert!(!alerts.is_empty());
+        assert!(!alerts[0].provider_alert_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_entities_for_incident_returns_parsed_entities() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/entities"))
+            .and(header("authorization", "Bearer MOCK"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ENTITIES_FIXTURE))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+
+        let incident_id = Uuid::new_v4();
+        let ents = fetch_entities_for_incident(&cfg, &auth, &http, incident_id)
+            .await
+            .expect("ok");
+        let kinds: Vec<&str> = ents.iter().map(|e| e.kind.as_str()).collect();
+        assert!(kinds.contains(&"Account"));
     }
 }
