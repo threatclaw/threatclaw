@@ -26,6 +26,12 @@ pub mod threatclaw_store;
 #[cfg(feature = "postgres")]
 pub mod pg_threatclaw;
 
+#[cfg(feature = "postgres")]
+pub mod sentinel_store;
+
+#[cfg(feature = "libsql")]
+pub mod libsql_sentinel_store;
+
 #[cfg(feature = "libsql")]
 pub mod libsql_threatclaw;
 
@@ -671,6 +677,7 @@ pub trait Database:
     + SettingsStore
     + WorkspaceStore
     + threatclaw_store::ThreatClawStore
+    + crate::connectors::microsoft_sentinel::SentinelStore
     + Send
     + Sync
 {

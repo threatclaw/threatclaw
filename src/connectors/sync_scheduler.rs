@@ -98,7 +98,7 @@ pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
                 let cfg = config_map.clone();
 
                 tokio::spawn(async move {
-                    match run_connector_sync(store_ref.as_ref(), &skill, &conn_type, &cfg).await {
+                    match run_connector_sync(store_ref, &skill, &conn_type, &cfg).await {
                         Ok(summary) => {
                             tracing::info!("SYNC SCHEDULER: {} complete — {}", skill, summary)
                         }
@@ -111,12 +111,20 @@ pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
 }
 
 /// Run a specific connector sync based on its type.
+///
+/// Takes `Arc<dyn Database>` rather than `&dyn Database` so that arms which
+/// need an owned trait object (e.g. the microsoft_sentinel arm hands an
+/// `Arc<dyn SentinelStore>` to `sync_microsoft_sentinel_inner`) can clone
+/// + upcast via the `Database: SentinelStore` supertrait relationship.
+/// Arms that only need a borrowed reference call `store.as_ref()` ad hoc.
 async fn run_connector_sync(
-    store: &dyn Database,
+    store: Arc<dyn Database>,
     skill_id: &str,
     connector_type: &str,
     config: &HashMap<String, String>,
 ) -> Result<String, String> {
+    let store_arc = store;
+    let store: &dyn Database = store_arc.as_ref();
     match connector_type {
         "wazuh" => {
             let url = config.get("url").cloned().unwrap_or_default();
@@ -928,27 +936,40 @@ async fn run_connector_sync(
                 arm_base_override: None,
             };
 
-            // TODO(skill-microsoft-sentinel:task17): load cursor from DB via
-            // the SentinelStore trait (PgStore impl). Until then each cycle
-            // restarts from the beginning, which is harmless while the inner
-            // sync is a no-op.
-            let cursors = sentinel::SentinelSyncCursors::default();
+            // Upcast to `Arc<dyn SentinelStore>` via the supertrait relation
+            // declared on `Database`. `sync_microsoft_sentinel_inner` takes
+            // ownership of the Arc so the orchestrator can stay generic and
+            // unit-testable against the in-memory mock.
+            let sentinel_store: Arc<dyn sentinel::SentinelStore> = store_arc.clone();
+
+            // Load the persisted cursor (`last_incident_modified` under
+            // `skill-microsoft-sentinel` in `skill_configs`). A missing or
+            // malformed cursor degrades to a cold-start poll: the Sentinel
+            // API tolerates this and the dedup guard on `incidents`
+            // `(external_source, external_id)` prevents duplicates.
+            let cursors = sentinel::SentinelSyncCursors {
+                last_incident_modified: sentinel_store.load_cursor().await.ok().flatten(),
+            };
 
             let auth_cache = crate::connectors::microsoft_auth::MicrosoftAuthCache::new();
 
-            let (result, new_cursors) =
-                sentinel::sync_microsoft_sentinel(&cfg, cursors, &auth_cache)
-                    .await
-                    .map_err(|e| format!("{}", e))?;
+            let (result, new_cursors) = sentinel::sync_microsoft_sentinel_inner(
+                sentinel_store.clone(),
+                &cfg,
+                cursors,
+                &auth_cache,
+            )
+            .await
+            .map_err(|e| format!("{}", e))?;
 
-            // TODO(skill-microsoft-sentinel:task17): persist new_cursors via
-            // store.set_skill_config(...). The no-op skeleton currently echoes
-            // the input cursor back, so there is nothing to write yet, but the
-            // call shape is in place.
-            let _ = new_cursors;
-
-            // skill_id is unused here because cursor persistence is deferred to Task 17.
-            // Remove this binding when set_skill_config calls for cursor persistence land.
+            // `sync_microsoft_sentinel_inner` already calls `save_cursor` on
+            // the store, so persisting again here would be redundant. We
+            // still trace the advance so operators can see cursor movement
+            // in the SYNC SCHEDULER log line. `skill_id` stays in the
+            // signature for symmetry with the other arms.
+            if let Some(m) = new_cursors.last_incident_modified {
+                tracing::debug!("SYNC SCHEDULER: sentinel cursor advanced to {}", m);
+            }
             let _ = skill_id;
 
             Ok(format!(
