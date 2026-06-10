@@ -532,6 +532,40 @@ pub fn should_fetch_analytic_rule(provider_name: &str) -> bool {
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DedupDecision {
+    /// Insert the alert as a new Sentinel-sourced row in the DB.
+    Insert,
+    /// Skip the insert: this alert was already ingested via skill-microsoft-graph's
+    /// Defender path. Attach the Sentinel incident metadata to the existing row.
+    SkipMergeWithGraph,
+}
+
+/// Pure decision function for Sentinel-alert dedup.
+///
+/// Returns `SkipMergeWithGraph` only when BOTH:
+/// 1. The alert's provider_name indicates it originated from Microsoft Defender
+///    (which Sentinel wraps via the M365 Defender connector); AND
+/// 2. The alert's `provider_alert_id` is in the set of `provider_alert_id`s
+///    already ingested by skill-microsoft-graph's Defender path.
+///
+/// Sentinel-native alerts (Fusion, Scheduled, NRT, etc.) always Insert: they
+/// never overlap with Graph Defender ingestion.
+pub fn decide_dedup(
+    alert: &ParsedSentinelAlert,
+    known_graph_provider_alert_ids: &std::collections::HashSet<String>,
+) -> DedupDecision {
+    let is_defender_origin = matches!(
+        alert.provider_name.as_str(),
+        "Microsoft XDR" | "Microsoft Defender" | "Microsoft Defender XDR"
+    );
+    if is_defender_origin && known_graph_provider_alert_ids.contains(&alert.provider_alert_id) {
+        DedupDecision::SkipMergeWithGraph
+    } else {
+        DedupDecision::Insert
+    }
+}
+
 /// Token acquisition with optional ARM/token-endpoint override.
 ///
 /// Production path (`cfg.arm_base_override == None`): delegates to
@@ -1078,5 +1112,71 @@ mod tests {
             .expect("ok");
         let kinds: Vec<&str> = ents.iter().map(|e| e.kind.as_str()).collect();
         assert!(kinds.contains(&"Account"));
+    }
+
+    fn make_test_alert(provider_alert_id: &str, provider_name: &str) -> ParsedSentinelAlert {
+        ParsedSentinelAlert {
+            system_alert_id: Uuid::new_v4(),
+            provider_alert_id: provider_alert_id.into(),
+            provider_name: provider_name.into(),
+            vendor_name: None,
+            product_name: Some(provider_name.into()),
+            alert_display_name: "Test".into(),
+            description: None,
+            severity: "Medium".into(),
+            confidence_level: None,
+            status: None,
+            tactics: vec![],
+            techniques: vec![],
+            alert_link: None,
+            start_time_utc: None,
+            end_time_utc: None,
+            time_generated: None,
+            additional_data: None,
+        }
+    }
+
+    #[test]
+    fn dedup_xdr_alert_with_match_returns_skip() {
+        let alert = make_test_alert("abc-123", "Microsoft XDR");
+        let known: std::collections::HashSet<String> = ["abc-123".into()].into_iter().collect();
+        assert_eq!(
+            decide_dedup(&alert, &known),
+            DedupDecision::SkipMergeWithGraph
+        );
+    }
+
+    #[test]
+    fn dedup_xdr_alert_no_match_returns_insert() {
+        let alert = make_test_alert("abc-999", "Microsoft XDR");
+        let known = std::collections::HashSet::new();
+        assert_eq!(decide_dedup(&alert, &known), DedupDecision::Insert);
+    }
+
+    #[test]
+    fn dedup_sentinel_native_always_insert() {
+        let alert = make_test_alert("would-match-if-checked", "Azure Sentinel");
+        let known: std::collections::HashSet<String> =
+            ["would-match-if-checked".into()].into_iter().collect();
+        assert_eq!(decide_dedup(&alert, &known), DedupDecision::Insert);
+    }
+
+    #[test]
+    fn dedup_microsoft_defender_xdr_treated_as_defender_origin() {
+        let alert = make_test_alert("def-1", "Microsoft Defender XDR");
+        let known: std::collections::HashSet<String> = ["def-1".into()].into_iter().collect();
+        assert_eq!(
+            decide_dedup(&alert, &known),
+            DedupDecision::SkipMergeWithGraph
+        );
+    }
+
+    #[test]
+    fn dedup_unknown_vendor_inserts_without_check() {
+        let alert = make_test_alert("xyz", "Palo Alto");
+        let known: std::collections::HashSet<String> = ["xyz".into()].into_iter().collect();
+        // Non-Microsoft vendors are NOT in the Graph Defender ingestion path,
+        // so we don't bother checking and always Insert.
+        assert_eq!(decide_dedup(&alert, &known), DedupDecision::Insert);
     }
 }
