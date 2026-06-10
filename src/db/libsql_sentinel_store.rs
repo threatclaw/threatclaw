@@ -54,6 +54,9 @@ impl SentinelStore for LibSqlBackend {
     ) -> Result<(), SentinelError> {
         Err(not_supported())
     }
+    async fn clear_sentinel_entities_for_incident(&self, _: i32) -> Result<(), SentinelError> {
+        Err(not_supported())
+    }
     async fn upsert_analytic_rule(
         &self,
         _: Uuid,

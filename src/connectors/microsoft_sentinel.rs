@@ -775,6 +775,16 @@ pub trait SentinelStore: Send + Sync {
         threatclaw_incident_id: i32,
         ent: &ParsedSentinelEntity,
     ) -> Result<(), SentinelError>;
+    /// Wipes every `sentinel_entities` row attached to the given ThreatClaw
+    /// incident id. Called by the orchestrator before re-inserting entities so
+    /// that a re-ingested incident does not accumulate duplicate entity rows
+    /// on every scheduler cycle. There is no UNIQUE constraint on
+    /// `sentinel_entities` at the V74 schema level so DELETE-then-INSERT is
+    /// the only idempotent shape available without a follow-up migration.
+    async fn clear_sentinel_entities_for_incident(
+        &self,
+        threatclaw_incident_id: i32,
+    ) -> Result<(), SentinelError>;
     async fn upsert_analytic_rule(
         &self,
         workspace_id: Uuid,
@@ -829,6 +839,12 @@ pub async fn sync_microsoft_sentinel_inner(
 
         let entities =
             fetch_entities_for_incident(cfg, auth, &http, inc.sentinel_incident_id).await?;
+        // Idempotence guard: wipe any previously stored entities for this
+        // incident before re-inserting. Without this, re-ingesting an
+        // updated Sentinel incident (which happens whenever the upstream
+        // mutates it and the cursor sees it again) would append a fresh
+        // copy of every entity each cycle, unbounded.
+        store.clear_sentinel_entities_for_incident(tc_id).await?;
         for e in &entities {
             store.upsert_sentinel_entity(tc_id, e).await?;
             result.entities_pulled += 1;
@@ -1331,6 +1347,17 @@ mod tests {
             ent: &ParsedSentinelEntity,
         ) -> Result<(), SentinelError> {
             self.entities.lock().unwrap().push(ent.clone());
+            Ok(())
+        }
+        async fn clear_sentinel_entities_for_incident(
+            &self,
+            _id: i32,
+        ) -> Result<(), SentinelError> {
+            // MockStore tracks entities in a single flat Vec without an
+            // incident_id back-reference, so we just clear everything. This
+            // is enough for the orchestrator's idempotence assertion: the
+            // second cycle should observe the same entity count, not double.
+            self.entities.lock().unwrap().clear();
             Ok(())
         }
         async fn upsert_analytic_rule(

@@ -37,6 +37,20 @@ fn synth_asset(inc: &ParsedSentinelIncident) -> String {
 
 #[async_trait::async_trait]
 impl SentinelStore for PgBackend {
+    /// Returns the set of provider_alert_ids that skill-microsoft-graph (Phase B)
+    /// has already ingested as Defender alerts. Used by decide_dedup to skip
+    /// re-ingesting the same alert via Sentinel when both skills are active.
+    ///
+    /// IMPORTANT: as of v1.0.x, Graph Phase B (Defender alert ingestion to the
+    /// `incidents` table with `external_source='graph_defender'`) is NOT YET
+    /// SHIPPED. This query intentionally returns an empty set in that case, and
+    /// decide_dedup behaves as Insert-always, which is the correct behavior when
+    /// there is nothing to dedupe against. The dedup mechanism activates
+    /// automatically the moment skill-microsoft-graph Phase B lands and starts
+    /// writing to incidents with external_source='graph_defender'.
+    ///
+    /// See: internal/specs/2026-06-03-skill-microsoft-sentinel-design.md section 10
+    /// (Open contract with skill-microsoft-graph Phase B).
     async fn load_known_graph_provider_alert_ids(&self) -> Result<HashSet<String>, SentinelError> {
         let client = self.pool().get().await.map_err(store_err)?;
         let rows = client
@@ -187,7 +201,13 @@ impl SentinelStore for PgBackend {
         dedup: DedupDecision,
     ) -> Result<(), SentinelError> {
         let client = self.pool().get().await.map_err(store_err)?;
-        let merged_with_graph = dedup == DedupDecision::SkipMergeWithGraph;
+        // The dedup decision drives whether we even attempt the insert
+        // (orchestrator counts it for telemetry), but the
+        // `dedup_merged_with_graph` audit column itself cannot be set here
+        // because when dedup == SkipMergeWithGraph the ON CONFLICT DO NOTHING
+        // path means no row is written by this path at all. Hardcode false
+        // until the graph_alert_id wiring lands (see TODO at the bottom).
+        let _ = dedup;
         client
             .execute(
                 r#"
@@ -225,11 +245,16 @@ impl SentinelStore for PgBackend {
                     &alert.end_time_utc,
                     &alert.time_generated,
                     &alert.additional_data,
-                    &merged_with_graph,
+                    &false,
                 ],
             )
             .await
             .map_err(store_err)?;
+        // TODO(skill-microsoft-sentinel:task17b): when graph_alert_id wiring lands,
+        // UPDATE sentinel_alerts SET dedup_merged_with_graph=true, graph_alert_id=$1
+        // for the row whose provider_alert_id matches the Graph alert we just skipped.
+        // Today the flag is always false because the ON CONFLICT DO NOTHING path means
+        // no row is written here when dedup decides SkipMergeWithGraph.
         Ok(())
     }
 
@@ -251,6 +276,21 @@ impl SentinelStore for PgBackend {
                     &ent.friendly_name,
                     &ent.raw_properties,
                 ],
+            )
+            .await
+            .map_err(store_err)?;
+        Ok(())
+    }
+
+    async fn clear_sentinel_entities_for_incident(
+        &self,
+        threatclaw_incident_id: i32,
+    ) -> Result<(), SentinelError> {
+        let client = self.pool().get().await.map_err(store_err)?;
+        client
+            .execute(
+                "DELETE FROM sentinel_entities WHERE incident_id = $1",
+                &[&threatclaw_incident_id],
             )
             .await
             .map_err(store_err)?;
