@@ -235,6 +235,170 @@ pub fn parse_incidents_response(body: &str) -> Result<Vec<ParsedSentinelIncident
     Ok(out)
 }
 
+/// Normalized representation of a single Sentinel alert extracted from the
+/// `POST /incidents/{id}/alerts` REST response. `providerAlertId` is the
+/// dedup key against Defender Graph ingestion (same alert can land via both
+/// surfaces); `systemAlertId` is Sentinel's own UUID. MITRE techniques live
+/// JSON-string-encoded under `additionalData.MitreTechniques` and are
+/// extracted into a flat `Vec<String>`. The raw `additionalData` bag is kept
+/// in `additional_data` for downstream consumers that need the full envelope.
+#[derive(Debug, Clone)]
+pub struct ParsedSentinelAlert {
+    pub system_alert_id: Uuid,
+    pub provider_alert_id: String,
+    pub provider_name: String,
+    pub vendor_name: Option<String>,
+    pub product_name: Option<String>,
+    pub alert_display_name: String,
+    pub description: Option<String>,
+    pub severity: String,
+    pub confidence_level: Option<String>,
+    pub status: Option<String>,
+    pub tactics: Vec<String>,
+    pub techniques: Vec<String>,
+    pub alert_link: Option<String>,
+    pub start_time_utc: Option<DateTime<Utc>>,
+    pub end_time_utc: Option<DateTime<Utc>>,
+    pub time_generated: Option<DateTime<Utc>>,
+    pub additional_data: Option<JsonValue>,
+}
+
+/// Normalized representation of a single Sentinel entity extracted from the
+/// `POST /incidents/{id}/entities` REST response. Sentinel ships many entity
+/// kinds (Account, Host, Ip, FileHash, ...) with kind-specific property
+/// shapes; we keep `raw_properties` as an opaque JsonValue (persisted as
+/// JSONB) and surface `friendlyName` separately because asset resolution
+/// hits it first.
+#[derive(Debug, Clone)]
+pub struct ParsedSentinelEntity {
+    pub kind: String,
+    pub friendly_name: Option<String>,
+    pub raw_properties: JsonValue,
+}
+
+/// Parse the body of `POST /incidents/{id}/alerts?api-version=...` into a vec
+/// of `ParsedSentinelAlert`. The Sentinel envelope shape is
+/// `{ "value": [ { "properties": {...} } ] }`. `provider_name` is sourced
+/// from `productName` (Microsoft uses values like "Azure Sentinel" or
+/// "Microsoft XDR"). MITRE techniques are stored as a JSON-encoded string
+/// inside `additionalData.MitreTechniques` (not a native JSON array); we
+/// best-effort-decode that string and fall back to an empty list when the
+/// shape diverges. Unknown fields are ignored.
+pub fn parse_alerts_response(body: &str) -> Result<Vec<ParsedSentinelAlert>, SentinelError> {
+    #[derive(Deserialize)]
+    struct Wire {
+        value: Vec<WireAlert>,
+    }
+    #[derive(Deserialize)]
+    struct WireAlert {
+        properties: WireProps,
+    }
+    #[derive(Deserialize)]
+    struct WireProps {
+        #[serde(rename = "systemAlertId")]
+        system_alert_id: String,
+        #[serde(rename = "providerAlertId")]
+        provider_alert_id: String,
+        #[serde(rename = "productName")]
+        product_name: Option<String>,
+        #[serde(rename = "vendorName")]
+        vendor_name: Option<String>,
+        #[serde(rename = "alertDisplayName")]
+        alert_display_name: String,
+        description: Option<String>,
+        severity: String,
+        #[serde(rename = "confidenceLevel")]
+        confidence_level: Option<String>,
+        status: Option<String>,
+        tactics: Option<Vec<String>>,
+        #[serde(rename = "alertLink")]
+        alert_link: Option<String>,
+        #[serde(rename = "startTimeUtc")]
+        start_time_utc: Option<DateTime<Utc>>,
+        #[serde(rename = "endTimeUtc")]
+        end_time_utc: Option<DateTime<Utc>>,
+        #[serde(rename = "timeGenerated")]
+        time_generated: Option<DateTime<Utc>>,
+        #[serde(rename = "additionalData")]
+        additional_data: Option<JsonValue>,
+    }
+
+    let wire: Wire = serde_json::from_str(body).map_err(|e| SentinelError::Parse(e.to_string()))?;
+    let mut out = Vec::with_capacity(wire.value.len());
+    for w in wire.value {
+        // provider_name comes from productName (e.g., "Microsoft XDR" or "Azure Sentinel")
+        let provider_name = w.properties.product_name.clone().unwrap_or_default();
+        // techniques are JSON-string-encoded inside additionalData.MitreTechniques
+        let techniques = match w.properties.additional_data.as_ref() {
+            Some(JsonValue::Object(map)) => map
+                .get("MitreTechniques")
+                .and_then(|v| v.as_str())
+                .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let system_alert_id = Uuid::parse_str(&w.properties.system_alert_id)
+            .map_err(|e| SentinelError::Parse(format!("systemAlertId not uuid: {e}")))?;
+        out.push(ParsedSentinelAlert {
+            system_alert_id,
+            provider_alert_id: w.properties.provider_alert_id,
+            provider_name,
+            vendor_name: w.properties.vendor_name,
+            product_name: w.properties.product_name,
+            alert_display_name: w.properties.alert_display_name,
+            description: w.properties.description,
+            severity: w.properties.severity,
+            confidence_level: w.properties.confidence_level,
+            status: w.properties.status,
+            tactics: w.properties.tactics.unwrap_or_default(),
+            techniques,
+            alert_link: w.properties.alert_link,
+            start_time_utc: w.properties.start_time_utc,
+            end_time_utc: w.properties.end_time_utc,
+            time_generated: w.properties.time_generated,
+            additional_data: w.properties.additional_data,
+        });
+    }
+    Ok(out)
+}
+
+/// Parse the body of `POST /incidents/{id}/entities?api-version=...` into a
+/// vec of `ParsedSentinelEntity`. The envelope shape is
+/// `{ "entities": [ { "kind": "...", "properties": {...} } ], "metaData": [...] }`.
+/// The `entities` key is optional: an incident with zero related entities
+/// returns `{}`, which must parse to an empty Vec rather than error.
+/// Per-kind property shapes vary widely, so we keep the raw `properties`
+/// object as JsonValue and only pull out `friendlyName` (the human-readable
+/// label asset resolution uses as a first-pass key).
+pub fn parse_entities_response(body: &str) -> Result<Vec<ParsedSentinelEntity>, SentinelError> {
+    #[derive(Deserialize)]
+    struct Wire {
+        entities: Option<Vec<WireEnt>>,
+    }
+    #[derive(Deserialize)]
+    struct WireEnt {
+        kind: String,
+        properties: Option<JsonValue>,
+    }
+
+    let wire: Wire = serde_json::from_str(body).map_err(|e| SentinelError::Parse(e.to_string()))?;
+    let entities = wire.entities.unwrap_or_default();
+    let mut out = Vec::with_capacity(entities.len());
+    for w in entities {
+        let raw = w.properties.unwrap_or(JsonValue::Null);
+        let friendly_name = raw
+            .get("friendlyName")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        out.push(ParsedSentinelEntity {
+            kind: w.kind,
+            friendly_name,
+            raw_properties: raw,
+        });
+    }
+    Ok(out)
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -385,5 +549,56 @@ mod tests {
             with_mitre.is_some(),
             "fixture should have at least one incident with MITRE annotations"
         );
+    }
+
+    const ALERTS_FIXTURE: &str =
+        include_str!("../../tests/fixtures/sentinel/alerts_for_incident.json");
+    const ENTITIES_FIXTURE: &str =
+        include_str!("../../tests/fixtures/sentinel/entities_for_incident.json");
+
+    #[test]
+    fn parse_alerts_extracts_provider_alert_id() {
+        let parsed = parse_alerts_response(ALERTS_FIXTURE).expect("parse ok");
+        assert!(!parsed.is_empty());
+        let a = &parsed[0];
+        assert!(
+            !a.provider_alert_id.is_empty(),
+            "providerAlertId is the dedup key, must be present"
+        );
+        assert!(!a.system_alert_id.is_nil());
+    }
+
+    #[test]
+    fn parse_alerts_extracts_mitre_techniques_from_additional_data() {
+        let parsed = parse_alerts_response(ALERTS_FIXTURE).expect("parse ok");
+        // At least one alert should have techniques (extracted from additionalData.MitreTechniques JSON string)
+        let any_with_techniques = parsed.iter().any(|a| !a.techniques.is_empty());
+        assert!(
+            any_with_techniques,
+            "expected at least one alert with MITRE techniques"
+        );
+    }
+
+    #[test]
+    fn parse_entities_extracts_account_and_host() {
+        let parsed = parse_entities_response(ENTITIES_FIXTURE).expect("parse ok");
+        let kinds: Vec<&str> = parsed.iter().map(|e| e.kind.as_str()).collect();
+        assert!(
+            kinds.contains(&"Account"),
+            "expected Account entity in fixture, got {:?}",
+            kinds
+        );
+        assert!(
+            kinds.contains(&"Host"),
+            "expected Host entity in fixture, got {:?}",
+            kinds
+        );
+    }
+
+    #[test]
+    fn parse_entities_handles_missing_entities_array() {
+        let json = r#"{}"#;
+        let parsed = parse_entities_response(json).expect("missing entities ok");
+        assert!(parsed.is_empty());
     }
 }
