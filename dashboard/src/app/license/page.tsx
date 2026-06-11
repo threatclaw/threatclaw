@@ -40,6 +40,7 @@ import {
   MessageSquare,
   Lock,
 } from "lucide-react";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -408,7 +409,7 @@ export default function LicensePage() {
           <ServerCog size={14} /> {fr ? "Cette installation" : "This install"}
         </h2>
         <Row label={fr ? "Instance ID" : "Instance ID"}>
-          <Mono value={instance?.instance_id ?? "…"} field="instance" copiedField={copiedField} onCopy={copy} />
+          <Mono value={instance?.instance_id ?? "…"} field="instance" copiedField={copiedField} onCopy={copy} locale={locale} />
         </Row>
         <Row label="Version">
           <span style={{ fontFamily: "monospace", fontSize: "13px", fontWeight: 700 }}>
@@ -540,7 +541,7 @@ export default function LicensePage() {
               <span style={{ fontSize: "12px" }}>{formatDate(primary.expires_at, locale)}</span>
             </Row>
             <Row label={fr ? "Clé licence" : "License key"}>
-              <Mono value={primary.license_key} field="license_key" copiedField={copiedField} onCopy={copy} />
+              <Mono value={primary.license_key} field="license_key" copiedField={copiedField} onCopy={copy} locale={locale} />
             </Row>
             {primary.licensee_email && (
               <Row label="Contact">
@@ -783,18 +784,20 @@ function Mono({
   field,
   copiedField,
   onCopy,
+  locale,
 }: {
   value: string;
   field: string;
   copiedField: string | null;
   onCopy: (v: string, f: string) => void;
+  locale: Locale;
 }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
       <span style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--tc-text)" }}>{value}</span>
       <button
         onClick={() => onCopy(value, field)}
-        title="Copier"
+        title={tr("license_copy", locale)}
         style={{
           padding: "2px 6px",
           fontSize: "10px",

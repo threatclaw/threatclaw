@@ -1357,6 +1357,7 @@ const T: Record<string, Record<Locale, string>> = {
   network_firewallAudit: { fr: "Audit pare-feu récent (60 min)", en: "Recent firewall audit (60 min)" },
   network_noAdminEvents: { fr: "Aucun événement admin.", en: "No admin event." },
   network_otherEvents: { fr: "autres événements", en: "more events" },
+  license_copy: { fr: "Copier", en: "Copy" },
 };
 
 /** Get a translated string. Falls back to French if key missing. */
