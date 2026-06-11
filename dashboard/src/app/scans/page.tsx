@@ -158,8 +158,8 @@ function relTime(iso: string | null, locale: Locale): string {
   const t = new Date(iso).getTime();
   const diff = Date.now() - t;
   if (diff < 60_000) return tr("scans_justNow", locale);
-  if (diff < 3_600_000) return `${tr("scans_ago", locale)} ${Math.floor(diff / 60_000)} min`;
-  if (diff < 86_400_000) return `${tr("scans_ago", locale)} ${Math.floor(diff / 3_600_000)} h`;
+  if (diff < 3_600_000) { const m = Math.floor(diff / 60_000); return locale === "fr" ? `il y a ${m} min` : `${m} min ago`; }
+  if (diff < 86_400_000) { const h = Math.floor(diff / 3_600_000); return locale === "fr" ? `il y a ${h} h` : `${h}h ago`; }
   return new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US");
 }
 

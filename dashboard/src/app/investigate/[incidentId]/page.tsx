@@ -1527,7 +1527,7 @@ export default function InvestigatePage() {
                                   fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                                   background: "rgba(255,96,48,0.1)", color: "#ff6030",
                                   border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
-                                }}>{kindShortLabel(act.kind)}</span>
+                                }}>{kindShortLabel(act.kind, locale)}</span>
                                 {act.skill_id && (
                                   <span style={{
                                     fontSize: 9, padding: "1px 5px",

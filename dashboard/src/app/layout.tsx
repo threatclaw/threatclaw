@@ -22,7 +22,7 @@ export default function RootLayout({
     <html lang="fr">
       <head>
         <title>ThreatClaw</title>
-        <meta name="description" content="Agent de cybersécurité autonome" />
+        <meta name="description" content="Autonomous cybersecurity agent" />
         <link rel="icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>

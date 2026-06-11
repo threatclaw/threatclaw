@@ -77,35 +77,36 @@ export function kindLabel(kind: ActionKind | string): string {
 }
 
 /**
- * Short French label for the kind (operator-friendly summary in the dashboard
- * list view, where horizontal space is tight).
+ * Short, locale-aware label for the kind (operator-friendly summary in the
+ * dashboard list view, where horizontal space is tight).
  */
-export function kindShortLabel(kind: ActionKind | string): string {
+export function kindShortLabel(kind: ActionKind | string, locale: "fr" | "en" = "fr"): string {
+  const fr = locale === "fr";
   switch (kind) {
     case "block_ip":
-      return "Blocage IP";
+      return fr ? "Blocage IP" : "IP block";
     case "unblock_ip":
-      return "Déblocage IP";
+      return fr ? "Déblocage IP" : "IP unblock";
     case "isolate_host":
-      return "Isolation hôte";
+      return fr ? "Isolation hôte" : "Host isolation";
     case "release_host":
-      return "Levée isolation";
+      return fr ? "Levée isolation" : "Release isolation";
     case "kill_process":
-      return "Kill processus";
+      return fr ? "Kill processus" : "Kill process";
     case "collect_artifacts":
-      return "Collecte forensique";
+      return fr ? "Collecte forensique" : "Forensic collection";
     case "disable_user":
-      return "Désactiver compte";
+      return fr ? "Désactiver compte" : "Disable account";
     case "enable_user":
-      return "Réactiver compte";
+      return fr ? "Réactiver compte" : "Enable account";
     case "reset_password":
-      return "Reset mot de passe";
+      return fr ? "Reset mot de passe" : "Password reset";
     case "reset_krbtgt":
-      return "Rotation krbtgt";
+      return fr ? "Rotation krbtgt" : "krbtgt rotation";
     case "force_mfa":
-      return "Forcer MFA";
+      return fr ? "Forcer MFA" : "Force MFA";
     case "manual":
-      return "Action manuelle";
+      return fr ? "Action manuelle" : "Manual action";
     default:
       return "Action";
   }

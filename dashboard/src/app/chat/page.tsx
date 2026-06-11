@@ -396,6 +396,7 @@ export default function ChatPage() {
 }
 
 function MessageRow({ message }: { message: LocalMessage }) {
+  const locale = useLocale();
   const isUser = message.role === "user";
   const isAssistant = message.role === "assistant";
   return (
@@ -427,7 +428,7 @@ function MessageRow({ message }: { message: LocalMessage }) {
         <div style={{ fontSize: "10px", color: "var(--tc-text-sec)", marginBottom: "3px" }}>
           {isUser ? "Vous" : isAssistant ? "ThreatClaw" : message.role}
           {message.failed && (
-            <span style={{ marginLeft: "6px", color: "var(--tc-red)" }}>· échec</span>
+            <span style={{ marginLeft: "6px", color: "var(--tc-red)" }}>· {locale === "fr" ? "échec" : "failed"}</span>
           )}
         </div>
         <div
