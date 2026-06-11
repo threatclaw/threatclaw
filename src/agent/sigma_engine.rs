@@ -896,6 +896,9 @@ async fn enrol_observed_hostnames(
         if h.is_empty() || h == "unknown" {
             continue;
         }
+        if looks_like_program_or_container_id(h) {
+            continue;
+        }
         if !seen.insert(h.to_string()) {
             continue;
         }
@@ -939,6 +942,68 @@ async fn enrol_observed_hostnames(
     }
 }
 
+/// Heuristic to filter out values that look like a syslog program name or
+/// a Docker container id rather than a real hostname. Without this filter
+/// the observe-and-enrol pass creates noise assets like
+/// "syslog-observed-kernel" or "syslog-observed-dockerd" whenever a sender
+/// emits a RFC3164 line that omits the hostname field (the program then
+/// lands in the parsed host slot). Real hostnames almost always carry a
+/// `.` (FQDN), a `-` (host-NN convention), or a digit, while program
+/// names are short lowercase tokens. The blocklist catches the rest.
+fn looks_like_program_or_container_id(s: &str) -> bool {
+    // Common syslog program names that leak into the host slot when the
+    // sender omits the hostname header.
+    const PROGRAM_BLOCKLIST: &[&str] = &[
+        "kernel",
+        "systemd",
+        "rsyslogd",
+        "syslog-ng",
+        "dockerd",
+        "containerd",
+        "containerd-shim",
+        "cron",
+        "crond",
+        "sshd",
+        "audit",
+        "auditd",
+        "sudo",
+        "su",
+        "login",
+        "init",
+        "dhclient",
+        "NetworkManager",
+        "wpa_supplicant",
+        "agetty",
+        "polkitd",
+        "snapd",
+        "chronyd",
+        "ntpd",
+        "named",
+        "postfix",
+        "nginx",
+        "apache2",
+        "httpd",
+        "haproxy",
+        "kubelet",
+        "kube-proxy",
+    ];
+    let lower = s.to_ascii_lowercase();
+    if PROGRAM_BLOCKLIST.contains(&lower.as_str()) {
+        return true;
+    }
+    // Internal noise from the ThreatClaw stack itself
+    if s.starts_with("threatclaw-") {
+        return true;
+    }
+    // Docker container ids are 12 or 64 hex chars with no dot, no dash
+    let is_hex = !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    let no_separator = !s.contains('.') && !s.contains('-') && !s.contains('_');
+    if is_hex && no_separator && (s.len() == 12 || s.len() == 64) {
+        return true;
+    }
+    false
+}
+
 /// Resolve a raw `hostname` (could be IP, FQDN, NetBIOS, or short name)
 /// against the assets table. Falls back to the raw value when the asset
 /// is unknown so the pipeline still records something — but we prefer
@@ -968,3 +1033,77 @@ async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> 
 // fonction `is_benign` côté module dédié pour la matrice complète des
 // critères de drop. Le sigma_engine n'invoque que `try_normalize +
 // is_benign` ; aucune logique vendor-specific ici.
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_program_or_container_id;
+
+    #[test]
+    fn program_blocklist_filters_common_daemons() {
+        for prog in [
+            "kernel",
+            "systemd",
+            "dockerd",
+            "containerd",
+            "rsyslogd",
+            "sshd",
+            "cron",
+            "nginx",
+        ] {
+            assert!(
+                looks_like_program_or_container_id(prog),
+                "{prog} should be filtered"
+            );
+        }
+    }
+
+    #[test]
+    fn case_insensitive_blocklist() {
+        assert!(looks_like_program_or_container_id("Kernel"));
+        assert!(looks_like_program_or_container_id("SYSTEMD"));
+    }
+
+    #[test]
+    fn threatclaw_internal_filtered() {
+        assert!(looks_like_program_or_container_id("threatclaw-agent-sync"));
+        assert!(looks_like_program_or_container_id("threatclaw-core"));
+    }
+
+    #[test]
+    fn docker_short_container_id_filtered() {
+        assert!(looks_like_program_or_container_id("bc130c79e5dd"));
+        assert!(looks_like_program_or_container_id("a1b2c3d4e5f6"));
+    }
+
+    #[test]
+    fn docker_long_container_id_filtered() {
+        let long = "a".repeat(64);
+        assert!(looks_like_program_or_container_id(&long));
+    }
+
+    #[test]
+    fn real_hostnames_pass_through() {
+        for host in [
+            "client-prod-01",
+            "webserver-london",
+            "sd-98664",
+            "host01.client.local",
+            "SHIR-Hive",
+            "interstellar-dc01",
+            "192.168.1.10",
+        ] {
+            assert!(
+                !looks_like_program_or_container_id(host),
+                "{host} should NOT be filtered"
+            );
+        }
+    }
+
+    #[test]
+    fn edge_short_hex_not_container_size() {
+        // 11-char hex doesn't look like a container id (12 or 64)
+        assert!(!looks_like_program_or_container_id("abcdef12345"));
+        // 13-char hex same
+        assert!(!looks_like_program_or_container_id("abcdef1234567"));
+    }
+}
