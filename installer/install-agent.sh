@@ -270,80 +270,84 @@ run_query() {
 
 # Each table is queried separately because mixing platform-specific tables
 # (deb_packages / rpm_packages / programs) in a single UNION breaks the JSON
-# output on systems where one of the tables is unavailable.
-SOFT_DEB=\$(run_query "SELECT name, version, 'deb' AS source FROM deb_packages;")
-SOFT_RPM=\$(run_query "SELECT name, version, 'rpm' AS source FROM rpm_packages;")
-SOFT_PROG=\$(run_query "SELECT name, version, 'programs' AS source FROM programs;")
-SOCKETS=\$(run_query "SELECT p.name, p.path as process_path, s.remote_address, s.remote_port, s.local_port, s.state FROM process_open_sockets s JOIN processes p ON s.pid = p.pid WHERE s.remote_address != '' AND s.remote_address != '127.0.0.1' AND s.state = 'ESTABLISHED';")
-PORTS=\$(run_query "SELECT l.port, l.protocol, l.address, p.name FROM listening_ports l LEFT JOIN processes p ON l.pid = p.pid;")
-USERS=\$(run_query "SELECT uid, gid, username, shell FROM users WHERE shell NOT IN ('/usr/sbin/nologin', '/bin/false', '/sbin/nologin');")
-LOGINS=\$(run_query "SELECT user, tty, host, type FROM logged_in_users;")
-CRONTAB=\$(run_query "SELECT command, path FROM crontab;")
-SSH_KEYS=\$(run_query "SELECT uid, algorithm, comment, key_file FROM authorized_keys;")
-OS_VER=\$(run_query "SELECT name, version, platform FROM os_version;")
-IFACES=\$(run_query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.interface NOT LIKE 'docker%' AND i.interface NOT LIKE 'br-%' AND i.interface NOT LIKE 'veth%' AND i.interface NOT LIKE 'virbr%' AND i.interface NOT LIKE 'lxc%' AND i.interface NOT LIKE 'cni%' AND i.interface NOT LIKE 'flannel%';")
+# output on systems where one of the tables is unavailable. Each result is
+# written to a file in a temp dir: large inventories must never be passed via
+# environment variables or command-line arguments, which would hit ARG_MAX and
+# break the sync on hosts with many packages (the previous failure mode).
+WORKDIR=\$(mktemp -d)
+trap 'rm -rf "\$WORKDIR"' EXIT
+
+run_query "SELECT name, version, 'deb' AS source FROM deb_packages;" > "\$WORKDIR/soft_deb.json"
+run_query "SELECT name, version, 'rpm' AS source FROM rpm_packages;" > "\$WORKDIR/soft_rpm.json"
+run_query "SELECT name, version, 'programs' AS source FROM programs;" > "\$WORKDIR/soft_prog.json"
+run_query "SELECT p.name, p.path as process_path, s.remote_address, s.remote_port, s.local_port, s.state FROM process_open_sockets s JOIN processes p ON s.pid = p.pid WHERE s.remote_address != '' AND s.remote_address != '127.0.0.1' AND s.state = 'ESTABLISHED';" > "\$WORKDIR/sockets.json"
+run_query "SELECT l.port, l.protocol, l.address, p.name FROM listening_ports l LEFT JOIN processes p ON l.pid = p.pid;" > "\$WORKDIR/ports.json"
+run_query "SELECT uid, gid, username, shell FROM users WHERE shell NOT IN ('/usr/sbin/nologin', '/bin/false', '/sbin/nologin');" > "\$WORKDIR/users.json"
+run_query "SELECT user, tty, host, type FROM logged_in_users;" > "\$WORKDIR/logins.json"
+run_query "SELECT command, path FROM crontab;" > "\$WORKDIR/crontab.json"
+run_query "SELECT uid, algorithm, comment, key_file FROM authorized_keys;" > "\$WORKDIR/ssh_keys.json"
+run_query "SELECT name, version, platform FROM os_version;" > "\$WORKDIR/os_ver.json"
+run_query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.interface NOT LIKE 'docker%' AND i.interface NOT LIKE 'br-%' AND i.interface NOT LIKE 'veth%' AND i.interface NOT LIKE 'virbr%' AND i.interface NOT LIKE 'lxc%' AND i.interface NOT LIKE 'cni%' AND i.interface NOT LIKE 'flannel%';" > "\$WORKDIR/ifaces.json"
 
 # DNS cache (Linux: read /etc/resolv.conf, not a true cache like Windows)
-DNS='[]'
+echo '[]' > "\$WORKDIR/dns.json"
 if command -v osqueryi >/dev/null && osqueryi --json "SELECT * FROM dns_cache LIMIT 1" 2>/dev/null | grep -q name; then
-  DNS=\$(run_query "SELECT name FROM dns_cache LIMIT 200;")
+  run_query "SELECT name FROM dns_cache LIMIT 200;" > "\$WORKDIR/dns.json"
 fi
 
 # Docker
-DOCKER='[]'
+echo '[]' > "\$WORKDIR/docker.json"
 if command -v docker >/dev/null; then
-  DOCKER=\$(run_query "SELECT id, name, image, status, state FROM docker_containers;" 2>/dev/null || echo "[]")
+  run_query "SELECT id, name, image, status, state FROM docker_containers;" > "\$WORKDIR/docker.json"
 fi
 
-# Assemble the final JSON in Python — safer than a bash heredoc, which would
-# turn malformed osquery output (rare but happens when a table doesn't exist
-# on this OS) into broken global JSON. Each per-table chunk is parsed in
-# isolation so a bad chunk only blanks itself out.
-PAYLOAD=\$(HOSTNAME="\$HOSTNAME" AGENT_ID="\$AGENT_ID" \\
-  SOFT_DEB="\$SOFT_DEB" SOFT_RPM="\$SOFT_RPM" SOFT_PROG="\$SOFT_PROG" \\
-  SOCKETS="\$SOCKETS" PORTS="\$PORTS" USERS="\$USERS" LOGINS="\$LOGINS" \\
-  CRONTAB="\$CRONTAB" SSH_KEYS="\$SSH_KEYS" OS_VER="\$OS_VER" \\
-  IFACES="\$IFACES" DNS="\$DNS" DOCKER="\$DOCKER" python3 << 'PYEOF'
+# Assemble the final JSON in Python, reading each chunk from its file and
+# writing the payload to a file — nothing large ever crosses env or argv, so
+# this is safe regardless of inventory size. Each chunk is parsed in isolation
+# so a malformed table only blanks itself out.
+TC_WORKDIR="\$WORKDIR" TC_HOSTNAME="\$HOSTNAME" TC_AGENT_ID="\$AGENT_ID" python3 << 'PYEOF'
 import json, os
-def load(name, default):
-    raw = os.environ.get(name) or ''
+workdir = os.environ["TC_WORKDIR"]
+def load(fname, default):
     try:
-        v = json.loads(raw)
+        with open(os.path.join(workdir, fname)) as f:
+            v = json.loads(f.read() or "null")
         return v if v is not None else default
     except Exception:
         return default
 # Software: union of all available package sources (deb / rpm / programs).
 software = []
-for k in ("SOFT_DEB", "SOFT_RPM", "SOFT_PROG"):
+for k in ("soft_deb.json", "soft_rpm.json", "soft_prog.json"):
     software.extend(load(k, []))
 # os_version: osquery returns a list with one row.
-os_rows = load("OS_VER", [])
+os_rows = load("os_ver.json", [])
 os_version = os_rows[0] if os_rows else {}
 payload = {
-    "hostname": os.environ["HOSTNAME"],
-    "agent_id": os.environ["AGENT_ID"],
+    "hostname": os.environ["TC_HOSTNAME"],
+    "agent_id": os.environ["TC_AGENT_ID"],
     "software": software,
-    "process_open_sockets": load("SOCKETS", []),
-    "listening_ports": load("PORTS", []),
-    "users": load("USERS", []),
-    "logged_in_users": load("LOGINS", []),
-    "scheduled_tasks": load("CRONTAB", []),
-    "authorized_keys": load("SSH_KEYS", []),
+    "process_open_sockets": load("sockets.json", []),
+    "listening_ports": load("ports.json", []),
+    "users": load("users.json", []),
+    "logged_in_users": load("logins.json", []),
+    "scheduled_tasks": load("crontab.json", []),
+    "authorized_keys": load("ssh_keys.json", []),
     "os_version": os_version,
-    "interface_details": load("IFACES", []),
-    "dns_cache": load("DNS", []),
-    "docker_containers": load("DOCKER", []),
+    "interface_details": load("ifaces.json", []),
+    "dns_cache": load("dns.json", []),
+    "docker_containers": load("docker.json", []),
 }
-print(json.dumps(payload))
+with open(os.path.join(workdir, "payload.json"), "w") as f:
+    json.dump(payload, f)
 PYEOF
-)
 
 # Send to ThreatClaw — header takes precedence over query token; the query
-# arg is left as a fallback for proxies that strip custom headers.
+# arg is left as a fallback for proxies that strip custom headers. The payload
+# is read from a file with @, so its size never hits the argv limit either.
 curl -fsSL -X POST \\
   -H "Content-Type: application/json" \\
   -H "X-Webhook-Token: \$TC_TOKEN" \\
-  --data-binary "\$PAYLOAD" \\
+  --data-binary @"\$WORKDIR/payload.json" \\
   "\${TC_URL}/api/tc/webhook/ingest/osquery?token=\$TC_TOKEN" \\
   --max-time 30 \\
   -k \\
