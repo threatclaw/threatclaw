@@ -12,6 +12,8 @@ import { PageShell } from "@/components/chrome/PageShell";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Shield,
   AlertTriangle,
@@ -68,11 +70,11 @@ const FW_LABELS: Record<string, string> = {
   "skill-fortinet": "FortiGate",
 };
 
-function fmtTime(iso: string): string {
+function fmtTime(iso: string, locale: Locale): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleString("fr-FR", {
+    return d.toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
       hour: "2-digit",
       minute: "2-digit",
       day: "2-digit",
@@ -84,6 +86,7 @@ function fmtTime(iso: string): string {
 }
 
 export default function NetworkPage() {
+  const locale = useLocale();
   const [data, setData] = useState<NetworkOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,20 +115,18 @@ export default function NetworkPage() {
   // Empty state — no firewall configured at all
   if (!loading && data && data.firewalls.length === 0) {
     return (
-      <PageShell title="Réseau" subtitle="Vue unifiée pare-feu">
+      <PageShell title={tr("network_title", locale)} subtitle={tr("network_subtitleShort", locale)}>
         <div style={{ padding: "1rem 0" }}>
           <NeuCard>
             <div style={{ padding: "2rem", textAlign: "center" }}>
               <NetworkIcon size={48} style={{ opacity: 0.4, margin: "0 auto 1rem" }} />
-              <h3 style={{ marginBottom: "0.5rem" }}>Aucun pare-feu configuré</h3>
+              <h3 style={{ marginBottom: "0.5rem" }}>{tr("network_emptyHeading", locale)}</h3>
               <p style={{ opacity: 0.7, marginBottom: "1.5rem" }}>
-                Connecte un pare-feu (pfSense, OPNsense, FortiGate) pour voir
-                les sessions VPN, les blocages, les événements admin et les
-                anomalies d&apos;identité dans une seule vue.
+                {tr("network_emptyBody", locale)}
               </p>
               <Link href="/skills?cat=network">
                 <ChromeButton>
-                  Aller au catalogue de skills <ChevronRight size={16} />
+                  {tr("network_goToCatalog", locale)} <ChevronRight size={16} />
                 </ChromeButton>
               </Link>
             </div>
@@ -137,11 +138,11 @@ export default function NetworkPage() {
 
   return (
     <PageShell
-      title="Réseau"
-      subtitle="Vue unifiée pare-feu — sessions VPN, blocages, audit, anomalies"
+      title={tr("network_title", locale)}
+      subtitle={tr("network_subtitleFull", locale)}
       right={
         <ChromeButton onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> Rafraîchir
+          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> {tr("network_refresh", locale)}
         </ChromeButton>
       }
     >
@@ -153,7 +154,7 @@ export default function NetworkPage() {
         <NeuCard>
           <div style={{ padding: "1rem" }}>
             <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-              <Shield size={16} /> Pare-feu connectés
+              <Shield size={16} /> {tr("network_connectedFirewalls", locale)}
             </h2>
             {data?.firewalls.map((fw) => (
               <div
@@ -172,7 +173,7 @@ export default function NetworkPage() {
                   </span>
                 </span>
                 <span style={{ fontSize: "0.85rem" }}>
-                  {fw.enabled ? "✓ actif" : "○ désactivé"}
+                  {fw.enabled ? tr("network_statusActive", locale) : tr("network_statusDisabled", locale)}
                   {fw.auto_sync && <span style={{ marginLeft: "0.5rem", opacity: 0.6 }}>auto-sync</span>}
                 </span>
               </div>
@@ -185,10 +186,10 @@ export default function NetworkPage() {
           <NeuCard>
             <div style={{ padding: "1rem" }}>
               <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-                <AlertTriangle size={16} /> Top sources bloquées (24 h)
+                <AlertTriangle size={16} /> {tr("network_topBlockedSources", locale)}
               </h2>
               {(data?.top_blocked_sources || []).length === 0 && (
-                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucun blocage détecté ces dernières 24 h.</p>
+                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>{tr("network_noBlocks24h", locale)}</p>
               )}
               {(data?.top_blocked_sources || []).map((b) => (
                 <div
@@ -201,7 +202,7 @@ export default function NetworkPage() {
                 >
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <span style={{ fontFamily: "monospace" }}>{b.src_ip}</span>
-                    <span><strong>{b.block_count}</strong> blocs</span>
+                    <span><strong>{b.block_count}</strong> {tr("network_blocksUnit", locale)}</span>
                   </div>
                   <div style={{ opacity: 0.65, fontSize: "0.78rem", marginTop: "0.2rem" }}>
                     {b.distinct_dst} dst · {b.distinct_ports} ports
@@ -218,13 +219,13 @@ export default function NetworkPage() {
           <NeuCard>
             <div style={{ padding: "1rem" }}>
               <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-                <Activity size={16} /> Anomalies d&apos;identité
+                <Activity size={16} /> {tr("network_identityAnomalies", locale)}
                 <span style={{ marginLeft: "auto", fontSize: "0.78rem", opacity: 0.55 }}>
-                  {data?.users_tracked ?? 0} users suivis
+                  {data?.users_tracked ?? 0} {tr("network_usersTracked", locale)}
                 </span>
               </h2>
               {(data?.identity_anomalies || []).length === 0 && (
-                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucune anomalie détectée.</p>
+                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>{tr("network_noAnomalies", locale)}</p>
               )}
               {(data?.identity_anomalies || []).map((a, i) => (
                 <div
@@ -263,10 +264,10 @@ export default function NetworkPage() {
           <NeuCard>
             <div style={{ padding: "1rem" }}>
               <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-                <Eye size={16} /> IDS / IPS récent (60 min)
+                <Eye size={16} /> {tr("network_idsRecent", locale)}
               </h2>
               {(data?.recent_ids_alerts || []).length === 0 && (
-                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucune alerte IDS dans la dernière heure.</p>
+                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>{tr("network_noIdsLastHour", locale)}</p>
               )}
               {(data?.recent_ids_alerts || []).slice(0, 5).map((a, i) => (
                 <div
@@ -280,7 +281,7 @@ export default function NetworkPage() {
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
                     <span>{a.tag}</span>
-                    <span>{fmtTime(a.time)}</span>
+                    <span>{fmtTime(a.time, locale)}</span>
                   </div>
                   <div
                     style={{
@@ -300,7 +301,7 @@ export default function NetworkPage() {
               ))}
               {(data?.recent_ids_alerts || []).length > 5 && (
                 <div style={{ opacity: 0.55, fontSize: "0.72rem", marginTop: "0.4rem" }}>
-                  + {(data?.recent_ids_alerts || []).length - 5} autres alertes
+                  + {(data?.recent_ids_alerts || []).length - 5} {tr("network_otherAlerts", locale)}
                 </div>
               )}
             </div>
@@ -310,10 +311,10 @@ export default function NetworkPage() {
           <NeuCard>
             <div style={{ padding: "1rem" }}>
               <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-                <Shield size={16} /> Audit pare-feu récent (60 min)
+                <Shield size={16} /> {tr("network_firewallAudit", locale)}
               </h2>
               {(data?.admin_events || []).length === 0 && (
-                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>Aucun événement admin.</p>
+                <p style={{ opacity: 0.6, fontSize: "0.9rem" }}>{tr("network_noAdminEvents", locale)}</p>
               )}
               {(data?.admin_events || []).slice(0, 5).map((a, i) => (
                 <div
@@ -327,7 +328,7 @@ export default function NetworkPage() {
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.7 }}>
                     <span>{a.tag}</span>
-                    <span>{fmtTime(a.time)}</span>
+                    <span>{fmtTime(a.time, locale)}</span>
                   </div>
                   <div
                     style={{
@@ -347,7 +348,7 @@ export default function NetworkPage() {
               ))}
               {(data?.admin_events || []).length > 5 && (
                 <div style={{ opacity: 0.55, fontSize: "0.72rem", marginTop: "0.4rem" }}>
-                  + {(data?.admin_events || []).length - 5} autres événements
+                  + {(data?.admin_events || []).length - 5} {tr("network_otherEvents", locale)}
                 </div>
               )}
             </div>
