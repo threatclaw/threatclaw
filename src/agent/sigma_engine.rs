@@ -890,7 +890,9 @@ async fn enrol_observed_hostnames(
 ) {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for log in logs {
-        let Some(h) = log.hostname.as_deref() else { continue };
+        let Some(h) = log.hostname.as_deref() else {
+            continue;
+        };
         if h.is_empty() || h == "unknown" {
             continue;
         }
