@@ -10,6 +10,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { t as tr } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import {
   Shield,
   Activity,
@@ -54,14 +56,20 @@ function isSevere(s: string | null | undefined) {
   return x === "HIGH" || x === "CRITICAL";
 }
 
-function formatRelative(iso: string | undefined, now: Date) {
+function formatRelative(iso: string | undefined, now: Date, locale: "fr" | "en") {
   if (!iso) return "—";
   const d = new Date(iso);
   const diff = Math.max(0, now.getTime() - d.getTime()) / 1000;
-  if (diff < 60) return `il y a ${Math.round(diff)}s`;
-  if (diff < 3600) return `il y a ${Math.round(diff / 60)}m`;
-  if (diff < 86400) return `il y a ${Math.round(diff / 3600)}h`;
-  return `il y a ${Math.round(diff / 86400)}j`;
+  if (locale === "fr") {
+    if (diff < 60) return `il y a ${Math.round(diff)}s`;
+    if (diff < 3600) return `il y a ${Math.round(diff / 60)}m`;
+    if (diff < 86400) return `il y a ${Math.round(diff / 3600)}h`;
+    return `il y a ${Math.round(diff / 86400)}j`;
+  }
+  if (diff < 60) return `${Math.round(diff)}s ago`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+  return `${Math.round(diff / 86400)}d ago`;
 }
 
 export default function DashTest() {
@@ -256,6 +264,7 @@ function LeftRail({
   situation: Situation | null;
   topAssets: AssetScore[];
 }) {
+  const locale = useLocale();
   const globalScore = situation?.global_score !== undefined ? Math.round(situation.global_score) : null;
   return (
     <aside
@@ -281,7 +290,7 @@ function LeftRail({
           color: "var(--tc-text-muted)",
           cursor: "pointer",
         }}
-        title={collapsed ? "Étendre" : "Réduire"}
+        title={collapsed ? tr("home_expand", locale) : tr("home_collapse", locale)}
       >
         {collapsed ? <ChevronsRight size={13} /> : <ChevronsLeft size={13} />}
       </button>
@@ -291,24 +300,24 @@ function LeftRail({
       ) : (
         <div style={{ overflowY: "auto", flex: 1 }}>
           {/* Posture live */}
-          <Section title="Posture · live">
+          <Section title={tr("home_postureLive", locale)}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
               <RailStat value={globalScore ?? "—"} label="score" accent={globalScore !== null && globalScore < 50 ? "var(--tc-red)" : undefined} />
-              <RailStat value={pending} label="à trier" accent={pending > 0 ? "var(--tc-red)" : undefined} />
-              <RailStat value={confirmed} label="confirmés" />
-              <RailStat value={alertsTotal.toLocaleString("fr")} label="alertes brutes" mono />
+              <RailStat value={pending} label={tr("home_toTriage", locale)} accent={pending > 0 ? "var(--tc-red)" : undefined} />
+              <RailStat value={confirmed} label={tr("home_confirmed", locale)} />
+              <RailStat value={alertsTotal.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")} label={tr("home_rawAlerts", locale)} mono />
             </div>
           </Section>
 
           {/* Cycle agent */}
-          <Section title="Cycle agent">
+          <Section title={tr("home_agentCycle", locale)}>
             <CycleSteps />
           </Section>
 
           {/* Top risk assets */}
-          <Section title="Assets à risque">
+          <Section title={tr("home_riskAssets", locale)}>
             {topAssets.length === 0 ? (
-              <EmptyLine text="aucun asset flaggé" />
+              <EmptyLine text={tr("home_noFlaggedAsset", locale)} />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 {topAssets.map((a) => {
@@ -345,7 +354,7 @@ function LeftRail({
           </Section>
 
           {/* Collectors / sources live */}
-          <Section title="Collecteurs">
+          <Section title={tr("home_collectors", locale)}>
             <CollectorsList />
           </Section>
         </div>
@@ -441,12 +450,13 @@ function RailStat({
 }
 
 function CycleSteps() {
+  const locale = useLocale();
   // Static for now — TODO wire to real IE cycle state via an endpoint.
   const steps = [
     { n: "01", label: "Observe", desc: "syslog · sigma · wazuh" },
     { n: "02", label: "Correlate", desc: "graph STIX 2.1" },
     { n: "03", label: "Enrich", desc: "KEV · EPSS · CTI" },
-    { n: "04", label: "Decide", desc: "L2 forensique → HITL" },
+    { n: "04", label: "Decide", desc: tr("home_l2Forensic", locale) },
   ];
   const activeIdx = 2; // placeholder
   return (
@@ -556,6 +566,7 @@ function Center({
   alertsTotal: number;
   now: Date;
 }) {
+  const locale = useLocale();
   return (
     <section
       style={{
@@ -580,7 +591,7 @@ function Center({
             letterSpacing: "0.04em",
           }}
         >
-          Aucun incident actif · cycle IE toutes les 5 min — un asset qui flippe remonte ici automatiquement.
+          {tr("home_noActiveIncident", locale)}
         </div>
       )}
 
@@ -592,6 +603,7 @@ function Center({
 }
 
 function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
+  const locale = useLocale();
   const sev = (incident.severity ?? "").toUpperCase();
   const isCrit = sev === "CRITICAL" || sev === "HIGH";
   return (
@@ -617,7 +629,7 @@ function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
           INC-{String(incident.id).padStart(6, "0")}
         </div>
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", letterSpacing: "0.08em" }}>
-          {formatRelative(incident.created_at, now)}
+          {formatRelative(incident.created_at, now, locale)}
         </div>
       </div>
 
@@ -631,7 +643,7 @@ function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
         }}
       >
         <Meta label="Asset" value={incident.asset ?? "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
-        <Meta label="Sévérité" value={sev || "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
+        <Meta label={tr("home_severity", locale)} value={sev || "—"} accent={isCrit ? "var(--tc-red)" : undefined} />
         <Meta label="Status" value={incident.status} />
         <Meta label="Alerts" value={String(incident.alert_count ?? "—")} />
         <Meta
@@ -657,7 +669,7 @@ function IncidentBar({ incident, now }: { incident: Incident; now: Date }) {
             textDecoration: "none",
           }}
         >
-          ouvrir
+          {tr("home_open", locale)}
         </Link>
       </div>
     </div>
@@ -676,6 +688,7 @@ function Meta({ label, value, accent }: { label: string; value: string; accent?:
 }
 
 function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) {
+  const locale = useLocale();
   // Fills the 1fr row — STIX graph placeholder will land in the bottom half
   // of this row later. For now the list scrolls inside it.
   return (
@@ -700,7 +713,7 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
           justifyContent: "space-between",
         }}
       >
-        <span>Incidents récents</span>
+        <span>{tr("home_recentIncidents", locale)}</span>
         <span>{incidents.length > 0 ? `${incidents.length} total` : "—"}</span>
       </div>
       {incidents.length === 0 ? (
@@ -711,7 +724,7 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
             letterSpacing: "0.04em",
           }}
         >
-          aucun incident — prochain cycle IE dans &lt; 5 min
+          {tr("home_noIncidents", locale)}
         </div>
       ) : (
         incidents.slice(0, 8).map((i) => {
@@ -730,7 +743,7 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
               }}
             >
               <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", letterSpacing: "0.06em" }}>
-                {formatRelative(i.created_at, now)}
+                {formatRelative(i.created_at, now, locale)}
               </div>
               <div style={{ fontSize: "11px", color: "var(--tc-text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 <span
@@ -753,7 +766,7 @@ function IncidentList({ incidents, now }: { incidents: Incident[]; now: Date }) 
                 href={`/investigate/${i.id}`}
                 style={{ fontSize: "9px", color: "var(--tc-red)", textDecoration: "none", textAlign: "right", letterSpacing: "0.1em" }}
               >
-                ouvrir →
+                {tr("home_open", locale)} →
               </Link>
             </div>
           );
@@ -790,6 +803,7 @@ function LogTail({
   situation: Situation | null;
   alertsTotal: number;
 }) {
+  const locale = useLocale();
   // The log is driven by three real signals:
   //   (1) state deltas from parent polling (incidents, alerts, IE cycle)
   //   (2) /api/tc/sources/status polled every 12s — connector liveness
@@ -853,7 +867,7 @@ function LogTail({
         at: nowDate,
         tag: "alert",
         color: delta > 0 ? "#d09020" : "var(--tc-text-sec)",
-        msg: `sigma_alerts ${delta > 0 ? "+" : ""}${delta} · total=${alertsTotal.toLocaleString("fr")}`,
+        msg: `sigma_alerts ${delta > 0 ? "+" : ""}${delta} · total=${alertsTotal.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}`,
       });
     }
 
@@ -927,7 +941,7 @@ function LogTail({
               at: nowDate,
               tag: "source",
               color: "#d09020",
-              msg: `source ${s.id} · +${(curLogs - prevLogs).toLocaleString("fr")} logs · last_seen=${s.last_seen ? "live" : "—"}`,
+              msg: `source ${s.id} · +${(curLogs - prevLogs).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")} logs · last_seen=${s.last_seen ? "live" : "—"}`,
             });
           }
           if (prior.last_seen !== s.last_seen && s.last_seen) {
@@ -1006,13 +1020,13 @@ function LogTail({
           at: new Date(),
           tag: "poll",
           color: "var(--tc-text-muted)",
-          msg: `poll · incidents=${L.incidents} · alerts=${L.alerts.toLocaleString("fr")} · score=${L.score ?? "—"} · sources=${L.sourcesActive}/${L.sourcesTotal}`,
+          msg: `poll · incidents=${L.incidents} · alerts=${L.alerts.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")} · score=${L.score ?? "—"} · sources=${L.sourcesActive}/${L.sourcesTotal}`,
         };
         return [...l, line].slice(-250);
       });
     }, 15_000);
     return () => clearInterval(iv);
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -1064,7 +1078,7 @@ function LogTail({
         {lines.map((l, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "68px 52px 1fr", gap: "10px" }}>
             <span style={{ color: "var(--tc-text-muted)", letterSpacing: "0.04em" }}>
-              {l.at.toLocaleTimeString("fr-FR", { hour12: false })}
+              {l.at.toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", { hour12: false })}
             </span>
             <span style={{ color: l.color, letterSpacing: "0.1em", textTransform: "uppercase", fontWeight: 600 }}>
               {l.tag}
@@ -1130,6 +1144,7 @@ function RightAxis({
   perimResult: number | null;
   onArchivePerimeter: () => void;
 }) {
+  const locale = useLocale();
   return (
     <aside
       style={{
@@ -1151,9 +1166,9 @@ function RightAxis({
         }}
       >
         <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase" }}>
-          Validation humaine
+          {tr("home_humanValidation", locale)}
         </div>
-        <div style={{ fontSize: "10px", color: "var(--tc-red)", letterSpacing: "0.08em" }}>HITL actif</div>
+        <div style={{ fontSize: "10px", color: "var(--tc-red)", letterSpacing: "0.08em" }}>{tr("home_hitlActive", locale)}</div>
       </div>
 
       <div style={{ overflowY: "auto", flex: 1 }}>
@@ -1166,7 +1181,7 @@ function RightAxis({
             {noisePct === null ? "—" : noisePct >= 99.99 ? ">99.99%" : `${noisePct.toFixed(2)}%`}
           </div>
           <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px", letterSpacing: "0.05em" }}>
-            bruit filtré · {pending + confirmed} incidents remontés
+            {tr("home_noiseFiltered", locale)} · {pending + confirmed} {tr("home_incidentsSurfaced", locale)}
           </div>
 
           {/* horizontal inline stats */}
@@ -1186,7 +1201,7 @@ function RightAxis({
                 {pending}
               </div>
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
-                à trier
+                {tr("home_toTriage", locale)}
               </div>
             </div>
             <div>
@@ -1202,7 +1217,7 @@ function RightAxis({
                 {confirmed}
               </div>
               <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", letterSpacing: "0.14em", textTransform: "uppercase", marginTop: "2px" }}>
-                confirmés
+                {tr("home_confirmed", locale)}
               </div>
             </div>
           </div>
@@ -1214,7 +1229,7 @@ function RightAxis({
         ) : (
           <div style={{ padding: "28px 18px", textAlign: "center", fontSize: "11px", color: "var(--tc-text-muted)" }}>
             <Check size={20} style={{ opacity: 0.3, marginBottom: "10px" }} />
-            <div>aucune décision en attente</div>
+            <div>{tr("home_noPendingDecision", locale)}</div>
           </div>
         )}
 
@@ -1229,11 +1244,11 @@ function RightAxis({
             {pending > 50 && (
               <div style={{ marginBottom: "12px" }}>
                 <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
-                  {pending} incidents en attente sans décision &gt; 24h (reliquats).
+                  {pending} {tr("home_stalePendingSuffix", locale)}
                 </div>
                 {archiveResult !== null && (
                   <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "6px" }}>
-                    {archiveResult} archivés.
+                    {archiveResult} {tr("home_archivedSuffix", locale)}
                   </div>
                 )}
                 <button
@@ -1252,7 +1267,7 @@ function RightAxis({
                     fontFamily: "inherit",
                   }}
                 >
-                  {archiving ? "archivage..." : "purger l'arriéré"}
+                  {archiving ? tr("home_archiving", locale) : tr("home_purgeBacklog", locale)}
                 </button>
               </div>
             )}
@@ -1260,16 +1275,16 @@ function RightAxis({
             {/* (2) Perimeter-mitigated cleanup — Rule G backfill */}
             <div>
               <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "8px", lineHeight: 1.5 }}>
-                Scanners externes bloqués au pare-feu, sans alerte sigma. Aucune action requise.
+                {tr("home_externalScanners", locale)}
               </div>
               {perimResult !== null && (
                 <div style={{ fontSize: "10px", color: "#30a050", marginBottom: "6px" }}>
-                  {perimResult} incidents archivés.
+                  {perimResult} {tr("home_incidentsArchivedSuffix", locale)}
                 </div>
               )}
               {perimPreview !== null && perimResult === null && (
                 <div style={{ fontSize: "10px", color: "var(--tc-text)", marginBottom: "6px" }}>
-                  {perimPreview} incidents seraient archivés. Cliquer à nouveau pour confirmer.
+                  {perimPreview} {tr("home_wouldArchiveSuffix", locale)}
                 </div>
               )}
               <button
@@ -1289,10 +1304,10 @@ function RightAxis({
                 }}
               >
                 {perimArchiving
-                  ? "archivage..."
+                  ? tr("home_archiving", locale)
                   : perimPreview === null
-                    ? "scanners externes : aperçu"
-                    : "confirmer l'archivage"}
+                    ? tr("home_externalScannersPreview", locale)
+                    : tr("home_confirmArchive", locale)}
               </button>
             </div>
           </div>
@@ -1303,10 +1318,11 @@ function RightAxis({
 }
 
 function ActiveIncidentHitl({ incident, now }: { incident: Incident; now: Date }) {
+  const locale = useLocale();
   return (
     <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--tc-border)" }}>
       <div style={{ fontSize: "9px", letterSpacing: "0.22em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "10px" }}>
-        Incident en attente
+        {tr("home_pendingIncident", locale)}
       </div>
       <div style={{ fontSize: "13px", color: "var(--tc-text)", marginBottom: "6px" }}>
         {incident.asset ?? "—"}
@@ -1330,12 +1346,12 @@ function ActiveIncidentHitl({ incident, now }: { incident: Incident; now: Date }
             textDecoration: "none",
           }}
         >
-          ouvrir →
+          {tr("home_open", locale)} →
         </Link>
       </div>
 
       <div style={{ marginTop: "14px", fontSize: "10px", color: "var(--tc-text-muted)", letterSpacing: "0.04em", lineHeight: 1.5 }}>
-        Signé ed25519 · chaîne de hash Postgres · rapport NIS2 auto après décision.
+        {tr("home_signedNote", locale)}
       </div>
     </div>
   );
@@ -1353,6 +1369,7 @@ function StatusBar({
   confirmed: number;
   alertsTotal: number;
 }) {
+  const locale = useLocale();
   return (
     <footer
       style={{
@@ -1375,11 +1392,11 @@ function StatusBar({
         ai · <span style={{ color: "var(--tc-text)" }}>L0 L1 L2 L2.5</span>
       </span>
       <span>
-        anonymiseur · <span style={{ color: "#30a050" }}>on</span>
+        {tr("home_anonymizer", locale)} · <span style={{ color: "#30a050" }}>on</span>
       </span>
       <span />
       <span>
-        {pending + confirmed} inc. · {alertsTotal.toLocaleString("fr")} alertes
+        {pending + confirmed} inc. · {alertsTotal.toLocaleString(locale === "fr" ? "fr-FR" : "en-US")} {tr("home_alerts", locale)}
       </span>
     </footer>
   );
