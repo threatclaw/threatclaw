@@ -91,7 +91,11 @@ install_osquery() {
       # via signed-by= in the sources.list.d entry. Ensure gnupg + curl are
       # present first; minimal Debian images don't ship them.
       apt-get update -qq
-      apt-get install -y -qq --no-install-recommends gnupg curl ca-certificates
+      # python3 is required by the sync script (JSON envelope assembly), and
+      # minimal Debian images / containers do not ship it. Without it
+      # threatclaw-agent-sync crashes on the very first run with
+      # "python3: command not found" and the agent never registers.
+      apt-get install -y -qq --no-install-recommends gnupg curl ca-certificates python3
       install -d -m 0755 /etc/apt/keyrings
       curl -fsSL https://pkg.osquery.io/deb/pubkey.gpg \
         | gpg --dearmor -o /etc/apt/keyrings/osquery.gpg
@@ -105,7 +109,7 @@ install_osquery() {
       curl -fsSL https://pkg.osquery.io/rpm/GPG | tee /etc/pki/rpm-gpg/RPM-GPG-KEY-osquery >/dev/null
       yum-config-manager --add-repo https://pkg.osquery.io/rpm/osquery-s3-rpm.repo 2>/dev/null || \
         echo -e "[osquery]\nname=osquery\nbaseurl=https://pkg.osquery.io/rpm\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-osquery" > /etc/yum.repos.d/osquery.repo
-      yum install -y osquery
+      yum install -y osquery python3
       ;;
     macos)
       if command -v brew >/dev/null 2>&1; then

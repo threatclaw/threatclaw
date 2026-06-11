@@ -307,10 +307,16 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
                     return true;
                 }
             }
-            // Also search the entire log text for the substring
+            // Also search the entire log text for the substring. Record the
+            // substring that actually matched, not a generic marker, so the
+            // SOC console and the downstream source_ip / username extractors
+            // get at least the matched token to work with. The previous
+            // "(found in log body)" marker left matched_fields useless for
+            // any automated remediation (blocking the source IP, locking
+            // the user, etc.) because the actual value was discarded.
             let text = log.to_string().to_lowercase();
             if text.contains(substring) {
-                matched.push((field.clone(), format!("(found in log body)")));
+                matched.push((field.clone(), substring.clone()));
                 return true;
             }
             false
@@ -362,11 +368,15 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             }
             // Defense in depth: also probe the whole log body — same semantics as
             // FieldMatcher::Contains so rules don't depend on whether the field
-            // is exposed at top-level or nested.
+            // is exposed at top-level or nested. Record the specific value that
+            // matched, not a generic marker, so the downstream extractors keep
+            // a usable handle on the offending token (see Contains arm above).
             let text = log.to_string().to_lowercase();
-            if values.iter().any(|v| text.contains(v.as_str())) {
-                matched.push((field.clone(), "(found in log body)".into()));
-                return true;
+            for v in values {
+                if text.contains(v.as_str()) {
+                    matched.push((field.clone(), v.clone()));
+                    return true;
+                }
             }
             false
         }
@@ -588,6 +598,15 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         Ok(l) => l,
         Err(_) => return,
     };
+
+    // Observe-and-enrol: any hostname appearing in the recent log batch that
+    // is not yet in the assets table gets upserted with `source = "syslog"`
+    // and `inventory_status` left at the default so the operator can promote
+    // it from "observed" to "declared" later. Without this hook a customer
+    // forwarding syslog from 10k hosts would see zero asset rows even though
+    // the SOC console clearly shows traffic, which made triage and the
+    // dashboard inventory unusable for the syslog-only use case.
+    enrol_observed_hostnames(store.as_ref(), &logs).await;
 
     let mut alerts_created = 0u32;
     let mut findings_created = 0u32;
@@ -852,6 +871,139 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     }
 }
 
+/// For every distinct, non-empty hostname appearing in the recent log
+/// batch, upsert a syslog-sourced asset row if one does not already
+/// exist. This is the auto-enrolment hook for the "customer forwards
+/// raw syslog from N hosts" use case — without it the assets table
+/// stays empty until the operator manually declares each device, even
+/// though the SOC console shows live traffic from them.
+///
+/// Idempotent: subsequent cycles re-upsert the same id and skip rows
+/// where `find_asset_by_hostname` already returns Some. We only enrol
+/// when the raw hostname is neither empty nor literally "unknown",
+/// and we never overwrite a hostname that already maps to a declared
+/// asset (the auto-row uses a deterministic `syslog-observed-<host>`
+/// id distinct from any operator-created id).
+async fn enrol_observed_hostnames(
+    store: &dyn crate::db::Database,
+    logs: &[crate::db::threatclaw_store::LogRecord],
+) {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for log in logs {
+        let Some(h) = log.hostname.as_deref() else {
+            continue;
+        };
+        if h.is_empty() || h == "unknown" {
+            continue;
+        }
+        if looks_like_program_or_container_id(h) {
+            continue;
+        }
+        if !seen.insert(h.to_string()) {
+            continue;
+        }
+        if let Ok(Some(_)) = store.find_asset_by_hostname(h).await {
+            continue;
+        }
+        let asset = crate::db::threatclaw_store::NewAsset {
+            id: format!("syslog-observed-{}", h),
+            name: h.to_string(),
+            category: "endpoint".to_string(),
+            subcategory: Some("syslog-source".to_string()),
+            role: None,
+            criticality: "medium".to_string(),
+            ip_addresses: vec![],
+            mac_address: None,
+            hostname: Some(h.to_string()),
+            fqdn: None,
+            url: None,
+            os: None,
+            mac_vendor: None,
+            services: serde_json::Value::Array(vec![]),
+            source: "syslog".to_string(),
+            owner: None,
+            location: None,
+            tags: vec!["observed".to_string(), "syslog".to_string()],
+        };
+        if let Err(e) = store.upsert_asset(&asset).await {
+            tracing::warn!(
+                target: "asset_enrolment",
+                "syslog observe-and-enrol failed for {}: {}",
+                h,
+                e
+            );
+        } else {
+            tracing::info!(
+                target: "asset_enrolment",
+                "auto-enrolled asset from syslog source: {}",
+                h
+            );
+        }
+    }
+}
+
+/// Heuristic to filter out values that look like a syslog program name or
+/// a Docker container id rather than a real hostname. Without this filter
+/// the observe-and-enrol pass creates noise assets like
+/// "syslog-observed-kernel" or "syslog-observed-dockerd" whenever a sender
+/// emits a RFC3164 line that omits the hostname field (the program then
+/// lands in the parsed host slot). Real hostnames almost always carry a
+/// `.` (FQDN), a `-` (host-NN convention), or a digit, while program
+/// names are short lowercase tokens. The blocklist catches the rest.
+fn looks_like_program_or_container_id(s: &str) -> bool {
+    // Common syslog program names that leak into the host slot when the
+    // sender omits the hostname header.
+    const PROGRAM_BLOCKLIST: &[&str] = &[
+        "kernel",
+        "systemd",
+        "rsyslogd",
+        "syslog-ng",
+        "dockerd",
+        "containerd",
+        "containerd-shim",
+        "cron",
+        "crond",
+        "sshd",
+        "audit",
+        "auditd",
+        "sudo",
+        "su",
+        "login",
+        "init",
+        "dhclient",
+        "NetworkManager",
+        "wpa_supplicant",
+        "agetty",
+        "polkitd",
+        "snapd",
+        "chronyd",
+        "ntpd",
+        "named",
+        "postfix",
+        "nginx",
+        "apache2",
+        "httpd",
+        "haproxy",
+        "kubelet",
+        "kube-proxy",
+    ];
+    let lower = s.to_ascii_lowercase();
+    if PROGRAM_BLOCKLIST.contains(&lower.as_str()) {
+        return true;
+    }
+    // Internal noise from the ThreatClaw stack itself
+    if s.starts_with("threatclaw-") {
+        return true;
+    }
+    // Docker container ids are 12 or 64 hex chars with no dot, no dash
+    let is_hex = !s.is_empty() && s.chars().all(|c| c.is_ascii_hexdigit());
+    let no_separator = !s.contains('.') && !s.contains('-') && !s.contains('_');
+    if is_hex && no_separator && (s.len() == 12 || s.len() == 64) {
+        return true;
+    }
+    false
+}
+
 /// Resolve a raw `hostname` (could be IP, FQDN, NetBIOS, or short name)
 /// against the assets table. Falls back to the raw value when the asset
 /// is unknown so the pipeline still records something — but we prefer
@@ -881,3 +1033,77 @@ async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> 
 // fonction `is_benign` côté module dédié pour la matrice complète des
 // critères de drop. Le sigma_engine n'invoque que `try_normalize +
 // is_benign` ; aucune logique vendor-specific ici.
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_program_or_container_id;
+
+    #[test]
+    fn program_blocklist_filters_common_daemons() {
+        for prog in [
+            "kernel",
+            "systemd",
+            "dockerd",
+            "containerd",
+            "rsyslogd",
+            "sshd",
+            "cron",
+            "nginx",
+        ] {
+            assert!(
+                looks_like_program_or_container_id(prog),
+                "{prog} should be filtered"
+            );
+        }
+    }
+
+    #[test]
+    fn case_insensitive_blocklist() {
+        assert!(looks_like_program_or_container_id("Kernel"));
+        assert!(looks_like_program_or_container_id("SYSTEMD"));
+    }
+
+    #[test]
+    fn threatclaw_internal_filtered() {
+        assert!(looks_like_program_or_container_id("threatclaw-agent-sync"));
+        assert!(looks_like_program_or_container_id("threatclaw-core"));
+    }
+
+    #[test]
+    fn docker_short_container_id_filtered() {
+        assert!(looks_like_program_or_container_id("bc130c79e5dd"));
+        assert!(looks_like_program_or_container_id("a1b2c3d4e5f6"));
+    }
+
+    #[test]
+    fn docker_long_container_id_filtered() {
+        let long = "a".repeat(64);
+        assert!(looks_like_program_or_container_id(&long));
+    }
+
+    #[test]
+    fn real_hostnames_pass_through() {
+        for host in [
+            "client-prod-01",
+            "webserver-london",
+            "sd-98664",
+            "host01.client.local",
+            "SHIR-Hive",
+            "interstellar-dc01",
+            "192.168.1.10",
+        ] {
+            assert!(
+                !looks_like_program_or_container_id(host),
+                "{host} should NOT be filtered"
+            );
+        }
+    }
+
+    #[test]
+    fn edge_short_hex_not_container_size() {
+        // 11-char hex doesn't look like a container id (12 or 64)
+        assert!(!looks_like_program_or_container_id("abcdef12345"));
+        // 13-char hex same
+        assert!(!looks_like_program_or_container_id("abcdef1234567"));
+    }
+}
