@@ -898,6 +898,53 @@ pub fn format_verdict_comment(report: &VerdictReport) -> String {
     s
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentOutcome {
+    /// Comment was written successfully (HTTP 200/201).
+    Posted,
+    /// HTTP 403: the App Registration has Sentinel Reader but not Responder.
+    /// Caller should disable enable_comment_write to avoid retrying.
+    RoleInsufficient,
+    /// enable_comment_write is false; we never attempted the HTTP call.
+    Skipped,
+}
+
+/// Posts a markdown comment to a Sentinel incident. Idempotence: callers
+/// must use mark_comment_posted (Task 20 wiring) to avoid re-posting on the
+/// next cycle. This function only handles the HTTP round trip.
+pub async fn post_threatclaw_comment(
+    cfg: &MicrosoftSentinelConfig,
+    auth: &MicrosoftAuthCache,
+    http: &Client,
+    sentinel_incident_id: Uuid,
+    message: &str,
+) -> Result<CommentOutcome, SentinelError> {
+    if !cfg.enable_comment_write {
+        return Ok(CommentOutcome::Skipped);
+    }
+    let token = acquire_arm_token(cfg, auth, http).await?;
+    let comment_id = Uuid::new_v4();
+    let url = format!(
+        "{}{}/incidents/{}/comments/{}?api-version={}",
+        cfg.arm_base(),
+        cfg.workspace_path(),
+        sentinel_incident_id,
+        comment_id,
+        API_VERSION
+    );
+    let body = serde_json::json!({"properties": {"message": message}});
+    let req = http.put(&url).bearer_auth(&token).json(&body).build()?;
+    let resp = crate::connectors::microsoft_auth::do_request_with_retry(http, req).await?;
+    match resp.status().as_u16() {
+        200 | 201 => Ok(CommentOutcome::Posted),
+        403 => Ok(CommentOutcome::RoleInsufficient),
+        other => Err(SentinelError::Parse(format!(
+            "unexpected status {} on comment write",
+            other
+        ))),
+    }
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -1527,5 +1574,67 @@ mod tests {
         assert!(s.contains("False Positive"));
         assert!(s.contains("Timeline")); // section header present even if empty
         assert!(s.contains("no action"));
+    }
+
+    #[tokio::test]
+    async fn post_comment_success_returns_posted() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/comments/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+        cfg.enable_comment_write = true;
+
+        let outcome = post_threatclaw_comment(&cfg, &auth, &http, Uuid::new_v4(), "hello")
+            .await
+            .expect("ok");
+        assert_eq!(outcome, CommentOutcome::Posted);
+    }
+
+    #[tokio::test]
+    async fn post_comment_403_returns_role_insufficient() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/comments/.+"))
+            .respond_with(ResponseTemplate::new(403).set_body_string(include_str!(
+                "../../tests/fixtures/sentinel/comment_403.json"
+            )))
+            .mount(&server)
+            .await;
+
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+        cfg.enable_comment_write = true;
+
+        let outcome = post_threatclaw_comment(&cfg, &auth, &http, Uuid::new_v4(), "hello")
+            .await
+            .expect("ok");
+        assert_eq!(outcome, CommentOutcome::RoleInsufficient);
+    }
+
+    #[tokio::test]
+    async fn post_comment_skipped_when_disabled() {
+        let server = MockServer::start().await;
+        // No mock for PUT; if the code reaches it, the test will hang or error
+        let auth = MicrosoftAuthCache::new();
+        let http = crate::connectors::microsoft_auth::build_http_client();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+        cfg.enable_comment_write = false;
+
+        let outcome = post_threatclaw_comment(&cfg, &auth, &http, Uuid::new_v4(), "hello")
+            .await
+            .expect("ok");
+        assert_eq!(outcome, CommentOutcome::Skipped);
     }
 }
