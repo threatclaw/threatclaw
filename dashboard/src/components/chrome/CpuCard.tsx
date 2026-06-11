@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 export interface CpuService {
   name: string;
@@ -29,16 +31,16 @@ interface CpuCardProps {
 
 // LEFT column services (top→bottom)
 // RIGHT column services (top→bottom)
-const defaultServices: CpuService[] = [
+const getDefaultServices = (locale: Locale): CpuService[] => [
   // Left column
-  { name: "PostgreSQL",    connected: true,  color: "#3080d0", detail: "Base de données" },
-  { name: "Intel. Engine", connected: true,  color: "#d03020", detail: "Corrélation & scoring" },
+  { name: "PostgreSQL",    connected: true,  color: "#3080d0", detail: tr("cpuCard_detailDatabase", locale) },
+  { name: "Intel. Engine", connected: true,  color: "#d03020", detail: tr("cpuCard_detailCorrelationScoring", locale) },
   { name: "Channels",      connected: true,  color: "#30a050", detail: "Telegram" },
   { name: "Logs",           connected: true,  color: "#f97316", detail: "Syslog + FluentBit" },
   // Right column
   { name: "AI",             connected: true,  color: "#9060d0", detail: "LLM local", restartable: true },
   { name: "ML Engine",     connected: false, color: "#d09020", detail: "Anomaly detection", restartable: true },
-  { name: "Skills",        connected: true,  color: "#06b6d4", detail: "49 skills actives" },
+  { name: "Skills",        connected: true,  color: "#06b6d4", detail: tr("cpuCard_detailSkillsActive", locale) },
   { name: "Dashboard",     connected: true,  color: "#b0a8a0", detail: "Next.js frontend" },
 ];
 
@@ -119,7 +121,9 @@ const pins = [
   { x: 107.5, y: 64, w: 3, h: 4 },  // cable 7: x=109 ✓
 ];
 
-export function CpuCard({ services = defaultServices, version, score, scoreLabel, onRestart }: CpuCardProps) {
+export function CpuCard({ services: servicesProp, version, score, scoreLabel, onRestart }: CpuCardProps) {
+  const locale = useLocale();
+  const services = servicesProp ?? getDefaultServices(locale);
   const scoreColor = score == null ? "#555" : score >= 80 ? "#30a050" : score >= 50 ? "#d09020" : "#d03020";
   const [sel, setSel] = useState<number | null>(null);
   const click = useCallback((i: number) => setSel(p => p === i ? null : i), []);
@@ -303,7 +307,7 @@ export function CpuCard({ services = defaultServices, version, score, scoreLabel
         <image href="/textures/brushed-alum.png" x="84" y="32" width="32" height="32" clipPath="url(#chip-clip)" opacity="0.06" style={{ mixBlendMode: "overlay" }} preserveAspectRatio="none" />
         <rect x="85.5" y="33.5" width="29" height="29" rx="1.5" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="0.3" />
         {/* "SCORE SÉCURITÉ" title */}
-        <text x="100" y="38" fontSize="2.8" fill="#888" fontWeight="700" textAnchor="middle" letterSpacing="0.1em">SCORE SÉCURITÉ</text>
+        <text x="100" y="38" fontSize="2.8" fill="#888" fontWeight="700" textAnchor="middle" letterSpacing="0.1em">{tr("cpuCard_scoreTitle", locale)}</text>
         {/* Score engraved */}
         <text x="100" y="52" fontSize="11" fill={scoreColor} fontWeight="900" textAnchor="middle" dominantBaseline="middle" filter="url(#engrave)">{score != null ? Math.round(score) : "—"}</text>
         {scoreLabel && <text x="100" y="60" fontSize="2.2" fill={scoreColor} fontWeight="600" textAnchor="middle" opacity="0.7">{scoreLabel}</text>}
@@ -324,7 +328,7 @@ export function CpuCard({ services = defaultServices, version, score, scoreLabel
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 1.5, marginBottom: 1.5 }}>
                 <div style={{ width: 2, height: 2, borderRadius: "50%", background: ps.connected ? "#30a050" : "#d03020" }} />
-                <span style={{ fontSize: 2.5, color: ps.connected ? "#30a050" : "#d03020", fontWeight: 600 }}>{ps.connected ? "Opérationnel" : "Hors ligne"}</span>
+                <span style={{ fontSize: 2.5, color: ps.connected ? "#30a050" : "#d03020", fontWeight: 600 }}>{ps.connected ? tr("cpuCard_operational", locale) : tr("cpuCard_offline", locale)}</span>
               </div>
               {ps.detail && <div style={{ fontSize: 2.5, color: "#999", marginBottom: 2 }}>{ps.detail}</div>}
               {ps.restartable && onRestart && (
@@ -332,7 +336,7 @@ export function CpuCard({ services = defaultServices, version, score, scoreLabel
                   width: "100%", padding: "1px 0", borderRadius: 2, border: "none", cursor: "pointer",
                   background: ps.connected ? "rgba(255,255,255,0.05)" : "rgba(208,48,32,0.15)",
                   color: ps.connected ? "#bbb" : "#d03020", fontSize: 2.5, fontWeight: 700, fontFamily: "inherit",
-                }}>{ps.connected ? "⟳ Redémarrer" : "▶ Démarrer"}</button>
+                }}>{ps.connected ? `⟳ ${tr("cpuCard_restart", locale)}` : `▶ ${tr("cpuCard_start", locale)}`}</button>
               )}
             </div>
           </foreignObject>
