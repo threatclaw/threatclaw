@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import Link from "next/link";
 
@@ -188,7 +189,7 @@ export default function PhaseGPage() {
             {/* Threshold ticks */}
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "8px" }}>
               <span>0%</span>
-              <span style={{ color: "#e04040" }}>80% (alerte)</span>
+              <span style={{ color: "#e04040" }}>80% ({tr("phaseg_alert", locale)})</span>
               <span style={{ color: "#d09020" }}>95% (ok)</span>
               <span>100%</span>
             </div>
@@ -319,7 +320,7 @@ export default function PhaseGPage() {
             {fr
               ? "Aucun incident « Aucune action HITL proposée » sur 7 jours consécutifs"
               : "Zero incidents with no proposed HITL action over 7 consecutive days"}{" "}
-            <span style={{ color: badge.color, fontWeight: 700 }}>← cette page</span>
+            <span style={{ color: badge.color, fontWeight: 700 }}>← {tr("phaseg_thisPage", locale)}</span>
           </li>
           <li>
             {fr
