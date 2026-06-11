@@ -16,6 +16,8 @@
 //    Vue analyste : "qu'est-ce qui s'est passé latéralement".
 
 import React, { useEffect, useState, useCallback } from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 import { PageShell } from "@/components/chrome/PageShell";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
@@ -103,13 +105,14 @@ function riskColor(r: string) {
 type Tab = "prediction" | "observed";
 
 export default function ThreatMapPage() {
+  const locale = useLocale();
   const [tab, setTab] = useState<Tab>("prediction");
   const [error, setError] = useState<string | null>(null);
 
   return (
     <PageShell
-      title="Prédiction d'attaque"
-      subtitle="Chemins d'attaque probables vers les assets critiques + fixes prioritaires"
+      title={tr("threatmap_pageTitle", locale)}
+      subtitle={tr("threatmap_pageSubtitle", locale)}
     >
       {error && <ErrorBanner message={error} />}
 
@@ -123,10 +126,10 @@ export default function ThreatMapPage() {
         }}
       >
         <TabButton active={tab === "prediction"} onClick={() => setTab("prediction")}>
-          Prédiction
+          {tr("threatmap_tabPrediction", locale)}
         </TabButton>
         <TabButton active={tab === "observed"} onClick={() => setTab("observed")}>
-          Activité observée
+          {tr("threatmap_tabObserved", locale)}
         </TabButton>
       </div>
 
@@ -174,6 +177,7 @@ function TabButton({
 // ═══════════════════════════════════════════════════════════════════
 
 function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
+  const locale = useLocale();
   const [data, setData] = useState<PredAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -186,11 +190,11 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
       const j = (await r.json()) as PredAnalysis;
       setData(j);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Erreur de chargement");
+      onError(e instanceof Error ? e.message : tr("threatmap_loadError", locale));
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [onError, locale]);
 
   useEffect(() => {
     load();
@@ -204,7 +208,7 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
       {/* Header refresh */}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <ChromeButton onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> Rafraîchir
+          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> {tr("threatmap_refresh", locale)}
         </ChromeButton>
       </div>
 
@@ -217,14 +221,14 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
           marginBottom: 18,
         }}
       >
-        <StatCard label="Chemins prédits" value={data?.total_paths ?? 0} icon={<Activity size={14} />} />
+        <StatCard label={tr("threatmap_statPredictedPaths", locale)} value={data?.total_paths ?? 0} icon={<Activity size={14} />} />
         <StatCard
-          label="Critiques"
+          label={tr("threatmap_statCritical", locale)}
           value={data?.critical_paths ?? 0}
           icon={<AlertTriangle size={14} />}
           accent={(data?.critical_paths ?? 0) > 0 ? "#e04040" : undefined}
         />
-        <StatCard label="CVE impliquées" value={totalCves} icon={<ShieldAlert size={14} />} />
+        <StatCard label={tr("threatmap_statCvesInvolved", locale)} value={totalCves} icon={<ShieldAlert size={14} />} />
       </div>
 
       {/* Top recommendations */}
@@ -232,7 +236,7 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
         <NeuCard accent="amber" style={{ marginBottom: 18 }}>
           <div style={{ padding: "1rem" }}>
             <h2 style={{ fontSize: "1rem", marginBottom: "0.6rem", display: "flex", gap: 6, alignItems: "center" }}>
-              <Shield size={16} /> Recommandations prioritaires
+              <Shield size={16} /> {tr("threatmap_topRecommendations", locale)}
             </h2>
             <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.7 }}>
               {data.top_recommendations.map((r, i) => (
@@ -246,20 +250,20 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
       {/* Path list */}
       {loading && !data ? (
         <NeuCard>
-          <div style={{ padding: 24, textAlign: "center", color: "var(--tc-text-muted)" }}>Chargement…</div>
+          <div style={{ padding: 24, textAlign: "center", color: "var(--tc-text-muted)" }}>{tr("threatmap_loading", locale)}</div>
         </NeuCard>
       ) : paths.length === 0 ? (
         <NeuCard>
           <div style={{ padding: "2rem", textAlign: "center" }}>
             <Target size={48} style={{ opacity: 0.4, margin: "0 auto 1rem" }} />
-            <h3 style={{ marginBottom: "0.5rem" }}>Aucun chemin d&apos;attaque prédit</h3>
+            <h3 style={{ marginBottom: "0.5rem" }}>{tr("threatmap_noPredictedPaths", locale)}</h3>
             <p style={{ opacity: 0.7, marginBottom: "0.75rem", fontSize: 12, lineHeight: 1.6 }}>
-              La prédiction CVE-chain a besoin de :
+              {tr("threatmap_predNeeds", locale)}
             </p>
             <ul style={{ opacity: 0.7, fontSize: 12, textAlign: "left", maxWidth: 540, margin: "0 auto", lineHeight: 1.7 }}>
-              <li>Au moins un asset déclaré <code>criticality = critical</code> (la cible).</li>
-              <li>Des findings CVE actifs sur des assets accessibles depuis l&apos;extérieur ou pivots internes.</li>
-              <li>Pour les paths externes : un asset <code>exposure_class = internet</code> ou DMZ.</li>
+              <li>{tr("threatmap_predNeedCritical", locale)} <code>criticality = critical</code> {tr("threatmap_predNeedCriticalTail", locale)}</li>
+              <li>{tr("threatmap_predNeedCveFindings", locale)}</li>
+              <li>{tr("threatmap_predNeedExternal", locale)} <code>exposure_class = internet</code> {tr("threatmap_predNeedExternalTail", locale)}</li>
             </ul>
           </div>
         </NeuCard>
@@ -275,6 +279,7 @@ function PredictionPanel({ onError }: { onError: (e: string | null) => void }) {
 }
 
 function PredPathCard({ path }: { path: PredAttackPath }) {
+  const locale = useLocale();
   const c = riskColor(path.risk);
   const expScore = Math.round(path.exploitability ?? 0);
   return (
@@ -306,7 +311,7 @@ function PredPathCard({ path }: { path: PredAttackPath }) {
               {path.risk}
             </span>
             <div style={{ fontSize: 11, color: "var(--tc-text-muted)", letterSpacing: "0.06em" }}>
-              exploitabilité{" "}
+              {tr("threatmap_exploitability", locale)}{" "}
               <span style={{ color: c.fg, fontVariantNumeric: "tabular-nums" }}>{expScore}/100</span>
             </div>
           </div>
@@ -354,7 +359,7 @@ function PredPathCard({ path }: { path: PredAttackPath }) {
                     {path.cves_involved.slice(0, 6).join(" · ")}
                     {path.cves_involved.length > 6 && (
                       <span style={{ color: "var(--tc-text-muted)" }}>
-                        {" "}+{path.cves_involved.length - 6} autres
+                        {" "}+{path.cves_involved.length - 6} {tr("threatmap_others", locale)}
                       </span>
                     )}
                   </>
@@ -478,6 +483,7 @@ function StatCard({
 // ═══════════════════════════════════════════════════════════════════
 
 function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
+  const locale = useLocale();
   const [paths, setPaths] = useState<ObsAttackPath[]>([]);
   const [chokes, setChokes] = useState<ChokePoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -502,11 +508,11 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
         setLastRunAt(pathsJson.paths[0].computed_at);
       }
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Erreur de chargement");
+      onError(e instanceof Error ? e.message : tr("threatmap_loadError", locale));
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [onError, locale]);
 
   const recompute = useCallback(async () => {
     setRecomputing(true);
@@ -516,11 +522,11 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
       if (!r.ok) throw new Error(`recompute HTTP ${r.status}`);
       setTimeout(() => load(), 800);
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Erreur de recalcul");
+      onError(e instanceof Error ? e.message : tr("threatmap_recomputeError", locale));
     } finally {
       setRecomputing(false);
     }
-  }, [load, onError]);
+  }, [load, onError, locale]);
 
   useEffect(() => {
     load();
@@ -532,17 +538,17 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8 }}>
         <div style={{ fontSize: 11, color: "var(--tc-text-muted)", lineHeight: 1.5 }}>
-          Chemins dérivés des connexions effectivement observées (auth events, sigma alerts).
+          {tr("threatmap_observedIntro", locale)}
           {lastRunAt && (
-            <> · dernier calcul {new Date(lastRunAt).toLocaleString("fr-FR")}</>
+            <> · {tr("threatmap_lastComputed", locale)} {new Date(lastRunAt).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</>
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <ChromeButton onClick={load} disabled={loading || recomputing}>
-            <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> Rafraîchir
+            <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> {tr("threatmap_refresh", locale)}
           </ChromeButton>
           <ChromeButton onClick={recompute} disabled={recomputing}>
-            <TrendingUp size={14} /> {recomputing ? "Calcul…" : "Recalculer"}
+            <TrendingUp size={14} /> {recomputing ? tr("threatmap_computing", locale) : tr("threatmap_recompute", locale)}
           </ChromeButton>
         </div>
       </div>
@@ -551,21 +557,20 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
         <NeuCard>
           <div style={{ padding: "2rem", textAlign: "center" }}>
             <Activity size={48} style={{ opacity: 0.4, margin: "0 auto 1rem" }} />
-            <h3 style={{ marginBottom: "0.5rem" }}>Aucune activité corrélée</h3>
+            <h3 style={{ marginBottom: "0.5rem" }}>{tr("threatmap_noCorrelatedActivity", locale)}</h3>
             <p style={{ opacity: 0.7, marginBottom: "0.75rem", fontSize: 12, lineHeight: 1.6 }}>
-              Le graph-walker a besoin de :
+              {tr("threatmap_walkerNeeds", locale)}
             </p>
             <ul style={{ opacity: 0.7, fontSize: 12, textAlign: "left", maxWidth: 540, margin: "0 auto", lineHeight: 1.7 }}>
               <li>
-                Des événements <code>LOGGED_IN</code> ingérés (Wazuh, AD, Windows Event 4624)
-                pour dériver les <code>LATERAL_PATH</code> entre hosts partageant des
-                comptes.
+                {tr("threatmap_walkerNeedLoggedInPre", locale)} <code>LOGGED_IN</code> {tr("threatmap_walkerNeedLoggedInMid", locale)}{" "}
+                <code>LATERAL_PATH</code> {tr("threatmap_walkerNeedLoggedInTail", locale)}
               </li>
               <li>
-                Ou des sigma alerts d&apos;attaque pour créer des edges <code>ATTACKS</code>{" "}
-                source→cible.
+                {tr("threatmap_walkerNeedSigmaPre", locale)} <code>ATTACKS</code>{" "}
+                {tr("threatmap_walkerNeedSigmaTail", locale)}
               </li>
-              <li>Au moins un asset <code>critical</code> (cible).</li>
+              <li>{tr("threatmap_walkerNeedCriticalPre", locale)} <code>critical</code> {tr("threatmap_walkerNeedCriticalTail", locale)}</li>
             </ul>
           </div>
         </NeuCard>
@@ -575,9 +580,9 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
         <NeuCard accent="amber" style={{ marginBottom: 12 }}>
           <div style={{ padding: "1rem" }}>
             <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-              <Shield size={16} /> Top {Math.min(chokes.length, 3)} fixes prioritaires
+              <Shield size={16} /> {tr("threatmap_topFixesPre", locale)} {Math.min(chokes.length, 3)} {tr("threatmap_topFixesTail", locale)}
               <span style={{ marginLeft: "auto", fontSize: "0.78rem", opacity: 0.55 }}>
-                durcir ces nœuds = casser le plus de chemins
+                {tr("threatmap_hardenNodes", locale)}
               </span>
             </h2>
             {chokes.slice(0, 3).map((c, i) => (
@@ -595,20 +600,20 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
                     #{i + 1} {c.asset}
                   </strong>
                   <span style={{ opacity: 0.7 }}>
-                    casse <strong>{c.paths_through}</strong> chemins
-                    {c.weighted_score > 0 && <> · score pondéré {c.weighted_score.toFixed(2)}</>}
+                    {tr("threatmap_breaks", locale)} <strong>{c.paths_through}</strong> {tr("threatmap_pathsWord", locale)}
+                    {c.weighted_score > 0 && <> · {tr("threatmap_weightedScore", locale)} {c.weighted_score.toFixed(2)}</>}
                   </span>
                 </div>
                 {c.top_targets.length > 0 && (
                   <div style={{ opacity: 0.6, fontSize: "0.78rem", marginTop: "0.2rem" }}>
-                    menace les crown jewels : {c.top_targets.join(", ")}
+                    {tr("threatmap_threatensCrownJewels", locale)} {c.top_targets.join(", ")}
                   </div>
                 )}
               </div>
             ))}
             {chokes.length > 3 && (
               <div style={{ opacity: 0.55, fontSize: "0.78rem", marginTop: "0.5rem" }}>
-                + {chokes.length - 3} choke points additionnels
+                + {chokes.length - 3} {tr("threatmap_additionalChokePoints", locale)}
               </div>
             )}
           </div>
@@ -619,7 +624,7 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
         <NeuCard>
           <div style={{ padding: "1rem" }}>
             <h2 style={{ fontSize: "1rem", marginBottom: "0.75rem", display: "flex", gap: 6, alignItems: "center" }}>
-              <AlertTriangle size={16} /> Chemins observés
+              <AlertTriangle size={16} /> {tr("threatmap_observedPaths", locale)}
             </h2>
             {paths.map((p, i) => (
               <div
@@ -649,7 +654,7 @@ function ObservedPanel({ onError }: { onError: (e: string | null) => void }) {
                         KEV
                       </span>
                     )}
-                    <strong>score {p.score.toFixed(2)}</strong>
+                    <strong>{tr("threatmap_score", locale)} {p.score.toFixed(2)}</strong>
                   </span>
                 </div>
                 <div style={{ opacity: 0.7, fontSize: "0.78rem", marginTop: "0.25rem" }}>
