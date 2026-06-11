@@ -385,11 +385,23 @@ check_requirements() {
     log_info "Docker: $(docker --version | cut -d' ' -f3 | tr -d ',')"
   fi
 
-  # Docker Compose
+  # Docker Compose (v2 plugin) — auto-install if missing, mirroring the Docker
+  # auto-install above. Minimal and container images often ship the Docker CLI
+  # without the compose plugin, and the platform requires `docker compose`.
+  if ! docker compose version &>/dev/null; then
+    log_warn "Docker Compose plugin not found — installing..."
+    if command -v apt-get &>/dev/null; then
+      apt-get update -qq && apt-get install -y -qq docker-compose-plugin
+    elif command -v dnf &>/dev/null; then
+      dnf install -y docker-compose-plugin
+    elif command -v yum &>/dev/null; then
+      yum install -y docker-compose-plugin
+    fi
+  fi
   if docker compose version &>/dev/null; then
     log_info "Compose: $(docker compose version --short)"
   else
-    log_error "Docker Compose not found. Update Docker or install compose plugin."
+    log_error "Docker Compose plugin missing and could not be installed automatically. Install 'docker-compose-plugin' (or update Docker) and re-run."
     exit 1
   fi
 
