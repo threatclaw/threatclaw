@@ -865,6 +865,39 @@ pub async fn sync_microsoft_sentinel_inner(
     Ok((result, new_cursors))
 }
 
+#[derive(Debug, Clone)]
+pub struct VerdictReport {
+    pub verdict: String,
+    pub severity: String,
+    pub timeline: Vec<(String, String)>,
+    pub affected_assets: Vec<String>,
+    pub recommendation: String,
+    pub full_report_url: String,
+}
+
+/// Formats a ThreatClaw verdict as a Markdown body suitable for posting to
+/// a Sentinel incident comment. Output is plain text with simple bullets,
+/// no em-dash and no emoji (per project enterprise-positioning rules).
+pub fn format_verdict_comment(report: &VerdictReport) -> String {
+    let mut s = String::with_capacity(512);
+    s.push_str("ThreatClaw analysis\n\n");
+    s.push_str(&format!(
+        "Verdict: {}, severity {}\n",
+        report.verdict, report.severity
+    ));
+    s.push_str("Timeline:\n");
+    for (t, evt) in &report.timeline {
+        s.push_str(&format!(" - {}: {}\n", t, evt));
+    }
+    s.push_str(&format!(
+        "Affected assets: {}\n",
+        report.affected_assets.join(", ")
+    ));
+    s.push_str(&format!("Recommendation: {}\n", report.recommendation));
+    s.push_str(&format!("Full report: {}\n", report.full_report_url));
+    s
+}
+
 /// Top-level entry called by sync_scheduler. The MVP skeleton is a no-op that
 /// returns an empty SyncResult. Each subsequent task in Phase 4 of the plan
 /// fills in one behavior at a time, TDD-driven.
@@ -1451,5 +1484,48 @@ mod tests {
                 .any(|(_, _, d)| *d == DedupDecision::SkipMergeWithGraph),
             "at least one alert recorded as SkipMergeWithGraph"
         );
+    }
+
+    #[test]
+    fn format_verdict_comment_contains_required_sections() {
+        let report = VerdictReport {
+            verdict: "True Positive".into(),
+            severity: "High".into(),
+            timeline: vec![
+                ("2026-06-03T10:00:01Z".into(), "first signal".into()),
+                ("2026-06-03T10:02:14Z".into(), "3 sign-ins from Tor".into()),
+            ],
+            affected_assets: vec!["marie@interstellar.local".into(), "SHIR-Hive".into()],
+            recommendation: "isolate account, force password reset".into(),
+            full_report_url: "https://threatclaw.client/incidents/abc".into(),
+        };
+        let s = format_verdict_comment(&report);
+        assert!(s.contains("ThreatClaw analysis"));
+        assert!(s.contains("True Positive"));
+        assert!(s.contains("severity High"));
+        assert!(s.contains("first signal"));
+        assert!(s.contains("3 sign-ins from Tor"));
+        assert!(s.contains("marie@interstellar.local"));
+        assert!(s.contains("SHIR-Hive"));
+        assert!(s.contains("isolate account"));
+        assert!(s.contains("https://threatclaw.client/incidents/abc"));
+        assert!(!s.contains("—"), "em-dash forbidden by project memory");
+    }
+
+    #[test]
+    fn format_verdict_comment_empty_timeline_still_well_formed() {
+        let report = VerdictReport {
+            verdict: "False Positive".into(),
+            severity: "Low".into(),
+            timeline: vec![],
+            affected_assets: vec![],
+            recommendation: "no action".into(),
+            full_report_url: "https://threatclaw.client/i/1".into(),
+        };
+        let s = format_verdict_comment(&report);
+        assert!(s.contains("ThreatClaw analysis"));
+        assert!(s.contains("False Positive"));
+        assert!(s.contains("Timeline")); // section header present even if empty
+        assert!(s.contains("no action"));
     }
 }
