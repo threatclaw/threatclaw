@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.28-beta] — 2026-06-11
+
+### Added
+- Syslog source hostnames are now auto-enrolled as assets the first time they appear in a recent log batch, source `syslog`, category `endpoint`. Without this hook a customer forwarding raw syslog from thousands of hosts saw zero asset rows even though the SOC console clearly showed live traffic; triage and the dashboard inventory were unusable for the syslog-only deployment path. A heuristic filter drops common syslog program names (kernel, systemd, dockerd, containerd, rsyslogd, sshd, cron, etc.) and Docker container ids that would otherwise leak into the asset table when the syslog header omits the hostname field.
+- The agent installer now declares `python3` as an install dependency on Debian and RHEL. Minimal images and containers do not ship it by default and the sync script crashed silently on the very first run without it.
+
+### Changed
+- Syslog source attribution is now correctly preserved across the ingestion path. The previous behavior surfaced the log collector identifier instead of the originating host, which made every monitored device appear under the same name in the SOC console, alerts, findings and the asset inventory. The fix is mirrored in the container entrypoint so a restart no longer overrides the database-side update.
+- The fluent-bit TCP syslog listener now uses the RFC3164 parser instead of strict RFC5424. Stock rsyslog, syslog-ng and journald emit RFC3164 by default; clients shipping via TCP with the default format were silently dropped before the parser switch.
+- Sigma matchers that fall through to scanning the full log body now record the substring that actually matched, not the placeholder marker `(found in log body)`. Downstream remediation code that extracts source ips and usernames from `matched_fields` now keeps a usable handle on the offending token.
+- The agent sync script assembles the osquery payload via temp files rather than environment variables and command-line arguments. Hosts with thousands of installed packages previously hit ARG_MAX and broke the sync after the inventory grew past a few hundred entries.
+- The installer auto-installs the Docker Compose plugin when it is missing on the host, avoiding a manual prerequisite step on minimal server images.
+- The dashboard SOC console, configuration pages, asset pages, incident timeline, intelligence and findings views, skills and scans pages, network, license, alerts, users, archives and setup wizard are now fully translated to English through the i18n system. Previously remaining French strings have been migrated to the same translation table.
+
 ## [1.0.27-beta] — 2026-06-11
 
 ### Added
