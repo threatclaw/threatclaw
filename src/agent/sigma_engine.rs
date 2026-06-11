@@ -307,10 +307,16 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
                     return true;
                 }
             }
-            // Also search the entire log text for the substring
+            // Also search the entire log text for the substring. Record the
+            // substring that actually matched, not a generic marker, so the
+            // SOC console and the downstream source_ip / username extractors
+            // get at least the matched token to work with. The previous
+            // "(found in log body)" marker left matched_fields useless for
+            // any automated remediation (blocking the source IP, locking
+            // the user, etc.) because the actual value was discarded.
             let text = log.to_string().to_lowercase();
             if text.contains(substring) {
-                matched.push((field.clone(), format!("(found in log body)")));
+                matched.push((field.clone(), substring.clone()));
                 return true;
             }
             false
@@ -362,11 +368,15 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             }
             // Defense in depth: also probe the whole log body — same semantics as
             // FieldMatcher::Contains so rules don't depend on whether the field
-            // is exposed at top-level or nested.
+            // is exposed at top-level or nested. Record the specific value that
+            // matched, not a generic marker, so the downstream extractors keep
+            // a usable handle on the offending token (see Contains arm above).
             let text = log.to_string().to_lowercase();
-            if values.iter().any(|v| text.contains(v.as_str())) {
-                matched.push((field.clone(), "(found in log body)".into()));
-                return true;
+            for v in values {
+                if text.contains(v.as_str()) {
+                    matched.push((field.clone(), v.clone()));
+                    return true;
+                }
             }
             false
         }
