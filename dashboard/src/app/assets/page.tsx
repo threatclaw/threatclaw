@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
@@ -545,7 +545,7 @@ export function SecurityTab({ assetId }: { assetId: string }) {
       .finally(() => setLoading(false));
   }, [assetId]);
 
-  if (loading) return <div style={{ textAlign: "center", padding: "20px", color: "var(--tc-text-muted)", fontSize: "10px" }}>Chargement...</div>;
+  if (loading) return <div style={{ textAlign: "center", padding: "20px", color: "var(--tc-text-muted)", fontSize: "10px" }}>{tr("assets_loading", locale)}</div>;
 
   if (!data || !data.has_agent) return (
     <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
@@ -591,8 +591,8 @@ export function SecurityTab({ assetId }: { assetId: string }) {
       {data.ssh_keys && (
         <Section title={locale === "fr" ? "Clés SSH autorisées" : "Authorized SSH keys"}>
           <div style={{ fontSize: "10px", color: "var(--tc-text-sec)" }}>
-            {typeof data.ssh_keys === "number" ? `${data.ssh_keys} clé(s)` :
-             Array.isArray(data.ssh_keys) ? `${data.ssh_keys.length} clé(s)` :
+            {typeof data.ssh_keys === "number" ? `${data.ssh_keys} ${tr("assets_keysUnit", locale)}` :
+             Array.isArray(data.ssh_keys) ? `${data.ssh_keys.length} ${tr("assets_keysUnit", locale)}` :
              JSON.stringify(data.ssh_keys)}
           </div>
         </Section>
@@ -666,6 +666,7 @@ export function SecurityTab({ assetId }: { assetId: string }) {
 // dedup window is bypassed.
 // ─────────────────────────────────────────────────────────────────────
 export function AssetScanSurface({ asset }: { asset: any }) {
+  const locale = useLocale();
   const [scans, setScans] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -690,10 +691,10 @@ export function AssetScanSurface({ asset }: { asset: any }) {
 
   const ip = (asset.ip_addresses || []).find((s: string) => s && !s.includes(":")) || "";
   const lastNmap = scans.find((s) => s.scan_type === "nmap_fingerprint" && s.status === "done");
-  const ago = lastNmap ? relTimeShort(lastNmap.finished_at) : null;
+  const ago = lastNmap ? relTimeShort(lastNmap.finished_at, locale) : null;
 
   const rescan = async () => {
-    if (!ip) { setMsg("Pas d'IP sur cet asset"); return; }
+    if (!ip) { setMsg(tr("assets_noIpOnAsset", locale)); return; }
     setBusy(true);
     setMsg(null);
     try {
@@ -709,9 +710,9 @@ export function AssetScanSurface({ asset }: { asset: any }) {
       });
       const d = await r.json();
       if (!r.ok || d.queued === false) {
-        setMsg(d.error || d.reason || "Échec");
+        setMsg(d.error || d.reason || tr("assets_failed", locale));
       } else {
-        setMsg(`Scan #${d.scan_id} lancé`);
+        setMsg(`${tr("assets_scanPrefix", locale)} #${d.scan_id} ${tr("assets_scanLaunched", locale)}`);
         setTimeout(refresh, 1000);
       }
     } catch (e: any) {
@@ -731,11 +732,11 @@ export function AssetScanSurface({ asset }: { asset: any }) {
     }}>
       <div style={{ fontSize: "11px", color: "var(--tc-text-sec)" }}>
         {running ? (
-          <>🔄 <strong>Scan Nmap en cours</strong> sur cet asset…</>
+          <>🔄 <strong>{tr("assets_nmapScanRunning", locale)}</strong> {tr("assets_onThisAsset", locale)}</>
         ) : lastNmap ? (
-          <>Dernier scan Nmap : <strong>{ago}</strong> · {(lastNmap.result_json?.open_ports_total ?? 0)} ports détectés</>
+          <>{tr("assets_lastNmapScan", locale)} <strong>{ago}</strong> · {(lastNmap.result_json?.open_ports_total ?? 0)} {tr("assets_portsDetected", locale)}</>
         ) : (
-          <>Aucun scan Nmap pour le moment.</>
+          <>{tr("assets_noNmapScanYet", locale)}</>
         )}
         {msg && <span style={{ marginLeft: "10px", color: "var(--tc-amber)", fontSize: "10px" }}>{msg}</span>}
       </div>
@@ -751,19 +752,25 @@ export function AssetScanSurface({ asset }: { asset: any }) {
           opacity: (!ip) ? 0.5 : 1,
         }}
       >
-        <RefreshCw size={10} /> Re-scanner
+        <RefreshCw size={10} /> {tr("assets_rescan", locale)}
       </button>
     </div>
   );
 }
 
-function relTimeShort(iso: string | null): string {
+function relTimeShort(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000) return "à l'instant";
-  if (diff < 3_600_000) return `il y a ${Math.floor(diff / 60_000)} min`;
-  if (diff < 86_400_000) return `il y a ${Math.floor(diff / 3_600_000)} h`;
-  return new Date(iso).toLocaleDateString("fr-FR");
+  if (diff < 60_000) return tr("assets_justNow", locale);
+  if (diff < 3_600_000) {
+    const n = Math.floor(diff / 60_000);
+    return locale === "fr" ? `il y a ${n} min` : `${n} min ago`;
+  }
+  if (diff < 86_400_000) {
+    const n = Math.floor(diff / 3_600_000);
+    return locale === "fr" ? `il y a ${n} h` : `${n} h ago`;
+  }
+  return new Date(iso).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US");
 }
 
 export function AssetFindings({ asset }: { asset: any }) {
@@ -808,7 +815,7 @@ export function AssetFindings({ asset }: { asset: any }) {
           style={{ fontSize: "10px", fontWeight: 700, padding: "6px 14px", borderRadius: "var(--tc-radius-sm)",
             background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020",
             cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
-          <Shield size={12} /> {loading ? "Chargement..." : "Voir les vulnérabilités"}
+          <Shield size={12} /> {loading ? tr("assets_loading", locale) : tr("assets_viewVulnerabilities", locale)}
         </button>
       </div>
     );
@@ -828,7 +835,7 @@ export function AssetFindings({ asset }: { asset: any }) {
   return (
     <div style={{ marginTop: "12px" }}>
       <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
-        Vulnérabilités ({findings.length})
+        {tr("assets_vulnerabilities", locale)} ({findings.length})
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflowY: "auto" }}>
         {findings.map(f => (
@@ -896,7 +903,7 @@ export default function AssetsPage() {
       setCounts(m);
       setError(null);
     } catch {
-      setError("Backend non accessible — verifiez que le service tourne");
+      setError(tr("assets_backendUnreachable", locale));
     }
     setLoading(false);
   }, [activeTab]);
@@ -953,7 +960,7 @@ export default function AssetsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Supprimer cet asset ?")) return;
+    if (!confirm(tr("assets_confirmDelete", locale))) return;
     await fetch(`/api/tc/assets/${id}`, { method: "DELETE" });
     loadData();
   };
@@ -1022,7 +1029,7 @@ export default function AssetsPage() {
         imported++;
       } catch { /* swallow — best-effort import */ }
     }
-    alert(`${imported} asset(s) importé(s)`);
+    alert(`${imported} ${tr("assets_assetsImported", locale)}`);
     loadData();
     e.target.value = "";
   };
@@ -1071,7 +1078,7 @@ export default function AssetsPage() {
           color: activeTab === "all" ? "#fff" : "var(--tc-text-muted)",
           border: activeTab === "all" ? "none" : "1px solid var(--tc-border)",
         }}>
-          Tous ({total})
+          {tr("assets_all", locale)} ({total})
         </button>
         {categories.filter(c => (counts[c.id] || 0) > 0 || c.id === "unknown").map(cat => {
           const Icon = ICON_MAP[cat.icon] || HelpCircle;
@@ -1149,7 +1156,7 @@ export default function AssetsPage() {
       {/* Assets list */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
-          <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 8px" }} /> Chargement...
+          <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 8px" }} /> {tr("assets_loading", locale)}
         </div>
       ) : filtered.length === 0 ? (
         <NeuCard style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)", fontSize: "12px" }}>
@@ -1219,7 +1226,7 @@ export default function AssetsPage() {
 
                   {/* Actions */}
                   <div style={{ display: "flex", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> Détails</button>
+                    <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> {tr("assets_details", locale)}</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
                     <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
                   </div>
@@ -1245,7 +1252,7 @@ export default function AssetsPage() {
             {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>
-                {editAsset ? "Modifier l'asset" : modalStep === 0 ? "Quel type d'asset ?" : `Nouvel asset — ${activeCat?.label || ""}`}
+                {editAsset ? tr("assets_editAsset", locale) : modalStep === 0 ? tr("assets_whichAssetType", locale) : `${tr("assets_newAsset", locale)} — ${activeCat?.label || ""}`}
               </h2>
               <button onClick={() => setShowModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)" }}><X size={16} /></button>
             </div>
@@ -1271,7 +1278,9 @@ export default function AssetsPage() {
                         </span>
                       </div>
                       <span style={{ fontSize: "9px", color: "var(--tc-text-muted)", lineHeight: "1.4" }}>
-                        {CAT_DESCRIPTIONS[cat.id] || `Sous-types : ${cat.subcategories.join(", ")}`}
+                        {CAT_DESCRIPTIONS[cat.id]
+                          ? tr(`assets_catDesc_${cat.id}`, locale)
+                          : `${tr("assets_subtypes", locale)} ${cat.subcategories.join(", ")}`}
                       </span>
                     </button>
                   );
@@ -1286,7 +1295,7 @@ export default function AssetsPage() {
                 {/* Services detected (read-only, shown on edit) */}
                 {editAsset && editAsset.services && Array.isArray(editAsset.services) && editAsset.services.length > 0 && (
                   <div style={{ padding: "10px 12px", borderRadius: "var(--tc-radius-sm)", background: "var(--tc-input)", border: "1px solid var(--tc-border)" }}>
-                    <div style={{ fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Services détectés par scan</div>
+                    <div style={{ fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>{tr("assets_servicesDetectedByScan", locale)}</div>
                     <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
                       {editAsset.services.map((s: any, i: number) => (
                         <span key={i} style={{ fontSize: "9px", padding: "3px 8px", borderRadius: "4px", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)", fontFamily: "monospace", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -1304,27 +1313,27 @@ export default function AssetsPage() {
 
                 {/* Name */}
                 <div>
-                  <label style={labelStyle}>Nom de l{"'"}asset *</label>
+                  <label style={labelStyle}>{tr("assets_assetNameLabel", locale)} *</label>
                   <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder={form.category === "website" ? "monsite.fr" : form.category === "server" ? "srv-web-01" : form.category === "workstation" ? "PC-COMPTA-01" : "Nom..."}
+                    placeholder={form.category === "website" ? "monsite.fr" : form.category === "server" ? "srv-web-01" : form.category === "workstation" ? "PC-COMPTA-01" : tr("assets_namePlaceholder", locale)}
                     style={inputStyle} />
                 </div>
 
                 {/* Category + Criticality */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                   <div>
-                    <label style={labelStyle}>Catégorie</label>
+                    <label style={labelStyle}>{tr("assets_category", locale)}</label>
                     <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value, subcategory: "" }))} style={inputStyle}>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label style={labelStyle}>Criticité</label>
+                    <label style={labelStyle}>{tr("assets_criticality", locale)}</label>
                     <select value={form.criticality} onChange={e => setForm(f => ({ ...f, criticality: e.target.value }))} style={inputStyle}>
-                      <option value="critical">Essentiel — au fonctionnement</option>
-                      <option value="high">Haut — impact fort si compromis</option>
-                      <option value="medium">Moyen — impact modéré</option>
-                      <option value="low">Bas — impact limité</option>
+                      <option value="critical">{tr("assets_critEssential", locale)}</option>
+                      <option value="high">{tr("assets_critHigh", locale)}</option>
+                      <option value="medium">{tr("assets_critMedium", locale)}</option>
+                      <option value="low">{tr("assets_critLow", locale)}</option>
                     </select>
                   </div>
                 </div>
@@ -1332,9 +1341,9 @@ export default function AssetsPage() {
                 {/* Subcategory (dynamic from selected category) */}
                 {activeCat && activeCat.subcategories.length > 0 && (
                   <div>
-                    <label style={labelStyle}>Sous-type / Rôle technique</label>
+                    <label style={labelStyle}>{tr("assets_subtypeRole", locale)}</label>
                     <select value={form.subcategory} onChange={e => setForm(f => ({ ...f, subcategory: e.target.value }))} style={inputStyle}>
-                      <option value="">— Choisir —</option>
+                      <option value="">{tr("assets_choose", locale)}</option>
                       {activeCat.subcategories.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>
@@ -1342,9 +1351,9 @@ export default function AssetsPage() {
 
                 {/* Role description */}
                 <div>
-                  <label style={labelStyle}>Description du rôle</label>
+                  <label style={labelStyle}>{tr("assets_roleDescription", locale)}</label>
                   <input value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
-                    placeholder={form.category === "server" ? "Ex: Serveur de base de données PostgreSQL production" : form.category === "website" ? "Ex: Site vitrine WordPress avec WooCommerce" : "Que fait cet asset dans votre infrastructure ?"}
+                    placeholder={form.category === "server" ? tr("assets_rolePlaceholderServer", locale) : form.category === "website" ? tr("assets_rolePlaceholderWebsite", locale) : tr("assets_rolePlaceholderDefault", locale)}
                     style={inputStyle} />
                 </div>
 
@@ -1362,9 +1371,9 @@ export default function AssetsPage() {
                   <>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                       <div>
-                        <label style={labelStyle}>Adresse(s) IP</label>
+                        <label style={labelStyle}>{tr("assets_ipAddresses", locale)}</label>
                         <input value={form.ip} onChange={e => setForm(f => ({ ...f, ip: e.target.value }))}
-                          placeholder="192.168.1.10 (ou plusieurs séparées par ,)" style={inputStyle} />
+                          placeholder={tr("assets_ipPlaceholder", locale)} style={inputStyle} />
                       </div>
                       <div>
                         <label style={labelStyle}>Hostname</label>
@@ -1375,12 +1384,12 @@ export default function AssetsPage() {
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                       <div>
-                        <label style={labelStyle}>Adresse MAC</label>
+                        <label style={labelStyle}>{tr("assets_macAddress", locale)}</label>
                         <input value={form.mac} onChange={e => setForm(f => ({ ...f, mac: e.target.value }))}
-                          placeholder="00:1A:2B:3C:4D:5E (optionnel)" style={inputStyle} />
+                          placeholder={tr("assets_macPlaceholder", locale)} style={inputStyle} />
                       </div>
                       <div>
-                        <label style={labelStyle}>Système d{"'"}exploitation</label>
+                        <label style={labelStyle}>{tr("assets_operatingSystem", locale)}</label>
                         <input value={form.os} onChange={e => setForm(f => ({ ...f, os: e.target.value }))}
                           placeholder={form.category === "network" ? "FortiOS 7.4" : form.category === "ot" ? "Firmware v2.1" : "Ubuntu 22.04 / Windows Server 2022"} style={inputStyle} />
                       </div>
@@ -1392,12 +1401,12 @@ export default function AssetsPage() {
                 {form.category === "website" && (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                     <div>
-                      <label style={labelStyle}>Adresse IP (si on-premise)</label>
-                      <input value={form.ip} onChange={e => setForm(f => ({ ...f, ip: e.target.value }))} placeholder="Optionnel" style={inputStyle} />
+                      <label style={labelStyle}>{tr("assets_ipIfOnPremise", locale)}</label>
+                      <input value={form.ip} onChange={e => setForm(f => ({ ...f, ip: e.target.value }))} placeholder={tr("assets_optional", locale)} style={inputStyle} />
                     </div>
                     <div>
-                      <label style={labelStyle}>Hostname serveur</label>
-                      <input value={form.hostname} onChange={e => setForm(f => ({ ...f, hostname: e.target.value }))} placeholder="Optionnel" style={inputStyle} />
+                      <label style={labelStyle}>{tr("assets_serverHostname", locale)}</label>
+                      <input value={form.hostname} onChange={e => setForm(f => ({ ...f, hostname: e.target.value }))} placeholder={tr("assets_optional", locale)} style={inputStyle} />
                     </div>
                   </div>
                 )}
@@ -1405,20 +1414,20 @@ export default function AssetsPage() {
                 {/* Owner + Location */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                   <div>
-                    <label style={labelStyle}>Responsable</label>
-                    <input value={form.owner} onChange={e => setForm(f => ({ ...f, owner: e.target.value }))} placeholder="Jean Dupont / Équipe Infra" style={inputStyle} />
+                    <label style={labelStyle}>{tr("assets_owner", locale)}</label>
+                    <input value={form.owner} onChange={e => setForm(f => ({ ...f, owner: e.target.value }))} placeholder={tr("assets_ownerPlaceholder", locale)} style={inputStyle} />
                   </div>
                   <div>
-                    <label style={labelStyle}>Localisation</label>
-                    <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder="Bureau Paris / Datacenter OVH" style={inputStyle} />
+                    <label style={labelStyle}>{tr("assets_location", locale)}</label>
+                    <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} placeholder={tr("assets_locationPlaceholder", locale)} style={inputStyle} />
                   </div>
                 </div>
 
                 {/* Notes */}
                 <div>
-                  <label style={labelStyle}>Notes</label>
+                  <label style={labelStyle}>{tr("assets_notes", locale)}</label>
                   <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                    placeholder="Informations complémentaires..."
+                    placeholder={tr("assets_notesPlaceholder", locale)}
                     style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }} />
                 </div>
 
@@ -1426,7 +1435,7 @@ export default function AssetsPage() {
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px" }}>
                   {!editAsset && (
                     <button onClick={() => setModalStep(0)} style={btnSecondary}>
-                      <ChevronLeft size={12} /> Changer de catégorie
+                      <ChevronLeft size={12} /> {tr("assets_changeCategory", locale)}
                     </button>
                   )}
                   <button onClick={handleSave} disabled={!form.name} style={{
@@ -1439,7 +1448,7 @@ export default function AssetsPage() {
 
                 {/* Hint */}
                 <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic", marginTop: "4px" }}>
-                  ThreatClaw enrichira automatiquement cet asset (ports, services, OS) lors du prochain scan réseau.
+                  {tr("assets_enrichHint", locale)}
                 </div>
               </div>
             )}
@@ -1453,6 +1462,7 @@ export default function AssetsPage() {
 // ── Graph Intelligence Section (loaded on expand) ──
 
 export function GraphIntelSection({ assetId }: { assetId: string }) {
+  const locale = useLocale();
   const [data, setData] = useState<{ attackers?: any[]; cves?: any[]; blast?: any; confidence?: number; loading: boolean }>({ loading: true });
 
   useEffect(() => {
@@ -1480,7 +1490,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
   }, [assetId]);
 
   if (data.loading) {
-    return <div style={{ marginTop: "10px", fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "6px" }}><Loader2 size={10} className="animate-spin" /> Chargement intelligence graph...</div>;
+    return <div style={{ marginTop: "10px", fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "6px" }}><Loader2 size={10} className="animate-spin" /> {tr("assets_loadingGraphIntel", locale)}</div>;
   }
 
   const hasData = (data.attackers && data.attackers.length > 0) || (data.cves && data.cves.length > 0) || data.confidence != null;
@@ -1496,7 +1506,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
         {/* Confidence */}
         {data.confidence != null && (
           <div>
-            <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Indice de confiance</div>
+            <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assets_confidenceIndex", locale)}</div>
             <div style={{ fontSize: "16px", fontWeight: 800, color: data.confidence > 70 ? "#30a050" : data.confidence > 40 ? "var(--tc-amber)" : "var(--tc-text-muted)", marginTop: "2px" }}>
               {Math.round(data.confidence)}%
             </div>
@@ -1505,7 +1515,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
 
         {/* Attackers */}
         <div>
-          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Attaquants</div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assets_attackers", locale)}</div>
           <div style={{ fontSize: "16px", fontWeight: 800, color: (data.attackers?.length || 0) > 0 ? "#e04040" : "#30a050", marginTop: "2px" }}>
             {data.attackers?.length || 0}
           </div>
@@ -1513,7 +1523,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
 
         {/* CVEs */}
         <div>
-          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>CVEs affectant</div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assets_cvesAffecting", locale)}</div>
           <div style={{ fontSize: "16px", fontWeight: 800, color: (data.cves?.length || 0) > 0 ? "var(--tc-amber)" : "#30a050", marginTop: "2px" }}>
             {data.cves?.length || 0}
           </div>
@@ -1523,7 +1533,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* Attacker IPs list */}
       {data.attackers && data.attackers.length > 0 && (
         <div style={{ marginTop: "8px" }}>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>IPs attaquantes :</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assets_attackerIps", locale)}</div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
             {data.attackers.slice(0, 10).map((a: any, i: number) => (
               <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,48,32,0.08)", color: "#e04040", border: "1px solid rgba(208,48,32,0.15)" }}>
@@ -1537,7 +1547,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* CVE list */}
       {data.cves && data.cves.length > 0 && (
         <div style={{ marginTop: "8px" }}>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>Vulnérabilités :</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assets_vulnerabilitiesColon", locale)}</div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
             {data.cves.slice(0, 8).map((c: any, i: number) => (
               <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.15)" }}>
@@ -1551,7 +1561,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* Low confidence hint */}
       {data.confidence != null && data.confidence < 50 && (
         <div style={{ marginTop: "8px", fontSize: "9px", color: "var(--tc-amber)", fontStyle: "italic" }}>
-          Confiance faible — activez des sources supplémentaires (AD, pfSense, nmap) dans Skills pour enrichir cet asset.
+          {tr("assets_lowConfidenceHint", locale)}
         </div>
       )}
     </div>

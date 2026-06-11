@@ -349,8 +349,8 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
     { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", labelKey: "from", secret: false }, { id: "to", labelKey: "toField", secret: false }] },
     { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
     { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", labelKey: "ntfyServer", secret: false }, { id: "topic", label: "Topic", secret: false }] },
-    { key: "gotify", label: "Gotify (notifs uniquement)", icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", labelKey: "gotifyUrl", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
-    { key: "olvid", label: "Olvid (certifié ANSSI)", icon: <Shield size={18} color="#1a56db" />, fields: [{ id: "daemonUrl", label: "URL daemon gRPC", secret: false }, { id: "clientKey", label: "Client Key", secret: true }, { id: "discussionId", label: "Discussion ID (alertes)", secret: false }] },
+    { key: "gotify", label: tr("cfg_gotifyLabel", locale), icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", labelKey: "gotifyUrl", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
+    { key: "olvid", label: tr("cfg_olvidLabel", locale), icon: <Shield size={18} color="#1a56db" />, fields: [{ id: "daemonUrl", label: "URL daemon gRPC", secret: false }, { id: "clientKey", label: "Client Key", secret: true }, { id: "discussionId", labelKey: "cfg_discussionIdAlerts", secret: false }] },
   ];
 
   return (
@@ -914,7 +914,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       { value: "qwen3:8b", label: "Qwen3 8B", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
     l1: [
-      { value: "threatclaw-primary", label: "Foundation-Sec 8B Q4 (recommande)", detail: tr("modelDescL1", locale), ram: 4.9 },
+      { value: "threatclaw-primary", label: `Foundation-Sec 8B Q4 (${tr("cfg_recommendedSuffix", locale)})`, detail: tr("modelDescL1", locale), ram: 4.9 },
       { value: "gemma4:e4b", label: "Gemma 4 E4B Triage", detail: tr("modelDescGemma4_e4b_l1", locale), ram: 3 },
       { value: "qwen3:14b", label: "Qwen3 14B Triage", detail: tr("modelDescL1Alt", locale), ram: 9.3 },
     ],
@@ -926,9 +926,9 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       // équivalents) rattrapée par les guardrails Phase 2c + 7a.
       // Qwen3 8B en backup : pas spécialisé cyber mais raisonnement
       // solide, utile quand Foundation-Sec ne convient pas.
-      { value: "threatclaw-forensic", label: "Foundation-Sec 8B Reasoning Q8 — qualité max", detail: tr("modelDescL2", locale), ram: 8.5 },
-      { value: "threatclaw-forensic-fast", label: "Foundation-Sec 8B Reasoning Q4 — perf max (CPU)", detail: tr("modelDescL2Fast", locale), ram: 5.5 },
-      { value: "qwen3:8b", label: "Qwen3 8B — alternative généraliste", detail: tr("modelDescQwen8b", locale), ram: 5.2 },
+      { value: "threatclaw-forensic", label: `Foundation-Sec 8B Reasoning Q8 — ${tr("cfg_maxQuality", locale)}`, detail: tr("modelDescL2", locale), ram: 8.5 },
+      { value: "threatclaw-forensic-fast", label: `Foundation-Sec 8B Reasoning Q4 — ${tr("cfg_maxPerfCpu", locale)}`, detail: tr("modelDescL2Fast", locale), ram: 5.5 },
+      { value: "qwen3:8b", label: `Qwen3 8B — ${tr("cfg_generalistAlternative", locale)}`, detail: tr("modelDescQwen8b", locale), ram: 5.2 },
     ],
   };
 
@@ -944,8 +944,8 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
   const peakRam = permanentRam + l2Ram;
 
   const aiLevels = [
-    { id: "l1", level: "Auto", name: "Analyse automatique", desc: "Triage rapide (<60s) — verdict confirme / faux positif / inconclusif sur les cas ambigus", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-primary", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
-    { id: "l2", level: "Forensic", name: "Rapport forensique (async)", desc: "Analyse profonde post-confirmation — narrative opérateur, MITRE ATT&CK, citations de preuves", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-forensic", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
+    { id: "l1", level: "Auto", name: tr("cfg_autoAnalysisName", locale), desc: tr("cfg_autoAnalysisDesc", locale), color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)", model: llm.model, defaultModel: "threatclaw-primary", setModel: (v: string) => setLlm(p => ({ ...p, model: v })) },
+    { id: "l2", level: "Forensic", name: tr("cfg_forensicReportName", locale), desc: tr("cfg_forensicReportDesc", locale), color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)", model: forensic.model, defaultModel: "threatclaw-forensic", setModel: (v: string) => setForensic(p => ({ ...p, model: v })) },
   ];
 
   return (
@@ -954,10 +954,10 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
       <ChromeInsetCard>
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           {[
-            { level: "L0", label: "Conversation", desc: "Dialogue opérateur, tool calling (optionnel)", color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
-            { level: "Auto", label: "Triage", desc: "Verdict rapide sur cas ambigus (<60s)", color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
-            { level: "Forensic", label: "Rapport", desc: "Analyse profonde async post-confirmation", color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
-            { level: "Cloud", label: "Escalade", desc: "Rapports NIS2, incidents critiques (optionnel)", color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
+            { level: "L0", label: tr("cfg_archConversation", locale), desc: tr("cfg_archConversationDesc", locale), color: "#d03020", bg: "rgba(208,48,32,0.08)", border: "rgba(208,48,32,0.2)" },
+            { level: "Auto", label: tr("cfg_archTriage", locale), desc: tr("cfg_archTriageDesc", locale), color: "var(--tc-blue)", bg: "rgba(48,128,208,0.08)", border: "rgba(48,128,208,0.2)" },
+            { level: "Forensic", label: tr("cfg_archReport", locale), desc: tr("cfg_archReportDesc", locale), color: "var(--tc-amber)", bg: "rgba(208,144,32,0.08)", border: "rgba(208,144,32,0.2)" },
+            { level: "Cloud", label: tr("cfg_archEscalation", locale), desc: tr("cfg_archEscalationDesc", locale), color: "#a040d0", bg: "rgba(160,64,208,0.08)", border: "rgba(160,64,208,0.2)" },
           ].map(l => (
             <div key={l.level} style={{ flex: 1, minWidth: "80px", padding: "10px 8px", borderRadius: "var(--tc-radius-md)", background: l.bg, border: `1px solid ${l.border}`, textAlign: "center" }}>
               <div style={{ fontSize: "14px", fontWeight: 800, color: l.color }}>{l.level}</div>
@@ -978,12 +978,12 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
         </div>
         <div style={{ height: "8px", borderRadius: "4px", background: "var(--tc-input)", overflow: "hidden", display: "flex" }}>
           {l0Ram > 0 && <div style={{ width: `${(l0Ram / 64) * 100}%`, background: "#d03020", transition: "width 0.3s" }} title={`L0: ${l0Ram} GB`} />}
-          <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`Analyse auto: ${l1Ram} GB`} />
+          <div style={{ width: `${(l1Ram / 64) * 100}%`, background: "var(--tc-blue)", transition: "width 0.3s" }} title={`${tr("cfg_ramAutoAnalysis", locale)}: ${l1Ram} GB`} />
           <div style={{ width: `${(l2Ram / 64) * 100}%`, background: "var(--tc-amber)", opacity: 0.4, transition: "width 0.3s" }} title={`Forensic: ${l2Ram} GB (async)`} />
         </div>
         <div style={{ display: "flex", gap: "12px", marginTop: "6px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
           {l0Ram > 0 && <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "#d03020", marginRight: "4px" }} />L0: {l0Ram}GB</span>}
-          <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />Analyse: {l1Ram}GB</span>
+          <span><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-blue)", marginRight: "4px" }} />{tr("cfg_ramAnalysisShort", locale)}: {l1Ram}GB</span>
           <span style={{ opacity: 0.6 }}><span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "2px", background: "var(--tc-amber)", marginRight: "4px" }} />Forensic: {l2Ram}GB (async)</span>
         </div>
       </ChromeInsetCard>
@@ -1040,7 +1040,7 @@ function LlmTab({ llm, setLlm, conversational, setConversational, forensic, setF
                 placeholder={conversational.cloudBackend === "anthropic" ? "sk-ant-..." : "..."} />
             </div>
             <div>
-              <div style={labelStyle}>Modèle</div>
+              <div style={labelStyle}>{tr("cfg_modelLabel", locale)}</div>
               <input style={inputStyle} value={conversational.cloudModel}
                 onChange={e => setConversational(p => ({ ...p, cloudModel: e.target.value }))}
                 placeholder={conversational.cloudBackend === "anthropic" ? "claude-sonnet-4-20250514" : conversational.cloudBackend === "mistral" ? "mistral-large-latest" : "gpt-4o"} />
@@ -1502,7 +1502,7 @@ function NotificationsTab({ inputStyle, labelStyle }: { inputStyle: React.CSSPro
             </div>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "4px" }}>
               <div style={{ fontSize: "13px", color: "var(--tc-text)" }}>
-                Niveau : <strong style={{ color: situation.notification_level === "silence" ? "#30a050" : situation.notification_level === "digest" ? "#3080d0" : situation.notification_level === "alert" ? "#d09020" : "#d03020" }}>
+                {tr("cfg_levelLabel", locale)} <strong style={{ color: situation.notification_level === "silence" ? "#30a050" : situation.notification_level === "digest" ? "#3080d0" : situation.notification_level === "alert" ? "#d09020" : "#d03020" }}>
                   {situation.notification_level || "silence"}
                 </strong>
               </div>
@@ -1824,22 +1824,23 @@ function NotificationSettingsSection({ inputStyle, labelStyle }: { inputStyle: R
 // ═══════════════════════════════════════
 
 const DEFAULT_ANONYMIZER_RULES = [
-  { prefix: "IP", label: "Adresses IPv4 internes", pattern: "10.x.x.x, 172.16-31.x.x, 192.168.x.x", example: "192.168.1.42 → [IP-001]" },
-  { prefix: "IP", label: "Adresses IPv6 ULA", pattern: "fd00::/8", example: "fd12:3456::1 → [IP-002]" },
-  { prefix: "EMAIL", label: "Adresses email", pattern: "user@domain.tld", example: "admin@acme.fr → [EMAIL-001]" },
-  { prefix: "HOST", label: "Noms d'hôtes internes", pattern: "*.internal, *.local, *.corp, *.lan", example: "dc01.ad.corp → [HOST-001]" },
-  { prefix: "CRED", label: "Credentials (clé=valeur)", pattern: "password=, token=, api_key=, secret=", example: "password=s3cret → password=[CRED-001]" },
-  { prefix: "SSHKEY", label: "Clés privées SSH/RSA/EC", pattern: "-----BEGIN * PRIVATE KEY-----", example: "Clé entière → [SSHKEY-001]" },
-  { prefix: "AWSKEY", label: "Clés AWS (AKIA/ASIA)", pattern: "AKIA... / ASIA... (20 chars)", example: "AKIAIOSFODNN7EX → [AWSKEY-001]" },
-  { prefix: "AZURECONN", label: "Azure Connection Strings", pattern: "AccountKey=, DefaultEndpointsProtocol=", example: "AccountKey=base64... → [AZURECONN-001]" },
-  { prefix: "GCPKEY", label: "Clés GCP Service Account", pattern: '"type": "service_account"', example: "JSON SA détecté → [GCPKEY-001]" },
-  { prefix: "PHONE", label: "Téléphones français", pattern: "06 xx xx xx xx, +33 x xx xx xx xx", example: "06 12 34 56 78 → [PHONE-001]" },
-  { prefix: "SIRET", label: "SIRET (14 chiffres)", pattern: "xxx xxx xxx xxxxx", example: "123 456 789 00012 → [SIRET-001]" },
-  { prefix: "SIREN", label: "SIREN (9 chiffres)", pattern: "xxx xxx xxx", example: "123 456 789 → [SIREN-001]" },
-  { prefix: "MAC", label: "Adresses MAC (EUI-48)", pattern: "aa:bb:cc:dd:ee:ff", example: "00:1a:2b:3c:4d:5e → [MAC-001]" },
+  { prefix: "IP", labelKey: "cfg_ruleIpv4Internal", pattern: "10.x.x.x, 172.16-31.x.x, 192.168.x.x", example: "192.168.1.42 → [IP-001]" },
+  { prefix: "IP", labelKey: "cfg_ruleIpv6Ula", pattern: "fd00::/8", example: "fd12:3456::1 → [IP-002]" },
+  { prefix: "EMAIL", labelKey: "cfg_ruleEmail", pattern: "user@domain.tld", example: "admin@acme.fr → [EMAIL-001]" },
+  { prefix: "HOST", labelKey: "cfg_ruleInternalHosts", pattern: "*.internal, *.local, *.corp, *.lan", example: "dc01.ad.corp → [HOST-001]" },
+  { prefix: "CRED", labelKey: "cfg_ruleCredentials", pattern: "password=, token=, api_key=, secret=", example: "password=s3cret → password=[CRED-001]" },
+  { prefix: "SSHKEY", labelKey: "cfg_ruleSshKeys", pattern: "-----BEGIN * PRIVATE KEY-----", example: "Whole key → [SSHKEY-001]" },
+  { prefix: "AWSKEY", labelKey: "cfg_ruleAwsKeys", pattern: "AKIA... / ASIA... (20 chars)", example: "AKIAIOSFODNN7EX → [AWSKEY-001]" },
+  { prefix: "AZURECONN", labelKey: "cfg_ruleAzureConn", pattern: "AccountKey=, DefaultEndpointsProtocol=", example: "AccountKey=base64... → [AZURECONN-001]" },
+  { prefix: "GCPKEY", labelKey: "cfg_ruleGcpKeys", pattern: '"type": "service_account"', example: "JSON SA detected → [GCPKEY-001]" },
+  { prefix: "PHONE", labelKey: "cfg_rulePhonesFr", pattern: "06 xx xx xx xx, +33 x xx xx xx xx", example: "06 12 34 56 78 → [PHONE-001]" },
+  { prefix: "SIRET", labelKey: "cfg_ruleSiret", pattern: "xxx xxx xxx xxxxx", example: "123 456 789 00012 → [SIRET-001]" },
+  { prefix: "SIREN", labelKey: "cfg_ruleSiren", pattern: "xxx xxx xxx", example: "123 456 789 → [SIREN-001]" },
+  { prefix: "MAC", labelKey: "cfg_ruleMac", pattern: "aa:bb:cc:dd:ee:ff", example: "00:1a:2b:3c:4d:5e → [MAC-001]" },
 ];
 
 function DefaultRulesPanel() {
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   return (
     <div style={{ marginBottom: "16px" }}>
@@ -1850,7 +1851,7 @@ function DefaultRulesPanel() {
         display: "flex", alignItems: "center", gap: "6px", width: "100%",
       }}>
         <Eye size={14} color="#d03020" />
-        {open ? "Masquer" : "Voir"} les {DEFAULT_ANONYMIZER_RULES.length} règles par défaut
+        {open ? tr("cfg_hide", locale) : tr("cfg_show", locale)} {DEFAULT_ANONYMIZER_RULES.length} {tr("cfg_defaultRulesSuffix", locale)}
         <ChevronDown size={12} style={{ marginLeft: "auto", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
       </button>
       {open && (
@@ -1867,16 +1868,14 @@ function DefaultRulesPanel() {
                 minWidth: "70px", textAlign: "center",
               }}>[{rule.prefix}]</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{rule.label}</div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--tc-text)" }}>{tr(rule.labelKey, locale)}</div>
                 <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", fontFamily: "monospace" }}>{rule.pattern}</div>
               </div>
               <div style={{ fontSize: "10px", color: "var(--tc-text-faint)", fontFamily: "monospace", whiteSpace: "nowrap" }}>{rule.example}</div>
             </div>
           ))}
           <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", padding: "8px 0", lineHeight: 1.5 }}>
-            Ces règles sont appliquées automatiquement avant tout envoi au LLM cloud.
-            Les données originales ne quittent jamais le serveur — seuls les placeholders sont transmis.
-            Le LLM répond avec les placeholders, ThreatClaw les remplace par les vraies valeurs localement.
+            {tr("cfg_anonymizerRulesNote", locale)}
           </div>
         </div>
       )}
@@ -1973,27 +1972,27 @@ function AnonymizerSection({ inputStyle, labelStyle }: { inputStyle: React.CSSPr
         </ChromeEmbossedText>
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div>
-            <div style={labelStyle}>Nom de la règle</div>
+            <div style={labelStyle}>{tr("cfg_ruleName", locale)}</div>
             <input style={inputStyle} value={newLabel} onChange={e => setNewLabel(e.target.value)}
-              placeholder="Ex: Nom du projet confidentiel" />
+              placeholder={tr("cfg_ruleNamePlaceholder", locale)} />
           </div>
           <div>
-            <div style={labelStyle}>Mot ou pattern à anonymiser</div>
+            <div style={labelStyle}>{tr("cfg_wordOrPattern", locale)}</div>
             <input style={{ ...inputStyle, fontFamily: "monospace" }} value={newPattern}
               onChange={e => setNewPattern(e.target.value)}
-              placeholder="Ex: Projet-Neptune ou SRV-\d+" />
+              placeholder={tr("cfg_patternPlaceholder", locale)} />
             <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "6px", lineHeight: 1.5 }}>
-              Exemples : mot exact (Projet-Neptune), insensible casse {"((?i)confidentiel)"}, pattern {"(SRV-\\d+ pour SRV-001, SRV-042...)"}
+              {tr("cfg_patternExamples", locale)} {"((?i)confidentiel)"}, pattern {"(SRV-\\d+ pour SRV-001, SRV-042...)"}
             </div>
           </div>
           <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
             <div style={{ width: "140px" }}>
-              <div style={labelStyle}>Préfixe</div>
+              <div style={labelStyle}>{tr("cfg_prefix", locale)}</div>
               <input style={{ ...inputStyle, textTransform: "uppercase" }} value={newPrefix}
                 onChange={e => setNewPrefix(e.target.value.toUpperCase())} />
             </div>
             <div style={{ flex: 1, fontSize: "12px", color: "var(--tc-text-muted)", paddingBottom: "12px" }}>
-              → Le LLM verra [{newPrefix || "CUSTOM"}-001]
+              → {tr("cfg_llmWillSee", locale)} [{newPrefix || "CUSTOM"}-001]
             </div>
             <ChromeButton onClick={addRule} disabled={adding || !newLabel || !newPattern} variant="primary">
               {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
@@ -2147,37 +2146,37 @@ function CompanyTab() {
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
             <div>
-              <label style={labelStyle}>Horaires d{"'"}activité</label>
+              <label style={labelStyle}>{tr("cfg_businessHours", locale)}</label>
               <button onClick={() => setShowSchedule(true)} style={{
                 ...inputStyle, cursor: "pointer", textAlign: "left" as const,
                 display: "flex", alignItems: "center", justifyContent: "space-between",
               }}>
-                <span>{profile.business_hours === "24x7" ? "24h/7j" : profile.business_hours === "custom" ? "Personnalisé" : "Bureau (8h-18h)"}</span>
+                <span>{profile.business_hours === "24x7" ? tr("cfg_hours24x7", locale) : profile.business_hours === "custom" ? tr("cfg_hoursCustom", locale) : tr("cfg_hoursOffice", locale)}</span>
                 <Settings size={12} color="var(--tc-text-muted)" />
               </button>
             </div>
             <div>
-              <label style={labelStyle}>Zone géographique</label>
+              <label style={labelStyle}>{tr("cfg_geoZone", locale)}</label>
               <select value={profile.geo_scope || "france"} onChange={e => setProfile((p: any) => ({ ...p, geo_scope: e.target.value }))} style={inputStyle}>
-                <option value="france">France uniquement</option>
-                <option value="europe">Europe</option>
-                <option value="international">International</option>
+                <option value="france">{tr("cfg_geoFranceOnly", locale)}</option>
+                <option value="europe">{tr("cfg_geoEurope", locale)}</option>
+                <option value="international">{tr("cfg_geoInternational", locale)}</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label style={labelStyle}>Systèmes critiques (séparés par des virgules)</label>
+            <label style={labelStyle}>{tr("cfg_criticalSystems", locale)}</label>
             <input value={(profile.critical_systems || []).join(", ")} onChange={e => setProfile((p: any) => ({ ...p, critical_systems: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) }))}
-              placeholder="ERP, base clients, paye, site web" style={inputStyle} />
+              placeholder={tr("cfg_criticalSystemsPlaceholder", locale)} style={inputStyle} />
           </div>
 
           <div>
-            <label style={labelStyle}>Sensibilité de la détection comportementale</label>
+            <label style={labelStyle}>{tr("cfg_behavioralSensitivity", locale)}</label>
             <select value={profile.anomaly_sensitivity || "medium"} onChange={e => setProfile((p: any) => ({ ...p, anomaly_sensitivity: e.target.value }))} style={inputStyle}>
-              <option value="low">Basse — moins d{"'"}alertes, plus de tolérance</option>
-              <option value="medium">Moyenne — équilibre alertes / faux positifs</option>
-              <option value="high">Haute — plus d{"'"}alertes, plus sensible aux écarts</option>
+              <option value="low">{tr("cfg_sensitivityLow", locale)}</option>
+              <option value="medium">{tr("cfg_sensitivityMedium", locale)}</option>
+              <option value="high">{tr("cfg_sensitivityHigh", locale)}</option>
             </select>
           </div>
 
@@ -2195,7 +2194,7 @@ function CompanyTab() {
       <ChromeInsetCard style={{ marginTop: "16px" }}>
         <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("internalNetworksLabel", locale)}</ChromeEmbossedText>
         <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "12px" }}>
-          Déclarez vos plages réseau. ThreatClaw classifie les IPs (interne connu / inconnu / externe).
+          {tr("cfg_networksDesc", locale)}
         </p>
         {networks.length > 0 && (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
@@ -2225,7 +2224,7 @@ function CompanyTab() {
             </div>
 
             <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-              La détection comportementale utilise ces horaires pour ajuster ses seuils. Une connexion en dehors des heures d{"'"}activité sera plus suspecte.
+              {tr("cfg_scheduleModalDesc", locale)}
             </p>
 
             {/* Quick apply */}
@@ -2247,7 +2246,7 @@ function CompanyTab() {
                     <>
                       <input type="time" value={schedule[day.id].open} onChange={e => setSchedule(s => ({ ...s, [day.id]: { ...s[day.id], open: e.target.value } }))}
                         style={{ ...inputStyle, width: "100px", textAlign: "center" }} />
-                      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>à</span>
+                      <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{tr("cfg_to", locale)}</span>
                       <input type="time" value={schedule[day.id].close} onChange={e => setSchedule(s => ({ ...s, [day.id]: { ...s[day.id], close: e.target.value } }))}
                         style={{ ...inputStyle, width: "100px", textAlign: "center" }} />
                     </>
@@ -2425,6 +2424,7 @@ function LogSourcesTab() {
 // ── System Logs Tab ──
 
 function LiveLogsTab() {
+  const locale = useLocale();
   const [events, setEvents] = useState<any[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -2479,7 +2479,7 @@ function LiveLogsTab() {
   return (
     <ChromeInsetCard>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, margin: 0 }}>Logs système</ChromeEmbossedText>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, margin: 0 }}>{tr("cfg_systemLogs", locale)}</ChromeEmbossedText>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {paused && <span style={{ fontSize: "10px", fontWeight: 700, color: "#d03020", padding: "2px 8px", borderRadius: "4px", background: "rgba(208,48,32,0.1)" }}>PAUSE</span>}
           <label style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "var(--tc-text-muted)", cursor: "pointer" }}>
@@ -2495,10 +2495,10 @@ function LiveLogsTab() {
       {/* Filters */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
         {[
-          { key: "all", label: "Tous" },
-          { key: "audit", label: "Bot / Actions" },
-          { key: "auth", label: "Authentification" },
-          { key: "notification", label: "Notifications" },
+          { key: "all", label: tr("cfg_filterAll", locale) },
+          { key: "audit", label: tr("cfg_filterBotActions", locale) },
+          { key: "auth", label: tr("cfg_filterAuth", locale) },
+          { key: "notification", label: tr("cfg_filterNotifications", locale) },
         ].map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)} style={{
             padding: "4px 10px", fontSize: "10px", fontWeight: 600, borderRadius: "6px", cursor: "pointer",
@@ -2517,7 +2517,7 @@ function LiveLogsTab() {
       }}>
         {filtered.length === 0 && (
           <div style={{ padding: "20px", textAlign: "center", color: "var(--tc-text-faint)" }}>
-            Aucun événement
+            {tr("cfg_noEvent", locale)}
           </div>
         )}
         {filtered.map((e, i) => (
@@ -2540,13 +2540,14 @@ function LiveLogsTab() {
       </div>
 
       <div style={{ marginTop: "8px", fontSize: "9px", color: "var(--tc-text-muted)" }}>
-        {filtered.length} événement(s) · Rafraîchissement {autoRefresh ? "automatique 5s" : "manuel"}
+        {filtered.length} {tr("cfg_eventsCount", locale)} · {tr("cfg_refresh", locale)} {autoRefresh ? tr("cfg_refreshAuto", locale) : tr("cfg_refreshManual", locale)}
       </div>
     </ChromeInsetCard>
   );
 }
 
 function RetentionTab() {
+  const locale = useLocale();
   const [retention, setRetention] = useState({ logs: 90, alerts: 365, findings: 0, audit: 0 });
   const [saved, setSaved] = useState(false);
 
@@ -2565,17 +2566,17 @@ function RetentionTab() {
   };
 
   const items = [
-    { key: "logs" as const, label: "Logs réseau (syslog, Zeek, Suricata)", size: "~9 GB / 100K logs/jour", legal: "NIS2 : 6 mois recommandé", unit: "jours" },
-    { key: "alerts" as const, label: "Alertes de sécurité (Sigma)", size: "~500 MB / 10K alertes/jour", legal: "NIS2 : conservation obligatoire", unit: "jours" },
-    { key: "findings" as const, label: "Findings (vulnérabilités)", size: "~100 MB / an", legal: "Preuve d'audit", unit: "jours" },
-    { key: "audit" as const, label: "Journal d'audit (actions agent)", size: "~50 MB / an", legal: "NIS2 : preuve légale", unit: "jours" },
+    { key: "logs" as const, label: tr("cfg_retentionLogs", locale), size: tr("cfg_retentionLogsSize", locale), legal: tr("cfg_retentionLogsLegal", locale), unit: tr("cfg_days", locale) },
+    { key: "alerts" as const, label: tr("cfg_retentionAlerts", locale), size: tr("cfg_retentionAlertsSize", locale), legal: tr("cfg_retentionAlertsLegal", locale), unit: tr("cfg_days", locale) },
+    { key: "findings" as const, label: tr("cfg_retentionFindings", locale), size: tr("cfg_retentionFindingsSize", locale), legal: tr("cfg_retentionFindingsLegal", locale), unit: tr("cfg_days", locale) },
+    { key: "audit" as const, label: tr("cfg_retentionAudit", locale), size: tr("cfg_retentionAuditSize", locale), legal: tr("cfg_retentionAuditLegal", locale), unit: tr("cfg_days", locale) },
   ];
 
   return (
     <ChromeInsetCard>
-      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Rétention des données</ChromeEmbossedText>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("cfg_dataRetention", locale)}</ChromeEmbossedText>
       <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-        Définissez combien de temps ThreatClaw conserve les données. 0 = illimité. NIS2 impose un minimum de 6 mois pour les logs.
+        {tr("cfg_retentionDesc", locale)}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         {items.map(item => (
@@ -2596,10 +2597,10 @@ function RetentionTab() {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
         <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", fontStyle: "italic" }}>
-          Nettoyage automatique chaque nuit à 03h00.
+          {tr("cfg_autoCleanupNote", locale)}
         </div>
         <button className="tc-btn-embossed" onClick={save} style={{ fontSize: "11px", padding: "6px 14px" }}>
-          {saved ? "✓ Saved" : "Save"}
+          {saved ? `✓ ${tr("save", locale)}` : tr("save", locale)}
         </button>
       </div>
     </ChromeInsetCard>
@@ -2607,6 +2608,7 @@ function RetentionTab() {
 }
 
 function BackupTab() {
+  const locale = useLocale();
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
@@ -2631,7 +2633,7 @@ function BackupTab() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e: any) {
-      alert("Erreur export: " + e.message);
+      alert(tr("cfg_exportError", locale) + ": " + e.message);
     }
     setExporting(false);
   };
@@ -2652,9 +2654,9 @@ function BackupTab() {
           body: JSON.stringify(data),
         });
         const result = await res.json();
-        setImportResult(`Import réussi : ${(result.sections || []).join(", ")}`);
+        setImportResult(`${tr("cfg_importSuccess", locale)} ${(result.sections || []).join(", ")}`);
       } catch (err: any) {
-        setImportResult("Erreur: " + err.message);
+        setImportResult(tr("cfg_errorPrefix", locale) + " " + err.message);
       }
       setImporting(false);
     };
@@ -2664,24 +2666,24 @@ function BackupTab() {
   return (
     <>
       <ChromeInsetCard>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Sauvegarde</ChromeEmbossedText>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("cfg_backup", locale)}</ChromeEmbossedText>
         <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-          Exportez votre configuration pour la restaurer sur un nouveau serveur ou en cas de réinstallation.
+          {tr("cfg_backupDesc", locale)}
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
             <input type="radio" name="exportMode" checked={exportMode === "light"} onChange={() => setExportMode("light")} />
             <div>
-              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>Export léger (~50 KB)</div>
-              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>Configuration, assets, réseaux, skills, profil entreprise</div>
+              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>{tr("cfg_exportLight", locale)}</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{tr("cfg_exportLightDesc", locale)}</div>
             </div>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
             <input type="radio" name="exportMode" checked={exportMode === "full"} onChange={() => setExportMode("full")} />
             <div>
-              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>Export complet (taille variable)</div>
-              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>Tout le léger + alertes + findings + historique (pour migration complète)</div>
+              <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>{tr("cfg_exportFull", locale)}</div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{tr("cfg_exportFullDesc", locale)}</div>
             </div>
           </label>
         </div>
@@ -2692,21 +2694,21 @@ function BackupTab() {
             cursor: "pointer", background: "var(--tc-red)", color: "#fff",
             border: "none", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
           }}>
-            {exporting ? "Export en cours..." : "Exporter"}
+            {exporting ? tr("cfg_exporting", locale) : tr("cfg_export", locale)}
           </button>
           <button onClick={handleImport} disabled={importing} style={{
             padding: "10px 16px", fontSize: "12px", fontWeight: 700, fontFamily: "inherit",
             cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
             border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", display: "flex", alignItems: "center", gap: "6px",
           }}>
-            {importing ? "Import en cours..." : "Importer un fichier"}
+            {importing ? tr("cfg_importing", locale) : tr("cfg_importFile", locale)}
           </button>
         </div>
 
         {importResult && (
           <div style={{ marginTop: "10px", padding: "8px 12px", borderRadius: "var(--tc-radius-sm)",
-            background: importResult.startsWith("Erreur") ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
-            color: importResult.startsWith("Erreur") ? "#d03020" : "#30a050", fontSize: "11px" }}>
+            background: importResult.startsWith(tr("cfg_errorPrefix", locale)) ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
+            color: importResult.startsWith(tr("cfg_errorPrefix", locale)) ? "#d03020" : "#30a050", fontSize: "11px" }}>
             {importResult}
           </div>
         )}
@@ -2716,34 +2718,34 @@ function BackupTab() {
       <AutoBackupSection />
 
       <ChromeInsetCard style={{ marginTop: "16px" }}>
-        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Mises à jour</ChromeEmbossedText>
+        <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("cfg_updates", locale)}</ChromeEmbossedText>
 
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
           <div style={{ fontSize: "12px", color: "var(--tc-text)" }}>
-            Version actuelle : <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{versionInfo?.current || "2.0.0-beta"}</span>
+            {tr("cfg_currentVersion", locale)} <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{versionInfo?.current || "2.0.0-beta"}</span>
           </div>
           {versionInfo?.update_available && (
             <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
               background: "rgba(208,48,32,0.08)", color: "#d03020", fontWeight: 700 }}>
-              Nouvelle version : {versionInfo.latest}
+              {tr("cfg_newVersion", locale)} {versionInfo.latest}
             </span>
           )}
           {versionInfo && !versionInfo.update_available && (
             <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
               background: "rgba(48,160,80,0.08)", color: "#30a050", fontWeight: 700 }}>
-              À jour
+              {tr("cfg_upToDate", locale)}
             </span>
           )}
         </div>
 
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", padding: "10px", background: "var(--tc-input)",
           borderRadius: "var(--tc-radius-sm)", fontFamily: "monospace", lineHeight: 1.8 }}>
-          # Pour mettre à jour (Docker) :<br/>
+          {tr("cfg_updateDockerComment", locale)}<br/>
           cd /opt/threatclaw<br/>
           docker compose pull<br/>
           docker compose up -d<br/>
           <br/>
-          # Pour mettre à jour (binaire) :<br/>
+          {tr("cfg_updateBinaryComment", locale)}<br/>
           git pull origin main<br/>
           cargo build --release<br/>
           systemctl restart threatclaw
@@ -2764,6 +2766,7 @@ interface BackupSettings {
 }
 
 function AutoBackupSection() {
+  const locale = useLocale();
   const [settings, setSettings] = useState<BackupSettings>({
     auto_enabled: true,
     auto_time: "02:00",
@@ -2797,7 +2800,7 @@ function AutoBackupSection() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e: any) {
-      setMessage("Erreur enregistrement: " + e.message);
+      setMessage(tr("cfg_saveError", locale) + ": " + e.message);
     }
     setSaving(false);
   };
@@ -2809,14 +2812,14 @@ function AutoBackupSection() {
       const res = await fetch("/api/tc/backups/create", { method: "POST" });
       if (res.ok) {
         const info = await res.json();
-        setMessage(`Sauvegarde créée : ${info.name} (${(info.size_bytes / 1024).toFixed(0)} KB)`);
+        setMessage(`${tr("cfg_backupCreated", locale)} ${info.name} (${(info.size_bytes / 1024).toFixed(0)} KB)`);
         loadBackups();
       } else {
         const err = await res.text();
-        setMessage("Erreur création: " + err);
+        setMessage(tr("cfg_createError", locale) + ": " + err);
       }
     } catch (e: any) {
-      setMessage("Erreur création: " + e.message);
+      setMessage(tr("cfg_createError", locale) + ": " + e.message);
     }
     setCreating(false);
   };
@@ -2829,12 +2832,12 @@ function AutoBackupSection() {
   };
 
   const deleteBackup = async (name: string) => {
-    if (!confirm(`Supprimer la sauvegarde ${name} ?`)) return;
+    if (!confirm(`${tr("cfg_deleteBackupConfirm", locale)} ${name} ?`)) return;
     try {
       await fetch(`/api/tc/backups/${encodeURIComponent(name)}`, { method: "DELETE" });
       loadBackups();
     } catch (e: any) {
-      setMessage("Erreur suppression: " + e.message);
+      setMessage(tr("cfg_deleteError", locale) + ": " + e.message);
     }
   };
 
@@ -2850,9 +2853,9 @@ function AutoBackupSection() {
 
   return (
     <ChromeInsetCard style={{ marginTop: "16px" }}>
-      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>Sauvegardes automatiques</ChromeEmbossedText>
+      <ChromeEmbossedText as="h2" style={{ fontSize: "16px", fontWeight: 800, marginBottom: "12px" }}>{tr("cfg_autoBackups", locale)}</ChromeEmbossedText>
       <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "16px" }}>
-        Sauvegarde quotidienne complète de la base : config, assets, incidents, alertes, ML scores. Stockée dans <code style={{ fontFamily: "monospace", fontSize: "10px" }}>/app/data/backups</code> par défaut. Pour un stockage externe, montez un volume Docker vers ce chemin.
+        {tr("cfg_autoBackupsDesc1", locale)} <code style={{ fontFamily: "monospace", fontSize: "10px" }}>/app/data/backups</code> {tr("cfg_autoBackupsDesc2", locale)}
       </p>
 
       {/* Settings form */}
@@ -2860,23 +2863,23 @@ function AutoBackupSection() {
         <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--tc-text)", cursor: "pointer" }}>
           <input type="checkbox" checked={settings.auto_enabled}
             onChange={e => setSettings(s => ({ ...s, auto_enabled: e.target.checked }))} />
-          Activer la sauvegarde quotidienne
+          {tr("cfg_enableDailyBackup", locale)}
         </label>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
-          <span style={{ color: "var(--tc-text-muted)" }}>Heure (UTC) :</span>
+          <span style={{ color: "var(--tc-text-muted)" }}>{tr("cfg_hourUtc", locale)}</span>
           <input type="time" value={settings.auto_time}
             onChange={e => setSettings(s => ({ ...s, auto_time: e.target.value }))}
             style={{ padding: "4px 8px", fontSize: "12px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px" }}>
-          <span style={{ color: "var(--tc-text-muted)" }}>Rétention :</span>
+          <span style={{ color: "var(--tc-text-muted)" }}>{tr("cfg_retentionLabel", locale)}</span>
           <input type="number" min={1} max={90} value={settings.retention_count}
             onChange={e => setSettings(s => ({ ...s, retention_count: parseInt(e.target.value) || 7 }))}
             style={{ padding: "4px 8px", fontSize: "12px", width: "60px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
-          <span style={{ color: "var(--tc-text-muted)" }}>sauvegardes</span>
+          <span style={{ color: "var(--tc-text-muted)" }}>{tr("cfg_backupsUnit", locale)}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", gridColumn: "1 / -1" }}>
-          <span style={{ color: "var(--tc-text-muted)", whiteSpace: "nowrap" }}>Chemin externe (optionnel) :</span>
+          <span style={{ color: "var(--tc-text-muted)", whiteSpace: "nowrap" }}>{tr("cfg_externalPath", locale)}</span>
           <input type="text" value={settings.external_path} placeholder="/mnt/nas/threatclaw-backups"
             onChange={e => setSettings(s => ({ ...s, external_path: e.target.value }))}
             style={{ flex: 1, padding: "4px 8px", fontSize: "11px", fontFamily: "monospace", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)" }} />
@@ -2889,21 +2892,21 @@ function AutoBackupSection() {
           cursor: "pointer", background: saved ? "#30a050" : "var(--tc-red)", color: "#fff",
           border: "none", borderRadius: "var(--tc-radius-sm)",
         }}>
-          {saving ? "..." : saved ? "Enregistré ✓" : "Enregistrer les paramètres"}
+          {saving ? "..." : saved ? `${tr("cfg_saved", locale)} ✓` : tr("cfg_saveSettings", locale)}
         </button>
         <button onClick={createNow} disabled={creating} style={{
           padding: "8px 14px", fontSize: "11px", fontWeight: 700, fontFamily: "inherit",
           cursor: "pointer", background: "var(--tc-input)", color: "var(--tc-text-sec)",
           border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
         }}>
-          {creating ? "Création..." : "Lancer une sauvegarde maintenant"}
+          {creating ? tr("cfg_creating", locale) : tr("cfg_runBackupNow", locale)}
         </button>
       </div>
 
       {message && (
         <div style={{ padding: "8px 12px", borderRadius: "var(--tc-radius-sm)", marginBottom: "12px",
-          background: message.startsWith("Erreur") ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
-          color: message.startsWith("Erreur") ? "#d03020" : "#30a050", fontSize: "11px" }}>
+          background: message.startsWith(tr("cfg_errorPrefix", locale)) ? "rgba(208,48,32,0.08)" : "rgba(48,160,80,0.08)",
+          color: message.startsWith(tr("cfg_errorPrefix", locale)) ? "#d03020" : "#30a050", fontSize: "11px" }}>
           {message}
         </div>
       )}
@@ -2911,11 +2914,11 @@ function AutoBackupSection() {
       {/* Backup list */}
       <div style={{ marginTop: "12px" }}>
         <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "8px" }}>
-          Sauvegardes existantes ({backups.length})
+          {tr("cfg_existingBackups", locale)} ({backups.length})
         </div>
         {backups.length === 0 ? (
           <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", padding: "12px", textAlign: "center", background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)" }}>
-            Aucune sauvegarde pour le moment. Lancez-en une manuellement ou attendez l'heure programmée.
+            {tr("cfg_noBackupsYet", locale)}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "240px", overflowY: "auto" }}>
@@ -2929,11 +2932,11 @@ function AutoBackupSection() {
                 <button onClick={() => downloadBackup(b.name)} style={{
                   padding: "4px 10px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
                   background: "var(--tc-red)", color: "#fff", border: "none", borderRadius: "var(--tc-radius-sm)",
-                }}>Télécharger</button>
+                }}>{tr("cfg_download", locale)}</button>
                 <button onClick={() => deleteBackup(b.name)} style={{
                   padding: "4px 10px", fontSize: "10px", fontWeight: 700, cursor: "pointer",
                   background: "transparent", color: "var(--tc-text-muted)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
-                }}>Supprimer</button>
+                }}>{tr("cfg_delete", locale)}</button>
               </div>
             ))}
           </div>

@@ -83,7 +83,7 @@ function AgentPage() {
     ? `$env:TC_URL='${serverUrl}'; $env:TC_TOKEN='${token}'; irm get.threatclaw.io/agent/windows | iex`
     : `$env:TC_URL='${serverUrl}'; $env:TC_TOKEN='VOTRE_TOKEN'; irm get.threatclaw.io/agent/windows | iex`;
 
-  if (loading) return <div style={{ padding: "20px", color: "var(--tc-text-muted)", fontSize: "12px" }}>Chargement...</div>;
+  if (loading) return <div style={{ padding: "20px", color: "var(--tc-text-muted)", fontSize: "12px" }}>{tr("setupPage_loading", locale)}</div>;
 
   return (
     <div style={{ padding: "0 24px" }}>
@@ -298,9 +298,9 @@ function AboutPage() {
         setPwdOk(true); setPwdMsg(tr("passwordChanged", locale));
         setCurrentPwd(""); setNewPwd("");
       } else {
-        setPwdMsg(data.error || "Erreur");
+        setPwdMsg(data.error || tr("setupPage_error", locale));
       }
-    } catch { setPwdMsg("Erreur réseau"); }
+    } catch { setPwdMsg(tr("setupPage_networkError", locale)); }
     setChangingPwd(false);
   };
 
@@ -427,9 +427,9 @@ function AboutPage() {
 
       <div className="tc-card" style={{ padding: "20px" }}>
         <p style={{ fontSize: "12px", color: "var(--tc-text-muted)", lineHeight: "1.6", margin: 0 }}>
-          ThreatClaw est un agent cybersécurité autonome pour PME.
-          <br />Édité par <a href="https://cyberconsulting.fr" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>CyberConsulting.fr</a>
-          <br />Licence AGPL v3 — <a href="https://threatclaw.io" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>threatclaw.io</a>
+          {tr("setupPage_aboutTagline", locale)}
+          <br />{tr("setupPage_aboutEditedBy", locale)} <a href="https://cyberconsulting.fr" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>CyberConsulting.fr</a>
+          <br />{tr("setupPage_aboutLicense", locale)} <a href="https://threatclaw.io" target="_blank" rel="noopener noreferrer" style={{ color: "var(--tc-red)", textDecoration: "none" }}>threatclaw.io</a>
         </p>
       </div>
     </div>

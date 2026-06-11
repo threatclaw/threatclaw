@@ -5,6 +5,8 @@ import { PageShell } from "@/components/chrome/PageShell";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { Archive, RefreshCw, Search, X } from "lucide-react";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 interface Incident {
   id: number;
@@ -24,10 +26,12 @@ const severityColor: Record<string, string> = {
   CRITICAL: "#ff2020", HIGH: "#ff6030", MEDIUM: "#e0a020", LOW: "#30a050",
 };
 
-const verdictStyle: Record<string, { color: string; label: string }> = {
-  inconclusive: { color: "#e0a020", label: "Inconclusif" },
-  false_positive: { color: "#30a050", label: "Faux positif" },
-};
+function verdictStyleFor(locale: Locale): Record<string, { color: string; label: string }> {
+  return {
+    inconclusive: { color: "#e0a020", label: tr("archives_inconclusive", locale) },
+    false_positive: { color: "#30a050", label: tr("archives_falsePositive", locale) },
+  };
+}
 
 function splitTitle(raw: string | null): string {
   if (!raw) return "";
@@ -36,14 +40,15 @@ function splitTitle(raw: string | null): string {
   return raw.substring(0, raw.indexOf(sep)).trim();
 }
 
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR", {
+function fmtDate(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
     day: "2-digit", month: "2-digit", year: "2-digit",
     hour: "2-digit", minute: "2-digit",
   });
 }
 
 export default function ArchivesPage() {
+  const locale = useLocale();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,11 +76,11 @@ export default function ArchivesPage() {
         return isArchiveVerdict && inPeriod;
       }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur de chargement");
+      setError(e instanceof Error ? e.message : tr("archives_loadError", locale));
     } finally {
       setLoading(false);
     }
-  }, [sinceHours]);
+  }, [sinceHours, locale]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -90,11 +95,11 @@ export default function ArchivesPage() {
 
   return (
     <PageShell
-      title="Archives"
-      subtitle="Incidents classés non conclusifs ou faux positifs"
+      title={tr("archives_title", locale)}
+      subtitle={tr("archives_subtitle", locale)}
       right={
         <ChromeButton onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> Rafraîchir
+          <RefreshCw size={14} className={loading ? "tc-spin" : ""} /> {tr("archives_refresh", locale)}
         </ChromeButton>
       }
     >
@@ -129,7 +134,7 @@ export default function ArchivesPage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Rechercher asset ou titre..."
+            placeholder={tr("archives_searchPlaceholder", locale)}
           />
           {search && (
             <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
@@ -141,26 +146,26 @@ export default function ArchivesPage() {
           className={`arch-filter-btn${verdictFilter === "inconclusive" ? " active-amber" : ""}`}
           onClick={() => setVerdictFilter(verdictFilter === "inconclusive" ? "" : "inconclusive")}
         >
-          Inconclusif
+          {tr("archives_inconclusive", locale)}
         </button>
         <button
           className={`arch-filter-btn${verdictFilter === "false_positive" ? " active-green" : ""}`}
           onClick={() => setVerdictFilter(verdictFilter === "false_positive" ? "" : "false_positive")}
         >
-          Faux positif
+          {tr("archives_falsePositive", locale)}
         </button>
         <select
           className="arch-select"
           value={sinceHours}
           onChange={e => setSinceHours(Number(e.target.value))}
         >
-          <option value={24}>Dernières 24 h</option>
-          <option value={168}>Derniers 7 jours</option>
-          <option value={720}>Derniers 30 jours</option>
-          <option value={0}>Tout</option>
+          <option value={24}>{tr("archives_last24h", locale)}</option>
+          <option value={168}>{tr("archives_last7days", locale)}</option>
+          <option value={720}>{tr("archives_last30days", locale)}</option>
+          <option value={0}>{tr("archives_all", locale)}</option>
         </select>
         <span style={{ fontSize: 10, color: "var(--tc-text-muted)", fontFamily: "ui-monospace, 'JetBrains Mono', monospace", marginLeft: "auto" }}>
-          {loading ? "..." : `${filtered.length} enregistrement${filtered.length !== 1 ? "s" : ""}`}
+          {loading ? "..." : `${filtered.length} ${filtered.length !== 1 ? tr("archives_recordsPlural", locale) : tr("archives_recordSingular", locale)}`}
         </span>
       </div>
 
@@ -168,10 +173,10 @@ export default function ArchivesPage() {
         <div className="arch-empty">
           <Archive size={32} style={{ color: "var(--tc-text-muted)", margin: "0 auto 10px", display: "block" }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--tc-text)", marginBottom: 4 }}>
-            Aucun enregistrement
+            {tr("archives_noRecords", locale)}
           </div>
           <div style={{ fontSize: 11, color: "var(--tc-text-muted)" }}>
-            Aucun incident inconclusif ou faux positif sur la période sélectionnée.
+            {tr("archives_noRecordsDetail", locale)}
           </div>
         </div>
       )}
@@ -179,17 +184,17 @@ export default function ArchivesPage() {
       {!loading && filtered.length > 0 && (
         <>
           <div className="arch-table-head">
-            <span>Severite</span>
-            <span>ID</span>
-            <span>Verdict</span>
-            <span>Signal</span>
-            <span>Date</span>
-            <span>Confiance</span>
+            <span>{tr("archives_colSeverity", locale)}</span>
+            <span>{tr("archives_colId", locale)}</span>
+            <span>{tr("archives_colVerdict", locale)}</span>
+            <span>{tr("archives_colSignal", locale)}</span>
+            <span>{tr("archives_colDate", locale)}</span>
+            <span>{tr("archives_colConfidence", locale)}</span>
           </div>
           <div>
             {filtered.map(inc => {
               const sevColor = severityColor[inc.severity || "MEDIUM"] || "#888";
-              const vStyle = verdictStyle[inc.verdict] || { color: "#888", label: inc.verdict };
+              const vStyle = verdictStyleFor(locale)[inc.verdict] || { color: "#888", label: inc.verdict };
               const title = splitTitle(inc.title) || inc.title;
               return (
                 <div key={inc.id} className="arch-row">
@@ -213,7 +218,7 @@ export default function ArchivesPage() {
                         <span>{inc.alert_count || 0} alerts</span>
                       </div>
                     </div>
-                    <div className="arch-date">{fmtDate(inc.created_at)}</div>
+                    <div className="arch-date">{fmtDate(inc.created_at, locale)}</div>
                     <div className="arch-conf">
                       {inc.confidence != null ? `${Math.round(inc.confidence * 100)} %` : "—"}
                     </div>

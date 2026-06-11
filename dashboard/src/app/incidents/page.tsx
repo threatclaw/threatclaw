@@ -2,7 +2,7 @@
 // Unified Incidents page — Incidents (confirmed) + Findings (vulns) + Alerts (sigma)
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
@@ -65,7 +65,7 @@ export interface BlastRadiusSnapshot {
 // Auto-refreshes every 5s so the badge disappears when the scan
 // finishes without forcing the operator to F5.
 // ─────────────────────────────────────────────────────────────────────
-function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: string }) {
+function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: Locale }) {
   const [running, setRunning] = React.useState(false);
   React.useEffect(() => {
     let cancel = false;
@@ -96,7 +96,7 @@ function ScanInProgressBadge({ assetId, locale }: { assetId: string; locale: str
       border: "1px solid rgba(48,128,208,0.2)",
     }}>
       <RefreshCw size={9} className="tc-spin" />
-      {locale === "fr" ? "scan en cours" : "scan in progress"}
+      {tr("incidents_scanInProgress", locale)}
     </span>
   );
 }
@@ -161,7 +161,7 @@ function splitTitle(raw: string | null): { title: string; description: string | 
 // lente). Sprint 1 #2 : on lit la colonne `verdict_source` en DB. Pour les
 // 88 incidents legacy (NULL), fallback sur le parsing du préfixe `[graph] `
 // du titre (ancienne convention) puis sinon ReAct par défaut.
-function getVerdictSource(inc: Incident, locale: string): {
+function getVerdictSource(inc: Incident, locale: Locale): {
   kind: "graph" | "react" | "manual";
   label: string;
   color: string;
@@ -181,7 +181,7 @@ function getVerdictSource(inc: Incident, locale: string): {
   if (kind === "graph") {
     return {
       kind: "graph",
-      label: locale === "fr" ? "Graph déterministe" : "Deterministic graph",
+      label: tr("incidents_deterministicGraph", locale),
       color: "#4090ff",
       detail: graphName ? `'${graphName}'` : "",
     };
@@ -189,28 +189,28 @@ function getVerdictSource(inc: Incident, locale: string): {
   if (kind === "manual") {
     return {
       kind: "manual",
-      label: locale === "fr" ? "Décision opérateur" : "Manual decision",
+      label: tr("incidents_manualDecision", locale),
       color: "#888",
       detail: "",
     };
   }
   return {
     kind: "react",
-    label: locale === "fr" ? "Investigation IA (ReAct)" : "AI investigation (ReAct)",
+    label: tr("incidents_aiInvestigationReact", locale),
     color: "#a060c0",
     detail: "",
   };
 }
 
-const verdictBadge: Record<string, { color: string; labelFr: string; labelEn: string }> = {
-  pending: { color: "#888", labelFr: "En cours...", labelEn: "Pending..." },
-  confirmed: { color: "#ff4040", labelFr: "Confirme", labelEn: "Confirmed" },
-  false_positive: { color: "#30a050", labelFr: "Faux positif", labelEn: "False positive" },
-  inconclusive: { color: "#e0a020", labelFr: "Inconclusif", labelEn: "Inconclusive" },
-  investigating: { color: "#4090ff", labelFr: "Investigation", labelEn: "Investigating" },
+const verdictBadge: Record<string, { color: string; labelKey: string }> = {
+  pending: { color: "#888", labelKey: "incidents_verdictPending" },
+  confirmed: { color: "#ff4040", labelKey: "incidents_verdictConfirmed" },
+  false_positive: { color: "#30a050", labelKey: "incidents_verdictFalsePositive" },
+  inconclusive: { color: "#e0a020", labelKey: "incidents_verdictInconclusive" },
+  investigating: { color: "#4090ff", labelKey: "incidents_verdictInvestigating" },
 };
 
-function IncidentsTab({ locale }: { locale: string }) {
+function IncidentsTab({ locale }: { locale: Locale }) {
   const router = useRouter();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [search, setSearch] = useState("");
@@ -242,17 +242,15 @@ function IncidentsTab({ locale }: { locale: string }) {
   };
 
   const archiveResolved = async () => {
-    const msg = locale === "fr"
-      ? "Archiver tous les incidents resolus/fermes/faux positifs ? (reversible — purge definitive apres 60 jours)"
-      : "Archive all resolved/closed/false-positive incidents? (reversible — permanent purge after 60 days)";
+    const msg = tr("incidents_archiveConfirm", locale);
     if (!confirm(msg)) return;
     try {
       const res = await fetch("/api/tc/incidents/archive-resolved", { method: "POST" });
       const data = await res.json();
-      alert(locale === "fr" ? `${data.archived} incidents archives` : `${data.archived} incidents archived`);
+      alert(`${data.archived} ${tr("incidents_incidentsArchived", locale)}`);
       load();
     } catch (e: any) {
-      alert("Erreur: " + e.message);
+      alert(tr("incidents_error", locale) + ": " + e.message);
     }
   };
 
@@ -267,15 +265,15 @@ function IncidentsTab({ locale }: { locale: string }) {
       });
       if (res.ok) {
         const data = await res.json();
-        alert((locale === "fr" ? "Action exécutée : " : "Action executed: ") + (data.message || ""));
+        alert(tr("incidents_actionExecuted", locale) + (data.message || ""));
         setConfirmAction(null);
         load();
       } else {
         const err = await res.text();
-        alert((locale === "fr" ? "Échec : " : "Failed: ") + err);
+        alert(tr("incidents_actionFailed", locale) + err);
       }
     } catch (e: any) {
-      alert("Erreur: " + e.message);
+      alert(tr("incidents_error", locale) + ": " + e.message);
     }
     setExecuting(false);
   };
@@ -290,7 +288,7 @@ function IncidentsTab({ locale }: { locale: string }) {
       });
       load();
     } catch (e: any) {
-      alert("Erreur: " + e.message);
+      alert(tr("incidents_error", locale) + ": " + e.message);
     }
   };
 
@@ -298,15 +296,13 @@ function IncidentsTab({ locale }: { locale: string }) {
     try {
       const res = await fetch(`/api/tc/incidents/${id}/reinvestigate`, { method: "POST" });
       if (res.ok) {
-        alert(locale === "fr"
-          ? "Investigation relancée. Le résultat apparaîtra dans 10-30 secondes (rafraîchissement auto)."
-          : "Investigation restarted. Results will appear in 10-30 seconds (auto-refresh).");
+        alert(tr("incidents_reinvestigateStarted", locale));
       } else {
         const err = await res.text();
-        alert("Erreur: " + err);
+        alert(tr("incidents_error", locale) + ": " + err);
       }
     } catch (e: any) {
-      alert("Erreur: " + e.message);
+      alert(tr("incidents_error", locale) + ": " + e.message);
     }
   };
 
@@ -643,30 +639,22 @@ function IncidentsTab({ locale }: { locale: string }) {
             }}
           >
             <h2 style={{ margin: "0 0 12px 0", fontSize: 15, fontWeight: 700, color: "var(--tc-text)", fontFamily: "ui-monospace, 'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              {locale === "fr" ? "Marquer comme faux positif ?" : "Mark as false positive?"}
+              {tr("incidents_markFalsePositiveQ", locale)}
             </h2>
             <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--tc-text-sec)", marginBottom: 8 }}>
-              {locale === "fr"
-                ? "Tu vas fermer l'incident #" + confirmFp.id + " et le classer en faux positif."
-                : "You'll close incident #" + confirmFp.id + " and classify it as false positive."}
+              {tr("incidents_fpCloseIntro1", locale) + confirmFp.id + tr("incidents_fpCloseIntro2", locale)}
             </p>
             <ul style={{ fontSize: 12, lineHeight: 1.6, color: "var(--tc-text-muted)", paddingLeft: 18, marginBottom: 16 }}>
-              <li>{locale === "fr"
-                ? "L'asset reste surveillé — les futurs signaux seront analysés normalement."
-                : "The asset stays monitored — future signals are analyzed normally."}</li>
-              <li>{locale === "fr"
-                ? "Aucune règle de suppression n'est créée. Pour ça, utilise plutôt \"Ignorer ce pattern\"."
-                : "No suppression rule is created. For that, use \"Ignore this pattern\" instead."}</li>
-              <li>{locale === "fr"
-                ? "Décision réversible — l'incident reste consultable dans les archives."
-                : "Reversible — the incident stays viewable in archives."}</li>
+              <li>{tr("incidents_fpBulletMonitored", locale)}</li>
+              <li>{tr("incidents_fpBulletNoRule", locale)}</li>
+              <li>{tr("incidents_fpBulletReversible", locale)}</li>
             </ul>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
                 onClick={() => setConfirmFp(null)}
                 className="inc-decision-btn"
               >
-                {locale === "fr" ? "Annuler" : "Cancel"}
+                {tr("incidents_cancel", locale)}
               </button>
               <button
                 onClick={() => {
@@ -681,7 +669,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                   border: "1px solid #b02818",
                 }}
               >
-                {locale === "fr" ? "Confirmer faux positif" : "Confirm false positive"}
+                {tr("incidents_confirmFalsePositive", locale)}
               </button>
             </div>
           </div>
@@ -696,7 +684,7 @@ function IncidentsTab({ locale }: { locale: string }) {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder={locale === "fr" ? "Rechercher..." : "Search..."}
+              placeholder={tr("incidents_searchPlaceholder", locale)}
             />
             {search && (
               <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
@@ -706,14 +694,14 @@ function IncidentsTab({ locale }: { locale: string }) {
           </div>
           <button className="inc-archive-btn" onClick={archiveResolved}>
             <FileText size={11} />
-            {locale === "fr" ? "Archiver le resolu" : "Archive resolved"}
+            {tr("incidents_archiveResolved", locale)}
           </button>
         </div>
       </div>
 
       {loading && (
         <div style={{ color: "var(--tc-text-muted)", textAlign: "center", padding: 40, fontSize: 12 }}>
-          {locale === "fr" ? "Chargement..." : "Loading..."}
+          {tr("incidents_loading", locale)}
         </div>
       )}
 
@@ -721,10 +709,10 @@ function IncidentsTab({ locale }: { locale: string }) {
         <div style={{ textAlign: "center", padding: 48, background: "var(--tc-surface)", border: "1px solid var(--tc-border)" }}>
           <CheckCircle2 size={32} color="var(--tc-green)" style={{ marginBottom: 10 }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--tc-text)", marginBottom: 4 }}>
-            {locale === "fr" ? "Aucun incident" : "No incidents"}
+            {tr("incidents_noIncidents", locale)}
           </div>
           <div style={{ fontSize: 11, color: "var(--tc-text-muted)" }}>
-            {locale === "fr" ? "Tout est sous controle" : "Everything is under control"}
+            {tr("incidents_underControl", locale)}
           </div>
         </div>
       )}
@@ -733,12 +721,12 @@ function IncidentsTab({ locale }: { locale: string }) {
         <>
           {/* Table header */}
           <div className="inc-table-head">
-            <span>Severite</span>
-            <span>ID</span>
-            <span>Signal</span>
-            <span>Agent IA</span>
-            <span>Detecte</span>
-            <span>Actions</span>
+            <span>{tr("incidents_colSeverity", locale)}</span>
+            <span>{tr("incidents_colId", locale)}</span>
+            <span>{tr("incidents_colSignal", locale)}</span>
+            <span>{tr("incidents_colAiAgent", locale)}</span>
+            <span>{tr("incidents_colDetected", locale)}</span>
+            <span>{tr("incidents_colActions", locale)}</span>
           </div>
 
           <div className="inc-table-wrap">
@@ -784,7 +772,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                       <div className="inc-sub">
                         <span className="ip" title={displayAssetVerbose(inc)}>{displayAsset(inc)}</span>
                         <span>·</span>
-                        <span>{inc.alert_count || 0} alerts</span>
+                        <span>{inc.alert_count || 0} {tr("incidents_alertsWord", locale)}</span>
                         <span>·</span>
                         <span>{getTimeAgo(inc.created_at, locale)}</span>
                         {inc.asset && <ScanInProgressBadge assetId={inc.asset} locale={locale} />}
@@ -795,7 +783,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                     <div className="inc-ai-cell">
                       <span className="inc-ai-dot" style={{ background: aiDotColor }} />
                       <span className="inc-ai-label">
-                        {locale === "fr" ? badge.labelFr : badge.labelEn}
+                        {tr(badge.labelKey, locale)}
                         {inc.confidence ? ` ${Math.round(inc.confidence * 100)}%` : ""}
                       </span>
                     </div>
@@ -808,23 +796,23 @@ function IncidentsTab({ locale }: { locale: string }) {
                       <button
                         className="inc-btn-sm"
                         onClick={() => reinvestigate(inc.id)}
-                        title={locale === "fr" ? "Relancer l'investigation IA" : "Re-run AI investigation"}
+                        title={tr("incidents_rerunAiTitle", locale)}
                       >
                         <Brain size={9} />
-                        Relancer
+                        {tr("incidents_rerun", locale)}
                       </button>
                       <button
                         className="inc-btn-sm"
                         onClick={() => router.push(`/investigate/${inc.id}`)}
-                        title={locale === "fr" ? "Ouvrir le dossier d'investigation" : "Open investigation dossier"}
+                        title={tr("incidents_openDossierTitle", locale)}
                       >
                         <FileText size={9} />
-                        Rapport
+                        {tr("incidents_report", locale)}
                       </button>
                       <button
                         className="inc-btn-sm"
                         onClick={() => setConfirmFp(inc)}
-                        title={locale === "fr" ? "Marquer comme faux positif" : "Mark as false positive"}
+                        title={tr("incidents_markFalsePositiveTitle", locale)}
                       >
                         FP
                       </button>
@@ -852,14 +840,12 @@ function IncidentsTab({ locale }: { locale: string }) {
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
               {actionIcon(confirmAction.action.kind)}
               <h3 style={{ fontSize: 14, fontWeight: 700, color: "var(--tc-text)", margin: 0, fontFamily: "ui-monospace, 'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                {locale === "fr" ? "Confirmer l'action" : "Confirm action"}
+                {tr("incidents_confirmAction", locale)}
               </h3>
             </div>
 
             <div style={{ fontSize: 13, color: "var(--tc-text)", marginBottom: 16, lineHeight: 1.6 }}>
-              {locale === "fr"
-                ? `Vous êtes sur le point d'exécuter cette action sur l'incident #${confirmAction.incident.id} :`
-                : `You are about to execute this action on incident #${confirmAction.incident.id}:`}
+              {tr("incidents_aboutToExecute1", locale) + confirmAction.incident.id + tr("incidents_aboutToExecute2", locale)}
             </div>
 
             <div style={{ padding: "10px 12px", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", marginBottom: 14 }}>
@@ -873,9 +859,7 @@ function IncidentsTab({ locale }: { locale: string }) {
 
             <div style={{ padding: "9px 11px", background: "rgba(208,48,32,0.08)", border: "1px solid rgba(208,48,32,0.2)", marginBottom: 18 }}>
               <div style={{ fontSize: 11, color: "#d03020", lineHeight: 1.5, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                {locale === "fr"
-                  ? "Cette action passe par remediation_engine et remediation_guard. Elle sera loggée dans l'audit trail et notifiée au canal HITL."
-                  : "This goes through remediation_engine and remediation_guard. It will be logged in the audit trail and notified to the HITL channel."}
+                {tr("incidents_remediationNote", locale)}
               </div>
             </div>
 
@@ -885,7 +869,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                 disabled={executing}
                 className="inc-decision-btn"
               >
-                {locale === "fr" ? "Annuler" : "Cancel"}
+                {tr("incidents_cancel", locale)}
               </button>
               <button
                 onClick={executeAction}
@@ -900,7 +884,7 @@ function IncidentsTab({ locale }: { locale: string }) {
                 }}
               >
                 <Zap size={11} />
-                {executing ? (locale === "fr" ? "Exécution..." : "Executing...") : (locale === "fr" ? "Confirmer et exécuter" : "Confirm and execute")}
+                {executing ? tr("incidents_executing", locale) : tr("incidents_confirmAndExecute", locale)}
               </button>
             </div>
           </div>
@@ -922,7 +906,7 @@ const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: strin
   info: { color: "var(--tc-text-muted)", bg: "var(--tc-input)", border: "var(--tc-input)" },
 };
 
-function FindingsTab({ locale }: { locale: string }) {
+function FindingsTab({ locale }: { locale: Locale }) {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [counts, setCounts] = useState<CountEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -939,7 +923,7 @@ function FindingsTab({ locale }: { locale: string }) {
         fetchFindingsCounts(),
       ]);
       setFindings(f.findings); setCounts(c); setError(null);
-    } catch { setError(locale === "fr" ? "Erreur chargement" : "Load error"); }
+    } catch { setError(tr("incidents_loadError", locale)); }
     setLoading(false);
   }, [filterSeverity, filterStatus, locale]);
 
@@ -982,7 +966,7 @@ function FindingsTab({ locale }: { locale: string }) {
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", padding: "8px 12px" }}>
           <Search size={14} color="var(--tc-text-muted)" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={locale === "fr" ? "Rechercher..." : "Search..."}
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("incidents_searchPlaceholder", locale)}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--tc-text)", fontSize: "13px", fontFamily: "inherit" }} />
           {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="var(--tc-text-muted)" /></button>}
         </div>
@@ -995,7 +979,7 @@ function FindingsTab({ locale }: { locale: string }) {
               background: active ? "rgba(208,48,32,0.06)" : "var(--tc-surface-alt)",
               color: active ? "#d03020" : "var(--tc-text-muted)", cursor: "pointer", fontFamily: "inherit",
             }}>
-              {st === "open" ? (locale === "fr" ? "Ouvert" : "Open") : st === "in_progress" ? (locale === "fr" ? "En cours" : "In progress") : (locale === "fr" ? "Resolu" : "Resolved")}
+              {st === "open" ? tr("incidents_statusOpen", locale) : st === "in_progress" ? tr("incidents_statusInProgress", locale) : tr("incidents_statusResolved", locale)}
             </button>
           );
         })}
@@ -1004,9 +988,9 @@ function FindingsTab({ locale }: { locale: string }) {
 
       {/* Findings list */}
       {loading ? (
-        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Chargement..." : "Loading..."}</div></NeuCard>
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("incidents_loading", locale)}</div></NeuCard>
       ) : filtered.length === 0 ? (
-        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Aucun finding" : "No findings"}</div></NeuCard>
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("incidents_noFindings", locale)}</div></NeuCard>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {filtered.map(f => {
@@ -1037,15 +1021,15 @@ function FindingsTab({ locale }: { locale: string }) {
                       </div>
                     )}
                     <div style={{ display: "flex", gap: "6px" }}>
-                      {f.status !== "resolved" && <ChromeButton onClick={() => changeStatus(f.id, "resolved")} variant="glass"><CheckCircle2 size={12} /> {locale === "fr" ? "Resolu" : "Resolved"}</ChromeButton>}
-                      {f.status !== "false_positive" && <ChromeButton onClick={() => changeStatus(f.id, "false_positive")} variant="glass"><XCircle size={12} /> {locale === "fr" ? "Faux positif" : "False positive"}</ChromeButton>}
+                      {f.status !== "resolved" && <ChromeButton onClick={() => changeStatus(f.id, "resolved")} variant="glass"><CheckCircle2 size={12} /> {tr("incidents_statusResolved", locale)}</ChromeButton>}
+                      {f.status !== "false_positive" && <ChromeButton onClick={() => changeStatus(f.id, "false_positive")} variant="glass"><XCircle size={12} /> {tr("incidents_verdictFalsePositive", locale)}</ChromeButton>}
                       <ChromeButton onClick={async () => {
                         try {
                           const res = await fetch("/api/tc/connectors/glpi/ticket", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finding_id: f.id }) });
                           const data = await res.json();
                           if (data.ticket_id) alert(`Ticket GLPI #${data.ticket_id}`);
                           else if (data.error) alert(data.error);
-                        } catch { alert("GLPI non configure"); }
+                        } catch { alert(tr("incidents_glpiNotConfigured", locale)); }
                       }} variant="glass"><FileText size={12} /> Ticket GLPI</ChromeButton>
                     </div>
                   </div>
@@ -1067,7 +1051,7 @@ const LEVEL_COLORS: Record<string, string> = {
   critical: "#e84040", high: "#d07020", medium: "var(--tc-amber)", low: "var(--tc-blue)", informational: "var(--tc-text-muted)",
 };
 
-function AlertsTab({ locale }: { locale: string }) {
+function AlertsTab({ locale }: { locale: Locale }) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterLevel, setFilterLevel] = useState("");
@@ -1077,24 +1061,22 @@ function AlertsTab({ locale }: { locale: string }) {
     try {
       const data = await fetchAlerts({ level: filterLevel || undefined, limit: 200 });
       setAlerts(data.alerts || []); setError(null);
-    } catch { setError(locale === "fr" ? "Erreur chargement" : "Load error"); }
+    } catch { setError(tr("incidents_loadError", locale)); }
     setLoading(false);
   }, [filterLevel, locale]);
 
   useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, [load]);
 
   const archiveResolvedAlerts = async () => {
-    const msg = locale === "fr"
-      ? "Archiver toutes les alertes traitees/resolues ? (reversible — purge definitive apres 60 jours)"
-      : "Archive all acknowledged/resolved alerts? (reversible — permanent purge after 60 days)";
+    const msg = tr("incidents_archiveAlertsConfirm", locale);
     if (!confirm(msg)) return;
     try {
       const res = await fetch("/api/tc/alerts/archive-resolved", { method: "POST" });
       const data = await res.json();
-      alert(locale === "fr" ? `${data.archived} alertes archivees` : `${data.archived} alerts archived`);
+      alert(`${data.archived} ${tr("incidents_alertsArchived", locale)}`);
       load();
     } catch (e: any) {
-      alert("Erreur: " + e.message);
+      alert(tr("incidents_error", locale) + ": " + e.message);
     }
   };
 
@@ -1124,15 +1106,15 @@ function AlertsTab({ locale }: { locale: string }) {
           display: "flex", alignItems: "center", gap: 6,
         }}>
           <FileText size={12} />
-          {locale === "fr" ? "Archiver le resolu" : "Archive resolved"}
+          {tr("incidents_archiveResolved", locale)}
         </button>
         <ChromeButton onClick={load} variant="glass"><RefreshCw size={14} /></ChromeButton>
       </div>
 
       {loading ? (
-        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Chargement..." : "Loading..."}</div></NeuCard>
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("incidents_loading", locale)}</div></NeuCard>
       ) : alerts.length === 0 ? (
-        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{locale === "fr" ? "Aucune alerte" : "No alerts"}</div></NeuCard>
+        <NeuCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("incidents_noAlerts", locale)}</div></NeuCard>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           {alerts.map((a, i) => {
@@ -1173,25 +1155,21 @@ export default function IncidentsPage() {
   // render their own content.
   return (
     <PageShell
-      title={locale === "fr" ? "Incidents" : "Incidents"}
-      subtitle={
-        locale === "fr"
-          ? "Incidents confirmés"
-          : "Confirmed incidents"
-      }
+      title={tr("incidents_title", locale)}
+      subtitle={tr("incidents_subtitle", locale)}
     >
       <IncidentsTab locale={locale} />
     </PageShell>
   );
 }
 
-function getTimeAgo(iso: string, locale: string): string {
+function getTimeAgo(iso: string, locale: Locale): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return locale === "fr" ? "a l'instant" : "just now";
-  if (mins < 60) return locale === "fr" ? `il y a ${mins}min` : `${mins}m ago`;
+  if (mins < 1) return tr("incidents_justNow", locale);
+  if (mins < 60) return tr("incidents_agoPrefix", locale) + mins + tr("incidents_minSuffix", locale);
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return locale === "fr" ? `il y a ${hours}h` : `${hours}h ago`;
+  if (hours < 24) return tr("incidents_agoPrefix", locale) + hours + tr("incidents_hourSuffix", locale);
   const days = Math.floor(hours / 24);
-  return locale === "fr" ? `il y a ${days}j` : `${days}d ago`;
+  return tr("incidents_agoPrefix", locale) + days + tr("incidents_daySuffix", locale);
 }

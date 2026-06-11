@@ -21,6 +21,8 @@
  */
 
 import React from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 // ── Types miroirs des structs Rust ────────────────────────────────
 
@@ -161,6 +163,7 @@ export function AttackTimeline({
   assetId,
   sigmaDriven,
 }: Props): React.ReactElement | null {
+  const locale = useLocale();
   if (!enrichment) return null;
 
   const ipReps = enrichment.ip_reputations ?? [];
@@ -186,16 +189,17 @@ export function AttackTimeline({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Données factuelles</strong> · enrichissement externe
+          <strong>{tr("attackTimeline_factualData", locale)}</strong>{" "}
+          {tr("attackTimeline_externalEnrichmentSuffix", locale)}
         </div>
         <div className="inv-card-head-right">
-          sources externes + skills connectés
+          {tr("attackTimeline_externalSourcesConnectedSkills", locale)}
         </div>
       </div>
 
       {ipReps.length > 0 && (
         <>
-          <div style={sectionLabelStyle}>Réputations IP source</div>
+          <div style={sectionLabelStyle}>{tr("attackTimeline_ipSourceReputations", locale)}</div>
           {ipReps.map((rep, i) => {
             const c = classificationColor(rep);
             return (
@@ -231,7 +235,7 @@ export function AttackTimeline({
 
       {showCveSection && (
         <>
-          <div style={sectionLabelStyle}>Vulnérabilités liées à cette attaque</div>
+          <div style={sectionLabelStyle}>{tr("attackTimeline_vulnsTiedToAttack", locale)}</div>
           {cves.length > 0 ? (
             cves.map((cve, i) => {
               const sev = cveSeverityColor(cve.cvss_score);
@@ -287,10 +291,7 @@ export function AttackTimeline({
                 borderTop: "1px dashed var(--tc-border)",
               }}
             >
-              Aucune CVE directement liée à cette attaque (typique pour un
-              brute force d&apos;authentification ou un scan). La posture
-              vulnérabilité complète de l&apos;asset reste consultable sur
-              sa page dédiée.
+              {tr("attackTimeline_noCveTiedToAttack", locale)}
             </div>
           )}
           {assetId && (
@@ -316,7 +317,7 @@ export function AttackTimeline({
                     "none";
                 }}
               >
-                Voir la posture vulnérabilité de l&apos;asset →
+                {tr("attackTimeline_viewAssetVulnPosture", locale)}
               </a>
             </div>
           )}
@@ -370,7 +371,7 @@ export function AttackTimeline({
       {lines.length > 0 && (
         <>
           <div style={sectionLabelStyle}>
-            Cross-correlation skills connectés
+            {tr("attackTimeline_crossCorrelationConnectedSkills", locale)}
           </div>
           {lines.map((line, i) => (
             <div

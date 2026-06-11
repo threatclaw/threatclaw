@@ -16,7 +16,7 @@ import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
   Shield, RefreshCw, Loader2, AlertTriangle, CheckCircle2, ChevronRight, ChevronLeft,
 } from "lucide-react";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import type { Asset } from "@/lib/asset-shared";
 
@@ -379,7 +379,7 @@ export function SecurityTab({ assetId }: { assetId: string }) {
       .finally(() => setLoading(false));
   }, [assetId]);
 
-  if (loading) return <div style={{ textAlign: "center", padding: "20px", color: "var(--tc-text-muted)", fontSize: "10px" }}>Chargement...</div>;
+  if (loading) return <div style={{ textAlign: "center", padding: "20px", color: "var(--tc-text-muted)", fontSize: "10px" }}>{tr("assetsSections_loading", locale)}</div>;
 
   if (!data || !data.has_agent) return (
     <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-faint)", fontSize: "11px" }}>
@@ -425,8 +425,8 @@ export function SecurityTab({ assetId }: { assetId: string }) {
       {data.ssh_keys && (
         <Section title={locale === "fr" ? "Clés SSH autorisées" : "Authorized SSH keys"}>
           <div style={{ fontSize: "10px", color: "var(--tc-text-sec)" }}>
-            {typeof data.ssh_keys === "number" ? `${data.ssh_keys} clé(s)` :
-             Array.isArray(data.ssh_keys) ? `${data.ssh_keys.length} clé(s)` :
+            {typeof data.ssh_keys === "number" ? `${data.ssh_keys} ${tr("assetsSections_keysCount", locale)}` :
+             Array.isArray(data.ssh_keys) ? `${data.ssh_keys.length} ${tr("assetsSections_keysCount", locale)}` :
              JSON.stringify(data.ssh_keys)}
           </div>
         </Section>
@@ -494,6 +494,7 @@ export function SecurityTab({ assetId }: { assetId: string }) {
 }
 
 export function AssetScanSurface({ asset }: { asset: any }) {
+  const locale = useLocale();
   const [scans, setScans] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -518,10 +519,10 @@ export function AssetScanSurface({ asset }: { asset: any }) {
 
   const ip = (asset.ip_addresses || []).find((s: string) => s && !s.includes(":")) || "";
   const lastNmap = scans.find((s) => s.scan_type === "nmap_fingerprint" && s.status === "done");
-  const ago = lastNmap ? relTimeShort(lastNmap.finished_at) : null;
+  const ago = lastNmap ? relTimeShort(lastNmap.finished_at, locale) : null;
 
   const rescan = async () => {
-    if (!ip) { setMsg("Pas d'IP sur cet asset"); return; }
+    if (!ip) { setMsg(tr("assetsSections_noIpOnAsset", locale)); return; }
     setBusy(true);
     setMsg(null);
     try {
@@ -537,9 +538,9 @@ export function AssetScanSurface({ asset }: { asset: any }) {
       });
       const d = await r.json();
       if (!r.ok || d.queued === false) {
-        setMsg(d.error || d.reason || "Échec");
+        setMsg(d.error || d.reason || tr("assetsSections_failure", locale));
       } else {
-        setMsg(`Scan #${d.scan_id} lancé`);
+        setMsg(`${tr("assetsSections_scanStarted", locale)} #${d.scan_id}`);
         setTimeout(refresh, 1000);
       }
     } catch (e: any) {
@@ -559,11 +560,11 @@ export function AssetScanSurface({ asset }: { asset: any }) {
     }}>
       <div style={{ fontSize: "11px", color: "var(--tc-text-sec)" }}>
         {running ? (
-          <>🔄 <strong>Scan Nmap en cours</strong> sur cet asset…</>
+          <>🔄 <strong>{tr("assetsSections_nmapScanRunning", locale)}</strong> {tr("assetsSections_onThisAsset", locale)}</>
         ) : lastNmap ? (
-          <>Dernier scan Nmap : <strong>{ago}</strong> · {(lastNmap.result_json?.open_ports_total ?? 0)} ports détectés</>
+          <>{tr("assetsSections_lastNmapScan", locale)} <strong>{ago}</strong> · {(lastNmap.result_json?.open_ports_total ?? 0)} {tr("assetsSections_portsDetected", locale)}</>
         ) : (
-          <>Aucun scan Nmap pour le moment.</>
+          <>{tr("assetsSections_noNmapScanYet", locale)}</>
         )}
         {msg && <span style={{ marginLeft: "10px", color: "var(--tc-amber)", fontSize: "10px" }}>{msg}</span>}
       </div>
@@ -579,19 +580,25 @@ export function AssetScanSurface({ asset }: { asset: any }) {
           opacity: (!ip) ? 0.5 : 1,
         }}
       >
-        <RefreshCw size={10} /> Re-scanner
+        <RefreshCw size={10} /> {tr("assetsSections_rescan", locale)}
       </button>
     </div>
   );
 }
 
-function relTimeShort(iso: string | null): string {
+function relTimeShort(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000) return "à l'instant";
-  if (diff < 3_600_000) return `il y a ${Math.floor(diff / 60_000)} min`;
-  if (diff < 86_400_000) return `il y a ${Math.floor(diff / 3_600_000)} h`;
-  return new Date(iso).toLocaleDateString("fr-FR");
+  if (diff < 60_000) return tr("assetsSections_justNow", locale);
+  if (diff < 3_600_000) {
+    const m = Math.floor(diff / 60_000);
+    return locale === "fr" ? `il y a ${m} min` : `${m} min ago`;
+  }
+  if (diff < 86_400_000) {
+    const h = Math.floor(diff / 3_600_000);
+    return locale === "fr" ? `il y a ${h} h` : `${h} h ago`;
+  }
+  return new Date(iso).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US");
 }
 
 export function AssetFindings({ asset }: { asset: any }) {
@@ -636,7 +643,7 @@ export function AssetFindings({ asset }: { asset: any }) {
           style={{ fontSize: "10px", fontWeight: 700, padding: "6px 14px", borderRadius: "var(--tc-radius-sm)",
             background: "rgba(208,48,32,0.06)", border: "1px solid var(--tc-red-border)", color: "#d03020",
             cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "6px" }}>
-          <Shield size={12} /> {loading ? "Chargement..." : "Voir les vulnérabilités"}
+          <Shield size={12} /> {loading ? tr("assetsSections_loading", locale) : tr("assetsSections_viewVulnerabilities", locale)}
         </button>
       </div>
     );
@@ -656,7 +663,7 @@ export function AssetFindings({ asset }: { asset: any }) {
   return (
     <div style={{ marginTop: "12px" }}>
       <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--tc-red)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
-        Vulnérabilités ({findings.length})
+        {tr("assetsSections_vulnerabilitiesTitle", locale)} ({findings.length})
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflowY: "auto" }}>
         {findings.map(f => (
@@ -680,6 +687,7 @@ export function AssetFindings({ asset }: { asset: any }) {
 }
 
 export function GraphIntelSection({ assetId }: { assetId: string }) {
+  const locale = useLocale();
   const [data, setData] = useState<{ attackers?: any[]; cves?: any[]; blast?: any; confidence?: number; loading: boolean }>({ loading: true });
 
   useEffect(() => {
@@ -707,7 +715,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
   }, [assetId]);
 
   if (data.loading) {
-    return <div style={{ marginTop: "10px", fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "6px" }}><Loader2 size={10} className="animate-spin" /> Chargement intelligence graph...</div>;
+    return <div style={{ marginTop: "10px", fontSize: "9px", color: "var(--tc-text-muted)", display: "flex", alignItems: "center", gap: "6px" }}><Loader2 size={10} className="animate-spin" /> {tr("assetsSections_loadingGraphIntel", locale)}</div>;
   }
 
   const hasData = (data.attackers && data.attackers.length > 0) || (data.cves && data.cves.length > 0) || data.confidence != null;
@@ -723,7 +731,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
         {/* Confidence */}
         {data.confidence != null && (
           <div>
-            <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Indice de confiance</div>
+            <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assetsSections_confidenceScore", locale)}</div>
             <div style={{ fontSize: "16px", fontWeight: 800, color: data.confidence > 70 ? "#30a050" : data.confidence > 40 ? "var(--tc-amber)" : "var(--tc-text-muted)", marginTop: "2px" }}>
               {Math.round(data.confidence)}%
             </div>
@@ -732,7 +740,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
 
         {/* Attackers */}
         <div>
-          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Attaquants</div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assetsSections_attackers", locale)}</div>
           <div style={{ fontSize: "16px", fontWeight: 800, color: (data.attackers?.length || 0) > 0 ? "#e04040" : "#30a050", marginTop: "2px" }}>
             {data.attackers?.length || 0}
           </div>
@@ -740,7 +748,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
 
         {/* CVEs */}
         <div>
-          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>CVEs affectant</div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assetsSections_affectingCves", locale)}</div>
           <div style={{ fontSize: "16px", fontWeight: 800, color: (data.cves?.length || 0) > 0 ? "var(--tc-amber)" : "#30a050", marginTop: "2px" }}>
             {data.cves?.length || 0}
           </div>
@@ -750,7 +758,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* Attacker IPs list */}
       {data.attackers && data.attackers.length > 0 && (
         <div style={{ marginTop: "8px" }}>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>IPs attaquantes :</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assetsSections_attackerIps", locale)}</div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
             {data.attackers.slice(0, 10).map((a: any, i: number) => (
               <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,48,32,0.08)", color: "#e04040", border: "1px solid rgba(208,48,32,0.15)" }}>
@@ -764,7 +772,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* CVE list */}
       {data.cves && data.cves.length > 0 && (
         <div style={{ marginTop: "8px" }}>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>Vulnérabilités :</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assetsSections_vulnerabilitiesLabel", locale)}</div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
             {data.cves.slice(0, 8).map((c: any, i: number) => (
               <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,144,32,0.08)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.15)" }}>
@@ -778,7 +786,7 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
       {/* Low confidence hint */}
       {data.confidence != null && data.confidence < 50 && (
         <div style={{ marginTop: "8px", fontSize: "9px", color: "var(--tc-amber)", fontStyle: "italic" }}>
-          Confiance faible — activez des sources supplémentaires (AD, pfSense, nmap) dans Skills pour enrichir cet asset.
+          {tr("assetsSections_lowConfidenceHint", locale)}
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useLocale } from "@/lib/useLocale";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { PageShell } from "@/components/chrome/PageShell";
 import {
   AlertTriangle, CheckCircle2, Clock, Download,
@@ -156,11 +157,11 @@ const STATUS_COLOR: Record<string, string> = {
   open: "#e0a020", resolved: "#30a050", closed: "#888", archived: "#888",
 };
 
-function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+function fmtTime(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", { hour: "2-digit", minute: "2-digit" });
 }
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+function fmtDate(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", { day: "2-digit", month: "short", year: "numeric" });
 }
 function fmtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -170,15 +171,15 @@ function fmtDuration(ms: number): string {
 function pct(v: number | null): string {
   return v != null ? `${Math.round(v * 100)}%` : "—";
 }
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, locale: Locale): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "a l'instant";
-  if (mins < 60) return `il y a ${mins}min`;
+  if (mins < 1) return tr("investigate_justNow", locale);
+  if (mins < 60) return locale === "fr" ? `il y a ${mins}min` : `${mins}min ago`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `il y a ${hours}h`;
+  if (hours < 24) return locale === "fr" ? `il y a ${hours}h` : `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `il y a ${days}j`;
+  return locale === "fr" ? `il y a ${days}j` : `${days}d ago`;
 }
 
 // ─────────────── report modal ──────────────────────────────
@@ -218,7 +219,7 @@ const REPORT_ITEMS = [
   },
 ];
 
-function ReportModal({ incidentId, locale, onClose }: { incidentId: number; locale: string; onClose: () => void }) {
+function ReportModal({ incidentId, locale, onClose }: { incidentId: number; locale: Locale; onClose: () => void }) {
   const [generating, setGenerating] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -280,7 +281,7 @@ function ReportModal({ incidentId, locale, onClose }: { incidentId: number; loca
               fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em",
               color: "var(--tc-text-muted)", marginBottom: 4,
             }}>
-              Rapport d&apos;incident
+              {tr("investigate_incidentReport", locale)}
             </div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tc-text)" }}>
               #{incidentId}
@@ -365,7 +366,7 @@ function ReportModal({ incidentId, locale, onClose }: { incidentId: number; loca
 
 // ─────────────── related incidents ──────────────────────────
 
-function RelatedCard({ incidentId, locale }: { incidentId: number; locale: string }) {
+function RelatedCard({ incidentId, locale }: { incidentId: number; locale: Locale }) {
   const [related, setRelated] = useState<RelatedIncident[] | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -423,7 +424,7 @@ function RelatedCard({ incidentId, locale }: { incidentId: number; locale: strin
                   {r.title.length > 50 ? r.title.slice(0, 50) + "…" : r.title}
                 </div>
                 <div style={{ fontSize: 10, color: "var(--tc-text-muted)", fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>
-                  {r.asset} · {fmtDate(r.created_at)}
+                  {r.asset} · {fmtDate(r.created_at, locale)}
                 </div>
               </div>
             );
@@ -464,11 +465,11 @@ export default function InvestigatePage() {
       setData(await res.json());
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur réseau");
+      setError(e instanceof Error ? e.message : tr("investigate_networkError", locale));
     } finally {
       setLoading(false);
     }
-  }, [incidentId]);
+  }, [incidentId, locale]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1086,7 +1087,7 @@ export default function InvestigatePage() {
           )}
           <button className="inv-ghost-btn" onClick={load}>
             <RefreshCw size={11} />
-            Rafraichir
+            {tr("investigate_refresh", locale)}
           </button>
           <button className="inv-ghost-btn" onClick={() => setShowReport(true)}>
             <Download size={11} />
@@ -1098,7 +1099,7 @@ export default function InvestigatePage() {
         {loading && (
           <div className="inv-loading">
             <RefreshCw size={22} className="inv-spin" />
-            <span>Chargement...</span>
+            <span>{tr("investigate_loading", locale)}</span>
           </div>
         )}
 
@@ -1152,7 +1153,7 @@ export default function InvestigatePage() {
                     fontSize: 10, fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                     color: "var(--tc-text-muted)",
                   }}>
-                    #{inc.id} · {displayAsset(inc)} · {timeAgo(inc.created_at)}
+                    #{inc.id} · {displayAsset(inc)} · {timeAgo(inc.created_at, locale)}
                   </span>
                 </div>
                 <h1 style={{ margin: "0 0 0 0", fontSize: 20, fontWeight: 600, color: "var(--tc-text)", lineHeight: 1.3 }}>
@@ -1174,18 +1175,18 @@ export default function InvestigatePage() {
                     </div>
                   </div>
                   <div className="inv-strip-cell" style={{ paddingLeft: 12 }}>
-                    <div className="inv-strip-label">Confiance L1</div>
+                    <div className="inv-strip-label">{tr("investigate_l1Confidence", locale)}</div>
                     <div className="inv-strip-val">
                       {latestL1?.confidence != null ? pct(latestL1.confidence) : "—"}
                     </div>
                   </div>
                   <div className="inv-strip-cell" style={{ paddingLeft: 12 }}>
-                    <div className="inv-strip-label">Statut</div>
+                    <div className="inv-strip-label">{tr("investigate_status", locale)}</div>
                     <div className="inv-strip-val" style={{ color: statusColor }}>{inc.status}</div>
                   </div>
                   <div className="inv-strip-cell" style={{ paddingLeft: 12 }}>
-                    <div className="inv-strip-label">Detecte</div>
-                    <div className="inv-strip-val">{fmtDate(inc.created_at)}</div>
+                    <div className="inv-strip-label">{tr("investigate_detected", locale)}</div>
+                    <div className="inv-strip-val">{fmtDate(inc.created_at, locale)}</div>
                   </div>
                 </div>
 
@@ -1226,19 +1227,19 @@ export default function InvestigatePage() {
                 <div className="inv-card">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Enrichissement forensique</strong> · L2
+                      <strong>{tr("investigate_forensicEnrichment", locale)}</strong> · L2
                     </div>
                     <div className="inv-card-head-right">
                       {inc.forensic_enriched_at
-                        ? `${fmtDate(inc.forensic_enriched_at)} ${fmtTime(inc.forensic_enriched_at)}`
-                        : "en attente"}
+                        ? `${fmtDate(inc.forensic_enriched_at, locale)} ${fmtTime(inc.forensic_enriched_at, locale)}`
+                        : tr("investigate_pending", locale)}
                     </div>
                   </div>
                   <div className="inv-ai-body">
                     {!inc.forensic_enriched_at ? (
                       <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--tc-text-muted)" }}>
                         <RefreshCw size={11} className="inv-spin" />
-                        Analyse forensique en file d&apos;attente...
+                        {tr("investigate_forensicQueued", locale)}
                       </div>
                     ) : inc.summary?.startsWith("Données insuffisantes") ? (
                       <div style={{
@@ -1265,7 +1266,7 @@ export default function InvestigatePage() {
                               letterSpacing: "0.08em", color: "var(--tc-text-muted)",
                               fontFamily: "ui-monospace, 'JetBrains Mono', monospace", marginBottom: 6,
                             }}>
-                              Preuves ({inc.evidence_citations.length})
+                              {tr("investigate_evidence", locale)} ({inc.evidence_citations.length})
                             </div>
                             {inc.evidence_citations.map((c, i) => (
                               <div key={i} style={{
@@ -1303,18 +1304,18 @@ export default function InvestigatePage() {
                 <div className="inv-card">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Chronologie de l&apos;attaque</strong> · {data.attack_events.length} signal{data.attack_events.length !== 1 ? "s" : ""}
+                      <strong>{tr("investigate_attackTimeline", locale)}</strong> · {data.attack_events.length} signal{data.attack_events.length !== 1 ? "s" : ""}
                     </div>
                     {data.attack_events.length > 0 && (
                       <div className="inv-card-head-right">
-                        {fmtDate(data.attack_events[0].ts)} — {fmtDate(data.attack_events[data.attack_events.length - 1].ts)}
+                        {fmtDate(data.attack_events[0].ts, locale)} — {fmtDate(data.attack_events[data.attack_events.length - 1].ts, locale)}
                       </div>
                     )}
                   </div>
                   <div className="inv-signals">
                     {data.attack_events.length === 0 ? (
                       <div style={{ padding: "16px 14px", fontSize: 12, color: "var(--tc-text-muted)" }}>
-                        Aucun signal brut enregistré pour cet incident.
+                        {tr("investigate_noRawSignal", locale)}
                       </div>
                     ) : (
                       data.attack_events.map((ev, idx) => {
@@ -1326,8 +1327,8 @@ export default function InvestigatePage() {
                         return (
                           <div key={`ev-${idx}`} className="inv-signal-row">
                             <div className="inv-signal-ts">
-                              {fmtTime(ev.ts)}<br />
-                              <span style={{ color: "var(--tc-text-muted)", fontWeight: 400, fontSize: 9 }}>{fmtDate(ev.ts)}</span>
+                              {fmtTime(ev.ts, locale)}<br />
+                              <span style={{ color: "var(--tc-text-muted)", fontWeight: 400, fontSize: 9 }}>{fmtDate(ev.ts, locale)}</span>
                             </div>
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
@@ -1367,7 +1368,7 @@ export default function InvestigatePage() {
                 <div className="inv-card">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Incidents lies</strong>
+                      <strong>{tr("investigate_relatedIncidents", locale)}</strong>
                     </div>
                   </div>
                   <RelatedCard incidentId={inc.id} locale={locale} />
@@ -1380,26 +1381,26 @@ export default function InvestigatePage() {
               {/* RSSI decisions */}
               {inc && inc.status !== "archived" && (
                 <div className="inv-actions">
-                  <div className="inv-actions-head">Décisions opérateur</div>
+                  <div className="inv-actions-head">{tr("investigate_operatorDecisions", locale)}</div>
                   <div className="inv-actions-body">
                     <button className="inv-act-btn" onClick={() => setConfirmFp(true)}>
                       <XCircle size={14} />
-                      <span>Marquer faux positif</span>
+                      <span>{tr("investigate_markFalsePositive", locale)}</span>
                       <ArrowRight size={11} className="act-arrow" />
                     </button>
                     <button className="inv-act-btn" onClick={reinvestigateInv} disabled={reinvestigating}>
                       {reinvestigating ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
-                      <span>{reinvestigating ? "En cours..." : "Relancer l'investigation"}</span>
+                      <span>{reinvestigating ? tr("investigate_inProgress", locale) : tr("investigate_relaunchInvestigation", locale)}</span>
                       {!reinvestigating && <ArrowRight size={11} className="act-arrow" />}
                     </button>
                     <button className="inv-act-btn" onClick={() => setSuppressingIncident(true)}>
                       <Filter size={14} />
-                      <span>Ignorer ce pattern</span>
+                      <span>{tr("investigate_ignorePattern", locale)}</span>
                       <ArrowRight size={11} className="act-arrow" />
                     </button>
                     <button className="inv-act-btn" onClick={archiveIncident}>
                       <Archive size={14} />
-                      <span>Archiver</span>
+                      <span>{tr("investigate_archive", locale)}</span>
                       <ArrowRight size={11} className="act-arrow" />
                     </button>
                   </div>
@@ -1411,26 +1412,26 @@ export default function InvestigatePage() {
                 <div className="inv-enrich">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Enrichissement</strong> · IP
+                      <strong>{tr("investigate_enrichment", locale)}</strong> · IP
                     </div>
                   </div>
                   <div className="inv-enrich-body">
                     {isKnownScanner && (
                       <div className="inv-notice green">
-                        Scanner Internet connu — probable faux positif
+                        {tr("investigate_knownScanner", locale)}
                       </div>
                     )}
                     {enrichData.is_malicious && (
                       <div className="inv-notice red">
-                        IP malveillante ou listee Spamhaus
+                        {tr("investigate_maliciousIp", locale)}
                       </div>
                     )}
                     {[
                       ["IP", enrichData.ip],
-                      ["GreyNoise", enrichData.greynoise_name || (enrichData.noise ? "Bruit" : "—")],
-                      ["RIOT", enrichData.riot ? "Oui (infra tierce)" : "Non"],
-                      ["Spamhaus", enrichData.spamhaus_listed ? (enrichData.spamhaus_lists.join(", ") || "Liste") : "Non liste"],
-                      ["Pays", enrichData.country || "—"],
+                      ["GreyNoise", enrichData.greynoise_name || (enrichData.noise ? tr("investigate_noise", locale) : "—")],
+                      ["RIOT", enrichData.riot ? tr("investigate_riotYes", locale) : tr("investigate_no", locale)],
+                      ["Spamhaus", enrichData.spamhaus_listed ? (enrichData.spamhaus_lists.join(", ") || tr("investigate_listed", locale)) : tr("investigate_notListed", locale)],
+                      [tr("investigate_country", locale), enrichData.country || "—"],
                       ["ASN", enrichData.asn || "—"],
                     ].map(([k, v]) => (
                       <div key={k} className="inv-enrich-kv">
@@ -1447,7 +1448,7 @@ export default function InvestigatePage() {
                 <div className="inv-card">
                   <div className="inv-card-head">
                     <div className="inv-card-head-left">
-                      <strong>Chemins d&apos;attaque</strong> · {data.attack_paths.length}
+                      <strong>{tr("investigate_attackPaths", locale)}</strong> · {data.attack_paths.length}
                     </div>
                   </div>
                   <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1485,7 +1486,7 @@ export default function InvestigatePage() {
                   <div className="inv-card">
                     <div className="inv-card-head" style={{ borderLeft: "3px solid #ff6030" }}>
                       <div className="inv-card-head-left" style={{ color: "#ff6030" }}>
-                        <strong>Actions proposees</strong>
+                        <strong>{tr("investigate_proposedActions", locale)}</strong>
                         {inc.hitl_status && (
                           <span style={{
                             marginLeft: 6, fontSize: 9, padding: "1px 5px",
@@ -1503,7 +1504,7 @@ export default function InvestigatePage() {
                           fontSize: 11, color: "var(--tc-text-muted)", fontStyle: "italic",
                           padding: "4px 0",
                         }}>
-                          Aucune action proposee pour cette attaque.
+                          {tr("investigate_noProposedAction", locale)}
                         </div>
                       ) : (
                         hitlActions.map((act, i) => {
@@ -1526,7 +1527,7 @@ export default function InvestigatePage() {
                                   fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                                   background: "rgba(255,96,48,0.1)", color: "#ff6030",
                                   border: "1px solid rgba(255,96,48,0.25)", textTransform: "uppercase",
-                                }}>{kindShortLabel(act.kind)}</span>
+                                }}>{kindShortLabel(act.kind, locale)}</span>
                                 {act.skill_id && (
                                   <span style={{
                                     fontSize: 9, padding: "1px 5px",
@@ -1587,7 +1588,7 @@ export default function InvestigatePage() {
                                     }}
                                   >
                                     <Zap size={9} />
-                                    Approuver cette action
+                                    {tr("investigate_approveThisAction", locale)}
                                   </button>
                                   <button
                                     onClick={() => handleHitlAction("reject", act.cmd_id!)}
@@ -1602,7 +1603,7 @@ export default function InvestigatePage() {
                                       display: "inline-flex", alignItems: "center", gap: 4,
                                     }}
                                   >
-                                    Rejeter
+                                    {tr("investigate_reject", locale)}
                                   </button>
                                 </div>
                               )}
@@ -1618,7 +1619,7 @@ export default function InvestigatePage() {
                           <button
                             onClick={() => handleHitl("approve")}
                             disabled={hitlExecuting}
-                            title="Approuver toutes les actions du panel"
+                            title={tr("investigate_approveAllTitle", locale)}
                             style={{
                               flex: 1, padding: "7px 0", fontSize: 11, fontWeight: 700,
                               fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
@@ -1629,7 +1630,7 @@ export default function InvestigatePage() {
                             }}
                           >
                             {hitlExecuting ? <RefreshCw size={10} className="inv-spin" /> : <Zap size={10} />}
-                            Tout approuver
+                            {tr("investigate_approveAll", locale)}
                           </button>
                           <button
                             onClick={() => handleHitl("reject")}
@@ -1644,7 +1645,7 @@ export default function InvestigatePage() {
                               display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
                             }}
                           >
-                            Rejeter
+                            {tr("investigate_reject", locale)}
                           </button>
                         </div>
                       )}
@@ -1654,7 +1655,7 @@ export default function InvestigatePage() {
                           fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                           padding: "4px 0",
                         }}>
-                          Decision enregistree · {fmtDate(inc.hitl_responded_at!)}
+                          {tr("investigate_decisionSaved", locale)} · {fmtDate(inc.hitl_responded_at!, locale)}
                         </div>
                       )}
                     </div>
@@ -1666,7 +1667,7 @@ export default function InvestigatePage() {
               <div className="inv-actions">
                 <div className="inv-actions-head">
                   <MessageSquare size={11} style={{ display: "inline", marginRight: 5 }} />
-                  Notes & historique
+                  {tr("investigate_notesHistory", locale)}
                 </div>
                 <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
                   {inc && inc.notes && inc.notes.length > 0 ? (
@@ -1675,13 +1676,13 @@ export default function InvestigatePage() {
                         <div key={i} style={{ padding: "6px 8px", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border)", fontSize: 11 }}>
                           <div style={{ color: "var(--tc-text)", marginBottom: 2, lineHeight: 1.5 }}>{n.text}</div>
                           <div style={{ color: "var(--tc-text-muted)", fontSize: 9, fontFamily: "ui-monospace,'JetBrains Mono',monospace" }}>
-                            {n.author} · {new Date(n.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                            {n.author} · {new Date(n.at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { dateStyle: "short", timeStyle: "short" })}
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div style={{ fontSize: 11, color: "var(--tc-text-muted)", fontStyle: "italic", marginBottom: 8 }}>Aucune note.</div>
+                    <div style={{ fontSize: 11, color: "var(--tc-text-muted)", fontStyle: "italic", marginBottom: 8 }}>{tr("investigate_noNote", locale)}</div>
                   )}
                   <div style={{ display: "flex", gap: 6 }}>
                     <input
@@ -1689,7 +1690,7 @@ export default function InvestigatePage() {
                       value={noteInput}
                       onChange={e => setNoteInput(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter") addNote(noteInput); }}
-                      placeholder="Ajouter une note..."
+                      placeholder={tr("investigate_addNote", locale)}
                       style={{
                         flex: 1, padding: "6px 8px", fontSize: 11,
                         fontFamily: "ui-monospace,'JetBrains Mono',monospace",
@@ -1715,7 +1716,7 @@ export default function InvestigatePage() {
 
               {/* Audit note */}
               <div className="inv-audit">
-                Decisions tracees · ISO 27001 A.16 · NIS2 Art.23
+                {tr("investigate_auditTrail", locale)} · ISO 27001 A.16 · NIS2 Art.23
               </div>
             </aside>
           </div>
@@ -1725,8 +1726,8 @@ export default function InvestigatePage() {
         {inc && (
           <div className="inv-foot">
             <span>incident://INC-{inc.id}</span>
-            <span>derniere maj {timeAgo(inc.created_at)}</span>
-            <a href="/incidents">← retour aux incidents</a>
+            <span>{tr("investigate_lastUpdate", locale)} {timeAgo(inc.created_at, locale)}</span>
+            <a href="/incidents">{tr("investigate_backToIncidents", locale)}</a>
           </div>
         )}
       </div>
@@ -1744,16 +1745,18 @@ export default function InvestigatePage() {
         <div onClick={() => setConfirmFp(false)} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div onClick={e => e.stopPropagation()} style={{ maxWidth: 460, width: "90%", background: "var(--tc-surface)", border: "1px solid var(--tc-border)", padding: 24 }}>
             <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "ui-monospace,'JetBrains Mono',monospace", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 12 }}>
-              Marquer faux positif ?
+              {tr("investigate_markFalsePositiveQ", locale)}
             </div>
             <p style={{ fontSize: 12, color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: 16 }}>
-              Cela classe l&apos;incident #{inc.id} en faux positif et le déplace dans les archives. L&apos;asset reste surveillé.
+              {locale === "fr"
+                ? <>Cela classe l&apos;incident #{inc.id} en faux positif et le déplace dans les archives. L&apos;asset reste surveillé.</>
+                : <>This classifies incident #{inc.id} as a false positive and moves it to the archives. The asset remains monitored.</>}
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setConfirmFp(false)} className="inv-ghost-btn">Annuler</button>
+              <button onClick={() => setConfirmFp(false)} className="inv-ghost-btn">{tr("investigate_cancel", locale)}</button>
               <button onClick={markFalsePositive} className="inv-primary-btn">
                 <XCircle size={12} />
-                Confirmer faux positif
+                {tr("investigate_confirmFalsePositive", locale)}
               </button>
             </div>
           </div>

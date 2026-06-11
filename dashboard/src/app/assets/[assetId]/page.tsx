@@ -24,6 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { PageShell } from "@/components/chrome/PageShell";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Asset,
@@ -126,11 +127,11 @@ const NO_SOFTWARE_CATEGORIES = new Set([
 
 // ── Helpers ──
 
-function fmtDate(iso: string | null | undefined): string {
+function fmtDate(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString("fr-FR", {
+    return d.toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US", {
       year: "numeric",
       month: "short",
       day: "2-digit",
@@ -140,11 +141,14 @@ function fmtDate(iso: string | null | undefined): string {
   }
 }
 
-function fmtTime(iso: string | null | undefined): string {
+function fmtTime(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return "";
   try {
     const d = new Date(iso);
-    return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   } catch {
     return "";
   }
@@ -323,9 +327,9 @@ export default function AssetDetailPage() {
                       color: "#3080d0",
                       border: "1px solid rgba(48,128,208,0.30)",
                     }}
-                    title="Cet asset a été créé à partir d'une IP publique observée dans les logs. Pensez à le fusionner avec un asset déclaré si pertinent."
+                    title={tr("assetDetail_publicIpBadgeTitle", locale)}
                   >
-                    IP publique
+                    {tr("assetDetail_publicIp", locale)}
                   </span>
                 )}
                 {asset.hostname && (
@@ -453,6 +457,7 @@ function SectionSummary({
   asset: Asset;
   onAssetUpdated: (next: Asset) => void;
 }) {
+  const locale = useLocale();
   const updateCriticality = async (next: string) => {
     const prev = asset.criticality;
     onAssetUpdated({ ...asset, criticality: next });
@@ -468,11 +473,11 @@ function SectionSummary({
       const j = await res.json().catch(() => ({}));
       if (j?.error) {
         onAssetUpdated({ ...asset, criticality: prev });
-        alert("Criticité non sauvegardée : " + j.error);
+        alert(tr("assetDetail_critNotSaved", locale) + j.error);
       }
     } catch {
       onAssetUpdated({ ...asset, criticality: prev });
-      alert("Criticité non sauvegardée (réseau)");
+      alert(tr("assetDetail_critNotSavedNetwork", locale));
     }
   };
 
@@ -480,10 +485,10 @@ function SectionSummary({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Résumé</strong> · identité de l&apos;asset
+          <strong>{tr("assetDetail_summary", locale)}</strong> · {tr("assetDetail_assetIdentity", locale)}
         </div>
         <div className="inv-card-head-right">
-          source · {asset.source}
+          {tr("assetDetail_sourceLabel", locale)} · {asset.source}
         </div>
       </div>
       <div style={{ padding: 18 }}>
@@ -506,22 +511,22 @@ function SectionSummary({
             {asset.fqdn ? ` (${asset.fqdn})` : ""}
           </Field>
           <Field label="OS">{asset.os || "—"}</Field>
-          <Field label="Rôle">{asset.role || "—"}</Field>
-          <Field label="Responsable">{asset.owner || "—"}</Field>
-          <Field label="Criticité">
+          <Field label={tr("assetDetail_role", locale)}>{asset.role || "—"}</Field>
+          <Field label={tr("assetDetail_owner", locale)}>{asset.owner || "—"}</Field>
+          <Field label={tr("assetDetail_criticality", locale)}>
             <select
               value={asset.criticality}
               onChange={(e) => updateCriticality(e.target.value)}
               className="ad-crit-select"
             >
-              <option value="low">Bas</option>
-              <option value="medium">Moyen</option>
-              <option value="high">Haut</option>
-              <option value="critical">Essentiel</option>
-              <option value="unknown">Inconnu</option>
+              <option value="low">{tr("assetDetail_critLow", locale)}</option>
+              <option value="medium">{tr("assetDetail_critMedium", locale)}</option>
+              <option value="high">{tr("assetDetail_critHigh", locale)}</option>
+              <option value="critical">{tr("assetDetail_critEssential", locale)}</option>
+              <option value="unknown">{tr("assetDetail_critUnknown", locale)}</option>
             </select>
           </Field>
-          <Field label="Localisation">{asset.location || "—"}</Field>
+          <Field label={tr("assetDetail_location", locale)}>{asset.location || "—"}</Field>
           {asset.url && (
             <div style={{ gridColumn: "1/3" }}>
               <span style={labelStyle}>URL</span>
@@ -577,13 +582,13 @@ function SectionSummary({
 
         <div className="ad-summary-foot">
           <span>
-            Première vue · {fmtDate(asset.first_seen)} {fmtTime(asset.first_seen)}
+            {tr("assetDetail_firstSeen", locale)} · {fmtDate(asset.first_seen, locale)} {fmtTime(asset.first_seen, locale)}
           </span>
           <span>
-            Dernière vue · {fmtDate(asset.last_seen)} {fmtTime(asset.last_seen)}
+            {tr("assetDetail_lastSeen", locale)} · {fmtDate(asset.last_seen, locale)} {fmtTime(asset.last_seen, locale)}
           </span>
           {asset.sources && asset.sources.length > 0 && (
-            <span>Sources · {asset.sources.join(", ")}</span>
+            <span>{tr("assetDetail_sources", locale)} · {asset.sources.join(", ")}</span>
           )}
         </div>
       </div>
@@ -592,17 +597,17 @@ function SectionSummary({
 }
 
 function SectionSoftware({ software }: { software: Array<{ name: string; version?: string; source?: string }> }) {
+  const locale = useLocale();
   if (software.length === 0) {
     return (
       <div className="inv-card">
         <div className="inv-card-head">
           <div className="inv-card-head-left">
-            <strong>Logiciels</strong>
+            <strong>{tr("assetDetail_software", locale)}</strong>
           </div>
         </div>
         <div className="ad-empty">
-          Aucun logiciel détecté. Installez l&apos;agent ThreatClaw sur cette
-          machine pour obtenir l&apos;inventaire logiciel.
+          {tr("assetDetail_noSoftware", locale)}
         </div>
       </div>
     );
@@ -611,15 +616,17 @@ function SectionSoftware({ software }: { software: Array<{ name: string; version
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Logiciels</strong> · {software.length} entrée
-          {software.length > 1 ? "s" : ""}
+          <strong>{tr("assetDetail_software", locale)}</strong> · {software.length}{" "}
+          {software.length > 1
+            ? tr("assetDetail_entriesPlural", locale)
+            : tr("assetDetail_entry", locale)}
         </div>
       </div>
       <div style={{ overflowX: "auto" }}>
         <table className="ad-table">
           <thead>
             <tr>
-              <th>Nom</th>
+              <th>{tr("assetDetail_name", locale)}</th>
               <th>Version</th>
               <th>Source</th>
             </tr>
@@ -654,23 +661,23 @@ function SectionNetwork({
     version?: string;
   }>;
 }) {
+  const locale = useLocale();
   return (
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Réseau</strong> · services exposés
+          <strong>{tr("assetDetail_network", locale)}</strong> · {tr("assetDetail_exposedServices", locale)}
         </div>
       </div>
       <div style={{ padding: 16 }}>
         <AssetScanSurface asset={asset} />
         {services.length === 0 ? (
           <div className="ad-empty" style={{ marginTop: 12 }}>
-            Aucun service réseau détecté. Le scan Nmap se déclenche
-            automatiquement à la première observation de l&apos;asset (TTL 1h).
+            {tr("assetDetail_noNetworkService", locale)}
           </div>
         ) : (
           <div style={{ marginTop: 16 }}>
-            <span style={labelStyle}>Services / Ports ({services.length})</span>
+            <span style={labelStyle}>{tr("assetDetail_servicesPorts", locale)} ({services.length})</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {services.map((s, i) => (
                 <span key={`${s.port}-${i}`} className="ad-svc-chip">
@@ -709,16 +716,17 @@ function SectionFindings({
 }: {
   findings: FullPayload["findings"];
 }) {
+  const locale = useLocale();
   if (findings.length === 0) {
     return (
       <div className="inv-card">
         <div className="inv-card-head">
           <div className="inv-card-head-left">
-            <strong>Vulnérabilités</strong>
+            <strong>{tr("assetDetail_findings", locale)}</strong>
           </div>
         </div>
         <div className="ad-empty">
-          Aucune vulnérabilité connue sur cet asset.
+          {tr("assetDetail_noFindings", locale)}
         </div>
       </div>
     );
@@ -735,8 +743,10 @@ function SectionFindings({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Vulnérabilités</strong> · {findings.length} entrée
-          {findings.length > 1 ? "s" : ""}
+          <strong>{tr("assetDetail_findings", locale)}</strong> · {findings.length}{" "}
+          {findings.length > 1
+            ? tr("assetDetail_entriesPlural", locale)
+            : tr("assetDetail_entry", locale)}
         </div>
       </div>
       <div className="ad-list">
@@ -757,7 +767,7 @@ function SectionFindings({
               </span>
               <span className="ad-list-title">{f.title}</span>
               <span className="ad-list-meta">{f.source || f.skill_id}</span>
-              <span className="ad-list-date">{fmtDate(f.detected_at)}</span>
+              <span className="ad-list-date">{fmtDate(f.detected_at, locale)}</span>
             </a>
           );
         })}
@@ -771,16 +781,17 @@ function SectionIncidents({
 }: {
   incidents: FullPayload["incidents"];
 }) {
+  const locale = useLocale();
   if (incidents.length === 0) {
     return (
       <div className="inv-card">
         <div className="inv-card-head">
           <div className="inv-card-head-left">
-            <strong>Incidents</strong> · historique
+            <strong>{tr("assetDetail_incidents", locale)}</strong> · {tr("assetDetail_history", locale)}
           </div>
         </div>
         <div className="ad-empty">
-          Aucun incident enregistré sur cet asset.
+          {tr("assetDetail_noIncidents", locale)}
         </div>
       </div>
     );
@@ -793,8 +804,10 @@ function SectionIncidents({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Incidents</strong> · {incidents.length} historique
-          {incidents.length > 1 ? "s" : ""}
+          <strong>{tr("assetDetail_incidents", locale)}</strong> · {incidents.length}{" "}
+          {incidents.length > 1
+            ? tr("assetDetail_historyPlural", locale)
+            : tr("assetDetail_history", locale)}
         </div>
       </div>
       <div className="ad-list">
@@ -821,7 +834,7 @@ function SectionIncidents({
                 #{inc.id} — {inc.title}
               </span>
               <span className="ad-list-meta">{inc.status}</span>
-              <span className="ad-list-date">{fmtDate(inc.created_at)}</span>
+              <span className="ad-list-date">{fmtDate(inc.created_at, locale)}</span>
             </a>
           );
         })}
@@ -835,6 +848,7 @@ function SectionCoverage({
 }: {
   coverage: FullPayload["coverage"];
 }) {
+  const locale = useLocale();
   const covered = coverage.filter((c) => c.state === "covered").length;
   const gaps = coverage.filter((c) => c.state === "gap").length;
   const missing = coverage.filter((c) => c.state === "not_configured").length;
@@ -851,12 +865,17 @@ function SectionCoverage({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>Couverture</strong> · qui voit cet asset
+          <strong>{tr("assetDetail_coverage", locale)}</strong> · {tr("assetDetail_whoSeesAsset", locale)}
         </div>
         <div className="inv-card-head-right">
-          {covered} couvert{covered > 1 ? "s" : ""} · {gaps} gap
-          {gaps > 1 ? "s" : ""} · {missing} non configuré
-          {missing > 1 ? "s" : ""}
+          {covered}{" "}
+          {covered > 1
+            ? tr("assetDetail_coveredPlural", locale)
+            : tr("assetDetail_covered", locale)}{" "}
+          · {gaps} gap{gaps > 1 ? "s" : ""} · {missing}{" "}
+          {missing > 1
+            ? tr("assetDetail_notConfiguredPlural", locale)
+            : tr("assetDetail_notConfigured", locale)}
         </div>
       </div>
       <div className="ad-cov-grid">
@@ -873,7 +892,7 @@ function SectionCoverage({
               : c.state === "gap"
                 ? "GAP"
                 : "ABSENT";
-          const lastSeen = c.last_seen ? fmtDate(c.last_seen) : null;
+          const lastSeen = c.last_seen ? fmtDate(c.last_seen, locale) : null;
           return (
             <div
               key={c.kind}
@@ -896,7 +915,7 @@ function SectionCoverage({
               <div className="ad-cov-detail">{c.detail}</div>
               {lastSeen && (
                 <div className="ad-cov-meta">
-                  Dernière observation · {lastSeen}
+                  {tr("assetDetail_lastObservation", locale)} · {lastSeen}
                 </div>
               )}
               {c.action_hint && (
@@ -921,10 +940,18 @@ function DangerZone({
   onDeleted: () => void;
   onMerged: (canonicalId: string) => void;
 }) {
+  const locale = useLocale();
   const [busy, setBusy] = useState(false);
   const [showMerge, setShowMerge] = useState(false);
   const handleDelete = async () => {
-    if (!confirm(`Supprimer définitivement « ${asset.name} » ?`)) return;
+    if (
+      !confirm(
+        tr("assetDetail_confirmDeletePrefix", locale) +
+          ` « ${asset.name} » ` +
+          tr("assetDetail_confirmDeleteSuffix", locale),
+      )
+    )
+      return;
     setBusy(true);
     try {
       await fetch(`/api/tc/assets/${encodeURIComponent(asset.id)}`, {
@@ -932,7 +959,7 @@ function DangerZone({
       });
       onDeleted();
     } catch {
-      alert("Suppression impossible (backend)");
+      alert(tr("assetDetail_deleteFailed", locale));
     }
     setBusy(false);
   };
@@ -942,10 +969,10 @@ function DangerZone({
         <button
           onClick={() => setShowMerge(true)}
           className="ad-merge-btn"
-          title="Fusionner cet asset dans un autre (ex: lier une IP publique à l'OPNsense)"
+          title={tr("assetDetail_mergeButtonTitle", locale)}
         >
           <ExternalLink size={11} />
-          <span>Lier cet asset à un autre</span>
+          <span>{tr("assetDetail_linkToAnother", locale)}</span>
         </button>
         <button
           onClick={handleDelete}
@@ -953,7 +980,7 @@ function DangerZone({
           className="ad-delete-btn"
         >
           <Trash2 size={11} />
-          <span>{busy ? "Suppression..." : "Supprimer cet asset"}</span>
+          <span>{busy ? tr("assetDetail_deleting", locale) : tr("assetDetail_deleteAsset", locale)}</span>
         </button>
       </div>
       {showMerge && (
@@ -985,6 +1012,7 @@ function MergeModal({
   onClose: () => void;
   onSuccess: (canonicalId: string) => void;
 }) {
+  const locale = useLocale();
   const [search, setSearch] = useState("");
   const [candidates, setCandidates] = useState<Asset[]>([]);
   const [picked, setPicked] = useState<Asset | null>(null);
@@ -1002,7 +1030,7 @@ function MergeModal({
         const all: Asset[] = d?.assets || [];
         setCandidates(all.filter((a) => a.id !== asset.id));
       })
-      .catch(() => setError("Impossible de charger la liste des assets"));
+      .catch(() => setError(tr("assetDetail_loadAssetsFailed", locale)));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
@@ -1023,11 +1051,11 @@ function MergeModal({
 
   const submit = async () => {
     if (!picked) {
-      setError("Sélectionnez l'asset canonique cible.");
+      setError(tr("assetDetail_selectCanonical", locale));
       return;
     }
     if (!reason.trim()) {
-      setError("La raison de la fusion est obligatoire (audit).");
+      setError(tr("assetDetail_reasonRequired", locale));
       return;
     }
     setBusy(true);
@@ -1049,7 +1077,7 @@ function MergeModal({
         onSuccess(picked.id);
       }
     } catch (e) {
-      setError("Erreur réseau lors de la fusion");
+      setError(tr("assetDetail_mergeNetworkError", locale));
     }
     setBusy(false);
   };
@@ -1063,21 +1091,19 @@ function MergeModal({
     >
       <div className="ad-modal">
         <div className="ad-modal-head">
-          <strong>Lier « {asset.name} » à un asset existant</strong>
+          <strong>{tr("assetDetail_mergeModalTitlePrefix", locale)} « {asset.name} » {tr("assetDetail_mergeModalTitleSuffix", locale)}</strong>
           <button onClick={onClose} className="ad-modal-close">
             ×
           </button>
         </div>
         <div className="ad-modal-body">
           <p className="ad-modal-desc">
-            Cet asset deviendra un alias de l&apos;asset canonique sélectionné.
-            Les incidents et logs futurs seront rattachés au canonique. Action
-            réversible 30 jours via /unmerge.
+            {tr("assetDetail_mergeModalDesc", locale)}
           </p>
 
           <input
             type="text"
-            placeholder="Rechercher (nom, hostname, IP, id)..."
+            placeholder={tr("assetDetail_mergeSearchPlaceholder", locale)}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="ad-modal-input"
@@ -1086,7 +1112,7 @@ function MergeModal({
 
           <div className="ad-modal-list">
             {filtered.length === 0 ? (
-              <div className="ad-empty">Aucun asset trouvé.</div>
+              <div className="ad-empty">{tr("assetDetail_noAssetFound", locale)}</div>
             ) : (
               filtered.slice(0, 100).map((a) => (
                 <button
@@ -1105,7 +1131,7 @@ function MergeModal({
           </div>
 
           <textarea
-            placeholder="Raison (obligatoire pour l'audit, ex: même appareil physique, IP publique de l'OPNsense)..."
+            placeholder={tr("assetDetail_reasonPlaceholder", locale)}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="ad-modal-reason"
@@ -1116,14 +1142,14 @@ function MergeModal({
 
           <div className="ad-modal-actions">
             <button onClick={onClose} className="ad-modal-cancel">
-              Annuler
+              {tr("assetDetail_cancel", locale)}
             </button>
             <button
               onClick={submit}
               disabled={busy || !picked || !reason.trim()}
               className="ad-modal-confirm"
             >
-              {busy ? "Fusion..." : "Confirmer la fusion"}
+              {busy ? tr("assetDetail_merging", locale) : tr("assetDetail_confirmMerge", locale)}
             </button>
           </div>
         </div>

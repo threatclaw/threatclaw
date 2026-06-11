@@ -250,27 +250,27 @@ export default function SetupWizard() {
   ];
 
   const channelDefs = [
-    { key: "slack", label: "Slack", desc: "Chat bidirectionnel + HITL", fields: [
+    { key: "slack", label: "Slack", desc: tr("setupWizard_slackDesc", locale), fields: [
       { id: "botToken", label: "Bot Token (xoxb-...)", placeholder: "xoxb-..." },
       { id: "signingSecret", label: "Signing Secret", placeholder: "Slack App > Basic Information" },
     ]},
-    { key: "telegram", label: "Telegram", desc: "Chat bidirectionnel + alertes", fields: [
+    { key: "telegram", label: "Telegram", desc: tr("setupWizard_telegramDesc", locale), fields: [
       { id: "botToken", label: "Bot Token", placeholder: "123456:ABC-DEF..." },
-      { id: "botUsername", label: "Nom du bot (sans @)", placeholder: "threatclaw_bot" },
+      { id: "botUsername", label: tr("setupWizard_botNameLabel", locale), placeholder: "threatclaw_bot" },
     ]},
     { key: "discord", label: "Discord", desc: "Slash commands + mentions", fields: [
       { id: "botToken", label: "Bot Token", placeholder: "Discord Developer Portal > Bot" },
       { id: "publicKey", label: "Public Key (hex)", placeholder: "General Information > Public Key" },
     ]},
     { key: "whatsapp", label: "WhatsApp", desc: "WhatsApp Cloud API (Meta)", fields: [
-      { id: "accessToken", label: "Access Token", placeholder: "Token permanent Meta Developer" },
-      { id: "phoneNumberId", label: "Phone Number ID", placeholder: "ID du numéro WhatsApp Business" },
+      { id: "accessToken", label: "Access Token", placeholder: tr("setupWizard_metaTokenPlaceholder", locale) },
+      { id: "phoneNumberId", label: "Phone Number ID", placeholder: tr("setupWizard_whatsappNumberPlaceholder", locale) },
     ]},
-    { key: "email", label: "Email", desc: "Alertes uniquement (unidirectionnel)", fields: [
-      { id: "host", label: "Serveur SMTP", placeholder: "smtp.example.com" },
+    { key: "email", label: "Email", desc: tr("setupWizard_emailDesc", locale), fields: [
+      { id: "host", label: tr("setupWizard_smtpServerLabel", locale), placeholder: "smtp.example.com" },
       { id: "port", label: "Port", placeholder: "587" },
-      { id: "from", label: "Expéditeur", placeholder: "threatclaw@example.com" },
-      { id: "to", label: "Destinataire", placeholder: "admin@example.com" },
+      { id: "from", label: tr("setupWizard_senderLabel", locale), placeholder: "threatclaw@example.com" },
+      { id: "to", label: tr("setupWizard_recipientLabel", locale), placeholder: "admin@example.com" },
     ]},
   ];
 
@@ -335,7 +335,7 @@ export default function SetupWizard() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               <div>
-                <label style={labelStyle}>Nom de l{"'"}entreprise</label>
+                <label style={labelStyle}>{tr("setupWizard_companyNameLabel", locale)}</label>
                 <input value={company.company_name} onChange={e => setCompany(c => ({ ...c, company_name: e.target.value }))}
                   placeholder="CyberConsulting.fr" style={inputStyle} />
               </div>
@@ -632,7 +632,7 @@ export default function SetupWizard() {
             <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "16px" }}>
               {[
                 { label: tr("primaryAi", locale), value: `${primary.backend === "ollama" ? tr("ollamaLocal", locale) : primary.backend === "ollama_remote" ? tr("ollamaRemote", locale) : primary.backend} — ${primary.model || tr("notConfigured", locale)}` },
-                { label: "IA Cloud", value: cloud.enabled ? `${cloud.backend} (${cloud.escalation})` : tr("disabledLocal", locale) },
+                { label: tr("setupWizard_cloudAiLabel", locale), value: cloud.enabled ? `${cloud.backend} (${cloud.escalation})` : tr("disabledLocal", locale) },
                 { label: tr("communication", locale), value: Object.entries(channels).filter(([, v]) => v.enabled).map(([k]) => k.charAt(0).toUpperCase() + k.slice(1)).join(", ") || tr("noChannel", locale) },
                 { label: tr("security", locale), value: permLevels.find(l => l.id === permLevel)?.label || permLevel },
               ].map(item => (

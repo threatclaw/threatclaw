@@ -20,7 +20,9 @@ interface SourceDef {
   icon: React.ReactNode;
   color: string;
   description: { fr: string; en: string };
-  guides: { title: string; titleEn: string; steps: string[] }[];
+  // A step is either a plain technical string (command / config / URL — identical
+  // in both languages) or a bilingual prose object resolved at the render site.
+  guides: { title: string; titleEn: string; steps: (string | { fr: string; en: string })[] }[];
 }
 
 const SOURCE_DEFS: Record<string, SourceDef> = {
@@ -71,10 +73,10 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Configuration", titleEn: "Setup",
         steps: [
-          "Dashboard > Skills > Wazuh > Configurer",
+          { fr: "Dashboard > Skills > Wazuh > Configurer", en: "Dashboard > Skills > Wazuh > Configure" },
           "URL: https://wazuh-manager:55000",
-          "Username / Password: wazuh API credentials",
-          "ThreatClaw synchronise automatiquement toutes les 2-5 minutes",
+          { fr: "Username / Password: identifiants de l'API wazuh", en: "Username / Password: wazuh API credentials" },
+          { fr: "ThreatClaw synchronise automatiquement toutes les 2-5 minutes", en: "ThreatClaw syncs automatically every 2-5 minutes" },
         ],
       },
     ],
@@ -92,15 +94,15 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
         title: "Linux / macOS", titleEn: "Linux / macOS",
         steps: [
           "curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- --url https://ADDR --token TOKEN",
-          "L'agent se configure automatiquement (systemd timer, 5 min sync)",
+          { fr: "L'agent se configure automatiquement (systemd timer, 5 min sync)", en: "The agent configures itself automatically (systemd timer, 5 min sync)" },
         ],
       },
       {
         title: "Windows (MSI)", titleEn: "Windows (MSI)",
         steps: [
-          "Telechargez osquery MSI: https://osquery.io/downloads",
-          "Installez + configurez le webhook vers https://ADDR/api/tc/webhook/ingest/osquery",
-          "Utilisez le token genere ci-dessous dans le header X-Webhook-Token",
+          { fr: "Telechargez osquery MSI: https://osquery.io/downloads", en: "Download the osquery MSI: https://osquery.io/downloads" },
+          { fr: "Installez + configurez le webhook vers https://ADDR/api/tc/webhook/ingest/osquery", en: "Install + configure the webhook to https://ADDR/api/tc/webhook/ingest/osquery" },
+          { fr: "Utilisez le token genere ci-dessous dans le header X-Webhook-Token", en: "Use the token generated below in the X-Webhook-Token header" },
         ],
       },
     ],
@@ -117,11 +119,11 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Installation Zeek + Fluent-Bit", titleEn: "Zeek + Fluent-Bit Setup",
         steps: [
-          "Installez Zeek sur une machine avec acces au port SPAN/mirror du switch",
-          "Copiez le local.zeek de reference depuis le repo ThreatClaw: docker/zeek/local.zeek",
-          "Installez les packages: zkg install zeek/mitre-attack/bzar salesforce/hassh foxio/ja4 corelight/zeek-long-connections",
-          "Configurez Fluent-Bit pour forwarder les logs JSON vers: POST https://ADDR/api/tc/webhook/ingest/zeek",
-          "Reference config: docker/fluent-bit-zeek.conf dans le repo ThreatClaw",
+          { fr: "Installez Zeek sur une machine avec acces au port SPAN/mirror du switch", en: "Install Zeek on a machine with access to the switch SPAN/mirror port" },
+          { fr: "Copiez le local.zeek de reference depuis le repo ThreatClaw: docker/zeek/local.zeek", en: "Copy the reference local.zeek from the ThreatClaw repo: docker/zeek/local.zeek" },
+          { fr: "Installez les packages: zkg install zeek/mitre-attack/bzar salesforce/hassh foxio/ja4 corelight/zeek-long-connections", en: "Install the packages: zkg install zeek/mitre-attack/bzar salesforce/hassh foxio/ja4 corelight/zeek-long-connections" },
+          { fr: "Configurez Fluent-Bit pour forwarder les logs JSON vers: POST https://ADDR/api/tc/webhook/ingest/zeek", en: "Configure Fluent-Bit to forward the JSON logs to: POST https://ADDR/api/tc/webhook/ingest/zeek" },
+          { fr: "Reference config: docker/fluent-bit-zeek.conf dans le repo ThreatClaw", en: "Reference config: docker/fluent-bit-zeek.conf in the ThreatClaw repo" },
         ],
       },
     ],
@@ -138,10 +140,10 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Configuration", titleEn: "Setup",
         steps: [
-          "Dashboard > Skills > Pi-hole > Configurer",
-          "URL: http://pihole-ip (port 80 par defaut)",
-          "Mot de passe: votre mot de passe admin Pi-hole",
-          "ThreatClaw interroge l'API Pi-hole automatiquement",
+          { fr: "Dashboard > Skills > Pi-hole > Configurer", en: "Dashboard > Skills > Pi-hole > Configure" },
+          { fr: "URL: http://pihole-ip (port 80 par defaut)", en: "URL: http://pihole-ip (port 80 by default)" },
+          { fr: "Mot de passe: votre mot de passe admin Pi-hole", en: "Password: your Pi-hole admin password" },
+          { fr: "ThreatClaw interroge l'API Pi-hole automatiquement", en: "ThreatClaw queries the Pi-hole API automatically" },
         ],
       },
     ],
@@ -158,8 +160,8 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Envoi des alertes", titleEn: "Alert Forwarding",
         steps: [
-          "Configurez eve.json output dans suricata.yaml",
-          "Utilisez Fluent-Bit pour forwarder les events vers:",
+          { fr: "Configurez eve.json output dans suricata.yaml", en: "Configure the eve.json output in suricata.yaml" },
+          { fr: "Utilisez Fluent-Bit pour forwarder les events vers:", en: "Use Fluent-Bit to forward the events to:" },
           "POST https://ADDR/api/tc/webhook/ingest/suricata",
           "Header: X-Webhook-Token: TOKEN",
         ],
@@ -179,10 +181,10 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
         title: "Installation Strelka", titleEn: "Strelka Setup",
         steps: [
           "docker pull target/strelka-backend:latest && docker pull target/strelka-frontend:latest",
-          "Configurez le dossier d'extraction Zeek comme source pour Strelka",
-          "Envoyez les resultats de scan vers: POST https://ADDR/api/tc/webhook/ingest/strelka",
+          { fr: "Configurez le dossier d'extraction Zeek comme source pour Strelka", en: "Configure the Zeek extraction folder as the source for Strelka" },
+          { fr: "Envoyez les resultats de scan vers: POST https://ADDR/api/tc/webhook/ingest/strelka", en: "Send the scan results to: POST https://ADDR/api/tc/webhook/ingest/strelka" },
           "Header: X-Webhook-Token: TOKEN",
-          "Reference: skills/skill-strelka-scanner/skill.json",
+          { fr: "Reference: skills/skill-strelka-scanner/skill.json", en: "Reference: skills/skill-strelka-scanner/skill.json" },
         ],
       },
     ],
@@ -487,10 +489,13 @@ export default function SourcesPage() {
                           {locale === "fr" ? guide.title : guide.titleEn}
                         </div>
                         {guide.steps.map((step, si) => {
-                          const isCode = step.includes("curl") || step.includes("echo") || step.includes("docker") ||
-                            step.includes("POST") || step.includes("http") || step.includes("zkg") ||
-                            step.includes("<") || step.includes("Module");
-                          const displayStep = step.replace(/ADDR/g, syslogAddr.split(":")[0])
+                          // Resolve bilingual prose steps to the active locale; technical
+                          // command/config/URL steps are plain strings, identical in both.
+                          const stepText = typeof step === "string" ? step : (locale === "fr" ? step.fr : step.en);
+                          const isCode = stepText.includes("curl") || stepText.includes("echo") || stepText.includes("docker") ||
+                            stepText.includes("POST") || stepText.includes("http") || stepText.includes("zkg") ||
+                            stepText.includes("<") || stepText.includes("Module");
+                          const displayStep = stepText.replace(/ADDR/g, syslogAddr.split(":")[0])
                             .replace(/TOKEN/g, source.webhook_token || "YOUR_TOKEN");
                           return (
                             <div key={si} style={{

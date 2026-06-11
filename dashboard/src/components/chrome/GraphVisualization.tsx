@@ -318,7 +318,7 @@ export function GraphModal({ onClose }: { onClose: () => void }) {
             </div>
             <div style={{ fontSize: 17, fontWeight: 800, color: "var(--tc-text)", marginBottom: 14, wordBreak: "break-all" }}>{selectedNode.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 11 }}>
-              {selectedNode.criticality && <Row label="Criticité" value={selectedNode.criticality.toUpperCase()} color={selectedNode.criticality === "critical" ? "#e04040" : selectedNode.criticality === "high" ? "#d07020" : undefined} />}
+              {selectedNode.criticality && <Row label={locale === "fr" ? "Criticité" : "Criticality"} value={selectedNode.criticality.toUpperCase()} color={selectedNode.criticality === "critical" ? "#e04040" : selectedNode.criticality === "high" ? "#d07020" : undefined} />}
               {selectedNode.hostname && selectedNode.hostname !== selectedNode.label && <Row label="Hostname" value={selectedNode.hostname} mono />}
               {selectedNode.cvss !== undefined && selectedNode.cvss > 0 && <Row label="CVSS" value={String(selectedNode.cvss)} color={selectedNode.cvss >= 9 ? "#e04040" : "#d09020"} />}
               {selectedNode.tactic && <Row label="Tactique" value={selectedNode.tactic} />}

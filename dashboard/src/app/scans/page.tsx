@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Play, Clock, Bell, Puzzle, RefreshCw, CheckCircle2, X, Loader2,
@@ -47,13 +48,14 @@ interface ScanType {
   advanced: boolean;
 }
 
-const SCAN_TYPES: ScanType[] = [
+function getScanTypes(locale: Locale): ScanType[] {
+  return [
   // ── Outils principaux (RSSI standard) ──
   {
     value: "nmap_fingerprint",
-    label: "Nmap — découverte réseau",
-    description: "Cartographie hôtes actifs, ports ouverts et services. Utile pour repérer les machines inconnues sur ton LAN.",
-    target_label: "IP, host ou sous-réseau CIDR",
+    label: tr("scans_nmapLabel", locale),
+    description: tr("scans_nmapDesc", locale),
+    target_label: tr("scans_nmapTargetLabel", locale),
     target_placeholder: "10.0.0.50  ou  10.0.0.0/24",
     icon: Network,
     color: "#d03020",
@@ -61,9 +63,9 @@ const SCAN_TYPES: ScanType[] = [
   },
   {
     value: "trivy_image",
-    label: "Trivy — CVE container",
-    description: "Scan des CVE (paquets OS et dépendances applicatives) dans une image Docker. Sévérités CRITICAL+HIGH par défaut.",
-    target_label: "Image Docker (nom:tag)",
+    label: tr("scans_trivyLabel", locale),
+    description: tr("scans_trivyDesc", locale),
+    target_label: tr("scans_trivyTargetLabel", locale),
     target_placeholder: "nginx:latest",
     icon: Container,
     color: "#3080d0",
@@ -71,19 +73,19 @@ const SCAN_TYPES: ScanType[] = [
   },
   {
     value: "lynis_audit",
-    label: "Lynis — hardening Linux",
-    description: "Audit de durcissement d'un serveur Linux. Détecte permissions laxistes, services exposés, paramètres SSH/sudo non conformes.",
-    target_label: "Cible (laisser vide pour scanner localement)",
-    target_placeholder: "/  (système local)",
+    label: tr("scans_lynisLabel", locale),
+    description: tr("scans_lynisDesc", locale),
+    target_label: tr("scans_lynisTargetLabel", locale),
+    target_placeholder: tr("scans_lynisTargetPlaceholder", locale),
     icon: Shield,
     color: "#30a050",
     advanced: false,
   },
   {
     value: "docker_bench",
-    label: "Docker Bench — CIS",
-    description: "CIS Docker Benchmark sur l'hôte ThreatClaw lui-même. Vérifie configuration daemon, isolation containers, gestion images.",
-    target_label: "(pas de cible — hôte ThreatClaw)",
+    label: tr("scans_dockerBenchLabel", locale),
+    description: tr("scans_dockerBenchDesc", locale),
+    target_label: tr("scans_dockerBenchTargetLabel", locale),
     target_placeholder: "n/a",
     icon: Container,
     color: "#9060d0",
@@ -94,8 +96,8 @@ const SCAN_TYPES: ScanType[] = [
   {
     value: "syft_sbom",
     label: "Syft — SBOM",
-    description: "Génère un Software Bill of Materials (SPDX/CycloneDX) d'une image. Requis NIS2 pour la traçabilité chaîne d'approvisionnement.",
-    target_label: "Image Docker ou chemin",
+    description: tr("scans_syftDesc", locale),
+    target_label: tr("scans_syftTargetLabel", locale),
     target_placeholder: "nginx:latest",
     icon: FileText,
     color: "#06b6d4",
@@ -104,8 +106,8 @@ const SCAN_TYPES: ScanType[] = [
   {
     value: "semgrep_scan",
     label: "Semgrep — SAST",
-    description: "Analyse statique de code pour détecter vulnérabilités, bugs et anti-patterns. Multi-langage (Python, JS, Go, Java, Rust...).",
-    target_label: "Chemin du repo git local",
+    description: tr("scans_semgrepDesc", locale),
+    target_label: tr("scans_semgrepTargetLabel", locale),
     target_placeholder: "/srv/repos/mon-app",
     icon: Code,
     color: "#d09020",
@@ -114,8 +116,8 @@ const SCAN_TYPES: ScanType[] = [
   {
     value: "checkov_scan",
     label: "Checkov — IaC",
-    description: "Scan de configurations Infrastructure-as-Code (Terraform, CloudFormation, Kubernetes, ARM). Détecte mauvaises configs sécurité.",
-    target_label: "Chemin du dossier IaC",
+    description: tr("scans_checkovDesc", locale),
+    target_label: tr("scans_checkovTargetLabel", locale),
     target_placeholder: "/srv/repos/terraform",
     icon: Code,
     color: "#06b6d4",
@@ -124,8 +126,8 @@ const SCAN_TYPES: ScanType[] = [
   {
     value: "trufflehog_scan",
     label: "TruffleHog — secrets",
-    description: "Scan d'un repo git pour détecter clés API, tokens, mots de passe hardcodés (y compris dans l'historique git).",
-    target_label: "Chemin du repo git",
+    description: tr("scans_trufflehogDesc", locale),
+    target_label: tr("scans_trufflehogTargetLabel", locale),
     target_placeholder: "/srv/repos/mon-app",
     icon: Key,
     color: "#e84040",
@@ -134,14 +136,15 @@ const SCAN_TYPES: ScanType[] = [
   {
     value: "zap_scan",
     label: "OWASP ZAP — DAST",
-    description: "Scan dynamique d'une application web (mode baseline). ⚠️ Peut générer du trafic visible et exécuter des actions sur l'app cible.",
-    target_label: "URL HTTP/HTTPS",
+    description: tr("scans_zapDesc", locale),
+    target_label: tr("scans_zapTargetLabel", locale),
     target_placeholder: "https://example.com",
     icon: Globe,
     color: "#ff6020",
     advanced: true,
   },
-];
+  ];
+}
 
 function formatDuration(ms: number | null): string {
   if (ms == null) return "—";
@@ -150,23 +153,23 @@ function formatDuration(ms: number | null): string {
   return `${Math.floor(ms / 60_000)}m${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
-function relTime(iso: string | null): string {
+function relTime(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   const t = new Date(iso).getTime();
   const diff = Date.now() - t;
-  if (diff < 60_000) return "à l'instant";
-  if (diff < 3_600_000) return `il y a ${Math.floor(diff / 60_000)} min`;
-  if (diff < 86_400_000) return `il y a ${Math.floor(diff / 3_600_000)} h`;
-  return new Date(iso).toLocaleString("fr-FR");
+  if (diff < 60_000) return tr("scans_justNow", locale);
+  if (diff < 3_600_000) { const m = Math.floor(diff / 60_000); return locale === "fr" ? `il y a ${m} min` : `${m} min ago`; }
+  if (diff < 86_400_000) { const h = Math.floor(diff / 3_600_000); return locale === "fr" ? `il y a ${h} h` : `${h}h ago`; }
+  return new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US");
 }
 
-function statusPill(status: string) {
+function statusPill(status: string, locale: Locale) {
   const colors: Record<string, { bg: string; fg: string; border: string; label: string }> = {
-    queued: { bg: "rgba(208,144,32,0.10)", fg: "#d09020", border: "rgba(208,144,32,0.25)", label: "en attente" },
-    running: { bg: "rgba(48,128,208,0.10)", fg: "#3080d0", border: "rgba(48,128,208,0.25)", label: "en cours" },
-    done: { bg: "rgba(48,160,80,0.10)", fg: "#30a050", border: "rgba(48,160,80,0.25)", label: "terminé" },
-    error: { bg: "rgba(208,48,32,0.10)", fg: "#d03020", border: "rgba(208,48,32,0.25)", label: "erreur" },
-    skipped: { bg: "rgba(140,140,140,0.10)", fg: "var(--tc-text-muted)", border: "rgba(140,140,140,0.25)", label: "ignoré" },
+    queued: { bg: "rgba(208,144,32,0.10)", fg: "#d09020", border: "rgba(208,144,32,0.25)", label: tr("scans_statusQueued", locale) },
+    running: { bg: "rgba(48,128,208,0.10)", fg: "#3080d0", border: "rgba(48,128,208,0.25)", label: tr("scans_statusRunning", locale) },
+    done: { bg: "rgba(48,160,80,0.10)", fg: "#30a050", border: "rgba(48,160,80,0.25)", label: tr("scans_statusDone", locale) },
+    error: { bg: "rgba(208,48,32,0.10)", fg: "#d03020", border: "rgba(208,48,32,0.25)", label: tr("scans_statusError", locale) },
+    skipped: { bg: "rgba(140,140,140,0.10)", fg: "var(--tc-text-muted)", border: "rgba(140,140,140,0.25)", label: tr("scans_statusSkipped", locale) },
   };
   const c = colors[status] || colors.skipped;
   return (
@@ -204,32 +207,33 @@ export default function ScansPage() {
         <h1 style={{ fontSize: "22px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>
           Scans
           <span style={{ fontSize: "12px", fontWeight: 500, color: "var(--tc-text-muted)", marginLeft: "10px" }}>
-            {tab === "launch" && "lancer un scan"}
-            {tab === "history" && "historique"}
-            {tab === "scheduled" && "planifiés"}
-            {tab === "library" && "bibliothèque"}
+            {tab === "launch" && tr("scans_subtitleLaunch", locale)}
+            {tab === "history" && tr("scans_subtitleHistory", locale)}
+            {tab === "scheduled" && tr("scans_subtitleScheduled", locale)}
+            {tab === "library" && tr("scans_subtitleLibrary", locale)}
           </span>
         </h1>
       </div>
 
       {tab === "launch" && <LaunchTab locale={locale} />}
-      {tab === "history" && <HistoryTab />}
-      {tab === "scheduled" && <ScheduledTab />}
+      {tab === "history" && <HistoryTab locale={locale} />}
+      {tab === "scheduled" && <ScheduledTab locale={locale} />}
       {tab === "library" && <LibraryTab locale={locale} />}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
+function LaunchTab({ locale }: { locale: Locale }) {
   const [selected, setSelected] = useState<ScanType | null>(null);
   const [target, setTarget] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const principal = SCAN_TYPES.filter(t => !t.advanced);
-  const advanced = SCAN_TYPES.filter(t => t.advanced);
+  const scanTypes = getScanTypes(locale);
+  const principal = scanTypes.filter(t => !t.advanced);
+  const advanced = scanTypes.filter(t => t.advanced);
 
   const pick = (t: ScanType) => {
     setSelected(t);
@@ -268,11 +272,11 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
       {!selected && (
         <>
           <p style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "16px", lineHeight: 1.6 }}>
-            Choisis un type de scan. Les outils <strong>principaux</strong> couvrent le quotidien sécurité ;
-            les <strong>avancés</strong> servent surtout pour audits ponctuels, équipes dev ou pentests.
+            {tr("scans_launchIntro1", locale)} <strong>{tr("scans_principalWord", locale)}</strong> {tr("scans_launchIntro2", locale)}
+            {tr("scans_launchIntro3", locale)} <strong>{tr("scans_advancedWord", locale)}</strong> {tr("scans_launchIntro4", locale)}
           </p>
 
-          <SectionTitle title="Outils principaux" />
+          <SectionTitle title={tr("scans_principalTools", locale)} />
           <CardGrid types={principal} onPick={pick} />
 
           <div style={{ marginTop: "20px" }}>
@@ -284,7 +288,7 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
                 border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
               }}
             >
-              {showAdvanced ? "▾" : "▸"} Outils avancés ({advanced.length})
+              {showAdvanced ? "▾" : "▸"} {tr("scans_advancedTools", locale)} ({advanced.length})
             </button>
             {showAdvanced && (
               <div style={{ marginTop: "12px" }}>
@@ -305,7 +309,7 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
               border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", marginBottom: "14px",
             }}
           >
-            ← Retour
+            ← {tr("scans_back", locale)}
           </button>
 
           <div style={{
@@ -321,7 +325,7 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
                 <span style={{
                   fontSize: "8px", fontWeight: 800, padding: "2px 6px", borderRadius: "3px",
                   background: "rgba(208,144,32,0.12)", color: "var(--tc-amber)", textTransform: "uppercase",
-                }}>avancé</span>
+                }}>{tr("scans_advancedBadge", locale)}</span>
               )}
             </div>
             <p style={{ fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "16px" }}>
@@ -354,12 +358,12 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
               className="tc-btn-embossed"
               style={{ fontSize: "11px", padding: "10px 20px", width: "100%", justifyContent: "center" }}
             >
-              {busy ? <><Loader2 size={12} className="animate-spin" /> Lancement...</> : <><Play size={12} /> Lancer le scan</>}
+              {busy ? <><Loader2 size={12} className="animate-spin" /> {tr("scans_launching", locale)}</> : <><Play size={12} /> {tr("scans_launchScan", locale)}</>}
             </button>
 
             <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "10px", lineHeight: 1.5 }}>
-              Le scan tourne en arrière-plan. Suis sa progression dans l&apos;onglet <strong>Historique</strong>.
-              Les résultats enrichissent automatiquement les assets et findings.
+              {tr("scans_launchHint1", locale)} <strong>{tr("scans_historyTab", locale)}</strong>.
+              {tr("scans_launchHint2", locale)}
             </div>
           </div>
 
@@ -373,7 +377,7 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                   <X size={14} color="#d03020" style={{ flexShrink: 0, marginTop: "1px" }} />
                   <div>
-                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#d03020" }}>Échec</div>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#d03020" }}>{tr("scans_failure", locale)}</div>
                     <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", marginTop: "3px" }}>{result.error}</div>
                   </div>
                 </div>
@@ -381,13 +385,13 @@ function LaunchTab({ locale: _ }: { locale: "fr" | "en" }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <CheckCircle2 size={14} color="#30a050" />
                   <div style={{ fontSize: "12px", color: "var(--tc-text-sec)" }}>
-                    Scan #{result.scan_id} mis en file. Voir <a href="/scans?tab=history" style={{ color: "var(--tc-blue)" }}>Historique</a>.
+                    {tr("scans_scanQueuedPrefix", locale)} #{result.scan_id} {tr("scans_scanQueuedSuffix", locale)} <a href="/scans?tab=history" style={{ color: "var(--tc-blue)" }}>{tr("scans_historyTab", locale)}</a>.
                   </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <AlertTriangle size={14} color="var(--tc-amber)" />
-                  <div style={{ fontSize: "12px", color: "var(--tc-text-sec)" }}>{result.reason || "Scan ignoré (déjà fait récemment)"}</div>
+                  <div style={{ fontSize: "12px", color: "var(--tc-text-sec)" }}>{result.reason || tr("scans_scanSkipped", locale)}</div>
                 </div>
               )}
             </div>
@@ -443,7 +447,7 @@ function CardGrid({ types, onPick }: { types: ScanType[]; onPick: (t: ScanType) 
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function HistoryTab() {
+function HistoryTab({ locale }: { locale: Locale }) {
   const [scans, setScans] = useState<ScanJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -481,21 +485,21 @@ function HistoryTab() {
             background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none",
           }}
         >
-          <option value="">Tous statuts</option>
-          <option value="queued">En attente</option>
-          <option value="running">En cours</option>
-          <option value="done">Terminés</option>
-          <option value="error">Erreurs</option>
+          <option value="">{tr("scans_allStatuses", locale)}</option>
+          <option value="queued">{tr("scans_filterQueued", locale)}</option>
+          <option value="running">{tr("scans_filterRunning", locale)}</option>
+          <option value="done">{tr("scans_filterDone", locale)}</option>
+          <option value="error">{tr("scans_filterError", locale)}</option>
         </select>
         <button onClick={load} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 12px" }}>
-          <RefreshCw size={12} /> Actualiser
+          <RefreshCw size={12} /> {tr("scans_refresh", locale)}
         </button>
       </div>
 
-      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>Chargement...</div>}
+      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>{tr("scans_loading", locale)}</div>}
       {!loading && scans.length === 0 && (
         <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-          Aucun scan {statusFilter ? `avec statut "${statusFilter}"` : "pour le moment"}.
+          {tr("scans_noScan", locale)} {statusFilter ? `${tr("scans_withStatus", locale)} "${statusFilter}"` : tr("scans_forNow", locale)}.
         </div>
       )}
       {!loading && scans.length > 0 && (
@@ -503,13 +507,13 @@ function HistoryTab() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
             <thead>
               <tr style={{ background: "var(--tc-surface-alt)", textAlign: "left", color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                <th style={{ padding: "10px 12px" }}>Type</th>
-                <th style={{ padding: "10px 12px" }}>Cible</th>
-                <th style={{ padding: "10px 12px" }}>Statut</th>
-                <th style={{ padding: "10px 12px" }}>Durée</th>
-                <th style={{ padding: "10px 12px" }}>Quand</th>
-                <th style={{ padding: "10px 12px" }}>Origine</th>
-                <th style={{ padding: "10px 12px" }}>Résultat</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colType", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colTarget", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colStatus", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colDuration", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colWhen", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colOrigin", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colResult", locale)}</th>
               </tr>
             </thead>
             <tbody>
@@ -517,9 +521,9 @@ function HistoryTab() {
                 <tr key={s.id} style={{ borderTop: "1px solid var(--tc-border)" }}>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text)", fontFamily: "'JetBrains Mono', monospace" }}>{s.scan_type}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text)", fontFamily: "'JetBrains Mono', monospace", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis" }}>{s.target}</td>
-                  <td style={{ padding: "8px 12px" }}>{statusPill(s.status)}</td>
+                  <td style={{ padding: "8px 12px" }}>{statusPill(s.status, locale)}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>{formatDuration(s.duration_ms)}</td>
-                  <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>{relTime(s.requested_at)}</td>
+                  <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>{relTime(s.requested_at, locale)}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)", fontSize: "10px" }}>{s.requested_by}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>
                     {s.error_msg ? (
@@ -568,26 +572,37 @@ interface Schedule {
   next_run_at: string;
 }
 
-const DOW = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+function getDOW(locale: Locale): string[] {
+  return [
+    tr("scans_monday", locale),
+    tr("scans_tuesday", locale),
+    tr("scans_wednesday", locale),
+    tr("scans_thursday", locale),
+    tr("scans_friday", locale),
+    tr("scans_saturday", locale),
+    tr("scans_sunday", locale),
+  ];
+}
 
-function describeSchedule(s: Schedule): string {
+function describeSchedule(s: Schedule, locale: Locale): string {
   const hh = String(s.hour ?? 0).padStart(2, "0");
   const mm = String(s.minute).padStart(2, "0");
+  const DOW = getDOW(locale);
   switch (s.frequency) {
     case "hourly":
-      return `Toutes les heures à :${mm}`;
+      return `${tr("scans_everyHourAt", locale)} :${mm}`;
     case "daily":
-      return `Chaque jour à ${hh}:${mm}`;
+      return `${tr("scans_everyDayAt", locale)} ${hh}:${mm}`;
     case "weekly":
-      return `Chaque ${DOW[s.day_of_week ?? 0]} à ${hh}:${mm}`;
+      return `${tr("scans_everyWeekday1", locale)} ${DOW[s.day_of_week ?? 0]} ${tr("scans_everyWeekday2", locale)} ${hh}:${mm}`;
     case "monthly":
-      return `Le ${s.day_of_month ?? 1} de chaque mois à ${hh}:${mm}`;
+      return `${tr("scans_everyMonth1", locale)} ${s.day_of_month ?? 1} ${tr("scans_everyMonth2", locale)} ${hh}:${mm}`;
     default:
       return s.frequency;
   }
 }
 
-function ScheduledTab() {
+function ScheduledTab({ locale }: { locale: Locale }) {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -605,7 +620,7 @@ function ScheduledTab() {
   useEffect(() => { load(); }, [load]);
 
   const remove = async (id: number) => {
-    if (!confirm("Supprimer cette planification ?")) return;
+    if (!confirm(tr("scans_confirmDelete", locale))) return;
     await fetch(`/api/tc/scans/schedules/${id}`, { method: "DELETE" });
     load();
   };
@@ -623,31 +638,29 @@ function ScheduledTab() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
         <div style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
-          {schedules.length} planification{schedules.length > 1 ? "s" : ""}
+          {schedules.length} {schedules.length > 1 ? tr("scans_schedulesPlural", locale) : tr("scans_schedulesSingular", locale)}
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
           className="tc-btn-embossed"
           style={{ fontSize: "11px", padding: "6px 14px" }}
         >
-          {showForm ? <>− Masquer le formulaire</> : <><Bell size={12} /> Nouvelle planification</>}
+          {showForm ? <>− {tr("scans_hideForm", locale)}</> : <><Bell size={12} /> {tr("scans_newSchedule", locale)}</>}
         </button>
       </div>
 
-      {showForm && <NewScheduleForm onCreated={() => { setShowForm(false); load(); }} />}
+      {showForm && <NewScheduleForm locale={locale} onCreated={() => { setShowForm(false); load(); }} />}
 
-      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>Chargement...</div>}
+      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>{tr("scans_loading", locale)}</div>}
       {!loading && schedules.length === 0 && !showForm && (
         <div style={{
           padding: "20px", borderRadius: "var(--tc-radius-md)",
           background: "var(--tc-neu-inner)",
           boxShadow: "inset 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 2px rgba(0,0,0,0.2), 0 1px 0 rgba(255,255,255,0.08)",
         }}>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "6px" }}>Aucune planification pour le moment</div>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)", marginBottom: "6px" }}>{tr("scans_noScheduleTitle", locale)}</div>
           <div style={{ fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: 1.6 }}>
-            ThreatClaw fingerprinte déjà chaque nouvel asset automatiquement (Nmap, TTL 1h).
-            Utilise les planifications pour des scans récurrents type "Trivy hebdo sur image
-            de prod" ou "Lynis mensuel sur l&apos;hôte".
+            {tr("scans_noScheduleBody", locale)}
           </div>
         </div>
       )}
@@ -656,23 +669,23 @@ function ScheduledTab() {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
             <thead>
               <tr style={{ background: "var(--tc-surface-alt)", textAlign: "left", color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                <th style={{ padding: "10px 12px" }}>Nom</th>
-                <th style={{ padding: "10px 12px" }}>Type</th>
-                <th style={{ padding: "10px 12px" }}>Cible</th>
-                <th style={{ padding: "10px 12px" }}>Fréquence</th>
-                <th style={{ padding: "10px 12px" }}>Prochain</th>
-                <th style={{ padding: "10px 12px" }}>Statut</th>
-                <th style={{ padding: "10px 12px", textAlign: "right" }}>Actions</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colName", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colType", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colTarget", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colFrequency", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colNext", locale)}</th>
+                <th style={{ padding: "10px 12px" }}>{tr("scans_colStatus", locale)}</th>
+                <th style={{ padding: "10px 12px", textAlign: "right" }}>{tr("scans_colActions", locale)}</th>
               </tr>
             </thead>
             <tbody>
               {schedules.map((s) => (
                 <tr key={s.id} style={{ borderTop: "1px solid var(--tc-border)" }}>
-                  <td style={{ padding: "8px 12px", color: "var(--tc-text)" }}>{s.name || `Sans nom`}</td>
+                  <td style={{ padding: "8px 12px", color: "var(--tc-text)" }}>{s.name || tr("scans_unnamed", locale)}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text)", fontFamily: "'JetBrains Mono', monospace" }}>{s.scan_type}</td>
                   <td style={{ padding: "8px 12px", color: "var(--tc-text)", fontFamily: "'JetBrains Mono', monospace", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis" }}>{s.target}</td>
-                  <td style={{ padding: "8px 12px", color: "var(--tc-text-sec)" }}>{describeSchedule(s)}</td>
-                  <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>{relTime(s.next_run_at)}</td>
+                  <td style={{ padding: "8px 12px", color: "var(--tc-text-sec)" }}>{describeSchedule(s, locale)}</td>
+                  <td style={{ padding: "8px 12px", color: "var(--tc-text-muted)" }}>{relTime(s.next_run_at, locale)}</td>
                   <td style={{ padding: "8px 12px" }}>
                     <button
                       onClick={() => toggle(s)}
@@ -684,7 +697,7 @@ function ScheduledTab() {
                         textTransform: "uppercase",
                       }}
                     >
-                      {s.enabled ? "Actif" : "En pause"}
+                      {s.enabled ? tr("scans_active", locale) : tr("scans_paused", locale)}
                     </button>
                   </td>
                   <td style={{ padding: "8px 12px", textAlign: "right" }}>
@@ -695,7 +708,7 @@ function ScheduledTab() {
                         background: "transparent", color: "#d03020",
                         border: "1px solid rgba(208,48,32,0.25)", borderRadius: "var(--tc-radius-sm)",
                       }}
-                    >Supprimer</button>
+                    >{tr("scans_delete", locale)}</button>
                   </td>
                 </tr>
               ))}
@@ -707,7 +720,7 @@ function ScheduledTab() {
   );
 }
 
-function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
+function NewScheduleForm({ locale, onCreated }: { locale: Locale; onCreated: () => void }) {
   const [scanType, setScanType] = useState<string>("nmap_fingerprint");
   const [target, setTarget] = useState<string>("");
   const [name, setName] = useState<string>("");
@@ -721,7 +734,7 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
 
   const submit = async () => {
     if (!target.trim() && scanType !== "docker_bench") {
-      setErr("Cible requise");
+      setErr(tr("scans_targetRequired", locale));
       return;
     }
     setBusy(true);
@@ -751,7 +764,8 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
     setBusy(false);
   };
 
-  const selectedType = SCAN_TYPES.find(t => t.value === scanType) || SCAN_TYPES[0];
+  const scanTypes = getScanTypes(locale);
+  const selectedType = scanTypes.find(t => t.value === scanType) || scanTypes[0];
 
   return (
     <div style={{
@@ -762,20 +776,20 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
     }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
         <div>
-          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Nom (optionnel)</label>
+          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_nameOptional", locale)}</label>
           <input
             type="text" value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="ex: Trivy hebdo image prod"
+            placeholder={tr("scans_namePlaceholder", locale)}
             style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
           />
         </div>
         <div>
-          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Type de scan</label>
+          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_scanType", locale)}</label>
           <select
             value={scanType} onChange={(e) => setScanType(e.target.value)}
             style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
           >
-            {SCAN_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}{t.advanced ? " · avancé" : ""}</option>)}
+            {scanTypes.map(t => <option key={t.value} value={t.value}>{t.label}{t.advanced ? ` · ${tr("scans_advancedBadge", locale)}` : ""}</option>)}
           </select>
         </div>
       </div>
@@ -793,31 +807,31 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
         <div>
-          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Fréquence</label>
+          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_frequency", locale)}</label>
           <select
             value={frequency} onChange={(e) => setFrequency(e.target.value as any)}
             style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
           >
-            <option value="hourly">Toutes les heures</option>
-            <option value="daily">Chaque jour</option>
-            <option value="weekly">Chaque semaine</option>
-            <option value="monthly">Chaque mois</option>
+            <option value="hourly">{tr("scans_freqHourly", locale)}</option>
+            <option value="daily">{tr("scans_freqDaily", locale)}</option>
+            <option value="weekly">{tr("scans_freqWeekly", locale)}</option>
+            <option value="monthly">{tr("scans_freqMonthly", locale)}</option>
           </select>
         </div>
         {frequency === "weekly" && (
           <div>
-            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Jour</label>
+            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_day", locale)}</label>
             <select
               value={dayOfWeek} onChange={(e) => setDayOfWeek(parseInt(e.target.value))}
               style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
             >
-              {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              {getDOW(locale).map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
           </div>
         )}
         {frequency === "monthly" && (
           <div>
-            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Jour du mois (1-28)</label>
+            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_dayOfMonth", locale)}</label>
             <input
               type="number" min={1} max={28} value={dayOfMonth} onChange={(e) => setDayOfMonth(parseInt(e.target.value || "1"))}
               style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
@@ -826,7 +840,7 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
         )}
         {frequency !== "hourly" && (
           <div>
-            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Heure (0-23)</label>
+            <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_hour", locale)}</label>
             <input
               type="number" min={0} max={23} value={hour} onChange={(e) => setHour(parseInt(e.target.value || "0"))}
               style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
@@ -834,7 +848,7 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
           </div>
         )}
         <div>
-          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>Minute (0-59)</label>
+          <label style={{ fontSize: "10px", color: "var(--tc-text-muted)", display: "block", marginBottom: "4px" }}>{tr("scans_minute", locale)}</label>
           <input
             type="number" min={0} max={59} value={minute} onChange={(e) => setMinute(parseInt(e.target.value || "0"))}
             style={{ width: "100%", padding: "7px 10px", fontSize: "11px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-input)", color: "var(--tc-text)", outline: "none" }}
@@ -848,14 +862,14 @@ function NewScheduleForm({ onCreated }: { onCreated: () => void }) {
         onClick={submit} disabled={busy} className="tc-btn-embossed"
         style={{ fontSize: "11px", padding: "8px 16px" }}
       >
-        {busy ? <><Loader2 size={12} className="animate-spin" /> Création...</> : <><Bell size={12} /> Créer la planification</>}
+        {busy ? <><Loader2 size={12} className="animate-spin" /> {tr("scans_creating", locale)}</> : <><Bell size={12} /> {tr("scans_createSchedule", locale)}</>}
       </button>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────
-function LibraryTab({ locale: _ }: { locale: "fr" | "en" }) {
+function LibraryTab({ locale }: { locale: Locale }) {
   const [skills, setSkills] = useState<SkillManifest[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -877,11 +891,10 @@ function LibraryTab({ locale: _ }: { locale: "fr" | "en" }) {
   return (
     <div>
       <p style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "16px", lineHeight: 1.6 }}>
-        Outils de scan disponibles. Les scans courants sont déclenchés automatiquement par ThreatClaw
-        à chaque nouvel asset / image découvert. Cette page liste l'inventaire complet pour référence.
+        {tr("scans_libraryIntro", locale)}
       </p>
 
-      <SkillSection title="Outils principaux" skills={core} />
+      <SkillSection title={tr("scans_principalTools", locale)} skills={core} />
 
       {advanced.length > 0 && (
         <div style={{ marginTop: "24px" }}>
@@ -893,13 +906,12 @@ function LibraryTab({ locale: _ }: { locale: "fr" | "en" }) {
               border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)",
             }}
           >
-            {showAdvanced ? "▾" : "▸"} Outils avancés ({advanced.length})
+            {showAdvanced ? "▾" : "▸"} {tr("scans_advancedTools", locale)} ({advanced.length})
           </button>
           {showAdvanced && (
             <div style={{ marginTop: "12px" }}>
               <p style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px", fontStyle: "italic" }}>
-                Niche / pentesting / CI-CD — sortis du parcours sécurité standard mais conservés pour les usages
-                avancés (équipes dev, MSP, audits ponctuels).
+                {tr("scans_libraryAdvancedNote", locale)}
               </p>
               <SkillSection title="" skills={advanced} />
             </div>
@@ -907,7 +919,7 @@ function LibraryTab({ locale: _ }: { locale: "fr" | "en" }) {
         </div>
       )}
 
-      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>Chargement...</div>}
+      {loading && <div style={{ textAlign: "center", padding: "30px", color: "var(--tc-text-muted)", fontSize: "11px" }}>{tr("scans_loading", locale)}</div>}
     </div>
   );
 }

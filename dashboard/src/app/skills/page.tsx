@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Search, Settings, Shield, Network, Database, Monitor,
@@ -69,10 +69,10 @@ const CATEGORY_UI: Record<string, { label: string; labelEn: string; icon: React.
 const CATEGORY_ORDER = ["network", "endpoints", "inventory", "scan", "threat-intel", "web"];
 
 // ── Trust level badges ──
-const TRUST_UI: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  "official":  { label: "TC",          color: "#d03020", bg: "rgba(208,48,32,0.12)",  border: "rgba(208,48,32,0.25)" },
-  "verified":  { label: "✓ Vérifié",   color: "#30a050", bg: "rgba(48,160,80,0.12)",  border: "rgba(48,160,80,0.25)" },
-  "community": { label: "Communauté",  color: "#d09020", bg: "rgba(208,144,32,0.12)", border: "rgba(208,144,32,0.25)" },
+const TRUST_UI: Record<string, { labelKey: string; color: string; bg: string; border: string }> = {
+  "official":  { labelKey: "skills_trustOfficial",  color: "#d03020", bg: "rgba(208,48,32,0.12)",  border: "rgba(208,48,32,0.25)" },
+  "verified":  { labelKey: "skills_trustVerified",  color: "#30a050", bg: "rgba(48,160,80,0.12)",  border: "rgba(48,160,80,0.25)" },
+  "community": { labelKey: "skills_trustCommunity", color: "#d09020", bg: "rgba(208,144,32,0.12)", border: "rgba(208,144,32,0.25)" },
 };
 
 const RUNNABLE: Record<string, string> = {
@@ -139,7 +139,7 @@ const BETA_SKILLS: Set<string> = new Set([
 // branch is dead code that the next cleanup pass can prune.
 const isPremium = (_s: SkillManifest) => false;
 
-function TrustBadge({ trust }: { trust: string }) {
+function TrustBadge({ trust, locale }: { trust: string; locale: Locale }) {
   // "official" is the implicit default — surfacing a "TC" badge on every
   // first-party skill is noise. Only show the badge when it signals
   // something the user should actually pay attention to.
@@ -151,7 +151,7 @@ function TrustBadge({ trust }: { trust: string }) {
       background: t.bg, color: t.color, border: `1px solid ${t.border}`,
       textTransform: "uppercase", letterSpacing: "0.03em", whiteSpace: "nowrap",
     }}>
-      {t.label}
+      {tr(t.labelKey, locale)}
     </span>
   );
 }
@@ -684,7 +684,7 @@ function SkillCard({
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{skill.name}</span>
             <TypeBadge type={skill.type} locale={locale} />
-            <TrustBadge trust={trust} />
+            <TrustBadge trust={trust} locale={locale} />
             {skill.api_key_required && <Key size={10} color="var(--tc-amber)" />}
             {BETA_SKILLS.has(skill.id) && (
               <span style={{
@@ -864,7 +864,7 @@ function ConfigModal({
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 800, color: "var(--tc-text)", margin: 0 }}>{skill.name}</h2>
-              <TrustBadge trust={skill.trust || "official"} />
+              <TrustBadge trust={skill.trust || "official"} locale={locale} />
               <TypeBadge type={skill.type} locale={locale} />
             </div>
             <span style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
@@ -1184,7 +1184,7 @@ function TestResultBox({
   }
 
   if (isError) {
-    const msg = result.error || (Array.isArray(result.errors) ? result.errors.join("; ") : null) || "Erreur inconnue";
+    const msg = result.error || (Array.isArray(result.errors) ? result.errors.join("; ") : null) || tr("skills_unknownError", locale);
     return (
       <div style={{
         marginBottom: "16px", padding: "12px 14px",
@@ -1594,7 +1594,7 @@ function FreeboxPairingFlow({ url }: { url: string }) {
       ) : (
         <>
           <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "10px", lineHeight: 1.5 }}>
-            ThreatClaw doit s{"'"}appairer avec votre Freebox une seule fois.
+            {tr("skills_freeboxPairOnce", locale)}
           </div>
           <button
             onClick={requestPairing}

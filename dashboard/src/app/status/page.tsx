@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { CpuCard } from "@/components/chrome/CpuCard";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 type ConnState = "ok" | "down" | "checking";
 
@@ -64,18 +66,19 @@ type MlHeartbeat = {
 
 const MIN_TRAINING_DAYS = 14;
 
-function mlPhase(ml: MlHeartbeat | null): {
+function mlPhase(ml: MlHeartbeat | null, locale: Locale): {
   label: string;
   connected: boolean;
   state: ConnState;
 } {
-  if (!ml || ml.alive === false) return { label: "hors ligne", connected: false, state: "down" };
-  if (ml.model_trained) return { label: "opérationnel", connected: true, state: "ok" };
+  if (!ml || ml.alive === false) return { label: tr("status_offline", locale), connected: false, state: "down" };
+  if (ml.model_trained) return { label: tr("status_operational", locale), connected: true, state: "ok" };
   const d = ml.data_days ?? 0;
-  return { label: `en apprentissage · ${d}/${MIN_TRAINING_DAYS}j`, connected: true, state: "ok" };
+  return { label: `${tr("status_learning", locale)} · ${d}/${MIN_TRAINING_DAYS}j`, connected: true, state: "ok" };
 }
 
 export default function StatusPage() {
+  const locale = useLocale();
   const [health, setHealth] = useState<HealthResp | null>(null);
   const [situation, setSituation] = useState<Situation | null>(null);
   const [dbOk, setDbOk] = useState<ConnState>("checking");
@@ -185,7 +188,7 @@ export default function StatusPage() {
     >
       <PageHeader
         title="System status"
-        subtitle="Santé du déploiement — services, connecteurs, moteurs internes. Complémentaire de la console."
+        subtitle={tr("status_subtitle", locale)}
         right={
           <button
             onClick={() => setRefreshTick((t) => t + 1)}
@@ -222,13 +225,13 @@ export default function StatusPage() {
       >
         {/* LEFT — Services conteneurs */}
         <div>
-          <Section title="Services conteneurs">
+          <Section title={tr("status_containerServices", locale)}>
             <ServiceRow icon={Shield} name="threatclaw-core" detail={health?.version ? `v${health.version}` : "—"} state={engineOk} />
             <ServiceRow icon={Database} name="threatclaw-db" detail="postgres 16 · tls=required" state={dbOk} />
-            <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} modèles chargés`} state={ollamaOk} />
+            <ServiceRow icon={Cpu} name="ollama" detail={`${ollamaModels.length} ${tr("status_modelsLoaded", locale)}`} state={ollamaOk} />
             <ServiceRow icon={Network} name="threatclaw-dashboard" detail="next 14 · ssr" state={engineOk} />
             {(() => {
-              const p = mlPhase(ml);
+              const p = mlPhase(ml, locale);
               return (
                 <ServiceRow
                   icon={FileText}
@@ -241,7 +244,7 @@ export default function StatusPage() {
             <ServiceRow
               icon={Radio}
               name="fluent-bit"
-              detail="syslog · désactivé (Wazuh tient 514)"
+              detail={`syslog · ${tr("status_fluentBitDisabled", locale)}`}
               state="checking"
               muted
             />
@@ -255,12 +258,12 @@ export default function StatusPage() {
               score={score}
               scoreLabel={
                 score == null
-                  ? "En attente du premier cycle"
+                  ? tr("status_awaitingFirstCycle", locale)
                   : score >= 80
-                    ? "Situation saine"
+                    ? tr("status_healthySituation", locale)
                     : score >= 50
-                      ? "Points d'attention"
-                      : "Situation dégradée"
+                      ? tr("status_attentionPoints", locale)
+                      : tr("status_degradedSituation", locale)
               }
               version={health?.version ? `v${health.version}` : ""}
               // 8 slots (4 left + 4 right) matching the original SVG wiring.
@@ -269,12 +272,12 @@ export default function StatusPage() {
               services={[
                 // Left column
                 { name: "PostgreSQL",    connected: dbOk === "ok",         color: "#3080d0", detail: "pg16 · pgvector" },
-                { name: "Intel. Engine", connected: engineOk === "ok",     color: "#d03020", detail: "Corrélation · Sigma · Graph" },
-                { name: "Channels",      connected: (channelCount ?? 0) > 0, color: "#30a050", detail: channelCount != null ? `${channelCount} actif(s)` : "aucun" },
-                { name: "Logs",          connected: sourcesActive > 0,     color: "#f97316", detail: `${sourcesActive} sources actives` },
+                { name: "Intel. Engine", connected: engineOk === "ok",     color: "#d03020", detail: `${tr("status_correlation", locale)} · Sigma · Graph` },
+                { name: "Channels",      connected: (channelCount ?? 0) > 0, color: "#30a050", detail: channelCount != null ? `${channelCount} ${tr("status_activeShort", locale)}` : tr("status_none", locale) },
+                { name: "Logs",          connected: sourcesActive > 0,     color: "#f97316", detail: `${sourcesActive} ${tr("status_activeSources", locale)}` },
                 // Right column
-                { name: "AI",            connected: ollamaOk === "ok",     color: "#9060d0", detail: `${ollamaModels.length} modèle(s)`, restartable: true },
-                { name: "ML Engine",     connected: mlPhase(ml).connected, color: "#d09020", detail: mlPhase(ml).label, restartable: true },
+                { name: "AI",            connected: ollamaOk === "ok",     color: "#9060d0", detail: `${ollamaModels.length} ${tr("status_modelShort", locale)}`, restartable: true },
+                { name: "ML Engine",     connected: mlPhase(ml, locale).connected, color: "#d09020", detail: mlPhase(ml, locale).label, restartable: true },
                 { name: "Skills",        connected: (skillCount ?? 0) > 0, color: "#06b6d4", detail: skillCount != null ? `${skillCount} skills` : "—" },
                 { name: "Dashboard",     connected: true,                  color: "#b0a8a0", detail: "Next.js 16 · SSR" },
               ]}
@@ -284,28 +287,30 @@ export default function StatusPage() {
 
         {/* RIGHT — Moteurs internes */}
         <div>
-          <Section title="Moteurs internes">
-            <EngineRow name="Intelligence Engine" detail="cycle 5 min · scoring" ok={engineOk === "ok"} />
-            <EngineRow name="Sigma Engine" detail="84 règles · pack V49" ok={engineOk === "ok"} />
-            <EngineRow name="Bloom Filter" detail="IoC live · 18k entries" ok={engineOk === "ok"} />
-            <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} />
+          <Section title={tr("status_internalEngines", locale)}>
+            <EngineRow name="Intelligence Engine" detail={`${tr("status_cycle5min", locale)} · scoring`} ok={engineOk === "ok"} locale={locale} />
+            <EngineRow name="Sigma Engine" detail={`84 ${tr("status_rules", locale)} · pack V49`} ok={engineOk === "ok"} locale={locale} />
+            <EngineRow name="Bloom Filter" detail="IoC live · 18k entries" ok={engineOk === "ok"} locale={locale} />
+            <EngineRow name="Graph Intelligence" detail="STIX 2.1 · Apache AGE" ok={engineOk === "ok"} locale={locale} />
             <EngineRow
               name="ML Anomaly Detection"
-              detail={ml?.model_trained ? "Isolation Forest" : ml?.alive ? `en apprentissage · ${ml.data_days ?? 0}/${MIN_TRAINING_DAYS}j` : "inactif"}
+              detail={ml?.model_trained ? "Isolation Forest" : ml?.alive ? `${tr("status_learning", locale)} · ${ml.data_days ?? 0}/${MIN_TRAINING_DAYS}j` : tr("status_inactive", locale)}
               ok={(ml?.alive ?? false) && (ml?.model_trained ?? false)}
+              locale={locale}
             />
             <EngineRow
               name="ML DNS Classifier"
-              detail={ml?.alive ? "Random Forest · DGA" : "inactif"}
+              detail={ml?.alive ? "Random Forest · DGA" : tr("status_inactive", locale)}
               ok={ml?.alive ?? false}
+              locale={locale}
             />
           </Section>
         </div>
       </div>
 
-      <Section title="Modèles IA locaux (Ollama)">
+      <Section title={tr("status_localAiModels", locale)}>
         {ollamaModels.length === 0 ? (
-          <EmptyLine text={ollamaOk === "down" ? "ollama injoignable" : "aucun modèle chargé"} />
+          <EmptyLine text={ollamaOk === "down" ? tr("status_ollamaUnreachable", locale) : tr("status_noModelLoaded", locale)} />
         ) : (
           <div
             style={{
@@ -335,7 +340,7 @@ export default function StatusPage() {
         )}
       </Section>
 
-      <Section title="Volumétrie · dernier cycle">
+      <Section title={tr("status_volumetryLastCycle", locale)}>
         <div
           style={{
             display: "grid",
@@ -343,11 +348,11 @@ export default function StatusPage() {
             gap: "10px",
           }}
         >
-          <StatLine label="Alertes actives" value={situation?.total_active_alerts ?? "—"} />
-          <StatLine label="Findings ouverts" value={situation?.total_open_findings ?? "—"} />
-          <StatLine label="Assets suivis" value={situation?.assets?.length ?? "—"} />
+          <StatLine label={tr("status_activeAlerts", locale)} value={situation?.total_active_alerts ?? "—"} />
+          <StatLine label={tr("status_openFindings", locale)} value={situation?.total_open_findings ?? "—"} />
+          <StatLine label={tr("status_trackedAssets", locale)} value={situation?.assets?.length ?? "—"} />
           <StatLine
-            label="Dernier cycle"
+            label={tr("status_lastCycle", locale)}
             value={situation?.computed_at ? formatRelativeShort(situation.computed_at) : "—"}
           />
         </div>
@@ -355,7 +360,7 @@ export default function StatusPage() {
 
       <div style={{ textAlign: "center", marginTop: "24px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
         <Link href="/" style={{ color: "var(--tc-text-sec)", textDecoration: "none" }}>
-          ← retour à la console
+          ← {tr("status_backToConsole", locale)}
         </Link>
       </div>
     </div>
@@ -447,7 +452,7 @@ function ServiceRow({
   );
 }
 
-function EngineRow({ name, detail, ok }: { name: string; detail: string; ok: boolean }) {
+function EngineRow({ name, detail, ok, locale }: { name: string; detail: string; ok: boolean; locale: Locale }) {
   return (
     <div
       style={{
@@ -473,7 +478,7 @@ function EngineRow({ name, detail, ok }: { name: string; detail: string; ok: boo
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px" }}>{detail}</div>
       </div>
       <span style={{ fontSize: "10px", color: ok ? "#30a050" : "var(--tc-text-muted)", letterSpacing: "0.12em", textTransform: "uppercase" }}>
-        {ok ? "actif" : "inactif"}
+        {ok ? tr("status_active", locale) : tr("status_inactive", locale)}
       </span>
     </div>
   );

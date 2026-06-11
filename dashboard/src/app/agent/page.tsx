@@ -51,7 +51,7 @@ export default function AgentPage() {
     <ChromeInsetCard>
       <div style={{ textAlign: "center", padding: "40px" }}>
         <Loader2 size={20} color="#903020" className="animate-spin" style={{ margin: "0 auto" }} />
-        <ChromeEmbossedText as="div" style={{ fontSize: "10px", opacity: 0.5, marginTop: "8px" }}>Connexion...</ChromeEmbossedText>
+        <ChromeEmbossedText as="div" style={{ fontSize: "10px", opacity: 0.5, marginTop: "8px" }}>{tr("agentPage_connecting", locale)}</ChromeEmbossedText>
       </div>
     </ChromeInsetCard>
   );
@@ -66,7 +66,7 @@ export default function AgentPage() {
             <div>
               <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 700 }}>{soul?.name || "Agent Soul"}</ChromeEmbossedText>
               <ChromeEmbossedText as="div" style={{ fontSize: "8px", opacity: 0.45 }}>
-                {soul?.status === "verified" ? `v${soul.version} · ${soul.rules_count} règles · OK` : "Erreur"}
+                {soul?.status === "verified" ? `v${soul.version} · ${soul.rules_count} ${tr("agentPage_rulesOk", locale)}` : tr("agentPage_error", locale)}
               </ChromeEmbossedText>
             </div>
           </div>
@@ -81,7 +81,7 @@ export default function AgentPage() {
             {killConfirm ? (
               <div style={{ display: "flex", gap: "4px" }}>
                 <ChromeButton onClick={async () => { await triggerKillSwitch("rssi"); setKillConfirm(false); await refresh(); }}>
-                  <span style={{ fontSize: "8px", color: "#903020" }}>CONFIRMER</span>
+                  <span style={{ fontSize: "8px", color: "#903020" }}>{tr("agentPage_confirm", locale)}</span>
                 </ChromeButton>
                 <ChromeButton onClick={() => setKillConfirm(false)}>
                   <span style={{ fontSize: "8px" }}>{tr("cancel", locale)}</span>
@@ -89,7 +89,7 @@ export default function AgentPage() {
               </div>
             ) : (
               <ChromeButton onClick={() => setKillConfirm(true)}>
-                <span style={{ fontSize: "8px" }}>ARRÊT URGENCE</span>
+                <span style={{ fontSize: "8px" }}>{tr("agentPage_emergencyStop", locale)}</span>
               </ChromeButton>
             )}
           </div>
@@ -99,7 +99,7 @@ export default function AgentPage() {
       {/* Mode selector */}
       <ChromeInsetCard className="mb-3">
         <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
-          Mode agent
+          {tr("agentPage_agentMode", locale)}
         </ChromeEmbossedText>
         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
           {mode?.available_modes.map(m => {
@@ -122,12 +122,12 @@ export default function AgentPage() {
       <ChromeInsetCard className="mb-3">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-            Lancer une analyse
+            {tr("agentPage_runAnalysis", locale)}
           </ChromeEmbossedText>
           <ChromeButton onClick={handleRunCycle} disabled={cycleRunning}>
             <span style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "9px" }}>
               {cycleRunning ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
-              {cycleRunning ? "Analyse..." : "Lancer"}
+              {cycleRunning ? tr("agentPage_analyzing", locale) : tr("agentPage_run", locale)}
             </span>
           </ChromeButton>
         </div>
@@ -140,8 +140,8 @@ export default function AgentPage() {
             <div style={{ display: "flex", gap: "8px", fontSize: "8px" }}>
               <ChromeEmbossedText as="span" style={{ fontWeight: 700, color: "#903020" }}>{lastAnalysis.analysis.severity}</ChromeEmbossedText>
               <ChromeEmbossedText as="span" style={{ opacity: 0.4 }}>L{lastAnalysis.escalation_level}</ChromeEmbossedText>
-              <ChromeEmbossedText as="span" style={{ opacity: 0.4 }}>{Math.round(lastAnalysis.analysis.confidence * 100)}% confiance</ChromeEmbossedText>
-              <ChromeEmbossedText as="span" style={{ opacity: 0.4 }}>{lastAnalysis.analysis.correlations.length} corrélations</ChromeEmbossedText>
+              <ChromeEmbossedText as="span" style={{ opacity: 0.4 }}>{Math.round(lastAnalysis.analysis.confidence * 100)}% {tr("agentPage_confidence", locale)}</ChromeEmbossedText>
+              <ChromeEmbossedText as="span" style={{ opacity: 0.4 }}>{lastAnalysis.analysis.correlations.length} {tr("agentPage_correlations", locale)}</ChromeEmbossedText>
             </div>
           </div>
         )}
@@ -150,13 +150,13 @@ export default function AgentPage() {
       {/* Audit log */}
       <ChromeInsetCard>
         <ChromeEmbossedText as="div" style={{ fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
-          Journal d{"'"}audit ({audit.length})
+          {tr("agentPage_auditLog", locale)} ({audit.length})
         </ChromeEmbossedText>
         {audit.length === 0 ? (
           <div style={{ textAlign: "center", padding: "12px" }}>
             <Clock size={14} color="#907060" style={{ margin: "0 auto 4px" }} />
             <ChromeEmbossedText as="div" style={{ fontSize: "9px", opacity: 0.4 }}>
-              Le journal se remplira après un analyse manuelle
+              {tr("agentPage_auditEmpty", locale)}
             </ChromeEmbossedText>
           </div>
         ) : (
@@ -166,7 +166,7 @@ export default function AgentPage() {
                 <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: e.success ? "#5a7a4a" : "#903020", flexShrink: 0 }} />
                 <ChromeEmbossedText as="span" style={{ fontSize: "9px", fontWeight: 600, flex: 1 }}>{e.event_type}</ChromeEmbossedText>
                 <ChromeEmbossedText as="span" style={{ fontSize: "8px", opacity: 0.35 }}>
-                  {e.timestamp ? new Date(e.timestamp).toLocaleString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : ""}
+                  {e.timestamp ? new Date(e.timestamp).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", { hour: "2-digit", minute: "2-digit" }) : ""}
                 </ChromeEmbossedText>
               </div>
             ))}
