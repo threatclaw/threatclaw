@@ -6,6 +6,8 @@ import { Users, Shield, AlertTriangle, Search, RefreshCw, ChevronRight, Server }
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 interface UserSummary {
   username: string;
@@ -39,10 +41,10 @@ const SEV_COLORS: Record<string, string> = {
   low: "var(--tc-text-sec)",
 };
 
-function fmtDate(iso: string | null): string {
+function fmtDate(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("fr-FR", {
+    return new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit",
     });
@@ -71,6 +73,7 @@ function Tag({ label, color }: { label: string; color: string }) {
 }
 
 export default function UsersPage() {
+  const locale = useLocale();
   const [data, setData] = useState<UsersResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,14 +146,14 @@ export default function UsersPage() {
       }}
     >
       <RefreshCw size={11} className={loading ? "spin" : ""} />
-      Rafraîchir
+      {tr("users_refresh", locale)}
     </button>
   );
 
   return (
     <PageShell
-      title={`Utilisateurs · ${stats.total}`}
-      subtitle="Comptes observés dans les logs, sur le graphe d'identité et via les connecteurs (M365, AD). Croisement asset × user et anomalies UBA."
+      title={`${tr("users_pageTitle", locale)} · ${stats.total}`}
+      subtitle={tr("users_pageSubtitle", locale)}
       right={refreshBtn}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -159,10 +162,10 @@ export default function UsersPage() {
 
         <NeuCard style={{ padding: "14px 18px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "28px", flexWrap: "wrap" }}>
-            <StatInline label="Total" value={stats.total} />
-            <StatInline label="Admins" value={stats.admins} color="var(--tc-red)" />
-            <StatInline label="Services" value={stats.service} />
-            <StatInline label="Anomalies UBA" value={stats.withAnomaly}
+            <StatInline label={tr("users_statTotal", locale)} value={stats.total} />
+            <StatInline label={tr("users_statAdmins", locale)} value={stats.admins} color="var(--tc-red)" />
+            <StatInline label={tr("users_statServices", locale)} value={stats.service} />
+            <StatInline label={tr("users_statAnomaliesUba", locale)} value={stats.withAnomaly}
               color={stats.withAnomaly ? "var(--tc-red)" : undefined} />
           </div>
         </NeuCard>
@@ -173,7 +176,7 @@ export default function UsersPage() {
               <Search size={11} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: "var(--tc-text-muted)" }} />
               <input
                 type="text"
-                placeholder="Chercher un utilisateur ou département…"
+                placeholder={tr("users_searchPlaceholder", locale)}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 style={{
@@ -196,7 +199,7 @@ export default function UsersPage() {
                   cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em",
                 }}
               >
-                {k === "all" ? "Tous" : k === "admin" ? "Admins" : k === "service" ? "Services" : "Anomalies"}
+                {k === "all" ? tr("users_filterAll", locale) : k === "admin" ? tr("users_filterAdmins", locale) : k === "service" ? tr("users_filterServices", locale) : tr("users_filterAnomalies", locale)}
               </button>
             ))}
           </div>
@@ -205,24 +208,24 @@ export default function UsersPage() {
         <NeuCard style={{ padding: 0, overflow: "hidden" }}>
           {loading && !data ? (
             <div style={{ padding: "40px", textAlign: "center", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-              Chargement des utilisateurs…
+              {tr("users_loading", locale)}
             </div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: "40px", textAlign: "center", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-              Aucun utilisateur correspondant.
+              {tr("users_emptyList", locale)}
             </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
               <thead>
                 <tr style={{ background: "var(--tc-input)" }}>
-                  <Th>Utilisateur</Th>
-                  <Th>Département</Th>
-                  <Th>Type</Th>
-                  <Th align="right">Logins</Th>
-                  <Th align="right">Échecs</Th>
-                  <Th align="right">Assets</Th>
-                  <Th>Anomalie</Th>
-                  <Th>Dernière activité</Th>
+                  <Th>{tr("users_thUser", locale)}</Th>
+                  <Th>{tr("users_thDepartment", locale)}</Th>
+                  <Th>{tr("users_thType", locale)}</Th>
+                  <Th align="right">{tr("users_thLogins", locale)}</Th>
+                  <Th align="right">{tr("users_thFailures", locale)}</Th>
+                  <Th align="right">{tr("users_thAssets", locale)}</Th>
+                  <Th>{tr("users_thAnomaly", locale)}</Th>
+                  <Th>{tr("users_thLastActivity", locale)}</Th>
                   <Th></Th>
                 </tr>
               </thead>
@@ -244,9 +247,9 @@ export default function UsersPage() {
                       <Td>{u.department ?? "—"}</Td>
                       <Td>
                         <div style={{ display: "flex", gap: "4px" }}>
-                          {u.is_admin && <Tag label="Admin" color="var(--tc-red)" />}
-                          {u.is_service_account && <Tag label="Service" color="var(--tc-text-sec)" />}
-                          {!u.is_admin && !u.is_service_account && <Tag label="Humain" color="var(--tc-text-muted)" />}
+                          {u.is_admin && <Tag label={tr("users_tagAdmin", locale)} color="var(--tc-red)" />}
+                          {u.is_service_account && <Tag label={tr("users_tagService", locale)} color="var(--tc-text-sec)" />}
+                          {!u.is_admin && !u.is_service_account && <Tag label={tr("users_tagHuman", locale)} color="var(--tc-text-muted)" />}
                         </div>
                       </Td>
                       <Td align="right"><span style={{ fontVariantNumeric: "tabular-nums" }}>{u.login_count}</span></Td>
@@ -271,7 +274,7 @@ export default function UsersPage() {
                           </div>
                         ) : "—"}
                       </Td>
-                      <Td>{fmtDate(u.last_seen)}</Td>
+                      <Td>{fmtDate(u.last_seen, locale)}</Td>
                       <Td><ChevronRight size={11} color="var(--tc-text-muted)" /></Td>
                     </tr>
                   );

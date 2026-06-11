@@ -116,7 +116,7 @@ export default function AlertsPage() {
 
       {/* Alerts list */}
       {loading ? (
-        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>Chargement...</div></ChromeInsetCard>
+        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("alerts_loading", locale)}</div></ChromeInsetCard>
       ) : filtered.length === 0 ? (
         <ChromeInsetCard>
           <div style={{ textAlign: "center", padding: "32px" }}>
@@ -144,7 +144,7 @@ export default function AlertsPage() {
                       {a.hostname && <span>{a.hostname}</span>}
                       {a.source_ip && <span>{a.source_ip}</span>}
                       {a.username && <span>{a.username}</span>}
-                      <span>{new Date(a.matched_at).toLocaleString("fr-FR")}</span>
+                      <span>{new Date(a.matched_at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</span>
                     </div>
                   </div>
                   <span style={{ fontSize: "10px", color: st.color, display: "flex", alignItems: "center", gap: "4px" }}>
@@ -156,8 +156,8 @@ export default function AlertsPage() {
                 {isExpanded && (
                   <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
                     <div style={{ display: "flex", gap: "16px", fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "12px", flexWrap: "wrap" }}>
-                      <span>Règle : <strong style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.rule_id}</strong></span>
-                      <span>Détecté : <strong style={{ color: "var(--tc-text)" }}>{new Date(a.matched_at).toLocaleString("fr-FR")}</strong></span>
+                      <span>{tr("alerts_ruleLabel", locale)}<strong style={{ color: "var(--tc-text)", fontFamily: "monospace" }}>{a.rule_id}</strong></span>
+                      <span>{tr("alerts_detectedLabel", locale)}<strong style={{ color: "var(--tc-text)" }}>{new Date(a.matched_at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</strong></span>
                     </div>
                     {a.matched_fields && Object.keys(a.matched_fields).length > 0 && (
                       <div style={{ marginBottom: "12px", padding: "10px 12px", borderRadius: "var(--tc-radius-input)", background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)", fontSize: "11px", fontFamily: "monospace", color: "var(--tc-text-sec)" }}>
@@ -172,7 +172,7 @@ export default function AlertsPage() {
                           await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "resolved" }) });
                           load();
                         }} style={{ fontSize: "10px", padding: "6px 12px" }}>
-                          <CheckCircle2 size={11} /> Résolu
+                          <CheckCircle2 size={11} /> {tr("alerts_markResolved", locale)}
                         </button>
                       )}
                       {a.status !== "investigating" && a.status !== "resolved" && (
@@ -180,7 +180,7 @@ export default function AlertsPage() {
                           await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "investigating" }) });
                           load();
                         }} style={{ fontSize: "10px", padding: "6px 12px" }}>
-                          <Clock size={11} /> En cours
+                          <Clock size={11} /> {tr("alerts_markInvestigating", locale)}
                         </button>
                       )}
                       {a.status !== "false_positive" && (
@@ -188,7 +188,7 @@ export default function AlertsPage() {
                           await fetch(`/api/tc/alerts/${a.id}/status`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "false_positive" }) });
                           load();
                         }} style={{ fontSize: "10px", padding: "6px 12px" }}>
-                          <X size={11} /> Faux positif
+                          <X size={11} /> {tr("alerts_markFalsePositive", locale)}
                         </button>
                       )}
                     </div>
