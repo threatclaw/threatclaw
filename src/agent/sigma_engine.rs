@@ -589,6 +589,15 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         Err(_) => return,
     };
 
+    // Observe-and-enrol: any hostname appearing in the recent log batch that
+    // is not yet in the assets table gets upserted with `source = "syslog"`
+    // and `inventory_status` left at the default so the operator can promote
+    // it from "observed" to "declared" later. Without this hook a customer
+    // forwarding syslog from 10k hosts would see zero asset rows even though
+    // the SOC console clearly shows traffic, which made triage and the
+    // dashboard inventory unusable for the syslog-only use case.
+    enrol_observed_hostnames(store.as_ref(), &logs).await;
+
     let mut alerts_created = 0u32;
     let mut findings_created = 0u32;
     let mut cycle_dedup: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -849,6 +858,72 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
             logs.len(),
             rules.len()
         );
+    }
+}
+
+/// For every distinct, non-empty hostname appearing in the recent log
+/// batch, upsert a syslog-sourced asset row if one does not already
+/// exist. This is the auto-enrolment hook for the "customer forwards
+/// raw syslog from N hosts" use case — without it the assets table
+/// stays empty until the operator manually declares each device, even
+/// though the SOC console shows live traffic from them.
+///
+/// Idempotent: subsequent cycles re-upsert the same id and skip rows
+/// where `find_asset_by_hostname` already returns Some. We only enrol
+/// when the raw hostname is neither empty nor literally "unknown",
+/// and we never overwrite a hostname that already maps to a declared
+/// asset (the auto-row uses a deterministic `syslog-observed-<host>`
+/// id distinct from any operator-created id).
+async fn enrol_observed_hostnames(
+    store: &dyn crate::db::Database,
+    logs: &[crate::db::threatclaw_store::LogRecord],
+) {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for log in logs {
+        let Some(h) = log.hostname.as_deref() else { continue };
+        if h.is_empty() || h == "unknown" {
+            continue;
+        }
+        if !seen.insert(h.to_string()) {
+            continue;
+        }
+        if let Ok(Some(_)) = store.find_asset_by_hostname(h).await {
+            continue;
+        }
+        let asset = crate::db::threatclaw_store::NewAsset {
+            id: format!("syslog-observed-{}", h),
+            name: h.to_string(),
+            category: "endpoint".to_string(),
+            subcategory: Some("syslog-source".to_string()),
+            role: None,
+            criticality: "medium".to_string(),
+            ip_addresses: vec![],
+            mac_address: None,
+            hostname: Some(h.to_string()),
+            fqdn: None,
+            url: None,
+            os: None,
+            mac_vendor: None,
+            services: serde_json::Value::Array(vec![]),
+            source: "syslog".to_string(),
+            owner: None,
+            location: None,
+            tags: vec!["observed".to_string(), "syslog".to_string()],
+        };
+        if let Err(e) = store.upsert_asset(&asset).await {
+            tracing::warn!(
+                target: "asset_enrolment",
+                "syslog observe-and-enrol failed for {}: {}",
+                h,
+                e
+            );
+        } else {
+            tracing::info!(
+                target: "asset_enrolment",
+                "auto-enrolled asset from syslog source: {}",
+                h
+            );
+        }
     }
 }
 
