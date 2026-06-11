@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::libsql::LibSqlBackend;
 use crate::connectors::microsoft_sentinel::{
     DedupDecision, ParsedAnalyticRule, ParsedSentinelAlert, ParsedSentinelEntity,
-    ParsedSentinelIncident, SentinelError, SentinelStore,
+    ParsedSentinelIncident, PendingVerdict, SentinelError, SentinelStore,
 };
 
 fn not_supported() -> SentinelError {
@@ -70,6 +70,15 @@ impl SentinelStore for LibSqlBackend {
         _: Uuid,
         _: i64,
     ) -> Result<Option<ParsedAnalyticRule>, SentinelError> {
+        Err(not_supported())
+    }
+    async fn pending_verdicts_to_post(&self) -> Result<Vec<PendingVerdict>, SentinelError> {
+        Err(not_supported())
+    }
+    async fn mark_comment_posted(&self, _: i32) -> Result<(), SentinelError> {
+        Err(not_supported())
+    }
+    async fn disable_comment_write_with_reason(&self, _: &str) -> Result<(), SentinelError> {
         Err(not_supported())
     }
 }

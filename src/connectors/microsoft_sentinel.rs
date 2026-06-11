@@ -747,6 +747,18 @@ pub async fn fetch_entities_for_incident(
     parse_entities_response(&body)
 }
 
+/// Pending verdict candidate retrieved from the store: the L2 has finished
+/// analysing a Sentinel-sourced incident and we have not yet pushed that
+/// verdict back to Sentinel as an incident comment. The orchestrator pulls
+/// these after the incident-ingest loop and posts them via
+/// `post_threatclaw_comment`.
+#[derive(Debug, Clone)]
+pub struct PendingVerdict {
+    pub threatclaw_incident_id: i32,
+    pub sentinel_incident_id: Uuid,
+    pub report: VerdictReport,
+}
+
 /// Storage abstraction for the Sentinel sync loop. The orchestrator
 /// (`sync_microsoft_sentinel_inner`) is generic over this trait so the
 /// HTTP-driven sync logic can be unit-tested against an in-memory mock
@@ -796,6 +808,18 @@ pub trait SentinelStore: Send + Sync {
         rule_id: Uuid,
         ttl_secs: i64,
     ) -> Result<Option<ParsedAnalyticRule>, SentinelError>;
+    /// Returns incidents whose L2 verdict has been produced but not yet
+    /// echoed back to Sentinel as a comment. The orchestrator calls
+    /// `post_threatclaw_comment` for each entry and then
+    /// `mark_comment_posted` on success.
+    async fn pending_verdicts_to_post(&self) -> Result<Vec<PendingVerdict>, SentinelError>;
+    /// Marks the Sentinel incident metadata row as having had its verdict
+    /// comment posted, so subsequent cycles skip it.
+    async fn mark_comment_posted(&self, threatclaw_incident_id: i32) -> Result<(), SentinelError>;
+    /// Persists `enable_comment_write = false` plus a human-readable reason
+    /// in `skill_configs` so the dashboard config UI surfaces why writes
+    /// were turned off (typically: Sentinel Responder role missing).
+    async fn disable_comment_write_with_reason(&self, reason: &str) -> Result<(), SentinelError>;
 }
 
 /// Orchestrates a single Sentinel sync cycle: poll incidents delta, fetch
@@ -854,6 +878,40 @@ pub async fn sync_microsoft_sentinel_inner(
         // entity through the asset_resolution pipeline to populate asset_id
         // on the sentinel_entities row. For now the entity is stored with
         // asset_id NULL; the resolver will be called from the PgStore impl.
+    }
+
+    // Verdict pump: after the incident-ingest loop, push any L2 verdicts
+    // that have been produced since the last cycle back to Sentinel as
+    // incident comments. A 403 on the first comment write means the app
+    // registration has Sentinel Reader but not Responder; persist that
+    // fact via `disable_comment_write_with_reason` so subsequent cycles
+    // skip the attempt entirely (the dashboard config UI surfaces the
+    // reason to the operator). The `http` client from earlier in this
+    // function is reused; it already carries the project's retry middleware.
+    let pending = store.pending_verdicts_to_post().await?;
+    for pv in pending {
+        let body = format_verdict_comment(&pv.report);
+        let outcome =
+            post_threatclaw_comment(cfg, auth, &http, pv.sentinel_incident_id, &body).await?;
+        match outcome {
+            CommentOutcome::Posted => {
+                store.mark_comment_posted(pv.threatclaw_incident_id).await?;
+                result.comments_posted += 1;
+            }
+            CommentOutcome::RoleInsufficient => {
+                store
+                    .disable_comment_write_with_reason(
+                        "role insufficient (need Microsoft Sentinel Responder)",
+                    )
+                    .await?;
+                tracing::warn!(
+                    target: "sentinel_sync",
+                    "comment write disabled: Sentinel Responder role missing on app registration"
+                );
+                break;
+            }
+            CommentOutcome::Skipped => {}
+        }
     }
 
     let new_cursors = SentinelSyncCursors {
@@ -1387,6 +1445,9 @@ mod tests {
         alerts: Mutex<Vec<(i32, ParsedSentinelAlert, DedupDecision)>>,
         entities: Mutex<Vec<ParsedSentinelEntity>>,
         next_tc_id: Mutex<i32>,
+        pending_verdicts: Mutex<Vec<PendingVerdict>>,
+        posted: Mutex<Vec<i32>>,
+        disable_reason: Mutex<Option<String>>,
     }
 
     #[async_trait::async_trait]
@@ -1454,6 +1515,20 @@ mod tests {
             _ttl: i64,
         ) -> Result<Option<ParsedAnalyticRule>, SentinelError> {
             Ok(None)
+        }
+        async fn pending_verdicts_to_post(&self) -> Result<Vec<PendingVerdict>, SentinelError> {
+            Ok(self.pending_verdicts.lock().unwrap().clone())
+        }
+        async fn mark_comment_posted(&self, tc_id: i32) -> Result<(), SentinelError> {
+            self.posted.lock().unwrap().push(tc_id);
+            Ok(())
+        }
+        async fn disable_comment_write_with_reason(
+            &self,
+            reason: &str,
+        ) -> Result<(), SentinelError> {
+            *self.disable_reason.lock().unwrap() = Some(reason.to_string());
+            Ok(())
         }
     }
 
@@ -1636,5 +1711,97 @@ mod tests {
             .await
             .expect("ok");
         assert_eq!(outcome, CommentOutcome::Skipped);
+    }
+
+    #[tokio::test]
+    async fn sync_posts_pending_verdict_when_enabled() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        // Empty incidents so we go straight to the verdict pump
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"value":[]}"#))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/comments/.+"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+
+        let store = MockStore::default();
+        store.pending_verdicts.lock().unwrap().push(PendingVerdict {
+            threatclaw_incident_id: 42,
+            sentinel_incident_id: Uuid::new_v4(),
+            report: VerdictReport {
+                verdict: "True Positive".into(),
+                severity: "High".into(),
+                timeline: vec![],
+                affected_assets: vec!["host-a".into()],
+                recommendation: "isolate".into(),
+                full_report_url: "https://threatclaw.local/i/42".into(),
+            },
+        });
+        let store = std::sync::Arc::new(store);
+        let auth = MicrosoftAuthCache::new();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+        cfg.enable_comment_write = true;
+
+        let (result, _) = sync_microsoft_sentinel_inner(
+            store.clone(),
+            &cfg,
+            SentinelSyncCursors::default(),
+            &auth,
+        )
+        .await
+        .expect("ok");
+        assert_eq!(result.comments_posted, 1);
+        assert_eq!(store.posted.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn sync_disables_comment_write_on_403() {
+        let server = MockServer::start().await;
+        mock_token_endpoint(&server).await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/subscriptions/.+/incidents"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"value":[]}"#))
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/subscriptions/.+/incidents/.+/comments/.+"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("{}"))
+            .mount(&server)
+            .await;
+
+        let store = MockStore::default();
+        store.pending_verdicts.lock().unwrap().push(PendingVerdict {
+            threatclaw_incident_id: 1,
+            sentinel_incident_id: Uuid::new_v4(),
+            report: VerdictReport {
+                verdict: "x".into(),
+                severity: "x".into(),
+                timeline: vec![],
+                affected_assets: vec![],
+                recommendation: "x".into(),
+                full_report_url: "x".into(),
+            },
+        });
+        let store = std::sync::Arc::new(store);
+        let auth = MicrosoftAuthCache::new();
+        let mut cfg = test_cfg();
+        cfg.arm_base_override = Some(server.uri());
+        cfg.enable_comment_write = true;
+
+        let _ = sync_microsoft_sentinel_inner(
+            store.clone(),
+            &cfg,
+            SentinelSyncCursors::default(),
+            &auth,
+        )
+        .await
+        .expect("ok");
+        assert!(store.disable_reason.lock().unwrap().is_some());
     }
 }

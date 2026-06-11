@@ -16,7 +16,8 @@ use uuid::Uuid;
 
 use crate::connectors::microsoft_sentinel::{
     DedupDecision, ParsedAnalyticRule, ParsedSentinelAlert, ParsedSentinelEntity,
-    ParsedSentinelIncident, SentinelError, SentinelStore, map_sentinel_status,
+    ParsedSentinelIncident, PendingVerdict, SentinelError, SentinelStore, VerdictReport,
+    map_sentinel_status,
 };
 use crate::db::postgres::PgBackend;
 
@@ -344,6 +345,96 @@ impl SentinelStore for PgBackend {
                     &rule.enabled,
                     &rule.raw,
                 ],
+            )
+            .await
+            .map_err(store_err)?;
+        Ok(())
+    }
+
+    async fn pending_verdicts_to_post(&self) -> Result<Vec<PendingVerdict>, SentinelError> {
+        let client = self.pool().get().await.map_err(store_err)?;
+        let rows = client
+            .query(
+                r#"
+                SELECT i.id, sim.sentinel_incident_id, i.title, i.severity, i.status,
+                       sim.sentinel_classification
+                FROM incidents i
+                JOIN sentinel_incident_metadata sim ON sim.incident_id = i.id
+                WHERE i.external_source = 'sentinel'
+                  AND sim.sentinel_comment_posted = FALSE
+                  AND i.status IN ('resolved', 'false_positive')
+                LIMIT 50
+                "#,
+                &[],
+            )
+            .await
+            .map_err(store_err)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for r in rows {
+            let tc_id: i32 = r.get(0);
+            let sentinel_incident_id: Uuid = r.get(1);
+            let title: String = r.get(2);
+            let severity: String = r.get(3);
+            let status: String = r.get(4);
+            let classification: Option<String> = r.get(5);
+            // Map status to a human-readable verdict label
+            let verdict = match status.as_str() {
+                "resolved" => classification.unwrap_or_else(|| "Resolved".into()),
+                "false_positive" => "False Positive".into(),
+                other => other.to_string(),
+            };
+            out.push(PendingVerdict {
+                threatclaw_incident_id: tc_id,
+                sentinel_incident_id,
+                report: VerdictReport {
+                    verdict,
+                    severity,
+                    timeline: vec![],
+                    affected_assets: vec![],
+                    recommendation: format!("See ThreatClaw analysis for {}", title),
+                    // TODO(skill-microsoft-sentinel): replace with dashboard:base_url
+                    // lookup from skill_configs when that key is conventionalized.
+                    full_report_url: format!("https://threatclaw.local/incidents/{}", tc_id),
+                },
+            });
+        }
+        Ok(out)
+    }
+
+    async fn mark_comment_posted(&self, threatclaw_incident_id: i32) -> Result<(), SentinelError> {
+        let client = self.pool().get().await.map_err(store_err)?;
+        client
+            .execute(
+                "UPDATE sentinel_incident_metadata SET sentinel_comment_posted = TRUE, updated_at = now() WHERE incident_id = $1",
+                &[&threatclaw_incident_id],
+            )
+            .await
+            .map_err(store_err)?;
+        Ok(())
+    }
+
+    async fn disable_comment_write_with_reason(&self, reason: &str) -> Result<(), SentinelError> {
+        let client = self.pool().get().await.map_err(store_err)?;
+        // Reuse the same skill_configs pattern used by save_cursor above.
+        client
+            .execute(
+                r#"
+                INSERT INTO skill_configs (skill_id, key, value, updated_at)
+                VALUES ('skill-microsoft-sentinel', 'enable_comment_write', 'false', NOW())
+                ON CONFLICT (skill_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                "#,
+                &[],
+            )
+            .await
+            .map_err(store_err)?;
+        client
+            .execute(
+                r#"
+                INSERT INTO skill_configs (skill_id, key, value, updated_at)
+                VALUES ('skill-microsoft-sentinel', 'comment_write_disabled_reason', $1, NOW())
+                ON CONFLICT (skill_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                "#,
+                &[&reason],
             )
             .await
             .map_err(store_err)?;
