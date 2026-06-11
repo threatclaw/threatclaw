@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.27-beta] — 2026-06-11
+
+### Added
+- Microsoft Sentinel connector skill (`skill-microsoft-sentinel`) ingesting Sentinel incidents, related alerts, entities, and analytic rule context at one-minute cadence. Defender alerts already ingested via the Microsoft 365 connector are automatically deduplicated. Sentinel-extracted entities (Account, Host) hydrate the canonical asset record via the existing resolver. Optional comment write back to Sentinel after L2 forensic produces a verdict (requires the Sentinel Responder role; graceful fallback to read-only when only Reader is granted).
+- Shared Microsoft OAuth layer (`microsoft_auth`) extracted from the Microsoft 365 connector. Both skills now share token cache, certificate-based client assertion (PS256), and HTTP retry policy across different scopes (Graph and Azure Resource Manager).
+
+### Changed
+- The Microsoft 365 connector is refactored to consume the shared OAuth layer. No behavior change.
+
 ## [1.0.26-beta] — 2026-06-02
 
 ### Added
