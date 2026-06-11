@@ -7,6 +7,8 @@ import { Users, Shield, AlertTriangle, ArrowLeft, Server, Activity, GitBranch } 
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 interface UserSummary {
   username: string;
@@ -50,10 +52,10 @@ const CRIT_COLORS: Record<string, string> = {
   critical: "#e04040", high: "#d07020", medium: "#d09020", low: "#30a050",
 };
 
-function fmtDate(iso: string | null): string {
+function fmtDate(iso: string | null, locale: Locale): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleString("fr-FR", {
+    return new Date(iso).toLocaleString(locale === "fr" ? "fr-FR" : "en-US", {
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
     });
@@ -72,6 +74,7 @@ function SeverityPill({ severity }: { severity: string }) {
 }
 
 export default function UserDetailPage() {
+  const locale = useLocale();
   const params = useParams<{ username: string }>();
   const username = decodeURIComponent(params?.username ?? "");
   const [data, setData] = useState<UserDetail | null>(null);
@@ -83,13 +86,13 @@ export default function UserDetailPage() {
     setLoading(true); setError(null);
     fetch(`/api/tc/users/${encodeURIComponent(username)}`, { signal: AbortSignal.timeout(15000) })
       .then(async (r) => {
-        if (!r.ok) throw new Error(r.status === 404 ? "Utilisateur introuvable" : `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(r.status === 404 ? tr("userDetail_userNotFound", locale) : `HTTP ${r.status}`);
         return r.json();
       })
       .then((d: UserDetail) => setData(d))
       .catch((e) => setError(e?.message ?? "fetch failed"))
       .finally(() => setLoading(false));
-  }, [username]);
+  }, [username, locale]);
 
   const tags = (
     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
@@ -111,15 +114,15 @@ export default function UserDetailPage() {
         color: "var(--tc-text-sec)", display: "inline-flex", alignItems: "center", gap: "4px",
         fontSize: "11px", textDecoration: "none",
       }}>
-        <ArrowLeft size={11} /> Retour
+        <ArrowLeft size={11} /> {tr("userDetail_back", locale)}
       </Link>
     </div>
   );
 
   return (
     <PageShell
-      title={`Utilisateur · ${username}`}
-      subtitle={data?.summary.department ? `Département : ${data.summary.department}` : undefined}
+      title={`${tr("userDetail_userTitle", locale)} · ${username}`}
+      subtitle={data?.summary.department ? `${tr("userDetail_department", locale)} : ${data.summary.department}` : undefined}
       right={tags}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -127,7 +130,7 @@ export default function UserDetailPage() {
         {error && <ErrorBanner message={error} />}
         {loading && !data && (
           <div style={{ padding: "40px", textAlign: "center", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-            Chargement…
+            {tr("userDetail_loading", locale)}
           </div>
         )}
 
@@ -135,18 +138,18 @@ export default function UserDetailPage() {
           <>
             {/* Profile + stats */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px" }}>
-              <KV label="Département" value={data.summary.department ?? "—"} />
-              <KV label="Logins OK" value={String(data.summary.login_count - data.summary.failed_login_count)} />
-              <KV label="Échecs" value={String(data.summary.failed_login_count)}
+              <KV label={tr("userDetail_department", locale)} value={data.summary.department ?? "—"} />
+              <KV label={tr("userDetail_loginsOk", locale)} value={String(data.summary.login_count - data.summary.failed_login_count)} />
+              <KV label={tr("userDetail_failures", locale)} value={String(data.summary.failed_login_count)}
                   color={data.summary.failed_login_count > 0 ? "var(--tc-red)" : undefined} />
-              <KV label="Assets" value={String(data.summary.linked_assets)} />
-              <KV label="Dernière activité" value={fmtDate(data.summary.last_seen)} />
+              <KV label={tr("userDetail_assets", locale)} value={String(data.summary.linked_assets)} />
+              <KV label={tr("userDetail_lastActivity", locale)} value={fmtDate(data.summary.last_seen, locale)} />
             </div>
 
             {/* Anomalies */}
             {data.anomalies.length > 0 && (
               <NeuCard style={{ padding: "16px" }}>
-                <SectionTitle icon={AlertTriangle} label={`Anomalies UBA (${data.anomalies.length})`} />
+                <SectionTitle icon={AlertTriangle} label={`${tr("userDetail_anomaliesUba", locale)} (${data.anomalies.length})`} />
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {data.anomalies.map((a, i) => (
                     <div key={i} style={{
@@ -158,7 +161,7 @@ export default function UserDetailPage() {
                       <SeverityPill severity={a.severity} />
                       <span style={{ fontSize: "11px", color: "var(--tc-text)" }}>{a.detail}</span>
                       <span style={{ marginLeft: "auto", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-                        {a.anomaly_type} · conf. {a.confidence}%
+                        {a.anomaly_type} · {tr("userDetail_confAbbr", locale)} {a.confidence}%
                       </span>
                     </div>
                   ))}
@@ -169,7 +172,7 @@ export default function UserDetailPage() {
             {/* Escalations */}
             {(data.escalations_out.length > 0 || data.escalations_in.length > 0) && (
               <NeuCard style={{ padding: "16px" }}>
-                <SectionTitle icon={GitBranch} label={`Escalades (${data.escalations_out.length + data.escalations_in.length})`} />
+                <SectionTitle icon={GitBranch} label={`${tr("userDetail_escalations", locale)} (${data.escalations_out.length + data.escalations_in.length})`} />
                 <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11px" }}>
                   {data.escalations_out.map((e, i) => (
                     <div key={`o${i}`} style={{ color: "var(--tc-text-sec)" }}>
@@ -177,8 +180,8 @@ export default function UserDetailPage() {
                       <Link href={`/users/${encodeURIComponent(e.to_user)}`} style={{ color: "var(--tc-text)", fontWeight: 600, textDecoration: "none" }}>
                         {e.to_user}
                       </Link>
-                      {" "}via <code style={{ fontSize: "10px" }}>{e.method}</code> sur {e.asset}
-                      <span style={{ color: "var(--tc-text-muted)", marginLeft: "8px" }}>{fmtDate(e.timestamp)}</span>
+                      {" "}{tr("userDetail_via", locale)} <code style={{ fontSize: "10px" }}>{e.method}</code> {tr("userDetail_on", locale)} {e.asset}
+                      <span style={{ color: "var(--tc-text-muted)", marginLeft: "8px" }}>{fmtDate(e.timestamp, locale)}</span>
                     </div>
                   ))}
                   {data.escalations_in.map((e, i) => (
@@ -187,8 +190,8 @@ export default function UserDetailPage() {
                       <Link href={`/users/${encodeURIComponent(e.from_user)}`} style={{ color: "var(--tc-text)", fontWeight: 600, textDecoration: "none" }}>
                         {e.from_user}
                       </Link>
-                      {" "}via <code style={{ fontSize: "10px" }}>{e.method}</code> sur {e.asset}
-                      <span style={{ color: "var(--tc-text-muted)", marginLeft: "8px" }}>{fmtDate(e.timestamp)}</span>
+                      {" "}{tr("userDetail_via", locale)} <code style={{ fontSize: "10px" }}>{e.method}</code> {tr("userDetail_on", locale)} {e.asset}
+                      <span style={{ color: "var(--tc-text-muted)", marginLeft: "8px" }}>{fmtDate(e.timestamp, locale)}</span>
                     </div>
                   ))}
                 </div>
@@ -198,21 +201,21 @@ export default function UserDetailPage() {
             {/* Linked assets */}
             <NeuCard style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--tc-border)" }}>
-                <SectionTitle icon={Server} label={`Assets accédés (${data.linked_assets.length})`} />
+                <SectionTitle icon={Server} label={`${tr("userDetail_assetsAccessed", locale)} (${data.linked_assets.length})`} />
               </div>
               {data.linked_assets.length === 0 ? (
                 <div style={{ padding: "20px", textAlign: "center", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-                  Aucun asset lié.
+                  {tr("userDetail_noLinkedAsset", locale)}
                 </div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ background: "var(--tc-input)" }}>
-                      <Th>Asset</Th>
-                      <Th>Criticité</Th>
-                      <Th align="right">Logins</Th>
-                      <Th align="right">Échecs</Th>
-                      <Th>Dernier login</Th>
+                      <Th>{tr("userDetail_asset", locale)}</Th>
+                      <Th>{tr("userDetail_criticality", locale)}</Th>
+                      <Th align="right">{tr("userDetail_logins", locale)}</Th>
+                      <Th align="right">{tr("userDetail_failures", locale)}</Th>
+                      <Th>{tr("userDetail_lastLogin", locale)}</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -240,7 +243,7 @@ export default function UserDetailPage() {
                             color: a.failed_login_count > 0 ? "var(--tc-red)" : "var(--tc-text-muted)",
                           }}>{a.failed_login_count}</span>
                         </Td>
-                        <Td>{fmtDate(a.last_login)}</Td>
+                        <Td>{fmtDate(a.last_login, locale)}</Td>
                       </tr>
                     ))}
                   </tbody>
@@ -251,27 +254,27 @@ export default function UserDetailPage() {
             {/* Recent logins */}
             <NeuCard style={{ padding: 0, overflow: "hidden" }}>
               <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--tc-border)" }}>
-                <SectionTitle icon={Activity} label={`Connexions récentes (${data.recent_logins.length})`} />
+                <SectionTitle icon={Activity} label={`${tr("userDetail_recentLogins", locale)} (${data.recent_logins.length})`} />
               </div>
               {data.recent_logins.length === 0 ? (
                 <div style={{ padding: "20px", textAlign: "center", color: "var(--tc-text-muted)", fontSize: "11px" }}>
-                  Aucun événement de connexion.
+                  {tr("userDetail_noLoginEvent", locale)}
                 </div>
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
                   <thead>
                     <tr style={{ background: "var(--tc-input)" }}>
-                      <Th>Horodatage</Th>
-                      <Th>Asset</Th>
-                      <Th>Source IP</Th>
-                      <Th>Protocole</Th>
-                      <Th>Résultat</Th>
+                      <Th>{tr("userDetail_timestamp", locale)}</Th>
+                      <Th>{tr("userDetail_asset", locale)}</Th>
+                      <Th>{tr("userDetail_sourceIp", locale)}</Th>
+                      <Th>{tr("userDetail_protocol", locale)}</Th>
+                      <Th>{tr("userDetail_result", locale)}</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.recent_logins.map((l, i) => (
                       <tr key={i} style={{ borderTop: "1px solid var(--tc-border)" }}>
-                        <Td>{fmtDate(l.timestamp)}</Td>
+                        <Td>{fmtDate(l.timestamp, locale)}</Td>
                         <Td>{l.asset_hostname ?? l.asset_id}</Td>
                         <Td><code style={{ fontSize: "10px", color: "var(--tc-text)" }}>{l.source_ip || "—"}</code></Td>
                         <Td>{l.protocol || "—"}</Td>
@@ -279,7 +282,7 @@ export default function UserDetailPage() {
                           {l.success ? (
                             <span style={{ color: "var(--tc-green, #30a050)", fontWeight: 700, fontSize: "10px" }}>OK</span>
                           ) : (
-                            <span style={{ color: "var(--tc-red)", fontWeight: 700, fontSize: "10px" }}>ÉCHEC</span>
+                            <span style={{ color: "var(--tc-red)", fontWeight: 700, fontSize: "10px" }}>{tr("userDetail_fail", locale)}</span>
                           )}
                         </Td>
                       </tr>
