@@ -20,6 +20,8 @@
  */
 
 import React, { useState } from "react";
+import { t as tr, type Locale } from "@/lib/i18n";
+import { useLocale } from "@/lib/useLocale";
 
 // ─── Types miroirs des structs Rust (db::threatclaw_store) ──────────
 
@@ -59,7 +61,7 @@ interface Props {
 
 // ─── Helpers visuels ────────────────────────────────────────────────
 
-function kindLabel(kind: StepKind): string {
+function kindLabel(kind: StepKind, locale: Locale): string {
   switch (kind) {
     case "skill_call":
       return "SKILL";
@@ -70,7 +72,7 @@ function kindLabel(kind: StepKind): string {
     case "derive_actions":
       return "ACTIONS";
     case "incident_created":
-      return "OUVERT";
+      return tr("investigationTimeline_kindOpened", locale);
     case "remediation_executed":
       return "REMEDIATION";
     case "note":
@@ -128,9 +130,9 @@ function statusBadge(status: StepStatus): React.ReactElement | null {
   );
 }
 
-function fmtTime(iso: string): string {
+function fmtTime(iso: string, locale: Locale): string {
   try {
-    return new Date(iso).toLocaleTimeString("fr-FR", {
+    return new Date(iso).toLocaleTimeString(locale === "fr" ? "fr-FR" : "en-US", {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
@@ -150,6 +152,7 @@ function fmtDuration(ms: number | null): string {
 // ─── Composant ──────────────────────────────────────────────────────
 
 export function InvestigationTimeline({ steps }: Props): React.ReactElement | null {
+  const locale = useLocale();
   const [expanded, setExpanded] = useState<boolean>(false);
   const [openStepIds, setOpenStepIds] = useState<Set<number>>(new Set());
 
@@ -205,12 +208,15 @@ export function InvestigationTimeline({ steps }: Props): React.ReactElement | nu
         }}
       >
         <span style={{ fontSize: 10 }}>{expanded ? "▼" : "▶"}</span>
-        <span>Chronologie d&apos;analyse</span>
+        <span>{tr("investigationTimeline_analysisTimeline", locale)}</span>
         <span style={{ fontWeight: 400, fontSize: 10, color: "var(--tc-text-muted)", letterSpacing: 0 }}>
-          {list.length} étape{list.length > 1 ? "s" : ""}
+          {list.length}{" "}
+          {list.length > 1
+            ? tr("investigationTimeline_stepsPlural", locale)
+            : tr("investigationTimeline_stepsSingular", locale)}
           {Object.entries(countByKind).map(([kind, count]) => (
             <span key={kind} style={{ marginLeft: 8 }}>
-              · {count} {kindLabel(kind as StepKind).toLowerCase()}
+              · {count} {kindLabel(kind as StepKind, locale).toLowerCase()}
             </span>
           ))}
         </span>
@@ -248,7 +254,11 @@ export function InvestigationTimeline({ steps }: Props): React.ReactElement | nu
                       gap: 8,
                       fontSize: 11,
                     }}
-                    title={`Cliquer pour ${open ? "replier" : "déplier"}`}
+                    title={
+                      open
+                        ? tr("investigationTimeline_clickToCollapse", locale)
+                        : tr("investigationTimeline_clickToExpand", locale)
+                    }
                   >
                     <span style={{
                       fontSize: 9,
@@ -256,7 +266,7 @@ export function InvestigationTimeline({ steps }: Props): React.ReactElement | nu
                       fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
                       minWidth: 60,
                     }}>
-                      {fmtTime(step.created_at)}
+                      {fmtTime(step.created_at, locale)}
                     </span>
                     <span style={{
                       fontSize: 9,
@@ -269,7 +279,7 @@ export function InvestigationTimeline({ steps }: Props): React.ReactElement | nu
                       minWidth: 60,
                       textAlign: "center",
                     }}>
-                      {kindLabel(step.kind)}
+                      {kindLabel(step.kind, locale)}
                     </span>
                     {step.skill_id && (
                       <span style={{
