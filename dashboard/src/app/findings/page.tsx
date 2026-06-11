@@ -102,7 +102,7 @@ export default function FindingsPage() {
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", alignItems: "center" }}>
         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-md)", padding: "8px 12px" }}>
           <Search size={14} color="var(--tc-text-muted)" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher..."
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={tr("findings_searchPlaceholder", locale)}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--tc-text)", fontSize: "13px", fontFamily: "inherit" }} />
           {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={14} color="var(--tc-text-muted)" /></button>}
         </div>
@@ -124,7 +124,7 @@ export default function FindingsPage() {
 
       {/* Findings list */}
       {loading ? (
-        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>Chargement...</div></ChromeInsetCard>
+        <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("findings_loading", locale)}</div></ChromeInsetCard>
       ) : filtered.length === 0 ? (
         <ChromeInsetCard><div style={{ textAlign: "center", padding: "32px", color: "var(--tc-text-muted)" }}>{tr("noFinding", locale)}{filterSeverity || filterStatus ? ` ${tr("withFilters", locale)}` : ""}</div></ChromeInsetCard>
       ) : (
@@ -146,7 +146,7 @@ export default function FindingsPage() {
                       {f.metadata?.agent_ip && <span style={{ fontFamily: "monospace", color: "var(--tc-blue)" }}>{String(f.metadata.agent_ip)}</span>}
                       {f.metadata?.src_ip && <span style={{ fontFamily: "monospace", color: "var(--tc-red)" }}>{String(f.metadata.src_ip)}</span>}
                       <span>{f.source || f.skill_id}</span>
-                      <span>{new Date(f.detected_at).toLocaleDateString("fr-FR")}</span>
+                      <span>{new Date(f.detected_at).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US")}</span>
                     </div>
                   </div>
                   <span style={{ fontSize: "10px", color: st.color, display: "flex", alignItems: "center", gap: "4px" }}>
@@ -189,32 +189,32 @@ export default function FindingsPage() {
                         )}
                         {f.metadata.confirmed_by && Array.isArray(f.metadata.confirmed_by) && (
                           <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(32,160,64,0.08)", color: "var(--tc-green)", border: "1px solid rgba(32,160,64,0.15)" }}>
-                            Confirmé par : {(f.metadata.confirmed_by as string[]).join(", ")}
+                            {tr("findings_confirmedBy", locale)} {(f.metadata.confirmed_by as string[]).join(", ")}
                           </span>
                         )}
                       </div>
                     )}
 
                     <div style={{ display: "flex", gap: "16px", fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "12px", flexWrap: "wrap" }}>
-                      {f.source && <span>Source : <strong style={{ color: "var(--tc-text)" }}>{f.source}</strong></span>}
-                      {f.category && <span>Catégorie : <strong style={{ color: "var(--tc-text)" }}>{f.category}</strong></span>}
-                      <span>Détecté : <strong style={{ color: "var(--tc-text)" }}>{new Date(f.detected_at).toLocaleString("fr-FR")}</strong></span>
-                      {f.resolved_at && <span>Résolu : <strong style={{ color: "var(--tc-green)" }}>{new Date(f.resolved_at).toLocaleString("fr-FR")}</strong></span>}
+                      {f.source && <span>{tr("findings_sourceLabel", locale)} <strong style={{ color: "var(--tc-text)" }}>{f.source}</strong></span>}
+                      {f.category && <span>{tr("findings_categoryLabel", locale)} <strong style={{ color: "var(--tc-text)" }}>{f.category}</strong></span>}
+                      <span>{tr("findings_detectedLabel", locale)} <strong style={{ color: "var(--tc-text)" }}>{new Date(f.detected_at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</strong></span>
+                      {f.resolved_at && <span>{tr("findings_resolvedLabel", locale)} <strong style={{ color: "var(--tc-green)" }}>{new Date(f.resolved_at).toLocaleString(locale === "fr" ? "fr-FR" : "en-US")}</strong></span>}
                     </div>
                     <div style={{ display: "flex", gap: "6px" }}>
                       {f.status !== "resolved" && (
                         <ChromeButton onClick={() => changeStatus(f.id, "resolved")} variant="glass">
-                          <CheckCircle2 size={12} /> Résolu
+                          <CheckCircle2 size={12} /> {tr("findings_markResolved", locale)}
                         </ChromeButton>
                       )}
                       {f.status !== "in_progress" && f.status !== "resolved" && (
                         <ChromeButton onClick={() => changeStatus(f.id, "in_progress")} variant="glass">
-                          <Clock size={12} /> En cours
+                          <Clock size={12} /> {tr("findings_markInProgress", locale)}
                         </ChromeButton>
                       )}
                       {f.status !== "false_positive" && (
                         <ChromeButton onClick={() => changeStatus(f.id, "false_positive")} variant="glass">
-                          <XCircle size={12} /> Faux positif
+                          <XCircle size={12} /> {tr("findings_markFalsePositive", locale)}
                         </ChromeButton>
                       )}
                       <ChromeButton onClick={async () => {
@@ -224,11 +224,11 @@ export default function FindingsPage() {
                             body: JSON.stringify({ finding_id: f.id }),
                           });
                           const data = await res.json();
-                          if (data.ticket_id) alert(`Ticket GLPI #${data.ticket_id} créé`);
-                          else if (data.error) alert(`Erreur: ${data.error}`);
-                        } catch { alert("GLPI non configuré"); }
+                          if (data.ticket_id) alert(`${tr("findings_glpiTicketPrefix", locale)}${data.ticket_id}${tr("findings_glpiTicketSuffix", locale)}`);
+                          else if (data.error) alert(`${tr("findings_errorPrefix", locale)}${data.error}`);
+                        } catch { alert(tr("findings_glpiNotConfigured", locale)); }
                       }} variant="glass">
-                        <FileText size={12} /> Ticket GLPI
+                        <FileText size={12} /> {tr("findings_glpiTicketButton", locale)}
                       </ChromeButton>
                     </div>
                   </div>

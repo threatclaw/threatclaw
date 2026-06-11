@@ -215,10 +215,10 @@ export default function IntelligencePage() {
   return (
     <PageShell
       title="Graph Intelligence"
-      subtitle={`Analyse en temps réel depuis Apache AGE + STIX 2.1${lastRefresh ? ` · dernière actualisation ${lastRefresh}` : ""}`}
+      subtitle={`${tr("intelligence_realtimeAnalysisFrom", locale)}${lastRefresh ? ` · ${tr("intelligence_lastRefresh", locale)} ${lastRefresh}` : ""}`}
       right={
         <EmbossedButton onClick={refresh} disabled={loading}>
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Actualiser
+          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {tr("intelligence_refresh", locale)}
         </EmbossedButton>
       }
     >
@@ -229,13 +229,13 @@ export default function IntelligencePage() {
           weight. Matches the /users consolidated bar. */}
       <NeuCard style={{ padding: "14px 20px", marginBottom: "20px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "28px", flexWrap: "wrap" }}>
-          <StatBadge value={assetStats?.total_assets ?? "—"} label="Assets" color="#30a0d0" />
-          <StatBadge value={lateral?.total_detections ?? "—"} label="Lateral"
+          <StatBadge value={assetStats?.total_assets ?? "—"} label={tr("intelligence_assets", locale)} color="#30a0d0" />
+          <StatBadge value={lateral?.total_detections ?? "—"} label={tr("intelligence_lateral", locale)}
             color={lateral?.total_detections ? "#d03020" : "#30a050"} />
-          <StatBadge value={campaigns?.total_campaigns ?? "—"} label="Campagnes"
+          <StatBadge value={campaigns?.total_campaigns ?? "—"} label={tr("intelligence_campaigns", locale)}
             color={campaigns?.total_campaigns ? "#d06020" : "#30a050"} />
-          <StatBadge value={actors?.total_actors ?? "—"} label="Acteurs" color="#9060d0" />
-          <StatBadge value={identity?.anomalies?.length ?? "—"} label="Anomalies ID"
+          <StatBadge value={actors?.total_actors ?? "—"} label={tr("intelligence_actors", locale)} color="#9060d0" />
+          <StatBadge value={identity?.anomalies?.length ?? "—"} label={tr("intelligence_idAnomalies", locale)}
             color={identity?.anomalies?.length ? "#d03020" : "#30a050"} />
         </div>
       </NeuCard>
@@ -249,11 +249,11 @@ export default function IntelligencePage() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
 
         {/* Attack Paths */}
-        <Card title="Chemins d'attaque" icon={Crosshair} color="#d03020">
+        <Card title={tr("intelligence_attackPaths", locale)} icon={Crosshair} color="#d03020">
           {attackPaths && attackPaths.paths.length > 0 ? (
             <div>
               <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
-                {attackPaths.total_paths} chemins ({attackPaths.critical_paths} critiques)
+                {attackPaths.total_paths} {tr("intelligence_pathsLabel", locale)} ({attackPaths.critical_paths} {tr("intelligence_criticalLabel", locale)})
               </div>
               {attackPaths.paths.slice(0, 5).map((p, i) => (
                 <div key={i} style={{
@@ -279,17 +279,17 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
-              Aucune progression d&apos;attaque detect&eacute;
+              {tr("intelligence_noAttackProgression", locale)}
             </div>
           )}
         </Card>
 
         {/* Threat Actors */}
-        <Card title="Acteurs de menace" icon={Users} color="#9060d0">
+        <Card title={tr("intelligence_threatActors", locale)} icon={Users} color="#9060d0">
           {actors && actors.actors.length > 0 ? (
             <div>
               <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px" }}>
-                {actors.total_actors} acteur(s) &middot; {actors.attributed} attribution(s)
+                {actors.total_actors} {tr("intelligence_actorsCount", locale)} &middot; {actors.attributed} {tr("intelligence_attributionsCount", locale)}
               </div>
               {actors.actors.slice(0, 4).map((a, i) => (
                 <div key={i} style={{
@@ -310,7 +310,7 @@ export default function IntelligencePage() {
                   </div>
                   {a.apt_similarity && a.apt_similarity.similarity_score > 30 && (
                     <div style={{ fontSize: "10px", color: "var(--tc-amber)", marginTop: "6px" }}>
-                      Correspond a {a.apt_similarity.apt_name} ({a.apt_similarity.similarity_score}%)
+                      {tr("intelligence_matches", locale)} {a.apt_similarity.apt_name} ({a.apt_similarity.similarity_score}%)
                     </div>
                   )}
                 </div>
@@ -318,7 +318,7 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
-              Aucun acteur profil&eacute;
+              {tr("intelligence_noActorProfiled", locale)}
             </div>
           )}
         </Card>
@@ -330,7 +330,7 @@ export default function IntelligencePage() {
               type="text" value={blastAsset}
               onChange={(e) => setBlastAsset(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && loadBlast()}
-              placeholder="Asset ID (ex: srv-prod-01)"
+              placeholder={tr("intelligence_assetIdPlaceholder", locale)}
               style={{
                 flex: 1, padding: "6px 10px", borderRadius: "var(--tc-radius-sm)", fontSize: "11px",
                 background: "var(--tc-input)", border: "1px solid var(--tc-border)",
@@ -370,17 +370,17 @@ export default function IntelligencePage() {
           )}
           {blast && blast.total_impacted === 0 && (
             <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "20px 0" }}>
-              Asset isol&eacute; &mdash; pas d&apos;impact collat&eacute;ral
+              {tr("intelligence_assetIsolatedNoImpact", locale)}
             </div>
           )}
         </Card>
 
         {/* Lateral Movement */}
-        <Card title="Mouvement lateral" icon={Network} color="#d03020">
+        <Card title={tr("intelligence_lateralMovement", locale)} icon={Network} color="#d03020">
           {lateral && lateral.total_detections > 0 ? (
             <div>
               <div style={{ fontSize: "11px", color: "var(--tc-red)", fontWeight: 600, marginBottom: "10px" }}>
-                {lateral.total_detections} detection(s)
+                {lateral.total_detections} {tr("intelligence_detectionsCount", locale)}
               </div>
               {lateral.chains.slice(0, 3).map((c, i) => (
                 <div key={i} style={{
@@ -407,13 +407,13 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <div style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0" }}>
-              Aucun mouvement lat&eacute;ral d&eacute;tect&eacute;
+              {tr("intelligence_noLateralMovement", locale)}
             </div>
           )}
         </Card>
 
         {/* Campaigns */}
-        <Card title="Campagnes detectees" icon={Eye} color="#d09020">
+        <Card title={tr("intelligence_detectedCampaigns", locale)} icon={Eye} color="#d09020">
           {campaigns && campaigns.campaigns.length > 0 ? (
             <div>
               {campaigns.campaigns.slice(0, 4).map((c, i) => (
@@ -424,7 +424,7 @@ export default function IntelligencePage() {
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--tc-text)" }}>{c.name}</div>
                   <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{c.description}</div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
-                    <span style={{ fontSize: "10px", color: "var(--tc-amber)" }}>{c.attack_count} attaques</span>
+                    <span style={{ fontSize: "10px", color: "var(--tc-amber)" }}>{c.attack_count} {tr("intelligence_attacksLabel", locale)}</span>
                     <ConfidenceBar score={c.confidence} level="" />
                   </div>
                 </div>
@@ -432,17 +432,17 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <div style={{ fontSize: "12px", color: "var(--tc-text-faint)", textAlign: "center", padding: "30px 0" }}>
-              Aucune campagne coordonn&eacute;e
+              {tr("intelligence_noCoordinatedCampaign", locale)}
             </div>
           )}
         </Card>
 
         {/* Identity Anomalies */}
-        <Card title="Anomalies utilisateurs" icon={Brain} color="#3080d0">
+        <Card title={tr("intelligence_userAnomalies", locale)} icon={Brain} color="#3080d0">
           {identity && identity.anomalies.length > 0 ? (
             <div>
               <Link href="/users" style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "10px", display: "block", textDecoration: "none" }}>
-                {identity.users_tracked} utilisateurs suivis →
+                {identity.users_tracked} {tr("intelligence_usersTracked", locale)} →
               </Link>
               {identity.anomalies.slice(0, 5).map((a, i) => (
                 <Link
@@ -465,7 +465,7 @@ export default function IntelligencePage() {
             </div>
           ) : (
             <Link href="/users" style={{ fontSize: "12px", color: "var(--tc-green)", textAlign: "center", padding: "30px 0", display: "block", textDecoration: "none" }}>
-              {identity?.users_tracked ?? 0} utilisateurs &middot; aucune anomalie →
+              {identity?.users_tracked ?? 0} {tr("intelligence_usersNoAnomaly", locale)} →
             </Link>
           )}
         </Card>
