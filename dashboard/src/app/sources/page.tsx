@@ -38,8 +38,10 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Linux (rsyslog)", titleEn: "Linux (rsyslog)",
         steps: [
-          "echo '*.* @@ADDR:514' | sudo tee /etc/rsyslog.d/threatclaw.conf",
+          { fr: "IMPORTANT : utilisez le template ci-dessous, pas le format par defaut. Sans cela, les messages journald systemd partent sans hostname et ThreatClaw les attribue au mauvais asset (process name au lieu du host).", en: "IMPORTANT: use the template below, not the default format. Without it, journald-sourced messages drop the hostname and ThreatClaw attributes them to the wrong asset (process name instead of host)." },
+          "sudo tee /etc/rsyslog.d/99-threatclaw.conf <<'EOF'\n$template TCForwardFmt,\"<%pri%>%timegenerated:1:15:date-rfc3164% %HOSTNAME% %syslogtag%%msg%\\n\"\nauth,authpriv.* @@ADDR:514;TCForwardFmt\n*.* @@ADDR:514;TCForwardFmt\nEOF",
           "sudo systemctl restart rsyslog",
+          { fr: "Verifiez : un asset doit apparaitre avec votre vrai hostname (pas systemd / kernel / containerd) dans la vue Assets.", en: "Verify: an asset should appear with your real hostname (not systemd / kernel / containerd) under Assets." },
         ],
       },
       {
@@ -98,11 +100,21 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
         ],
       },
       {
-        title: "Windows (MSI)", titleEn: "Windows (MSI)",
+        title: "Windows (PowerShell)", titleEn: "Windows (PowerShell)",
         steps: [
-          { fr: "Telechargez osquery MSI: https://osquery.io/downloads", en: "Download the osquery MSI: https://osquery.io/downloads" },
-          { fr: "Installez + configurez le webhook vers https://ADDR/api/tc/webhook/ingest/osquery", en: "Install + configure the webhook to https://ADDR/api/tc/webhook/ingest/osquery" },
-          { fr: "Utilisez le token genere ci-dessous dans le header X-Webhook-Token", en: "Use the token generated below in the X-Webhook-Token header" },
+          { fr: "Ouvrez PowerShell en administrateur sur la machine cible.", en: "Open PowerShell as administrator on the target machine." },
+          "$env:TC_URL='https://ADDR'; $env:TC_TOKEN='TOKEN'; iwr -UseBasicParsing -SkipCertificateCheck https://ADDR/agent/windows | iex",
+          { fr: "L'installeur fait tout : osquery MSI, Sysmon (config SwiftOnSecurity), Scheduled Task SYSTEM toutes les 5 min, manifest server-driven. Aucune autre etape sur l'endpoint.", en: "The installer does everything: osquery MSI, Sysmon (SwiftOnSecurity config), SYSTEM Scheduled Task every 5 min, server-driven manifest. No further step on the endpoint." },
+          { fr: "Idempotent : peut etre rejoue sans risque pour mettre a jour.", en: "Idempotent: safe to re-run for updates." },
+        ],
+      },
+      {
+        title: "Windows (PowerShell Script Block Logging)", titleEn: "Windows (PowerShell Script Block Logging)",
+        steps: [
+          { fr: "Sans cette etape, l'agent capture les 4104 mais Windows ne loggue PAS le contenu reel des scripts. Les detections PowerShell offensives (Invoke-Expression / EncodedCommand / Mimikatz) restent aveugles.", en: "Without this step the agent captures 4104s but Windows does NOT log the actual script content. Offensive PowerShell detections (Invoke-Expression / EncodedCommand / Mimikatz) remain blind." },
+          { fr: "Activez via GPO ou registry (machine isolee) :", en: "Enable via GPO or registry (standalone machine):" },
+          "$key = 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging'\nNew-Item -Path $key -Force | Out-Null\nSet-ItemProperty -Path $key -Name EnableScriptBlockLogging -Value 1 -Type DWord",
+          { fr: "Aucun redemarrage requis. Verifiez : Get-WinEvent -LogName 'Microsoft-Windows-PowerShell/Operational' -MaxEvents 5 doit retourner des events 4104.", en: "No reboot needed. Verify: Get-WinEvent -LogName 'Microsoft-Windows-PowerShell/Operational' -MaxEvents 5 should return 4104 events." },
         ],
       },
     ],
