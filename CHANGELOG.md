@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.29-beta] — 2026-06-12
+
+### Added
+- The Windows agent now detects credential brute force, account creation and deletion, privileged group membership changes, audit log clearing, and offensive PowerShell patterns. PowerShell detection requires Script Block Logging to be enabled on the endpoint; the agent guides surface the registry one-liner that turns it on.
+- The Windows agent installer now bundles Sysmon with the SwiftOnSecurity baseline. The agent picks up the Sysmon channel automatically and surfaces direct alerts on LSASS access and on known offensive tool patterns (credential extraction, AD reconnaissance, living-off-the-land binaries).
+- The Linux agent installer now also drops an rsyslog forwarder and auditd rules in the same run. One command sets up the agent, the log forwarder, and file integrity monitoring on credential files and the SSH daemon configuration. Without an explicit forwarding template, journald-sourced messages drop the hostname and the SOC console attributes them to the process name instead of the real host; the bundled rsyslog config uses a template that anchors the hostname explicitly.
+- A server-driven agent manifest endpoint lets new osquery queries roll out from the server. Endpoints fetch the manifest each cycle and pick up new detection sources without a fleet redeploy.
+- The installer scripts are now self-served by the core at `/api/tc/agent/install.sh` and `/api/tc/agent/install.ps1`. The `curl | bash` one-liner works against any deployed instance without depending on the public installer CDN.
+
+### Changed
+- Dashboard Config > Sources de logs guides are aligned with the new agent path. The agent install commands are surfaced first, the rsyslog template that avoids the hostname attribution bug is documented inline, and the connector sources (Wazuh, Pi-hole, Active Directory, Microsoft Sentinel) are clearly pointed to the Skills panel rather than mixed with the syslog push sources.
+
 ## [1.0.28-beta] — 2026-06-11
 
 ### Added
