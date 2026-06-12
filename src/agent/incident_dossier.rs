@@ -214,4 +214,96 @@ impl IncidentDossier {
             self.notification_level,
         )
     }
+
+    /// Roadmap réparation 2026-06-12 Fix 1.2 — concrete evidence dump for the
+    /// L2 prompt. The legacy `summary()` returned only counts ("findings=0
+    /// alerts=5"), which gave the L2 zero ground to stand on and led it to
+    /// hallucinate plausible-sounding attack stories. This method spells out
+    /// every sigma alert title, every finding title, plus the source IPs and
+    /// usernames the model would need to cite — all factual bullet points
+    /// the model can quote directly.
+    pub fn to_prompt_evidence(&self) -> String {
+        let mut out = String::with_capacity(2048);
+        out.push_str(&format!(
+            "Asset cible: {}\nScore IE: {:.0}/100\nNiveau: {:?}\n",
+            self.primary_asset, self.asset_score, self.notification_level,
+        ));
+
+        if !self.sigma_alerts.is_empty() {
+            out.push_str(&format!(
+                "\nSigma alerts ({}):\n",
+                self.sigma_alerts.len()
+            ));
+            for a in &self.sigma_alerts {
+                let src = a
+                    .source_ip
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| format!(" src={s}"))
+                    .unwrap_or_default();
+                let user = a
+                    .username
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| format!(" user={s}"))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "- [{lvl}] rule={rid} title={title}{src}{user}\n",
+                    lvl = a.level,
+                    rid = a.rule_id,
+                    title = a.rule_name,
+                ));
+            }
+        } else {
+            out.push_str("\nSigma alerts: aucune\n");
+        }
+
+        if !self.findings.is_empty() {
+            out.push_str(&format!(
+                "\nFindings ({}):\n",
+                self.findings.len()
+            ));
+            for f in &self.findings {
+                let skill = f.skill_id.as_deref().unwrap_or("?");
+                let src_ip = f
+                    .metadata
+                    .get("src_ip")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty() && *s != "null")
+                    .map(|s| format!(" src={s}"))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "- [{sev}] skill={skill} title={title}{src_ip}\n",
+                    sev = f.severity,
+                    title = f.title.trim(),
+                ));
+            }
+        } else {
+            out.push_str("\nFindings: aucun\n");
+        }
+
+        // Pre-resolved correlations / graph context — useful signals the L2
+        // should not have to re-derive.
+        if self.correlations.kill_chain_detected {
+            out.push_str("\nKill chain détectée :\n");
+            for step in &self.correlations.kill_chain_steps {
+                out.push_str(&format!(
+                    "- {} ({}) — {}\n",
+                    step.technique_id, step.tactic, step.technique_name
+                ));
+            }
+        }
+        if let Some(ref ctx) = self.graph_context {
+            out.push_str(&format!(
+                "\nContexte graph: criticité={}, chemins latéraux={}",
+                ctx.criticality, ctx.lateral_paths,
+            ));
+            if !ctx.linked_cves.is_empty() {
+                out.push_str(&format!(", CVE liées={}", ctx.linked_cves.join(",")));
+            }
+            out.push('\n');
+        }
+
+        out
+    }
 }

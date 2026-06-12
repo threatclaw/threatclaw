@@ -1293,6 +1293,52 @@ fn is_privileged_group_name(name: &str) -> bool {
         || n.contains("administrators")
 }
 
+/// Roadmap réparation 2026-06-12 Fix 1.5 — last-burst dedup.
+///
+/// The agent ships events from the last 6 min every 5 min, so the same
+/// 4625 burst is in 2 consecutive batches. Without dedup we emit two
+/// identical `osquery-win-failed-logon-burst` sigma alerts back to back,
+/// the IE bundles all of them into one dossier with `alert_count` inflated,
+/// and the dashboard shows duplicate cards.
+///
+/// We keep an in-memory map keyed by `(hostname, rule_id, target_user)`,
+/// storing the latest event datetime that triggered an alert. Subsequent
+/// batches must beat that timestamp by > 60s to re-fire. The map is process-
+/// local so a restart starts fresh, which is fine: at worst we emit once per
+/// restart per active burst, which is the desired behavior.
+static LAST_BURST: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<(String, String, String), String>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+fn should_emit_burst(
+    hostname: &str,
+    rule_id: &str,
+    target: &str,
+    max_event_datetime: &str,
+) -> bool {
+    let key = (
+        hostname.to_string(),
+        rule_id.to_string(),
+        target.to_lowercase(),
+    );
+    let mut guard = match LAST_BURST.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(), // poisoned mutex: take it anyway, dedup is best-effort
+    };
+    let last = guard.get(&key).cloned();
+    // 60-second guard: a new burst must have at least one event after the last
+    // recorded one. RFC3339 strings sort lexicographically by time, so we can
+    // string-compare safely when both come from osquery.
+    let should = match last {
+        Some(ref prev) => max_event_datetime.as_bytes() > prev.as_bytes(),
+        None => true,
+    };
+    if should {
+        guard.insert(key, max_event_datetime.to_string());
+    }
+    should
+}
+
 pub async fn check_windows_security_events(
     store: &dyn Database,
     hostname: &str,
@@ -1301,11 +1347,12 @@ pub async fn check_windows_security_events(
     let mut ingested = 0usize;
     let mut alerts = 0usize;
 
-    // In-batch brute force tracking: count 4625 by target user.
-    // The agent sends events from the last 6 min every 5 min, so 3 failures
-    // in a single batch already signals a credential-stuffing attempt.
-    let mut failed_logon_counts: std::collections::HashMap<String, (u32, Option<String>)> =
-        std::collections::HashMap::new();
+    // In-batch brute force tracking: count 4625 by target user, also keep
+    // the latest event datetime so we can dedup against the previous batch.
+    let mut failed_logon_counts: std::collections::HashMap<
+        String,
+        (u32, Option<String>, String),
+    > = std::collections::HashMap::new();
 
     for event in events {
         let eventid = event["eventid"]
@@ -1354,12 +1401,19 @@ pub async fn check_windows_security_events(
                     .to_lowercase();
                 let src_ip = extract_event_field(&data, &["IpAddress", "WorkstationName"])
                     .map(|s| s.to_string());
+                let evt_dt = datetime.to_string();
                 let entry = failed_logon_counts
                     .entry(target)
-                    .or_insert((0, src_ip.clone()));
+                    .or_insert((0, src_ip.clone(), evt_dt.clone()));
                 entry.0 += 1;
                 if entry.1.is_none() {
                     entry.1 = src_ip;
+                }
+                // Track the latest event datetime in the burst so the dedup
+                // helper (Fix 1.5) can compare against the previously emitted
+                // burst.
+                if evt_dt.as_bytes() > entry.2.as_bytes() {
+                    entry.2 = evt_dt;
                 }
             }
             // User account created
@@ -1466,9 +1520,16 @@ pub async fn check_windows_security_events(
         }
     }
 
-    // Brute force aggregation: 3+ failed logons for the same target in this batch
-    for (target, (count, src_ip)) in &failed_logon_counts {
+    // Brute force aggregation: 3+ failed logons for the same target in this batch.
+    // Roadmap réparation 2026-06-12 Fix 1.5 — skip emission if we already
+    // emitted a burst whose latest event is at-or-after the current one (= same
+    // window seen twice across consecutive sync cycles).
+    for (target, (count, src_ip, max_dt)) in &failed_logon_counts {
         if *count >= 3 {
+            if !should_emit_burst(hostname, "osquery-win-failed-logon-burst", target, max_dt) {
+                // Already emitted for this burst — leave the dashboard alone.
+                continue;
+            }
             let level = if *count >= 10 { "high" } else { "medium" };
             let title = format!(
                 "Brute force candidat: {} tentatives échouées sur {} (cible {})",
