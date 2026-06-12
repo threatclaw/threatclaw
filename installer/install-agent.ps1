@@ -98,6 +98,79 @@ if (Test-Path $OsqueryBin) {
     Write-TC "osquery installed successfully"
 }
 
+# --- 1b. Install Sysmon ---
+#
+# Sysmon turns Windows from "I see processes start" into a real EDR signal
+# source: process tree with hashes, network connections per process,
+# CreateRemoteThread, LSASS access, file create. The osquery agent picks
+# up the Sysmon channel automatically via the server-pushed manifest, so
+# this install is a one-shot prerequisite - no further config touchpoint
+# on the endpoint after deployment.
+
+$SysmonBin    = "C:\Windows\Sysmon64.exe"
+$SysmonConf   = "C:\ProgramData\ThreatClaw\sysmon-config.xml"
+$SysmonZipUrl = "https://download.sysinternals.com/files/Sysmon.zip"
+# Reference SwiftOnSecurity baseline — vendored at install time. If raw
+# github is unreachable from the endpoint, the install still proceeds
+# with the minimal config below.
+$SysmonConfUrl = "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
+$SysmonMinConfig = @'
+<Sysmon schemaversion="4.50">
+  <EventFiltering>
+    <ProcessCreate onmatch="exclude"/>
+    <NetworkConnect onmatch="exclude"/>
+    <ImageLoad onmatch="include"><ImageLoaded condition="image">mimikatz</ImageLoaded></ImageLoad>
+    <CreateRemoteThread onmatch="exclude"/>
+    <ProcessAccess onmatch="include"><TargetImage condition="image">lsass.exe</TargetImage></ProcessAccess>
+    <FileCreate onmatch="exclude"/>
+    <DnsQuery onmatch="exclude"/>
+  </EventFiltering>
+</Sysmon>
+'@
+
+if (Get-Service Sysmon64 -ErrorAction SilentlyContinue) {
+    Write-TC "Sysmon already installed"
+} else {
+    Write-TC "Installing Sysmon..."
+    New-Item -ItemType Directory -Path (Split-Path $SysmonConf) -Force | Out-Null
+
+    # Fetch SwiftOnSecurity config (or fall back to the minimal one above)
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $SysmonConfUrl -OutFile $SysmonConf -UseBasicParsing -TimeoutSec 30
+        Write-TC "Fetched Sysmon config (SwiftOnSecurity)"
+    } catch {
+        Write-TC "Could not fetch upstream Sysmon config, using minimal embedded config" -Color Yellow
+        Set-Content -Path $SysmonConf -Value $SysmonMinConfig -Encoding UTF8
+    }
+
+    # Download Sysmon zip
+    $zipPath = Join-Path $env:TEMP "Sysmon.zip"
+    $extractDir = Join-Path $env:TEMP "Sysmon"
+    try {
+        Invoke-WebRequest -Uri $SysmonZipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 60
+    } catch {
+        Write-TC "Failed to download Sysmon from $SysmonZipUrl - skipping (re-run installer later)" -Color Yellow
+        $zipPath = $null
+    }
+
+    if ($zipPath -and (Test-Path $zipPath)) {
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+        $sysmonExe = Join-Path $extractDir "Sysmon64.exe"
+        if (Test-Path $sysmonExe) {
+            Copy-Item $sysmonExe $SysmonBin -Force
+            $proc = Start-Process -FilePath $SysmonBin -ArgumentList "-accepteula -i `"$SysmonConf`"" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -eq 0) {
+                Write-TC "Sysmon installed and running"
+            } else {
+                Write-TC "Sysmon install returned exit $($proc.ExitCode) - check manually" -Color Yellow
+            }
+        }
+        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ── 2. Configure osquery ────────────────────────────────────────────────────
 
 $ConfDir  = "C:\Program Files\osquery"
@@ -297,11 +370,7 @@ function FirstObject {
 $hostnameJson = JsonString $env:COMPUTERNAME
 $agentIdJson  = JsonString $AGENT_ID
 
-$payload = @"
-{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","software":$(JsonChunk $software),"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"users":$(JsonChunk $users),"logged_in_users":$(JsonChunk $logins),"scheduled_tasks":$(JsonChunk $tasks),"services":$(JsonChunk $services),"dns_cache":$(JsonChunk $dns),"autoexec":$(JsonChunk $autoexec),"patches":$(JsonChunk $patches),"os_version":$(FirstObject $osVer),"interface_details":$(JsonChunk $ifaces),"windows_security_events":$(JsonChunk $secEvents),"powershell_events":$(JsonChunk $psEvents)}
-"@
-
-# Skip cert validation for self-signed TLS
+# Skip cert validation for self-signed TLS (also needed for the manifest call below)
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
@@ -311,6 +380,33 @@ public class TcCertPolicy : ICertificatePolicy {
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TcCertPolicy
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# --- Server-driven extra queries (Brique 2) ---
+# Fetch the agent manifest. The server returns a list of extra osquery
+# queries (e.g. Sysmon channel, Windows Firewall log, future additions).
+# Running them here means we can add a new detection source by editing one
+# Rust file on the server - never the 200+ endpoints. Manifest fetch
+# failure is non-fatal: we just sync without the extras this cycle.
+$manifestExtras = ""
+try {
+    $manifestUri = "${TC_URL}/api/tc/agent/manifest?platform=windows&token=${TC_TOKEN}"
+    $manifest = Invoke-RestMethod -Uri $manifestUri -Method GET -Headers @{"X-Webhook-Token" = $TC_TOKEN} -TimeoutSec 10
+    if ($manifest -and $manifest.queries) {
+        Write-Log "Manifest fetched, version=$($manifest.version), $($manifest.queries.Count) extra queries"
+        $parts = @()
+        foreach ($q in $manifest.queries) {
+            $raw = Run-Query $q.query
+            $parts += '"' + $q.name + '":' + (JsonChunk $raw)
+        }
+        if ($parts.Count -gt 0) { $manifestExtras = "," + ($parts -join ",") }
+    }
+} catch {
+    Write-Log "Manifest fetch failed - $_ (continuing without extras)"
+}
+
+$payload = @"
+{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","software":$(JsonChunk $software),"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"users":$(JsonChunk $users),"logged_in_users":$(JsonChunk $logins),"scheduled_tasks":$(JsonChunk $tasks),"services":$(JsonChunk $services),"dns_cache":$(JsonChunk $dns),"autoexec":$(JsonChunk $autoexec),"patches":$(JsonChunk $patches),"os_version":$(FirstObject $osVer),"interface_details":$(JsonChunk $ifaces),"windows_security_events":$(JsonChunk $secEvents),"powershell_events":$(JsonChunk $psEvents)$manifestExtras}
+"@
 
 # Send to ThreatClaw
 try {

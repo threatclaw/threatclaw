@@ -1231,6 +1231,12 @@ pub async fn process_osquery_webhook(
         result.alerts_created += alerts;
     }
 
+    if let Some(events) = body["sysmon_events"].as_array() {
+        let (ingested, alerts) = check_sysmon_events(store, hostname, events).await;
+        result.logs_processed += ingested;
+        result.alerts_created += alerts;
+    }
+
     if result.alerts_created > 0 || result.software_items > 0 {
         tracing::info!(
             "OSQUERY: {} — {} software, {} connections, {} alerts",
@@ -1586,6 +1592,156 @@ pub async fn check_powershell_events(
                 .await;
                 alerts += 1;
             }
+        }
+    }
+
+    (ingested, alerts)
+}
+
+// ── Sysmon events → logs + sigma alerts ─────────────────────────────────────
+//
+// Sysmon (Microsoft Sysinternals) sits below the user-mode boundary and
+// emits much richer telemetry than the built-in Security log: process
+// create with hash + parent + cmdline (1), network connect (3), DLL load (7),
+// CreateRemoteThread (8), ProcessAccess (10) — the gold for LSASS dumps —,
+// FileCreate (11), RegistryEvent (13), DNS query (22).
+//
+// We persist every event in `logs` (tag `osquery.sysmon`) so the Sigma
+// engine can match downstream rules, and emit direct sigma_alerts on the
+// few patterns that are unambiguous IOCs from the event itself.
+pub async fn check_sysmon_events(
+    store: &dyn Database,
+    hostname: &str,
+    events: &[serde_json::Value],
+) -> (usize, usize) {
+    let mut ingested = 0usize;
+    let mut alerts = 0usize;
+
+    for event in events {
+        let eventid = event["eventid"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| event["eventid"].as_i64().map(|i| i.to_string()))
+            .unwrap_or_default();
+        let datetime = event["datetime"].as_str().unwrap_or("");
+        let time = if datetime.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            datetime.to_string()
+        };
+        let data = parse_event_data(&event["data"]);
+
+        let log_payload = serde_json::json!({
+            "eventid": eventid,
+            "channel": "Microsoft-Windows-Sysmon/Operational",
+            "data": data,
+        });
+        if let Some(_id) = crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log("osquery.sysmon", hostname, &log_payload, &time),
+        )
+        .await
+        {
+            ingested += 1;
+        }
+
+        match eventid.as_str() {
+            // Process Create — alert on offensive tool signatures in cmdline
+            "1" => {
+                let image = extract_event_field(&data, &["Image"]).unwrap_or("");
+                let cmdline = extract_event_field(&data, &["CommandLine"]).unwrap_or("");
+                let parent = extract_event_field(&data, &["ParentImage"]).unwrap_or("");
+                let user = extract_event_field(&data, &["User"]);
+                let cmd_l = cmdline.to_lowercase();
+                let image_l = image.to_lowercase();
+
+                let mut tags = vec![];
+                if cmd_l.contains("mimikatz") || cmd_l.contains("sekurlsa") || cmd_l.contains("invoke-mimikatz") {
+                    tags.push("mimikatz");
+                }
+                if cmd_l.contains("bloodhound") || cmd_l.contains("sharphound") {
+                    tags.push("ad-recon");
+                }
+                if image_l.contains("certutil.exe")
+                    && (cmd_l.contains("-urlcache") || cmd_l.contains("-decode") || cmd_l.contains("-encode"))
+                {
+                    tags.push("certutil-living-off-the-land");
+                }
+                if image_l.contains("bitsadmin.exe") && cmd_l.contains("/transfer") {
+                    tags.push("bitsadmin-download");
+                }
+                if image_l.contains("rundll32.exe") && cmd_l.contains("javascript:") {
+                    tags.push("rundll32-js");
+                }
+                if image_l.contains("mshta.exe") && (cmd_l.contains("http") || cmd_l.contains("javascript:")) {
+                    tags.push("mshta-remote");
+                }
+                if image_l.contains("regsvr32.exe") && cmd_l.contains("scrobj.dll") {
+                    tags.push("squiblydoo");
+                }
+
+                if !tags.is_empty() {
+                    let title = format!(
+                        "Outil offensif détecté sur {} ({}): {} (lancé par {})",
+                        hostname,
+                        tags.join(", "),
+                        image.rsplit('\\').next().unwrap_or(image),
+                        parent.rsplit('\\').next().unwrap_or(parent),
+                    );
+                    crate::connectors::log_db_write(
+                        "osquery:insert_sigma_alert",
+                        store.insert_sigma_alert(
+                            "sysmon-offensive-tool",
+                            "high",
+                            &title,
+                            hostname,
+                            None,
+                            user,
+                        ),
+                    )
+                    .await;
+                    alerts += 1;
+                }
+            }
+            // ProcessAccess — credential theft pattern: any process opening lsass
+            // with PROCESS_VM_READ (0x10) | PROCESS_QUERY_INFORMATION (0x400).
+            // Sysmon already filters out common benign accessors via its config,
+            // so anything that surfaces here is suspect.
+            "10" => {
+                let target = extract_event_field(&data, &["TargetImage"]).unwrap_or("");
+                let source_image = extract_event_field(&data, &["SourceImage"]).unwrap_or("");
+                let access = extract_event_field(&data, &["GrantedAccess"]).unwrap_or("");
+                let user = extract_event_field(&data, &["User"]);
+
+                if target.to_lowercase().contains("lsass.exe") {
+                    let title = format!(
+                        "Accès suspect à LSASS sur {} par {} (GrantedAccess={})",
+                        hostname,
+                        source_image.rsplit('\\').next().unwrap_or(source_image),
+                        access,
+                    );
+                    crate::connectors::log_db_write(
+                        "osquery:insert_sigma_alert",
+                        store.insert_sigma_alert(
+                            "sysmon-lsass-access",
+                            "critical",
+                            &title,
+                            hostname,
+                            None,
+                            user,
+                        ),
+                    )
+                    .await;
+                    alerts += 1;
+                }
+            }
+            // CreateRemoteThread (EID 8) — ingest as log only. Built-in
+            // Windows components (Defender, MsMpEng, debuggers, AV
+            // products) trigger this constantly with no malicious intent,
+            // so alerting on every EID 8 floods the dashboard with false
+            // positives. A proper Sigma rule with source-image + target-
+            // image patterns can match downstream from the stored log.
+            _ => {}
         }
     }
 

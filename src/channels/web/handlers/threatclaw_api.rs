@@ -5518,6 +5518,36 @@ pub async fn webhook_get_token_handler(
     }
 }
 
+/// GET /api/tc/agent/manifest?platform=windows
+///
+/// Server-pushed list of extra osquery queries the endpoint agent should
+/// run each sync cycle. Authenticated by the same `osquery` webhook token
+/// used for ingest, so no extra credential to provision. The agent uses
+/// this to pick up new queries (e.g. a new event channel) without
+/// re-installing on every host — see `connectors/agent_manifest.rs`.
+pub async fn agent_manifest_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let token = headers
+        .get("x-webhook-token")
+        .and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("token").map(|s| s.as_str()))
+        .unwrap_or("");
+    if !crate::connectors::webhook_ingest::verify_token(store.as_ref(), "osquery", token).await {
+        return Ok(Json(serde_json::json!({ "error": "invalid token" })));
+    }
+    let platform = params
+        .get("platform")
+        .map(|s| s.as_str())
+        .unwrap_or("windows");
+    Ok(Json(crate::connectors::agent_manifest::manifest_json(
+        platform,
+    )))
+}
+
 /// GET /api/tc/endpoint-agents — list registered osquery agents
 pub async fn endpoint_agents_handler(
     State(state): State<Arc<GatewayState>>,
