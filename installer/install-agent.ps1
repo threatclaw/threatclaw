@@ -329,7 +329,7 @@ $patches    = Run-Query "SELECT hotfix_id, description, installed_on FROM patche
 $osVer      = Run-Query "SELECT name, version, build, platform FROM os_version;"
 $ifaces     = Run-Query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.description NOT LIKE 'Hyper-V%' AND i.description NOT LIKE 'WSL%' AND i.description NOT LIKE 'vEthernet%' AND i.description NOT LIKE 'TAP-Windows%';"
 $secEvents  = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Security' AND eventid IN (4625,4720,4726,4732,4756,1102) AND datetime > datetime('now', '-6 minutes') LIMIT 200;"
-$psEvents   = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Microsoft-Windows-PowerShell/Operational' AND eventid IN (4103,4104) AND datetime > datetime('now', '-6 minutes') LIMIT 50;"
+$psEvents   = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Microsoft-Windows-PowerShell/Operational' AND eventid = 4104 AND datetime > datetime('now', '-6 minutes') LIMIT 300;"
 
 # PowerShell's pipeline behaviour around arrays makes ConvertTo-Json wrap
 # inner arrays as `{"value":[...]}` whenever the array transits through a
