@@ -2303,12 +2303,26 @@ function LogSourcesTab() {
   };
 
   const guides = [
-    { id: "linux", title: "Linux (rsyslog)", steps: [
-      { fr: "Ouvrez un terminal sur votre serveur Linux", en: "Open a terminal on your Linux server" },
-      { fr: "Exécutez cette commande :", en: "Run this command:", cmd: `echo "*.* @@${serverIp}:${port}" | sudo tee /etc/rsyslog.d/threatclaw.conf && sudo systemctl restart rsyslog` },
-      { fr: "Testez avec :", en: "Test with:", cmd: `logger -t threatclaw-test "Test log from $(hostname)"` },
+    { id: "agent-linux", title: "Agent ThreatClaw (Linux / macOS)", steps: [
+      { fr: "Voie recommandée. Une seule commande installe : osquery (inventaire + process events + FIM), un forwarder rsyslog pour les logs auth/sudo/audit, et des règles auditd sur les fichiers critiques. L'agent tire ses queries depuis ce serveur (zéro re-déploiement quand on enrichit la détection).", en: "Recommended path. One command installs: osquery (inventory + process events + FIM), an rsyslog forwarder for auth/sudo/audit logs, and auditd rules on critical files. The agent pulls its queries from this server (zero re-deploy when detection coverage grows)." },
+      { fr: "Sur la machine cible (root) :", en: "On the target machine (root):", cmd: `curl -fsSLk https://${serverIp}:8445/api/tc/agent/install.sh | sudo bash -s -- --url https://${serverIp}:8445 --token <AGENT_TOKEN>` },
+      { fr: "Le token agent se génère depuis Skills > Osquery > Configurer.", en: "Generate the agent token from Skills > Osquery > Configure." },
+      { fr: "Vérifiez : la machine apparaît dans Assets dans les 5 minutes, et les events auth.log / audit remontent (tentatives ssh ratées, sudo, modifs /etc/passwd...).", en: "Verify: the host appears under Assets within 5 minutes, and auth.log / audit events flow (failed ssh attempts, sudo, /etc/passwd edits...)." },
     ]},
-    { id: "windows", title: "Windows (NXLog)", steps: [
+    { id: "agent-windows", title: "Agent ThreatClaw (Windows)", steps: [
+      { fr: "Voie recommandée. L'installeur dépose osquery, Sysmon (config SwiftOnSecurity), et une Scheduled Task SYSTEM toutes les 5 min. Idempotent.", en: "Recommended path. The installer drops osquery, Sysmon (SwiftOnSecurity config), and a SYSTEM Scheduled Task every 5 min. Idempotent." },
+      { fr: "PowerShell en administrateur :", en: "PowerShell as administrator:", cmd: `$env:TC_URL='https://${serverIp}:8445'; $env:TC_TOKEN='<AGENT_TOKEN>'; iwr -UseBasicParsing -SkipCertificateCheck https://${serverIp}:8445/api/tc/agent/install.ps1 | iex` },
+      { fr: "IMPORTANT pour la détection PowerShell offensive : activez Script Block Logging. Sans cette étape l'agent capture les events 4104 mais Windows ne loggue pas le contenu réel des scripts.", en: "IMPORTANT for offensive PowerShell detection: enable Script Block Logging. Without this step the agent captures 4104 events but Windows does not log the actual script content." },
+      { fr: "Registry one-shot :", en: "One-shot registry:", cmd: `$key='HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging'\nNew-Item -Path $key -Force | Out-Null\nSet-ItemProperty -Path $key -Name EnableScriptBlockLogging -Value 1 -Type DWord` },
+    ]},
+    { id: "linux", title: "Syslog Linux (rsyslog)", steps: [
+      { fr: "Complément ou alternative à l'agent quand vous voulez juste forwarder auth.log + audit. Pour la posture endpoint riche (Sysmon, brute force, FIM), préférez l'agent ci-dessus.", en: "Complement to or alternative for the agent when you only want to forward auth.log + audit. For rich endpoint posture (Sysmon, brute force, FIM), prefer the agent above." },
+      { fr: "IMPORTANT : utilisez le template ci-dessous. Sans lui, les messages journald (systemd, kernel, containerd...) arrivent sans hostname et ThreatClaw les attribue au nom du process au lieu du vrai hôte.", en: "IMPORTANT: use the template below. Without it, journald-sourced messages (systemd, kernel, containerd...) arrive without a hostname and ThreatClaw attributes them to the process name instead of the real host." },
+      { fr: "Posez la config :", en: "Drop the config:", cmd: `sudo tee /etc/rsyslog.d/99-threatclaw.conf <<'EOF'\n\\$template TCForwardFmt,"<%pri%>%timegenerated:1:15:date-rfc3164% %HOSTNAME% %syslogtag%%msg%\\n"\nauth,authpriv.* @@${serverIp}:${port};TCForwardFmt\n*.* @@${serverIp}:${port};TCForwardFmt\nEOF\nsudo systemctl restart rsyslog` },
+      { fr: "Test :", en: "Test:", cmd: `logger -t threatclaw-test "Test log from $(hostname)"` },
+    ]},
+    { id: "windows", title: "Syslog Windows (NXLog)", steps: [
+      { fr: "Alternative à l'agent ThreatClaw. Préférez l'agent ci-dessus dès que possible.", en: "Alternative to the ThreatClaw agent. Prefer the agent above when possible." },
       { fr: "Téléchargez NXLog Community Edition (gratuit)", en: "Download NXLog Community Edition (free)", cmd: "https://nxlog.co/downloads/nxlog-ce" },
       { fr: "Ajoutez dans la config NXLog :", en: "Add to NXLog config:", cmd: `<Output out>\n  Module om_tcp\n  Host ${serverIp}\n  Port ${port}\n</Output>` },
       { fr: "Redémarrez le service NXLog", en: "Restart the NXLog service" },
@@ -2321,6 +2335,11 @@ function LogSourcesTab() {
     { id: "docker", title: "Docker", steps: [
       { fr: "Ajoutez le flag :", en: "Add the flag:", cmd: `docker run --log-driver=fluentd --log-opt fluentd-address=${serverIp}:24224 your-image` },
       { fr: "Ou dans docker-compose.yml :", en: "Or in docker-compose.yml:", cmd: `logging:\n  driver: fluentd\n  options:\n    fluentd-address: "${serverIp}:24224"` },
+    ]},
+    { id: "skills-pull", title: "Wazuh / Pi-hole / AD / Sentinel / autres connecteurs", steps: [
+      { fr: "Ces sources ne se branchent PAS ici. ThreatClaw va tirer leurs données via leur API. La config se fait dans Skills (panneau de gauche).", en: "These sources do NOT plug in here. ThreatClaw pulls data from them via their API. Configure under Skills (left panel)." },
+      { fr: "Exemples : Wazuh (alertes SIEM + agents), Pi-hole (DNS), Active Directory (users / groups), Microsoft Sentinel (alertes cloud), Velociraptor, GLPI, OPNsense API, etc.", en: "Examples: Wazuh (SIEM alerts + agents), Pi-hole (DNS), Active Directory (users / groups), Microsoft Sentinel (cloud alerts), Velociraptor, GLPI, OPNsense API, etc." },
+      { fr: "Ouvrez : Skills > [nom de la source] > Configurer.", en: "Open: Skills > [source name] > Configure." },
     ]},
   ];
 

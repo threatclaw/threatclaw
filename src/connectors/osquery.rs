@@ -1219,6 +1219,24 @@ pub async fn process_osquery_webhook(
 
     result.logs_processed = 1;
 
+    if let Some(events) = body["windows_security_events"].as_array() {
+        let (ingested, alerts) = check_windows_security_events(store, hostname, events).await;
+        result.logs_processed += ingested;
+        result.alerts_created += alerts;
+    }
+
+    if let Some(events) = body["powershell_events"].as_array() {
+        let (ingested, alerts) = check_powershell_events(store, hostname, events).await;
+        result.logs_processed += ingested;
+        result.alerts_created += alerts;
+    }
+
+    if let Some(events) = body["sysmon_events"].as_array() {
+        let (ingested, alerts) = check_sysmon_events(store, hostname, events).await;
+        result.logs_processed += ingested;
+        result.alerts_created += alerts;
+    }
+
     if result.alerts_created > 0 || result.software_items > 0 {
         tracing::info!(
             "OSQUERY: {} — {} software, {} connections, {} alerts",
@@ -1230,4 +1248,502 @@ pub async fn process_osquery_webhook(
     }
 
     result
+}
+
+// ── Windows Security event log → logs + sigma alerts ─────────────────────────
+//
+// osquery's `windows_eventlog` table returns rows with `data` as a JSON STRING
+// that wraps the actual fields under an `EventData` key, e.g.:
+//   "{\"EventData\":{\"TargetUserName\":\"alice\", ...}}"
+// We parse defensively and unwrap `EventData` so callers can read field names
+// directly (TargetUserName / IpAddress / etc.) without an extra hop.
+fn parse_event_data(raw: &serde_json::Value) -> serde_json::Value {
+    let parsed = match raw {
+        serde_json::Value::String(s) => serde_json::from_str(s).unwrap_or(serde_json::json!({})),
+        serde_json::Value::Object(_) => raw.clone(),
+        _ => serde_json::json!({}),
+    };
+    parsed
+        .get("EventData")
+        .cloned()
+        .unwrap_or(parsed)
+}
+
+fn extract_event_field<'a>(data: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
+    for k in keys {
+        if let Some(v) = data.get(k).and_then(|v| v.as_str()) {
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn is_privileged_group_name(name: &str) -> bool {
+    let n = name.to_lowercase();
+    n.contains("admin")
+        || n.contains("domain admins")
+        || n.contains("enterprise admins")
+        || n.contains("backup operators")
+        || n.contains("schema admins")
+        || n.contains("account operators")
+        || n.contains("remote desktop users")
+        || n.contains("administrateurs")
+        || n.contains("administrators")
+}
+
+pub async fn check_windows_security_events(
+    store: &dyn Database,
+    hostname: &str,
+    events: &[serde_json::Value],
+) -> (usize, usize) {
+    let mut ingested = 0usize;
+    let mut alerts = 0usize;
+
+    // In-batch brute force tracking: count 4625 by target user.
+    // The agent sends events from the last 6 min every 5 min, so 3 failures
+    // in a single batch already signals a credential-stuffing attempt.
+    let mut failed_logon_counts: std::collections::HashMap<String, (u32, Option<String>)> =
+        std::collections::HashMap::new();
+
+    for event in events {
+        let eventid = event["eventid"]
+            .as_str()
+            .or_else(|| event["eventid"].as_i64().map(|_| ""))
+            .unwrap_or("");
+        let eventid = if eventid.is_empty() {
+            event["eventid"]
+                .as_i64()
+                .map(|i| i.to_string())
+                .unwrap_or_default()
+        } else {
+            eventid.to_string()
+        };
+
+        let datetime = event["datetime"].as_str().unwrap_or("");
+        let time = if datetime.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            datetime.to_string()
+        };
+
+        let data = parse_event_data(&event["data"]);
+
+        // Persist every event in `logs` so Sigma engine can match.
+        let log_payload = serde_json::json!({
+            "eventid": eventid,
+            "channel": "Security",
+            "provider": event["provider_name"].as_str().unwrap_or(""),
+            "data": data,
+        });
+        if let Some(_id) = crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log("osquery.windows_security", hostname, &log_payload, &time),
+        )
+        .await
+        {
+            ingested += 1;
+        }
+
+        match eventid.as_str() {
+            // Failed logon — accumulate for brute force, no per-event alert
+            "4625" => {
+                let target = extract_event_field(&data, &["TargetUserName", "SubjectUserName"])
+                    .unwrap_or("unknown")
+                    .to_lowercase();
+                let src_ip = extract_event_field(&data, &["IpAddress", "WorkstationName"])
+                    .map(|s| s.to_string());
+                let entry = failed_logon_counts
+                    .entry(target)
+                    .or_insert((0, src_ip.clone()));
+                entry.0 += 1;
+                if entry.1.is_none() {
+                    entry.1 = src_ip;
+                }
+            }
+            // User account created
+            "4720" => {
+                let target = extract_event_field(&data, &["TargetUserName"]).unwrap_or("unknown");
+                let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
+                let title = format!(
+                    "Compte utilisateur créé: {} par {} sur {}",
+                    target, actor, hostname
+                );
+                crate::connectors::log_db_write(
+                    "osquery:insert_sigma_alert",
+                    store.insert_sigma_alert(
+                        "osquery-win-user-created",
+                        "medium",
+                        &title,
+                        hostname,
+                        None,
+                        Some(target),
+                    ),
+                )
+                .await;
+                alerts += 1;
+            }
+            // User account deleted
+            "4726" => {
+                let target = extract_event_field(&data, &["TargetUserName"]).unwrap_or("unknown");
+                let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
+                let title = format!(
+                    "Compte utilisateur supprimé: {} par {} sur {}",
+                    target, actor, hostname
+                );
+                crate::connectors::log_db_write(
+                    "osquery:insert_sigma_alert",
+                    store.insert_sigma_alert(
+                        "osquery-win-user-deleted",
+                        "medium",
+                        &title,
+                        hostname,
+                        None,
+                        Some(target),
+                    ),
+                )
+                .await;
+                alerts += 1;
+            }
+            // Member added to a security group (global=4732, universal=4756)
+            "4732" | "4756" => {
+                let group = extract_event_field(&data, &["TargetUserName"]).unwrap_or("unknown");
+                let member_sid =
+                    extract_event_field(&data, &["MemberSid", "MemberName"]).unwrap_or("unknown");
+                let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
+                let priv_group = is_privileged_group_name(group);
+                let level = if priv_group { "high" } else { "medium" };
+                let title = if priv_group {
+                    format!(
+                        "Ajout au groupe privilégié {}: {} par {} sur {}",
+                        group, member_sid, actor, hostname
+                    )
+                } else {
+                    format!(
+                        "Ajout au groupe {}: {} par {} sur {}",
+                        group, member_sid, actor, hostname
+                    )
+                };
+                crate::connectors::log_db_write(
+                    "osquery:insert_sigma_alert",
+                    store.insert_sigma_alert(
+                        "osquery-win-group-membership-add",
+                        level,
+                        &title,
+                        hostname,
+                        None,
+                        Some(actor),
+                    ),
+                )
+                .await;
+                alerts += 1;
+            }
+            // Audit log cleared — classic anti-forensic IOC
+            "1102" => {
+                let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
+                let title = format!(
+                    "Journal d'audit Security effacé par {} sur {}",
+                    actor, hostname
+                );
+                crate::connectors::log_db_write(
+                    "osquery:insert_sigma_alert",
+                    store.insert_sigma_alert(
+                        "osquery-win-audit-log-cleared",
+                        "critical",
+                        &title,
+                        hostname,
+                        None,
+                        Some(actor),
+                    ),
+                )
+                .await;
+                alerts += 1;
+            }
+            // Successful logon, special privileges, explicit creds — context only
+            "4624" | "4648" | "4672" => {}
+            _ => {}
+        }
+    }
+
+    // Brute force aggregation: 3+ failed logons for the same target in this batch
+    for (target, (count, src_ip)) in &failed_logon_counts {
+        if *count >= 3 {
+            let level = if *count >= 10 { "high" } else { "medium" };
+            let title = format!(
+                "Brute force candidat: {} tentatives échouées sur {} (cible {})",
+                count, hostname, target
+            );
+            crate::connectors::log_db_write(
+                "osquery:insert_sigma_alert",
+                store.insert_sigma_alert(
+                    "osquery-win-failed-logon-burst",
+                    level,
+                    &title,
+                    hostname,
+                    src_ip.as_deref(),
+                    Some(target),
+                ),
+            )
+            .await;
+            alerts += 1;
+        }
+    }
+
+    (ingested, alerts)
+}
+
+// ── PowerShell events → logs + sigma alerts ──────────────────────────────────
+//
+// 4104 = Script Block Logging (requires GPO/registry to be enabled; off by
+// default on stock Windows). When present, it's our best lens on what
+// PowerShell actually executed, including obfuscated payloads after decoding.
+// 4103 = Pipeline execution — kept as log only, too noisy to alert on directly.
+fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
+    let s = script.to_lowercase();
+    let mut hits = vec![];
+    if s.contains("iex(")
+        || s.contains("iex ")
+        || s.contains("invoke-expression")
+    {
+        hits.push("invoke-expression");
+    }
+    if s.contains("downloadstring") || s.contains("downloadfile") || s.contains("invoke-webrequest -uri") {
+        hits.push("remote-download");
+    }
+    if s.contains("-encodedcommand") || s.contains(" -enc ") || s.contains(" -e ") {
+        hits.push("encoded-command");
+    }
+    if s.contains("frombase64string") {
+        hits.push("base64-decode");
+    }
+    if s.contains("lsass") || s.contains("mimikatz") || s.contains("sekurlsa") {
+        hits.push("credential-theft");
+    }
+    if s.contains("amsi") && (s.contains("bypass") || s.contains("disable") || s.contains("patch"))
+    {
+        hits.push("amsi-bypass");
+    }
+    if s.contains("set-mppreference -disablerealtimemonitoring") {
+        hits.push("defender-disable");
+    }
+    hits
+}
+
+pub async fn check_powershell_events(
+    store: &dyn Database,
+    hostname: &str,
+    events: &[serde_json::Value],
+) -> (usize, usize) {
+    let mut ingested = 0usize;
+    let mut alerts = 0usize;
+
+    for event in events {
+        let eventid = event["eventid"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| event["eventid"].as_i64().map(|i| i.to_string()))
+            .unwrap_or_default();
+        let datetime = event["datetime"].as_str().unwrap_or("");
+        let time = if datetime.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            datetime.to_string()
+        };
+        let data = parse_event_data(&event["data"]);
+
+        let log_payload = serde_json::json!({
+            "eventid": eventid,
+            "channel": "Microsoft-Windows-PowerShell/Operational",
+            "data": data,
+        });
+        if let Some(_id) = crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log("osquery.powershell", hostname, &log_payload, &time),
+        )
+        .await
+        {
+            ingested += 1;
+        }
+
+        if eventid == "4104" {
+            let script = extract_event_field(&data, &["ScriptBlockText", "Path"]).unwrap_or("");
+            let user = extract_event_field(&data, &["UserId", "User"]);
+            let hits = is_suspicious_powershell(script);
+            if !hits.is_empty() {
+                let snippet: String = script.chars().take(120).collect();
+                let title = format!(
+                    "PowerShell suspect sur {} ({}): {}",
+                    hostname,
+                    hits.join(", "),
+                    snippet
+                );
+                crate::connectors::log_db_write(
+                    "osquery:insert_sigma_alert",
+                    store.insert_sigma_alert(
+                        "osquery-win-powershell-suspicious",
+                        "high",
+                        &title,
+                        hostname,
+                        None,
+                        user,
+                    ),
+                )
+                .await;
+                alerts += 1;
+            }
+        }
+    }
+
+    (ingested, alerts)
+}
+
+// ── Sysmon events → logs + sigma alerts ─────────────────────────────────────
+//
+// Sysmon (Microsoft Sysinternals) sits below the user-mode boundary and
+// emits much richer telemetry than the built-in Security log: process
+// create with hash + parent + cmdline (1), network connect (3), DLL load (7),
+// CreateRemoteThread (8), ProcessAccess (10) — the gold for LSASS dumps —,
+// FileCreate (11), RegistryEvent (13), DNS query (22).
+//
+// We persist every event in `logs` (tag `osquery.sysmon`) so the Sigma
+// engine can match downstream rules, and emit direct sigma_alerts on the
+// few patterns that are unambiguous IOCs from the event itself.
+pub async fn check_sysmon_events(
+    store: &dyn Database,
+    hostname: &str,
+    events: &[serde_json::Value],
+) -> (usize, usize) {
+    let mut ingested = 0usize;
+    let mut alerts = 0usize;
+
+    for event in events {
+        let eventid = event["eventid"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| event["eventid"].as_i64().map(|i| i.to_string()))
+            .unwrap_or_default();
+        let datetime = event["datetime"].as_str().unwrap_or("");
+        let time = if datetime.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            datetime.to_string()
+        };
+        let data = parse_event_data(&event["data"]);
+
+        let log_payload = serde_json::json!({
+            "eventid": eventid,
+            "channel": "Microsoft-Windows-Sysmon/Operational",
+            "data": data,
+        });
+        if let Some(_id) = crate::connectors::log_db_write(
+            "osquery:insert_log",
+            store.insert_log("osquery.sysmon", hostname, &log_payload, &time),
+        )
+        .await
+        {
+            ingested += 1;
+        }
+
+        match eventid.as_str() {
+            // Process Create — alert on offensive tool signatures in cmdline
+            "1" => {
+                let image = extract_event_field(&data, &["Image"]).unwrap_or("");
+                let cmdline = extract_event_field(&data, &["CommandLine"]).unwrap_or("");
+                let parent = extract_event_field(&data, &["ParentImage"]).unwrap_or("");
+                let user = extract_event_field(&data, &["User"]);
+                let cmd_l = cmdline.to_lowercase();
+                let image_l = image.to_lowercase();
+
+                let mut tags = vec![];
+                if cmd_l.contains("mimikatz") || cmd_l.contains("sekurlsa") || cmd_l.contains("invoke-mimikatz") {
+                    tags.push("mimikatz");
+                }
+                if cmd_l.contains("bloodhound") || cmd_l.contains("sharphound") {
+                    tags.push("ad-recon");
+                }
+                if image_l.contains("certutil.exe")
+                    && (cmd_l.contains("-urlcache") || cmd_l.contains("-decode") || cmd_l.contains("-encode"))
+                {
+                    tags.push("certutil-living-off-the-land");
+                }
+                if image_l.contains("bitsadmin.exe") && cmd_l.contains("/transfer") {
+                    tags.push("bitsadmin-download");
+                }
+                if image_l.contains("rundll32.exe") && cmd_l.contains("javascript:") {
+                    tags.push("rundll32-js");
+                }
+                if image_l.contains("mshta.exe") && (cmd_l.contains("http") || cmd_l.contains("javascript:")) {
+                    tags.push("mshta-remote");
+                }
+                if image_l.contains("regsvr32.exe") && cmd_l.contains("scrobj.dll") {
+                    tags.push("squiblydoo");
+                }
+
+                if !tags.is_empty() {
+                    let title = format!(
+                        "Outil offensif détecté sur {} ({}): {} (lancé par {})",
+                        hostname,
+                        tags.join(", "),
+                        image.rsplit('\\').next().unwrap_or(image),
+                        parent.rsplit('\\').next().unwrap_or(parent),
+                    );
+                    crate::connectors::log_db_write(
+                        "osquery:insert_sigma_alert",
+                        store.insert_sigma_alert(
+                            "sysmon-offensive-tool",
+                            "high",
+                            &title,
+                            hostname,
+                            None,
+                            user,
+                        ),
+                    )
+                    .await;
+                    alerts += 1;
+                }
+            }
+            // ProcessAccess — credential theft pattern: any process opening lsass
+            // with PROCESS_VM_READ (0x10) | PROCESS_QUERY_INFORMATION (0x400).
+            // Sysmon already filters out common benign accessors via its config,
+            // so anything that surfaces here is suspect.
+            "10" => {
+                let target = extract_event_field(&data, &["TargetImage"]).unwrap_or("");
+                let source_image = extract_event_field(&data, &["SourceImage"]).unwrap_or("");
+                let access = extract_event_field(&data, &["GrantedAccess"]).unwrap_or("");
+                let user = extract_event_field(&data, &["User"]);
+
+                if target.to_lowercase().contains("lsass.exe") {
+                    let title = format!(
+                        "Accès suspect à LSASS sur {} par {} (GrantedAccess={})",
+                        hostname,
+                        source_image.rsplit('\\').next().unwrap_or(source_image),
+                        access,
+                    );
+                    crate::connectors::log_db_write(
+                        "osquery:insert_sigma_alert",
+                        store.insert_sigma_alert(
+                            "sysmon-lsass-access",
+                            "critical",
+                            &title,
+                            hostname,
+                            None,
+                            user,
+                        ),
+                    )
+                    .await;
+                    alerts += 1;
+                }
+            }
+            // CreateRemoteThread (EID 8) — ingest as log only. Built-in
+            // Windows components (Defender, MsMpEng, debuggers, AV
+            // products) trigger this constantly with no malicious intent,
+            // so alerting on every EID 8 floods the dashboard with false
+            // positives. A proper Sigma rule with source-image + target-
+            // image patterns can match downstream from the stored log.
+            _ => {}
+        }
+    }
+
+    (ingested, alerts)
 }

@@ -5518,6 +5518,60 @@ pub async fn webhook_get_token_handler(
     }
 }
 
+/// GET /agent and /agent/windows
+///
+/// Self-serve the install script bundled at compile time so the user's
+/// `curl ... | bash` one-liner works against any deployed TC instance
+/// without depending on get.threatclaw.io being reachable. The script
+/// is the SAME one we ship in installer/ — compiled into the binary so
+/// it can't drift out of sync.
+const INSTALL_AGENT_SH: &str = include_str!("../../../../installer/install-agent.sh");
+const INSTALL_AGENT_PS1: &str = include_str!("../../../../installer/install-agent.ps1");
+
+pub async fn agent_install_sh_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")],
+        INSTALL_AGENT_SH,
+    )
+}
+
+pub async fn agent_install_ps1_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        INSTALL_AGENT_PS1,
+    )
+}
+
+/// GET /api/tc/agent/manifest?platform=windows
+///
+/// Server-pushed list of extra osquery queries the endpoint agent should
+/// run each sync cycle. Authenticated by the same `osquery` webhook token
+/// used for ingest, so no extra credential to provision. The agent uses
+/// this to pick up new queries (e.g. a new event channel) without
+/// re-installing on every host — see `connectors/agent_manifest.rs`.
+pub async fn agent_manifest_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let token = headers
+        .get("x-webhook-token")
+        .and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("token").map(|s| s.as_str()))
+        .unwrap_or("");
+    if !crate::connectors::webhook_ingest::verify_token(store.as_ref(), "osquery", token).await {
+        return Ok(Json(serde_json::json!({ "error": "invalid token" })));
+    }
+    let platform = params
+        .get("platform")
+        .map(|s| s.as_str())
+        .unwrap_or("windows");
+    Ok(Json(crate::connectors::agent_manifest::manifest_json(
+        platform,
+    )))
+}
+
 /// GET /api/tc/endpoint-agents — list registered osquery agents
 pub async fn endpoint_agents_handler(
     State(state): State<Arc<GatewayState>>,

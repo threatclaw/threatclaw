@@ -1251,6 +1251,18 @@ pub async fn start_server(
         )
         // Endpoint agents (osquery-based)
         .route(
+            "/api/tc/agent/manifest",
+            get(super::handlers::threatclaw_api::agent_manifest_handler),
+        )
+        .route(
+            "/api/tc/agent/install.sh",
+            get(super::handlers::threatclaw_api::agent_install_sh_handler),
+        )
+        .route(
+            "/api/tc/agent/install.ps1",
+            get(super::handlers::threatclaw_api::agent_install_ps1_handler),
+        )
+        .route(
             "/api/tc/endpoint-agents",
             get(super::handlers::threatclaw_api::endpoint_agents_handler),
         )
