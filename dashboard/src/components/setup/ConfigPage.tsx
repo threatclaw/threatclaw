@@ -2304,14 +2304,14 @@ function LogSourcesTab() {
 
   const guides = [
     { id: "agent-linux", title: "Agent ThreatClaw (Linux / macOS)", steps: [
-      { fr: "Voie recommandée. L'agent installe osquery, pousse inventaire + telemetry endpoint, et tire ses queries depuis ce serveur (zéro re-déploiement quand on enrichit la détection).", en: "Recommended path. The agent installs osquery, pushes inventory + endpoint telemetry, and pulls its queries from this server (zero re-deploy when detection coverage grows)." },
-      { fr: "Sur la machine cible (root) :", en: "On the target machine (root):", cmd: `curl -fsSL https://${serverIp}:8445/agent -k | sudo bash -s -- --url https://${serverIp}:8445 --token <AGENT_TOKEN>` },
+      { fr: "Voie recommandée. Une seule commande installe : osquery (inventaire + process events + FIM), un forwarder rsyslog pour les logs auth/sudo/audit, et des règles auditd sur les fichiers critiques. L'agent tire ses queries depuis ce serveur (zéro re-déploiement quand on enrichit la détection).", en: "Recommended path. One command installs: osquery (inventory + process events + FIM), an rsyslog forwarder for auth/sudo/audit logs, and auditd rules on critical files. The agent pulls its queries from this server (zero re-deploy when detection coverage grows)." },
+      { fr: "Sur la machine cible (root) :", en: "On the target machine (root):", cmd: `curl -fsSLk https://${serverIp}:8445/api/tc/agent/install.sh | sudo bash -s -- --url https://${serverIp}:8445 --token <AGENT_TOKEN>` },
       { fr: "Le token agent se génère depuis Skills > Osquery > Configurer.", en: "Generate the agent token from Skills > Osquery > Configure." },
-      { fr: "Vérifiez : la machine apparaît dans Assets dans les 5 minutes.", en: "Verify: the host appears under Assets within 5 minutes." },
+      { fr: "Vérifiez : la machine apparaît dans Assets dans les 5 minutes, et les events auth.log / audit remontent (tentatives ssh ratées, sudo, modifs /etc/passwd...).", en: "Verify: the host appears under Assets within 5 minutes, and auth.log / audit events flow (failed ssh attempts, sudo, /etc/passwd edits...)." },
     ]},
     { id: "agent-windows", title: "Agent ThreatClaw (Windows)", steps: [
       { fr: "Voie recommandée. L'installeur dépose osquery, Sysmon (config SwiftOnSecurity), et une Scheduled Task SYSTEM toutes les 5 min. Idempotent.", en: "Recommended path. The installer drops osquery, Sysmon (SwiftOnSecurity config), and a SYSTEM Scheduled Task every 5 min. Idempotent." },
-      { fr: "PowerShell en administrateur :", en: "PowerShell as administrator:", cmd: `$env:TC_URL='https://${serverIp}:8445'; $env:TC_TOKEN='<AGENT_TOKEN>'; iwr -UseBasicParsing -SkipCertificateCheck https://${serverIp}:8445/agent/windows | iex` },
+      { fr: "PowerShell en administrateur :", en: "PowerShell as administrator:", cmd: `$env:TC_URL='https://${serverIp}:8445'; $env:TC_TOKEN='<AGENT_TOKEN>'; iwr -UseBasicParsing -SkipCertificateCheck https://${serverIp}:8445/api/tc/agent/install.ps1 | iex` },
       { fr: "IMPORTANT pour la détection PowerShell offensive : activez Script Block Logging. Sans cette étape l'agent capture les events 4104 mais Windows ne loggue pas le contenu réel des scripts.", en: "IMPORTANT for offensive PowerShell detection: enable Script Block Logging. Without this step the agent captures 4104 events but Windows does not log the actual script content." },
       { fr: "Registry one-shot :", en: "One-shot registry:", cmd: `$key='HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging'\nNew-Item -Path $key -Force | Out-Null\nSet-ItemProperty -Path $key -Name EnableScriptBlockLogging -Value 1 -Type DWord` },
     ]},

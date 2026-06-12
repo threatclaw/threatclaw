@@ -80,6 +80,7 @@ COPY skills/ skills/
 COPY skills-src/ skills-src/
 COPY skills-catalog/ skills-catalog/
 COPY graphs/ graphs/
+COPY installer/ installer/
 
 # Touch main.rs to invalidate the dummy and force a real build
 RUN touch src/main.rs

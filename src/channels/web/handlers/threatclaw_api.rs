@@ -5518,6 +5518,30 @@ pub async fn webhook_get_token_handler(
     }
 }
 
+/// GET /agent and /agent/windows
+///
+/// Self-serve the install script bundled at compile time so the user's
+/// `curl ... | bash` one-liner works against any deployed TC instance
+/// without depending on get.threatclaw.io being reachable. The script
+/// is the SAME one we ship in installer/ — compiled into the binary so
+/// it can't drift out of sync.
+const INSTALL_AGENT_SH: &str = include_str!("../../../../installer/install-agent.sh");
+const INSTALL_AGENT_PS1: &str = include_str!("../../../../installer/install-agent.ps1");
+
+pub async fn agent_install_sh_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")],
+        INSTALL_AGENT_SH,
+    )
+}
+
+pub async fn agent_install_ps1_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        INSTALL_AGENT_PS1,
+    )
+}
+
 /// GET /api/tc/agent/manifest?platform=windows
 ///
 /// Server-pushed list of extra osquery queries the endpoint agent should
