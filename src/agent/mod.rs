@@ -56,6 +56,7 @@ pub mod llm_parsing;
 pub mod llm_router;
 pub mod llm_schemas;
 pub mod memory;
+pub mod mitre_mapping;
 pub mod mode_manager;
 pub mod nace_profiles;
 pub mod ndr_beacon;

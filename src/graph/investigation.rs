@@ -289,7 +289,7 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
             ],
             estimated_duration_secs: 20,
         },
-        // Roadmap réparation 2026-06-12 Fix 1.3 — Windows-specific workflows.
+        // — Windows-specific workflows.
         // The pre-existing `ssh-brute-force` graph runs GreyNoise / AbuseIPDB
         // lookups that make no sense for local NTLM logons (source is
         // fe80::... link-local or a workstation name) and primes the LLM
@@ -433,7 +433,7 @@ pub fn get_investigation_graphs() -> Vec<InvestigationGraph> {
 
 /// Match an alert to the best investigation graph.
 ///
-/// Roadmap réparation 2026-06-12 Fix 1.3 — `rule_id`-first matching.
+/// — `rule_id`-first matching.
 /// The legacy implementation matched only on `alert_title.contains("brute")`
 /// which routed every Windows NTLM brute force into the SSH workflow, with
 /// downstream hallucinations on the LLM. Now we match by exact `rule_id`
@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn test_investigation_graphs_count() {
         let graphs = get_investigation_graphs();
-        // 7 legacy + 5 Windows-specific added by Roadmap réparation Fix 1.3
+        // 7 legacy + 5 Windows-specific added by note
         assert_eq!(graphs.len(), 12);
     }
 
@@ -539,12 +539,12 @@ mod tests {
 
     #[test]
     fn test_match_graph_rule_id_first() {
-        // Roadmap réparation Fix 1.3 — rule_id wins over title heuristics.
+        // — rule_id wins over title heuristics.
         // Windows NTLM brute force must NEVER route to ssh-brute-force.
         assert_eq!(
             match_investigation_graph(
                 "osquery-win-failed-logon-burst",
-                "Brute force candidat: 15 tentatives échouées sur SRV-CYBE06-001 (cible alice)"
+                "Brute force candidat: 15 tentatives échouées sur srv-test-01 (cible alice)"
             ),
             Some("win-bruteforce".into())
         );

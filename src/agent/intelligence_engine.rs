@@ -247,11 +247,11 @@ impl InvestigationDedup {
     /// Cooldown depends on verdict: confirmed/FP = 4h, inconclusive = 1h, error = 15min,
     /// other = 30min.
     ///
-    /// Roadmap réparation 2026-06-12 Fix 1.6 — error gets its own 15min cooldown so
-    /// repeated L2 timeouts on slow hardware (cyb06 Q8_0 timeout) don't trigger an
-    /// infinite re-investigation loop. Without this, the previous record-only-on-non-
-    /// error skipped error cases entirely and the IE re-investigated the same dossier
-    /// every cycle (20+ "Starting" logs in 7 min observed on cyb06).
+    /// — error gets its own 15min cooldown so
+    /// repeated L2 timeouts on slow hardware don't trigger an infinite re-
+    /// investigation loop. Without this, the previous record-only-on-non-error
+    /// skipped error cases entirely and the IE re-investigated the same dossier
+    /// every cycle (20+ "Starting" logs in 7 min on a CPU-only Ollama profile).
     fn is_in_cooldown(&self, asset: &str) -> bool {
         if let Some((verdict, when)) = self.seen.get(asset) {
             let cooldown_hours = match verdict.as_str() {
@@ -323,7 +323,7 @@ fn clean_l2_output(raw: &str) -> String {
     text
 }
 
-/// Roadmap réparation 2026-06-12 Fix 1.1 — convert a free-text action description
+/// — convert a free-text action description
 /// (legacy `actions: ["Bloquer l'IP source", ...]` shape) into the canonical
 /// object expected by the dashboard. New deployments emit the schema shape
 /// directly with `cmd_id`; this helper is purely a back-compat ramp for the
@@ -893,7 +893,7 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         let rule_lc = alert.rule_id.to_lowercase();
         let title_lc = alert.rule_name.to_lowercase();
 
-        // Roadmap réparation 2026-06-12 Fix 1.4 — be strict on rule_id, never
+        // — be strict on rule_id, never
         // on a bare "brute force" substring of the title. The previous version
         // turned every Windows NTLM brute force (osquery-win-failed-logon-burst,
         // title "Brute force candidat...") into "SSH brute force sur ...",
@@ -919,9 +919,10 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
             // les flowbits Suricata indiquent du Windows Update / téléchargement
             // d'exécutable / dottedquadhost outbound, présenter "depuis <ip
             // externe>" est trompeur : ce n'est PAS un attaquant qui frappe
-            // l'asset, c'est l'asset qui sort. Cas vu sur cyb06 #1581 où
-            // SRV-01-DOM télécharge un patch Windows Defender et le titre
-            // affichait "Alerte IDS / IPS sur SRV-01-DOM depuis 14.102.231.203/32".
+            // l'asset, c'est l'asset qui sort. Cas reproduit sur un host AD qui
+            // télécharge un patch Windows Defender et le titre affichait
+            // "Alerte IDS / IPS sur <asset> depuis <IP externe>" — formulation
+            // qui suggère faussement une attaque entrante.
             //
             // Heuristique : on inspecte `matched_fields.alert.signature` et
             // `matched_fields.metadata.flowbits` du sigma alert (champ jsonb
@@ -3817,12 +3818,12 @@ pub fn spawn_intelligence_ticker(
                                             .await;
 
                                         // Record in dedup cache with verdict-based cooldown.
-                                        // Roadmap réparation 2026-06-12 Fix 1.6 — also record on error.
+                                        // — also record on error.
                                         // Previously we skipped recording so we'd retry next cycle, but on
-                                        // slow hardware (cyb06 Q8_0 timeout) every L2 call errors and the
-                                        // IE relaunched the same investigation indefinitely. The 15min
-                                        // error cooldown (see is_in_cooldown) gives the operator time to
-                                        // notice without burning Ollama on a loop.
+                                        // slow hardware (CPU-only Ollama, large quant) every L2 call errors
+                                        // and the IE relaunched the same investigation indefinitely. The
+                                        // 15min error cooldown (see is_in_cooldown) gives the operator time
+                                        // to notice without burning Ollama on a loop.
                                         INVESTIGATION_BLOOM.write().await.record(
                                             inv_key_owned,
                                             result.verdict.verdict_type().to_string(),
@@ -3850,7 +3851,7 @@ pub fn spawn_intelligence_ticker(
                                                 "INVESTIGATION: Enriching verdict with L2 (forensic) for {}",
                                                 asset_name
                                             );
-                                            // Roadmap réparation 2026-06-12 Fix 1.1 + 1.2:
+                                            // Notes:
                                             // - Prompt et parser alignés sur le forensic_schema (`analysis`,
                                             //   `mitre_techniques`, `iocs` objets typés, `proposed_actions`
                                             //   avec cmd_id). Avant, le prompt demandait `summary`/`mitre_attck`/
@@ -3860,7 +3861,7 @@ pub fn spawn_intelligence_ticker(
                                             // - Dossier passé via `to_prompt_evidence()` qui dump les titres
                                             //   réels des sigma_alerts/findings, pas juste les compteurs. Sans
                                             //   evidence concrète le L2 hallucinait pour combler le vide
-                                            //   (CVE/Nmap fantômes dans incident #36).
+                                            //   (CVE / scans fantômes dans des résumés sans rapport avec le dossier).
                                             let l2_prompt = format!(
                                                 "Tu es un analyste SOC senior. Analyse l'incident ci-dessous et retourne un rapport JSON pour un RSSI.\n\n\
                                          ## DOSSIER\n\
@@ -3942,7 +3943,7 @@ pub fn spawn_intelligence_ticker(
                                             });
 
                                             if let Some(obj) = parsed {
-                                                // Roadmap réparation 2026-06-12 Fix 1.1: aligner sur les noms
+                                                // Note: aligner sur les noms
                                                 // du forensic_schema. Le parser tolère aussi les anciens noms
                                                 // (`summary`, `mitre_attck`, `ioc`, `actions`) pour absorber
                                                 // les variations résiduelles de modèles, mais préfère toujours
@@ -4111,6 +4112,40 @@ pub fn spawn_intelligence_ticker(
 
                                         // See ADR-043: update incident with verdict
                                         if incident_id > 0 {
+                                            // Merge in the deterministic baseline for the dominant sigma
+                                            // rule. The LLM still wins on cmd_id collisions (it likely
+                                            // tailored params for the actual alert), but any field the
+                                            // LLM left empty — whether because it failed, timed out, or
+                                            // produced partial JSON — is backfilled from the canonical
+                                            // mapping. This guarantees mitre_techniques and proposed_actions
+                                            // are never silently empty on a recognized rule_id.
+                                            let dominant_alert = dossier.sigma_alerts.first();
+                                            let dominant_rule_id = dominant_alert
+                                                .map(|a| a.rule_id.clone())
+                                                .unwrap_or_default();
+                                            let baseline =
+                                                crate::agent::mitre_mapping::baseline_for_rule(
+                                                    &dominant_rule_id,
+                                                    dominant_alert,
+                                                );
+                                            let baseline_was_useful = !baseline.is_empty();
+                                            let (merged_mitre, merged_actions) =
+                                                crate::agent::mitre_mapping::merge_with_baseline(
+                                                    std::mem::take(&mut parsed_mitre),
+                                                    std::mem::take(&mut parsed_actions),
+                                                    baseline,
+                                                );
+                                            parsed_mitre = merged_mitre;
+                                            parsed_actions = merged_actions;
+                                            if baseline_was_useful {
+                                                tracing::info!(
+                                                    "INVESTIGATION: deterministic baseline merged for rule_id={} — total {} MITRE, {} actions",
+                                                    dominant_rule_id,
+                                                    parsed_mitre.len(),
+                                                    parsed_actions.len(),
+                                                );
+                                            }
+
                                             // Use the structured data parsed from L2 (fallback to empty if unavailable).
                                             let proposed = serde_json::json!({
                                                 "actions": parsed_actions,

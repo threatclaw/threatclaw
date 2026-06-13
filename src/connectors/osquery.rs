@@ -1293,7 +1293,7 @@ fn is_privileged_group_name(name: &str) -> bool {
         || n.contains("administrators")
 }
 
-/// Roadmap réparation 2026-06-12 Fix 1.5 — last-burst dedup.
+/// — last-burst dedup.
 ///
 /// The agent ships events from the last 6 min every 5 min, so the same
 /// 4625 burst is in 2 consecutive batches. Without dedup we emit two
@@ -1521,7 +1521,7 @@ pub async fn check_windows_security_events(
     }
 
     // Brute force aggregation: 3+ failed logons for the same target in this batch.
-    // Roadmap réparation 2026-06-12 Fix 1.5 — skip emission if we already
+    // — skip emission if we already
     // emitted a burst whose latest event is at-or-after the current one (= same
     // window seen twice across consecutive sync cycles).
     for (target, (count, src_ip, max_dt)) in &failed_logon_counts {

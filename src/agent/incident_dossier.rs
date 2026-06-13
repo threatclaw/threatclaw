@@ -215,7 +215,7 @@ impl IncidentDossier {
         )
     }
 
-    /// Roadmap réparation 2026-06-12 Fix 1.2 — concrete evidence dump for the
+    /// — concrete evidence dump for the
     /// L2 prompt. The legacy `summary()` returned only counts ("findings=0
     /// alerts=5"), which gave the L2 zero ground to stand on and led it to
     /// hallucinate plausible-sounding attack stories. This method spells out
