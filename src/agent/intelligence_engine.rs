@@ -244,12 +244,20 @@ impl InvestigationDedup {
     }
 
     /// Check if an asset is still in cooldown from a previous investigation.
-    /// Cooldown depends on verdict: confirmed/FP = 4h, inconclusive = 1h, other = 30min.
+    /// Cooldown depends on verdict: confirmed/FP = 4h, inconclusive = 1h, error = 15min,
+    /// other = 30min.
+    ///
+    /// — error gets its own 15min cooldown so
+    /// repeated L2 timeouts on slow hardware don't trigger an infinite re-
+    /// investigation loop. Without this, the previous record-only-on-non-error
+    /// skipped error cases entirely and the IE re-investigated the same dossier
+    /// every cycle (20+ "Starting" logs in 7 min on a CPU-only Ollama profile).
     fn is_in_cooldown(&self, asset: &str) -> bool {
         if let Some((verdict, when)) = self.seen.get(asset) {
             let cooldown_hours = match verdict.as_str() {
                 "confirmed" | "false_positive" => 4.0,
                 "inconclusive" => 1.0,
+                "error" => 0.25, // 15 min — short but blocks the runaway loop
                 _ => 0.5,
             };
             let elapsed = (chrono::Utc::now() - *when).num_seconds() as f64;
@@ -313,6 +321,144 @@ fn clean_l2_output(raw: &str) -> String {
 
     // Already plain text — return as-is.
     text
+}
+
+/// — convert a free-text action description
+/// (legacy `actions: ["Bloquer l'IP source", ...]` shape) into the canonical
+/// object expected by the dashboard. New deployments emit the schema shape
+/// directly with `cmd_id`; this helper is purely a back-compat ramp for the
+/// older string shape.
+/// Cheap post-parse hallucination guard for L2 narrative.
+///
+/// The L2 model is prompted with `## RÈGLES STRICTES` that forbid inventing
+/// entities, but slow / under-quanted local models still sometimes write
+/// "alerte IDS (CVE-2024-12345), scan Nmap port 445, CISA KEV match"
+/// when the actual dossier holds nothing of the sort. Such fabrications get
+/// surfaced to the SOC analyst as fact and erode trust in the whole tier.
+///
+/// We scan the L2 analysis for three high-signal markers (CVE IDs, IPv4
+/// addresses, scan/Nmap references) and verify each one against the
+/// dossier. Any mention without a backing fact is a violation. Returning
+/// a non-empty Vec means the caller should drop the L2 narrative and use
+/// a deterministic fallback.
+fn check_l2_grounding(
+    analysis: &str,
+    dossier: &crate::agent::incident_dossier::IncidentDossier,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let lower = analysis.to_lowercase();
+
+    // Build the dossier "fact set" — strings the model is allowed to cite.
+    let mut cve_facts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for f in &dossier.findings {
+        let mut text = f.title.to_uppercase();
+        if let Some(desc) = f.description.as_deref() {
+            text.push(' ');
+            text.push_str(&desc.to_uppercase());
+        }
+        for piece in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-') {
+            if piece.starts_with("CVE-") {
+                cve_facts.insert(piece.to_string());
+            }
+        }
+    }
+    for cve in &dossier.enrichment.cve_details {
+        cve_facts.insert(cve.cve_id.to_uppercase());
+    }
+
+    let mut ip_facts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for a in &dossier.sigma_alerts {
+        if let Some(ip) = a.source_ip.as_deref() {
+            ip_facts.insert(ip.split('/').next().unwrap_or(ip).to_string());
+        }
+    }
+    for f in &dossier.findings {
+        if let Some(ip) = f.metadata.get("src_ip").and_then(|v| v.as_str()) {
+            if !ip.is_empty() && ip != "null" {
+                ip_facts.insert(ip.split('/').next().unwrap_or(ip).to_string());
+            }
+        }
+    }
+
+    let dossier_mentions_scan = dossier.findings.iter().any(|f| {
+        let t = f.title.to_lowercase();
+        t.contains("scan") || t.contains("nmap") || t.contains("port-scan")
+    }) || dossier.sigma_alerts.iter().any(|a| {
+        let t = a.rule_name.to_lowercase();
+        t.contains("scan") || t.contains("nmap")
+    });
+
+    // CVE check
+    let cve_re = regex::Regex::new(r"CVE-\d{4}-\d{4,7}").expect("static regex");
+    for cap in cve_re.find_iter(analysis) {
+        let cve = cap.as_str().to_uppercase();
+        if !cve_facts.contains(&cve) {
+            violations.push(format!("hallucinated {} (not in dossier)", cve));
+        }
+    }
+
+    // Scan / Nmap mention check
+    if !dossier_mentions_scan
+        && (lower.contains("scan nmap")
+            || lower.contains("nmap scan")
+            || lower.contains("port scan")
+            || lower.contains("scan de port"))
+    {
+        violations.push("scan / Nmap mention not backed by dossier".into());
+    }
+
+    // IPv4 check — only flag public/routable IPs to avoid false positives on
+    // the L2 quoting a private range that's already implicit in the dossier.
+    let ipv4_re = regex::Regex::new(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
+        .expect("static regex");
+    for cap in ipv4_re.captures_iter(analysis) {
+        let ip = cap.get(0).map(|m| m.as_str()).unwrap_or("");
+        let octets: [u16; 4] = [1, 2, 3, 4].map(|i| {
+            cap.get(i)
+                .and_then(|m| m.as_str().parse::<u16>().ok())
+                .unwrap_or(0)
+        });
+        if octets.iter().any(|o| *o > 255) {
+            continue;
+        }
+        let is_private = octets[0] == 10
+            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+            || (octets[0] == 192 && octets[1] == 168)
+            || octets[0] == 127;
+        if is_private {
+            continue;
+        }
+        if !ip_facts.contains(ip) {
+            violations.push(format!("hallucinated IP {} (not in dossier)", ip));
+        }
+    }
+
+    violations
+}
+
+fn legacy_action_from_string(desc: &str) -> serde_json::Value {
+    let lower = desc.to_lowercase();
+    let kind = if lower.contains("bloqu")
+        || lower.contains("block")
+        || lower.contains("firewall")
+        || lower.contains("pfsense")
+        || lower.contains("opnsense")
+    {
+        "block_ip"
+    } else if lower.contains("ticket") || lower.contains("glpi") {
+        "create_ticket"
+    } else if lower.contains("désactiv")
+        || lower.contains("disable")
+        || lower.contains("réinitialis")
+        || lower.contains("reset")
+        || lower.contains("compte")
+        || lower.contains("account")
+    {
+        "disable_account"
+    } else {
+        "manual"
+    };
+    serde_json::json!({ "kind": kind, "description": desc })
 }
 
 /// Extract human-readable text from structured L2 JSON output.
@@ -855,15 +1001,19 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         let rule_lc = alert.rule_id.to_lowercase();
         let title_lc = alert.rule_name.to_lowercase();
 
-        // Patterns Sigma typiques mappés au libellé RSSI
-        if rule_lc.contains("ssh-brute")
-            || rule_lc.contains("ssh-auth")
-            || title_lc.contains("ssh brute")
-            || title_lc.contains("brute force")
-        {
+        // — be strict on rule_id, never
+        // on a bare "brute force" substring of the title. The previous version
+        // turned every Windows NTLM brute force (osquery-win-failed-logon-burst,
+        // title "Brute force candidat...") into "SSH brute force sur ...",
+        // which was both factually wrong and primed the L2 to hallucinate an
+        // SSH attack story.
+        if rule_lc.contains("osquery-win-failed-logon-burst") {
+            return format!("Brute force Windows sur {asset}{from}{user}");
+        }
+        if rule_lc.contains("ssh-brute") || rule_lc.contains("ssh-auth") {
             return format!("SSH brute force sur {asset}{from}{user}");
         }
-        if rule_lc.contains("rdp-brute") || title_lc.contains("rdp brute") {
+        if rule_lc.contains("rdp-brute") {
             return format!("RDP brute force sur {asset}{from}{user}");
         }
         if rule_lc.contains("opnsense-004")
@@ -877,9 +1027,10 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
             // les flowbits Suricata indiquent du Windows Update / téléchargement
             // d'exécutable / dottedquadhost outbound, présenter "depuis <ip
             // externe>" est trompeur : ce n'est PAS un attaquant qui frappe
-            // l'asset, c'est l'asset qui sort. Cas vu sur cyb06 #1581 où
-            // SRV-01-DOM télécharge un patch Windows Defender et le titre
-            // affichait "Alerte IDS / IPS sur SRV-01-DOM depuis 14.102.231.203/32".
+            // l'asset, c'est l'asset qui sort. Cas reproduit sur un host AD qui
+            // télécharge un patch Windows Defender et le titre affichait
+            // "Alerte IDS / IPS sur <asset> depuis <IP externe>" — formulation
+            // qui suggère faussement une attaque entrante.
             //
             // Heuristique : on inspecte `matched_fields.alert.signature` et
             // `matched_fields.metadata.flowbits` du sigma alert (champ jsonb
@@ -1486,7 +1637,9 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
     // Match alerts to investigation graphs and run deterministic investigation.
     let all_graphs = crate::graph::investigation::get_investigation_graphs();
     for a in alerts.iter().take(3) {
-        if let Some(graph_id) = crate::graph::investigation::match_investigation_graph(&a.title) {
+        if let Some(graph_id) =
+            crate::graph::investigation::match_investigation_graph(&a.rule_id, &a.title)
+        {
             if let Some(graph) = all_graphs.iter().find(|g| g.id == graph_id) {
                 let ip = a
                     .source_ip
@@ -3773,13 +3926,16 @@ pub fn spawn_intelligence_ticker(
                                             .await;
 
                                         // Record in dedup cache with verdict-based cooldown.
-                                        // Skip recording on error so we retry next cycle.
-                                        if result.verdict.verdict_type() != "error" {
-                                            INVESTIGATION_BLOOM.write().await.record(
-                                                inv_key_owned,
-                                                result.verdict.verdict_type().to_string(),
-                                            );
-                                        }
+                                        // — also record on error.
+                                        // Previously we skipped recording so we'd retry next cycle, but on
+                                        // slow hardware (CPU-only Ollama, large quant) every L2 call errors
+                                        // and the IE relaunched the same investigation indefinitely. The
+                                        // 15min error cooldown (see is_in_cooldown) gives the operator time
+                                        // to notice without burning Ollama on a loop.
+                                        INVESTIGATION_BLOOM.write().await.record(
+                                            inv_key_owned,
+                                            result.verdict.verdict_type().to_string(),
+                                        );
 
                                         tracing::info!(
                                             "INVESTIGATION: Completed for {} — {}={:.0}% duration={}s",
@@ -3803,23 +3959,41 @@ pub fn spawn_intelligence_ticker(
                                                 "INVESTIGATION: Enriching verdict with L2 (forensic) for {}",
                                                 asset_name
                                             );
+                                            // Notes:
+                                            // - Prompt et parser alignés sur le forensic_schema (`analysis`,
+                                            //   `mitre_techniques`, `iocs` objets typés, `proposed_actions`
+                                            //   avec cmd_id). Avant, le prompt demandait `summary`/`mitre_attck`/
+                                            //   `ioc`/`actions` (strings) mais Ollama appliquait le schema FSM-
+                                            //   constrained, le modèle sortait les noms du schema et le parser
+                                            //   ne les lisait pas → mitre vide partout.
+                                            // - Dossier passé via `to_prompt_evidence()` qui dump les titres
+                                            //   réels des sigma_alerts/findings, pas juste les compteurs. Sans
+                                            //   evidence concrète le L2 hallucinait pour combler le vide
+                                            //   (CVE / scans fantômes dans des résumés sans rapport avec le dossier).
                                             let l2_prompt = format!(
-                                                "Tu es un analyste SOC senior. Analyse cet incident et produis un rapport JSON structuré pour un RSSI.\n\n\
-                                         CONTEXTE :\n\
-                                         Asset : {asset}\n\
-                                         Dossier : {dossier}\n\
-                                         Analyse initiale : {l1}\n\n\
-                                         Réponds en JSON avec EXACTEMENT ces clés :\n\
+                                                "Tu es un analyste SOC senior. Analyse l'incident ci-dessous et retourne un rapport JSON pour un RSSI.\n\n\
+                                         ## DOSSIER\n\
+                                         {dossier}\n\n\
+                                         ## ANALYSE INITIALE (L1)\n\
+                                         {l1}\n\n\
+                                         ## RÈGLES STRICTES\n\
+                                         - Réponds UNIQUEMENT avec les éléments présents dans le dossier ci-dessus.\n\
+                                         - N'invente AUCUN asset, utilisateur, IP, CVE, scan ou service qui n'apparaît pas explicitement.\n\
+                                         - Si un champ n'est pas étayé par le dossier, retourne tableau vide [] (jamais une valeur plausible inventée).\n\
+                                         - Pour `incident_title_fr` : commence par le type d'événement réel (ex: \"Brute force Windows\", \"Élévation privilège Linux\"). Ne mets jamais \"SSH\" sauf si le dossier parle explicitement de SSH/sshd.\n\n\
+                                         ## RÉPONSE JSON ATTENDUE\n\
                                          {{\n\
-                                           \"incident_title_fr\": \"Titre court FR pour la carte d'incident (max 110 caractères, factuel — décris ce qui est RÉELLEMENT dans le dossier ci-dessus ; n'invente pas d'asset, d'utilisateur ni de service ; ne produis pas un titre 'Brute force SSH' sauf si une signature SSH ou un compte cible est explicitement présent dans le dossier ; à défaut commence par le type de finding observé)\",\n\
-                                           \"summary\": \"1-2 phrases décrivant ce qui s'est passé\",\n\
-                                           \"mitre_attck\": [\"T1110 Brute Force\", \"T1078 Valid Accounts\"],\n\
-                                           \"ioc\": [\"IP: 1.2.3.4\", \"hash: abc123\"],\n\
-                                           \"actions\": [\"Bloquer l'IP source\", \"Réinitialiser les mots de passe\", \"Vérifier les logs\"]\n\
-                                         }}\n\
-                                         Sois factuel, concis, maximum 15 lignes au total.",
-                                                asset = asset_name,
-                                                dossier = dossier.summary(),
+                                           \"verdict\": \"confirmed|false_positive|inconclusive|informational\",\n\
+                                           \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\",\n\
+                                           \"confidence\": 0.85,\n\
+                                           \"analysis\": \"1-3 phrases factuelles décrivant ce que le dossier montre\",\n\
+                                           \"incident_title_fr\": \"Titre court FR factuel (max 110 chars)\",\n\
+                                           \"mitre_techniques\": [\"T1110.001 Password Brute Force\"],\n\
+                                           \"cves\": [\"CVE-2024-12345\"],\n\
+                                           \"iocs\": [{{\"type\": \"ip\", \"value\": \"1.2.3.4\"}}],\n\
+                                           \"proposed_actions\": [{{\"cmd_id\": \"net-001\", \"params\": {{\"ip\": \"1.2.3.4\"}}, \"rationale\": \"Bloquer l'IP source\"}}]\n\
+                                         }}",
+                                                dossier = dossier.to_prompt_evidence(),
                                                 l1 = result.verdict.analysis_text()
                                             );
                                             // Use primary base_url (L1/L2 share same Ollama instance)
@@ -3877,6 +4051,12 @@ pub fn spawn_intelligence_ticker(
                                             });
 
                                             if let Some(obj) = parsed {
+                                                // Note: aligner sur les noms
+                                                // du forensic_schema. Le parser tolère aussi les anciens noms
+                                                // (`summary`, `mitre_attck`, `ioc`, `actions`) pour absorber
+                                                // les variations résiduelles de modèles, mais préfère toujours
+                                                // le nom canonique du schema.
+
                                                 // Extract FR title (preferred over L1's title)
                                                 if let Some(t) = obj
                                                     .get("incident_title_fr")
@@ -3887,16 +4067,28 @@ pub fn spawn_intelligence_ticker(
                                                         parsed_title_fr = Some(t.to_string());
                                                     }
                                                 }
-                                                // Extract summary
-                                                if let Some(s) =
-                                                    obj.get("summary").and_then(|v| v.as_str())
+                                                // analysis (schema) > summary (legacy prompt) > unchanged
+                                                if let Some(s) = obj
+                                                    .get("analysis")
+                                                    .and_then(|v| v.as_str())
+                                                    .or_else(|| {
+                                                        obj.get("summary").and_then(|v| v.as_str())
+                                                    })
                                                 {
-                                                    final_analysis = s.to_string();
+                                                    let s = s.trim();
+                                                    if !s.is_empty() {
+                                                        final_analysis = s.to_string();
+                                                    }
                                                 }
-                                                // Extract MITRE techniques (array of strings)
+                                                // MITRE: schema field name (mitre_techniques) takes precedence,
+                                                // fall back to legacy names if model wandered.
                                                 if let Some(arr) = obj
-                                                    .get("mitre_attck")
+                                                    .get("mitre_techniques")
                                                     .and_then(|v| v.as_array())
+                                                    .or_else(|| {
+                                                        obj.get("mitre_attck")
+                                                            .and_then(|v| v.as_array())
+                                                    })
                                                     .or_else(|| {
                                                         obj.get("mitre").and_then(|v| v.as_array())
                                                     })
@@ -3904,65 +4096,88 @@ pub fn spawn_intelligence_ticker(
                                                     parsed_mitre = arr
                                                         .iter()
                                                         .filter_map(|v| {
-                                                            v.as_str().map(String::from)
+                                                            // Accept either bare string ("T1110.001 Brute Force")
+                                                            // or object {technique_id, technique_nom}.
+                                                            if let Some(s) = v.as_str() {
+                                                                return Some(s.to_string());
+                                                            }
+                                                            let id = v
+                                                                .get("technique_id")
+                                                                .or_else(|| v.get("id"))
+                                                                .and_then(|x| x.as_str())?;
+                                                            let name = v
+                                                                .get("technique_nom")
+                                                                .or_else(|| v.get("name"))
+                                                                .and_then(|x| x.as_str())
+                                                                .unwrap_or("");
+                                                            Some(if name.is_empty() {
+                                                                id.to_string()
+                                                            } else {
+                                                                format!("{id} {name}")
+                                                            })
                                                         })
                                                         .filter(|s| !s.is_empty())
                                                         .collect();
                                                 }
-                                                // Extract IOCs (array of strings)
+                                                // IOCs: schema is `iocs` of objects {type, value}; fall back to
+                                                // legacy `ioc` (strings) for compat.
                                                 if let Some(arr) = obj
-                                                    .get("ioc")
+                                                    .get("iocs")
                                                     .and_then(|v| v.as_array())
                                                     .or_else(|| {
-                                                        obj.get("iocs").and_then(|v| v.as_array())
+                                                        obj.get("ioc").and_then(|v| v.as_array())
                                                     })
                                                 {
                                                     parsed_iocs = arr
                                                         .iter()
                                                         .filter_map(|v| {
-                                                            v.as_str().map(String::from)
+                                                            if let Some(s) = v.as_str() {
+                                                                return Some(s.to_string());
+                                                            }
+                                                            // Schema object form: {"type": "ip", "value": "1.2.3.4"}
+                                                            let ty = v
+                                                                .get("type")
+                                                                .and_then(|x| x.as_str())
+                                                                .unwrap_or("?");
+                                                            let val = v
+                                                                .get("value")
+                                                                .and_then(|x| x.as_str())?;
+                                                            Some(format!("{ty}: {val}"))
                                                         })
                                                         .filter(|s| !s.is_empty())
                                                         .collect();
                                                 }
-                                                // Extract proposed actions — convert each string to a
-                                                // structured object with a kind guess (block_ip, create_ticket,
-                                                // disable_account, …) so the dashboard can render Execute buttons.
-                                                if let Some(arr) =
-                                                    obj.get("actions").and_then(|v| v.as_array())
+                                                // proposed_actions: schema = objects with cmd_id+rationale.
+                                                // Legacy `actions` = bare strings. Honor both.
+                                                if let Some(arr) = obj
+                                                    .get("proposed_actions")
+                                                    .and_then(|v| v.as_array())
+                                                    .or_else(|| {
+                                                        obj.get("actions").and_then(|v| v.as_array())
+                                                    })
                                                 {
                                                     parsed_actions = arr
                                                         .iter()
-                                                        .filter_map(|v| v.as_str())
-                                                        .filter(|s| !s.is_empty())
-                                                        .map(|desc| {
-                                                            let lower = desc.to_lowercase();
-                                                            let kind = if lower.contains("bloqu")
-                                                                || lower.contains("block")
-                                                                || lower.contains("firewall")
-                                                                || lower.contains("pfsense")
-                                                                || lower.contains("opnsense")
-                                                            {
-                                                                "block_ip"
-                                                            } else if lower.contains("ticket")
-                                                                || lower.contains("glpi")
-                                                            {
-                                                                "create_ticket"
-                                                            } else if lower.contains("désactiv")
-                                                                || lower.contains("disable")
-                                                                || lower.contains("réinitialis")
-                                                                || lower.contains("reset")
-                                                                || lower.contains("compte")
-                                                                || lower.contains("account")
-                                                            {
-                                                                "disable_account"
-                                                            } else {
-                                                                "manual"
-                                                            };
-                                                            serde_json::json!({
-                                                                "kind": kind,
-                                                                "description": desc,
-                                                            })
+                                                        .filter_map(|v| {
+                                                            // Schema-form object: keep as-is, dashboard renders it.
+                                                            if v.is_object() {
+                                                                let has_cmd = v
+                                                                    .get("cmd_id")
+                                                                    .and_then(|x| x.as_str())
+                                                                    .map(|s| !s.is_empty())
+                                                                    .unwrap_or(false);
+                                                                if has_cmd {
+                                                                    return Some(v.clone());
+                                                                }
+                                                                // Object without cmd_id → treat description-only.
+                                                                let desc = v
+                                                                    .get("rationale")
+                                                                    .or_else(|| v.get("description"))
+                                                                    .or_else(|| v.get("label"))
+                                                                    .and_then(|x| x.as_str())?;
+                                                                return Some(legacy_action_from_string(desc));
+                                                            }
+                                                            v.as_str().map(legacy_action_from_string)
                                                         })
                                                         .collect();
                                                 }
@@ -4005,6 +4220,62 @@ pub fn spawn_intelligence_ticker(
 
                                         // See ADR-043: update incident with verdict
                                         if incident_id > 0 {
+                                            // Reject L2 narrative when it mentions entities (CVEs, public
+                                            // IPs, scans) the dossier does not support. Slow / under-quanted
+                                            // local models occasionally fabricate plausible-looking attack
+                                            // stories to fill the JSON. The SOC analyst sees that as fact and
+                                            // makes decisions on it; we'd rather show a deterministic summary
+                                            // than a confident lie.
+                                            {
+                                                let violations = check_l2_grounding(&final_analysis, &dossier);
+                                                if !violations.is_empty() {
+                                                    tracing::warn!(
+                                                        "INVESTIGATION: L2 narrative rejected — {}",
+                                                        violations.join("; ")
+                                                    );
+                                                    final_analysis = format!(
+                                                        "Analyse L2 rejetée (contenu non étayé par le dossier: {}). \
+                                                         Se référer aux sigma alerts et findings ci-dessous \
+                                                         pour le détail factuel.",
+                                                        violations.join(", ")
+                                                    );
+                                                }
+                                            }
+
+                                            // Merge in the deterministic baseline for the dominant sigma
+                                            // rule. The LLM still wins on cmd_id collisions (it likely
+                                            // tailored params for the actual alert), but any field the
+                                            // LLM left empty — whether because it failed, timed out, or
+                                            // produced partial JSON — is backfilled from the canonical
+                                            // mapping. This guarantees mitre_techniques and proposed_actions
+                                            // are never silently empty on a recognized rule_id.
+                                            let dominant_alert = dossier.sigma_alerts.first();
+                                            let dominant_rule_id = dominant_alert
+                                                .map(|a| a.rule_id.clone())
+                                                .unwrap_or_default();
+                                            let baseline =
+                                                crate::agent::mitre_mapping::baseline_for_rule(
+                                                    &dominant_rule_id,
+                                                    dominant_alert,
+                                                );
+                                            let baseline_was_useful = !baseline.is_empty();
+                                            let (merged_mitre, merged_actions) =
+                                                crate::agent::mitre_mapping::merge_with_baseline(
+                                                    std::mem::take(&mut parsed_mitre),
+                                                    std::mem::take(&mut parsed_actions),
+                                                    baseline,
+                                                );
+                                            parsed_mitre = merged_mitre;
+                                            parsed_actions = merged_actions;
+                                            if baseline_was_useful {
+                                                tracing::info!(
+                                                    "INVESTIGATION: deterministic baseline merged for rule_id={} — total {} MITRE, {} actions",
+                                                    dominant_rule_id,
+                                                    parsed_mitre.len(),
+                                                    parsed_actions.len(),
+                                                );
+                                            }
+
                                             // Use the structured data parsed from L2 (fallback to empty if unavailable).
                                             let proposed = serde_json::json!({
                                                 "actions": parsed_actions,
