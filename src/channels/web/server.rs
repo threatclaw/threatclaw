@@ -513,6 +513,15 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::logs_search_handler),
         )
         .route(
+            "/api/tc/hunt/saved",
+            get(super::handlers::threatclaw_api::hunt_saved_list_handler)
+                .post(super::handlers::threatclaw_api::hunt_saved_create_handler),
+        )
+        .route(
+            "/api/tc/hunt/saved/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::hunt_saved_delete_handler),
+        )
+        .route(
             "/api/tc/sources/status",
             get(super::handlers::threatclaw_api::sources_status_handler),
         )

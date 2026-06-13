@@ -135,8 +135,16 @@ export const SECTIONS: Record<SectionKey, Section> = {
   investigation: {
     key: "investigation",
     label: () => "Investigation",
-    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/phase-g"],
+    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/phase-g", "/hunt"],
     items: [
+      {
+        href: "/hunt",
+        labelFr: "Hunt panel",
+        labelEn: "Hunt panel",
+        icon: Search,
+        tooltipFr: "Puits de log — fouille libre avec filtres hostname/tag/plage et plein texte sur la rétention courante.",
+        tooltipEn: "Log lake — free-text hunt over current retention with hostname/tag/range filters.",
+      },
       { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
       { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance", icon: Shield },
       { href: "/shadow-ai", labelFr: "Shadow IA", labelEn: "Shadow AI", icon: Bot },

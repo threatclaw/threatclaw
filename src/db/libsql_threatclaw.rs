@@ -134,6 +134,23 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<crate::db::threatclaw_store::LogSearchResult, DatabaseError> {
         Err(not_supported())
     }
+    async fn list_saved_hunt_queries(
+        &self,
+        _user_id: Option<&str>,
+    ) -> Result<Vec<crate::db::threatclaw_store::SavedHuntQuery>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn insert_saved_hunt_query(
+        &self,
+        _user_id: Option<&str>,
+        _name: &str,
+        _params: &serde_json::Value,
+    ) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn delete_saved_hunt_query(&self, _id: i64) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
     async fn insert_log(
         &self,
         _: &str,

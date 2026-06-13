@@ -172,6 +172,18 @@ pub struct LogSearchResult {
     pub scanned_chunks: i64,
 }
 
+/// A user-saved hunt query — the persisted form of a filter preset in the
+/// Hunt panel sidebar. `params` is opaque JSON owned by the dashboard so the
+/// schema does not need to evolve when filter dimensions change.
+#[derive(Debug, Clone, Serialize)]
+pub struct SavedHuntQuery {
+    pub id: i64,
+    pub user_id: Option<String>,
+    pub name: String,
+    pub params: serde_json::Value,
+    pub created_at: String,
+}
+
 // ── Asset types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -848,6 +860,28 @@ pub trait ThreatClawStore: Send + Sync {
         &self,
         filters: &LogSearchFilters,
     ) -> Result<LogSearchResult, DatabaseError>;
+
+    /// List saved hunt queries for a given user. Pass `None` to list global
+    /// presets (those stored without a user). Ordered newest-first.
+    async fn list_saved_hunt_queries(
+        &self,
+        user_id: Option<&str>,
+    ) -> Result<Vec<SavedHuntQuery>, DatabaseError>;
+
+    /// Persist a new saved hunt query and return its assigned id.
+    async fn insert_saved_hunt_query(
+        &self,
+        user_id: Option<&str>,
+        name: &str,
+        params: &serde_json::Value,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Delete a saved hunt query by id. Returns the number of rows removed
+    /// (0 if the id did not exist).
+    async fn delete_saved_hunt_query(
+        &self,
+        id: i64,
+    ) -> Result<u64, DatabaseError>;
 
     /// Insert a log record directly (for testing/simulation).
     async fn insert_log(

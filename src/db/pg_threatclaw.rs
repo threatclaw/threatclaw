@@ -1590,6 +1590,71 @@ impl ThreatClawStore for PgBackend {
         })
     }
 
+    async fn list_saved_hunt_queries(
+        &self,
+        user_id: Option<&str>,
+    ) -> Result<Vec<crate::db::threatclaw_store::SavedHuntQuery>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+
+        // Match by user when given, else return global presets (those stored
+        // without a user). Newest-first so the sidebar reads top→bottom.
+        let rows = if let Some(uid) = user_id {
+            conn.query(
+                "SELECT id, user_id, name, params, created_at::text \
+                 FROM hunt_saved_queries WHERE user_id = $1 \
+                 ORDER BY created_at DESC LIMIT 200",
+                &[&uid],
+            )
+            .await
+            .map_err(query_err)?
+        } else {
+            conn.query(
+                "SELECT id, user_id, name, params, created_at::text \
+                 FROM hunt_saved_queries WHERE user_id IS NULL \
+                 ORDER BY created_at DESC LIMIT 200",
+                &[],
+            )
+            .await
+            .map_err(query_err)?
+        };
+
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::db::threatclaw_store::SavedHuntQuery {
+                id: r.get(0),
+                user_id: r.try_get(1).ok(),
+                name: r.get(2),
+                params: r.try_get(3).unwrap_or_default(),
+                created_at: r.get(4),
+            })
+            .collect())
+    }
+
+    async fn insert_saved_hunt_query(
+        &self,
+        user_id: Option<&str>,
+        name: &str,
+        params: &serde_json::Value,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO hunt_saved_queries (user_id, name, params) \
+                 VALUES ($1, $2, $3) RETURNING id",
+                &[&user_id, &name, params],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_saved_hunt_query(&self, id: i64) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute("DELETE FROM hunt_saved_queries WHERE id = $1", &[&id])
+            .await
+            .map_err(query_err)
+    }
+
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
 

@@ -995,6 +995,8 @@ const T: Record<string, Record<Locale, string>> = {
   investigate_networkError: { fr: "Erreur réseau", en: "Network error" },
   investigate_refresh: { fr: "Rafraîchir", en: "Refresh" },
   investigate_loading: { fr: "Chargement...", en: "Loading..." },
+  investigate_pivotHunt: { fr: "Hunt panel", en: "Hunt panel" },
+  investigate_pivotHuntTooltip: { fr: "Ouvrir le puits de log filtré sur cet hôte et cette fenêtre temporelle.", en: "Open the log lake filtered to this host and time window." },
   investigate_l1Confidence: { fr: "Confiance L1", en: "L1 confidence" },
   investigate_status: { fr: "Statut", en: "Status" },
   investigate_detected: { fr: "Détecté", en: "Detected" },

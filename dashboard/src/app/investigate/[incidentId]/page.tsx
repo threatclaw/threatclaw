@@ -9,7 +9,7 @@ import {
   AlertTriangle, CheckCircle2, Clock, Download,
   Globe, RefreshCw, Shield, Target, Zap, Link2, BarChart2,
   FileText, Siren, Lock, X, Loader2, ArrowRight,
-  MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft, Brain,
+  MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft, Brain, Search,
 } from "lucide-react";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
 import AttackTimeline from "@/components/incidents/AttackTimeline";
@@ -1088,6 +1088,31 @@ export default function InvestigatePage() {
           <button className="inv-ghost-btn" onClick={load}>
             <RefreshCw size={11} />
             {tr("investigate_refresh", locale)}
+          </button>
+          <button
+            className="inv-ghost-btn"
+            disabled={!inc}
+            onClick={() => {
+              if (!inc) return;
+              const events = data?.attack_events ?? [];
+              const tsList = events
+                .map(ev => new Date(ev.ts).getTime())
+                .filter(n => Number.isFinite(n));
+              const refMs = tsList.length > 0
+                ? { min: Math.min(...tsList), max: Math.max(...tsList) }
+                : { min: new Date(inc.created_at).getTime(), max: new Date(inc.created_at).getTime() };
+              const PAD = 10 * 60_000;
+              const from = new Date(refMs.min - PAD).toISOString();
+              const to   = new Date(refMs.max + PAD).toISOString();
+              const qs = new URLSearchParams({ from, to });
+              const host = inc.asset_hostname || inc.asset_name;
+              if (host) qs.set("hostname", host);
+              router.push(`/hunt?${qs.toString()}`);
+            }}
+            title={tr("investigate_pivotHuntTooltip", locale)}
+          >
+            <Search size={11} />
+            {tr("investigate_pivotHunt", locale)}
           </button>
           <button className="inv-ghost-btn" onClick={() => setShowReport(true)}>
             <Download size={11} />

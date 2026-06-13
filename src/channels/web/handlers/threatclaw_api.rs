@@ -8562,6 +8562,61 @@ pub async fn logs_search_handler(
     }
 }
 
+/// GET /api/tc/hunt/saved — list saved hunt queries for the current user.
+/// Without auth wiring on this path we always list the global presets bucket.
+pub async fn hunt_saved_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.list_saved_hunt_queries(None).await {
+        Ok(items) => Ok(Json(serde_json::json!({ "items": items }))),
+        Err(e) => {
+            tracing::warn!("HUNT_SAVED list failed: {e}");
+            Ok(Json(serde_json::json!({ "items": [], "error": e.to_string() })))
+        }
+    }
+}
+
+/// POST /api/tc/hunt/saved — persist a new saved hunt query.
+/// Body: `{ "name": "...", "params": { ... } }`
+pub async fn hunt_saved_create_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or((StatusCode::BAD_REQUEST, "name is required".to_string()))?;
+    let params = body.get("params").cloned().unwrap_or(serde_json::json!({}));
+
+    match store.insert_saved_hunt_query(None, name, &params).await {
+        Ok(id) => Ok(Json(serde_json::json!({ "id": id }))),
+        Err(e) => {
+            tracing::warn!("HUNT_SAVED insert failed: {e}");
+            Err(db_err(e))
+        }
+    }
+}
+
+/// DELETE /api/tc/hunt/saved/:id — drop a saved hunt query.
+pub async fn hunt_saved_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.delete_saved_hunt_query(id).await {
+        Ok(n) => Ok(Json(serde_json::json!({ "deleted": n }))),
+        Err(e) => {
+            tracing::warn!("HUNT_SAVED delete failed: {e}");
+            Err(db_err(e))
+        }
+    }
+}
+
 /// GET /api/tc/logs/stats — log reception statistics for the Sources page.
 pub async fn log_stats_handler(
     State(state): State<Arc<GatewayState>>,
