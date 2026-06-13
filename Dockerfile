@@ -50,6 +50,10 @@ COPY templates/ templates/
 # [[bench]] entries in Cargo.toml require bench sources to exist for cargo to parse the manifest
 COPY benches/ benches/
 
+# Installer scripts are referenced by `include_str!` in the agent self-serve
+# handlers so the curl|bash one-liner can target any deployed instance.
+COPY installer/ installer/
+
 RUN cargo build --release --bin threatclaw
 
 # Stage 1.5: Typst (pull pre-built binary from official image, avoids cargo install)
