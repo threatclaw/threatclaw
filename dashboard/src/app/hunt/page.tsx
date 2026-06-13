@@ -111,6 +111,7 @@ export default function HuntPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [savingBusy, setSavingBusy] = useState(false);
+  const [assetHostnames, setAssetHostnames] = useState<string[]>([]);
 
   const resolveRange = useCallback((): { from?: string; to?: string } => {
     if (rangeKey === "custom") {
@@ -176,6 +177,25 @@ export default function HuntPage() {
   }, []);
 
   React.useEffect(() => { loadSaved(); }, [loadSaved]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/tc/assets?limit=1000");
+        if (!res.ok) return;
+        const json = await res.json();
+        const raw = (json?.assets ?? []) as Array<{ hostname?: string | null; name?: string }>;
+        const list: string[] = Array.from(new Set(
+          raw
+            .map(a => a.hostname || a.name || "")
+            .filter((s): s is string => typeof s === "string" && s.length > 0)
+        )).sort((a, b) => a.localeCompare(b));
+        if (!cancelled) setAssetHostnames(list);
+      } catch { /* autocomplete is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const saveCurrent = async () => {
     const name = window.prompt(labels.savePrompt);
@@ -285,12 +305,14 @@ export default function HuntPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           {/* Row 1: hostname + tag */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <FieldInput
+            <FieldDatalist
               icon={<Server size={13} color="var(--tc-text-muted)" />}
               label={labels.hostname}
               value={hostname}
               onChange={setHostname}
               placeholder="srv-app-01"
+              options={assetHostnames}
+              listId="hunt-host-options"
             />
             <FieldSelect
               icon={<TagIcon size={13} color="var(--tc-text-muted)" />}
@@ -500,6 +522,44 @@ function FieldInput({
           boxSizing: "border-box",
         }}
       />
+    </div>
+  );
+}
+
+function FieldDatalist({
+  label, value, onChange, placeholder, icon, options, listId,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; icon?: React.ReactNode;
+  options: string[]; listId: string;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: "10px", letterSpacing: "0.12em", color: "var(--tc-text-muted)", textTransform: "uppercase", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+        {icon} {label}
+        {options.length > 0 && (
+          <span style={{ color: "var(--tc-text-muted)", fontSize: "9px", fontWeight: 400 }}>
+            · {options.length}
+          </span>
+        )}
+      </div>
+      <input
+        type="text"
+        list={listId}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: "100%", padding: "8px 12px",
+          background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+          borderRadius: "var(--tc-radius-md)", color: "var(--tc-text)",
+          fontSize: "13px", fontFamily: "inherit", outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
+      <datalist id={listId}>
+        {options.map(o => <option key={o} value={o} />)}
+      </datalist>
     </div>
   );
 }

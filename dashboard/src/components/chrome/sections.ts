@@ -135,7 +135,7 @@ export const SECTIONS: Record<SectionKey, Section> = {
   investigation: {
     key: "investigation",
     label: () => "Investigation",
-    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/phase-g", "/hunt"],
+    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/hunt"],
     items: [
       {
         href: "/hunt",
@@ -155,14 +155,6 @@ export const SECTIONS: Record<SectionKey, Section> = {
         icon: Activity,
         tooltipFr: "Playbooks déterministes (CACAO v2) qui court-circuitent le ReAct sur patterns connus.",
         tooltipEn: "Deterministic playbooks (CACAO v2) short-circuiting ReAct on known patterns.",
-      },
-      {
-        href: "/phase-g",
-        labelFr: "Phase G readiness",
-        labelEn: "Phase G readiness",
-        icon: Activity,
-        tooltipFr: "Jauge auto-refresh : ratio d'incidents avec action HITL proposée. Cible 100% sur 7 jours pour shipper Phase G.",
-        tooltipEn: "Auto-refresh gauge: ratio of incidents with a proposed HITL action. Target 100% over 7 days to ship Phase G.",
       },
     ],
   },
