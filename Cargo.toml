@@ -121,7 +121,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "set-header"] }
 
 # Cron scheduling for routines
-cron = "0.13"
+cron = "0.16"
 
 # Safety/sanitization
 threatclaw_safety = { path = "crates/threatclaw_safety", version = "0.1.0" }
@@ -231,7 +231,7 @@ tokio-tungstenite = "0.26"
 pretty_assertions = "1"
 tempfile = "3"
 insta = "1.46.3"
-criterion = "0.5"
+criterion = "0.8"
 wiremock = "0.6"
 
 [[bench]]
