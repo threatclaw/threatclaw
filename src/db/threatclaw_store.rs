@@ -141,6 +141,37 @@ pub struct LogRecord {
     pub data: serde_json::Value,
 }
 
+/// Hunt-panel search filters. All fields are optional; the caller composes
+/// what they have. Time bounds default to the last 24 hours when omitted so
+/// an empty filter set does not accidentally scan the whole hypertable.
+#[derive(Debug, Clone, Default)]
+pub struct LogSearchFilters {
+    pub hostname: Option<String>,
+    /// SQL `LIKE` pattern. Caller is responsible for escaping `%` / `_`.
+    pub tag: Option<String>,
+    pub from: Option<chrono::DateTime<chrono::Utc>>,
+    pub to: Option<chrono::DateTime<chrono::Utc>>,
+    /// Substring search against the JSON payload (matches data->>'message',
+    /// data->>'analysis', data->>'msg' and the stringified payload).
+    pub q: Option<String>,
+    pub limit: i64,
+    /// Keyset cursor from a previous page: stored as `time|id`. None on
+    /// the first page.
+    pub cursor: Option<String>,
+}
+
+/// One page of hunt-panel results.
+#[derive(Debug, Clone, Serialize)]
+pub struct LogSearchResult {
+    pub logs: Vec<LogRecord>,
+    /// Opaque cursor to pass back on the next call to continue from where
+    /// this page ended. `None` when the page is the last one.
+    pub next_cursor: Option<String>,
+    /// Number of hypertable chunks the query had to scan. Useful for the
+    /// dashboard to hint "your range is too wide" when this is high.
+    pub scanned_chunks: i64,
+}
+
 // ── Asset types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -801,6 +832,22 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<Vec<LogRecord>, DatabaseError>;
 
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError>;
+
+    /// Hunt-panel search across the logs hypertable. Returns a page of
+    /// matching log records plus metadata the caller can surface to the
+    /// operator (how many chunks the query had to touch — a high number
+    /// means the operator should narrow the time range).
+    ///
+    /// All filters are optional. When `q` is set, the search runs against
+    /// the JSONB payload using a substring match on the `message` /
+    /// `analysis` / common content fields. The hostname filter is exact,
+    /// the tag filter accepts a SQL `LIKE` pattern (caller pre-escapes if
+    /// needed). Pagination is keyset-based on `(time, id)` so the order
+    /// is stable even as new rows arrive.
+    async fn search_logs(
+        &self,
+        filters: &LogSearchFilters,
+    ) -> Result<LogSearchResult, DatabaseError>;
 
     /// Insert a log record directly (for testing/simulation).
     async fn insert_log(

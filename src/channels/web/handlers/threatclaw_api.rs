@@ -8505,6 +8505,63 @@ pub async fn export_report_handler(
 // LOG SOURCES STATS
 // ══════════════════════════════════════════════════════════
 
+/// GET /api/tc/logs/search — hunt-panel log search.
+///
+/// All query parameters are optional. When no time bounds are passed the
+/// search covers the last 24 hours so an empty form doesn't accidentally
+/// hit the whole hypertable. Pagination uses an opaque keyset cursor
+/// returned in `next_cursor`; the dashboard passes it back as `cursor=...`
+/// on the next call to continue from where the previous page ended.
+///
+/// `scanned_chunks` in the response counts the daily chunks the query
+/// touched — the UI surfaces this so operators know when to narrow the
+/// time range.
+#[allow(clippy::too_many_lines)]
+pub async fn logs_search_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    fn parse_ts(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    }
+
+    let limit = params
+        .get("limit")
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(100);
+
+    let filters = crate::db::threatclaw_store::LogSearchFilters {
+        hostname: params.get("hostname").cloned().filter(|s| !s.is_empty()),
+        tag: params.get("tag").cloned().filter(|s| !s.is_empty()),
+        from: params.get("from").and_then(|s| parse_ts(s)),
+        to: params.get("to").and_then(|s| parse_ts(s)),
+        q: params.get("q").cloned().filter(|s| !s.is_empty()),
+        limit,
+        cursor: params.get("cursor").cloned().filter(|s| !s.is_empty()),
+    };
+
+    match store.search_logs(&filters).await {
+        Ok(result) => Ok(Json(serde_json::json!({
+            "logs": result.logs,
+            "next_cursor": result.next_cursor,
+            "scanned_chunks": result.scanned_chunks,
+        }))),
+        Err(e) => {
+            tracing::warn!("LOG_SEARCH: search_logs failed: {e}");
+            Ok(Json(serde_json::json!({
+                "logs": [],
+                "next_cursor": null,
+                "scanned_chunks": 0,
+                "error": e.to_string(),
+            })))
+        }
+    }
+}
+
 /// GET /api/tc/logs/stats — log reception statistics for the Sources page.
 pub async fn log_stats_handler(
     State(state): State<Arc<GatewayState>>,

@@ -128,6 +128,12 @@ impl ThreatClawStore for LibSqlBackend {
     async fn count_logs(&self, _: i64) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }
+    async fn search_logs(
+        &self,
+        _filters: &crate::db::threatclaw_store::LogSearchFilters,
+    ) -> Result<crate::db::threatclaw_store::LogSearchResult, DatabaseError> {
+        Err(not_supported())
+    }
     async fn insert_log(
         &self,
         _: &str,

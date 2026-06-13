@@ -509,6 +509,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::log_stats_handler),
         )
         .route(
+            "/api/tc/logs/search",
+            get(super::handlers::threatclaw_api::logs_search_handler),
+        )
+        .route(
             "/api/tc/sources/status",
             get(super::handlers::threatclaw_api::sources_status_handler),
         )

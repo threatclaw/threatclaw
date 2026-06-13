@@ -1440,6 +1440,156 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get::<_, i64>(0))
     }
 
+    async fn search_logs(
+        &self,
+        filters: &crate::db::threatclaw_store::LogSearchFilters,
+    ) -> Result<crate::db::threatclaw_store::LogSearchResult, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+
+        // Clamp limit to a sane range. The dashboard typically asks for
+        // 100; the cap of 1000 prevents an over-eager caller from pulling
+        // entire chunks into memory in one shot.
+        let limit = filters.limit.clamp(1, 1000);
+
+        // Default time window: last 24 hours when caller didn't specify.
+        // Without this the absent-filter case would scan the whole
+        // hypertable; daily chunks make that bearable but not pleasant.
+        let to_ts = filters
+            .to
+            .unwrap_or_else(chrono::Utc::now);
+        let from_ts = filters
+            .from
+            .unwrap_or_else(|| to_ts - chrono::Duration::hours(24));
+
+        // Parse the keyset cursor (`<rfc3339_time>|<id>`). Anything we
+        // can't parse falls back to "no cursor" so a corrupt token doesn't
+        // 500 the request.
+        let cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = filters
+            .cursor
+            .as_deref()
+            .and_then(|s| s.split_once('|'))
+            .and_then(|(t, id)| {
+                let parsed_time = chrono::DateTime::parse_from_rfc3339(t)
+                    .ok()
+                    .map(|d| d.with_timezone(&chrono::Utc))?;
+                let parsed_id = id.parse::<i64>().ok()?;
+                Some((parsed_time, parsed_id))
+            });
+
+        // Build the WHERE clause and the parameter list together so the
+        // indexes are dollar-numbered consistently. tokio-postgres needs
+        // owned values living long enough — collect everything into
+        // `Box<dyn ToSql + Sync>` to keep the borrow checker happy.
+        let mut clauses: Vec<String> = vec!["time >= $1".into(), "time <= $2".into()];
+        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = vec![
+            Box::new(from_ts),
+            Box::new(to_ts),
+        ];
+        let mut next_idx = 3;
+
+        if let Some(h) = filters.hostname.as_deref().filter(|s| !s.is_empty()) {
+            clauses.push(format!("hostname = ${}", next_idx));
+            params.push(Box::new(h.to_string()));
+            next_idx += 1;
+        }
+        if let Some(t) = filters.tag.as_deref().filter(|s| !s.is_empty()) {
+            // SQL LIKE; caller pre-escapes literal %/_. tag is also
+            // indexed individually so a prefix pattern stays fast.
+            clauses.push(format!("tag LIKE ${}", next_idx));
+            params.push(Box::new(t.to_string()));
+            next_idx += 1;
+        }
+        if let Some(q) = filters.q.as_deref().filter(|s| !s.is_empty()) {
+            // Substring search across the JSON payload — looks at the
+            // three common message fields and falls back to the whole
+            // stringified payload so the operator can find an indicator
+            // without knowing the exact key name.
+            let needle = format!("%{}%", q);
+            clauses.push(format!(
+                "(data->>'message' ILIKE ${} OR data->>'analysis' ILIKE ${} OR data->>'msg' ILIKE ${} OR data::text ILIKE ${})",
+                next_idx, next_idx, next_idx, next_idx
+            ));
+            params.push(Box::new(needle));
+            next_idx += 1;
+        }
+        if let Some((c_time, c_id)) = cursor {
+            // Keyset pagination: continue from (c_time, c_id). The ORDER
+            // BY below is time DESC, id DESC; the cursor condition matches.
+            clauses.push(format!("(time, id) < (${}, ${})", next_idx, next_idx + 1));
+            params.push(Box::new(c_time));
+            params.push(Box::new(c_id));
+            next_idx += 2;
+        }
+        let _ = next_idx; // silence "value assigned but never read" warning
+
+        let where_clause = clauses.join(" AND ");
+        let query = format!(
+            "SELECT id, tag, time::text AS time_text, hostname, data, time AS time_raw \
+             FROM logs \
+             WHERE {} \
+             ORDER BY time_raw DESC, id DESC \
+             LIMIT {}",
+            where_clause,
+            limit + 1 // fetch one extra so we know whether to emit next_cursor
+        );
+
+        let params_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+            params.iter().map(|p| p.as_ref() as _).collect();
+        let rows = conn
+            .query(&query, &params_refs[..])
+            .await
+            .map_err(query_err)?;
+
+        // Materialise the page, then drop the +1 row and compute the cursor.
+        let mut logs: Vec<crate::db::threatclaw_store::LogRecord> = rows
+            .iter()
+            .map(|r| crate::db::threatclaw_store::LogRecord {
+                id: r.get(0),
+                tag: r.try_get(1).ok(),
+                time: r.get(2),
+                hostname: r.try_get(3).ok(),
+                data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
+            })
+            .collect();
+
+        let next_cursor = if rows.len() > limit as usize {
+            // We fetched limit+1; drop the extra and use the last KEPT row
+            // as the next cursor.
+            logs.truncate(limit as usize);
+            let last_row = &rows[limit as usize - 1];
+            let last_time: chrono::DateTime<chrono::Utc> = last_row.get(5);
+            let last_id: i64 = last_row.get(0);
+            Some(format!("{}|{}", last_time.to_rfc3339(), last_id))
+        } else {
+            None
+        };
+
+        // Count touched hypertable chunks so the dashboard can hint at a
+        // too-wide time range. We need "chunks that OVERLAP the window",
+        // not "chunks strictly contained" — the timescaledb show_chunks()
+        // helper returns the latter and reports 0 for the common case of a
+        // window narrower than the chunk interval. Querying the metadata
+        // view directly with an explicit overlap predicate is both clearer
+        // and cheap (the view is in-memory catalog).
+        let scanned_chunks: i64 = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM timescaledb_information.chunks \
+                 WHERE hypertable_name = 'logs' \
+                   AND range_start <= $2::timestamptz \
+                   AND range_end   >= $1::timestamptz",
+                &[&from_ts, &to_ts],
+            )
+            .await
+            .map(|r| r.get::<_, i64>(0))
+            .unwrap_or(0);
+
+        Ok(crate::db::threatclaw_store::LogSearchResult {
+            logs,
+            next_cursor,
+            scanned_chunks,
+        })
+    }
+
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
 
