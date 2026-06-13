@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.30-beta] — 2026-06-13
+
+### Added
+- A deterministic baseline per detection rule now guarantees that every incident card carries the canonical MITRE technique and at least one concrete remediation action, even when the local AI enrichment cannot complete in time. The deeper LLM analysis still wins when it produces a complete answer; the baseline only fills fields that would otherwise be empty.
+- Windows endpoint detections now route to dedicated investigation workflows: brute force, account management, audit log tampering, offensive tool execution, and credential dumping. Each workflow runs an enrichment path appropriate to the platform instead of falling back to a generic SSH-themed investigation that primed the AI with the wrong context.
+
+### Changed
+- Incident titles are derived strictly from the actual rule identifier and platform context. A Windows brute force will never again be labelled as an SSH brute force just because the alert text contains the word "brute".
+- The AI analysis is rejected when it cites entities (CVE identifiers, public IPs, port scans) that are absent from the incident dossier. The fabricated narrative is replaced with a deterministic note pointing the analyst to the underlying alerts and findings.
+- The Windows agent deduplicates the same brute-force burst across consecutive sync cycles, so a single attack run produces a single alert and a single incident card instead of a duplicated chain.
+- The investigation cooldown now records failed runs as well as successful ones, which stops the runaway re-investigation loop observed when the local AI tier consistently times out.
+- The incident dossier passed to the AI enrichment now lists the actual alert and finding titles with source IPs and target users, instead of only a count summary. Without explicit grounding the AI was prone to fill the gap with plausible-sounding attack stories.
+
 ## [1.0.29-beta] — 2026-06-12
 
 ### Added
