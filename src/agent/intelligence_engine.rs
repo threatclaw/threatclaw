@@ -328,6 +328,33 @@ fn clean_l2_output(raw: &str) -> String {
 /// object expected by the dashboard. New deployments emit the schema shape
 /// directly with `cmd_id`; this helper is purely a back-compat ramp for the
 /// older string shape.
+/// Detect a placeholder / instruction string the LLM echoed back into the
+/// analysis field instead of writing real content.
+///
+/// Small / under-quanted models served on CPU sometimes copy the angle-bracket
+/// or sentinel text used in the prompt schema example. The forensic enricher
+/// already catches this on its own path; we add the same guard on the L1 path
+/// so the placeholder never reaches the database or the L2 prompt.
+fn has_placeholder_leak(analysis: &str) -> bool {
+    let lc = analysis.to_lowercase();
+    // Kept in sync with the sentinel list in `forensic_enricher`.
+    const SENTINELS: &[&str] = &[
+        "ton analyse",
+        "ta analyse",
+        "votre analyse",
+        "rédige 2-3 phrases",
+        "your analysis",
+        "your detailed analysis",
+        "write 2-3 factual sentences",
+        "[insert",
+        "[your ",
+        "[detailed",
+        "[placeholder",
+        "placeholder text",
+    ];
+    SENTINELS.iter().any(|s| lc.contains(s))
+}
+
 /// Cheap post-parse hallucination guard for L2 narrative.
 ///
 /// The L2 model is prompted with `## RÈGLES STRICTES` that forbid inventing
@@ -3947,6 +3974,21 @@ pub fn spawn_intelligence_ticker(
 
                                         // L2 enrichment: on confirmed/inconclusive, ask Foundation-Sec-Reasoning for a deeper forensic analysis.
                                         let mut final_analysis = result.verdict.analysis_text();
+                                        // Drop the L1 analysis when it looks like a placeholder the
+                                        // model copied from the prompt schema instead of writing real
+                                        // content. Small CPU-served models do this regularly under
+                                        // load; if we leave it through, the incident card displays
+                                        // literally "ton analyse détaillée" / "your detailed analysis"
+                                        // in both FR and EN locales — instantly destroying analyst
+                                        // trust in the tier. The downstream baseline merge and the
+                                        // deterministic fallback summary handle the empty case.
+                                        if has_placeholder_leak(&final_analysis) {
+                                            tracing::warn!(
+                                                "INVESTIGATION: L1 analysis dropped — placeholder echo detected on {}",
+                                                asset_name
+                                            );
+                                            final_analysis = String::new();
+                                        }
                                         // Structured output from L2 — populated if the JSON parses.
                                         let mut parsed_mitre: Vec<String> = vec![];
                                         let mut parsed_iocs: Vec<String> = vec![];

@@ -626,28 +626,60 @@ pub fn build_investigation_prompt(
     p.push_str(&actions_catalog_text(lang, "### "));
 
     // ── Response schema ──
-    p.push_str(r#"
-### RÉPONSE (JSON strict)
+    //
+    // Each value below is an *instruction* the model must follow, not a literal
+    // string to copy. Small CPU-served models (qwen3:8b style) have been
+    // observed echoing placeholder text like "ton analyse détaillée" verbatim
+    // into the analysis field; we now wrap instructions inside angle brackets
+    // so the model treats them as instructions and the sentinel filter (see
+    // `forensic_enricher`) catches any leftover brackets that survive.
+    if lang == "en" {
+        p.push_str(r#"
+### RESPONSE (strict JSON)
 
 ```json
 {
   "verdict": "confirmed|false_positive|inconclusive|informational",
-  "analysis": "ton analyse détaillée",
+  "analysis": "<write 2-3 factual sentences describing what the dossier above actually shows. Do not invent assets, IPs, CVEs or services that are not listed. Do not copy this instruction text into the field.>",
   "severity": "LOW|MEDIUM|HIGH|CRITICAL",
   "confidence": 0.85,
-  "incident_title_fr": "Titre court FR factuel basé UNIQUEMENT sur le dossier ci-dessus (max 110 chars). N'invente pas d'asset, d'utilisateur ni de service. Ne produis pas un titre de type 'Brute force SSH' sauf si le dossier mentionne explicitement une signature SSH/compte cible. À défaut, commence par le type d'événement réellement observé (anomalie comportementale, alerte IDS, scan…).",
-  "correlations": ["corrélation 1"],
+  "incident_title_fr": "<short French title for the incident card (max 110 chars), grounded strictly in the dossier above. Never use 'Brute force SSH' unless the dossier explicitly mentions SSH/sshd. Start with the actual event type observed (anomaly, IDS alert, scan...).>",
+  "correlations": ["<one short correlation observation, or omit the array entirely>"],
   "needs_more_info": false,
   "skill_requests": [
-    {"skill_name": "ip_reputation", "params": {"ip": "1.2.3.4"}}
+    {"skill_name": "ip_reputation", "params": {"ip": "<a real source IP from the dossier>"}}
   ],
   "proposed_actions": [
-    {"cmd_id": "net-001", "params": {"IP": "1.2.3.4"}, "rationale": "...", "label": "Bloquer 1.2.3.4"}
+    {"cmd_id": "net-001", "params": {"IP": "<a real source IP from the dossier>"}, "rationale": "<why this action is appropriate>", "label": "<short FR action label>"}
   ]
 }
 ```
 
 "#);
+    } else {
+        p.push_str(r#"
+### RÉPONSE (JSON strict)
+
+```json
+{
+  "verdict": "confirmed|false_positive|inconclusive|informational",
+  "analysis": "<rédige 2-3 phrases factuelles décrivant ce que le dossier montre réellement. N'invente aucun asset, IP, CVE ou service absent du dossier. Ne recopie pas ce texte d'instruction dans le champ.>",
+  "severity": "LOW|MEDIUM|HIGH|CRITICAL",
+  "confidence": 0.85,
+  "incident_title_fr": "<titre court FR de la carte d'incident (max 110 caractères), basé UNIQUEMENT sur le dossier ci-dessus. Ne produis jamais 'Brute force SSH' sauf si le dossier mentionne explicitement SSH/sshd. Commence par le type d'événement réellement observé (anomalie, alerte IDS, scan...).>",
+  "correlations": ["<une courte observation de corrélation, ou retire le tableau entièrement>"],
+  "needs_more_info": false,
+  "skill_requests": [
+    {"skill_name": "ip_reputation", "params": {"ip": "<une vraie IP source du dossier>"}}
+  ],
+  "proposed_actions": [
+    {"cmd_id": "net-001", "params": {"IP": "<une vraie IP source du dossier>"}, "rationale": "<pourquoi cette action est appropriée>", "label": "<court libellé FR>"}
+  ]
+}
+```
+
+"#);
+    }
 
     // Sprint 1 #3 — explicit requirement on proposed_actions when verdict
     // = confirmed. The L2 must commit to 1-3 concrete actions so the RSSI
