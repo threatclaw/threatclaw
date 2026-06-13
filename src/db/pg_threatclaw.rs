@@ -2023,15 +2023,25 @@ impl ThreatClawStore for PgBackend {
         id: &str,
         software: &serde_json::Value,
     ) -> Result<(), DatabaseError> {
+        // De-duplicate by (name, version). The previous version relied on
+        // `jsonb_agg(DISTINCT elem)` which compares whole objects byte-for-
+        // byte; osquery re-sends packages with a path or timestamp that
+        // varies between scans, so distinct never collapsed the duplicates.
+        // Result on the field: `debian` ended up with 165k software entries
+        // for ~500 real packages and the asset detail page locked up.
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(
             r#"UPDATE assets SET software = (
-                SELECT COALESCE(jsonb_agg(DISTINCT elem), '[]'::jsonb)
+                SELECT COALESCE(jsonb_agg(elem ORDER BY elem->>'name', elem->>'version'), '[]'::jsonb)
                 FROM (
-                    SELECT elem FROM jsonb_array_elements(COALESCE(assets.software, '[]'::jsonb)) AS elem
-                    UNION
-                    SELECT elem FROM jsonb_array_elements($2::jsonb) AS elem
-                ) sub
+                    SELECT DISTINCT ON (elem->>'name', COALESCE(elem->>'version', '')) elem
+                    FROM (
+                        SELECT elem FROM jsonb_array_elements(COALESCE(assets.software, '[]'::jsonb)) AS elem
+                        UNION ALL
+                        SELECT elem FROM jsonb_array_elements($2::jsonb) AS elem
+                    ) merged
+                    ORDER BY elem->>'name', COALESCE(elem->>'version', ''), elem
+                ) dedup
             ), updated_at = NOW() WHERE id = $1"#,
             &[&id, software],
         ).await.map_err(query_err)?;
