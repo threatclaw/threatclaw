@@ -328,6 +328,114 @@ fn clean_l2_output(raw: &str) -> String {
 /// object expected by the dashboard. New deployments emit the schema shape
 /// directly with `cmd_id`; this helper is purely a back-compat ramp for the
 /// older string shape.
+/// Cheap post-parse hallucination guard for L2 narrative.
+///
+/// The L2 model is prompted with `## RÈGLES STRICTES` that forbid inventing
+/// entities, but slow / under-quanted local models still sometimes write
+/// "alerte IDS (CVE-2024-12345), scan Nmap port 445, CISA KEV match"
+/// when the actual dossier holds nothing of the sort. Such fabrications get
+/// surfaced to the SOC analyst as fact and erode trust in the whole tier.
+///
+/// We scan the L2 analysis for three high-signal markers (CVE IDs, IPv4
+/// addresses, scan/Nmap references) and verify each one against the
+/// dossier. Any mention without a backing fact is a violation. Returning
+/// a non-empty Vec means the caller should drop the L2 narrative and use
+/// a deterministic fallback.
+fn check_l2_grounding(
+    analysis: &str,
+    dossier: &crate::agent::incident_dossier::IncidentDossier,
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let lower = analysis.to_lowercase();
+
+    // Build the dossier "fact set" — strings the model is allowed to cite.
+    let mut cve_facts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for f in &dossier.findings {
+        let mut text = f.title.to_uppercase();
+        if let Some(desc) = f.description.as_deref() {
+            text.push(' ');
+            text.push_str(&desc.to_uppercase());
+        }
+        for piece in text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-') {
+            if piece.starts_with("CVE-") {
+                cve_facts.insert(piece.to_string());
+            }
+        }
+    }
+    for cve in &dossier.enrichment.cve_details {
+        cve_facts.insert(cve.cve_id.to_uppercase());
+    }
+
+    let mut ip_facts: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for a in &dossier.sigma_alerts {
+        if let Some(ip) = a.source_ip.as_deref() {
+            ip_facts.insert(ip.split('/').next().unwrap_or(ip).to_string());
+        }
+    }
+    for f in &dossier.findings {
+        if let Some(ip) = f.metadata.get("src_ip").and_then(|v| v.as_str()) {
+            if !ip.is_empty() && ip != "null" {
+                ip_facts.insert(ip.split('/').next().unwrap_or(ip).to_string());
+            }
+        }
+    }
+
+    let dossier_mentions_scan = dossier.findings.iter().any(|f| {
+        let t = f.title.to_lowercase();
+        t.contains("scan") || t.contains("nmap") || t.contains("port-scan")
+    }) || dossier.sigma_alerts.iter().any(|a| {
+        let t = a.rule_name.to_lowercase();
+        t.contains("scan") || t.contains("nmap")
+    });
+
+    // CVE check
+    let cve_re = regex::Regex::new(r"CVE-\d{4}-\d{4,7}").expect("static regex");
+    for cap in cve_re.find_iter(analysis) {
+        let cve = cap.as_str().to_uppercase();
+        if !cve_facts.contains(&cve) {
+            violations.push(format!("hallucinated {} (not in dossier)", cve));
+        }
+    }
+
+    // Scan / Nmap mention check
+    if !dossier_mentions_scan
+        && (lower.contains("scan nmap")
+            || lower.contains("nmap scan")
+            || lower.contains("port scan")
+            || lower.contains("scan de port"))
+    {
+        violations.push("scan / Nmap mention not backed by dossier".into());
+    }
+
+    // IPv4 check — only flag public/routable IPs to avoid false positives on
+    // the L2 quoting a private range that's already implicit in the dossier.
+    let ipv4_re = regex::Regex::new(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
+        .expect("static regex");
+    for cap in ipv4_re.captures_iter(analysis) {
+        let ip = cap.get(0).map(|m| m.as_str()).unwrap_or("");
+        let octets: [u16; 4] = [1, 2, 3, 4].map(|i| {
+            cap.get(i)
+                .and_then(|m| m.as_str().parse::<u16>().ok())
+                .unwrap_or(0)
+        });
+        if octets.iter().any(|o| *o > 255) {
+            continue;
+        }
+        let is_private = octets[0] == 10
+            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+            || (octets[0] == 192 && octets[1] == 168)
+            || octets[0] == 127;
+        if is_private {
+            continue;
+        }
+        if !ip_facts.contains(ip) {
+            violations.push(format!("hallucinated IP {} (not in dossier)", ip));
+        }
+    }
+
+    violations
+}
+
 fn legacy_action_from_string(desc: &str) -> serde_json::Value {
     let lower = desc.to_lowercase();
     let kind = if lower.contains("bloqu")
@@ -4112,6 +4220,28 @@ pub fn spawn_intelligence_ticker(
 
                                         // See ADR-043: update incident with verdict
                                         if incident_id > 0 {
+                                            // Reject L2 narrative when it mentions entities (CVEs, public
+                                            // IPs, scans) the dossier does not support. Slow / under-quanted
+                                            // local models occasionally fabricate plausible-looking attack
+                                            // stories to fill the JSON. The SOC analyst sees that as fact and
+                                            // makes decisions on it; we'd rather show a deterministic summary
+                                            // than a confident lie.
+                                            {
+                                                let violations = check_l2_grounding(&final_analysis, &dossier);
+                                                if !violations.is_empty() {
+                                                    tracing::warn!(
+                                                        "INVESTIGATION: L2 narrative rejected — {}",
+                                                        violations.join("; ")
+                                                    );
+                                                    final_analysis = format!(
+                                                        "Analyse L2 rejetée (contenu non étayé par le dossier: {}). \
+                                                         Se référer aux sigma alerts et findings ci-dessous \
+                                                         pour le détail factuel.",
+                                                        violations.join(", ")
+                                                    );
+                                                }
+                                            }
+
                                             // Merge in the deterministic baseline for the dominant sigma
                                             // rule. The LLM still wins on cmd_id collisions (it likely
                                             // tailored params for the actual alert), but any field the
