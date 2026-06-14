@@ -3350,6 +3350,16 @@ pub fn spawn_intelligence_ticker(
             tracing::info!("INTELLIGENCE: Background enrichment sync complete");
             // Build Bloom filter from cached feeds (includes MISP)
             crate::agent::ioc_bloom::init(store_sync.as_ref()).await;
+            // Phase C — sync on-disk rules before the engine compiles
+            // from the DB so file content wins over any stale migration
+            // copy of the same id.
+            let rules_dir = std::env::var("TC_SIGMA_RULES_DIR")
+                .unwrap_or_else(|_| "/app/rules".to_string());
+            let _ = crate::agent::sigma_file_loader::sync_rules_from_disk(
+                store_sync.as_ref(),
+                std::path::Path::new(&rules_dir),
+            )
+            .await;
             crate::agent::sigma_engine::init(store_sync.as_ref()).await;
         });
 

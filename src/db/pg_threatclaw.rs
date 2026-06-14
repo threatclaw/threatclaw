@@ -1807,6 +1807,66 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn upsert_sigma_rule_from_file(
+        &self,
+        id: &str,
+        title: &str,
+        description: Option<&str>,
+        level: &str,
+        status: Option<&str>,
+        logsource_category: Option<&str>,
+        logsource_product: Option<&str>,
+        logsource_service: Option<&str>,
+        tags: &[String],
+        author: Option<&str>,
+        rule_yaml: &str,
+        detection_json: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let tags_vec: Vec<String> = tags.to_vec();
+        // INSERT with the file content; on conflict, overwrite only the
+        // content-derived columns and leave the operator-managed ones
+        // (enabled, disposition, tier, owner, promoted_at) intact.
+        conn.execute(
+            "INSERT INTO sigma_rules \
+                (id, title, description, level, status, \
+                 logsource_category, logsource_product, logsource_service, \
+                 tags, author, rule_yaml, detection_json, enabled) \
+             VALUES ($1, $2, $3, $4, COALESCE($5, 'experimental'), \
+                     $6, $7, $8, $9, $10, $11, $12, true) \
+             ON CONFLICT (id) DO UPDATE SET \
+                title = EXCLUDED.title, \
+                description = EXCLUDED.description, \
+                level = EXCLUDED.level, \
+                status = COALESCE(EXCLUDED.status, sigma_rules.status), \
+                logsource_category = EXCLUDED.logsource_category, \
+                logsource_product  = EXCLUDED.logsource_product, \
+                logsource_service  = EXCLUDED.logsource_service, \
+                tags = EXCLUDED.tags, \
+                author = EXCLUDED.author, \
+                rule_yaml = EXCLUDED.rule_yaml, \
+                detection_json = EXCLUDED.detection_json, \
+                updated_at = NOW()",
+            &[
+                &id,
+                &title,
+                &description,
+                &level,
+                &status,
+                &logsource_category,
+                &logsource_product,
+                &logsource_service,
+                &tags_vec,
+                &author,
+                &rule_yaml,
+                detection_json,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Use direct interval interpolation — safe because minutes_back is i64, not user input

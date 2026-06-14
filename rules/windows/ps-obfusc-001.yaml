@@ -1,0 +1,32 @@
+title: PowerShell Base64 Encoded Command
+id: ps-obfusc-001
+status: stable
+description: |
+  Detects PowerShell invoked with the `-EncodedCommand` flag (or the
+  `-enc` shorthand). EncodedCommand accepts a base64-encoded payload
+  and is heavily abused to hide malicious one-liners from console
+  logging. Legitimate use is extremely rare outside of installers and
+  CI tooling that ship their own automation harness.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1027/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  category: process
+detection:
+  selection:
+    commandline|contains:
+      - '-enc '
+      - '-encodedcommand '
+      - '-EncodedCommand '
+      - '-Enc '
+  condition: selection
+falsepositives:
+  - Internal admin scripts deliberately using EncodedCommand to ship
+    embedded payloads (rare; add the host to the exception list).
+  - SCCM / MDM channels that wrap remote commands.
+level: high

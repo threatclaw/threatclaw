@@ -1003,6 +1003,28 @@ pub trait ThreatClawStore: Send + Sync {
         &self,
     ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
+    /// Upsert a Sigma rule from the on-disk `rules/*.yaml` source. The
+    /// content-derived fields (title, description, detection_json, tags,
+    /// level, status, references, author, falsepositives, rule_yaml) are
+    /// overwritten; the operator-managed columns (enabled, disposition,
+    /// tier, owner, promoted_at) are preserved on existing rows.
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_sigma_rule_from_file(
+        &self,
+        id: &str,
+        title: &str,
+        description: Option<&str>,
+        level: &str,
+        status: Option<&str>,
+        logsource_category: Option<&str>,
+        logsource_product: Option<&str>,
+        logsource_service: Option<&str>,
+        tags: &[String],
+        author: Option<&str>,
+        rule_yaml: &str,
+        detection_json: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
 

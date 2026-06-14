@@ -56,6 +56,18 @@ jobs:
         env:
           DATABASE_URL: postgres://threatclaw:threatclaw@localhost:5432/threatclaw
 
+      - name: Sigma rules — fixture test runner
+        # Phase C — every rules/**/*.test.yaml is replayed against its
+        # rule, positives must match and negatives must not. Orphan
+        # rules without a fixture surface as warnings on stderr.
+        run: cargo test --test sigma_rules -- --nocapture 2>&1 | tee /tmp/sigma-test-output.txt
+
+      - name: Sigma rules — summary
+        if: always()
+        run: |
+          echo "## Sigma rules" >> $GITHUB_STEP_SUMMARY
+          grep -E "Sigma rule runner:|WARN:" /tmp/sigma-test-output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+
       - name: Test summary
         if: always()
         run: |
