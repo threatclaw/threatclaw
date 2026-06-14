@@ -1,0 +1,17 @@
+rule: m365-ediscovery-misuse
+
+positive:
+  - description: eDiscovery search creation
+    event:
+      full_log: 'Operation: SearchCreated UserId: actor@corp.com RecordType: Discovery'
+  - description: Compliance search export
+    event:
+      full_log: 'Operation: New-ComplianceSearchAction Parameters: Export Search: AllMail'
+
+negative:
+  - description: Regular mailbox read
+    event:
+      full_log: 'Operation: MailItemsAccessed RecordType: ExchangeItem'
+  - description: Plain sign-in
+    event:
+      full_log: 'Sign-in success userPrincipalName=user@corp.com'

@@ -1,0 +1,17 @@
+rule: m365-mfa-fatigue
+
+positive:
+  - description: Result 500121 with explicit MFA denied
+    event:
+      full_log: 'userPrincipalName=bob@corp.com ResultType: 500121 MFA denied; user declined the authentication'
+  - description: Authenticator fraud reported
+    event:
+      full_log: 'SigninLog: ResultType=500121 Phone App Reported Fraud appId=00000003-0000-0000-c000-000000000000'
+
+negative:
+  - description: Successful sign-in
+    event:
+      full_log: 'userPrincipalName=bob@corp.com ResultType: 0 Sign-in successful'
+  - description: Sign-in blocked by Conditional Access
+    event:
+      full_log: 'ResultType: 53003 conditionalAccessStatus: failure'

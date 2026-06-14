@@ -1,0 +1,17 @@
+rule: apt-volttyphoon-wmic-remote
+
+positive:
+  - description: WMI remote command execution
+    event:
+      commandline: 'wmic /node:"10.0.0.5" process call create "cmd /c whoami > c:\temp\out"'
+  - description: WMI process call form
+    event:
+      commandline: 'wmic /node:dc01.corp /user:admin /password:Pass process call create "powershell -c ipconfig"'
+
+negative:
+  - description: Local WMI query (no /node:)
+    event:
+      commandline: 'wmic process list brief'
+  - description: WMI computersystem read (no process call)
+    event:
+      commandline: 'wmic /node:dc01 computersystem get name'

@@ -1,0 +1,46 @@
+title: Privileged Role Assigned Outside PIM
+id: m365-privileged-role-assigned
+status: stable
+description: |
+  Detects a high-privilege Entra ID role being granted directly to a
+  member (not through a Privileged Identity Management activation).
+  Direct assignment of Global Administrator, Privileged Role
+  Administrator, Exchange Administrator, Application Administrator,
+  Cloud Application Administrator, Security Administrator or User
+  Administrator bypasses JIT controls and is the canonical privilege-
+  escalation step after a tier-1 account takeover.
+references:
+  - https://attack.mitre.org/techniques/T1098/003/
+  - https://analyticsrules.exchange/analyticrules/269435e3-1db8-4423-9dfc-9bf59997da1c/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.privilege_escalation
+  - attack.t1098.003
+logsource:
+  category: m365
+  product: entra
+  service: audit
+detection:
+  selection_op:
+    'full_log|contains':
+      - 'Add member to role'
+  selection_role:
+    'full_log|contains':
+      - 'Global Administrator'
+      - 'Privileged Role Administrator'
+      - 'Exchange Administrator'
+      - 'Application Administrator'
+      - 'Cloud Application Administrator'
+      - 'Security Administrator'
+      - 'User Administrator'
+  filter_pim:
+    'full_log|contains':
+      - 'MS-PIM'
+      - 'PIM activation'
+  condition: selection_op and selection_role and not filter_pim
+falsepositives:
+  - Tenants without PIM licensing (Business Premium without P2) — the
+    rule still fires legitimately; tune severity per tenant.
+level: critical

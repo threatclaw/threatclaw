@@ -1,0 +1,35 @@
+title: LSASS MiniDump via comsvcs.dll
+id: sysmon-lsass-comsvcs
+status: stable
+description: |
+  Detects credential dumping by abusing the built-in `comsvcs.dll`
+  MiniDump export through rundll32. The technique is documented in
+  countless ransomware affiliate and APT playbooks (BlackBasta, Akira,
+  Volt Typhoon LOTL chains) and has no legitimate administrative use
+  — comsvcs.dll's MiniDump entry point is essentially attacker-only.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/proc_creation_win_rundll32_process_dump_via_comsvcs.yml
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - rundll32
+  filter_dump:
+    'commandline|contains':
+      - comsvcs
+  filter_target:
+    'commandline|contains':
+      - MiniDump
+      - '#24'
+      - '#65560'
+  condition: selection and filter_dump and filter_target
+falsepositives:
+  - None observed in legitimate enterprise tooling.
+level: critical

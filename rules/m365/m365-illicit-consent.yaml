@@ -1,0 +1,45 @@
+title: Illicit OAuth Consent Grant — High-Risk Graph Scopes
+id: m365-illicit-consent
+status: stable
+description: |
+  Detects a user consenting to a third-party OAuth application that
+  requests highly privileged Microsoft Graph scopes — Mail.ReadWrite,
+  Mail.Send, Files.Read.All, Files.ReadWrite.All, Sites.FullControl.All
+  or full_access_as_app. The 2024-2026 ConsentFix and Storm-2372
+  campaigns abused this flow to persist post-password-reset access to
+  user mailboxes and OneDrive without ever needing to break MFA.
+references:
+  - https://attack.mitre.org/techniques/T1528/
+  - https://learn.microsoft.com/en-us/security/operations/incident-response-playbook-app-consent
+  - https://www.mitiga.io/blog/consentfix-oauth-phishing-explained-how-token-based-attacks-bypass-mfa-in-microsoft-entra-id
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1528
+logsource:
+  category: m365
+  product: entra
+  service: audit
+detection:
+  selection_op:
+    'full_log|contains':
+      - 'Consent to application'
+      - 'Add delegated permission grant'
+      - 'Add app role assignment to service principal'
+  selection_scope:
+    'full_log|contains':
+      - 'Mail.ReadWrite'
+      - 'Mail.Read'
+      - 'Mail.Send'
+      - 'Files.Read.All'
+      - 'Files.ReadWrite.All'
+      - 'full_access_as_app'
+      - 'Sites.FullControl.All'
+      - 'Directory.ReadWrite.All'
+  condition: selection_op and selection_scope
+falsepositives:
+  - IT administrators onboarding a vetted enterprise app (Power
+    Automate, Adobe Sign, Mimecast). Maintain an allowlist of
+    approved app ids in `skill_configs.m365_allowed_app_ids`.
+level: critical

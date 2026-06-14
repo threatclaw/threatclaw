@@ -1,0 +1,41 @@
+title: ShadowPad Persistence — Updater-Themed Scheduled Task
+id: apt-shadowpad-scheduled-task
+status: stable
+description: |
+  Detects scheduled tasks created with names that masquerade as
+  Google / Adobe / Microsoft Edge updaters (e.g.
+  `GoogleUpdateTaskMachineXYZ12`) but whose action points to a binary
+  in `%PROGRAMDATA%`, `%APPDATA%` or `C:\Users\Public\`. APT41 /
+  BRONZE STARLIGHT have used this exact masquerading naming
+  convention in the 2025 ShadowPad-to-ransomware chain documented by
+  Trend Micro.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+  - https://www.trendmicro.com/en_us/research/25/b/updated-shadowpad-malware-leads-to-ransomware-deployment.html
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1053.005
+logsource:
+  category: process
+detection:
+  selection_name:
+    'commandline|contains':
+      - 'GoogleUpdateTaskMachine'
+      - 'AdobeUpdate'
+      - 'MicrosoftEdgeUpdate'
+  selection_path:
+    'commandline|contains':
+      - '\ProgramData\'
+      - '\AppData\'
+      - 'C:\Users\Public\'
+  filter_legit:
+    'commandline|contains':
+      - 'C:\Program Files (x86)\Google\Update\GoogleUpdate.exe'
+      - 'C:\Program Files\Adobe\'
+      - 'C:\Program Files (x86)\Microsoft\EdgeUpdate\'
+  condition: selection_name and selection_path and not filter_legit
+falsepositives:
+  - Genuine vendor updater paths are excluded by the filter.
+level: high

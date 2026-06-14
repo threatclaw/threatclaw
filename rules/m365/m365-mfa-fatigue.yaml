@@ -1,0 +1,38 @@
+title: MFA Fatigue — Denied Push Then Accepted Sign-in
+id: m365-mfa-fatigue
+status: stable
+description: |
+  Detects the Multi-Factor Authentication request generation pattern
+  popularised by Lapsus$ and 0ktapus / Scattered Spider: an attacker
+  with valid credentials repeatedly triggers MFA prompts until the
+  legitimate user either approves to make them stop or accidentally
+  confirms. The signal is a `ResultType 500121` ("MFA denied" or
+  "Phone App Reported Fraud") followed within minutes by a successful
+  authentication for the same user. ThreatClaw's correlation engine
+  evaluates the threshold downstream; this rule surfaces the
+  individual fraud / deny events.
+references:
+  - https://attack.mitre.org/techniques/T1621/
+  - https://cryptsus.com/blog/azure-mfa-bombing-detection-sentinel.html
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1621
+logsource:
+  category: m365
+  product: entra
+  service: signin
+detection:
+  selection:
+    'full_log|contains':
+      - 'ResultType: 500121'
+      - 'ResultType=500121'
+      - 'MFA denied'
+      - 'Phone App Reported Fraud'
+      - 'user declined the authentication'
+  condition: selection
+falsepositives:
+  - User whose Authenticator is misbehaving and accidentally denies
+    a legitimate prompt; downstream correlation gates on burst rate.
+level: high

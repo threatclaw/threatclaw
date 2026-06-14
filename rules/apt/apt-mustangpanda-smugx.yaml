@@ -1,0 +1,46 @@
+title: Mustang Panda SmugX HTML Smuggling Drop
+id: apt-mustangpanda-smugx
+status: stable
+description: |
+  Detects the SmugX campaign pattern documented by Check Point: a
+  browser process (`msedge.exe` / `chrome.exe`) writes an archive
+  (.zip / .iso) or JavaScript file to the user's Downloads folder
+  with diplomatic-themed naming. Mustang Panda / Earth Preta /
+  RedDelta use this delivery to drop PlugX loaders disguised as
+  "Note Verbale" or embassy briefings against European MFAs.
+references:
+  - https://attack.mitre.org/techniques/T1027/006/
+  - https://research.checkpoint.com/2023/chinese-threat-actors-targeting-europe-in-smugx-campaign/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1027.006
+logsource:
+  category: syslog
+detection:
+  selection_browser:
+    'full_log|contains':
+      - 'msedge.exe'
+      - 'chrome.exe'
+      - 'firefox.exe'
+  selection_file:
+    'full_log|contains':
+      - '\Downloads\'
+  selection_extension:
+    'full_log|contains':
+      - '.zip'
+      - '.iso'
+      - '.js'
+  selection_lure:
+    'full_log|contains':
+      - 'Note_Verbale'
+      - 'Note Verbale'
+      - 'MOFA'
+      - 'Embassy'
+      - 'Diplomatic'
+  condition: selection_browser and selection_file and selection_extension and selection_lure
+falsepositives:
+  - Low. Diplomatic file naming via browser download is rare and
+    distinctive.
+level: high

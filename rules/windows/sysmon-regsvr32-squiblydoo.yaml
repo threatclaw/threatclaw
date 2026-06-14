@@ -1,0 +1,37 @@
+title: regsvr32 Squiblydoo Pattern
+id: sysmon-regsvr32-squiblydoo
+status: stable
+description: |
+  Detects the classic Squiblydoo pattern: regsvr32 used as a script
+  host to fetch and execute a remote scriptlet (.sct). The technique
+  is documented in MITRE T1218.010 and persists across affiliate
+  loaders despite being a decade old, because it bypasses application
+  control on weakly-configured endpoints.
+references:
+  - https://attack.mitre.org/techniques/T1218/010/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/process_creation/proc_creation_win_regsvr32_network_pattern.yml
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1218.010
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - regsvr32.exe
+      - regsvr32
+  selection_flag:
+    'commandline|contains':
+      - '/i'
+      - '-i'
+  selection_url:
+    'commandline|contains':
+      - 'http'
+      - 'ftp'
+  condition: selection and selection_flag and selection_url
+falsepositives:
+  - Internal MDM deployment script with HTTPS over corporate URL; add
+    to exception list by domain.
+level: high

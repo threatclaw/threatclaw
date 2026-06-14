@@ -1,0 +1,41 @@
+title: Conditional Access Policy Disabled or Weakened
+id: m365-ca-policy-modified
+status: stable
+description: |
+  Detects modification or deletion of a Conditional Access policy.
+  Disabling or relaxing CA (lifting an MFA requirement, adding an
+  attacker account to the exclusion list, switching state to
+  reportOnly) is a textbook persistence and access-broadening step
+  after a Conditional Access Administrator role is compromised. The
+  AzureAD-Attack-Defense playbook for AiTM lists CA modification as
+  one of the first post-compromise actions to watch.
+references:
+  - https://attack.mitre.org/techniques/T1556/009/
+  - https://github.com/Cloud-Architekt/AzureAD-Attack-Defense/blob/main/Adversary-in-the-Middle.md
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1556.009
+logsource:
+  category: m365
+  product: entra
+  service: audit
+detection:
+  selection:
+    'full_log|contains':
+      - 'Update conditional access policy'
+      - 'Delete conditional access policy'
+      - 'conditional access'
+  selection_signal:
+    'full_log|contains':
+      - 'state'
+      - 'grantControls'
+      - 'excludeUsers'
+      - 'disabled'
+      - 'reportOnly'
+  condition: selection and selection_signal
+falsepositives:
+  - Genuine IT changes during user onboarding. Surface at medium
+    severity outside of declared maintenance windows.
+level: critical

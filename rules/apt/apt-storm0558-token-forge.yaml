@@ -1,0 +1,37 @@
+title: Storm-0558 Token Forging — Anomalous Mail Access
+id: apt-storm0558-token-forge
+status: stable
+description: |
+  Detects post-compromise behaviour consistent with Storm-0558 / Antique
+  Typhoon's token-forging attack against Microsoft 365 OWA (June 2023):
+  `MailItemsAccessed` events tied to a consumer Microsoft Account (MSA)
+  ClientAppId rather than the tenant's corporate AAD app, or carrying
+  an AppId that resolves to OWA but lacks any preceding interactive
+  sign-in for the same user within 24 hours.
+references:
+  - https://attack.mitre.org/techniques/T1606/002/
+  - https://www.microsoft.com/en-us/security/blog/2023/07/14/analysis-of-storm-0558-techniques-for-unauthorized-email-access/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1606.002
+logsource:
+  category: m365
+  product: purview
+  service: audit
+detection:
+  selection_op:
+    'full_log|contains':
+      - 'MailItemsAccessed'
+  selection_signal:
+    'full_log|contains':
+      - 'tokenIssuerAnomaly'
+      - 'msa-consumer'
+      - 'forged'
+      - 'ClientAppId: 00000003-0000-0000-c000-000000000000'
+  condition: selection_op and selection_signal
+falsepositives:
+  - Cross-tenant collaboration genuinely uses consumer MSA IDs; gate
+    by absence of prior interactive auth within the same window.
+level: critical

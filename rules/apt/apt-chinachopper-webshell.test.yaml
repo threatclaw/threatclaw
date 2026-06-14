@@ -1,0 +1,20 @@
+rule: apt-chinachopper-webshell
+
+positive:
+  - description: Canonical ASPX China Chopper
+    event:
+      full_log: 'FileCreate: C:\inetpub\wwwroot\images\a.aspx content=<%@Page Language="Jscript"%><%eval(Request.Item["p"],"unsafe");%>'
+  - description: PHP variant on Wordpress upload
+    event:
+      full_log: 'FileCreate: /var/www/html/wp-content/uploads/x.php content=<?php @eval($_POST["c"]); ?>'
+  - description: Assert-based PHP webshell
+    event:
+      full_log: 'FileCreate /tmp/shell.php content=<?php assert($_POST[0]); ?>'
+
+negative:
+  - description: Legitimate PHP page content
+    event:
+      full_log: 'FileCreate /var/www/html/index.php content=<?php phpinfo(); ?>'
+  - description: Static HTML file
+    event:
+      full_log: 'FileCreate /var/www/html/index.html content=<html><body>Hello</body></html>'

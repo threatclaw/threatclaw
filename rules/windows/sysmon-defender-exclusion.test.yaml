@@ -1,0 +1,20 @@
+rule: sysmon-defender-exclusion
+
+positive:
+  - description: PowerShell Add-MpPreference excluding a path
+    event:
+      commandline: 'powershell -nop -w hidden Add-MpPreference -ExclusionPath C:\ProgramData\Intel'
+  - description: reg.exe adding Defender exclusion path
+    event:
+      commandline: 'reg add "HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths" /v C:\ProgramData\app /t REG_DWORD /d 0 /f'
+  - description: Set-MpPreference excluding a process
+    event:
+      commandline: 'Set-MpPreference -ExclusionProcess malware.exe'
+
+negative:
+  - description: PowerShell listing Defender preferences (read only)
+    event:
+      commandline: 'powershell.exe Get-MpPreference'
+  - description: Unrelated PowerShell command
+    event:
+      commandline: 'powershell.exe Get-Service'

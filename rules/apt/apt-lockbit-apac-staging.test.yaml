@@ -1,0 +1,20 @@
+rule: apt-lockbit-apac-staging
+
+positive:
+  - description: vssadmin shadow deletion (pre-encryption)
+    event:
+      commandline: 'vssadmin delete shadows /all /quiet'
+  - description: bcdedit disabling recovery
+    event:
+      commandline: 'bcdedit /set {default} recoveryenabled No'
+  - description: Security log clear via wevtutil
+    event:
+      commandline: 'wevtutil cl Security'
+
+negative:
+  - description: vssadmin enumerating shadows
+    event:
+      commandline: 'vssadmin list shadows'
+  - description: bcdedit listing config
+    event:
+      commandline: 'bcdedit /enum'
