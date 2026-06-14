@@ -114,6 +114,12 @@ pub enum FieldMatcher {
     ContainsAny(String, Vec<String>), // field|contains: [a,b,c] — substring OR
     StartsWithAny(String, Vec<String>),
     EndsWithAny(String, Vec<String>),
+    // `|<mod>|all` variants — every value must match (AND semantics). Used by
+    // SigmaHQ patterns like `CommandLine|contains|all: [' -hp', ' a ', ' -m']`
+    // where a single command line must contain every fragment.
+    ContainsAll(String, Vec<String>),
+    StartsWithAll(String, Vec<String>),
+    EndsWithAll(String, Vec<String>),
 }
 
 pub enum Condition {
@@ -166,10 +172,19 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
     match selection {
         Value::Object(map) => {
             for (key, val) in map {
-                // Parse field|modifier syntax
-                let parts: Vec<&str> = key.splitn(2, '|').collect();
+                // Parse field|modifier(|all) syntax. SigmaHQ rules frequently
+                // chain a second `|all` segment to require every list value
+                // to be present in the field (vs the default ANY-of). We also
+                // tolerate `|all` appearing before the matcher modifier.
+                let parts: Vec<&str> = key.split('|').collect();
                 let field = parts[0].to_string();
-                let modifier = parts.get(1).copied().unwrap_or("");
+                let has_all = parts.iter().skip(1).any(|p| *p == "all");
+                let modifier = parts
+                    .iter()
+                    .skip(1)
+                    .find(|p| **p != "all")
+                    .copied()
+                    .unwrap_or("");
 
                 match val {
                     Value::String(s) => {
@@ -195,14 +210,23 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                         // content (which has prefixes / suffixes). The pre-fix
                         // bug took out our V58 / V59 / V60 rules until V61.
                         let lower: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
-                        match modifier {
-                            "contains" => {
+                        match (modifier, has_all) {
+                            ("contains", true) => {
+                                matchers.push(FieldMatcher::ContainsAll(field, lower));
+                            }
+                            ("startswith", true) => {
+                                matchers.push(FieldMatcher::StartsWithAll(field, lower));
+                            }
+                            ("endswith", true) => {
+                                matchers.push(FieldMatcher::EndsWithAll(field, lower));
+                            }
+                            ("contains", false) => {
                                 matchers.push(FieldMatcher::ContainsAny(field, lower));
                             }
-                            "startswith" => {
+                            ("startswith", false) => {
                                 matchers.push(FieldMatcher::StartsWithAny(field, lower));
                             }
-                            "endswith" => {
+                            ("endswith", false) => {
                                 matchers.push(FieldMatcher::EndsWithAny(field, lower));
                             }
                             _ => {
@@ -244,7 +268,14 @@ fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
 }
 
 /// Parse a condition string into a Condition tree.
-/// Supports: "selection", "selection and not filter", "selection1 or selection2"
+///
+/// Supports:
+///   - bare reference: `selection`
+///   - binary: `X and Y`, `X or Y`, `X and not Y`
+///   - unary:  `not X`
+///   - quantifier: `1 of X`, `all of X` where `X` is a name pattern
+///     (wildcard `*` or the literal `them`). Quantifiers fold to nested
+///     And/Or so the rest of the engine stays unaware of them.
 fn parse_condition(cond: &str, selections: &HashMap<String, Vec<FieldMatcher>>) -> Condition {
     let cond = cond.trim();
 
@@ -283,8 +314,79 @@ fn parse_condition(cond: &str, selections: &HashMap<String, Vec<FieldMatcher>>) 
         return Condition::Not(Box::new(parse_condition(rest, selections)));
     }
 
+    // Handle "1 of <pattern>" and "all of <pattern>". Pattern matching is
+    // intentionally simple (prefix*, *suffix, exact, or `them`) since this
+    // is what SigmaHQ actually emits in practice — full glob is overkill.
+    if let Some(pat) = cond.strip_prefix("1 of ") {
+        let names = expand_selection_pattern(pat.trim(), selections);
+        if names.is_empty() {
+            return Condition::Ref(cond.to_string());
+        }
+        return fold_or(names);
+    }
+    if let Some(pat) = cond.strip_prefix("all of ") {
+        let names = expand_selection_pattern(pat.trim(), selections);
+        if names.is_empty() {
+            return Condition::Ref(cond.to_string());
+        }
+        return fold_and(names);
+    }
+
     // Simple reference
     Condition::Ref(cond.to_string())
+}
+
+/// Expand a `1 of X` / `all of X` pattern into the concrete selection names
+/// defined in the detection block. Empty result means the pattern didn't
+/// match anything — caller should fall back to a leaf Ref so the engine
+/// returns false safely instead of panicking.
+fn expand_selection_pattern(
+    pat: &str,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Vec<String> {
+    if pat == "them" {
+        // `1 of them` / `all of them`: every named selection in the block.
+        // SigmaHQ's spec excludes the `condition`/`timeframe` keys, which
+        // we already stripped at compile time, so all keys remaining in
+        // `selections` are valid candidates.
+        let mut names: Vec<String> = selections.keys().cloned().collect();
+        names.sort();
+        return names;
+    }
+    if let Some(prefix) = pat.strip_suffix('*') {
+        let mut names: Vec<String> = selections
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
+        names.sort();
+        return names;
+    }
+    if let Some(suffix) = pat.strip_prefix('*') {
+        let mut names: Vec<String> = selections
+            .keys()
+            .filter(|k| k.ends_with(suffix))
+            .cloned()
+            .collect();
+        names.sort();
+        return names;
+    }
+    if selections.contains_key(pat) {
+        return vec![pat.to_string()];
+    }
+    Vec::new()
+}
+
+fn fold_or(names: Vec<String>) -> Condition {
+    let mut iter = names.into_iter().map(|n| Condition::Ref(n));
+    let first = iter.next().expect("non-empty");
+    iter.fold(first, |acc, c| Condition::Or(Box::new(acc), Box::new(c)))
+}
+
+fn fold_and(names: Vec<String>) -> Condition {
+    let mut iter = names.into_iter().map(|n| Condition::Ref(n));
+    let first = iter.next().expect("non-empty");
+    iter.fold(first, |acc, c| Condition::And(Box::new(acc), Box::new(c)))
 }
 
 // ── Matching ──
@@ -474,6 +576,44 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             if let Some(val) = find_field(log, field) {
                 let val_lower = val.to_lowercase();
                 if values.iter().any(|v| val_lower.ends_with(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::ContainsAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.contains(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            // Body-scan fallback: every fragment must appear somewhere in the
+            // serialized event. Mirrors the Contains/ContainsAny fallback, but
+            // gated on all() so noisy hits don't sneak through.
+            let text = log.to_string().to_lowercase();
+            if values.iter().all(|v| text.contains(v.as_str())) {
+                matched.push((field.clone(), values.join(" + ")));
+                return true;
+            }
+            false
+        }
+        FieldMatcher::StartsWithAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.starts_with(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::EndsWithAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.ends_with(v.as_str())) {
                     matched.push((field.clone(), val));
                     return true;
                 }
