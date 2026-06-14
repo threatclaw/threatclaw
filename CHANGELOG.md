@@ -6,6 +6,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.31-beta] — 2026-06-14
+
+### Added
+- A Hunt panel dedicated page in the dashboard exposes the full log lake for free-text investigation. Filters cover hostname, source tag, time range (15 min to 30 d, plus a custom window) and a substring search across the JSON payload. Results paginate with a stable cursor on `(time, id)` and report how many TimescaleDB chunks the query scanned so the operator can tell when a range is too wide.
+- The hostname filter is a combobox seeded from the inventory, so the operator picks from the assets actually being monitored, with the option to type a free-text value for hosts not yet enrolled.
+- Saved hunt queries: a named preset is one click away from a populated filter set, and recalled later from the sidebar chips.
+- A Hunt panel button on the incident detail page opens the log lake pre-filtered to the asset hostname and a ±10 min window around the attack events, so a pivot from "what did the AI surface" to "what was actually in the logs" is a single click instead of three.
+
+### Changed
+- Logs API: `GET /api/tc/logs/search` is the canonical entry point for the Hunt panel and any external SIEM pivot tool. Filters are exposed verbatim and pagination is keyset-based.
+
+### Fixed
+- The asset detail page no longer freezes on hosts with large software inventories. The deduplication on the software array compared whole JSON objects byte-for-byte, but osquery re-sends every package with metadata that varies between scans (install path, last_seen, source token), so duplicates were never collapsed and a single Debian host had accumulated 165k entries for roughly 461 real packages — a 19.5 MB payload that breached the dashboard fetch timeout. Software is now deduplicated on `(name, version)`. On the worst observed host the payload drops from 19.5 MB to 128 KB.
+- A single CVE that affects several sub-packages of the same product family — Visual C++ Redistributable shipped as five runtime variants is the canonical case — is now reported once per asset instead of once per matching sub-package. The previous behavior repeated the same CVE several times in the asset findings list and inflated the visible "critical" count for what is in reality a single patch to apply.
+
+### Removed
+- The Phase G readiness page is no longer linked from the Investigation menu. It was a migration counter for the Phase G HITL refoundation and serves no operational purpose now that the refoundation has shipped. The page itself remains on disk and can be re-linked later if a similar rollout is run again.
+
+### Dependencies
+- Apply safe patch bumps across the workspace: `tokio` 1.52.1 → 1.52.3, `rustls` 0.23.39 → 0.23.40, `cron` 0.13 → 0.16, `criterion` 0.5 → 0.8 (dev). Dashboard: `cytoscape` 3.33.1 → 3.33.3, `postcss` 8.4.33 → 8.5.14, `@types/node` 25.5.0 → 25.7.0 (dev).
+
 ## [1.0.30-beta] — 2026-06-13
 
 ### Added
