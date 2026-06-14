@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.32-beta] — 2026-06-15
+
+### Added
+- A SigmaHQ-to-ThreatClaw rule converter (`tools/sigma_convert.py`) ingests upstream Sigma rule files and emits ThreatClaw-shaped detection YAML aligned to the local ingestion model. The converter remaps the upstream `logsource` to the receiving log channel, rewrites field names per source (Sysmon nested paths, PowerShell script-block fields, flat syslog, firewall top-level keys), and rejects rules that depend on engine features ThreatClaw does not implement yet (regex, CIDR, base64 offsets, cross-field references, count aggregations, parenthesized condition groupings). On the upstream catalog of 3133 rules, 2857 (91.2 %) convert cleanly.
+- Bulk import of 984 upstream Sigma rules, filtered to severity `critical` or `high`, across four packs: Windows process creation (563), Windows PowerShell script-block (62), Sysmon multi-channel covering registry / file / network connection / image load / DNS / named pipe / remote thread / driver load (326), and Linux syslog covering sshd / cron / FIM / nft (33). Imports land in the `monitor` disposition by default so they surface as informational signal without auto-creating findings until each rule is reviewed.
+- Sigma detection language: the native engine now understands the SigmaHQ quantifiers `1 of <pattern>` and `all of <pattern>`, including `1 of them` / `all of them` and prefix / suffix glob patterns over selection names. The engine also recognizes the `|all` chain modifier on field keys, so `CommandLine|contains|all: [...]` requires every value to be present rather than any. These two additions unlock roughly seven hundred upstream rules that previously compiled but would never have matched.
+
+### Changed
+- The native Sigma scan now applies a per-tag quota when reading the recent log batch. Previously a flat `ORDER BY time DESC LIMIT N` was issued, and on any deployment where one channel dominates by volume (syslog at one hundred thousand events per day on a typical install) the entire batch was taken from that channel and every other source was invisible to the matcher. The new query uses a window function with `PARTITION BY tag` so each ingestion channel keeps a fair slice; high-volume sources can no longer starve low-volume ones.
+- Seventy first-party Sigma rules were realigned so their `logsource` filter matches an actually-active ingestion tag. Authoring used the upstream SigmaHQ category names (`process`, `process_creation`, `alert`, `firewall`, `ps_script`) which never matched the receiving tag taxonomy and silently dropped every event before the matcher was even consulted. Affected rule families: PowerShell obfuscation, Sysmon detection pack, Windows authentication, advanced threat actor TTPs, OPNsense / Fortinet firewall, Proxmox audit.
+
+### Fixed
+- The Sigma matcher's logsource filter is no longer bypassed by rules whose category contained common substrings of the log tag. The realigned categories (`osquery`, `syslog`, `opnsense`, `fortinet`, `proxmox`, `zeek`) match the substring contract the engine actually enforces.
+
 ## [1.0.31-beta] — 2026-06-14
 
 ### Added
