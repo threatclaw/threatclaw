@@ -1,0 +1,5 @@
+rule: c830f15d-6f6e-430f-8074-6f73d6807841
+title: Logging Configuration Changes on Linux Host
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

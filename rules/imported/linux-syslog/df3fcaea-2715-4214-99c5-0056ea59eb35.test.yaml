@@ -1,0 +1,5 @@
+rule: df3fcaea-2715-4214-99c5-0056ea59eb35
+title: Credentials In Files - Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

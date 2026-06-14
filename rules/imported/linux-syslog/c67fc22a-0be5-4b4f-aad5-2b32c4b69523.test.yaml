@@ -1,0 +1,5 @@
+rule: c67fc22a-0be5-4b4f-aad5-2b32c4b69523
+title: Symlink Etc Passwd
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

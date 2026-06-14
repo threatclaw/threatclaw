@@ -1,0 +1,5 @@
+rule: c67e0c98-4d39-46ee-8f6b-437ebf6b950e
+title: Shellshock Expression
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 49aae26c-450e-448b-911d-b3c13d178dfc
+title: Linux Keylogging with Pam.d
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

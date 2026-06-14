@@ -1,0 +1,5 @@
+rule: e497a24e-9345-4a62-9803-b06d7d7cb132
+title: ASLR Disabled Via Sysctl or Direct Syscall - Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

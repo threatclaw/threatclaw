@@ -1,0 +1,5 @@
+rule: c4568f5d-131f-4e78-83d4-45b2da0ec4f1
+title: Communication To LocaltoNet Tunneling Service Initiated - Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

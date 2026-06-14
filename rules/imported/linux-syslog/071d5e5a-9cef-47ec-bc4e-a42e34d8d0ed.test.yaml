@@ -1,0 +1,5 @@
+rule: 071d5e5a-9cef-47ec-bc4e-a42e34d8d0ed
+title: Possible Coin Miner CPU Priority Param
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

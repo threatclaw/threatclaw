@@ -1,0 +1,5 @@
+rule: 36aa86ca-fd9d-4456-814e-d3b1b8e1e0bb
+title: Relevant ClamAV Message
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

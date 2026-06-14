@@ -1,0 +1,5 @@
+rule: 0fadd880-6af3-4610-b1e5-008dc3a11b8a
+title: Potential Suspicious BPF Activity - Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

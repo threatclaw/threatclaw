@@ -1,0 +1,5 @@
+rule: 19bf6fdb-7721-4f3d-867f-53467f6a5db6
+title: Communication To Ngrok Tunneling Service - Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'
