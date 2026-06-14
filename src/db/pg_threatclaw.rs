@@ -1260,8 +1260,27 @@ impl ThreatClawStore for PgBackend {
                 ).await.map_err(query_err)?
             }
             (None, None) => {
+                // Per-tag quota via window function. Without it, a single
+                // high-volume tag (typically syslog.tcp.*) eats the whole
+                // LIMIT and starves every other source — on cyb06 a flat
+                // `LIMIT 2000` returned 100 % syslog, and the sigma engine
+                // never saw a single osquery.sysmon event despite ~3k/min
+                // arriving. PARTITION BY tag with `rn <= per_tag` keeps a
+                // fair slice for each ingestion channel.
+                let per_tag = std::cmp::max(limit / 4, 200);
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &format!(
+                        "SELECT id, tag, time, hostname, data \
+                         FROM ( \
+                            SELECT id, tag, time::text AS time, hostname, data, \
+                                   ROW_NUMBER() OVER (PARTITION BY tag ORDER BY time DESC) AS rn \
+                            FROM logs WHERE time >= NOW() - {} \
+                         ) ranked \
+                         WHERE rn <= {} \
+                         ORDER BY time DESC \
+                         LIMIT {}",
+                        interval_clause, per_tag, limit
+                    ),
                     &[],
                 ).await.map_err(query_err)?
             }
