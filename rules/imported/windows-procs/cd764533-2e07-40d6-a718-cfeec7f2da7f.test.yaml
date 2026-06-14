@@ -1,0 +1,5 @@
+rule: cd764533-2e07-40d6-a718-cfeec7f2da7f
+title: Renamed SysInternals DebugView Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

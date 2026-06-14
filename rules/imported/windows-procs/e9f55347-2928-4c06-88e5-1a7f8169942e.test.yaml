@@ -1,0 +1,5 @@
+rule: e9f55347-2928-4c06-88e5-1a7f8169942e
+title: Invoke-Obfuscation VAR++ LAUNCHER OBFUSCATION
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

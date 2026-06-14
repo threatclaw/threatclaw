@@ -1,0 +1,5 @@
+rule: ef64fc9c-a45e-43cc-8fd8-7d75d73b4c99
+title: Wusa.EXE Executed By Parent Process Located In Suspicious Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

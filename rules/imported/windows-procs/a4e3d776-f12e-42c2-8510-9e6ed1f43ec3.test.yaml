@@ -1,0 +1,5 @@
+rule: a4e3d776-f12e-42c2-8510-9e6ed1f43ec3
+title: Unusual Child Process of dns.exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

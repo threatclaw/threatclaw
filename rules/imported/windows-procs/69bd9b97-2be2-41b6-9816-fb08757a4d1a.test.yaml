@@ -1,0 +1,5 @@
+rule: 69bd9b97-2be2-41b6-9816-fb08757a4d1a
+title: Potentially Suspicious Execution From Parent Process In Public Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

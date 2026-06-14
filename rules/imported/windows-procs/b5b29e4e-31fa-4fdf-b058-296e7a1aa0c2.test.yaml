@@ -1,0 +1,5 @@
+rule: b5b29e4e-31fa-4fdf-b058-296e7a1aa0c2
+title: Suspicious FileFix Execution Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 62b7ccc9-23b4-471e-aa15-6da3663c4d59
+title: PowerShell Base64 Encoded Reflective Assembly Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

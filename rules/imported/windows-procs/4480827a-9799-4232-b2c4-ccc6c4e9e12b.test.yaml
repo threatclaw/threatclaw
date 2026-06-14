@@ -1,0 +1,5 @@
+rule: 4480827a-9799-4232-b2c4-ccc6c4e9e12b
+title: Suspicious CertReq Command to Download
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f38a82d2-fba3-4781-b549-525efbec8506
+title: PUA - 3Proxy Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

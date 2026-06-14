@@ -1,0 +1,5 @@
+rule: 4f647cfa-b598-4e12-ad69-c68dd16caef8
+title: DumpStack.log Defender Evasion
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

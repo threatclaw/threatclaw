@@ -1,0 +1,5 @@
+rule: 207b0396-3689-42d9-8399-4222658efc99
+title: Potential Privilege Escalation To LOCAL SYSTEM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

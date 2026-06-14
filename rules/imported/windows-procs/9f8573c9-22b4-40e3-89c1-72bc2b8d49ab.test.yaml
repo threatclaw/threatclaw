@@ -1,0 +1,5 @@
+rule: 9f8573c9-22b4-40e3-89c1-72bc2b8d49ab
+title: Scheduled Task Creation Masquerading as System Processes
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

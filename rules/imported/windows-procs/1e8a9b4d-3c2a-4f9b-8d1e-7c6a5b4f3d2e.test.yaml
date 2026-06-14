@@ -1,0 +1,5 @@
+rule: 1e8a9b4d-3c2a-4f9b-8d1e-7c6a5b4f3d2e
+title: PowerShell Defender Threat Severity Default Action Set to 'Allow' or 'NoAction'
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: e7888eb1-13b0-4616-bd99-4bc0c2b054b9
+title: Dllhost.EXE Execution Anomaly
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

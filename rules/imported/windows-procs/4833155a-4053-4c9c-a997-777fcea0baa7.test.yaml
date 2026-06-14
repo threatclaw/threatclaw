@@ -1,0 +1,5 @@
+rule: 4833155a-4053-4c9c-a997-777fcea0baa7
+title: SQLite Firefox Profile Data DB Access
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f376c8a7-a2d0-4ddc-aa0c-16c17236d962
+title: HackTool - Bloodhound/Sharphound Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

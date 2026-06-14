@@ -1,0 +1,5 @@
+rule: 39b31e81-5f5f-4898-9c0e-2160cfc0f9bf
+title: HackTool - Hashcat Password Cracker Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

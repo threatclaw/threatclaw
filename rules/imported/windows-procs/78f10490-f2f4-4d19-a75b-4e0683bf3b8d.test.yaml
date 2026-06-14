@@ -1,0 +1,5 @@
+rule: 78f10490-f2f4-4d19-a75b-4e0683bf3b8d
+title: Suspicious Speech Runtime Binary Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

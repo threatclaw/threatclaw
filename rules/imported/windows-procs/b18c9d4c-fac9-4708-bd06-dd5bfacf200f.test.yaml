@@ -1,0 +1,5 @@
+rule: b18c9d4c-fac9-4708-bd06-dd5bfacf200f
+title: HackTool - F-Secure C3 Load by Rundll32
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

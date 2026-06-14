@@ -1,0 +1,5 @@
+rule: 0bbc6369-43e3-453d-9944-cae58821c173
+title: Execution via WorkFolders.exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: efdd8dd5-cee8-4e59-9390-7d4d5e4dd6f6
+title: Suspicious Program Names
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

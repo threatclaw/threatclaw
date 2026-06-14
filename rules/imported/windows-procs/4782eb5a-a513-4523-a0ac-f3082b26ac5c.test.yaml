@@ -1,0 +1,5 @@
+rule: 4782eb5a-a513-4523-a0ac-f3082b26ac5c
+title: Mshtml.DLL RunHTMLApplication Suspicious Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

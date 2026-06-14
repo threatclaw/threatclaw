@@ -1,0 +1,5 @@
+rule: e76ca062-4de0-4d79-8d90-160a0d335eca
+title: PUA - Kernel Driver Utility (KDU) Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

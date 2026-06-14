@@ -1,0 +1,5 @@
+rule: 754ed792-634f-40ae-b3bc-e0448d33f695
+title: Suspicious PowerShell Parent Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

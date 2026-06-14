@@ -1,0 +1,5 @@
+rule: 5589ab4f-a767-433c-961d-c91f3f704db1
+title: Potential SMB Relay Attack Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

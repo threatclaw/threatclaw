@@ -1,0 +1,5 @@
+rule: f35c5d71-b489-4e22-a115-f003df287317
+title: Potential CobaltStrike Process Patterns
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

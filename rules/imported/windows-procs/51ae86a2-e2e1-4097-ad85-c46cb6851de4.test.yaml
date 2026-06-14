@@ -1,0 +1,5 @@
+rule: 51ae86a2-e2e1-4097-ad85-c46cb6851de4
+title: Renamed PsExec Service Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

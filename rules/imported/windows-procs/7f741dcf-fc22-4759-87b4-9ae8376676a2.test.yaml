@@ -1,0 +1,5 @@
+rule: 7f741dcf-fc22-4759-87b4-9ae8376676a2
+title: Bypass UAC via Fodhelper.exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

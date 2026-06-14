@@ -1,0 +1,5 @@
+rule: f14e169e-9978-4c69-acb3-1cff8200bc36
+title: Suspicious GrpConv Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

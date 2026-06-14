@@ -1,0 +1,5 @@
+rule: 5394fcc7-aeb2-43b5-9a09-cac9fc5edcd5
+title: Suspicious Execution Location Of Wermgr.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

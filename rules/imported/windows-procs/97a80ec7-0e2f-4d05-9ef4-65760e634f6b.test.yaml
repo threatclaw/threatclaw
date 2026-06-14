@@ -1,0 +1,5 @@
+rule: 97a80ec7-0e2f-4d05-9ef4-65760e634f6b
+title: Security Privileges Enumeration Via Whoami.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: a383dec4-deec-4e6e-913b-ed9249670848
+title: Potential Signing Bypass Via Windows Developer Features
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

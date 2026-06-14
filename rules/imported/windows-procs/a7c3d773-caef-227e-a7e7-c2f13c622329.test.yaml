@@ -1,0 +1,5 @@
+rule: a7c3d773-caef-227e-a7e7-c2f13c622329
+title: Bad Opsec Defaults Sacrificial Processes With Improper Arguments
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

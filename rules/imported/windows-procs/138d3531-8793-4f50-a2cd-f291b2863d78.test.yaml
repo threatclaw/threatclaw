@@ -1,0 +1,5 @@
+rule: 138d3531-8793-4f50-a2cd-f291b2863d78
+title: Suspicious Service Path Modification
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

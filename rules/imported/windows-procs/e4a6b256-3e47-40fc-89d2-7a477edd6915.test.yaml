@@ -1,0 +1,5 @@
+rule: e4a6b256-3e47-40fc-89d2-7a477edd6915
+title: System File Execution Location Anomaly
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

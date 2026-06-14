@@ -1,0 +1,5 @@
+rule: caa06de8-fdef-4c91-826a-7f9e163eef4b
+title: RunDLL32 Spawning Explorer
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

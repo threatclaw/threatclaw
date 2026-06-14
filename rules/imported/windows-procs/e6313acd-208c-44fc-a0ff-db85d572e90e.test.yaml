@@ -1,0 +1,5 @@
+rule: e6313acd-208c-44fc-a0ff-db85d572e90e
+title: Network Reconnaissance Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

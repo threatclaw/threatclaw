@@ -1,0 +1,5 @@
+rule: 27ba3207-dd30-4812-abbf-5d20c57d474e
+title: Suspicious Chromium Browser Instance Executed With Custom Extension
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

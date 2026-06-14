@@ -1,0 +1,5 @@
+rule: 0afbd410-de03-4078-8491-f132303cb67d
+title: Renamed NetSupport RAT Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

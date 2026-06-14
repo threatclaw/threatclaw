@@ -1,0 +1,5 @@
+rule: 7b6a7418-3afc-11f0-aff4-000d3abf478c
+title: Obfuscated PowerShell MSI Install via WindowsInstaller COM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

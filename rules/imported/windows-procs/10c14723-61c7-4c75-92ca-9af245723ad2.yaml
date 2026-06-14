@@ -1,0 +1,46 @@
+title: HackTool - Potential Impacket Lateral Movement Activity
+id: 10c14723-61c7-4c75-92ca-9af245723ad2
+status: stable
+description: Detects wmiexec/dcomexec/atexec/smbexec from Impacket framework
+references:
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/wmiexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/atexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/smbexec.py
+- https://github.com/SecureAuthCorp/impacket/blob/8b1a99f7c715702eafe3f24851817bb64721b156/examples/dcomexec.py
+- https://www.elastic.co/guide/en/security/current/suspicious-cmd-execution-via-wmi.html
+author: Ecco, oscd.community, Jonhnathan Ribeiro, Tim Rauch
+date: 2019-09-03
+tags:
+- attack.execution
+- attack.t1047
+- attack.lateral-movement
+- attack.t1021.003
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_other:
+    data.ParentImage|endswith:
+    - \wmiprvse.exe
+    - \mmc.exe
+    - \explorer.exe
+    - \services.exe
+    data.CommandLine|contains|all:
+    - cmd.exe
+    - /Q
+    - /c
+    - \\\\127.0.0.1\\
+    - '&1'
+  selection_atexec:
+    data.ParentCommandLine|contains:
+    - svchost.exe -k netsvcs
+    - taskeng.exe
+    data.CommandLine|contains|all:
+    - cmd.exe
+    - /C
+    - Windows\Temp\
+    - '&1'
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high

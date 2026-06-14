@@ -1,0 +1,5 @@
+rule: a6fc3c46-23b8-4996-9ea2-573f4c4d88c5
+title: RemoteFXvGPUDisablement Abuse Via AtomicTestHarnesses
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 6f8b3439-a203-45dc-a88b-abf57ea15ccf
+title: HackTool - CrackMapExec PowerShell Obfuscation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

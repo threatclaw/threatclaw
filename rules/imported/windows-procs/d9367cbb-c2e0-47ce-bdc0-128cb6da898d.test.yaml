@@ -1,0 +1,5 @@
+rule: d9367cbb-c2e0-47ce-bdc0-128cb6da898d
+title: HackTool - SharpLdapWhoami Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

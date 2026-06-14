@@ -1,0 +1,5 @@
+rule: 51cbac1e-eee3-4a90-b1b7-358efb81fa0a
+title: Potential Windows Defender Tampering Via Wmic.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

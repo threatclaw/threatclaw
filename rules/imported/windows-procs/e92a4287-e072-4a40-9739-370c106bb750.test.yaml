@@ -1,0 +1,5 @@
+rule: e92a4287-e072-4a40-9739-370c106bb750
+title: HackTool - SOAPHound Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

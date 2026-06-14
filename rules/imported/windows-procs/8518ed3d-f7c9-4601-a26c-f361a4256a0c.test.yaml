@@ -1,0 +1,5 @@
+rule: 8518ed3d-f7c9-4601-a26c-f361a4256a0c
+title: Suspicious Download From File-Sharing Website Via Bitsadmin
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: aa3a6f94-890e-4e22-b634-ffdfd54792cc
+title: Suspicious Binary In User Directory Spawned From Office Application
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 5afee48e-67dd-4e03-a783-f74259dcf998
+title: Potential LSASS Process Dump Via Procdump
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

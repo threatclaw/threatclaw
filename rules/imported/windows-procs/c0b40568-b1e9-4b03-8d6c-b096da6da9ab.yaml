@@ -1,0 +1,36 @@
+title: Suspicious AgentExecutor PowerShell Execution
+id: c0b40568-b1e9-4b03-8d6c-b096da6da9ab
+status: test
+description: Detects execution of the AgentExecutor.exe binary. Which can be abused as a LOLBIN to execute powershell scripts
+  with the ExecutionPolicy "Bypass" or any binary named "powershell.exe" located in the path provided by 6th positional argument
+references:
+- https://twitter.com/lefterispan/status/1286259016436514816
+- https://lolbas-project.github.io/lolbas/OtherMSBinaries/Agentexecutor/
+- https://learn.microsoft.com/en-us/mem/intune/apps/intune-management-extension
+- https://twitter.com/jseerden/status/1247985304667066373/photo/1
+author: Nasreddine Bencherchali (Nextron Systems), memory-shards
+date: 2022-12-24
+tags:
+- attack.stealth
+- attack.t1218
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \AgentExecutor.exe
+  - OriginalFileName: AgentExecutor.exe
+  selection_cli:
+    data.CommandLine|contains:
+    - ' -powershell'
+    - ' -remediationScript'
+  filter_main_pwsh:
+    data.CommandLine|contains:
+    - C:\Windows\System32\WindowsPowerShell\v1.0\
+    - C:\Windows\SysWOW64\WindowsPowerShell\v1.0\
+  filter_main_intune:
+    data.ParentImage|endswith: \Microsoft.Management.Services.IntuneWindowsAgent.exe
+  condition: all of selection_* and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high

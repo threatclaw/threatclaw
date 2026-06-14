@@ -1,0 +1,5 @@
+rule: 811f459f-9231-45d4-959a-0266c6311987
+title: Suspicious Child Process Of BgInfo.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

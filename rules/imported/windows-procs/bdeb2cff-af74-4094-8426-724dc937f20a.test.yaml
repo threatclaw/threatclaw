@@ -1,0 +1,5 @@
+rule: bdeb2cff-af74-4094-8426-724dc937f20a
+title: PowerShell Script Change Permission Via Set-Acl
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

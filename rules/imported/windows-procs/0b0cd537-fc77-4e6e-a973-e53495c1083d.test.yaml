@@ -1,0 +1,5 @@
+rule: 0b0cd537-fc77-4e6e-a973-e53495c1083d
+title: Renamed Office Binary Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

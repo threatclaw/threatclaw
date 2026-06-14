@@ -1,0 +1,5 @@
+rule: afe52666-401e-4a02-b4ff-5d128990b8cb
+title: Suspicious Greedy Compression Using Rar.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

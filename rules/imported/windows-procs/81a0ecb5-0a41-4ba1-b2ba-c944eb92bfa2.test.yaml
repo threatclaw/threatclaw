@@ -1,0 +1,5 @@
+rule: 81a0ecb5-0a41-4ba1-b2ba-c944eb92bfa2
+title: Add Insecure Download Source To Winget
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

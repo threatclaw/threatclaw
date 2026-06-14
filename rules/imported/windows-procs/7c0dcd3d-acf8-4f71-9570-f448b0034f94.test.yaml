@@ -1,0 +1,5 @@
+rule: 7c0dcd3d-acf8-4f71-9570-f448b0034f94
+title: PsExec Service Child Process Execution as LOCAL SYSTEM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

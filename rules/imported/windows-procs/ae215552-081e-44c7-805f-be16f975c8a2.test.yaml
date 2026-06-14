@@ -1,0 +1,5 @@
+rule: ae215552-081e-44c7-805f-be16f975c8a2
+title: Suspicious Debugger Registration Cmdline
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: cc7abbd0-762b-41e3-8a26-57ad50d2eea3
+title: MSHTA Execution with Suspicious File Extensions
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

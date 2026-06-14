@@ -1,0 +1,5 @@
+rule: 1775e15e-b61b-4d14-a1a3-80981298085a
+title: Rundll32 Execution Without CommandLine Parameters
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

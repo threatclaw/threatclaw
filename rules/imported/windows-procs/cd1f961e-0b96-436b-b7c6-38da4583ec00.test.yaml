@@ -1,0 +1,5 @@
+rule: cd1f961e-0b96-436b-b7c6-38da4583ec00
+title: Suspicious Windows Trace ETW Session Tamper Via Logman.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

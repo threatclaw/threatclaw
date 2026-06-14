@@ -1,0 +1,5 @@
+rule: e9b61244-893f-427c-b287-3e708f321c6b
+title: Potential Privilege Escalation Using Symlink Between Osk and Cmd
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

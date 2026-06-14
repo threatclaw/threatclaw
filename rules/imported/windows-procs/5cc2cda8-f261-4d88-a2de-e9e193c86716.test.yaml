@@ -1,0 +1,5 @@
+rule: 5cc2cda8-f261-4d88-a2de-e9e193c86716
+title: Suspicious Processes Spawned by WinRM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

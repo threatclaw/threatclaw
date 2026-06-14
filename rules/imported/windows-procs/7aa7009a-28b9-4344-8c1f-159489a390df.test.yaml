@@ -1,0 +1,5 @@
+rule: 7aa7009a-28b9-4344-8c1f-159489a390df
+title: HackTool - Windows Credential Editor (WCE) Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

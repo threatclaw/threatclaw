@@ -1,0 +1,31 @@
+title: New User Created Via Net.EXE With Never Expire Option
+id: b9f0e6f5-09b4-4358-bae4-08408705bd5c
+status: test
+description: Detects creation of local users via the net.exe command with the option "never expire"
+references:
+- https://thedfirreport.com/2022/07/11/select-xmrig-from-sqlserver/
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-07-12
+tags:
+- attack.persistence
+- attack.t1136.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith:
+    - \net.exe
+    - \net1.exe
+  - OriginalFileName:
+    - net.exe
+    - net1.exe
+  selection_cli:
+    data.CommandLine|contains|all:
+    - user
+    - add
+    - expires:never
+  condition: all of selection_*
+falsepositives:
+- Unlikely
+level: high

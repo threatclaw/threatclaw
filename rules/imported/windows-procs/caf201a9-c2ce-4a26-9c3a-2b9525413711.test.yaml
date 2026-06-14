@@ -1,0 +1,5 @@
+rule: caf201a9-c2ce-4a26-9c3a-2b9525413711
+title: Potentially Suspicious Call To Win32_NTEventlogFile Class
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

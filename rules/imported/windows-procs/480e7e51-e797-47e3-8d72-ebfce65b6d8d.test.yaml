@@ -1,0 +1,5 @@
+rule: 480e7e51-e797-47e3-8d72-ebfce65b6d8d
+title: Python Spawning Pretty TTY on Windows
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

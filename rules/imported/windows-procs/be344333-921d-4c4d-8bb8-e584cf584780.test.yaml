@@ -1,0 +1,5 @@
+rule: be344333-921d-4c4d-8bb8-e584cf584780
+title: Potentially Suspicious Event Viewer Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f89b08d0-77ad-4728-817b-9b16c5a69c7a
+title: HackTool - SharpImpersonation Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

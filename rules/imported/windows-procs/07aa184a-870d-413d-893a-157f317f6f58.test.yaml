@@ -1,0 +1,5 @@
+rule: 07aa184a-870d-413d-893a-157f317f6f58
+title: Suspicious Reconnaissance Activity Via GatherNetworkInfo.VBS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

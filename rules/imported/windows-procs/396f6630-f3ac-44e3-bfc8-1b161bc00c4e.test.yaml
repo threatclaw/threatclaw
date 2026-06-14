@@ -1,0 +1,5 @@
+rule: 396f6630-f3ac-44e3-bfc8-1b161bc00c4e
+title: Suspicious Child Process Of Wermgr.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

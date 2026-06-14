@@ -1,0 +1,5 @@
+rule: eb2d07d4-49cb-4523-801a-da002df36602
+title: HackTool - EDRSilencer Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

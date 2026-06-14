@@ -1,0 +1,5 @@
+rule: 6225c53a-a96e-4235-b28f-8d7997cd96eb
+title: Hypervisor-protected Code Integrity (HVCI) Related Registry Tampering Via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

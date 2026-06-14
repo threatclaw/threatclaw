@@ -1,0 +1,5 @@
+rule: f44800ac-38ec-471f-936e-3fa7d9c53100
+title: PUA - CleanWipe Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

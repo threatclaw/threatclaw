@@ -1,0 +1,5 @@
+rule: 85b0b087-eddf-4a2b-b033-d771fa2b9775
+title: PowerShell Download and Execution Cradles
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

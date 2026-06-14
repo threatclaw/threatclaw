@@ -1,0 +1,5 @@
+rule: b9f0e6f5-09b4-4358-bae4-08408705bd5c
+title: New User Created Via Net.EXE With Never Expire Option
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

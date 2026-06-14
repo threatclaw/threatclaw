@@ -1,0 +1,27 @@
+title: UAC Bypass Using MSConfig Token Modification - Process
+id: ad92e3f9-7eb6-460e-96b1-582b0ccbb980
+status: test
+description: Detects the pattern of UAC Bypass using a msconfig GUI hack (UACMe 55)
+references:
+- https://github.com/hfiref0x/UACME
+author: Christian Burkard (Nextron Systems)
+date: 2021-08-30
+tags:
+- attack.privilege-escalation
+- attack.t1548.002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.IntegrityLevel:
+    - High
+    - System
+    - S-1-16-16384
+    - S-1-16-12288
+    data.ParentImage|endswith: \AppData\Local\Temp\pkgmgr.exe
+    data.CommandLine: '"C:\Windows\system32\msconfig.exe" -5'
+  condition: selection
+falsepositives:
+- Unknown
+level: high

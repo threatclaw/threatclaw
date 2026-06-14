@@ -1,0 +1,5 @@
+rule: 7002aa10-b8d4-47ae-b5ba-51ab07e228b9
+title: Potential Mpclient.DLL Sideloading Via Defender Binaries
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

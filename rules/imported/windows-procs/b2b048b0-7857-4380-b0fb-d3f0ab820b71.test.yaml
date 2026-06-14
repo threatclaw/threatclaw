@@ -1,0 +1,5 @@
+rule: b2b048b0-7857-4380-b0fb-d3f0ab820b71
+title: Self Extracting Package Creation Via Iexpress.EXE From Potentially Suspicious Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

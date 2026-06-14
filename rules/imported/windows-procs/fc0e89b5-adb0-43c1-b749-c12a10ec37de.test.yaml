@@ -1,0 +1,5 @@
+rule: fc0e89b5-adb0-43c1-b749-c12a10ec37de
+title: SafeBoot Registry Key Deleted Via Reg.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

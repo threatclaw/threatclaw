@@ -1,0 +1,5 @@
+rule: cf2e938e-9a3e-4fe8-a347-411642b28a9f
+title: Potential PowerShell Execution Policy Tampering - ProcCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

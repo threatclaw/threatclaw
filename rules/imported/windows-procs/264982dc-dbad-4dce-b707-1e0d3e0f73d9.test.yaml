@@ -1,0 +1,5 @@
+rule: 264982dc-dbad-4dce-b707-1e0d3e0f73d9
+title: Renamed NirCmd.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

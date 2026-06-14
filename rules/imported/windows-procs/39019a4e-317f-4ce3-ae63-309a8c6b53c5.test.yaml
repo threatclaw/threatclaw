@@ -1,0 +1,5 @@
+rule: 39019a4e-317f-4ce3-ae63-309a8c6b53c5
+title: Suspicious Scheduled Task Creation Involving Temp Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

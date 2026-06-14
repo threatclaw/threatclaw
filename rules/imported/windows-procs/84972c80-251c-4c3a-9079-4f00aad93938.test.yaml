@@ -1,0 +1,5 @@
+rule: 84972c80-251c-4c3a-9079-4f00aad93938
+title: Sensitive File Recovery From Backup Via Wbadmin.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

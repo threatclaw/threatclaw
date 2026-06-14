@@ -1,0 +1,5 @@
+rule: 883835a7-df45-43e4-bf1d-4268768afda4
+title: Regedit as Trusted Installer
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

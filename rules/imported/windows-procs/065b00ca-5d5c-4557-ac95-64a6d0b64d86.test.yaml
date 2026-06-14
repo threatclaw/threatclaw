@@ -1,0 +1,5 @@
+rule: 065b00ca-5d5c-4557-ac95-64a6d0b64d86
+title: Remote Access Tool - Anydesk Execution From Suspicious Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: e6c54d94-498c-4562-a37c-b469d8e9a275
+title: Suspicious PowerShell Download and Execute Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

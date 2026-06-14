@@ -1,0 +1,5 @@
+rule: aaafa146-074c-11eb-adc1-0242ac120002
+title: HackTool - Hydra Password Bruteforce Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

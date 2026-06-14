@@ -1,0 +1,25 @@
+title: RemoteFXvGPUDisablement Abuse Via AtomicTestHarnesses
+id: a6fc3c46-23b8-4996-9ea2-573f4c4d88c5
+status: test
+description: Detects calls to the AtomicTestHarnesses "Invoke-ATHRemoteFXvGPUDisablementCommand" which is designed to abuse
+  the "RemoteFXvGPUDisablement.exe" binary to run custom PowerShell code via module load-order hijacking.
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1218/T1218.md
+- https://github.com/redcanaryco/AtomicTestHarnesses/blob/7e1e4da116801e3d6fcc6bedb207064577e40572/TestHarnesses/T1218_SignedBinaryProxyExecution/InvokeRemoteFXvGPUDisablementCommand.ps1
+author: frack113
+date: 2021-07-13
+tags:
+- attack.stealth
+- attack.t1218
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.CommandLine|contains:
+    - Invoke-ATHRemoteFXvGPUDisablementCommand
+    - Invoke-ATHRemoteFXvGPUDisableme
+  condition: selection
+falsepositives:
+- Unknown
+level: high

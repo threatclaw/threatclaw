@@ -1,0 +1,5 @@
+rule: 869b9ca7-9ea2-4a5a-8325-e80e62f75445
+title: Suspicious Child Process Of SQL Server
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

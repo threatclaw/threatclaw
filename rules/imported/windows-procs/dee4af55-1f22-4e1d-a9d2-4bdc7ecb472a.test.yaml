@@ -1,0 +1,5 @@
+rule: dee4af55-1f22-4e1d-a9d2-4bdc7ecb472a
+title: Disabled Volume Snapshots
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

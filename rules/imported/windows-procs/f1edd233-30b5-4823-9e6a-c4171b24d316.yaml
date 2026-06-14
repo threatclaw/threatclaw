@@ -1,0 +1,31 @@
+title: Rundll32 Registered COM Objects
+id: f1edd233-30b5-4823-9e6a-c4171b24d316
+status: test
+description: load malicious registered COM objects
+references:
+- https://nasbench.medium.com/a-deep-dive-into-rundll32-exe-642344b41e90
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1546.015/T1546.015.md
+author: frack113
+date: 2022-02-13
+tags:
+- attack.privilege-escalation
+- attack.persistence
+- attack.t1546.015
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \rundll32.exe
+  - OriginalFileName: RUNDLL32.EXE
+  selection_cli:
+    data.CommandLine|contains:
+    - '-sta '
+    - '-localserver '
+    data.CommandLine|contains|all:
+    - '{'
+    - '}'
+  condition: all of selection_*
+falsepositives:
+- Legitimate use
+level: high

@@ -1,0 +1,5 @@
+rule: 58f4ea09-0fc2-4520-ba18-b85c540b0eaf
+title: Suspicious Serv-U Process Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

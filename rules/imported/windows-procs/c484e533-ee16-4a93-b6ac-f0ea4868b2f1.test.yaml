@@ -1,0 +1,5 @@
+rule: c484e533-ee16-4a93-b6ac-f0ea4868b2f1
+title: HackTool - SharpUp PrivEsc Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

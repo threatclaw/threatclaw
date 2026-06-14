@@ -1,0 +1,5 @@
+rule: deb9b646-a508-44ee-b7c9-d8965921c6b6
+title: Powershell Token Obfuscation - Process Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

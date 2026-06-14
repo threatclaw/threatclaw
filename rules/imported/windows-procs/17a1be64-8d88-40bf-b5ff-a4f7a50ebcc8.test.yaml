@@ -1,0 +1,5 @@
+rule: 17a1be64-8d88-40bf-b5ff-a4f7a50ebcc8
+title: Suspicious New Service Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

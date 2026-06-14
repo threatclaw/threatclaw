@@ -1,0 +1,5 @@
+rule: 744a188b-0415-4792-896f-11ddb0588dbc
+title: Potential Process Injection Via Msra.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

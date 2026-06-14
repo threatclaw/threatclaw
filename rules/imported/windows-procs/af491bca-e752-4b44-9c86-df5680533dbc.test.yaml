@@ -1,0 +1,5 @@
+rule: af491bca-e752-4b44-9c86-df5680533dbc
+title: Finger.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

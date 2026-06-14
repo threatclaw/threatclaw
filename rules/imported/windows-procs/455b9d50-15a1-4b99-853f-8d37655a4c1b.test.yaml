@@ -1,0 +1,5 @@
+rule: 455b9d50-15a1-4b99-853f-8d37655a4c1b
+title: PUA - Suspicious ActiveDirectory Enumeration Via AdFind.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 6ddff2e8-ea1a-45d0-8938-93dfc1d67ae7
+title: PUA - Restic Backup Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

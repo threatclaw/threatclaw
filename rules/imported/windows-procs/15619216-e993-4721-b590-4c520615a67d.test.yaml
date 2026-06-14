@@ -1,0 +1,5 @@
+rule: 15619216-e993-4721-b590-4c520615a67d
+title: Potential Meterpreter/CobaltStrike Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

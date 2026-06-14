@@ -1,0 +1,5 @@
+rule: d55b793d-f847-4eea-b59a-5ab09908ac90
+title: Suspicious Child Process Of Veeam Dabatase
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

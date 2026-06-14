@@ -1,0 +1,5 @@
+rule: 503d581c-7df0-4bbe-b9be-5840c0ecc1fc
+title: UAC Bypass Using ChangePK and SLUI
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

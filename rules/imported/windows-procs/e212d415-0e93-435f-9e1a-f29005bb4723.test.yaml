@@ -1,0 +1,5 @@
+rule: e212d415-0e93-435f-9e1a-f29005bb4723
+title: Suspicious Remote Child Process From Outlook
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

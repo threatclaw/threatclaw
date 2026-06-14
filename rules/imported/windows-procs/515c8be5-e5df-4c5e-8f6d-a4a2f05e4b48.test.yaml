@@ -1,0 +1,5 @@
+rule: 515c8be5-e5df-4c5e-8f6d-a4a2f05e4b48
+title: CreateDump Process Dump
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

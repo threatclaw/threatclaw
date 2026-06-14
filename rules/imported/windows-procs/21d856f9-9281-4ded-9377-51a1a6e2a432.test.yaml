@@ -1,0 +1,5 @@
+rule: 21d856f9-9281-4ded-9377-51a1a6e2a432
+title: Potential Persistence Via Logon Scripts - CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

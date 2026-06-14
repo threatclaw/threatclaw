@@ -1,0 +1,5 @@
+rule: 847d5ff3-8a31-4737-a970-aeae8fe21765
+title: Potential Tampering With Security Products Via WMIC
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

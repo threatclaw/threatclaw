@@ -1,0 +1,5 @@
+rule: add64136-62e5-48ea-807e-88638d02df1e
+title: Fsutil Suspicious Invocation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

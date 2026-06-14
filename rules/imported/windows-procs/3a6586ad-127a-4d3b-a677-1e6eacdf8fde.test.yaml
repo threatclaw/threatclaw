@@ -1,0 +1,5 @@
+rule: 3a6586ad-127a-4d3b-a677-1e6eacdf8fde
+title: Windows Shell/Scripting Processes Spawning Suspicious Programs
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

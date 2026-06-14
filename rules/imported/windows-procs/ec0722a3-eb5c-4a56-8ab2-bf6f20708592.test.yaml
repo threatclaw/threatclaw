@@ -1,0 +1,5 @@
+rule: ec0722a3-eb5c-4a56-8ab2-bf6f20708592
+title: Renamed Gpg.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

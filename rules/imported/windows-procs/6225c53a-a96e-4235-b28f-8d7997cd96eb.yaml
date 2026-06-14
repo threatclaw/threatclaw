@@ -1,0 +1,50 @@
+title: Hypervisor-protected Code Integrity (HVCI) Related Registry Tampering Via CommandLine
+id: 6225c53a-a96e-4235-b28f-8d7997cd96eb
+status: experimental
+description: 'Detects the tampering of Hypervisor-protected Code Integrity (HVCI) related registry values via command line
+  tool reg.exe.
+
+  HVCI uses virtualization-based security to protect code integrity by ensuring that only trusted code can run in kernel mode.
+
+  Adversaries may tamper with HVCI to load malicious or unsigned drivers, which can be used to escalate privileges, maintain
+  persistence, or evade security mechanisms.
+
+  '
+references:
+- https://www.sophos.com/en-us/blog/sharpening-the-knife-gold-blades-strategic-evolution
+- https://learn.microsoft.com/en-us/windows/security/hardware-security/enable-virtualization-based-protection-of-code-integrity
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2026-01-26
+tags:
+- attack.defense-impairment
+- attack.t1685
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith:
+    - \powershell.exe
+    - \pwsh.exe
+    - \reg.exe
+  - OriginalFileName:
+    - PowerShell.EXE
+    - pwsh.dll
+    - reg.exe
+  selection_cli:
+    data.CommandLine|contains:
+    - 'add '
+    - 'New-ItemProperty '
+    - 'Set-ItemProperty '
+    - 'si '
+  selection_cli_base:
+    data.CommandLine|contains: \DeviceGuard
+  selection_cli_key:
+    data.CommandLine|contains:
+    - EnableVirtualizationBasedSecurity
+    - HypervisorEnforcedCodeIntegrity
+  condition: all of selection_*
+falsepositives:
+- Legitimate system administration tasks that require disabling HVCI for troubleshooting purposes when certain drivers or
+  applications are incompatible with it.
+level: high

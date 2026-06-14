@@ -1,0 +1,5 @@
+rule: a29808fd-ef50-49ff-9c7a-59a9b040b404
+title: HackTool - Pypykatz Credentials Dumping Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

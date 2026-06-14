@@ -1,0 +1,5 @@
+rule: 3c89a1e8-0fba-449e-8f1b-8409d6267ec8
+title: Suspicious Process Created Via Wmic.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

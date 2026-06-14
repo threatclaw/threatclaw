@@ -1,0 +1,5 @@
+rule: 863218bd-c7d0-4c52-80cd-0a96c09f54af
+title: Arbitrary File Download Via IMEWDBLD.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

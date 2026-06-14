@@ -1,0 +1,5 @@
+rule: 71158e3f-df67-472b-930e-7d287acaa3e1
+title: Execution Of Non-Existing File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

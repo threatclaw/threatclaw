@@ -1,0 +1,5 @@
+rule: 98dedfdd-8333-49d4-9f23-d7018cccae53
+title: Enable LM Hash Storage - ProcCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

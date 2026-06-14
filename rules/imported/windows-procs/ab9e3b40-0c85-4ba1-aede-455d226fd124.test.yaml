@@ -1,0 +1,5 @@
+rule: ab9e3b40-0c85-4ba1-aede-455d226fd124
+title: Suspicious Redirection to Local Admin Share
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

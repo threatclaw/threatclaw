@@ -1,0 +1,5 @@
+rule: f0507c0f-a3a2-40f5-acc6-7f543c334993
+title: Suspicious File Execution From Internet Hosted WebDav Share
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

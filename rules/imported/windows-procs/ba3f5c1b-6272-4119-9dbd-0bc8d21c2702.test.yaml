@@ -1,0 +1,5 @@
+rule: ba3f5c1b-6272-4119-9dbd-0bc8d21c2702
+title: Potential WinAPI Calls Via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

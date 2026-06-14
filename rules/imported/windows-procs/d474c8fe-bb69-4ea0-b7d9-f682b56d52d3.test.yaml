@@ -1,0 +1,5 @@
+rule: d474c8fe-bb69-4ea0-b7d9-f682b56d52d3
+title: HackTool - Doppelanger LSASS Dumper Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: c4eeeeae-89f4-43a7-8b48-8d1bdfa66c78
+title: Scheduled Task Executing Encoded Payload from Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 6004abd0-afa4-4557-ba90-49d172e0a299
+title: Execute Pcwrun.EXE To Leverage Follina
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

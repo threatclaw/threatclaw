@@ -1,0 +1,5 @@
+rule: b9d9cc83-380b-4ba3-8d8f-60c0e7e2930c
+title: Suspicious PowerShell Encoded Command Patterns
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

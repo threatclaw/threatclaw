@@ -1,0 +1,5 @@
+rule: 0f60b28c-64dd-4e2c-9a63-5334d3e3a6e6
+title: Script Interpreter Spawning Credential Scanner - Windows
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

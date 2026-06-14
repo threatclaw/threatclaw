@@ -1,0 +1,5 @@
+rule: 9a132afa-654e-11eb-ae93-0242ac130002
+title: PUA - AdFind Suspicious Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

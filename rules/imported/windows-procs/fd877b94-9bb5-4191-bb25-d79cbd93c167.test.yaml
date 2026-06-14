@@ -1,0 +1,5 @@
+rule: fd877b94-9bb5-4191-bb25-d79cbd93c167
+title: Dumping of Sensitive Hives Via Reg.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

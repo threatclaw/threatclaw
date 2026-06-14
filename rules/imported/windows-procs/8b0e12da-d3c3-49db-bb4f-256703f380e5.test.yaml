@@ -1,0 +1,5 @@
+rule: 8b0e12da-d3c3-49db-bb4f-256703f380e5
+title: PUA - Chisel Tunneling Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

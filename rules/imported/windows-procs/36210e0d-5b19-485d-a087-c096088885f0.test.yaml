@@ -1,0 +1,5 @@
+rule: 36210e0d-5b19-485d-a087-c096088885f0
+title: Suspicious PowerShell Parameter Substring
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

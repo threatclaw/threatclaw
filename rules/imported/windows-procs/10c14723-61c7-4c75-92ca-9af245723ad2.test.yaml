@@ -1,0 +1,5 @@
+rule: 10c14723-61c7-4c75-92ca-9af245723ad2
+title: HackTool - Potential Impacket Lateral Movement Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

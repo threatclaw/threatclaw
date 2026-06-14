@@ -1,0 +1,5 @@
+rule: 8823e85d-31d8-473e-b7f4-92da070f0fc6
+title: Suspicious ShellExec_RunDLL Call Via Ordinal
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

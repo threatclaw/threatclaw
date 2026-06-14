@@ -1,0 +1,35 @@
+title: Exports Critical Registry Keys To a File
+id: 82880171-b475-4201-b811-e9c826cd5eaa
+status: test
+description: Detects the export of a crital Registry key to a file.
+references:
+- https://lolbas-project.github.io/lolbas/Binaries/Regedit/
+- https://gist.github.com/api0cradle/cdd2d0d0ec9abb686f0e89306e277b8f
+author: Oddvar Moe, Sander Wiebing, oscd.community
+date: 2020-10-12
+tags:
+- attack.exfiltration
+- attack.discovery
+- attack.t1012
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \regedit.exe
+  - OriginalFileName: REGEDIT.EXE
+  selection_cli_1:
+    data.CommandLine|contains: ' -E '
+  selection_cli_2:
+    data.CommandLine|contains:
+    - hklm
+    - hkey_local_machine
+  selection_cli_3:
+    data.CommandLine|endswith:
+    - \system
+    - \sam
+    - \security
+  condition: all of selection_*
+falsepositives:
+- Dumping hives for legitimate purpouse i.e. backup or forensic investigation
+level: high

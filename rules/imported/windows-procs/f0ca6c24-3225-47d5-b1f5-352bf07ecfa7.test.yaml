@@ -1,0 +1,5 @@
+rule: f0ca6c24-3225-47d5-b1f5-352bf07ecfa7
+title: PUA - DefenderCheck Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: cc1abf27-78a3-4ac5-a51c-f3070b1d8e40
+title: Registry Export of Third-Party Credentials
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

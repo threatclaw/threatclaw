@@ -1,0 +1,5 @@
+rule: d7bcd677-645d-4691-a8d4-7a5602b780d1
+title: Potential PowerShell Command Line Obfuscation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

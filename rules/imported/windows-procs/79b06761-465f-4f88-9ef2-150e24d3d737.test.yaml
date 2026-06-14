@@ -1,0 +1,5 @@
+rule: 79b06761-465f-4f88-9ef2-150e24d3d737
+title: Potential SysInternals ProcDump Evasion
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

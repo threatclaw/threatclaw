@@ -1,0 +1,5 @@
+rule: f6d1dd2f-b8ce-40ca-bc23-062efb686b34
+title: Script Event Consumer Spawning Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

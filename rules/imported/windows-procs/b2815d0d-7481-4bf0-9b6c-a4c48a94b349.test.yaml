@@ -1,0 +1,5 @@
+rule: b2815d0d-7481-4bf0-9b6c-a4c48a94b349
+title: PowerShell Get-Process LSASS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 66e563f9-1cbd-4a22-a957-d8b7c0f44372
+title: HackTool - XORDump Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: c86133ad-4725-4bd0-8170-210788e0a7ba
+title: Net WebClient Casing Anomalies
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

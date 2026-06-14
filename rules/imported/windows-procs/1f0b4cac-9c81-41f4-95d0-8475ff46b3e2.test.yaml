@@ -1,0 +1,5 @@
+rule: 1f0b4cac-9c81-41f4-95d0-8475ff46b3e2
+title: PPL Tampering Via WerFaultSecure
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 853e74f9-9392-4935-ad3b-2e8c040dae86
+title: UAC Bypass Using DismHost
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

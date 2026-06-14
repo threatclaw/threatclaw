@@ -1,0 +1,5 @@
+rule: 4bf943c6-5146-4273-98dd-e958fd1e3abf
+title: Invoke-Obfuscation Obfuscated IEX Invocation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

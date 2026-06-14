@@ -1,0 +1,5 @@
+rule: fa00b701-44c6-4679-994d-5a18afa8a707
+title: PUA - AdvancedRun Suspicious Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

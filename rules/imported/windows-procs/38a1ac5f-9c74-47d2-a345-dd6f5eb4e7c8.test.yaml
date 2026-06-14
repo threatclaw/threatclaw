@@ -1,0 +1,5 @@
+rule: 38a1ac5f-9c74-47d2-a345-dd6f5eb4e7c8
+title: HKTL - SharpSuccessor Privilege Escalation Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

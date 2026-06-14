@@ -1,0 +1,5 @@
+rule: 88a87a10-384b-4ad7-8871-2f9bf9259ce5
+title: Suspicious Regsvr32 Execution From Remote Share
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

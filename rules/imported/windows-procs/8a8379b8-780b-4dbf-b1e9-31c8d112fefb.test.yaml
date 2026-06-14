@@ -1,0 +1,5 @@
+rule: 8a8379b8-780b-4dbf-b1e9-31c8d112fefb
+title: Schtasks From Suspicious Folders
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

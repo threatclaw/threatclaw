@@ -1,0 +1,5 @@
+rule: ffa6861c-4461-4f59-8a41-578c39f3f23e
+title: LSASS Dump Keyword In CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

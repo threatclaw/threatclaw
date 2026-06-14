@@ -1,0 +1,5 @@
+rule: 42333b2c-b425-441c-b70e-99404a17170f
+title: HackTool - Sliver C2 Implant Activity Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

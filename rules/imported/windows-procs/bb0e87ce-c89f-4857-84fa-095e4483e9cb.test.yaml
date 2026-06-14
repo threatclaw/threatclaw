@@ -1,0 +1,5 @@
+rule: bb0e87ce-c89f-4857-84fa-095e4483e9cb
+title: Suspicious Child Process of Notepad++ Updater - GUP.Exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

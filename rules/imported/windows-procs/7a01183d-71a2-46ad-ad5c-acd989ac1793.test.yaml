@@ -1,0 +1,5 @@
+rule: 7a01183d-71a2-46ad-ad5c-acd989ac1793
+title: UAC Bypass Abusing Winsat Path Parsing - Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

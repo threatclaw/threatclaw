@@ -1,0 +1,5 @@
+rule: 4cbef972-f347-4170-b62a-8253f6168e6d
+title: UAC Bypass Using IDiagnostic Profile
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

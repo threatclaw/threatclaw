@@ -1,0 +1,5 @@
+rule: 023394c4-29d5-46ab-92b8-6a534c6f447b
+title: Suspicious HWP Sub Processes
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

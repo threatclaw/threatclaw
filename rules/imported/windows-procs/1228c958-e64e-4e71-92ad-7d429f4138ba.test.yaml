@@ -1,0 +1,5 @@
+rule: 1228c958-e64e-4e71-92ad-7d429f4138ba
+title: Script Interpreter Execution From Suspicious Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

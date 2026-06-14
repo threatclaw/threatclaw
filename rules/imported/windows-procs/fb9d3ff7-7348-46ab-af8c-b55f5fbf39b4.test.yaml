@@ -1,0 +1,5 @@
+rule: fb9d3ff7-7348-46ab-af8c-b55f5fbf39b4
+title: Execution of Powershell Script in Public Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

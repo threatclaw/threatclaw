@@ -1,0 +1,5 @@
+rule: 4627c6ae-6899-46e2-aa0c-6ebcb1becd19
+title: HackTool - Impacket Tools Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

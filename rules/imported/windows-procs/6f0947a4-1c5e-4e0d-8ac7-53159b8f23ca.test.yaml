@@ -1,0 +1,5 @@
+rule: 6f0947a4-1c5e-4e0d-8ac7-53159b8f23ca
+title: Potentially Suspicious Child Process Of Regsvr32
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 2617e7ed-adb7-40ba-b0f3-8f9945fe6c09
+title: Suspicious SYSTEM User Process Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

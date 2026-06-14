@@ -1,0 +1,5 @@
+rule: b66474aa-bd92-4333-a16c-298155b120df
+title: Potential Persistence Via Powershell Search Order Hijacking - Task
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

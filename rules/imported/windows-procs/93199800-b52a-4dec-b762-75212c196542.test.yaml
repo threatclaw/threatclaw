@@ -1,0 +1,5 @@
+rule: 93199800-b52a-4dec-b762-75212c196542
+title: PUA - RunXCmd Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

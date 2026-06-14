@@ -1,0 +1,5 @@
+rule: 30edb182-aa75-42c0-b0a9-e998bb29067c
+title: Potential AMSI Bypass Via .NET Reflection
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

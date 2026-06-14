@@ -1,0 +1,5 @@
+rule: e7be6119-fc37-43f0-ad4f-1f3f99be2f9f
+title: Copying Sensitive Files with Credential Data
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 52ff7941-8211-46f9-84f8-9903efb7077d
+title: HackTool - PPID Spoofing SelectMyParent Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

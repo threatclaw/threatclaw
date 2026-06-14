@@ -1,0 +1,5 @@
+rule: d7654f02-e04b-4934-9838-65c46f187ebc
+title: PUA- IOX Tunneling Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

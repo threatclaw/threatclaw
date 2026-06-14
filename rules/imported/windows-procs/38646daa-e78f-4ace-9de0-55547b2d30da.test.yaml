@@ -1,0 +1,5 @@
+rule: 38646daa-e78f-4ace-9de0-55547b2d30da
+title: PUA - Seatbelt Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

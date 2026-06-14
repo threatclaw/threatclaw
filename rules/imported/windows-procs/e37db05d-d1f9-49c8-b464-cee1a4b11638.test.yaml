@@ -1,0 +1,5 @@
+rule: e37db05d-d1f9-49c8-b464-cee1a4b11638
+title: PUA - Rclone Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

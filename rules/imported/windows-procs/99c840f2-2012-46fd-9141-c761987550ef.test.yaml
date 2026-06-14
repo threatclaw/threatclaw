@@ -1,0 +1,5 @@
+rule: 99c840f2-2012-46fd-9141-c761987550ef
+title: Suspicious Download From Direct IP Via Bitsadmin
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

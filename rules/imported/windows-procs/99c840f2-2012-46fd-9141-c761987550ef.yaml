@@ -1,0 +1,47 @@
+title: Suspicious Download From Direct IP Via Bitsadmin
+id: 99c840f2-2012-46fd-9141-c761987550ef
+status: test
+description: Detects usage of bitsadmin downloading a file using an URL that contains an IP
+references:
+- https://blog.netspi.com/15-ways-to-download-a-file/#bitsadmin
+- https://isc.sans.edu/diary/22264
+- https://lolbas-project.github.io/lolbas/Binaries/Bitsadmin/
+- https://blog.talosintelligence.com/breaking-the-silence-recent-truebot-activity/
+author: Florian Roth (Nextron Systems)
+date: 2022-06-28
+tags:
+- attack.persistence
+- attack.execution
+- attack.stealth
+- attack.t1197
+- attack.s0190
+- attack.t1036.003
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \bitsadmin.exe
+  - OriginalFileName: bitsadmin.exe
+  selection_flags:
+    data.CommandLine|contains:
+    - ' /transfer '
+    - ' /create '
+    - ' /addfile '
+  selection_extension:
+    data.CommandLine|contains:
+    - ://1
+    - ://2
+    - ://3
+    - ://4
+    - ://5
+    - ://6
+    - ://7
+    - ://8
+    - ://9
+  filter_seven_zip:
+    data.CommandLine|contains: ://7-
+  condition: all of selection_* and not 1 of filter_*
+falsepositives:
+- Unknown
+level: high

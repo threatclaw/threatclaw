@@ -1,0 +1,5 @@
+rule: 42a5f1e7-9603-4f6d-97ae-3f37d130d794
+title: Suspicious File Downloaded From File-Sharing Website Via Certutil.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

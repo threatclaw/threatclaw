@@ -1,0 +1,5 @@
+rule: e4ed6030-ffe5-4e6a-8a8a-ab3c1ab9d94e
+title: Disable Windows IIS HTTP Logging
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

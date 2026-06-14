@@ -1,0 +1,5 @@
+rule: 8e95e73e-ba02-4a87-b4d7-0929b8053038
+title: Suspicious ArcSOC.exe Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 0944e002-e3f6-4eb5-bf69-3a3067b53d73
+title: PowerShell Set-Acl On Windows Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

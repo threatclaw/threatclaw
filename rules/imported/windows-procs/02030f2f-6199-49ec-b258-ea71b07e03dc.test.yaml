@@ -1,0 +1,5 @@
+rule: 02030f2f-6199-49ec-b258-ea71b07e03dc
+title: Malicious PowerShell Commandlets - ProcessCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

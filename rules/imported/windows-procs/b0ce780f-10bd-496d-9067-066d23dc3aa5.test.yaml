@@ -1,0 +1,5 @@
+rule: b0ce780f-10bd-496d-9067-066d23dc3aa5
+title: HackTool - SharpWSUS/WSUSpendu Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 36d88494-1d43-4dc0-b3fa-35c8fea0ca9d
+title: HackTool - CreateMiniDump Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

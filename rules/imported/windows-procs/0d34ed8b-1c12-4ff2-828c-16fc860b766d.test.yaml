@@ -1,0 +1,5 @@
+rule: 0d34ed8b-1c12-4ff2-828c-16fc860b766d
+title: Suspicious Processes Spawned by Java.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

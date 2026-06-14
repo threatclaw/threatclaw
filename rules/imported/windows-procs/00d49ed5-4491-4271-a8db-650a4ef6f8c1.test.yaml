@@ -1,0 +1,5 @@
+rule: 00d49ed5-4491-4271-a8db-650a4ef6f8c1
+title: Suspicious Download from Office Domain
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

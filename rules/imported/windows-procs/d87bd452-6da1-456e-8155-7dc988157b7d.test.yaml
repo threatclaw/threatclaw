@@ -1,0 +1,5 @@
+rule: d87bd452-6da1-456e-8155-7dc988157b7d
+title: Suspicious Usage Of ShellExec_RunDLL
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

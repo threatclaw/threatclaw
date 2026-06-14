@@ -1,0 +1,5 @@
+rule: 731231b9-0b5d-4219-94dd-abb6959aa7ea
+title: Suspicious Rundll32 Activity Invoking Sys File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

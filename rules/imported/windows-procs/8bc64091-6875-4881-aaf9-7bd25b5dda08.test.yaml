@@ -1,0 +1,5 @@
+rule: 8bc64091-6875-4881-aaf9-7bd25b5dda08
+title: Suspicious Process Patterns NTDS.DIT Exfil
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

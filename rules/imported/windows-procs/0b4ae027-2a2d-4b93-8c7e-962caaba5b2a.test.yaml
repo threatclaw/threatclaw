@@ -1,0 +1,5 @@
+rule: 0b4ae027-2a2d-4b93-8c7e-962caaba5b2a
+title: Time Travel Debugging Utility Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

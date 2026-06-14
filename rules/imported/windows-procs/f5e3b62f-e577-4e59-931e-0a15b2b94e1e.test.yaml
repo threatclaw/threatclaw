@@ -1,0 +1,5 @@
+rule: f5e3b62f-e577-4e59-931e-0a15b2b94e1e
+title: HackTool - Htran/NATBypass Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

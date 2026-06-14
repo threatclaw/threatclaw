@@ -1,0 +1,5 @@
+rule: c11aecef-9c37-45a6-9c07-bc0782f963fd
+title: RunMRU Registry Key Deletion
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'
