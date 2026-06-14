@@ -17,7 +17,8 @@ tags:
   - attack.execution
   - attack.t1047
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

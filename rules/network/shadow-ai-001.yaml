@@ -15,7 +15,6 @@ tags:
   - ai.commercial
 logsource:
   category: zeek
-  product: ssl
 detection:
   selection:
     'server_name|contains':

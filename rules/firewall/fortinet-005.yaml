@@ -12,7 +12,6 @@ tags:
   - attack.t1136
 logsource:
   category: fortinet
-  product: fortigate
 detection:
   selection:
     'msg|contains':

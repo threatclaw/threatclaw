@@ -11,8 +11,7 @@ tags:
   - attack.command_and_control
   - attack.t1571
 logsource:
-  category: firewall
-  product: opnsense
+  category: opnsense
 detection:
   selection:
     action: block

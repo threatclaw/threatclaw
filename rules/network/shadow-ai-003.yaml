@@ -12,7 +12,6 @@ tags:
   - ai.self_hosted
 logsource:
   category: zeek
-  product: conn
 detection:
   selection:
     id.resp_p:

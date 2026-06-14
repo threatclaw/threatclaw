@@ -16,7 +16,8 @@ tags:
   - attack.defense_evasion
   - attack.t1218.010
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

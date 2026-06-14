@@ -15,7 +15,6 @@ tags:
   - ai.commercial
 logsource:
   category: zeek
-  product: dns
 detection:
   selection:
     'query|contains':

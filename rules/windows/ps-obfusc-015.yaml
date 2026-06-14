@@ -11,7 +11,8 @@ tags:
   - attack.lateral_movement
   - attack.t1021.006
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

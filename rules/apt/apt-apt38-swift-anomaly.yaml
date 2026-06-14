@@ -18,7 +18,8 @@ tags:
   - attack.impact
   - attack.t1565.001
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection_parent:
     'commandline|contains':

@@ -11,8 +11,7 @@ tags:
   - attack.impact
   - attack.t1498.002
 logsource:
-  category: firewall
-  product: opnsense
+  category: opnsense
 detection:
   selection:
     action: block

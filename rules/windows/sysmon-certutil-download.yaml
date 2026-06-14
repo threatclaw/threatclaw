@@ -16,7 +16,8 @@ tags:
   - attack.command_and_control
   - attack.t1105
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

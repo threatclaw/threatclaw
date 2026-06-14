@@ -11,8 +11,7 @@ tags:
   - attack.reconnaissance
   - attack.t1595
 logsource:
-  category: firewall
-  product: opnsense
+  category: opnsense
 detection:
   selection:
     action: block

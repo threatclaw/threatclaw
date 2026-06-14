@@ -11,7 +11,8 @@ tags:
   - attack.persistence
   - attack.t1547.001
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

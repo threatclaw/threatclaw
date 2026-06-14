@@ -11,7 +11,8 @@ tags:
   - attack.credential_access
   - attack.t1558.001
 logsource:
-  category: alert
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

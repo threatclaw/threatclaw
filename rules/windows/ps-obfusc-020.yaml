@@ -11,7 +11,8 @@ tags:
   - attack.execution
   - attack.t1059.001
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

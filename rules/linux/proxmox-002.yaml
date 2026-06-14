@@ -12,7 +12,6 @@ tags:
   - attack.t1078.003
 logsource:
   category: proxmox
-  product: pve
 detection:
   selection:
     user: root@pam

@@ -20,7 +20,8 @@ tags:
   - attack.t1566.001
   - attack.t1204.002
 logsource:
-  category: process
+  category: osquery
+  product: sysmon
 detection:
   selection_office:
     'commandline|contains':

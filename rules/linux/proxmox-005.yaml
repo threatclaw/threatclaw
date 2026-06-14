@@ -12,7 +12,6 @@ tags:
   - attack.t1562.004
 logsource:
   category: proxmox
-  product: pve
 detection:
   selection:
     'msg|contains':

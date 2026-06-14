@@ -15,7 +15,6 @@ tags:
   - ai.self_hosted
 logsource:
   category: zeek
-  product: http
 detection:
   selection:
     'uri|contains':

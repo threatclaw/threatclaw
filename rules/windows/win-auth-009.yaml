@@ -11,7 +11,8 @@ tags:
   - attack.defense_evasion
   - attack.t1070.001
 logsource:
-  category: alert
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':

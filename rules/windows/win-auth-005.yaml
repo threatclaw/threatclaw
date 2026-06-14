@@ -11,7 +11,8 @@ tags:
   - attack.lateral_movement
   - attack.t1550.002
 logsource:
-  category: alert
+  category: osquery
+  product: sysmon
 detection:
   selection:
     'commandline|contains':
