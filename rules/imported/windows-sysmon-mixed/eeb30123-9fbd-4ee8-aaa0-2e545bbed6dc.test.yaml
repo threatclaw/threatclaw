@@ -1,0 +1,5 @@
+rule: eeb30123-9fbd-4ee8-aaa0-2e545bbed6dc
+title: Security Support Provider (SSP) Added to LSA Configuration
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

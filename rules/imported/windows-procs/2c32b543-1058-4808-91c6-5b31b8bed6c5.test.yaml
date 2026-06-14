@@ -1,0 +1,5 @@
+rule: 2c32b543-1058-4808-91c6-5b31b8bed6c5
+title: PUA - Crassus Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

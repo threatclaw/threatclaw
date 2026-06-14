@@ -1,0 +1,5 @@
+rule: ea011323-7045-460b-b2d7-0f7442ea6b38
+title: Potential PsExec Remote Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

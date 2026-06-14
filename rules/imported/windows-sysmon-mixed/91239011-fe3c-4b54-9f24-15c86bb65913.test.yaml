@@ -1,0 +1,5 @@
+rule: 91239011-fe3c-4b54-9f24-15c86bb65913
+title: Office Macros Warning Disabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

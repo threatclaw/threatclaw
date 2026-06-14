@@ -1,0 +1,27 @@
+title: Suspicious File Creation Activity From Fake Recycle.Bin Folder
+id: cd8b36ac-8e4a-4c2f-a402-a29b8fbd5bca
+status: test
+description: Detects file write event from/to a fake recycle bin folder that is often used as a staging directory for malware
+references:
+- https://www.mandiant.com/resources/blog/infected-usb-steal-secrets
+- https://unit42.paloaltonetworks.com/cloaked-ursa-phishing/
+author: X__Junior (Nextron Systems)
+date: 2023-07-12
+tags:
+- attack.persistence
+- attack.stealth
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+  - Image|contains:
+    - RECYCLERS.BIN\
+    - RECYCLER.BIN\
+  - TargetFilename|contains:
+    - RECYCLERS.BIN\
+    - RECYCLER.BIN\
+  condition: selection
+falsepositives:
+- Unknown
+level: high

@@ -1,0 +1,5 @@
+rule: 30fc8de7-d833-40c4-96b6-28319fbc4f6c
+title: UAC Bypass Using Event Viewer RecentViews
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

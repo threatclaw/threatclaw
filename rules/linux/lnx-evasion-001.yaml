@@ -1,0 +1,26 @@
+title: Host Firewall Disabled
+id: lnx-evasion-001
+status: stable
+description: |
+  iptables flush, ufw disable, or firewalld stop — defense evasion
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.004
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - iptables -F
+      - iptables --flush
+      - ufw disable
+      - systemctl stop firewalld
+      - nft flush
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

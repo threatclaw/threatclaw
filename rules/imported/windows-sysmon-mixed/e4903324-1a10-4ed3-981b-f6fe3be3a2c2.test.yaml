@@ -1,0 +1,5 @@
+rule: e4903324-1a10-4ed3-981b-f6fe3be3a2c2
+title: Potential Edputil.DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

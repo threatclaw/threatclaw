@@ -1,0 +1,5 @@
+rule: a35f5a72-f347-4e36-8895-9869b0d5fc6d
+title: Suspicious Program Location Whitelisted In Firewall Via Netsh.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

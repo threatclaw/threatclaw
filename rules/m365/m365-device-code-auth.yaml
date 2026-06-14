@@ -1,0 +1,36 @@
+title: Device Code Authentication Flow Used
+id: m365-device-code-auth
+status: stable
+description: |
+  Detects the deviceCode OAuth flow being used to authenticate to the
+  tenant. Most SMB tenants have zero legitimate IoT or CLI usage of
+  this flow; its presence is overwhelmingly the Storm-2372 phishing
+  signature documented by Microsoft and Volexity since August 2024.
+  The attacker sends the victim a code (e.g. "join the meeting, enter
+  ABCD-1234") and harvests a refresh token bound to the victim's
+  identity without ever bypassing MFA.
+references:
+  - https://attack.mitre.org/techniques/T1078/004/
+  - https://www.microsoft.com/en-us/security/blog/2025/02/13/storm-2372-conducts-device-code-phishing-campaign/
+  - https://www.volexity.com/blog/2025/02/13/multiple-russian-threat-actors-targeting-microsoft-device-code-authentication/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.initial_access
+  - attack.t1078.004
+logsource:
+  category: m365
+  product: entra
+  service: signin
+detection:
+  selection:
+    'full_log|contains':
+      - 'authenticationProtocol: deviceCode'
+      - 'authenticationProtocol=deviceCode'
+      - 'originalTransferMethod: deviceCodeFlow'
+      - 'deviceCodeFlow'
+  condition: selection
+falsepositives:
+  - Azure CLI / kubectl on engineering workstations; allowlist by
+    `userPrincipalName` of approved IT operators.
+level: high

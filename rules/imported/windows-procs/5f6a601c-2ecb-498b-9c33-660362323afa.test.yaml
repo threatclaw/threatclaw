@@ -1,0 +1,5 @@
+rule: 5f6a601c-2ecb-498b-9c33-660362323afa
+title: Root Certificate Installed From Susp Locations
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

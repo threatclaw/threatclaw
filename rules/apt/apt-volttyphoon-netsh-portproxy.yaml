@@ -1,0 +1,38 @@
+title: Volt Typhoon netsh portproxy Internal Tunnel
+id: apt-volttyphoon-netsh-portproxy
+status: stable
+description: |
+  Detects the `netsh interface portproxy add v4tov4` command used by
+  Volt Typhoon (PRC State-Sponsored) to establish internal TCP relays
+  and pivot through compromised hosts — the canonical living-off-the-
+  land technique documented in CISA AA24-038A. The command has no
+  legitimate use in modern SMB environments; even IIS admin tasks
+  generally use other tooling.
+references:
+  - https://attack.mitre.org/techniques/T1090/001/
+  - https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.command_and_control
+  - attack.t1090.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 'netsh'
+  selection_action:
+    'commandline|contains':
+      - 'interface portproxy'
+      - 'portproxy add'
+  selection_args:
+    'commandline|contains':
+      - 'v4tov4'
+      - 'listenport'
+      - 'connectport'
+  condition: selection and selection_action and selection_args
+falsepositives:
+  - Hardened jump-host admin staging IIS/SQL — exclude by user.
+level: critical

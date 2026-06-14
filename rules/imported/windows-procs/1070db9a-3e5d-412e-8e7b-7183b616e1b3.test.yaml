@@ -1,0 +1,5 @@
+rule: 1070db9a-3e5d-412e-8e7b-7183b616e1b3
+title: Persistence Via Sticky Key Backdoor
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 9cfe4b27-1e56-48b4-b7a8-d46851c91a44
+title: MMC Executing Files with Reversed Extensions Using RTLO Abuse
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

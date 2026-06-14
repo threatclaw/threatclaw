@@ -1,0 +1,5 @@
+rule: 54786ddc-5b8a-11ed-9b6a-0242ac120002
+title: Suspicious Ping/Del Command Combination
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: e0c69ebd-b54f-4aed-8ae3-e3467843f3f0
+title: Renamed Cloudflared.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 6345b048-8441-43a7-9bed-541133633d7a
+title: ManageEngine Endpoint Central Dctask64.EXE Potential Abuse
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

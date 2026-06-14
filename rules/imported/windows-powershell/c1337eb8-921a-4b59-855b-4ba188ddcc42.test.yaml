@@ -1,0 +1,5 @@
+rule: c1337eb8-921a-4b59-855b-4ba188ddcc42
+title: Deletion of Volume Shadow Copies via WMI with PowerShell - PS Script
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

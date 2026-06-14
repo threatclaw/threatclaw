@@ -1,0 +1,5 @@
+rule: e6474a1b-5390-49cd-ab41-8d88655f7394
+title: Renamed Mavinject.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

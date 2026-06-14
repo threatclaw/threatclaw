@@ -1,0 +1,5 @@
+rule: c598cc0c-9e70-4852-b9eb-8921af79f598
+title: Hacktool - EDR-Freeze Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

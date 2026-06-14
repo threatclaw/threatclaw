@@ -1,0 +1,5 @@
+rule: 88a22f69-62f9-4b8a-aa00-6b0212f2f05a
+title: Invoke-Obfuscation Via Use Rundll32 - PowerShell Module
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

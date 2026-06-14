@@ -1,0 +1,5 @@
+rule: 90fb5e62-ca1f-4e22-b42e-cc521874c938
+title: Suspicious Shells Spawn by Java Utility Keytool
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

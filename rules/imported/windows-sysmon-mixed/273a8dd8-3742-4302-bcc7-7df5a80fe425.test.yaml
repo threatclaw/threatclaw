@@ -1,0 +1,5 @@
+rule: 273a8dd8-3742-4302-bcc7-7df5a80fe425
+title: VMMap Unsigned Dbghelp.DLL Potential Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

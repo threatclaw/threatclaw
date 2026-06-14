@@ -1,0 +1,5 @@
+rule: c86500e9-a645-4680-98d7-f882c70c1ea3
+title: AADInternals PowerShell Cmdlets Execution - ProccessCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 1a42dfa6-6cb2-4df9-9b48-295be477e835
+title: Vulnerable WinRing0 Driver Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

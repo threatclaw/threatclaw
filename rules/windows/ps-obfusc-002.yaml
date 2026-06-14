@@ -1,0 +1,30 @@
+title: PowerShell Invoke-Expression
+id: ps-obfusc-002
+status: stable
+description: |
+  Detects `Invoke-Expression` (or its `iex` alias) in a PowerShell
+  command line. Invoke-Expression evaluates a string as PowerShell
+  code at runtime and is the central enabler of fileless one-liners
+  that download and execute a payload in memory.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    commandline|contains:
+      - 'Invoke-Expression'
+      - 'IEX '
+      - 'IEX('
+      - 'iex '
+  condition: selection
+falsepositives:
+  - Legitimate scripts that build dynamic command strings (rare in
+    end-user environments; common in DevOps tooling).
+level: high

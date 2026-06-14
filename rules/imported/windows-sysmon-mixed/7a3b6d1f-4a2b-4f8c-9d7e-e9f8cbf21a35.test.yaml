@@ -1,0 +1,5 @@
+rule: 7a3b6d1f-4a2b-4f8c-9d7e-e9f8cbf21a35
+title: Potential JLI.dll Side-Loading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

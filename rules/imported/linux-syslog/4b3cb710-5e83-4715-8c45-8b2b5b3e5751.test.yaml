@@ -1,0 +1,5 @@
+rule: 4b3cb710-5e83-4715-8c45-8b2b5b3e5751
+title: Modification of ld.so.preload
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

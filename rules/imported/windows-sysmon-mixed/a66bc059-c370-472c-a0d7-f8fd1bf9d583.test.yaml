@@ -1,0 +1,5 @@
+rule: a66bc059-c370-472c-a0d7-f8fd1bf9d583
+title: Network Connection Initiated By Eqnedt32.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

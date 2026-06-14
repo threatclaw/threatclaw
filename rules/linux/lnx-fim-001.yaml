@@ -1,0 +1,28 @@
+title: Sensitive Auth File Modified
+id: lnx-fim-001
+status: stable
+description: |
+  Change detected on /etc/passwd or /etc/shadow — typical backdoor persistence
+references:
+  - https://attack.mitre.org/techniques/T1098/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1098
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - /etc/passwd
+      - /etc/shadow
+      - /etc/sudoers
+  filter:
+    'full_log|contains':
+      - read
+      - opened for reading
+  condition: selection and not filter
+falsepositives:
+  - Unknown
+level: high

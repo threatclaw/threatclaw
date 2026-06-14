@@ -1,0 +1,5 @@
+rule: 37774c23-25a1-4adb-bb6d-8bb9fd59c0f8
+title: Suspicious Volume Shadow Copy Vssapi.dll Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 74a2b37d-fea4-41e0-9ac7-c9fbcf1f60cc
+title: WinRAR Creating Files in Startup Locations
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 7d604714-e071-49ff-8726-edeb95a70679
+title: Legitimate Application Dropped Script
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

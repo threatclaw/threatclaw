@@ -1,0 +1,5 @@
+rule: 4d7cda18-1b12-4e52-b45c-d28653210df8
+title: Sysmon Driver Unloaded Via Fltmc.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

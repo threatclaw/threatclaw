@@ -1,0 +1,35 @@
+title: PUA - Chisel Tunneling Tool Execution
+id: 8b0e12da-d3c3-49db-bb4f-256703f380e5
+status: test
+description: Detects usage of the Chisel tunneling tool via the commandline arguments
+references:
+- https://github.com/jpillora/chisel/
+- https://arcticwolf.com/resources/blog/lorenz-ransomware-chiseling-in/
+- https://blog.sekoia.io/lucky-mouse-incident-response-to-detection-engineering/
+author: Florian Roth (Nextron Systems)
+date: 2022-09-13
+tags:
+- attack.command-and-control
+- attack.t1090.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+    data.Image|endswith: \chisel.exe
+  selection_param1:
+    data.CommandLine|contains:
+    - 'exe client '
+    - 'exe server '
+  selection_param2:
+    data.CommandLine|contains:
+    - -socks5
+    - -reverse
+    - ' r:'
+    - ':127.0.0.1:'
+    - '-tls-skip-verify '
+    - :socks
+  condition: selection_img or all of selection_param*
+falsepositives:
+- Some false positives may occur with other tools with similar commandlines
+level: high

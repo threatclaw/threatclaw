@@ -1,0 +1,5 @@
+rule: 84b14121-9d14-416e-800b-f3b829c5a14d
+title: Suspicious CustomShellHost Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 6c8fbee5-dee8-49bc-851d-c3142d02aa47
+title: Allow Service Access Using Security Descriptor Tampering Via Sc.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

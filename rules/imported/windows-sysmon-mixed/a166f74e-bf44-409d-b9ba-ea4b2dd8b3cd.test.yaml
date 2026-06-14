@@ -1,0 +1,5 @@
+rule: a166f74e-bf44-409d-b9ba-ea4b2dd8b3cd
+title: Macro Enabled In A Potentially Suspicious Document
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

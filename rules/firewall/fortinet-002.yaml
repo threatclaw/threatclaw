@@ -1,0 +1,23 @@
+title: FortiGate admin login
+id: fortinet-002
+status: stable
+description: |
+  Successful admin login on FortiGate. Verify it matches an authorized operator window.
+references:
+  - https://attack.mitre.org/techniques/T1078/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.initial_access
+  - attack.t1078
+logsource:
+  category: fortinet
+detection:
+  selection:
+    'msg|contains':
+      - Administrator login successful
+      - User login successful
+  condition: selection
+falsepositives:
+  - Unknown
+level: low

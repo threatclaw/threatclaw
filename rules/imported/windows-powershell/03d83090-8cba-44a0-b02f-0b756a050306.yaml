@@ -1,0 +1,42 @@
+title: Potential WinAPI Calls Via PowerShell Scripts
+id: 03d83090-8cba-44a0-b02f-0b756a050306
+status: test
+description: Detects use of WinAPI functions in PowerShell scripts
+references:
+- https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
+author: Nasreddine Bencherchali (Nextron Systems), Nikita Nazarov, oscd.community
+date: 2020-10-06
+tags:
+- attack.execution
+- attack.t1059.001
+- attack.t1106
+logsource:
+  category: osquery
+  product: powershell
+detection:
+  selection_injection:
+    data.ScriptBlockText|contains|all:
+    - VirtualAlloc
+    - OpenProcess
+    - WriteProcessMemory
+    - CreateRemoteThread
+  selection_token_steal:
+    data.ScriptBlockText|contains|all:
+    - OpenProcessToken
+    - LookupPrivilegeValue
+    - AdjustTokenPrivileges
+  selection_duplicate_token:
+    data.ScriptBlockText|contains|all:
+    - OpenProcessToken
+    - DuplicateTokenEx
+    - CloseHandle
+  selection_process_write_read:
+    data.ScriptBlockText|contains|all:
+    - WriteProcessMemory
+    - VirtualAlloc
+    - ReadProcessMemory
+    - VirtualFree
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high

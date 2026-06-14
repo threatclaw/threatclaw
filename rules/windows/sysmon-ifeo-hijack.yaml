@@ -1,0 +1,38 @@
+title: Image File Execution Options Debugger Hijack
+id: sysmon-ifeo-hijack
+status: stable
+description: |
+  Detects the IFEO Debugger registry key being set to a non-Microsoft
+  debugger — the canonical sticky-keys / utilman backdoor and a known
+  APT41 / HUI Loader persistence step. Legitimate IFEO use is almost
+  exclusive to AppCompat shims and `procdump -i`; everything else is
+  suspect.
+references:
+  - https://attack.mitre.org/techniques/T1546/012/
+  - https://github.com/SigmaHQ/sigma/blob/master/rules/windows/registry/registry_set/registry_set_persistence_image_file_execution_options.yml
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.privilege_escalation
+  - attack.persistence
+  - attack.t1546.012
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 'Image File Execution Options'
+  selection_debugger:
+    'commandline|contains':
+      - '\Debugger'
+      - 'Debugger /d'
+  filter_procdump:
+    'commandline|contains':
+      - procdump
+  condition: selection and selection_debugger and not filter_procdump
+falsepositives:
+  - ProcDump auto-attach (`ProcDump -i`) — covered by the filter.
+  - Application compatibility shim toolkit edits — rare on user
+    endpoints, expected on engineering workstations.
+level: high

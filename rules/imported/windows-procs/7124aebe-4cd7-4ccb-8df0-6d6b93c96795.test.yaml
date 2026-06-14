@@ -1,0 +1,5 @@
+rule: 7124aebe-4cd7-4ccb-8df0-6d6b93c96795
+title: Suspicious Kernel Dump Using Dtrace
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

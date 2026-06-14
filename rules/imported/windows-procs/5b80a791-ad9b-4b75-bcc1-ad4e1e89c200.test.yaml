@@ -1,0 +1,5 @@
+rule: 5b80a791-ad9b-4b75-bcc1-ad4e1e89c200
+title: File With Suspicious Extension Downloaded Via Bitsadmin
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

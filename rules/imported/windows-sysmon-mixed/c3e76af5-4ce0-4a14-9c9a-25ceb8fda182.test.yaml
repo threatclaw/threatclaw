@@ -1,0 +1,5 @@
+rule: c3e76af5-4ce0-4a14-9c9a-25ceb8fda182
+title: WerFault LSASS Process Memory Dump
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

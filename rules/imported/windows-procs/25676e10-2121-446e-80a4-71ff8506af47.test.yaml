@@ -1,0 +1,5 @@
+rule: 25676e10-2121-446e-80a4-71ff8506af47
+title: Exchange PowerShell Snap-Ins Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

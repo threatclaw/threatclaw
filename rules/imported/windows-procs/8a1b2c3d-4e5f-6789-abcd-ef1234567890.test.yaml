@@ -1,0 +1,5 @@
+rule: 8a1b2c3d-4e5f-6789-abcd-ef1234567890
+title: PUA - Memory Dump Mount Via MemProcFS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

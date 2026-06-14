@@ -1,0 +1,20 @@
+rule: apt-plugx-programdata
+
+positive:
+  - description: PlugX disguised as x32dbg debugger
+    event:
+      commandline: 'C:\ProgramData\UsersDate\Windows_NT\Windows\User\Desktop\x32dbg.exe'
+  - description: RasTls signed carrier
+    event:
+      commandline: 'C:\ProgramData\Tencent\loader\RasTls.exe'
+  - description: Path-only persistence write
+    event:
+      commandline: 'reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Update /d C:\ProgramData\Windows NT\\svc.exe'
+
+negative:
+  - description: Legitimate ProgramData install
+    event:
+      commandline: 'C:\ProgramData\Adobe\Setup\setup.exe'
+  - description: Plain explorer command
+    event:
+      commandline: 'C:\Windows\explorer.exe'

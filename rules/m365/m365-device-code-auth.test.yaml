@@ -1,0 +1,17 @@
+rule: m365-device-code-auth
+
+positive:
+  - description: Storm-2372 device code phishing
+    event:
+      full_log: 'userPrincipalName=victim@corp.com authenticationProtocol: deviceCode appDisplayName=Microsoft Authentication Broker'
+  - description: Device code flow signature
+    event:
+      full_log: 'SigninLog: originalTransferMethod: deviceCodeFlow'
+
+negative:
+  - description: Standard interactive sign-in
+    event:
+      full_log: 'authenticationProtocol: ropc userPrincipalName=user@corp.com'
+  - description: Service principal client credentials
+    event:
+      full_log: 'authenticationProtocol: clientCredentials appId=00000003-0000-0000-c000-000000000000'

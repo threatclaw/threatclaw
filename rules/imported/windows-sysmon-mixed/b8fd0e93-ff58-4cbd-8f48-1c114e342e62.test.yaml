@@ -1,0 +1,5 @@
+rule: b8fd0e93-ff58-4cbd-8f48-1c114e342e62
+title: Windows Binaries Write Suspicious Extensions
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

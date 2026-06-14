@@ -1,0 +1,5 @@
+rule: 295c9289-acee-4503-a571-8eacaef36b28
+title: Vulnerable HackSys Extreme Vulnerable Driver Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

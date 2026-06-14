@@ -1,0 +1,5 @@
+rule: bdeeabc9-ff2a-4a51-be59-bb253aac7891
+title: PUA - Wsudo Suspicious Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

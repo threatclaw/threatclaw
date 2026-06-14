@@ -1,0 +1,5 @@
+rule: ee6cea48-c5b6-4304-a332-10fc6446f484
+title: Potential appverifUI.DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

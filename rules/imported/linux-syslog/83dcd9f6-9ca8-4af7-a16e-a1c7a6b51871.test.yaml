@@ -1,0 +1,5 @@
+rule: 83dcd9f6-9ca8-4af7-a16e-a1c7a6b51871
+title: Linux Reverse Shell Indicator
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

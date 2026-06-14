@@ -1,0 +1,5 @@
+rule: 089fc3d2-71e8-4763-a8a5-c97fbb0a403e
+title: Regsvr32 DLL Execution With Suspicious File Extension
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

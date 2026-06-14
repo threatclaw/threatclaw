@@ -1,0 +1,5 @@
+rule: afd12fed-b0ec-45c9-a13d-aa86625dac81
+title: Create Volume Shadow Copy with Powershell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

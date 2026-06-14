@@ -1,0 +1,5 @@
+rule: 28ac00d6-22d9-4a3c-927f-bbd770104573
+title: RestrictedAdminMode Registry Value Tampering - ProcCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

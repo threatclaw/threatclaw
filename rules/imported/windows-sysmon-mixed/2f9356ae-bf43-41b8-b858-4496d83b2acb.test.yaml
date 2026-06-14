@@ -1,0 +1,5 @@
+rule: 2f9356ae-bf43-41b8-b858-4496d83b2acb
+title: ISO File Created Within Temp Folders
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

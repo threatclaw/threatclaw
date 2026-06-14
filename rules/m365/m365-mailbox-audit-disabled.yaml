@@ -1,0 +1,45 @@
+title: Mailbox Audit Logging Disabled
+id: m365-mailbox-audit-disabled
+status: stable
+description: |
+  Detects an administrator (or attacker with admin role) disabling
+  mailbox or unified audit logging — a near-zero false-positive
+  signal because mailbox auditing is on by default and disabling it
+  is almost exclusively a post-compromise cover-up step. Monitors
+  Set-Mailbox -AuditEnabled $false, Set-MailboxAuditBypassAssociation,
+  Set-AdminAuditLogConfig, and Set-OrganizationConfig
+  -UnifiedAuditLogIngestionEnabled $false.
+references:
+  - https://attack.mitre.org/techniques/T1562/008/
+  - https://learn.microsoft.com/en-us/purview/audit-log-enable-disable
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.008
+logsource:
+  category: m365
+  product: exchange
+  service: audit
+detection:
+  selection_op:
+    'full_log|contains':
+      - 'Set-Mailbox'
+      - 'Set-MailboxAuditBypassAssociation'
+      - 'Set-AdminAuditLogConfig'
+      - 'Set-OrganizationConfig'
+  selection_disable:
+    'full_log|contains':
+      - 'AuditEnabled: False'
+      - 'AuditEnabled=False'
+      - 'AuditBypassEnabled: True'
+      - 'AuditBypassEnabled=True'
+      - 'UnifiedAuditLogIngestionEnabled: False'
+      - 'UnifiedAuditLogIngestionEnabled=False'
+      - 'AuditDisabled: True'
+      - 'AuditDisabled=True'
+  condition: selection_op and selection_disable
+falsepositives:
+  - Almost none. Mailbox audit is default-on; disabling it is rarely
+    legitimate.
+level: critical

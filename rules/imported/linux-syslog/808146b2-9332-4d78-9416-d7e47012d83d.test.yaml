@@ -1,0 +1,5 @@
+rule: 808146b2-9332-4d78-9416-d7e47012d83d
+title: BPFDoor Abnormal Process ID or Lock File Accessed
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

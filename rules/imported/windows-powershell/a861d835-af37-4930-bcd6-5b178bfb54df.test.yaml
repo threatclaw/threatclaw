@@ -1,0 +1,5 @@
+rule: a861d835-af37-4930-bcd6-5b178bfb54df
+title: Suspicious Kerberos Ticket Request via PowerShell Script - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

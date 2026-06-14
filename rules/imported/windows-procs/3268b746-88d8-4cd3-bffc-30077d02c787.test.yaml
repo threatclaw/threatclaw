@@ -1,0 +1,5 @@
+rule: 3268b746-88d8-4cd3-bffc-30077d02c787
+title: HackTool - Empire PowerShell UAC Bypass
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

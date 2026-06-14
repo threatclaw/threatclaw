@@ -1,0 +1,24 @@
+title: SSH Root Login Attempt
+id: lnx-auth-002
+status: stable
+description: |
+  SSH session targeting the root account — bypass attempt on PermitRootLogin=no policies
+references:
+  - https://attack.mitre.org/techniques/T1078/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.initial_access
+  - attack.t1078.003
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - sshd
+      - for root from
+      - Invalid user root
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

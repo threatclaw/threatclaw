@@ -1,0 +1,5 @@
+rule: b471f462-eb0d-4832-be35-28d94bdb4780
+title: Remote Access Tool - Renamed MeshAgent Execution - Windows
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

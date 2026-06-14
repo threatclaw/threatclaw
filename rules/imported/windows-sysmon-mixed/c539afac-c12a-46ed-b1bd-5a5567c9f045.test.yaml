@@ -1,0 +1,5 @@
+rule: c539afac-c12a-46ed-b1bd-5a5567c9f045
+title: Potential Remote PowerShell Session Initiated
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

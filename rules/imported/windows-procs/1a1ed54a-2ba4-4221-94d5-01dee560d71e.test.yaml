@@ -1,0 +1,5 @@
+rule: 1a1ed54a-2ba4-4221-94d5-01dee560d71e
+title: Renamed CreateDump Utility Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

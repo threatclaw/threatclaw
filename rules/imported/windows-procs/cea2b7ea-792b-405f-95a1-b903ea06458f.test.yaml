@@ -1,0 +1,5 @@
+rule: cea2b7ea-792b-405f-95a1-b903ea06458f
+title: Suspicious Child Process Of Manage Engine ServiceDesk
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

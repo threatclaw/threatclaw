@@ -1,0 +1,42 @@
+title: Flax Typhoon Conhost / Dllhost Masquerading
+id: apt-flax-typhoon-masquerade
+status: stable
+description: |
+  Detects a process named like a core Windows binary (`conhost.exe`,
+  `dllhost.exe`) executing from a path OUTSIDE `C:\Windows\System32\`.
+  Flax Typhoon (PRC, telco / industry targeting) abuses this in
+  particular by deploying renamed SoftEther VPN clients into
+  `C:\Users\Public\` to hide tunnel traffic, per Microsoft Security
+  Threat Intelligence's 2023 writeup. A trusted-name binary in an
+  untrusted folder is among the highest-signal lateral-movement
+  alerts available.
+references:
+  - https://attack.mitre.org/techniques/T1036/005/
+  - https://www.microsoft.com/en-us/security/blog/2023/08/24/flax-typhoon-using-legitimate-software-to-quietly-access-taiwanese-organizations/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1036.005
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_name:
+    'commandline|contains':
+      - 'conhost.exe'
+      - 'dllhost.exe'
+      - 'svchost.exe'
+  selection_path:
+    'commandline|contains':
+      - '\Users\Public\'
+      - '\AppData\Roaming\'
+      - '\AppData\Local\Temp\'
+      - '\ProgramData\'
+      - 'C:\Temp\'
+      - 'C:\PerfLogs\'
+  condition: selection_name and selection_path
+falsepositives:
+  - Almost none. Core Windows process names should never run from
+    user-writable paths.
+level: critical

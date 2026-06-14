@@ -1,0 +1,5 @@
+rule: 8a4519e8-e64a-40b6-ae85-ba8ad2177559
+title: Renamed BrowserCore.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

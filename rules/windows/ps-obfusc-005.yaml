@@ -1,0 +1,28 @@
+title: PowerShell Hidden Execution
+id: ps-obfusc-005
+status: stable
+description: |
+  Detects hidden/stealthy PowerShell execution
+references:
+  - https://attack.mitre.org/techniques/T1564/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1564.003
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - '-WindowStyle Hidden'
+      - '-w hidden'
+      - '-nop '
+      - '-NoProfile'
+      - '-NonInteractive'
+      - '-noni'
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

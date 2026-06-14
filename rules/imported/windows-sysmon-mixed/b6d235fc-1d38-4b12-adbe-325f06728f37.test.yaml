@@ -1,0 +1,5 @@
+rule: b6d235fc-1d38-4b12-adbe-325f06728f37
+title: CMSTP Execution Registry Event
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

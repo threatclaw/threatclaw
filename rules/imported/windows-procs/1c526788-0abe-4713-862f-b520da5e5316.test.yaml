@@ -1,0 +1,5 @@
+rule: 1c526788-0abe-4713-862f-b520da5e5316
+title: Chromium Browser Headless Execution To Mockbin Like Site
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

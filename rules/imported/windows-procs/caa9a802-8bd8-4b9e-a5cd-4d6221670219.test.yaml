@@ -1,0 +1,5 @@
+rule: caa9a802-8bd8-4b9e-a5cd-4d6221670219
+title: Suspicious Kerberos Ticket Request via CLI
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

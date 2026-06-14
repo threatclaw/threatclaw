@@ -1,0 +1,5 @@
+rule: 130c9e58-28ac-4f83-8574-0a4cc913b97e
+title: Potential Winnti Dropper Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

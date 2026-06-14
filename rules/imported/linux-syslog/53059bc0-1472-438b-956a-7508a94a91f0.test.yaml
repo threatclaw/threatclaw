@@ -1,0 +1,5 @@
+rule: 53059bc0-1472-438b-956a-7508a94a91f0
+title: Disable System Firewall
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

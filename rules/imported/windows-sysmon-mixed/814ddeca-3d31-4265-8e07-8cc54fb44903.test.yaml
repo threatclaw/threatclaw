@@ -1,0 +1,5 @@
+rule: 814ddeca-3d31-4265-8e07-8cc54fb44903
+title: LiveKD Kernel Memory Dump File Created
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

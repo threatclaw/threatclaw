@@ -1,0 +1,5 @@
+rule: a95b9b42-1308-4735-a1af-abb1c5e6f5ac
+title: Suspicious Service DACL Modification Via Set-Service Cmdlet
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

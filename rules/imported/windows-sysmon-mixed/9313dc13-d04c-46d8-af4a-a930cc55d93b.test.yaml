@@ -1,0 +1,5 @@
+rule: 9313dc13-d04c-46d8-af4a-a930cc55d93b
+title: Potential DLL Sideloading Via VMware Xfer
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

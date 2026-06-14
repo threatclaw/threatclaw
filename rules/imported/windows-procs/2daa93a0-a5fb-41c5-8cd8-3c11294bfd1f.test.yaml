@@ -1,0 +1,5 @@
+rule: 2daa93a0-a5fb-41c5-8cd8-3c11294bfd1f
+title: Potential SSH Tunnel Persistence Install Using A Scheduled Task
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

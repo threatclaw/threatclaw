@@ -1,0 +1,5 @@
+rule: 6360757a-d460-456c-8b13-74cf0e60cceb
+title: Potential DLL Sideloading Via comctl32.dll
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

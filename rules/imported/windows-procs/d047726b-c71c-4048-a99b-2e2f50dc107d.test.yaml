@@ -1,0 +1,5 @@
+rule: d047726b-c71c-4048-a99b-2e2f50dc107d
+title: Kavremover Dropped Binary LOLBIN Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

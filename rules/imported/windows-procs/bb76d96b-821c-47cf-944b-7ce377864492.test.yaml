@@ -1,0 +1,5 @@
+rule: bb76d96b-821c-47cf-944b-7ce377864492
+title: Suspicious NTLM Authentication on the Printer Spooler Service
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

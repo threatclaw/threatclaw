@@ -1,0 +1,5 @@
+rule: e31033fc-33f0-4020-9a16-faf9b31cbf08
+title: PUA - Netcat Suspicious Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

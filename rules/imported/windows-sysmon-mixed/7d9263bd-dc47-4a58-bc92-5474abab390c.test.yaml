@@ -1,0 +1,5 @@
+rule: 7d9263bd-dc47-4a58-bc92-5474abab390c
+title: Change Winevt Channel Access Permission Via Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

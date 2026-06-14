@@ -1,0 +1,5 @@
+rule: c0239255-822c-4630-b7f1-35362bcb8f44
+title: Triple Cross eBPF Rootkit Default LockFile
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

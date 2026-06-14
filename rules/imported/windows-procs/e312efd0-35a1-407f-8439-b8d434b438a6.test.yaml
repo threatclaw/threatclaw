@@ -1,0 +1,5 @@
+rule: e312efd0-35a1-407f-8439-b8d434b438a6
+title: Potential PowerShell Obfuscation Via WCHAR/CHAR
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: bd1212e5-78da-431e-95fa-c58e3237a8e6
+title: Suspicious ASPX File Drop by Exchange
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

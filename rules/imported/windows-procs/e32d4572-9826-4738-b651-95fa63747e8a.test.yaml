@@ -1,0 +1,5 @@
+rule: e32d4572-9826-4738-b651-95fa63747e8a
+title: Base64 Encoded PowerShell Command Detected
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

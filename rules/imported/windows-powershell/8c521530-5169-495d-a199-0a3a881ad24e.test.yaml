@@ -1,0 +1,5 @@
+rule: 8c521530-5169-495d-a199-0a3a881ad24e
+title: NTFS Alternate Data Stream
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

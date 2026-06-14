@@ -1,0 +1,5 @@
+rule: dcd74b95-3f36-4ed9-9598-0490951643aa
+title: PowerView PowerShell Cmdlets - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

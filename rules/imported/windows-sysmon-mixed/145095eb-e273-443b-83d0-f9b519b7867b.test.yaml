@@ -1,0 +1,5 @@
+rule: 145095eb-e273-443b-83d0-f9b519b7867b
+title: PDF File Created By RegEdit.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

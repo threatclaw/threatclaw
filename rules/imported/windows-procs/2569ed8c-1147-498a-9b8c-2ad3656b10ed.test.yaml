@@ -1,0 +1,5 @@
+rule: 2569ed8c-1147-498a-9b8c-2ad3656b10ed
+title: Potential Renamed Rundll32 Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

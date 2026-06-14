@@ -1,0 +1,5 @@
+rule: ed5d72a6-f8f4-479d-ba79-02f6a80d7471
+title: Potential LethalHTA Technique Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

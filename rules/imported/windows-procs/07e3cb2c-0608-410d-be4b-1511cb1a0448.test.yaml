@@ -1,0 +1,5 @@
+rule: 07e3cb2c-0608-410d-be4b-1511cb1a0448
+title: Tamper Windows Defender Remove-MpPreference
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

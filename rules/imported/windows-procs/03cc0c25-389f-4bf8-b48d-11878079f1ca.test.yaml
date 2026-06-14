@@ -1,0 +1,5 @@
+rule: 03cc0c25-389f-4bf8-b48d-11878079f1ca
+title: Suspicious MSHTA Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,42 @@
+title: APT38 SWIFT-Adjacent Anomalous Process Tree
+id: apt-apt38-swift-anomaly
+status: stable
+description: |
+  Detects suspicious child processes spawned by SWIFT Alliance-family
+  binaries (`swift_alliance*.exe`, Access, MT, Workstation). APT38 /
+  Lazarus BeagleBoyz developed the SWIFT environment manipulation
+  technique used in the Bangladesh Bank and Far Eastern International
+  Bank heists. The rule should only be enabled on hosts that run a
+  SWIFT Alliance client — the base rate is otherwise zero and the
+  rule would never fire.
+references:
+  - https://attack.mitre.org/groups/G0082/
+  - https://attack.mitre.org/techniques/T1565/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.impact
+  - attack.t1565.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_parent:
+    'commandline|contains':
+      - 'swift_alliance'
+      - 'swift_alliance_access'
+      - 'AllianceAccess'
+      - 'AllianceWorkstation'
+  selection_child:
+    'commandline|contains':
+      - 'cmd.exe'
+      - 'powershell.exe'
+      - 'rundll32.exe'
+      - 'wscript.exe'
+      - '.prc'
+      - '.fin'
+  condition: selection_parent and selection_child
+falsepositives:
+  - Vendor-supplied scheduled maintenance scripts; gate by signing
+    path of the parent.
+level: critical

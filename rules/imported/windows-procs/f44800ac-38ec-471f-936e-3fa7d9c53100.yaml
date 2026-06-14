@@ -1,0 +1,32 @@
+title: PUA - CleanWipe Execution
+id: f44800ac-38ec-471f-936e-3fa7d9c53100
+status: test
+description: Detects the use of CleanWipe a tool usually used to delete Symantec antivirus.
+references:
+- https://github.com/3CORESec/MAL-CL/tree/master/Descriptors/Other/CleanWipe
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2021-12-18
+tags:
+- attack.defense-impairment
+- attack.t1685
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection1:
+    data.Image|endswith: \SepRemovalToolNative_x64.exe
+  selection2:
+    data.Image|endswith: \CATClean.exe
+    data.CommandLine|contains: --uninstall
+  selection3:
+    data.Image|endswith: \NetInstaller.exe
+    data.CommandLine|contains: -r
+  selection4:
+    data.Image|endswith: \WFPUnins.exe
+    data.CommandLine|contains|all:
+    - /uninstall
+    - /enterprise
+  condition: 1 of selection*
+falsepositives:
+- Legitimate administrative use (Should be investigated either way)
+level: high

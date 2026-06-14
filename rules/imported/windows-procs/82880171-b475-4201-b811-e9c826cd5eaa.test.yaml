@@ -1,0 +1,5 @@
+rule: 82880171-b475-4201-b811-e9c826cd5eaa
+title: Exports Critical Registry Keys To a File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

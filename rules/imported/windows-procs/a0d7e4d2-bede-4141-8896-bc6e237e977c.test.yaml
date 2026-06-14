@@ -1,0 +1,5 @@
+rule: a0d7e4d2-bede-4141-8896-bc6e237e977c
+title: Suspicious File Download From File Sharing Domain Via Wget.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

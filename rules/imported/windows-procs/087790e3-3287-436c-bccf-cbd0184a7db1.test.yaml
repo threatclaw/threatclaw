@@ -1,0 +1,5 @@
+rule: 087790e3-3287-436c-bccf-cbd0184a7db1
+title: Potential CommandLine Path Traversal Via Cmd.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

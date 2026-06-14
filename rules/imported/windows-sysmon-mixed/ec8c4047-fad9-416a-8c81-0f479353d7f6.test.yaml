@@ -1,0 +1,5 @@
+rule: ec8c4047-fad9-416a-8c81-0f479353d7f6
+title: Diagnostic Library Sdiageng.DLL Loaded By Msdt.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

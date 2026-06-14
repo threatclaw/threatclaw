@@ -1,0 +1,5 @@
+rule: ca621ba5-54ab-4035-9942-d378e6fcde3c
+title: HackTool - HandleKatz LSASS Dumper Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

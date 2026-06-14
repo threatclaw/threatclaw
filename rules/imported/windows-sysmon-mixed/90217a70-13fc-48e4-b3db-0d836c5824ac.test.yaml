@@ -1,0 +1,5 @@
+rule: 90217a70-13fc-48e4-b3db-0d836c5824ac
+title: GAC DLL Loaded Via Office Applications
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

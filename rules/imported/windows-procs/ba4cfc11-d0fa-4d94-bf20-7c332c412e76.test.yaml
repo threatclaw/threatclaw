@@ -1,0 +1,5 @@
+rule: ba4cfc11-d0fa-4d94-bf20-7c332c412e76
+title: Potentially Suspicious DLL Registered Via Odbcconf.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

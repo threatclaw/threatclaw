@@ -1,0 +1,5 @@
+rule: fecfd1a1-cc78-4313-a1ea-2ee2e8ec27a7
+title: PowerShell Logging Disabled Via Registry Key Tampering
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

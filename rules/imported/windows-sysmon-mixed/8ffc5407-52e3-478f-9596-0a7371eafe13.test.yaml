@@ -1,0 +1,5 @@
+rule: 8ffc5407-52e3-478f-9596-0a7371eafe13
+title: Disable PUA Protection on Windows Defender
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

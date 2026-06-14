@@ -1,0 +1,5 @@
+rule: 62120148-6b7a-42be-8b91-271c04e281a3
+title: Suspicious Camera and Microphone Access
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

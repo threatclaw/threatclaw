@@ -1,0 +1,5 @@
+rule: 13e6fe51-d478-4c7e-b0f2-6da9b400a829
+title: Suspicious File Downloaded From Direct IP Via Certutil.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

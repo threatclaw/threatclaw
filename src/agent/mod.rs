@@ -86,6 +86,7 @@ mod session_manager;
 pub mod shadow_ai;
 pub mod shift_report;
 pub mod sigma_engine;
+pub mod sigma_file_loader;
 pub mod skill_asset_enrolment;
 pub mod skill_scheduler;
 pub mod skills;

@@ -1,0 +1,20 @@
+rule: m365-inbox-rule-forward
+
+positive:
+  - description: New-InboxRule forwarding invoice mails externally
+    event:
+      full_log: 'Operation: New-InboxRule Parameters: ForwardTo=attacker@gmail.com BodyContainsWords=invoice'
+  - description: Inbox rule auto-deleting payment notifications
+    event:
+      full_log: 'New-InboxRule MoveToFolder: Conversation History BodyContainsWords=payment MarkAsRead: True'
+  - description: French BEC keyword rule
+    event:
+      full_log: 'Set-InboxRule Parameters: ForwardTo=ext@gmail.com SubjectContainsWords=virement IBAN'
+
+negative:
+  - description: Inbox rule for internal folder sorting (no BEC keyword, no forward)
+    event:
+      full_log: 'New-InboxRule Identity=user@corp.com MoveToFolder=Internal SubjectContainsWords=Reports'
+  - description: Pure mailbox read event
+    event:
+      full_log: 'Operation: MailItemsAccessed MailboxOwnerUPN=user@corp.com'

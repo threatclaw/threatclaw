@@ -1,0 +1,22 @@
+rule: opnsense-fw-003
+
+# action=block AND dst_port=445 AND direction=in (inbound SMB).
+
+positive:
+  - description: Inbound SMB blocked
+    event:
+      action: block
+      dst_port: 445
+      direction: in
+
+negative:
+  - description: Outbound SMB
+    event:
+      action: block
+      dst_port: 445
+      direction: out
+  - description: Block on non-SMB
+    event:
+      action: block
+      dst_port: 22
+      direction: in

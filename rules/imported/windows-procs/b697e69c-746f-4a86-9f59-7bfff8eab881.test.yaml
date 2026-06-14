@@ -1,0 +1,5 @@
+rule: b697e69c-746f-4a86-9f59-7bfff8eab881
+title: UAC Bypass Using Disk Cleanup
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

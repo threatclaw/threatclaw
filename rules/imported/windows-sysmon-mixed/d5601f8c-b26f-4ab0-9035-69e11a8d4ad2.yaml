@@ -1,0 +1,48 @@
+title: CobaltStrike Named Pipe
+id: d5601f8c-b26f-4ab0-9035-69e11a8d4ad2
+status: test
+description: Detects the creation of a named pipe as used by CobaltStrike
+references:
+- https://twitter.com/d4rksystem/status/1357010969264873472
+- https://labs.f-secure.com/blog/detecting-cobalt-strike-default-modules-via-named-pipe-analysis/
+- https://github.com/SigmaHQ/sigma/issues/253
+- https://blog.cobaltstrike.com/2021/02/09/learn-pipe-fitting-for-all-of-your-offense-projects/
+- https://redcanary.com/threat-detection-report/threats/cobalt-strike/
+author: Florian Roth (Nextron Systems), Wojciech Lesicki
+date: 2021-05-25
+tags:
+- attack.privilege-escalation
+- attack.stealth
+- attack.t1055
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_MSSE:
+    data.PipeName|contains|all:
+    - \MSSE-
+    - -server
+  selection_postex:
+    data.PipeName|startswith: \postex_
+  selection_status:
+    data.PipeName|startswith: \status_
+  selection_msagent:
+    data.PipeName|startswith: \msagent_
+  selection_mojo:
+    data.PipeName|startswith: \mojo_
+  selection_interprocess:
+    data.PipeName|startswith: \interprocess_
+  selection_samr:
+    data.PipeName|startswith: \samr_
+  selection_netlogon:
+    data.PipeName|startswith: \netlogon_
+  selection_srvsvc:
+    data.PipeName|startswith: \srvsvc_
+  selection_lsarpc:
+    data.PipeName|startswith: \lsarpc_
+  selection_wkssvc:
+    data.PipeName|startswith: \wkssvc_
+  condition: 1 of selection*
+falsepositives:
+- Unknown
+level: critical

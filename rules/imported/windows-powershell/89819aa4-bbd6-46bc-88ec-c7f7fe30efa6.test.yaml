@@ -1,0 +1,5 @@
+rule: 89819aa4-bbd6-46bc-88ec-c7f7fe30efa6
+title: Malicious PowerShell Commandlets - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

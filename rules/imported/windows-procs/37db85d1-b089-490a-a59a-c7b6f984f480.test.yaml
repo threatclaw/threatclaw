@@ -1,0 +1,5 @@
+rule: 37db85d1-b089-490a-a59a-c7b6f984f480
+title: Sysmon Discovery Via Default Driver Altitude Using Findstr.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

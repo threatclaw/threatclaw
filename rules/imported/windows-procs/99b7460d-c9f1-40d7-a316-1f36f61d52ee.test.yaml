@@ -1,0 +1,5 @@
+rule: 99b7460d-c9f1-40d7-a316-1f36f61d52ee
+title: Cscript/Wscript Uncommon Script Extension Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

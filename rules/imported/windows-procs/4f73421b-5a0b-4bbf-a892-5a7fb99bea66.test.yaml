@@ -1,0 +1,5 @@
+rule: 4f73421b-5a0b-4bbf-a892-5a7fb99bea66
+title: Mavinject Inject DLL Into Running Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

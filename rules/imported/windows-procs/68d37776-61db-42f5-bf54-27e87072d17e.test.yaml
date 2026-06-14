@@ -1,0 +1,5 @@
+rule: 68d37776-61db-42f5-bf54-27e87072d17e
+title: PUA - NPS Tunneling Tool Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 69ca12af-119d-44ed-b50f-a47af0ebc364
+title: LSASS Process Memory Dump Creation Via Taskmgr.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

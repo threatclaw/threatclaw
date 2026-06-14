@@ -1,0 +1,5 @@
+rule: 05b2aa93-1210-42c8-8d9a-2fcc13b284f5
+title: Service Registry Key Deleted Via Reg.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

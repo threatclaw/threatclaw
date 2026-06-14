@@ -1,0 +1,5 @@
+rule: 3fd4c8d7-8362-4557-a8e6-83b29cc0d724
+title: IE ZoneMap Setting Downgraded To MyComputer Zone For HTTP Protocols
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: b7916c2a-fa2f-4795-9477-32b731f70f11
+title: Registry Persistence via Explorer Run Key
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

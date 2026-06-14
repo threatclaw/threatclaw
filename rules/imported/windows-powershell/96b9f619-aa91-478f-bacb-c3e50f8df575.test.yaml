@@ -1,0 +1,5 @@
+rule: 96b9f619-aa91-478f-bacb-c3e50f8df575
+title: Remote PowerShell Session (PS Module)
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: c74c0390-3e20-41fd-a69a-128f0275a5ea
+title: Cab File Extraction Via Wusa.EXE From Potentially Suspicious Paths
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

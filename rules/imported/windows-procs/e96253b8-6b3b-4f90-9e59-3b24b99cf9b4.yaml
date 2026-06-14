@@ -1,0 +1,37 @@
+title: HackTool - KrbRelay Execution
+id: e96253b8-6b3b-4f90-9e59-3b24b99cf9b4
+status: test
+description: Detects the use of KrbRelay, a Kerberos relaying tool
+references:
+- https://github.com/cube0x0/KrbRelay
+author: Florian Roth (Nextron Systems)
+date: 2022-04-27
+tags:
+- attack.credential-access
+- attack.t1558.003
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \KrbRelay.exe
+  - OriginalFileName: KrbRelay.exe
+  selection_cli_1:
+    data.CommandLine|contains|all:
+    - ' -spn '
+    - ' -clsid '
+    - ' -rbcd '
+  selection_cli_2:
+    data.CommandLine|contains|all:
+    - shadowcred
+    - clsid
+    - spn
+  selection_cli_3:
+    data.CommandLine|contains|all:
+    - 'spn '
+    - 'session '
+    - 'clsid '
+  condition: 1 of selection_*
+falsepositives:
+- Unlikely
+level: high

@@ -1,0 +1,5 @@
+rule: 24c77512-782b-448a-8950-eddb0785fc71
+title: SQLite Chromium Profile Data DB Access
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

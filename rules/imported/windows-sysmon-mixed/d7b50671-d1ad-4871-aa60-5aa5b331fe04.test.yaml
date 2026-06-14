@@ -1,0 +1,5 @@
+rule: d7b50671-d1ad-4871-aa60-5aa5b331fe04
+title: Suspicious File Creation In Uncommon AppData Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

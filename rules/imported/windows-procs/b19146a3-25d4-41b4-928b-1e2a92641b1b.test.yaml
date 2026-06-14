@@ -1,0 +1,5 @@
+rule: b19146a3-25d4-41b4-928b-1e2a92641b1b
+title: Remote Access Tool - ScreenConnect Server Web Shell Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

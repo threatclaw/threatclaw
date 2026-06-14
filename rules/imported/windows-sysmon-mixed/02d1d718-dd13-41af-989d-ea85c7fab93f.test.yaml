@@ -1,0 +1,5 @@
+rule: 02d1d718-dd13-41af-989d-ea85c7fab93f
+title: Rare Remote Thread Creation By Uncommon Source Image
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 919f2ef0-be2d-4a7a-b635-eb2b41fde044
+title: Disable Security Events Logging Adding Reg Key MiniNt
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

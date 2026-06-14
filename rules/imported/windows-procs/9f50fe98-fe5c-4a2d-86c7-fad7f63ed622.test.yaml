@@ -1,0 +1,5 @@
+rule: 9f50fe98-fe5c-4a2d-86c7-fad7f63ed622
+title: Potentially Suspicious ASP.NET Compilation Via AspNetCompiler
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

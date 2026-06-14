@@ -1,0 +1,5 @@
+rule: edd8a48c-1b9f-4ba1-83aa-490338cd1ccb
+title: Renamed Jusched.EXE Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 7b4f794b-590a-4ad4-ba18-7964a2832205
+title: Renamed Vmnat.exe Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

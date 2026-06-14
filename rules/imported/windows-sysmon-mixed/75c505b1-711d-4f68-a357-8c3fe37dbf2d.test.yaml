@@ -1,0 +1,5 @@
+rule: 75c505b1-711d-4f68-a357-8c3fe37dbf2d
+title: HackTool - SILENTTRINITY Stager DLL Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

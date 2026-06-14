@@ -1,0 +1,5 @@
+rule: 5e6a80c8-2d45-4633-9ef4-fa2671a39c5c
+title: Suspicious Parent Double Extension File Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

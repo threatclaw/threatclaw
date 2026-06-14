@@ -1,0 +1,5 @@
+rule: 7e8f2d3b-9c1a-4f67-b9e8-8d9006e0e51f
+title: PowerShell Web Access Feature Enabled Via DISM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,36 @@
+title: Volt Typhoon WMI Remote Process Creation
+id: apt-volttyphoon-wmic-remote
+status: stable
+description: |
+  Detects the WMI command-line driving remote process creation on
+  another host. `wmic /node:<ip> process call create "..."` is one of
+  Volt Typhoon's signature lateral-movement primitives (Microsoft
+  MSTI). Modern admin tooling (SCCM / MECM, PowerShell remoting)
+  rarely uses this exact shape; its presence on a non-management
+  host is the signal.
+references:
+  - https://attack.mitre.org/techniques/T1047/
+  - https://www.microsoft.com/en-us/security/blog/2023/05/24/volt-typhoon-targets-us-critical-infrastructure-with-living-off-the-land-techniques/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.execution
+  - attack.t1047
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 'wmic'
+  selection_node:
+    'commandline|contains':
+      - '/node:'
+  selection_action:
+    'commandline|contains':
+      - 'process call create'
+      - 'process call'
+  condition: selection and selection_node and selection_action
+falsepositives:
+  - SCCM remote inventory — exclude system service accounts.
+level: high

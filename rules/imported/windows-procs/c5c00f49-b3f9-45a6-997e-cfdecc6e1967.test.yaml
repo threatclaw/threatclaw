@@ -1,0 +1,5 @@
+rule: c5c00f49-b3f9-45a6-997e-cfdecc6e1967
+title: Suspicious Schtasks Execution AppData Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

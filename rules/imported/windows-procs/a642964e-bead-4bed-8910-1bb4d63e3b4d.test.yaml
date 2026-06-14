@@ -1,0 +1,5 @@
+rule: a642964e-bead-4bed-8910-1bb4d63e3b4d
+title: HackTool - Mimikatz Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

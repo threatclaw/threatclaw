@@ -1,0 +1,5 @@
+rule: 84b1ecf9-6eff-4004-bafb-bae5c0e251b2
+title: Potentially Suspicious GoogleUpdate Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

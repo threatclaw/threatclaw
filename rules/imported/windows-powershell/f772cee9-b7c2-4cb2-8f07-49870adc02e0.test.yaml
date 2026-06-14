@@ -1,0 +1,5 @@
+rule: f772cee9-b7c2-4cb2-8f07-49870adc02e0
+title: Malicious Nishang PowerShell Commandlets
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 977ef627-4539-4875-adf4-ed8f780c4922
+title: Auditing Configuration Changes on Linux Host
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: af77cf95-c469-471c-b6a0-946c685c4798
+title: Proxy Execution Via Wuauclt.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

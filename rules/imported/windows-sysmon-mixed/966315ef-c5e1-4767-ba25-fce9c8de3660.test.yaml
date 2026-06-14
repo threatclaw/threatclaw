@@ -1,0 +1,5 @@
+rule: 966315ef-c5e1-4767-ba25-fce9c8de3660
+title: Suspicious Environment Variable Has Been Registered
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

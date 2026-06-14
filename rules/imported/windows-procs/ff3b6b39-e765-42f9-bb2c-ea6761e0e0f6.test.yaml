@@ -1,0 +1,5 @@
+rule: ff3b6b39-e765-42f9-bb2c-ea6761e0e0f6
+title: Mstsc.EXE Execution From Uncommon Parent
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

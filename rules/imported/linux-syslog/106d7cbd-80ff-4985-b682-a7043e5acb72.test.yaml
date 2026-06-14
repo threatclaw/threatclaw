@@ -1,0 +1,5 @@
+rule: 106d7cbd-80ff-4985-b682-a7043e5acb72
+title: Loading of Kernel Module via Insmod
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

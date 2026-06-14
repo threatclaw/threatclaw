@@ -1,0 +1,5 @@
+rule: 0a4f6091-223b-41f6-8743-f322ec84930b
+title: Suspicious GUP Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

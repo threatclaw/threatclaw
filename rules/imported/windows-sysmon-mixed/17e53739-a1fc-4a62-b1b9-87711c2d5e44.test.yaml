@@ -1,0 +1,5 @@
+rule: 17e53739-a1fc-4a62-b1b9-87711c2d5e44
+title: Python Function Execution Security Warning Disabled In Excel - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 9801abb8-e297-4dbf-9fbd-57dde0e830ad
+title: File Download And Execution Via IEExec.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

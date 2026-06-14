@@ -1,0 +1,5 @@
+rule: 22154f0e-5132-4a54-aa78-cc62f6def531
+title: Vulnerable Driver Blocklist Registry Tampering Via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

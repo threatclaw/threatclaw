@@ -1,0 +1,5 @@
+rule: 8f3ab69a-aa22-4943-aa58-e0a52fdf6818
+title: User Shell Folders Registry Modification via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

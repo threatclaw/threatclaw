@@ -1,0 +1,21 @@
+title: Proxmox auth failed
+id: proxmox-001
+status: stable
+description: |
+  Authentication failure on Proxmox VE GUI/API — burst signals brute force or stolen-token probing
+references:
+  - https://attack.mitre.org/techniques/T1110/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1110
+logsource:
+  category: proxmox
+detection:
+  selection:
+    'msg|contains': authentication failure
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

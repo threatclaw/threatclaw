@@ -1,0 +1,5 @@
+rule: fb50eb7a-5ab1-43ae-bcc9-091818cb8424
+title: Disabled IE Security Features
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

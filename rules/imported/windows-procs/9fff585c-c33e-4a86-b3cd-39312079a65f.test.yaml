@@ -1,0 +1,5 @@
+rule: 9fff585c-c33e-4a86-b3cd-39312079a65f
+title: Taskmgr as LOCAL_SYSTEM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

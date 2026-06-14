@@ -1,0 +1,5 @@
+rule: 85adeb13-4fc9-4e68-8a4a-c7cb2c336eb7
+title: CobaltStrike Named Pipe Patterns
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

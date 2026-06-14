@@ -1,0 +1,29 @@
+title: Whoami.EXE Execution From Privileged Process
+id: 79ce34ca-af29-4d0e-b832-fc1b377020db
+status: test
+description: Detects the execution of "whoami.exe" by privileged accounts that are often abused by threat actors
+references:
+- https://speakerdeck.com/heirhabarov/hunting-for-privilege-escalation-in-windows-environment
+- https://web.archive.org/web/20221019044836/https://nsudo.m2team.org/en-us/
+author: Florian Roth (Nextron Systems), Teymur Kheirkhabarov
+date: 2022-01-28
+tags:
+- attack.privilege-escalation
+- attack.discovery
+- attack.t1033
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - OriginalFileName: whoami.exe
+  - Image|endswith: \whoami.exe
+  selection_user:
+    data.User|contains:
+    - AUTHORI
+    - AUTORI
+    - TrustedInstaller
+  condition: all of selection_*
+falsepositives:
+- Unknown
+level: high

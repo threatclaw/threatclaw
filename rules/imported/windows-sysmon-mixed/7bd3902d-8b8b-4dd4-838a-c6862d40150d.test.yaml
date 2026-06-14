@@ -1,0 +1,5 @@
+rule: 7bd3902d-8b8b-4dd4-838a-c6862d40150d
+title: DNS HybridConnectionManager Service Bus
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 833ef470-fa01-4631-a79b-6f291c9ac498
+title: Add Debugger Entry To Hangs Key For Persistence
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

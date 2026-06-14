@@ -1,0 +1,17 @@
+rule: lnx-auth-001
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      full_log: Failed password for
+  - description: Second positive value from the rule selection
+    event:
+      full_log: sshd
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      full_log: operation completed successfully

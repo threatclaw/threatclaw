@@ -1,0 +1,5 @@
+rule: a7664b14-75fb-4a50-a223-cb9bc0afbacf
+title: HackTool - RemoteKrbRelay Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

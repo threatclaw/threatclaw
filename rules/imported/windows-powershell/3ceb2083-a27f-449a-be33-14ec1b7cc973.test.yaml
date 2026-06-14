@@ -1,0 +1,5 @@
+rule: 3ceb2083-a27f-449a-be33-14ec1b7cc973
+title: Silence.EDA Detection
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

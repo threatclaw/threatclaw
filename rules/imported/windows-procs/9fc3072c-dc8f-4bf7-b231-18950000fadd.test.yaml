@@ -1,0 +1,5 @@
+rule: 9fc3072c-dc8f-4bf7-b231-18950000fadd
+title: Potential Recon Activity Using DriverQuery.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

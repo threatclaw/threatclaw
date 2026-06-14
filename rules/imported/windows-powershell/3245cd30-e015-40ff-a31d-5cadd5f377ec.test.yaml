@@ -1,0 +1,5 @@
+rule: 3245cd30-e015-40ff-a31d-5cadd5f377ec
+title: HackTool - Rubeus Execution - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

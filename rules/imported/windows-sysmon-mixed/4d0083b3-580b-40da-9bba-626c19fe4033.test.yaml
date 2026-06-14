@@ -1,0 +1,5 @@
+rule: 4d0083b3-580b-40da-9bba-626c19fe4033
+title: HackTool - CoercedPotato Named Pipe Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

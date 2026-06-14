@@ -1,0 +1,5 @@
+rule: 98a96a5a-64a0-4c42-92c5-489da3866cb0
+title: DNS Exfiltration and Tunneling Tools Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 52cad028-0ff0-4854-8f67-d25dfcbc78b4
+title: HTML Help HH.EXE Suspicious Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

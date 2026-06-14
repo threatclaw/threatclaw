@@ -1,0 +1,5 @@
+rule: 065cceea-77ec-4030-9052-fc0affea7110
+title: DNS Query for Anonfiles.com Domain - Sysmon
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

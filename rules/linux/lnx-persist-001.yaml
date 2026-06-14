@@ -1,0 +1,26 @@
+title: Cron Job Added
+id: lnx-persist-001
+status: stable
+description: |
+  New entry in /etc/cron.* or user crontab — scheduled task persistence
+references:
+  - https://attack.mitre.org/techniques/T1053/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1053.003
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - crontab
+      - /etc/cron
+      - crond
+      - LIST
+      - REPLACE
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

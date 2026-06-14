@@ -1,0 +1,5 @@
+rule: 6902955a-01b7-432c-b32a-6f5f81d8f625
+title: LSASS Process Dump Artefact In CrashDumps Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

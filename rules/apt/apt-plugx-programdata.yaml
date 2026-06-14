@@ -1,0 +1,41 @@
+title: PlugX Persistence Path — Nested ProgramData Directory
+id: apt-plugx-programdata
+status: stable
+description: |
+  Detects PlugX (Korplug) persistence patterns. The malware family
+  used by Mustang Panda / Earth Preta and APT41 typically stages
+  itself under a deeply-nested directory under `C:\ProgramData\`
+  with reference paths such as `\UsersDate\Windows_NT\Windows\User\`
+  and uses x32dbg, RasTls, or AvastSvc as signed sideloading
+  carriers. Trend Micro published the detailed pattern in their 2023
+  "PlugX disguised as a Windows debugger" report.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://www.trendmicro.com/en_us/research/23/b/investigating-the-plugx-trojan-disguised-as-a-legitimate-windows.html
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_path:
+    'commandline|contains':
+      - 'C:\ProgramData\UsersDate'
+      - 'C:\ProgramData\Windows NT'
+      - 'C:\ProgramData\Windows_NT'
+      - 'C:\ProgramData\Tencent'
+  selection_artifact:
+    'commandline|contains':
+      - 'x32dbg.exe'
+      - 'RasTls.exe'
+      - 'AvastSvc.exe'
+      - 'PlugX'
+      - 'svchost.exe'
+  condition: selection_path or selection_artifact
+falsepositives:
+  - Rare; ProgramData Run keys are uncommon for legitimate user
+    applications.
+level: critical

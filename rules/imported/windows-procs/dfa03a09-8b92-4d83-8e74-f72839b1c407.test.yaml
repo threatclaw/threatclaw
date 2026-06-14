@@ -1,0 +1,5 @@
+rule: dfa03a09-8b92-4d83-8e74-f72839b1c407
+title: Potentially Suspicious Child Processes Spawned by ConHost
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: b7e2a8d4-74bb-4b78-adc9-3f92af2d4829
+title: Reg Add Suspicious Paths
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

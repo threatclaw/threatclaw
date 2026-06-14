@@ -1,0 +1,5 @@
+rule: cacef8fc-9d3d-41f7-956d-455c6e881bc5
+title: Potential RemoteFXvGPUDisablement.EXE Abuse - PowerShell ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

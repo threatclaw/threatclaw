@@ -1,0 +1,5 @@
+rule: 9c0295ce-d60d-40bd-bd74-84673b7592b1
+title: Suspicious Encoded And Obfuscated Reflection Assembly Load Function Call
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

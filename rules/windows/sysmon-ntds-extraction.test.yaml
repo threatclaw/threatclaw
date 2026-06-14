@@ -1,0 +1,17 @@
+rule: sysmon-ntds-extraction
+
+positive:
+  - description: Classic IFM snapshot
+    event:
+      commandline: 'ntdsutil "ac i ntds" "ifm" "create full c:\temp\ntds" q q'
+  - description: Activate instance and create full
+    event:
+      commandline: 'ntdsutil activate instance ntds create full c:\windows\temp\pro'
+
+negative:
+  - description: ntdsutil schema integrity check (read-only)
+    event:
+      commandline: 'ntdsutil "files" "integrity"'
+  - description: Plain dsquery on DC
+    event:
+      commandline: 'dsquery user -name admin'

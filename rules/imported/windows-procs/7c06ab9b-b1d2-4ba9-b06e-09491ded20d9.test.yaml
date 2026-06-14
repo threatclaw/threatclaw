@@ -1,0 +1,5 @@
+rule: 7c06ab9b-b1d2-4ba9-b06e-09491ded20d9
+title: System Restore Registry Modification via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

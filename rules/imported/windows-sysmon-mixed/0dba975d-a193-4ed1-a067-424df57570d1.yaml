@@ -1,0 +1,31 @@
+title: Uncommon Network Connection Initiated By Certutil.EXE
+id: 0dba975d-a193-4ed1-a067-424df57570d1
+status: test
+description: 'Detects a network connection initiated by the certutil.exe utility.
+
+  Attackers can abuse the utility in order to download malware or additional payloads.
+
+  '
+references:
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/certutil
+author: frack113, Florian Roth (Nextron Systems)
+date: 2022-09-02
+tags:
+- attack.command-and-control
+- attack.t1105
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.Image|endswith: \certutil.exe
+    data.Initiated: 'true'
+    data.DestinationPort:
+    - 80
+    - 135
+    - 443
+    - 445
+  condition: selection
+falsepositives:
+- Unknown
+level: high

@@ -1,0 +1,5 @@
+rule: 395907ee-96e5-4666-af2e-2ca91688e151
+title: Wab Execution From Non Default Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

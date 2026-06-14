@@ -1,0 +1,5 @@
+rule: efc21479-9e83-41da-8cf1-122e06ba8db3
+title: HackTool - NetExec File Indicators
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

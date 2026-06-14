@@ -1,0 +1,5 @@
+rule: 6640f31c-01ad-49b5-beb5-83498a5cd8bd
+title: Potential Arbitrary Code Execution Via Node.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

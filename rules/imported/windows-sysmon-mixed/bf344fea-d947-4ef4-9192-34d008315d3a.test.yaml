@@ -1,0 +1,5 @@
+rule: bf344fea-d947-4ef4-9192-34d008315d3a
+title: Suspicious Shim Database Patching Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

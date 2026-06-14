@@ -1,0 +1,5 @@
+rule: 2ddef153-167b-4e89-86b6-757a9e65dcac
+title: File Download Via Bitsadmin To A Suspicious Target Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

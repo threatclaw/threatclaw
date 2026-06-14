@@ -1,0 +1,5 @@
+rule: d937b75f-a665-4480-88a5-2f20e9f9b22a
+title: Possible Privilege Escalation via Weak Service Permissions
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 8a582fe2-0882-4b89-a82a-da6b2dc32937
+title: Suspicious WmiPrvSE Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

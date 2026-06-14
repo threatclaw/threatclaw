@@ -1,0 +1,5 @@
+rule: 9719a8aa-401c-41af-8108-ced7ec9cd75c
+title: Windows Defender Definition Files Removed
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

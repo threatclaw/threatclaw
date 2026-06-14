@@ -1,0 +1,5 @@
+rule: 9fb6b26e-7f9e-4517-a48b-8cac4a1b6c60
+title: Uncommon FileSystem Load Attempt By Format.com
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

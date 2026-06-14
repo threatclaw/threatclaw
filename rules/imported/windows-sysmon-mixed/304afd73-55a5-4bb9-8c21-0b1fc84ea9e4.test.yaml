@@ -1,0 +1,5 @@
+rule: 304afd73-55a5-4bb9-8c21-0b1fc84ea9e4
+title: PSEXEC Remote Execution File Artefact
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 8fbe98a8-8f9d-44f8-aa71-8c572e29ef06
+title: Potential Persistence Via MyComputer Registry Keys
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

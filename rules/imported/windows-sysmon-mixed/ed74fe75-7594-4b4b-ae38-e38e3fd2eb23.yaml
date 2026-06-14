@@ -1,0 +1,80 @@
+title: Outbound RDP Connections Over Non-Standard Tools
+id: ed74fe75-7594-4b4b-ae38-e38e3fd2eb23
+status: test
+description: 'Detects Non-Standard tools initiating a connection over port 3389 indicating possible lateral movement.
+
+  An initial baseline is required before using this utility to exclude third party RDP tooling that you might use.
+
+  '
+references:
+- https://portal.msrc.microsoft.com/en-US/security-guidance/advisory/CVE-2019-0708
+author: Markus Neis
+date: 2019-05-15
+tags:
+- attack.lateral-movement
+- attack.t1021.001
+- car.2013-07-002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.DestinationPort: 3389
+    data.Initiated: 'true'
+  filter_main_mstsc:
+    data.Image:
+    - C:\Windows\System32\mstsc.exe
+    - C:\Windows\SysWOW64\mstsc.exe
+  filter_optional_dns:
+    data.Image: C:\Windows\System32\dns.exe
+    data.SourcePort: 53
+    data.Protocol: udp
+  filter_optional_avast:
+    data.Image|endswith:
+    - \Avast Software\Avast\AvastSvc.exe
+    - \Avast\AvastSvc.exe
+  filter_optional_sysinternals_rdcman:
+    data.Image|endswith: \RDCMan.exe
+  filter_optional_chrome:
+    data.Image: C:\Program Files\Google\Chrome\Application\chrome.exe
+  filter_optional_third_party:
+    data.Image|endswith:
+    - \FSAssessment.exe
+    - \FSDiscovery.exe
+    - \MobaRTE.exe
+    - \mRemote.exe
+    - \mRemoteNG.exe
+    - \Passwordstate.exe
+    - \RemoteDesktopManager.exe
+    - \RemoteDesktopManager64.exe
+    - \RemoteDesktopManagerFree.exe
+    - \RSSensor.exe
+    - \RTS2App.exe
+    - \RTSApp.exe
+    - \spiceworks-finder.exe
+    - \Terminals.exe
+    - \ws_TunnelService.exe
+  filter_optional_thor:
+    data.Image|endswith:
+    - \thor.exe
+    - \thor64.exe
+  filter_optional_splunk:
+    data.Image|startswith: C:\Program Files\SplunkUniversalForwarder\bin\
+  filter_optional_sentinel_one:
+    data.Image|endswith: \Ranger\SentinelRanger.exe
+  filter_optional_firefox:
+    data.Image: C:\Program Files\Mozilla Firefox\firefox.exe
+  filter_optional_tsplus:
+    data.Image:
+    - C:\Program Files\TSplus\Java\bin\HTML5service.exe
+    - C:\Program Files (x86)\TSplus\Java\bin\HTML5service.exe
+  filter_optional_null:
+    data.Image: null
+  filter_optional_empty:
+    data.Image: ''
+  filter_optional_unknown:
+    data.Image: <unknown process>
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Third party RDP tools
+level: high

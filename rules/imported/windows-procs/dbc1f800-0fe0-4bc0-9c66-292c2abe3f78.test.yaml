@@ -1,0 +1,5 @@
+rule: dbc1f800-0fe0-4bc0-9c66-292c2abe3f78
+title: Delete Important Scheduled Task
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,27 @@
+rule: opnsense-fw-004
+
+# action=block AND proto=udp AND dst_port amplification (memcached, SSDP, LDAP).
+
+positive:
+  - description: Memcached amplification probe blocked
+    event:
+      action: block
+      proto: udp
+      dst_port: 11211
+  - description: SSDP amplification blocked
+    event:
+      action: block
+      proto: udp
+      dst_port: 1900
+
+negative:
+  - description: Same port but TCP
+    event:
+      action: block
+      proto: tcp
+      dst_port: 11211
+  - description: Pass on UDP flagged port
+    event:
+      action: pass
+      proto: udp
+      dst_port: 11211

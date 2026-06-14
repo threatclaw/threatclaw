@@ -1,0 +1,236 @@
+title: New Connection Initiated To Potential Dead Drop Resolver Domain
+id: 297ae038-edc2-4b2e-bb3e-7c5fc94dd5c7
+status: test
+description: 'Detects an executable, which is not an internet browser or known application, initiating network connections
+  to legit popular websites, which were seen to be used as dead drop resolvers in previous attacks.
+
+  In this context attackers leverage known websites such as "facebook", "youtube", etc. In order to pass through undetected.
+
+  '
+references:
+- https://web.archive.org/web/20220830134315/https://content.fireeye.com/apt-41/rpt-apt41/
+- https://securelist.com/the-tetrade-brazilian-banking-malware/97779/
+- https://blog.bushidotoken.net/2021/04/dead-drop-resolvers-espionage-inspired.html
+- https://github.com/kleiton0x00/RedditC2
+- https://twitter.com/kleiton0x7e/status/1600567316810551296
+- https://www.linkedin.com/posts/kleiton-kurti_github-kleiton0x00redditc2-abusing-reddit-activity-7009939662462984192-5DbI/?originalSubdomain=al
+author: Sorina Ionescu, X__Junior (Nextron Systems)
+date: 2022-08-17
+tags:
+- attack.command-and-control
+- attack.t1102
+- attack.t1102.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.Initiated: 'true'
+    data.DestinationHostname|endswith:
+    - .t.me
+    - 4shared.com
+    - abuse.ch
+    - anonfiles.com
+    - cdn.discordapp.com
+    - cloudflare.com
+    - ddns.net
+    - discord.com
+    - docs.google.com
+    - drive.google.com
+    - dropbox.com
+    - dropmefiles.com
+    - facebook.com
+    - feeds.rapidfeeds.com
+    - fotolog.com
+    - ghostbin.co/
+    - githubusercontent.com
+    - gofile.io
+    - hastebin.com
+    - imgur.com
+    - livejournal.com
+    - mediafire.com
+    - mega.co.nz
+    - mega.nz
+    - onedrive.com
+    - pages.dev
+    - paste.ee
+    - pastebin.com
+    - pastebin.pl
+    - pastetext.net
+    - pixeldrain.com
+    - privatlab.com
+    - privatlab.net
+    - reddit.com
+    - send.exploit.in
+    - sendspace.com
+    - steamcommunity.com
+    - storage.googleapis.com
+    - technet.microsoft.com
+    - temp.sh
+    - transfer.sh
+    - trycloudflare.com
+    - twitter.com
+    - ufile.io
+    - vimeo.com
+    - w3spaces.com
+    - wetransfer.com
+    - workers.dev
+    - youtube.com
+  filter_main_chrome:
+    data.Image:
+    - C:\Program Files\Google\Chrome\Application\chrome.exe
+    - C:\Program Files (x86)\Google\Chrome\Application\chrome.exe
+  filter_main_chrome_appdata:
+    data.Image|startswith: C:\Users\
+    data.Image|endswith: \AppData\Local\Google\Chrome\Application\chrome.exe
+  filter_main_firefox:
+    data.Image:
+    - C:\Program Files\Mozilla Firefox\firefox.exe
+    - C:\Program Files (x86)\Mozilla Firefox\firefox.exe
+  filter_main_firefox_appdata:
+    data.Image|startswith: C:\Users\
+    data.Image|endswith: \AppData\Local\Mozilla Firefox\firefox.exe
+  filter_main_ie:
+    data.Image:
+    - C:\Program Files (x86)\Internet Explorer\iexplore.exe
+    - C:\Program Files\Internet Explorer\iexplore.exe
+  filter_main_edge_1:
+  - Image|startswith: C:\Program Files (x86)\Microsoft\EdgeWebView\Application\
+  - Image|endswith: \WindowsApps\MicrosoftEdge.exe
+  - Image:
+    - C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+    - C:\Program Files\Microsoft\Edge\Application\msedge.exe
+  filter_main_edge_2:
+    data.Image|startswith:
+    - C:\Program Files (x86)\Microsoft\EdgeCore\
+    - C:\Program Files\Microsoft\EdgeCore\
+    data.Image|endswith:
+    - \msedge.exe
+    - \msedgewebview2.exe
+  filter_main_safari:
+    data.Image|contains:
+    - C:\Program Files (x86)\Safari\
+    - C:\Program Files\Safari\
+    data.Image|endswith: \safari.exe
+  filter_main_defender:
+    data.Image|contains:
+    - C:\Program Files\Windows Defender Advanced Threat Protection\
+    - C:\Program Files\Windows Defender\
+    - C:\ProgramData\Microsoft\Windows Defender\Platform\
+    data.Image|endswith:
+    - \MsMpEng.exe
+    - \MsSense.exe
+  filter_main_prtg:
+    data.Image|endswith:
+    - C:\Program Files (x86)\PRTG Network Monitor\PRTG Probe.exe
+    - C:\Program Files\PRTG Network Monitor\PRTG Probe.exe
+  filter_main_brave:
+    data.Image|startswith: C:\Program Files\BraveSoftware\
+    data.Image|endswith: \brave.exe
+  filter_main_maxthon:
+    data.Image|contains: \AppData\Local\Maxthon\
+    data.Image|endswith: \maxthon.exe
+  filter_main_opera:
+    data.Image|contains: \AppData\Local\Programs\Opera\
+    data.Image|endswith: \opera.exe
+  filter_main_seamonkey:
+    data.Image|startswith:
+    - C:\Program Files\SeaMonkey\
+    - C:\Program Files (x86)\SeaMonkey\
+    data.Image|endswith: \seamonkey.exe
+  filter_main_vivaldi:
+    data.Image|contains: \AppData\Local\Vivaldi\
+    data.Image|endswith: \vivaldi.exe
+  filter_main_whale:
+    data.Image|startswith:
+    - C:\Program Files\Naver\Naver Whale\
+    - C:\Program Files (x86)\Naver\Naver Whale\
+    data.Image|endswith: \whale.exe
+  filter_main_whaterfox:
+    data.Image|startswith:
+    - C:\Program Files\Waterfox\
+    - C:\Program Files (x86)\Waterfox\
+    data.Image|endswith: \Waterfox.exe
+  filter_main_midori:
+    data.Image|contains: \AppData\Local\Programs\midori-ng\
+    data.Image|endswith: \Midori Next Generation.exe
+  filter_main_slimbrowser:
+    data.Image|startswith:
+    - C:\Program Files\SlimBrowser\
+    - C:\Program Files (x86)\SlimBrowser\
+    data.Image|endswith: \slimbrowser.exe
+  filter_main_flock:
+    data.Image|contains: \AppData\Local\Flock\
+    data.Image|endswith: \Flock.exe
+  filter_main_phoebe:
+    data.Image|contains: \AppData\Local\Phoebe\
+    data.Image|endswith: \Phoebe.exe
+  filter_main_falkon:
+    data.Image|startswith:
+    - C:\Program Files\Falkon\
+    - C:\Program Files (x86)\Falkon\
+    data.Image|endswith: \falkon.exe
+  filter_main_qtweb:
+    data.Image|startswith:
+    - C:\Program Files (x86)\QtWeb\
+    - C:\Program Files\QtWeb\
+    data.Image|endswith: \QtWeb.exe
+  filter_main_avant:
+    data.Image|startswith:
+    - C:\Program Files (x86)\Avant Browser\
+    - C:\Program Files\Avant Browser\
+    data.Image|endswith: \avant.exe
+  filter_main_whatsapp:
+    data.Image|startswith:
+    - C:\Program Files (x86)\WindowsApps\
+    - C:\Program Files\WindowsApps\
+    data.Image|endswith: \WhatsApp.exe
+    data.DestinationHostname|endswith: facebook.com
+  filter_main_telegram:
+    data.Image|contains: \AppData\Roaming\Telegram Desktop\
+    data.Image|endswith: \Telegram.exe
+    data.DestinationHostname|endswith: .t.me
+  filter_main_onedrive:
+    data.Image|contains: \AppData\Local\Microsoft\OneDrive\
+    data.Image|endswith: \OneDrive.exe
+    data.DestinationHostname|endswith: onedrive.com
+  filter_main_dropbox:
+    data.Image|startswith:
+    - C:\Program Files (x86)\Dropbox\Client\
+    - C:\Program Files\Dropbox\Client\
+    data.Image|endswith:
+    - \Dropbox.exe
+    - \DropboxInstaller.exe
+    data.DestinationHostname|endswith: dropbox.com
+  filter_main_mega:
+    data.Image|endswith:
+    - \MEGAsync.exe
+    - \MEGAsyncSetup32_*RC.exe
+    - \MEGAsyncSetup32.exe
+    - \MEGAsyncSetup64.exe
+    - \MEGAupdater.exe
+    data.DestinationHostname|endswith:
+    - mega.co.nz
+    - mega.nz
+  filter_main_googledrive:
+    data.Image|contains:
+    - C:\Program Files\Google\Drive File Stream\
+    - C:\Program Files (x86)\Google\Drive File Stream\
+    data.Image|endswith: GoogleDriveFS.exe
+    data.DestinationHostname|endswith: drive.google.com
+  filter_main_discord:
+    data.Image|contains: \AppData\Local\Discord\
+    data.Image|endswith: \Discord.exe
+    data.DestinationHostname|endswith:
+    - discord.com
+    - cdn.discordapp.com
+  filter_main_null:
+    data.Image: null
+  filter_main_empty:
+    data.Image: ''
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- One might need to exclude other internet browsers found in it's network or other applications like ones mentioned above
+  from Microsoft Defender.
+- Ninite contacting githubusercontent.com
+level: high

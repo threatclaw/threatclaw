@@ -1,0 +1,5 @@
+rule: 9c5037d1-c568-49b3-88c7-9846a5bdc2be
+title: Suspicious Run Key from Download
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

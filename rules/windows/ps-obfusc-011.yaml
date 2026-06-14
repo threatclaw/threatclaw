@@ -1,0 +1,27 @@
+title: PowerShell String Concatenation Obfuscation
+id: ps-obfusc-011
+status: stable
+description: |
+  Detects char-to-int or string concatenation obfuscation
+references:
+  - https://attack.mitre.org/techniques/T1027/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1027
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - '[char]'
+      - +[char]
+      - '-join'
+      - .replace(
+      - '[string]::join'
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

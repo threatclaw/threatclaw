@@ -1,0 +1,5 @@
+rule: 639c9081-f482-47d3-a0bd-ddee3d4ecd76
+title: All Backups Deleted Via Wbadmin.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

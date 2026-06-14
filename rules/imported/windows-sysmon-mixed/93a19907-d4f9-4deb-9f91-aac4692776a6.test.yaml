@@ -1,0 +1,5 @@
+rule: 93a19907-d4f9-4deb-9f91-aac4692776a6
+title: UAC Bypass Using .NET Code Profiler on MMC
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

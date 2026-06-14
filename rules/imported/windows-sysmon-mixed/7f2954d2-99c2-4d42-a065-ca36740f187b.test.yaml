@@ -1,0 +1,5 @@
+rule: 7f2954d2-99c2-4d42-a065-ca36740f187b
+title: Hypervisor Enforced Paging Translation Disabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

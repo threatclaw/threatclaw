@@ -1,0 +1,5 @@
+rule: ae6f14e6-14de-45b0-9f44-c0986f50dc89
+title: Change Default File Association To Executable Via Assoc
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

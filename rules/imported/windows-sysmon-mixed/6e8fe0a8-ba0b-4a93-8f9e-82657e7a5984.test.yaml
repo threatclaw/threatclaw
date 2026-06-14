@@ -1,0 +1,5 @@
+rule: 6e8fe0a8-ba0b-4a93-8f9e-82657e7a5984
+title: BaaUpdate.exe Suspicious DLL Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

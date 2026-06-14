@@ -1,0 +1,5 @@
+rule: 584bca0f-3608-4402-80fd-4075ff6072e3
+title: Potential CommandLine Obfuscation Using Unicode Characters From Suspicious Image
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

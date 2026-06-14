@@ -1,0 +1,5 @@
+rule: 6da2c9f5-7c53-401b-aacb-92c040ce1215
+title: Use of W32tm as Timer
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

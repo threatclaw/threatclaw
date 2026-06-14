@@ -1,0 +1,17 @@
+rule: apt-storm0558-token-forge
+
+positive:
+  - description: MailItemsAccessed with anomalous OWA AppId
+    event:
+      full_log: 'Operation: MailItemsAccessed AppId: 00000002-0000-0ff1-ce00-000000000000 tokenIssuerAnomaly: true'
+  - description: Forged consumer MSA token accessing tenant mailbox
+    event:
+      full_log: 'MailItemsAccessed ClientAppId: 00000003-0000-0000-c000-000000000000 msa-consumer forged signature'
+
+negative:
+  - description: Regular MailItemsAccessed via Outlook desktop
+    event:
+      full_log: 'MailItemsAccessed AppId: 00000002-0000-0ff1-ce00-000000000000 ClientApp: OutlookDesktop'
+  - description: Sign-in event (different operation)
+    event:
+      full_log: 'Sign-in success userPrincipalName=user@corp.com'

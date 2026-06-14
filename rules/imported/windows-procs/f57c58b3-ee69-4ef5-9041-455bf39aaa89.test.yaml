@@ -1,0 +1,5 @@
+rule: f57c58b3-ee69-4ef5-9041-455bf39aaa89
+title: Remote CHM File Download/Execution Via HH.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

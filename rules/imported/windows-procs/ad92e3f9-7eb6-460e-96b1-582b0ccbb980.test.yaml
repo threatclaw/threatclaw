@@ -1,0 +1,5 @@
+rule: ad92e3f9-7eb6-460e-96b1-582b0ccbb980
+title: UAC Bypass Using MSConfig Token Modification - Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

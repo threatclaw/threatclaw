@@ -1,0 +1,5 @@
+rule: 75d0a94e-6252-448d-a7be-d953dff527bb
+title: Remote XSL Execution Via Msxsl.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

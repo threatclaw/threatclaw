@@ -1,0 +1,5 @@
+rule: 32410e29-5f94-4568-b6a3-d91a8adad863
+title: PUA - Fast Reverse Proxy (FRP) Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

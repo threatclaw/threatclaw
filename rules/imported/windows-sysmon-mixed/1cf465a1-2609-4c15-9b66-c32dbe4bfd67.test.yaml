@@ -1,0 +1,5 @@
+rule: 1cf465a1-2609-4c15-9b66-c32dbe4bfd67
+title: Legitimate Application Writing Files In Uncommon Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

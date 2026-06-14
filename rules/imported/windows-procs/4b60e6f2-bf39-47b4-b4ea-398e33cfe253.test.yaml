@@ -1,0 +1,5 @@
+rule: 4b60e6f2-bf39-47b4-b4ea-398e33cfe253
+title: CMSTP UAC Bypass via COM Object Access
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

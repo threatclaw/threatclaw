@@ -1,0 +1,5 @@
+rule: 637f689e-b4a5-4a86-be0e-0100a0a33ba2
+title: HackTool - EfsPotato Named Pipe Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

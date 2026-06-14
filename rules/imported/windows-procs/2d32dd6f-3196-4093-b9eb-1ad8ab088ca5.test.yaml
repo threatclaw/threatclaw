@@ -1,0 +1,5 @@
+rule: 2d32dd6f-3196-4093-b9eb-1ad8ab088ca5
+title: Suspicious Response File Execution Via Odbcconf.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

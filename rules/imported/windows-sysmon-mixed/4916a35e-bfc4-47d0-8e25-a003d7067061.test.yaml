@@ -1,0 +1,5 @@
+rule: 4916a35e-bfc4-47d0-8e25-a003d7067061
+title: Sysmon Driver Altitude Change
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

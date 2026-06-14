@@ -1,0 +1,5 @@
+rule: ac8866c7-ce44-46fd-8c17-b24acff96ca8
+title: HybridConnectionManager Service Installation - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,56 @@
+title: ETW Trace Evasion Activity
+id: a238b5d0-ce2d-4414-a676-7a531b3d13d6
+status: test
+description: 'Detects command line activity that tries to clear or disable any ETW trace log which could be a sign of logging
+  evasion.
+
+  '
+references:
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/wevtutil
+- https://abuse.io/lockergoga.txt
+- https://medium.com/palantir/tampering-with-windows-event-tracing-background-offense-and-defense-4be7ac62ac63
+author: '@neu5ron, Florian Roth (Nextron Systems), Jonhnathan Ribeiro, oscd.community'
+date: 2019-03-22
+tags:
+- attack.stealth
+- attack.defense-impairment
+- attack.t1070
+- attack.t1685
+- car.2016-04-002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_clear_1:
+    data.CommandLine|contains|all:
+    - cl
+    - /Trace
+  selection_clear_2:
+    data.CommandLine|contains|all:
+    - clear-log
+    - /Trace
+  selection_disable_1:
+    data.CommandLine|contains|all:
+    - sl
+    - /e:false
+  selection_disable_2:
+    data.CommandLine|contains|all:
+    - set-log
+    - /e:false
+  selection_disable_3:
+    data.CommandLine|contains|all:
+    - logman
+    - update
+    - trace
+    - --p
+    - -ets
+  selection_pwsh_remove:
+    data.CommandLine|contains: Remove-EtwTraceProvider
+  selection_pwsh_set:
+    data.CommandLine|contains|all:
+    - Set-EtwTraceProvider
+    - '0x11'
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high

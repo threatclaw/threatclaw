@@ -1,0 +1,5 @@
+rule: 3e8207c5-fcd2-4ea6-9418-15d45b4890e4
+title: Potential Data Stealing Via Chromium Headless Debugging
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

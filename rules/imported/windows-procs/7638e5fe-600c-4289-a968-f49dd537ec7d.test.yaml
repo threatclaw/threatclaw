@@ -1,0 +1,5 @@
+rule: 7638e5fe-600c-4289-a968-f49dd537ec7d
+title: HackTool - NetExec Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

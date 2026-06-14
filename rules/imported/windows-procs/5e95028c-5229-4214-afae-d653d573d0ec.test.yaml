@@ -1,0 +1,5 @@
+rule: 5e95028c-5229-4214-afae-d653d573d0ec
+title: Security Service Disabled Via Reg.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

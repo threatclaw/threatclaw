@@ -1,0 +1,5 @@
+rule: 88f680b8-070e-402c-ae11-d2914f2257f1
+title: PowerShell Base64 Encoded IEX Cmdlet
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

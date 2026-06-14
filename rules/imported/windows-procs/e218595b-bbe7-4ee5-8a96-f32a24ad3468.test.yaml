@@ -1,0 +1,5 @@
+rule: e218595b-bbe7-4ee5-8a96-f32a24ad3468
+title: Suspicious Curl.EXE Download
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

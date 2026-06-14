@@ -1,0 +1,5 @@
+rule: 1edd77db-0669-4fef-9598-165bda82826d
+title: Guacamole Two Users Sharing Session Anomaly
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

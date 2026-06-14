@@ -1,0 +1,5 @@
+rule: 3ae9974a-eb09-4044-8e70-8980a50c12c8
+title: Suspicious Explorer Process with Whitespace Padding - ClickFix/FileFix
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

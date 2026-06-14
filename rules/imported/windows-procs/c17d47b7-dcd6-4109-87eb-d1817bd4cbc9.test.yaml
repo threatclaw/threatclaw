@@ -1,0 +1,5 @@
+rule: c17d47b7-dcd6-4109-87eb-d1817bd4cbc9
+title: Windows Credential Guard Registry Tampering Via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

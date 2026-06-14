@@ -1,0 +1,5 @@
+rule: 4f154fb6-27d1-4813-a759-78b93e0b9c48
+title: Operator Bloopers Cobalt Strike Modules
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

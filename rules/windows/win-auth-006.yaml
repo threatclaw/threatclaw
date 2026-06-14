@@ -1,0 +1,25 @@
+title: User Account Created
+id: win-auth-006
+status: stable
+description: |
+  Detects new user account creation
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1136.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 4720
+      - user account was created
+      - A user account was created
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

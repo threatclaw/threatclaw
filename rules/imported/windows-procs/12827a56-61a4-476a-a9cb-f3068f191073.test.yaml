@@ -1,0 +1,5 @@
+rule: 12827a56-61a4-476a-a9cb-f3068f191073
+title: HackTool - KrbRelayUp Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

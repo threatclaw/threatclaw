@@ -1,0 +1,5 @@
+rule: 62f7c9bf-9135-49b2-8aeb-1e54a6ecc13c
+title: Tor Client/Browser Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

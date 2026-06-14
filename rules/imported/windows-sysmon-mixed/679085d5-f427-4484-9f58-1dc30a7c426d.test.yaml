@@ -1,0 +1,5 @@
+rule: 679085d5-f427-4484-9f58-1dc30a7c426d
+title: WinDivert Driver Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

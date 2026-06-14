@@ -1,0 +1,5 @@
+rule: 9ed5959a-c43c-4c59-84e3-d28628429456
+title: UAC Bypass Using Iscsicpl - ImageLoad
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

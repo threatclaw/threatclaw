@@ -1,0 +1,5 @@
+rule: 828af599-4c53-4ed2-ba4a-a9f835c434ea
+title: Fax Service DLL Search Order Hijack
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

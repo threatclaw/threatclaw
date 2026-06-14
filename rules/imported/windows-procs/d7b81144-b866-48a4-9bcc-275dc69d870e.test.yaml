@@ -1,0 +1,5 @@
+rule: d7b81144-b866-48a4-9bcc-275dc69d870e
+title: Windows EventLog Autologger Session Registry Modification Via CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

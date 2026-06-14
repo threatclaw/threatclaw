@@ -1,0 +1,5 @@
+rule: 2d367498-5112-4ae5-a06a-96e7bc33a211
+title: Suspicious Binary Writes Via AnyDesk
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

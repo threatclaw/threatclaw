@@ -1,0 +1,5 @@
+rule: 03d83090-8cba-44a0-b02f-0b756a050306
+title: Potential WinAPI Calls Via PowerShell Scripts
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

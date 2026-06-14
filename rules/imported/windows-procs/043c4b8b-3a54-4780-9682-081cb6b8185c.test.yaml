@@ -1,0 +1,5 @@
+rule: 043c4b8b-3a54-4780-9682-081cb6b8185c
+title: Suspicious IIS Module Registration
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,25 @@
+title: DCSync — Directory Replication
+id: win-auth-003
+status: stable
+description: |
+  Detects DCSync attack via directory replication requests
+references:
+  - https://attack.mitre.org/techniques/T1003/006/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1003.006
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 4662
+      - DS-Replication-Get-Changes
+      - 1131f6aa-9c07-11d1-f79f-00c04fc2dcd2
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

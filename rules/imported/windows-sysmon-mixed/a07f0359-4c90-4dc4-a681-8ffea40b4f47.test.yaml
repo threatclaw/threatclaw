@@ -1,0 +1,5 @@
+rule: a07f0359-4c90-4dc4-a681-8ffea40b4f47
+title: Service Binary in Suspicious Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

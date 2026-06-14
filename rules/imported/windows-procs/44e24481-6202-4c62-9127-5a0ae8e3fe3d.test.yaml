@@ -1,0 +1,5 @@
+rule: 44e24481-6202-4c62-9127-5a0ae8e3fe3d
+title: Obfuscated PowerShell OneLiner Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

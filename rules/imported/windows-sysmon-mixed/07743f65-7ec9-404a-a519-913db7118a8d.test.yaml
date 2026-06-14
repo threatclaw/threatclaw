@@ -1,0 +1,5 @@
+rule: 07743f65-7ec9-404a-a519-913db7118a8d
+title: COM Hijack via Sdclt
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

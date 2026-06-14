@@ -1,0 +1,5 @@
+rule: d08a2711-ee8b-4323-bdec-b7d85e892b31
+title: PUA - CsExec Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

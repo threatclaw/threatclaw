@@ -1,0 +1,5 @@
+rule: 8c3c76ca-8f8b-4b1d-aaf3-81aebcd367c9
+title: Creation Exe for Service with Unquoted Path
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

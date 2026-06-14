@@ -1,0 +1,34 @@
+title: Suspicious Process Masquerading As SvcHost.EXE
+id: be58d2e2-06c8-4f58-b666-b99f6dc3b6cd
+status: test
+description: 'Detects a suspicious process that is masquerading as the legitimate "svchost.exe" by naming its binary "svchost.exe"
+  and executing from an uncommon location.
+
+  Adversaries often disguise their malicious binaries by naming them after legitimate system processes like "svchost.exe"
+  to evade detection.
+
+  '
+references:
+- https://tria.ge/240731-jh4crsycnb/behavioral2
+- https://redcanary.com/blog/threat-detection/process-masquerading/
+author: Swachchhanda Shrawan Poudel
+date: 2024-08-07
+tags:
+- attack.stealth
+- attack.t1036.005
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.Image|endswith: \svchost.exe
+  filter_main_img_location:
+    data.Image:
+    - C:\Windows\System32\svchost.exe
+    - C:\Windows\SysWOW64\svchost.exe
+  filter_main_ofn:
+    data.OriginalFileName: svchost.exe
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unlikely
+level: high

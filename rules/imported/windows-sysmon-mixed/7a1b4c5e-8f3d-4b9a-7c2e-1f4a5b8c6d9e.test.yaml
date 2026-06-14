@@ -1,0 +1,5 @@
+rule: 7a1b4c5e-8f3d-4b9a-7c2e-1f4a5b8c6d9e
+title: Suspicious Space Characters in RunMRU Registry Path - ClickFix
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

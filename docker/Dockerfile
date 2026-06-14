@@ -80,6 +80,7 @@ COPY skills/ skills/
 COPY skills-src/ skills-src/
 COPY skills-catalog/ skills-catalog/
 COPY graphs/ graphs/
+COPY rules/ rules/
 COPY installer/ installer/
 
 # Touch main.rs to invalidate the dummy and force a real build
@@ -147,6 +148,9 @@ COPY --from=builder /app/skills-src /app/skills-src
 COPY --from=builder /app/graphs /app/graphs
 # Bundled fallback — not overridden by bind-mount, used by entrypoint when ./graphs/sigma/ is empty
 COPY --from=builder /app/graphs /app/graphs-bundled
+# Phase C — on-disk Sigma rules synced into the DB at boot. See
+# src/agent/sigma_file_loader.rs for the upsert contract.
+COPY --from=builder /app/rules /app/rules
 
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \

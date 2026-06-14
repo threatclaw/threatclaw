@@ -1,0 +1,5 @@
+rule: cb0fe7c5-f3a3-484d-aa25-d350a7912729
+title: Suspicious Driver/DLL Installation Via Odbcconf.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 396ae3eb-4174-4b9b-880e-dc0364d78a19
+title: Potential Persistence Via Outlook LoadMacroProviderOnBoot Setting
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

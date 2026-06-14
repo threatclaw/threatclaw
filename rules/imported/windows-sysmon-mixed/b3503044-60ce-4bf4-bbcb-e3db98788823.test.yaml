@@ -1,0 +1,5 @@
+rule: b3503044-60ce-4bf4-bbcb-e3db98788823
+title: DLL Load via LSASS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

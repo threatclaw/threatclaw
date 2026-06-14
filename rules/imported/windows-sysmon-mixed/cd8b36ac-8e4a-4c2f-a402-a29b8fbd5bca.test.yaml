@@ -1,0 +1,5 @@
+rule: cd8b36ac-8e4a-4c2f-a402-a29b8fbd5bca
+title: Suspicious File Creation Activity From Fake Recycle.Bin Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

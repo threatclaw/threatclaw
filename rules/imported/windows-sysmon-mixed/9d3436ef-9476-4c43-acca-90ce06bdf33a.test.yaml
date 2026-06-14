@@ -1,0 +1,5 @@
+rule: 9d3436ef-9476-4c43-acca-90ce06bdf33a
+title: DHCP Callout DLL Installation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: d522eca2-2973-4391-a3e0-ef0374321dae
+title: Abused Debug Privilege by Arbitrary Parent Processes
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

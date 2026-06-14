@@ -1,0 +1,5 @@
+rule: 402e1e1d-ad59-47b6-bf80-1ee44985b3a7
+title: Malicious ShellIntel PowerShell Commandlets
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

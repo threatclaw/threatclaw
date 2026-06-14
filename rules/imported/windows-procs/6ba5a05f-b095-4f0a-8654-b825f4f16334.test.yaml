@@ -1,0 +1,5 @@
+rule: 6ba5a05f-b095-4f0a-8654-b825f4f16334
+title: Potential MSTSC Shadowing Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

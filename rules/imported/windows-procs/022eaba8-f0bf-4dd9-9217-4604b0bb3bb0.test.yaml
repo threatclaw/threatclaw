@@ -1,0 +1,5 @@
+rule: 022eaba8-f0bf-4dd9-9217-4604b0bb3bb0
+title: HackTool - Wmiexec Default Powershell Command
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

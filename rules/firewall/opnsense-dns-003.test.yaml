@@ -1,0 +1,17 @@
+rule: opnsense-dns-003
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      line: blocked by
+  - description: Second positive value from the rule selection
+    event:
+      line: blacklisted
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      line: benign-value

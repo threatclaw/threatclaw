@@ -1,0 +1,60 @@
+title: Bad Opsec Defaults Sacrificial Processes With Improper Arguments
+id: a7c3d773-caef-227e-a7e7-c2f13c622329
+status: test
+description: 'Detects attackers using tooling with bad opsec defaults.
+
+  E.g. spawning a sacrificial process to inject a capability into the process without taking into account how the process
+  is normally run.
+
+  One trivial example of this is using rundll32.exe without arguments as a sacrificial process (default in CS, now highlighted
+  by c2lint), running WerFault without arguments (Kraken - credit am0nsec), and other examples.
+
+  '
+references:
+- https://blog.malwarebytes.com/malwarebytes-news/2020/10/kraken-attack-abuses-wer-service/
+- https://www.cobaltstrike.com/help-opsec
+- https://twitter.com/CyberRaiju/status/1251492025678983169
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/regsvr32
+- https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/rundll32
+- https://learn.microsoft.com/en-us/dotnet/framework/tools/regasm-exe-assembly-registration-tool
+- https://learn.microsoft.com/en-us/dotnet/framework/tools/regsvcs-exe-net-services-installation-tool
+author: Oleg Kolesnikov @securonix invrep_de, oscd.community, Florian Roth (Nextron Systems), Christian Burkard (Nextron Systems)
+date: 2020-10-23
+tags:
+- attack.stealth
+- attack.t1218.011
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_werfault:
+    data.Image|endswith: \WerFault.exe
+    data.CommandLine|endswith: WerFault.exe
+  selection_rundll32:
+    data.Image|endswith: \rundll32.exe
+    data.CommandLine|endswith: rundll32.exe
+  selection_regsvcs:
+    data.Image|endswith: \regsvcs.exe
+    data.CommandLine|endswith: regsvcs.exe
+  selection_regasm:
+    data.Image|endswith: \regasm.exe
+    data.CommandLine|endswith: regasm.exe
+  selection_regsvr32:
+    data.Image|endswith: \regsvr32.exe
+    data.CommandLine|endswith: regsvr32.exe
+  filter_optional_edge_update:
+    data.ParentImage|contains: \AppData\Local\Microsoft\EdgeUpdate\Install\{
+    data.Image|endswith: \rundll32.exe
+    data.CommandLine|endswith: rundll32.exe
+  filter_optional_chromium_installer:
+    data.ParentImage|contains:
+    - \AppData\Local\BraveSoftware\Brave-Browser\Application\
+    - \AppData\Local\Google\Chrome\Application\
+    data.ParentImage|endswith: \Installer\setup.exe
+    data.ParentCommandLine|contains: '--uninstall '
+    data.Image|endswith: \rundll32.exe
+    data.CommandLine|endswith: rundll32.exe
+  condition: 1 of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Unlikely
+level: high

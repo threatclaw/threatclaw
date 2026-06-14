@@ -1,0 +1,5 @@
+rule: 7679d464-4f74-45e2-9e01-ac66c5eb041a
+title: HackTool - SecurityXploded Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

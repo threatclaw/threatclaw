@@ -1,0 +1,5 @@
+rule: 37c1333a-a0db-48be-b64b-7393b2386e3b
+title: Hacktool Execution - PE Metadata
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

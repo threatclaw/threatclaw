@@ -1,0 +1,5 @@
+rule: 129966c9-de17-4334-a123-8b58172e664d
+title: Potential Windows Defender AV Bypass Via Dump64.EXE Rename
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

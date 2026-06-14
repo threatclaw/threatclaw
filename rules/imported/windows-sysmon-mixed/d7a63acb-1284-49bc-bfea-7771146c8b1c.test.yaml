@@ -1,0 +1,5 @@
+rule: d7a63acb-1284-49bc-bfea-7771146c8b1c
+title: Potential Vcruntime140 DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

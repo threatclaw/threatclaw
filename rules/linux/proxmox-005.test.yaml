@@ -1,0 +1,17 @@
+rule: proxmox-005
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      msg: firewall disable
+  - description: Second positive value from the rule selection
+    event:
+      msg: fw disable
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      msg: operation completed successfully

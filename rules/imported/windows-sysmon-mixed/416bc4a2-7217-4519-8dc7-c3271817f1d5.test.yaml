@@ -1,0 +1,5 @@
+rule: 416bc4a2-7217-4519-8dc7-c3271817f1d5
+title: Suspicious Loading of Dbgcore/Dbghelp DLLs from Uncommon Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

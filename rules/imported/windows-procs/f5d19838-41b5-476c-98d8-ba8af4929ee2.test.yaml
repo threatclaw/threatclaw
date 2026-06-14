@@ -1,0 +1,5 @@
+rule: f5d19838-41b5-476c-98d8-ba8af4929ee2
+title: LOL-Binary Copied From System Directory
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

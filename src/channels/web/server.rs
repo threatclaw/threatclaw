@@ -522,6 +522,39 @@ pub async fn start_server(
             axum::routing::delete(super::handlers::threatclaw_api::hunt_saved_delete_handler),
         )
         .route(
+            "/api/tc/sigma/rules",
+            get(super::handlers::sigma_api::sigma_rules_list_handler),
+        )
+        .route(
+            "/api/tc/sigma/rules/{id}",
+            get(super::handlers::sigma_api::sigma_rule_detail_handler),
+        )
+        .route(
+            "/api/tc/sigma/coverage/mitre",
+            get(super::handlers::sigma_api::sigma_coverage_mitre_handler),
+        )
+        .route(
+            "/api/tc/sigma/rules/{id}/enabled",
+            axum::routing::put(super::handlers::sigma_api::sigma_rule_enabled_handler),
+        )
+        .route(
+            "/api/tc/sigma/rules/{id}/promotion",
+            axum::routing::put(super::handlers::sigma_api::sigma_rule_promotion_handler),
+        )
+        .route(
+            "/api/tc/sigma/rules/{id}/exceptions",
+            get(super::handlers::sigma_api::sigma_rule_exceptions_list_handler)
+                .post(super::handlers::sigma_api::sigma_rule_exception_create_handler),
+        )
+        .route(
+            "/api/tc/sigma/exceptions/{id}",
+            axum::routing::delete(super::handlers::sigma_api::sigma_exception_delete_handler),
+        )
+        .route(
+            "/api/tc/sigma/audit",
+            get(super::handlers::sigma_api::sigma_audit_handler),
+        )
+        .route(
             "/api/tc/sources/status",
             get(super::handlers::threatclaw_api::sources_status_handler),
         )

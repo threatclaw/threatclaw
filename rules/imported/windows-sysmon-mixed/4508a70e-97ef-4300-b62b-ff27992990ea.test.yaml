@@ -1,0 +1,5 @@
+rule: 4508a70e-97ef-4300-b62b-ff27992990ea
+title: DotNet CLR DLL Loaded By Scripting Applications
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

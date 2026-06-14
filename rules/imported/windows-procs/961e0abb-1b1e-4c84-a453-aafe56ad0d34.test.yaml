@@ -1,0 +1,5 @@
+rule: 961e0abb-1b1e-4c84-a453-aafe56ad0d34
+title: Execution via stordiag.exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

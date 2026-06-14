@@ -1,0 +1,5 @@
+rule: a16980c2-0c56-4de0-9a79-17971979efdd
+title: Cmd.EXE Missing Space Characters Execution Anomaly
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

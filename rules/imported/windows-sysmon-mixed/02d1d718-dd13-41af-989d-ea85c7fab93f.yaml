@@ -1,0 +1,93 @@
+title: Rare Remote Thread Creation By Uncommon Source Image
+id: 02d1d718-dd13-41af-989d-ea85c7fab93f
+status: test
+description: Detects uncommon processes creating remote threads.
+references:
+- Personal research, statistical analysis
+- https://lolbas-project.github.io
+author: Perez Diego (@darkquassar), oscd.community
+date: 2019-10-27
+tags:
+- attack.privilege-escalation
+- attack.stealth
+- attack.t1055
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.SourceImage|endswith:
+    - \bash.exe
+    - \cscript.exe
+    - \cvtres.exe
+    - \defrag.exe
+    - \dialer.exe
+    - \dnx.exe
+    - \esentutl.exe
+    - \excel.exe
+    - \expand.exe
+    - \find.exe
+    - \findstr.exe
+    - \forfiles.exe
+    - \gpupdate.exe
+    - \hh.exe
+    - \installutil.exe
+    - \lync.exe
+    - \makecab.exe
+    - \mDNSResponder.exe
+    - \monitoringhost.exe
+    - \msbuild.exe
+    - \mshta.exe
+    - \mspaint.exe
+    - \outlook.exe
+    - \ping.exe
+    - \provtool.exe
+    - \python.exe
+    - \regsvr32.exe
+    - \robocopy.exe
+    - \runonce.exe
+    - \sapcimc.exe
+    - \smartscreen.exe
+    - \spoolsv.exe
+    - \tstheme.exe
+    - \userinit.exe
+    - \vssadmin.exe
+    - \vssvc.exe
+    - \w3wp.exe
+    - \winscp.exe
+    - \winword.exe
+    - \wmic.exe
+    - \wscript.exe
+  filter_main_conhost:
+    data.SourceImage:
+    - C:\Windows\System32\Defrag.exe
+    - C:\Windows\System32\makecab.exe
+    data.TargetImage: C:\Windows\System32\conhost.exe
+  filter_main_provtol_svchost:
+    data.SourceImage: C:\Windows\System32\provtool.exe
+    data.TargetImage: C:\Windows\System32\svchost.exe
+  filter_main_provtool_system:
+    data.SourceImage: C:\Windows\System32\provtool.exe
+    data.TargetImage: System
+  filter_main_userinit:
+    data.SourceImage: C:\Windows\System32\userinit.exe
+    data.TargetImage: C:\Windows\explorer.exe
+  filter_main_winword:
+    data.SourceImage|endswith: \WINWORD.EXE
+    data.TargetImage|startswith:
+    - C:\Program Files (x86)\
+    - C:\Program Files\
+  filter_main_ms_office:
+    data.SourceImage|startswith:
+    - C:\Program Files\Microsoft Office\
+    - C:\Program Files (x86)\Microsoft Office\
+    data.TargetImage: System
+  filter_optional_explorer_vmtools:
+    data.SourceImage|endswith: \SysWOW64\explorer.exe
+    data.TargetImage:
+    - C:\Program Files (x86)\VMware\VMware Tools\vmtoolsd.exe
+    - C:\Program Files\VMware\VMware Tools\vmtoolsd.exe
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- This rule is best put in testing first in order to create a baseline that reflects the data in your environment.
+level: high

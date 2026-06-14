@@ -1,0 +1,5 @@
+rule: 1a2ea919-d11d-4d1e-8535-06cda13be20f
+title: Triple Cross eBPF Rootkit Default Persistence
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

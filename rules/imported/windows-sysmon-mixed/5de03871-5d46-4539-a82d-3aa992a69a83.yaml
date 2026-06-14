@@ -1,0 +1,27 @@
+title: Registry Disable System Restore
+id: 5de03871-5d46-4539-a82d-3aa992a69a83
+status: test
+description: Detects the modification of the registry to disable a system restore on the computer
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1490/T1490.md#atomic-test-9---disable-system-restore-through-registry
+author: frack113
+date: 2022-04-04
+tags:
+- attack.impact
+- attack.t1490
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.TargetObject|contains:
+    - \Policies\Microsoft\Windows NT\SystemRestore
+    - \Microsoft\Windows NT\CurrentVersion\SystemRestore
+    data.TargetObject|endswith:
+    - DisableConfig
+    - DisableSR
+    data.Details: DWORD (0x00000001)
+  condition: selection
+falsepositives:
+- Unknown
+level: high

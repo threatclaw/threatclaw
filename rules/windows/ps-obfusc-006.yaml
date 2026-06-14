@@ -1,0 +1,24 @@
+title: PowerShell BITS Transfer Download
+id: ps-obfusc-006
+status: stable
+description: |
+  Detects BITS used for file download
+references:
+  - https://attack.mitre.org/techniques/T1197/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1197
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - Start-BitsTransfer
+      - bitsadmin
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

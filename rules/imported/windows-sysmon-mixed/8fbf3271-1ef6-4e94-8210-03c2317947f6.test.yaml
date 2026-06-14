@@ -1,0 +1,5 @@
+rule: 8fbf3271-1ef6-4e94-8210-03c2317947f6
+title: Cred Dump Tools Dropped Files
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

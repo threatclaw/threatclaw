@@ -1,0 +1,25 @@
+title: Powershell Token Obfuscation - Process Creation
+id: deb9b646-a508-44ee-b7c9-d8965921c6b6
+status: test
+description: Detects TOKEN OBFUSCATION technique from Invoke-Obfuscation
+references:
+- https://github.com/danielbohannon/Invoke-Obfuscation
+author: frack113
+date: 2022-12-27
+tags:
+- attack.stealth
+- attack.t1027.009
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+  - CommandLine|re: \w+`(?:\w+|-|.)`[\w+|\s]
+  - CommandLine|re: '"(?:\{\d\})+"\s*-f'
+  - CommandLine|re: (?i)\$\{`?e`?n`?v`?:`?p`?a`?t`?h`?\}
+  filter_main_envpath:
+    data.CommandLine|contains: ${env:path}
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high

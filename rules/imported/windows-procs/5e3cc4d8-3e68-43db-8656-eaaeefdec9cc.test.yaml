@@ -1,0 +1,5 @@
+rule: 5e3cc4d8-3e68-43db-8656-eaaeefdec9cc
+title: Suspicious Invoke-WebRequest Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

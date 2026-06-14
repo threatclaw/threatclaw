@@ -1,0 +1,5 @@
+rule: 1cc50f3f-1fc8-4acf-b2e9-6f172e1fdebd
+title: Suspicious Rundll32 Invoking Inline VBScript
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

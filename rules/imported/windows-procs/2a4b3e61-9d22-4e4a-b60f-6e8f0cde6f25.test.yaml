@@ -1,0 +1,5 @@
+rule: 2a4b3e61-9d22-4e4a-b60f-6e8f0cde6f25
+title: Potential Provisioning Registry Key Abuse For Binary Proxy Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

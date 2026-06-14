@@ -1,0 +1,5 @@
+rule: f57f8d16-1f39-4dcb-a604-6c73d9b54b3d
+title: Sensitive File Access Via Volume Shadow Copy Backup
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

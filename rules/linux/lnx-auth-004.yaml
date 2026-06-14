@@ -1,0 +1,23 @@
+title: Sudo — User Not In Sudoers
+id: lnx-auth-004
+status: stable
+description: |
+  Sudo invocation from an account that has no authorization — reconnaissance or escalation probe
+references:
+  - https://attack.mitre.org/techniques/T1548/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.privilege_escalation
+  - attack.t1548.003
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - is not in the sudoers file
+      - This incident will be reported
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

@@ -1,0 +1,5 @@
+rule: 9082ff1f-88ab-4678-a3cc-5bcff99fc74d
+title: HackTool - GMER Rootkit Detector and Remover Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

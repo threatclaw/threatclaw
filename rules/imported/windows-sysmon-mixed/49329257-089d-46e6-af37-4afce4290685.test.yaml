@@ -1,0 +1,5 @@
+rule: 49329257-089d-46e6-af37-4afce4290685
+title: HackTool - SharpEvtMute DLL Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

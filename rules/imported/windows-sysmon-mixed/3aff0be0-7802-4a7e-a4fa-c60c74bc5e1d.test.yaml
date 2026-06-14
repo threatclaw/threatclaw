@@ -1,0 +1,5 @@
+rule: 3aff0be0-7802-4a7e-a4fa-c60c74bc5e1d
+title: Lolbas OneDriveStandaloneUpdater.exe Proxy Download
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

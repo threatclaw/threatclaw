@@ -1,0 +1,5 @@
+rule: 07bdd2f5-9c58-4f38-aec8-e101bb79ef8d
+title: Terminal Server Client Connection History Cleared - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

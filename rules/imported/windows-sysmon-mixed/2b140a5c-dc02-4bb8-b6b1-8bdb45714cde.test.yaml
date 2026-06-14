@@ -1,0 +1,5 @@
+rule: 2b140a5c-dc02-4bb8-b6b1-8bdb45714cde
+title: System Control Panel Item Loaded From Uncommon Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

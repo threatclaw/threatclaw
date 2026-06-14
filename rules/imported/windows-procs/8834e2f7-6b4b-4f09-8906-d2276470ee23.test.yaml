@@ -1,0 +1,5 @@
+rule: 8834e2f7-6b4b-4f09-8906-d2276470ee23
+title: PsExec/PAExec Escalation to LOCAL SYSTEM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

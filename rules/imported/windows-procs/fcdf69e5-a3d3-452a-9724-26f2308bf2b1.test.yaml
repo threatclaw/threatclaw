@@ -1,0 +1,5 @@
+rule: fcdf69e5-a3d3-452a-9724-26f2308bf2b1
+title: Phishing Pattern ISO in Archive
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

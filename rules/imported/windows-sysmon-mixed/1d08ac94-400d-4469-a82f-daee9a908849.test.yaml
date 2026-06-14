@@ -1,0 +1,5 @@
+rule: 1d08ac94-400d-4469-a82f-daee9a908849
+title: Communication To Ngrok Tunneling Service Initiated
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

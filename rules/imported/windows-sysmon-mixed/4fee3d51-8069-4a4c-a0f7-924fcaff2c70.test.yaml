@@ -1,0 +1,5 @@
+rule: 4fee3d51-8069-4a4c-a0f7-924fcaff2c70
+title: FileFix - Command Evidence in TypedPaths
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

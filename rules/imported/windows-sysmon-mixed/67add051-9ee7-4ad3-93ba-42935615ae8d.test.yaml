@@ -1,0 +1,5 @@
+rule: 67add051-9ee7-4ad3-93ba-42935615ae8d
+title: PUA - Process Hacker Driver Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

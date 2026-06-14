@@ -1,0 +1,26 @@
+title: MAC Policy Disabled
+id: lnx-evasion-002
+status: stable
+description: |
+  SELinux set to permissive/disabled or AppArmor teardown — mandatory access control evasion
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - setenforce 0
+      - SELINUX=disabled
+      - SELINUX=permissive
+      - apparmor_parser -R
+      - systemctl disable apparmor
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

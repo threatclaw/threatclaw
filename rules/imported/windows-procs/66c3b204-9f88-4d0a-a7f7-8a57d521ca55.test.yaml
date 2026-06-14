@@ -1,0 +1,5 @@
+rule: 66c3b204-9f88-4d0a-a7f7-8a57d521ca55
+title: Potential Crypto Mining Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,38 @@
+title: LockBit Affiliate Pre-Encryption Staging (APAC Focus)
+id: apt-lockbit-apac-staging
+status: stable
+description: |
+  Detects the classic LockBit affiliate pre-encryption chain
+  documented in 2024-2025 leaked builder data: a brief window in
+  which shadow-copy deletion, boot-recovery disablement, and Security
+  event log clearing happen in close succession on the same host.
+  The pattern matches the playbook used by APAC-focused affiliates
+  including PiotrBond and Umarbishop47 against China, India and
+  Indonesia SMBs, but is family-agnostic in shape — Akira, BlackBasta,
+  RansomHub follow nearly identical staging.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+  - https://www.computerweekly.com/news/366623780/Ransomware-What-the-LockBit-30-data-leak-reveals
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.impact
+  - attack.t1486
+  - attack.t1490
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    'commandline|contains':
+      - 'vssadmin delete shadows'
+      - 'wmic shadowcopy delete'
+      - 'bcdedit /set'
+      - 'recoveryenabled No'
+      - 'bootstatuspolicy ignoreallfailures'
+      - 'wevtutil cl Security'
+      - 'wevtutil cl System'
+  condition: selection
+falsepositives:
+  - Backup-server retention tasks performed in scheduled windows.
+level: critical

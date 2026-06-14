@@ -1,0 +1,34 @@
+title: Suspicious PowerShell Invocations - Generic - PowerShell Module
+id: bbb80e91-5746-4fbe-8898-122e2cafdbf4
+status: test
+description: Detects suspicious PowerShell invocation command parameters
+references:
+- Internal Research
+author: Florian Roth (Nextron Systems)
+date: 2017-03-12
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  category: osquery
+  product: powershell
+detection:
+  selection_encoded:
+    data.ContextInfo|contains:
+    - ' -enc '
+    - ' -EncodedCommand '
+    - ' -ec '
+  selection_hidden:
+    data.ContextInfo|contains:
+    - ' -w hidden '
+    - ' -window hidden '
+    - ' -windowstyle hidden '
+    - ' -w 1 '
+  selection_noninteractive:
+    data.ContextInfo|contains:
+    - ' -noni '
+    - ' -noninteractive '
+  condition: all of selection*
+falsepositives:
+- Very special / sneaky PowerShell scripts
+level: high

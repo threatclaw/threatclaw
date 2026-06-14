@@ -1,0 +1,5 @@
+rule: 654fcc6d-840d-4844-9b07-2c3300e54a26
+title: Legitimate Application Dropped Archive
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

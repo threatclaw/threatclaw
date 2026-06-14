@@ -1,0 +1,5 @@
+rule: 07f8bdc2-c9b3-472a-9817-5a670b872f53
+title: Potential Reconnaissance For Cached Credentials Via Cmdkey.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

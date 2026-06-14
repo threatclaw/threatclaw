@@ -1,0 +1,5 @@
+rule: 07ad2ea8-6a55-4ac6-bf3e-91b8e59676eb
+title: Invoke-Obfuscation Via Use MSHTA - PowerShell Module
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f9999590-1f94-4a34-a91e-951e47bedefd
+title: Suspicious Provlaunch.EXE Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

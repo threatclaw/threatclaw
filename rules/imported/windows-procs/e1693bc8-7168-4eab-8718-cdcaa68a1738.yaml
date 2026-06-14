@@ -1,0 +1,52 @@
+title: Suspicious WMIC Execution Via Office Process
+id: e1693bc8-7168-4eab-8718-cdcaa68a1738
+status: test
+description: Office application called wmic to proxye execution through a LOLBIN process. This is often used to break suspicious
+  parent-child chain (Office app spawns LOLBin).
+references:
+- https://thedfirreport.com/2021/03/29/sodinokibi-aka-revil-ransomware/
+- https://github.com/vadim-hunter/Detection-Ideas-Rules/blob/02bcbfc2bfb8b4da601bb30de0344ae453aa1afe/Threat%20Intelligence/The%20DFIR%20Report/20210329_Sodinokibi_(aka_REvil)_Ransomware.yaml
+author: Vadim Khrykov, Cyb3rEng
+date: 2021-08-23
+tags:
+- attack.stealth
+- attack.t1204.002
+- attack.t1047
+- attack.t1218.010
+- attack.execution
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_parent:
+    data.ParentImage|endswith:
+    - \WINWORD.EXE
+    - \EXCEL.EXE
+    - \POWERPNT.exe
+    - \MSPUB.exe
+    - \VISIO.exe
+    - \MSACCESS.EXE
+    - \EQNEDT32.EXE
+    - \ONENOTE.EXE
+    - \wordpad.exe
+    - \wordview.exe
+  selection_wmic_img:
+  - Image|endswith: \wbem\WMIC.exe
+  - OriginalFileName: wmic.exe
+  selection_wmic_cli:
+    data.CommandLine|contains|all:
+    - process
+    - create
+    - call
+    data.CommandLine|contains:
+    - regsvr32
+    - rundll32
+    - msiexec
+    - mshta
+    - verclsid
+    - wscript
+    - cscript
+  condition: all of selection_*
+falsepositives:
+- Unknown
+level: high

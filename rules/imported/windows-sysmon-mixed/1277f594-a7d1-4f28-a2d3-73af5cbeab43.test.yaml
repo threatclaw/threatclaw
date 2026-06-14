@@ -1,0 +1,5 @@
+rule: 1277f594-a7d1-4f28-a2d3-73af5cbeab43
+title: Windows Shell/Scripting Application File Write to Suspicious Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

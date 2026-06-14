@@ -1,0 +1,24 @@
+title: HackTool - Mimikatz Kirbi File Creation
+id: 9e099d99-44c2-42b6-a6d8-54c3545cab29
+status: test
+description: Detects the creation of files created by mimikatz such as ".kirbi", "mimilsa.log", etc.
+references:
+- https://cobalt.io/blog/kerberoast-attack-techniques
+- https://pentestlab.blog/2019/10/21/persistence-security-support-provider/
+author: Florian Roth (Nextron Systems), David ANDRE
+date: 2021-11-08
+tags:
+- attack.credential-access
+- attack.t1558
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.TargetFilename|endswith:
+    - .kirbi
+    - mimilsa.log
+  condition: selection
+falsepositives:
+- Unlikely
+level: critical

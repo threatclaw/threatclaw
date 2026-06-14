@@ -1,0 +1,5 @@
+rule: 89ca78fd-b37c-4310-b3d3-81a023f83936
+title: Schtasks Creation Or Modification With SYSTEM Privileges
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

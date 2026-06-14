@@ -1,0 +1,5 @@
+rule: 40b19fa6-d835-400c-b301-41f3a2baacaf
+title: VolumeShadowCopy Symlink Creation Via Mklink
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

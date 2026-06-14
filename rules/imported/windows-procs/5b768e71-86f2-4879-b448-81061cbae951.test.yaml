@@ -1,0 +1,5 @@
+rule: 5b768e71-86f2-4879-b448-81061cbae951
+title: Suspicious Manipulation Of Default Accounts Via Net.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

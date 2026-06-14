@@ -1,0 +1,17 @@
+rule: sysmon-run-key-suspect
+
+positive:
+  - description: reg.exe adding Run key in AppData
+    event:
+      commandline: 'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Updater /d "C:\Users\bob\AppData\Roaming\loader.exe"'
+  - description: PowerShell Set-ItemProperty in ProgramData
+    event:
+      commandline: 'powershell.exe Set-ItemProperty HKCU:\Software\Microsoft\Windows\CurrentVersion\Run Service "C:\ProgramData\svc.exe"'
+
+negative:
+  - description: Run key pointing at signed Program Files binary
+    event:
+      commandline: 'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v Vendor /d "C:\Program Files\Vendor\app.exe"'
+  - description: reg query only
+    event:
+      commandline: 'reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run"'

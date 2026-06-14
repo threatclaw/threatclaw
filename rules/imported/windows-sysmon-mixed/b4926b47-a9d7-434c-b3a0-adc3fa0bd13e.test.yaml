@@ -1,0 +1,5 @@
+rule: b4926b47-a9d7-434c-b3a0-adc3fa0bd13e
+title: Suspicious Double Extension Files
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

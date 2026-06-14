@@ -1,0 +1,5 @@
+rule: d487ed4a-fd24-436d-a0b2-f4e95f7b2635
+title: Suspicious ClickFix/FileFix Execution Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

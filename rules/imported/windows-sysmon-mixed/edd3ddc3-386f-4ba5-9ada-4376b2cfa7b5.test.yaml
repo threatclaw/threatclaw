@@ -1,0 +1,5 @@
+rule: edd3ddc3-386f-4ba5-9ada-4376b2cfa7b5
+title: Potential EACore.DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

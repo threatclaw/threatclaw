@@ -1,0 +1,34 @@
+title: Delete Important Scheduled Task
+id: dbc1f800-0fe0-4bc0-9c66-292c2abe3f78
+status: test
+description: Detects when adversaries stop services or processes by deleting their respective scheduled tasks in order to
+  conduct data destructive activities
+references:
+- Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-09-09
+tags:
+- attack.impact
+- attack.t1489
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_img:
+  - Image|endswith: \schtasks.exe
+  - OriginalFileName: schtasks.exe
+  selection_cli_delete:
+    data.CommandLine|contains: /delete
+  selection_cli_task:
+    data.CommandLine|contains:
+    - \Windows\BitLocker
+    - \Windows\ExploitGuard
+    - \Windows\SystemRestore\SR
+    - \Windows\UpdateOrchestrator\
+    - \Windows\Windows Defender\
+    - \Windows\WindowsBackup\
+    - \Windows\WindowsUpdate\
+  condition: all of selection_*
+falsepositives:
+- Unlikely
+level: high

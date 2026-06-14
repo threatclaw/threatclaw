@@ -1,0 +1,5 @@
+rule: 2fdaf50b-9fd5-449f-ba69-f17248119af6
+title: Network Connection Initiated via Finger.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

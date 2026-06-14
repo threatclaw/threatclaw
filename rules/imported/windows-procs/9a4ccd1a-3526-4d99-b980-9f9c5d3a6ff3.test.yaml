@@ -1,0 +1,5 @@
+rule: 9a4ccd1a-3526-4d99-b980-9f9c5d3a6ff3
+title: Potential Credential Dumping Via WER
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

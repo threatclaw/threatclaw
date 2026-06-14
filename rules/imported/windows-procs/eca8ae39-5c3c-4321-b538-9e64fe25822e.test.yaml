@@ -1,0 +1,5 @@
+rule: eca8ae39-5c3c-4321-b538-9e64fe25822e
+title: Installation of WSL Kali-Linux
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

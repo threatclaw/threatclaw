@@ -1,0 +1,5 @@
+rule: ee37eb7c-a4e7-4cd5-8fa4-efa27f1c3f31
+title: PUA - Ngrok Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

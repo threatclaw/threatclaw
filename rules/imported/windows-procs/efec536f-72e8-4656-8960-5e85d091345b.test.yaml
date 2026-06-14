@@ -1,0 +1,5 @@
+rule: efec536f-72e8-4656-8960-5e85d091345b
+title: Set Suspicious Files as System Files Using Attrib.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

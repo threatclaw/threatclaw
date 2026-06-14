@@ -1,0 +1,5 @@
+rule: be58d2e2-06c8-4f58-b666-b99f6dc3b6cd
+title: Suspicious Process Masquerading As SvcHost.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 3c05e90d-7eba-4324-9972-5d7f711a60a8
+title: UAC Bypass Tools Using ComputerDefaults
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

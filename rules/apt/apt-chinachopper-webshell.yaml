@@ -1,0 +1,39 @@
+title: China Chopper Webshell Pattern
+id: apt-chinachopper-webshell
+status: stable
+description: |
+  Detects the file-content signature of the China Chopper webshell —
+  the long-lived, single-line ASPX or PHP backdoor still in active
+  use by HAFNIUM, Flax Typhoon and APT41. Pattern: a one-line script
+  evaluating an HTTP parameter as code. The full canonical ASPX form
+  is `<%@Page Language="Jscript"%><%eval(Request.Item["..."],"unsafe");%>`
+  Detection looks for the structural signature in any log line that
+  carries file content (Sysmon EID 11 with hash + path, IIS access
+  logs with payload bodies).
+references:
+  - https://attack.mitre.org/techniques/T1505/003/
+  - https://unit42.paloaltonetworks.com/china-chopper-webshell/
+  - https://www.trustwave.com/en-us/resources/blogs/spiderlabs-blog/hafnium-china-chopper-and-aspnet-runtime/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1505.003
+logsource:
+  category: syslog
+detection:
+  selection_aspx:
+    'full_log|contains':
+      - 'Page Language="Jscript"'
+      - 'eval(Request.Item'
+      - 'Request.Item['
+  selection_php:
+    'full_log|contains':
+      - '@eval($_POST['
+      - 'eval($_POST['
+      - 'assert($_POST['
+  condition: selection_aspx or selection_php
+falsepositives:
+  - Legitimate Exchange OAB updates do not use single-line eval; the
+    one-line eval pattern is essentially attacker-only.
+level: critical

@@ -1,0 +1,5 @@
+rule: c8da0dfd-4ed0-4b68-962d-13c9c884384e
+title: Potential Credential Dumping Via LSASS Process Clone
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 09576804-7a05-458e-a817-eb718ca91f54
+title: Suspicious PowerShell IEX Execution Patterns
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

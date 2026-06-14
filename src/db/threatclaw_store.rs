@@ -925,6 +925,106 @@ pub trait ThreatClawStore: Send + Sync {
     /// List all enabled Sigma rules with their detection_json for the native engine.
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
+    /// List Sigma rules joined with their aggregated stats (matview
+    /// `sigma_rule_stats`). Returns one row per rule with title, level,
+    /// status, enabled, logsource fields, tags, plus fire_count_7d/30d,
+    /// last_fire_at, fp_count_7d, distinct_hosts_7d, top_hostname_7d.
+    /// Used by the dashboard rules page.
+    async fn list_sigma_rules_with_stats(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Fetch one Sigma rule by id with stats joined and the most recent
+    /// matching alerts attached as `recent_alerts: [{matched_at, hostname,
+    /// source_ip, status}]`. Used by the rule detail page.
+    async fn get_sigma_rule_detail(
+        &self,
+        id: &str,
+        recent_limit: i64,
+    ) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    /// Refresh the `sigma_rule_stats` materialized view. Called from the
+    /// 5-min sigma cycle so the dashboard never drifts more than one cycle
+    /// behind reality. Cheap on small rule counts (~75 rules today).
+    async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError>;
+
+    /// Toggle a rule's `enabled` flag. Returns whether a row was updated
+    /// (false when the id does not exist).
+    async fn set_sigma_rule_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Update the promotion ladder fields. Pass `None` to leave a field
+    /// untouched. Each value is validated against the CHECK constraint
+    /// in the migration so a misbehaving caller cannot poison the
+    /// column.
+    async fn set_sigma_rule_promotion(
+        &self,
+        id: &str,
+        disposition: Option<&str>,
+        tier: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<bool, DatabaseError>;
+
+    /// List all active exceptions (no expiry OR expiry in future) for a
+    /// given rule. Used by the dashboard rule detail page.
+    async fn list_sigma_rule_exceptions(
+        &self,
+        rule_id: &str,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// List every active exception in the system, joined with the rule
+    /// title. Powers the suppression audit page.
+    async fn list_sigma_exceptions_all(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Insert a new exception. Returns the new id.
+    async fn insert_sigma_rule_exception(
+        &self,
+        rule_id: &str,
+        scope_field: &str,
+        scope_value: &str,
+        reason: Option<&str>,
+        owner: Option<&str>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Delete an exception by id. Returns the number of rows removed
+    /// (0 if the id did not exist).
+    async fn delete_sigma_rule_exception(&self, id: i64) -> Result<u64, DatabaseError>;
+
+    /// Load every currently active exception so the engine can apply
+    /// the allowlist at match time. Engine calls this at reload, not
+    /// per log line.
+    async fn load_active_sigma_exceptions(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Upsert a Sigma rule from the on-disk `rules/*.yaml` source. The
+    /// content-derived fields (title, description, detection_json, tags,
+    /// level, status, references, author, falsepositives, rule_yaml) are
+    /// overwritten; the operator-managed columns (enabled, disposition,
+    /// tier, owner, promoted_at) are preserved on existing rows.
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_sigma_rule_from_file(
+        &self,
+        id: &str,
+        title: &str,
+        description: Option<&str>,
+        level: &str,
+        status: Option<&str>,
+        logsource_category: Option<&str>,
+        logsource_product: Option<&str>,
+        logsource_service: Option<&str>,
+        tags: &[String],
+        author: Option<&str>,
+        rule_yaml: &str,
+        detection_json: &serde_json::Value,
+    ) -> Result<(), DatabaseError>;
+
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
 

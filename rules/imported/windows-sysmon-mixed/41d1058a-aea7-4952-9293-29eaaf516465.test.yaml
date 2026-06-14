@@ -1,0 +1,5 @@
+rule: 41d1058a-aea7-4952-9293-29eaaf516465
+title: Removal Of AMSI Provider Registry Keys
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

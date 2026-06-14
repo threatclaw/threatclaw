@@ -1,0 +1,5 @@
+rule: 889719ef-dd62-43df-86c3-768fb08dc7c0
+title: Suspicious PowerShell Mailbox Export to Share
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

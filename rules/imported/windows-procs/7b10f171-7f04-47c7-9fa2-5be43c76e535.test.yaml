@@ -1,0 +1,5 @@
+rule: 7b10f171-7f04-47c7-9fa2-5be43c76e535
+title: Visual Basic Command Line Compiler Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

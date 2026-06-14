@@ -1,0 +1,5 @@
+rule: cc9cbe82-7bc0-4ef5-bc23-bbfb83947be7
+title: File Decoded From Base64/Hex Via Certutil.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

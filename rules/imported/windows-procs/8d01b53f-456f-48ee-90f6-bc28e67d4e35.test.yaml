@@ -1,0 +1,5 @@
+rule: 8d01b53f-456f-48ee-90f6-bc28e67d4e35
+title: Suspicious Obfuscated PowerShell Code
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

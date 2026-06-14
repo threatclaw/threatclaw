@@ -1,0 +1,5 @@
+rule: c420410f-c2d8-4010-856b-dffe21866437
+title: Enable LM Hash Storage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

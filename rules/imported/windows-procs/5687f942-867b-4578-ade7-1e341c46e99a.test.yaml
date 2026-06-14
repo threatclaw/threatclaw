@@ -1,0 +1,5 @@
+rule: 5687f942-867b-4578-ade7-1e341c46e99a
+title: VMToolsd Suspicious Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

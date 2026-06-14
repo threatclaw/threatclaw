@@ -1,0 +1,5 @@
+rule: 45a594aa-1fbd-4972-a809-ff5a99dd81b8
+title: Run PowerShell Script from ADS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 24e3e58a-646b-4b50-adef-02ef935b9fc8
+title: Hacktool Execution - Imphash
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

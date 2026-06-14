@@ -1,0 +1,5 @@
+rule: baef1ec6-2ca9-47a3-97cc-4cf2bda10b77
+title: Potential Credential Dumping Attempt Using New NetworkProvider - CLI
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 32b96012-7892-429e-b26c-ac2bf46066ff
+title: Shell32 DLL Execution in Suspicious Directory
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

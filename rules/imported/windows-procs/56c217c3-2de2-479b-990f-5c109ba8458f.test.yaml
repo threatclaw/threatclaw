@@ -1,0 +1,5 @@
+rule: 56c217c3-2de2-479b-990f-5c109ba8458f
+title: HackTool - Default PowerSploit/Empire Scheduled Task Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

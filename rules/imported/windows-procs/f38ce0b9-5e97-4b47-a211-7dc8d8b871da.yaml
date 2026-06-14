@@ -1,0 +1,29 @@
+title: Potential RDP Tunneling Via Plink
+id: f38ce0b9-5e97-4b47-a211-7dc8d8b871da
+status: test
+description: Execution of plink to perform data exfiltration and tunneling
+references:
+- https://www.microsoft.com/security/blog/2022/07/26/malicious-iis-extensions-quietly-open-persistent-backdoors-into-servers/
+author: Florian Roth (Nextron Systems)
+date: 2022-08-04
+tags:
+- attack.command-and-control
+- attack.t1572
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_a:
+    data.Image|endswith: \plink.exe
+    data.CommandLine|contains: :127.0.0.1:3389
+  selection_b1:
+    data.Image|endswith: \plink.exe
+    data.CommandLine|contains: :3389
+  selection_b2:
+    data.CommandLine|contains:
+    - ' -P 443'
+    - ' -P 22'
+  condition: selection_a or all of selection_b*
+falsepositives:
+- Unknown
+level: high

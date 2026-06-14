@@ -1,0 +1,5 @@
+rule: b61e87c0-50db-4b2e-8986-6a2be94b33b0
+title: Directory Service Restore Mode(DSRM) Registry Value Tampering
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

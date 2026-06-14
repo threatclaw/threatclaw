@@ -1,0 +1,5 @@
+rule: 9ccba514-7cb6-4c5c-b377-700758f2f120
+title: Suspicious Child Process of AspNetCompiler
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

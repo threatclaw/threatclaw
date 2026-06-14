@@ -1,0 +1,5 @@
+rule: c3d76afc-93df-461e-8e67-9b2bad3f2ac4
+title: File Explorer Folder Opened Using Explorer Folder Shortcut Via Shell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

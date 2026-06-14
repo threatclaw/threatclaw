@@ -1,0 +1,5 @@
+rule: 89a9a0e0-f61a-42e5-8957-b1479565a658
+title: UAC Bypass WSReset
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

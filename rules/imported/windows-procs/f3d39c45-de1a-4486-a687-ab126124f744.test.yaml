@@ -1,0 +1,5 @@
+rule: f3d39c45-de1a-4486-a687-ab126124f744
+title: Sdiagnhost Calling Suspicious Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

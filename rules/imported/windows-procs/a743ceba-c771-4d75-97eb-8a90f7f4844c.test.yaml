@@ -1,0 +1,5 @@
+rule: a743ceba-c771-4d75-97eb-8a90f7f4844c
+title: UAC Bypass Using PkgMgr and DISM
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

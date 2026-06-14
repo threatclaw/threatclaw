@@ -1,0 +1,5 @@
+rule: 961e33d1-4f86-4fcf-80ab-930a708b2f82
+title: Potential Persistence Via Excel Add-in - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 9f4662ac-17ca-43aa-8f12-5d7b989d0101
+title: Tamper With Sophos AV Registry Keys
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

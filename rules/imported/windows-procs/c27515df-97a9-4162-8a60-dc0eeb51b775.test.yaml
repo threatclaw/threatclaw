@@ -1,0 +1,5 @@
+rule: c27515df-97a9-4162-8a60-dc0eeb51b775
+title: Suspicious Microsoft OneNote Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

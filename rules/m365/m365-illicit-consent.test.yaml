@@ -1,0 +1,17 @@
+rule: m365-illicit-consent
+
+positive:
+  - description: User consents to app requesting Mail.ReadWrite
+    event:
+      full_log: 'operationName: Consent to application; modifiedProperties: ConsentType=User, ResourceDisplayName=Mail.ReadWrite, offline_access'
+  - description: Delegated permission grant for Files.ReadWrite.All
+    event:
+      full_log: 'Add delegated permission grant Files.ReadWrite.All for unknown.contoso.app'
+
+negative:
+  - description: Consent to a read-only telemetry scope
+    event:
+      full_log: 'operationName: Consent to application; ResourceDisplayName=User.Read'
+  - description: Sign-in event without consent operation
+    event:
+      full_log: 'operationName: Sign-in activity, userPrincipalName=user@corp.com'

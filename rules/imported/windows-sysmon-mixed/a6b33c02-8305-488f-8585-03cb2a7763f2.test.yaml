@@ -1,0 +1,5 @@
+rule: a6b33c02-8305-488f-8585-03cb2a7763f2
+title: Windows Credential Editor Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

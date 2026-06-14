@@ -1,0 +1,5 @@
+rule: 0ac15ec3-d24f-4246-aa2a-3077bb1cf90e
+title: Privileged User Has Been Created
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

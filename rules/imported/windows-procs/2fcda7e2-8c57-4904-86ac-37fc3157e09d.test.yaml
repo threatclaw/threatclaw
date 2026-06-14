@@ -1,0 +1,5 @@
+rule: 2fcda7e2-8c57-4904-86ac-37fc3157e09d
+title: Sensitive File Dump Via Print.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

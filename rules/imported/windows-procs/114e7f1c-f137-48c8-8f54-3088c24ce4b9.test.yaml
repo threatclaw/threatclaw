@@ -1,0 +1,5 @@
+rule: 114e7f1c-f137-48c8-8f54-3088c24ce4b9
+title: Remote Access Tool - AnyDesk Silent Installation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

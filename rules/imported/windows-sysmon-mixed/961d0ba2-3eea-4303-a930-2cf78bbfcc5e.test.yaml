@@ -1,0 +1,5 @@
+rule: 961d0ba2-3eea-4303-a930-2cf78bbfcc5e
+title: HackTool - Credential Dumping Tools Named Pipe Created
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

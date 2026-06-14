@@ -1,0 +1,5 @@
+rule: 85f520e7-6f5e-43ca-874c-222e5bf9c0de
+title: Devcon Execution Disabling VMware VMCI Device
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

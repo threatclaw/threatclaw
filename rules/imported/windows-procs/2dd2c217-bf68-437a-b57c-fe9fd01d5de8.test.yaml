@@ -1,0 +1,5 @@
+rule: 2dd2c217-bf68-437a-b57c-fe9fd01d5de8
+title: Potentially Suspicious Regsvr32 HTTP IP Pattern
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,17 @@
+rule: ps-obfusc-014
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      commandline: -ExecutionPolicy Bypass
+  - description: Second positive value from the rule selection
+    event:
+      commandline: -ep bypass
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      commandline: cmd.exe /c echo normal-operation

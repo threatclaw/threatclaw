@@ -1,0 +1,5 @@
+rule: 179b3686-6271-4d87-807d-17d843a8af73
+title: Suspicious Filename with Embedded Base64 Commands
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

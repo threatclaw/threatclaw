@@ -1,0 +1,5 @@
+rule: 8cde342c-ba48-4b74-b615-172c330f2e93
+title: Suspicious Renamed Comsvcs DLL Loaded By Rundll32
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

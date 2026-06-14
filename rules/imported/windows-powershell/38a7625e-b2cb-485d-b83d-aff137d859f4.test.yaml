@@ -1,0 +1,5 @@
+rule: 38a7625e-b2cb-485d-b83d-aff137d859f4
+title: Potential RemoteFXvGPUDisablement.EXE Abuse - PowerShell Module
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: b37998de-a70b-4f33-b219-ec36bf433dc0
+title: PUA - PingCastle Execution From Potentially Suspicious Parent
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

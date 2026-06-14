@@ -1,0 +1,5 @@
+rule: a5ea83a7-05a5-44c1-be2e-addccbbd8c03
+title: UAC Bypass With Fake DLL
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

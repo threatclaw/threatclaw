@@ -1,0 +1,5 @@
+rule: c0b40568-b1e9-4b03-8d6c-b096da6da9ab
+title: Suspicious AgentExecutor PowerShell Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

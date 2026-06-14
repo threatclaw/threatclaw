@@ -1,0 +1,5 @@
+rule: 4bc90587-e6ca-4b41-be0b-ed4d04e4ed0c
+title: Suspicious Velociraptor Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

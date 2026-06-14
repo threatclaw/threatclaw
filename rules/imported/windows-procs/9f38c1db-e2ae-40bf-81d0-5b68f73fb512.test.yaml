@@ -1,0 +1,5 @@
+rule: 9f38c1db-e2ae-40bf-81d0-5b68f73fb512
+title: Suspicious BitLocker Access Agent Update Utility Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

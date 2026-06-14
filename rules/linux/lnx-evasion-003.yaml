@@ -1,0 +1,27 @@
+title: Audit / System Log Cleared
+id: lnx-evasion-003
+status: stable
+description: |
+  auditd stopped or /var/log truncated — indicator removal after compromise
+references:
+  - https://attack.mitre.org/techniques/T1070/002/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1070.002
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - auditctl -D
+      - systemctl stop auditd
+      - service auditd stop
+      - truncate -s 0 /var/log
+      - rm /var/log/auth.log
+      - rm /var/log/secure
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

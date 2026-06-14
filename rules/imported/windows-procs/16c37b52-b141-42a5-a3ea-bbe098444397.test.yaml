@@ -1,0 +1,5 @@
+rule: 16c37b52-b141-42a5-a3ea-bbe098444397
+title: Suspect Svchost Activity
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 208748f7-881d-47ac-a29c-07ea84bf691d
+title: Suspicious Outlook Child Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

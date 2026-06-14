@@ -1,0 +1,5 @@
+rule: 84b1706c-932a-44c4-ae28-892b28a25b94
+title: OneNote.EXE Execution of Malicious Embedded Scripts
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

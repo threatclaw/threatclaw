@@ -1,0 +1,5 @@
+rule: 0d5675be-bc88-4172-86d3-1e96a4476536
+title: Potential Tampering With RDP Related Registry Keys Via Reg.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

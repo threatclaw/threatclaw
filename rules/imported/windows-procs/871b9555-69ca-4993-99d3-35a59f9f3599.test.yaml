@@ -1,0 +1,5 @@
+rule: 871b9555-69ca-4993-99d3-35a59f9f3599
+title: Suspicious UltraVNC Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

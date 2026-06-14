@@ -1,0 +1,5 @@
+rule: f10ed525-97fe-4fed-be7c-2feecca941b1
+title: Persistence Via Hhctrl.ocx
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

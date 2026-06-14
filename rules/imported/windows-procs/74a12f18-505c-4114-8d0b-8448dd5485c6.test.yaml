@@ -1,0 +1,5 @@
+rule: 74a12f18-505c-4114-8d0b-8448dd5485c6
+title: PUA - Nimgrab Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

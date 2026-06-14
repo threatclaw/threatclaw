@@ -1,0 +1,5 @@
+rule: b1c50487-1967-4315-a026-6491686d860e
+title: Office Macro File Creation From Suspicious Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

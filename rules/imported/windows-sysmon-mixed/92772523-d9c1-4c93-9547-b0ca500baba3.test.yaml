@@ -1,0 +1,5 @@
+rule: 92772523-d9c1-4c93-9547-b0ca500baba3
+title: Potential Persistence Via Mpnotify
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

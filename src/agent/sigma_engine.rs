@@ -10,6 +10,13 @@ use tokio::sync::RwLock;
 pub static SIGMA_RULES: LazyLock<Arc<RwLock<Vec<CompiledRule>>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Vec::new())));
 
+/// Active exception list, refreshed at the same cadence as the rules.
+/// Indexed at lookup time on (rule_id, scope_field, scope_value) — the
+/// cardinality is expected to stay below a few hundred so a linear scan
+/// is fine.
+pub static SIGMA_EXCEPTIONS: LazyLock<Arc<RwLock<Vec<ActiveException>>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(Vec::new())));
+
 // ── Types ──
 
 pub struct CompiledRule {
@@ -22,6 +29,79 @@ pub struct CompiledRule {
     pub tags: Vec<String>,
     pub matchers: HashMap<String, Vec<FieldMatcher>>, // named selections
     pub condition: Condition,
+    /// Promotion ladder disposition controlling how matches are surfaced
+    /// (monitor / detect / block). Default 'detect'.
+    pub disposition: String,
+}
+
+/// Cached active exception. Comparison against alert fields happens
+/// case-insensitively for textual scopes (hostname / username / tag)
+/// and exact for source_ip.
+#[derive(Debug, Clone)]
+pub struct ActiveException {
+    pub rule_id: String,
+    pub scope_field: String,
+    pub scope_value: String,
+}
+
+/// True if any active exception silences the rule for the given alert
+/// context. Engine checks this AFTER `match_rule` returned a hit, but
+/// BEFORE the alert is written to the DB — so excluded matches leave no
+/// trace beyond a trace::debug line.
+pub fn alert_is_excepted(
+    exceptions: &[ActiveException],
+    rule_id: &str,
+    hostname: Option<&str>,
+    source_ip: Option<&str>,
+    username: Option<&str>,
+    rule_tags: &[String],
+) -> bool {
+    for ex in exceptions {
+        if ex.rule_id != rule_id {
+            continue;
+        }
+        let scope_lower = ex.scope_value.to_lowercase();
+        match ex.scope_field.as_str() {
+            "hostname" => {
+                if let Some(h) = hostname {
+                    if h.eq_ignore_ascii_case(&ex.scope_value) {
+                        return true;
+                    }
+                    // Allow a trailing wildcard so an operator can scope
+                    // an exception to a host family (e.g. `srv-prod-*`).
+                    if let Some(prefix) = ex.scope_value.strip_suffix('*') {
+                        if h.to_lowercase().starts_with(&prefix.to_lowercase()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            "source_ip" => {
+                if let Some(ip) = source_ip {
+                    if ip == ex.scope_value {
+                        return true;
+                    }
+                }
+            }
+            "username" => {
+                if let Some(u) = username {
+                    if u.eq_ignore_ascii_case(&ex.scope_value) {
+                        return true;
+                    }
+                }
+            }
+            "tag" => {
+                if rule_tags
+                    .iter()
+                    .any(|t| t.to_lowercase() == scope_lower)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 pub enum FieldMatcher {
@@ -34,6 +114,12 @@ pub enum FieldMatcher {
     ContainsAny(String, Vec<String>), // field|contains: [a,b,c] — substring OR
     StartsWithAny(String, Vec<String>),
     EndsWithAny(String, Vec<String>),
+    // `|<mod>|all` variants — every value must match (AND semantics). Used by
+    // SigmaHQ patterns like `CommandLine|contains|all: [' -hp', ' a ', ' -m']`
+    // where a single command line must contain every fragment.
+    ContainsAll(String, Vec<String>),
+    StartsWithAll(String, Vec<String>),
+    EndsWithAll(String, Vec<String>),
 }
 
 pub enum Condition {
@@ -86,10 +172,19 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
     match selection {
         Value::Object(map) => {
             for (key, val) in map {
-                // Parse field|modifier syntax
-                let parts: Vec<&str> = key.splitn(2, '|').collect();
+                // Parse field|modifier(|all) syntax. SigmaHQ rules frequently
+                // chain a second `|all` segment to require every list value
+                // to be present in the field (vs the default ANY-of). We also
+                // tolerate `|all` appearing before the matcher modifier.
+                let parts: Vec<&str> = key.split('|').collect();
                 let field = parts[0].to_string();
-                let modifier = parts.get(1).copied().unwrap_or("");
+                let has_all = parts.iter().skip(1).any(|p| *p == "all");
+                let modifier = parts
+                    .iter()
+                    .skip(1)
+                    .find(|p| **p != "all")
+                    .copied()
+                    .unwrap_or("");
 
                 match val {
                     Value::String(s) => {
@@ -115,14 +210,23 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                         // content (which has prefixes / suffixes). The pre-fix
                         // bug took out our V58 / V59 / V60 rules until V61.
                         let lower: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
-                        match modifier {
-                            "contains" => {
+                        match (modifier, has_all) {
+                            ("contains", true) => {
+                                matchers.push(FieldMatcher::ContainsAll(field, lower));
+                            }
+                            ("startswith", true) => {
+                                matchers.push(FieldMatcher::StartsWithAll(field, lower));
+                            }
+                            ("endswith", true) => {
+                                matchers.push(FieldMatcher::EndsWithAll(field, lower));
+                            }
+                            ("contains", false) => {
                                 matchers.push(FieldMatcher::ContainsAny(field, lower));
                             }
-                            "startswith" => {
+                            ("startswith", false) => {
                                 matchers.push(FieldMatcher::StartsWithAny(field, lower));
                             }
-                            "endswith" => {
+                            ("endswith", false) => {
                                 matchers.push(FieldMatcher::EndsWithAny(field, lower));
                             }
                             _ => {
@@ -164,7 +268,14 @@ fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
 }
 
 /// Parse a condition string into a Condition tree.
-/// Supports: "selection", "selection and not filter", "selection1 or selection2"
+///
+/// Supports:
+///   - bare reference: `selection`
+///   - binary: `X and Y`, `X or Y`, `X and not Y`
+///   - unary:  `not X`
+///   - quantifier: `1 of X`, `all of X` where `X` is a name pattern
+///     (wildcard `*` or the literal `them`). Quantifiers fold to nested
+///     And/Or so the rest of the engine stays unaware of them.
 fn parse_condition(cond: &str, selections: &HashMap<String, Vec<FieldMatcher>>) -> Condition {
     let cond = cond.trim();
 
@@ -203,8 +314,79 @@ fn parse_condition(cond: &str, selections: &HashMap<String, Vec<FieldMatcher>>) 
         return Condition::Not(Box::new(parse_condition(rest, selections)));
     }
 
+    // Handle "1 of <pattern>" and "all of <pattern>". Pattern matching is
+    // intentionally simple (prefix*, *suffix, exact, or `them`) since this
+    // is what SigmaHQ actually emits in practice — full glob is overkill.
+    if let Some(pat) = cond.strip_prefix("1 of ") {
+        let names = expand_selection_pattern(pat.trim(), selections);
+        if names.is_empty() {
+            return Condition::Ref(cond.to_string());
+        }
+        return fold_or(names);
+    }
+    if let Some(pat) = cond.strip_prefix("all of ") {
+        let names = expand_selection_pattern(pat.trim(), selections);
+        if names.is_empty() {
+            return Condition::Ref(cond.to_string());
+        }
+        return fold_and(names);
+    }
+
     // Simple reference
     Condition::Ref(cond.to_string())
+}
+
+/// Expand a `1 of X` / `all of X` pattern into the concrete selection names
+/// defined in the detection block. Empty result means the pattern didn't
+/// match anything — caller should fall back to a leaf Ref so the engine
+/// returns false safely instead of panicking.
+fn expand_selection_pattern(
+    pat: &str,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Vec<String> {
+    if pat == "them" {
+        // `1 of them` / `all of them`: every named selection in the block.
+        // SigmaHQ's spec excludes the `condition`/`timeframe` keys, which
+        // we already stripped at compile time, so all keys remaining in
+        // `selections` are valid candidates.
+        let mut names: Vec<String> = selections.keys().cloned().collect();
+        names.sort();
+        return names;
+    }
+    if let Some(prefix) = pat.strip_suffix('*') {
+        let mut names: Vec<String> = selections
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
+        names.sort();
+        return names;
+    }
+    if let Some(suffix) = pat.strip_prefix('*') {
+        let mut names: Vec<String> = selections
+            .keys()
+            .filter(|k| k.ends_with(suffix))
+            .cloned()
+            .collect();
+        names.sort();
+        return names;
+    }
+    if selections.contains_key(pat) {
+        return vec![pat.to_string()];
+    }
+    Vec::new()
+}
+
+fn fold_or(names: Vec<String>) -> Condition {
+    let mut iter = names.into_iter().map(|n| Condition::Ref(n));
+    let first = iter.next().expect("non-empty");
+    iter.fold(first, |acc, c| Condition::Or(Box::new(acc), Box::new(c)))
+}
+
+fn fold_and(names: Vec<String>) -> Condition {
+    let mut iter = names.into_iter().map(|n| Condition::Ref(n));
+    let first = iter.next().expect("non-empty");
+    iter.fold(first, |acc, c| Condition::And(Box::new(acc), Box::new(c)))
 }
 
 // ── Matching ──
@@ -400,6 +582,44 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             }
             false
         }
+        FieldMatcher::ContainsAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.contains(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            // Body-scan fallback: every fragment must appear somewhere in the
+            // serialized event. Mirrors the Contains/ContainsAny fallback, but
+            // gated on all() so noisy hits don't sneak through.
+            let text = log.to_string().to_lowercase();
+            if values.iter().all(|v| text.contains(v.as_str())) {
+                matched.push((field.clone(), values.join(" + ")));
+                return true;
+            }
+            false
+        }
+        FieldMatcher::StartsWithAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.starts_with(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::EndsWithAll(field, values) => {
+            if let Some(val) = find_field(log, field) {
+                let val_lower = val.to_lowercase();
+                if values.iter().all(|v| val_lower.ends_with(v.as_str())) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
     }
 }
 
@@ -486,17 +706,76 @@ fn wildcard_match_inner(pattern: &[char], text: &[char], pi: usize, ti: usize) -
 /// Load enabled sigma rules from DB and compile them.
 pub async fn init(store: &dyn crate::db::Database) {
     let rules = load_and_compile(store).await;
-    let count = rules.len();
+    let rule_count = rules.len();
     *SIGMA_RULES.write().await = rules;
-    tracing::info!("SIGMA ENGINE: {} rules compiled and loaded", count);
+
+    let exceptions = load_active_exceptions(store).await;
+    let exc_count = exceptions.len();
+    *SIGMA_EXCEPTIONS.write().await = exceptions;
+
+    tracing::info!(
+        "SIGMA ENGINE: {} rules compiled, {} active exceptions loaded",
+        rule_count,
+        exc_count
+    );
 }
 
-/// Reload rules (after CRUD changes).
+/// Reload rules and exceptions (after CRUD changes).
 pub async fn reload(store: &dyn crate::db::Database) {
     let rules = load_and_compile(store).await;
-    let count = rules.len();
+    let rule_count = rules.len();
     *SIGMA_RULES.write().await = rules;
-    tracing::info!("SIGMA ENGINE: Reloaded — {} rules", count);
+
+    let exceptions = load_active_exceptions(store).await;
+    let exc_count = exceptions.len();
+    *SIGMA_EXCEPTIONS.write().await = exceptions;
+
+    tracing::info!(
+        "SIGMA ENGINE: Reloaded — {} rules, {} exceptions",
+        rule_count,
+        exc_count
+    );
+}
+
+// ── Test-only re-exports ──────────────────────────────────────────
+//
+// The integration test runner under `tests/sigma_rules.rs` needs to
+// compile a YAML detection block and match it against fixture events.
+// We don't want to expose `compile_detection` / `match_rule` to the
+// rest of the crate — those are engine internals — so we provide
+// these thin wrappers behind a feature-less but opt-in name.
+
+pub fn compile_detection_for_tests(
+    detection: &serde_json::Value,
+) -> Option<(HashMap<String, Vec<FieldMatcher>>, Condition)> {
+    compile_detection(detection)
+}
+
+pub fn match_rule_for_tests(
+    rule: &CompiledRule,
+    log: &serde_json::Value,
+    log_tag: Option<&str>,
+) -> Option<SigmaMatch> {
+    match_rule(rule, log, log_tag)
+}
+
+async fn load_active_exceptions(store: &dyn crate::db::Database) -> Vec<ActiveException> {
+    match store.load_active_sigma_exceptions().await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| {
+                Some(ActiveException {
+                    rule_id: r.get("rule_id")?.as_str()?.to_string(),
+                    scope_field: r.get("scope_field")?.as_str()?.to_string(),
+                    scope_value: r.get("scope_value")?.as_str()?.to_string(),
+                })
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!("SIGMA ENGINE: Failed to load exceptions: {e}");
+            Vec::new()
+        }
+    }
 }
 
 async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> {
@@ -520,6 +799,10 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
         }
 
         if let Some((matchers, condition)) = compile_detection(detection) {
+            let disposition = row["disposition"]
+                .as_str()
+                .unwrap_or("detect")
+                .to_string();
             compiled.push(CompiledRule {
                 id,
                 title,
@@ -537,6 +820,7 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
                     .unwrap_or_default(),
                 matchers,
                 condition,
+                disposition,
             });
         } else {
             tracing::debug!(
@@ -754,6 +1038,29 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     canonical_asset
                 };
 
+                // Phase B — active exception filter. Operator-scoped
+                // allowlist that silences a rule for a hostname / source
+                // IP / username / tag. Loaded at engine reload, expired
+                // entries already dropped by the SQL `WHERE` clause.
+                {
+                    let exceptions = SIGMA_EXCEPTIONS.read().await;
+                    if alert_is_excepted(
+                        &exceptions,
+                        &m.rule_id,
+                        Some(&canonical_asset),
+                        source_ip,
+                        username,
+                        &rule.tags,
+                    ) {
+                        tracing::debug!(
+                            "SIGMA ENGINE: alert dropped by exception — rule={} asset={}",
+                            m.rule_id,
+                            canonical_asset
+                        );
+                        continue;
+                    }
+                }
+
                 // Phase 5 (Bug 8) — sérialise les `matched_fields` extraits par
                 // l'engine sigma (ex: signature Suricata, dest_port, proto, action
                 // firewall, bytes échangés) et les persiste en DB pour qu'ils
@@ -764,12 +1071,29 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 for (k, v) in &m.matched_fields {
                     mf_obj.insert(k.clone(), serde_json::Value::String(v.clone()));
                 }
+                // Phase B — promotion ladder disposition. `block` tags the
+                // alert so the HITL panel surfaces an explicit "auto-action
+                // recommended" pill. `monitor` forces the alert level down
+                // to informational so it lands in audit-only mode and the
+                // promotion-to-finding short-circuit below filters it out.
+                let effective_level: String = match rule.disposition.as_str() {
+                    "monitor" => "informational".to_string(),
+                    other => {
+                        if other == "block" {
+                            mf_obj.insert(
+                                "_disposition".into(),
+                                serde_json::Value::String("block".into()),
+                            );
+                        }
+                        m.level.clone()
+                    }
+                };
                 let mf_value = serde_json::Value::Object(mf_obj);
 
                 let _ = store
                     .insert_sigma_alert_with_fields(
                         &m.rule_id,
-                        &m.level,
+                        &effective_level,
                         &m.rule_title,
                         &canonical_asset,
                         source_ip,
@@ -787,7 +1111,10 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 alerts_created += 1;
 
                 // ── Decide if this alert promotes to a finding ──
-                let level_lc = m.level.to_lowercase();
+                // Use the *effective* level so a rule in `monitor` mode
+                // (which we just downgraded to informational) never
+                // promotes — that's the entire point of audit-only.
+                let level_lc = effective_level.to_lowercase();
                 let promote = match level_lc.as_str() {
                     "critical" | "high" => true,
                     "medium" => {
@@ -868,6 +1195,13 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
             logs.len(),
             rules.len()
         );
+    }
+
+    // Keep the sigma_rule_stats matview in lockstep with the cycle so the
+    // dashboard never lags more than one tick. Cheap on ~75 rules; the
+    // CONCURRENTLY refresh avoids blocking reads during the swap.
+    if let Err(e) = store.refresh_sigma_rule_stats().await {
+        tracing::warn!("SIGMA ENGINE: refresh_sigma_rule_stats failed: {e}");
     }
 }
 
@@ -1036,7 +1370,411 @@ async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_program_or_container_id;
+    use super::*;
+    use serde_json::json;
+
+    // ── wildcard_match ─────────────────────────────────────────────
+
+    #[test]
+    fn wildcard_exact_match() {
+        assert!(wildcard_match("hello", "hello"));
+        assert!(!wildcard_match("hello", "world"));
+    }
+
+    #[test]
+    fn wildcard_star_matches_anything() {
+        assert!(wildcard_match("*", "anything"));
+        assert!(wildcard_match("*", ""));
+        assert!(wildcard_match("hello*", "helloworld"));
+        assert!(wildcard_match("*world", "helloworld"));
+        assert!(wildcard_match("hello*world", "helloANYworld"));
+    }
+
+    #[test]
+    fn wildcard_question_matches_one_char() {
+        assert!(wildcard_match("h?llo", "hello"));
+        assert!(wildcard_match("h?llo", "hxllo"));
+        assert!(!wildcard_match("h?llo", "hllo"));
+    }
+
+    #[test]
+    fn wildcard_consecutive_stars_collapse() {
+        assert!(wildcard_match("***", "anything"));
+        assert!(wildcard_match("a**b", "axxb"));
+    }
+
+    // ── find_field ─────────────────────────────────────────────────
+
+    #[test]
+    fn find_field_top_level() {
+        let log = json!({ "username": "alice", "src_ip": "10.0.0.1" });
+        assert_eq!(find_field(&log, "username"), Some("alice".into()));
+        assert_eq!(find_field(&log, "src_ip"), Some("10.0.0.1".into()));
+    }
+
+    #[test]
+    fn find_field_case_insensitive() {
+        let log = json!({ "UserName": "alice" });
+        assert_eq!(find_field(&log, "username"), Some("alice".into()));
+        assert_eq!(find_field(&log, "USERNAME"), Some("alice".into()));
+    }
+
+    #[test]
+    fn find_field_dot_notation_nested() {
+        let log = json!({ "data": { "host": { "name": "srv-01" } } });
+        assert_eq!(find_field(&log, "data.host.name"), Some("srv-01".into()));
+    }
+
+    #[test]
+    fn find_field_missing_returns_none() {
+        let log = json!({ "username": "alice" });
+        assert_eq!(find_field(&log, "missing"), None);
+    }
+
+    #[test]
+    fn find_field_handles_numeric_values() {
+        let log = json!({ "port": 22, "score": 9.5 });
+        assert_eq!(find_field(&log, "port"), Some("22".into()));
+        assert_eq!(find_field(&log, "score"), Some("9.5".into()));
+    }
+
+    // ── eval_matcher ───────────────────────────────────────────────
+
+    fn run_matcher(m: &FieldMatcher, log: &serde_json::Value) -> bool {
+        let mut buf = Vec::new();
+        eval_matcher(m, log, &mut buf)
+    }
+
+    // NOTE on matcher invariants: `make_matcher` lowercases the pattern
+    // value at compile time, then `eval_matcher` lowercases the log value
+    // at run time. So when constructing a FieldMatcher directly in a test,
+    // its second argument is assumed to be ALREADY lowercased. The case
+    // insensitivity is enforced at compile time, not in the matcher body.
+    // The `matcher_via_make_matcher` test below verifies the end-to-end
+    // case insensitivity chain that real users see.
+
+    #[test]
+    fn matcher_exact_lowercase_pattern() {
+        let log = json!({ "username": "Alice" });
+        assert!(run_matcher(&FieldMatcher::Exact("username".into(), "alice".into()), &log));
+        assert!(!run_matcher(&FieldMatcher::Exact("username".into(), "bob".into()), &log));
+    }
+
+    #[test]
+    fn matcher_via_make_matcher_is_case_insensitive_end_to_end() {
+        // What a user writes in YAML: value with arbitrary casing.
+        let m = make_matcher("username", "", "ALICE");
+        let log_upper = json!({ "username": "Alice" });
+        let log_lower = json!({ "username": "alice" });
+        let log_mixed = json!({ "username": "aLiCe" });
+        let mut buf = Vec::new();
+        assert!(eval_matcher(&m, &log_upper, &mut buf));
+        assert!(eval_matcher(&m, &log_lower, &mut buf));
+        assert!(eval_matcher(&m, &log_mixed, &mut buf));
+    }
+
+    #[test]
+    fn matcher_contains_substring() {
+        let log = json!({ "message": "Failed login from 10.0.0.1" });
+        // Pattern stored lowercased per make_matcher invariant.
+        assert!(run_matcher(&FieldMatcher::Contains("message".into(), "failed login".into()), &log));
+        assert!(!run_matcher(&FieldMatcher::Contains("message".into(), "success".into()), &log));
+    }
+
+    #[test]
+    fn matcher_contains_falls_back_to_body_scan() {
+        // Field doesn't exist at top level but value is in the JSON body.
+        let log = json!({ "data": { "raw": "Failed login from 10.0.0.1" } });
+        assert!(run_matcher(&FieldMatcher::Contains("message".into(), "failed login".into()), &log));
+    }
+
+    #[test]
+    fn matcher_startswith_endswith() {
+        let log = json!({ "command": "powershell.exe -EncodedCommand abc" });
+        assert!(run_matcher(
+            &FieldMatcher::StartsWith("command".into(), "powershell".into()),
+            &log
+        ));
+        assert!(run_matcher(&FieldMatcher::EndsWith("command".into(), "abc".into()), &log));
+        assert!(!run_matcher(
+            &FieldMatcher::StartsWith("command".into(), "cmd".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn matcher_wildcard_uses_glob() {
+        let log = json!({ "path": "C:\\Users\\admin\\Documents\\file.exe" });
+        // Pattern + log value both lowercased before glob compare.
+        assert!(run_matcher(
+            &FieldMatcher::Wildcard("path".into(), "c:\\users\\*\\file.exe".into()),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::Wildcard("path".into(), "c:\\windows\\*".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn matcher_any_of_or() {
+        let log = json!({ "event_id": "4625" });
+        let m = FieldMatcher::AnyOf("event_id".into(), vec!["4624".into(), "4625".into(), "4768".into()]);
+        assert!(run_matcher(&m, &log));
+        let m_miss =
+            FieldMatcher::AnyOf("event_id".into(), vec!["4624".into(), "4768".into()]);
+        assert!(!run_matcher(&m_miss, &log));
+    }
+
+    #[test]
+    fn matcher_contains_any_or() {
+        let log = json!({ "command": "Invoke-Mimikatz" });
+        let m = FieldMatcher::ContainsAny(
+            "command".into(),
+            vec!["mimikatz".into(), "bloodhound".into()],
+        );
+        assert!(run_matcher(&m, &log));
+    }
+
+    #[test]
+    fn matcher_startswith_any() {
+        let log = json!({ "binary": "powershell.exe" });
+        let m = FieldMatcher::StartsWithAny(
+            "binary".into(),
+            vec!["cmd".into(), "powershell".into(), "wscript".into()],
+        );
+        assert!(run_matcher(&m, &log));
+    }
+
+    #[test]
+    fn matcher_endswith_any() {
+        let log = json!({ "file": "evil.exe" });
+        let m = FieldMatcher::EndsWithAny(
+            "file".into(),
+            vec![".exe".into(), ".dll".into(), ".bat".into()],
+        );
+        assert!(run_matcher(&m, &log));
+    }
+
+    // ── compile_detection / parse_condition ────────────────────────
+
+    #[test]
+    fn compile_simple_selection() {
+        let det = json!({
+            "selection": { "username": "admin" },
+            "condition": "selection"
+        });
+        let (sel, _cond) = compile_detection(&det).expect("compile");
+        assert!(sel.contains_key("selection"));
+        assert_eq!(sel["selection"].len(), 1);
+    }
+
+    #[test]
+    fn compile_selection_with_modifier() {
+        let det = json!({
+            "selection": { "command|contains": "Mimikatz" },
+            "condition": "selection"
+        });
+        let (sel, _) = compile_detection(&det).expect("compile");
+        assert!(matches!(sel["selection"][0], FieldMatcher::Contains(_, _)));
+    }
+
+    #[test]
+    fn condition_and_not_filter() {
+        let det = json!({
+            "selection": { "event_id": "4625" },
+            "filter":    { "username": "test" },
+            "condition": "selection and not filter"
+        });
+        let (sel, cond) = compile_detection(&det).expect("compile");
+
+        // True positive: matches selection, not filter.
+        let log = json!({ "event_id": "4625", "username": "alice" });
+        let mut buf = Vec::new();
+        assert!(eval_condition(&cond, &sel, &log, &mut buf));
+
+        // False: matches the filter too → should NOT fire.
+        let filtered = json!({ "event_id": "4625", "username": "test" });
+        let mut buf2 = Vec::new();
+        assert!(!eval_condition(&cond, &sel, &filtered, &mut buf2));
+    }
+
+    #[test]
+    fn condition_or_alternative() {
+        let det = json!({
+            "selection_a": { "event_id": "4625" },
+            "selection_b": { "event_id": "4768" },
+            "condition": "selection_a or selection_b"
+        });
+        let (sel, cond) = compile_detection(&det).expect("compile");
+
+        let log_a = json!({ "event_id": "4625" });
+        let log_b = json!({ "event_id": "4768" });
+        let log_c = json!({ "event_id": "4624" });
+        let mut buf = Vec::new();
+        assert!(eval_condition(&cond, &sel, &log_a, &mut buf));
+        assert!(eval_condition(&cond, &sel, &log_b, &mut buf));
+        assert!(!eval_condition(&cond, &sel, &log_c, &mut buf));
+    }
+
+    #[test]
+    fn condition_default_is_selection() {
+        // No condition string → defaults to "selection".
+        let det = json!({
+            "selection": { "username": "root" }
+        });
+        let (sel, cond) = compile_detection(&det).expect("compile");
+        let log = json!({ "username": "root" });
+        let mut buf = Vec::new();
+        assert!(eval_condition(&cond, &sel, &log, &mut buf));
+    }
+
+    // ── match_rule (end-to-end) ────────────────────────────────────
+
+    fn rule(id: &str, selections: HashMap<String, Vec<FieldMatcher>>, cond: Condition) -> CompiledRule {
+        CompiledRule {
+            id: id.into(),
+            title: id.into(),
+            level: "high".into(),
+            logsource_category: None,
+            logsource_product: None,
+            logsource_service: None,
+            tags: vec![],
+            matchers: selections,
+            condition: cond,
+            disposition: "detect".into(),
+        }
+    }
+
+    #[test]
+    fn match_rule_returns_match_on_hit() {
+        let mut sels = HashMap::new();
+        sels.insert(
+            "selection".into(),
+            vec![FieldMatcher::Exact("username".into(), "root".into())],
+        );
+        let r = rule("rid", sels, Condition::Ref("selection".into()));
+        let log = json!({ "username": "root" });
+        let m = match_rule(&r, &log, None);
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().rule_id, "rid");
+    }
+
+    #[test]
+    fn match_rule_returns_none_on_miss() {
+        let mut sels = HashMap::new();
+        sels.insert(
+            "selection".into(),
+            vec![FieldMatcher::Exact("username".into(), "root".into())],
+        );
+        let r = rule("rid", sels, Condition::Ref("selection".into()));
+        let log = json!({ "username": "alice" });
+        assert!(match_rule(&r, &log, None).is_none());
+    }
+
+    #[test]
+    fn match_rule_respects_logsource_category_via_tag() {
+        let mut sels = HashMap::new();
+        sels.insert(
+            "selection".into(),
+            vec![FieldMatcher::Exact("event_id".into(), "4625".into())],
+        );
+        let mut r = rule("rid", sels, Condition::Ref("selection".into()));
+        r.logsource_category = Some("windows".into());
+
+        let log = json!({ "event_id": "4625" });
+        // Tag matches category — fires.
+        assert!(match_rule(&r, &log, Some("windows.security")).is_some());
+        // Tag does not match — drops.
+        assert!(match_rule(&r, &log, Some("linux.syslog")).is_none());
+    }
+
+    // ── alert_is_excepted (Phase B exceptions) ─────────────────────
+
+    fn exc(rule_id: &str, scope: &str, value: &str) -> ActiveException {
+        ActiveException {
+            rule_id: rule_id.into(),
+            scope_field: scope.into(),
+            scope_value: value.into(),
+        }
+    }
+
+    #[test]
+    fn exception_hostname_exact() {
+        let list = vec![exc("rid", "hostname", "srv-prod-01")];
+        assert!(alert_is_excepted(
+            &list, "rid", Some("srv-prod-01"), None, None, &[]
+        ));
+        assert!(!alert_is_excepted(
+            &list, "rid", Some("srv-prod-02"), None, None, &[]
+        ));
+    }
+
+    #[test]
+    fn exception_hostname_case_insensitive() {
+        let list = vec![exc("rid", "hostname", "Srv-Prod-01")];
+        assert!(alert_is_excepted(
+            &list, "rid", Some("srv-PROD-01"), None, None, &[]
+        ));
+    }
+
+    #[test]
+    fn exception_hostname_trailing_wildcard() {
+        let list = vec![exc("rid", "hostname", "srv-prod-*")];
+        assert!(alert_is_excepted(
+            &list, "rid", Some("srv-prod-01"), None, None, &[]
+        ));
+        assert!(alert_is_excepted(
+            &list, "rid", Some("srv-prod-42"), None, None, &[]
+        ));
+        assert!(!alert_is_excepted(
+            &list, "rid", Some("srv-staging-01"), None, None, &[]
+        ));
+    }
+
+    #[test]
+    fn exception_source_ip_exact() {
+        let list = vec![exc("rid", "source_ip", "10.0.0.5")];
+        assert!(alert_is_excepted(
+            &list, "rid", None, Some("10.0.0.5"), None, &[]
+        ));
+        assert!(!alert_is_excepted(
+            &list, "rid", None, Some("10.0.0.6"), None, &[]
+        ));
+    }
+
+    #[test]
+    fn exception_username() {
+        let list = vec![exc("rid", "username", "svc-backup")];
+        assert!(alert_is_excepted(
+            &list, "rid", None, None, Some("svc-backup"), &[]
+        ));
+        assert!(alert_is_excepted(
+            &list, "rid", None, None, Some("SVC-BACKUP"), &[]
+        ));
+    }
+
+    #[test]
+    fn exception_tag_match() {
+        let list = vec![exc("rid", "tag", "attack.t1110")];
+        let tags = vec!["attack.t1110".to_string(), "attack.credential_access".into()];
+        assert!(alert_is_excepted(&list, "rid", None, None, None, &tags));
+        let other_tags = vec!["attack.t1059".to_string()];
+        assert!(!alert_is_excepted(
+            &list, "rid", None, None, None, &other_tags
+        ));
+    }
+
+    #[test]
+    fn exception_other_rule_not_silenced() {
+        let list = vec![exc("rule-a", "hostname", "srv-prod-01")];
+        // Exception belongs to a different rule — should not trip.
+        assert!(!alert_is_excepted(
+            &list, "rule-b", Some("srv-prod-01"), None, None, &[]
+        ));
+    }
+
+    // ── looks_like_program_or_container_id (existing tests) ────────
 
     #[test]
     fn program_blocklist_filters_common_daemons() {

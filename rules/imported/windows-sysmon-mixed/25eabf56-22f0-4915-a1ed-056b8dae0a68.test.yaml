@@ -1,0 +1,5 @@
+rule: 25eabf56-22f0-4915-a1ed-056b8dae0a68
+title: Suspicious Dropbox API Usage
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

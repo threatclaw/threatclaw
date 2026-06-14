@@ -1,0 +1,5 @@
+rule: 534f2ef7-e8a2-4433-816d-c91bccde289b
+title: Explorer NOUACCHECK Flag
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

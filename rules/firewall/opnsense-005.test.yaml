@@ -1,0 +1,17 @@
+rule: opnsense-005
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      severity: Emergency
+  - description: Second positive value from the rule selection
+    event:
+      severity: Alert
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      severity: benign-value
