@@ -174,6 +174,21 @@ impl ThreatClawStore for LibSqlBackend {
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
+    async fn list_sigma_rules_with_stats(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn get_sigma_rule_detail(
+        &self,
+        _id: &str,
+        _recent_limit: i64,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn execute_cypher(&self, _: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }

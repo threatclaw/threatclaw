@@ -135,7 +135,7 @@ export const SECTIONS: Record<SectionKey, Section> = {
   investigation: {
     key: "investigation",
     label: () => "Investigation",
-    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/hunt"],
+    matches: ["/intelligence", "/governance", "/shadow-ai", "/graphs", "/hunt", "/sigma"],
     items: [
       {
         href: "/hunt",
@@ -144,6 +144,14 @@ export const SECTIONS: Record<SectionKey, Section> = {
         icon: Search,
         tooltipFr: "Puits de log — fouille libre avec filtres hostname/tag/plage et plein texte sur la rétention courante.",
         tooltipEn: "Log lake — free-text hunt over current retention with hostname/tag/range filters.",
+      },
+      {
+        href: "/sigma",
+        labelFr: "Règles de détection",
+        labelEn: "Detection rules",
+        icon: ShieldAlert,
+        tooltipFr: "Catalogue des règles Sigma compilées : statistiques, couverture MITRE, dernières alertes par règle.",
+        tooltipEn: "Compiled Sigma rule catalog: per-rule stats, MITRE coverage, recent alerts.",
       },
       { href: "/intelligence", labelFr: "Intelligence", labelEn: "Intelligence", icon: Brain },
       { href: "/governance", labelFr: "Gouvernance", labelEn: "Governance", icon: Shield },

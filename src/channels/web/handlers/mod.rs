@@ -6,6 +6,7 @@ pub mod channel_incoming;
 pub mod jobs;
 pub mod licensing_api;
 pub mod routines;
+pub mod sigma_api;
 pub mod skills;
 pub mod threatclaw_api;
 pub mod web_chat;

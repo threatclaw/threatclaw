@@ -522,6 +522,18 @@ pub async fn start_server(
             axum::routing::delete(super::handlers::threatclaw_api::hunt_saved_delete_handler),
         )
         .route(
+            "/api/tc/sigma/rules",
+            get(super::handlers::sigma_api::sigma_rules_list_handler),
+        )
+        .route(
+            "/api/tc/sigma/rules/{id}",
+            get(super::handlers::sigma_api::sigma_rule_detail_handler),
+        )
+        .route(
+            "/api/tc/sigma/coverage/mitre",
+            get(super::handlers::sigma_api::sigma_coverage_mitre_handler),
+        )
+        .route(
             "/api/tc/sources/status",
             get(super::handlers::threatclaw_api::sources_status_handler),
         )

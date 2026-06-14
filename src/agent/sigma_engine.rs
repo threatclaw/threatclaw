@@ -869,6 +869,13 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
             rules.len()
         );
     }
+
+    // Keep the sigma_rule_stats matview in lockstep with the cycle so the
+    // dashboard never lags more than one tick. Cheap on ~75 rules; the
+    // CONCURRENTLY refresh avoids blocking reads during the swap.
+    if let Err(e) = store.refresh_sigma_rule_stats().await {
+        tracing::warn!("SIGMA ENGINE: refresh_sigma_rule_stats failed: {e}");
+    }
 }
 
 /// For every distinct, non-empty hostname appearing in the recent log

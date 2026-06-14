@@ -1429,6 +1429,165 @@ impl ThreatClawStore for PgBackend {
         Ok(results)
     }
 
+    async fn list_sigma_rules_with_stats(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Left join — a rule with zero matches still shows up with 0 counts
+        // and NULL last_fire_at; the dashboard renders that as "no fire yet".
+        let rows = conn
+            .query(
+                "SELECT r.id, r.title, r.description, r.level, r.status, r.enabled, \
+                        r.logsource_category, r.logsource_product, r.logsource_service, \
+                        r.tags, r.author, r.updated_at::text, \
+                        COALESCE(s.fire_count_7d, 0), COALESCE(s.fire_count_30d, 0), \
+                        s.last_fire_at::text, COALESCE(s.fp_count_7d, 0), \
+                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d \
+                 FROM sigma_rules r \
+                 LEFT JOIN sigma_rule_stats s ON s.rule_id = r.id \
+                 ORDER BY r.id",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let tags: Vec<String> = row.try_get::<_, Vec<String>>(9).unwrap_or_default();
+            out.push(serde_json::json!({
+                "id": row.get::<_, &str>(0),
+                "title": row.get::<_, &str>(1),
+                "description": row.try_get::<_, &str>(2).ok(),
+                "level": row.get::<_, &str>(3),
+                "status": row.try_get::<_, &str>(4).ok(),
+                "enabled": row.get::<_, bool>(5),
+                "logsource_category": row.try_get::<_, &str>(6).ok(),
+                "logsource_product": row.try_get::<_, &str>(7).ok(),
+                "logsource_service": row.try_get::<_, &str>(8).ok(),
+                "tags": tags,
+                "author": row.try_get::<_, &str>(10).ok(),
+                "updated_at": row.try_get::<_, &str>(11).ok(),
+                "fire_count_7d": row.get::<_, i64>(12),
+                "fire_count_30d": row.get::<_, i64>(13),
+                "last_fire_at": row.try_get::<_, &str>(14).ok(),
+                "fp_count_7d": row.get::<_, i64>(15),
+                "distinct_hosts_7d": row.get::<_, i64>(16),
+                "top_hostname_7d": row.try_get::<_, &str>(17).ok(),
+            }));
+        }
+        Ok(out)
+    }
+
+    async fn get_sigma_rule_detail(
+        &self,
+        id: &str,
+        recent_limit: i64,
+    ) -> Result<Option<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let limit = recent_limit.clamp(1, 200);
+
+        let row_opt = conn
+            .query_opt(
+                "SELECT r.id, r.title, r.description, r.level, r.status, r.enabled, \
+                        r.logsource_category, r.logsource_product, r.logsource_service, \
+                        r.tags, r.author, r.rule_yaml, r.detection_json, r.updated_at::text, \
+                        COALESCE(s.fire_count_7d, 0), COALESCE(s.fire_count_30d, 0), \
+                        s.last_fire_at::text, COALESCE(s.fp_count_7d, 0), \
+                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d \
+                 FROM sigma_rules r \
+                 LEFT JOIN sigma_rule_stats s ON s.rule_id = r.id \
+                 WHERE r.id = $1",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let row = match row_opt {
+            Some(r) => r,
+            None => return Ok(None),
+        };
+
+        let recent_rows = conn
+            .query(
+                "SELECT matched_at::text, level, hostname, host(source_ip), username, status \
+                 FROM sigma_alerts WHERE rule_id = $1 \
+                 ORDER BY matched_at DESC LIMIT $2",
+                &[&id, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+
+        let recent: Vec<serde_json::Value> = recent_rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "matched_at": r.try_get::<_, &str>(0).ok(),
+                    "level": r.try_get::<_, &str>(1).ok(),
+                    "hostname": r.try_get::<_, &str>(2).ok(),
+                    "source_ip": r.try_get::<_, &str>(3).ok(),
+                    "username": r.try_get::<_, &str>(4).ok(),
+                    "status": r.try_get::<_, &str>(5).ok(),
+                })
+            })
+            .collect();
+
+        // Top 5 hostnames by fire count over last 7 days — drives the
+        // "where is this rule actually firing" snippet on the detail page.
+        let top_rows = conn
+            .query(
+                "SELECT hostname, COUNT(*)::bigint FROM sigma_alerts \
+                 WHERE rule_id = $1 AND hostname IS NOT NULL \
+                   AND matched_at >= NOW() - INTERVAL '7 days' \
+                 GROUP BY hostname ORDER BY 2 DESC LIMIT 5",
+                &[&id],
+            )
+            .await
+            .map_err(query_err)?;
+        let top_hosts: Vec<serde_json::Value> = top_rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "hostname": r.get::<_, &str>(0),
+                    "count": r.get::<_, i64>(1),
+                })
+            })
+            .collect();
+
+        let tags: Vec<String> = row.try_get::<_, Vec<String>>(9).unwrap_or_default();
+        Ok(Some(serde_json::json!({
+            "id": row.get::<_, &str>(0),
+            "title": row.get::<_, &str>(1),
+            "description": row.try_get::<_, &str>(2).ok(),
+            "level": row.get::<_, &str>(3),
+            "status": row.try_get::<_, &str>(4).ok(),
+            "enabled": row.get::<_, bool>(5),
+            "logsource_category": row.try_get::<_, &str>(6).ok(),
+            "logsource_product": row.try_get::<_, &str>(7).ok(),
+            "logsource_service": row.try_get::<_, &str>(8).ok(),
+            "tags": tags,
+            "author": row.try_get::<_, &str>(10).ok(),
+            "rule_yaml": row.try_get::<_, &str>(11).ok(),
+            "detection_json": row.try_get::<_, serde_json::Value>(12).unwrap_or(serde_json::Value::Null),
+            "updated_at": row.try_get::<_, &str>(13).ok(),
+            "fire_count_7d": row.get::<_, i64>(14),
+            "fire_count_30d": row.get::<_, i64>(15),
+            "last_fire_at": row.try_get::<_, &str>(16).ok(),
+            "fp_count_7d": row.get::<_, i64>(17),
+            "distinct_hosts_7d": row.get::<_, i64>(18),
+            "top_hostname_7d": row.try_get::<_, &str>(19).ok(),
+            "recent_alerts": recent,
+            "top_hostnames_7d": top_hosts,
+        })))
+    }
+
+    async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY sigma_rule_stats", &[])
+            .await
+            .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Use direct interval interpolation — safe because minutes_back is i64, not user input

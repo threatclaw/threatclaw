@@ -925,6 +925,29 @@ pub trait ThreatClawStore: Send + Sync {
     /// List all enabled Sigma rules with their detection_json for the native engine.
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
+    /// List Sigma rules joined with their aggregated stats (matview
+    /// `sigma_rule_stats`). Returns one row per rule with title, level,
+    /// status, enabled, logsource fields, tags, plus fire_count_7d/30d,
+    /// last_fire_at, fp_count_7d, distinct_hosts_7d, top_hostname_7d.
+    /// Used by the dashboard rules page.
+    async fn list_sigma_rules_with_stats(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Fetch one Sigma rule by id with stats joined and the most recent
+    /// matching alerts attached as `recent_alerts: [{matched_at, hostname,
+    /// source_ip, status}]`. Used by the rule detail page.
+    async fn get_sigma_rule_detail(
+        &self,
+        id: &str,
+        recent_limit: i64,
+    ) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    /// Refresh the `sigma_rule_stats` materialized view. Called from the
+    /// 5-min sigma cycle so the dashboard never drifts more than one cycle
+    /// behind reality. Cheap on small rule counts (~75 rules today).
+    async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError>;
+
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
