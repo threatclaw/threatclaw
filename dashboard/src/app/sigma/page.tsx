@@ -10,6 +10,7 @@ import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import {
   Search, RefreshCw, X, Filter, Activity, ShieldAlert,
   CheckCircle2, AlertCircle, ChevronUp, ChevronDown, Grid3x3, ExternalLink,
+  ShieldOff,
 } from "lucide-react";
 
 type Rule = {
@@ -172,9 +173,14 @@ export default function SigmaRulesPage() {
   return (
     <PageShell title={labels.title} subtitle={labels.subtitle}
       right={
-        <ChromeButton onClick={() => router.push("/sigma/coverage")} variant="glass">
-          <Grid3x3 size={13} /> {labels.coverage}
-        </ChromeButton>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <ChromeButton onClick={() => router.push("/sigma/audit")} variant="glass">
+            <ShieldOff size={13} /> {locale === "fr" ? "Audit" : "Audit"}
+          </ChromeButton>
+          <ChromeButton onClick={() => router.push("/sigma/coverage")} variant="glass">
+            <Grid3x3 size={13} /> {labels.coverage}
+          </ChromeButton>
+        </div>
       }
     >
       {error && <ErrorBanner message={`${labels.error}: ${error}`} onRetry={load} />}

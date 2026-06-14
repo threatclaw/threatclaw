@@ -203,3 +203,143 @@ struct TechniqueCoverage {
     titles: Vec<String>,
     rule_ids: Vec<String>,
 }
+
+// ── Mutation endpoints (Phase B) ─────────────────────────────────────
+
+/// PUT /api/tc/sigma/rules/{id}/enabled
+/// Body: `{ "enabled": true|false }`
+pub async fn sigma_rule_enabled_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let enabled = body
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .ok_or((StatusCode::BAD_REQUEST, "enabled boolean required".to_string()))?;
+    let updated = store.set_sigma_rule_enabled(&id, enabled).await.map_err(db_err)?;
+    if !updated {
+        return Err((StatusCode::NOT_FOUND, format!("rule {id} not found")));
+    }
+    trigger_engine_reload(state.clone()).await;
+    Ok(Json(serde_json::json!({ "ok": true, "enabled": enabled })))
+}
+
+/// PUT /api/tc/sigma/rules/{id}/promotion
+/// Body: `{ "disposition"?: "monitor"|"detect"|"block",
+///          "tier"?: "page"|"queue"|"rba_only",
+///          "status"?: "experimental"|"test"|"stable"|"deprecated" }`
+pub async fn sigma_rule_promotion_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let disposition = body.get("disposition").and_then(|v| v.as_str());
+    let tier = body.get("tier").and_then(|v| v.as_str());
+    let status = body.get("status").and_then(|v| v.as_str());
+    if disposition.is_none() && tier.is_none() && status.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "at least one of disposition / tier / status required".to_string(),
+        ));
+    }
+    let updated = store
+        .set_sigma_rule_promotion(&id, disposition, tier, status)
+        .await
+        .map_err(db_err)?;
+    if !updated {
+        return Err((StatusCode::NOT_FOUND, format!("rule {id} not found")));
+    }
+    trigger_engine_reload(state.clone()).await;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// GET /api/tc/sigma/rules/{id}/exceptions
+pub async fn sigma_rule_exceptions_list_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let items = store.list_sigma_rule_exceptions(&id).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "items": items })))
+}
+
+/// POST /api/tc/sigma/rules/{id}/exceptions
+/// Body: `{ "scope_field": "hostname"|"source_ip"|"username"|"tag",
+///          "scope_value": "...", "reason": "...", "owner": "...",
+///          "expires_in_days"?: 30 }`
+pub async fn sigma_rule_exception_create_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let scope_field = body
+        .get("scope_field")
+        .and_then(|v| v.as_str())
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "scope_field required".to_string(),
+        ))?;
+    let scope_value = body
+        .get("scope_value")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            "scope_value required".to_string(),
+        ))?;
+    let reason = body.get("reason").and_then(|v| v.as_str());
+    let owner = body.get("owner").and_then(|v| v.as_str());
+    let expires_at = body
+        .get("expires_in_days")
+        .and_then(|v| v.as_i64())
+        .filter(|d| *d > 0)
+        .map(|d| chrono::Utc::now() + chrono::Duration::days(d));
+
+    let new_id = store
+        .insert_sigma_rule_exception(&id, scope_field, scope_value, reason, owner, expires_at)
+        .await
+        .map_err(db_err)?;
+    trigger_engine_reload(state.clone()).await;
+    Ok(Json(serde_json::json!({ "id": new_id })))
+}
+
+/// DELETE /api/tc/sigma/exceptions/{id}
+pub async fn sigma_exception_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<i64>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let n = store.delete_sigma_rule_exception(id).await.map_err(db_err)?;
+    trigger_engine_reload(state.clone()).await;
+    Ok(Json(serde_json::json!({ "deleted": n })))
+}
+
+/// GET /api/tc/sigma/audit — operational view of active exceptions
+/// system-wide. Powers the /sigma/audit page.
+pub async fn sigma_audit_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let exceptions = store.list_sigma_exceptions_all().await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({
+        "exceptions": exceptions,
+        "total": exceptions.len(),
+    })))
+}
+
+/// Reload the engine in the background so the operator sees the change
+/// take effect within a couple of seconds rather than waiting for the
+/// daily resync tick. Best-effort — failures are logged but never
+/// surfaced to the API caller (the mutation already succeeded).
+async fn trigger_engine_reload(state: Arc<GatewayState>) {
+    tokio::spawn(async move {
+        if let Some(store) = state.store.as_ref() {
+            crate::agent::sigma_engine::reload(store.as_ref()).await;
+        }
+    });
+}

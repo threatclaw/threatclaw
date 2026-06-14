@@ -189,6 +189,52 @@ impl ThreatClawStore for LibSqlBackend {
     async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn set_sigma_rule_enabled(
+        &self,
+        _id: &str,
+        _enabled: bool,
+    ) -> Result<bool, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn set_sigma_rule_promotion(
+        &self,
+        _id: &str,
+        _disposition: Option<&str>,
+        _tier: Option<&str>,
+        _status: Option<&str>,
+    ) -> Result<bool, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_sigma_rule_exceptions(
+        &self,
+        _rule_id: &str,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_sigma_exceptions_all(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn insert_sigma_rule_exception(
+        &self,
+        _rule_id: &str,
+        _scope_field: &str,
+        _scope_value: &str,
+        _reason: Option<&str>,
+        _owner: Option<&str>,
+        _expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<i64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn delete_sigma_rule_exception(&self, _id: i64) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn load_active_sigma_exceptions(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn execute_cypher(&self, _: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }

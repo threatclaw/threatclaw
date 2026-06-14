@@ -7,7 +7,8 @@ import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
 import { PageShell } from "@/components/chrome/PageShell";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
-import { ArrowLeft, Activity, Server, AlertCircle, RefreshCw, Tag as TagIcon, Search } from "lucide-react";
+import { ArrowLeft, Activity, Server, AlertCircle, RefreshCw, Tag as TagIcon, Search,
+  Power, Sliders, Plus, Trash2, ShieldOff } from "lucide-react";
 
 type RecentAlert = {
   matched_at: string | null;
@@ -41,6 +42,20 @@ type RuleDetail = {
   top_hostname_7d: string | null;
   recent_alerts: RecentAlert[];
   top_hostnames_7d: { hostname: string; count: number }[];
+  disposition: string;
+  tier: string;
+  promoted_at: string | null;
+};
+
+type Exception = {
+  id: number;
+  rule_id: string;
+  scope_field: string;
+  scope_value: string;
+  reason: string | null;
+  owner: string | null;
+  created_at: string | null;
+  expires_at: string | null;
 };
 
 const LEVEL_COLOR: Record<string, { color: string; bg: string }> = {
@@ -84,25 +99,64 @@ export default function SigmaRuleDetailPage() {
     hunt:      locale === "fr" ? "Voir les logs" : "View logs",
     enabled:   locale === "fr" ? "Active" : "Enabled",
     disabled:  locale === "fr" ? "Désactivée" : "Disabled",
+    tuning:    locale === "fr" ? "Tuning" : "Tuning",
+    enable:    locale === "fr" ? "Activer" : "Enable",
+    disable:   locale === "fr" ? "Désactiver" : "Disable",
+    disposition: locale === "fr" ? "Disposition" : "Disposition",
+    tier:      locale === "fr" ? "Sphère" : "Tier",
+    statusL:   locale === "fr" ? "Lifecycle" : "Lifecycle",
+    monitor:   locale === "fr" ? "Audit seul" : "Monitor",
+    detectD:   locale === "fr" ? "Détecter" : "Detect",
+    block:     locale === "fr" ? "Bloquer (HITL)" : "Block (HITL)",
+    page:      locale === "fr" ? "Page" : "Page",
+    queue:     locale === "fr" ? "Queue" : "Queue",
+    rba:       locale === "fr" ? "RBA seul" : "RBA-only",
+    expL:      locale === "fr" ? "Expérimental" : "Experimental",
+    test:      locale === "fr" ? "Test" : "Test",
+    stable:    locale === "fr" ? "Stable" : "Stable",
+    deprecated:locale === "fr" ? "Déprécié" : "Deprecated",
+    exceptions:locale === "fr" ? "Exceptions" : "Exceptions",
+    addExc:    locale === "fr" ? "Ajouter une exception" : "Add exception",
+    noExc:     locale === "fr" ? "Aucune exception active." : "No active exception.",
+    excScope:  locale === "fr" ? "Critère" : "Scope",
+    excValue:  locale === "fr" ? "Valeur" : "Value",
+    excReason: locale === "fr" ? "Raison" : "Reason",
+    excOwner:  locale === "fr" ? "Propriétaire" : "Owner",
+    excExpires:locale === "fr" ? "Expire dans (jours, 0 = jamais)" : "Expires in (days, 0 = never)",
+    excHost:   locale === "fr" ? "Hostname" : "Hostname",
+    excIp:     locale === "fr" ? "IP source" : "Source IP",
+    excUser:   locale === "fr" ? "Utilisateur" : "Username",
+    excTag:    locale === "fr" ? "Tag" : "Tag",
+    save:      locale === "fr" ? "Enregistrer" : "Save",
+    cancel:    locale === "fr" ? "Annuler" : "Cancel",
   }), [locale]);
 
   const [data, setData] = useState<RuleDetail | null>(null);
+  const [exceptions, setExceptions] = useState<Exception[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!ruleId) return;
     setError(null);
     try {
-      const res = await fetch(`/api/tc/sigma/rules/${encodeURIComponent(ruleId)}`);
-      if (res.status === 404) {
+      const [ruleRes, excRes] = await Promise.all([
+        fetch(`/api/tc/sigma/rules/${encodeURIComponent(ruleId)}`),
+        fetch(`/api/tc/sigma/rules/${encodeURIComponent(ruleId)}/exceptions`),
+      ]);
+      if (ruleRes.status === 404) {
         setError(labels.notFound);
         setLoading(false);
         return;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json: RuleDetail = await res.json();
+      if (!ruleRes.ok) throw new Error(`HTTP ${ruleRes.status}`);
+      const json: RuleDetail = await ruleRes.json();
       setData(json);
+      if (excRes.ok) {
+        const excJson = await excRes.json();
+        setExceptions(Array.isArray(excJson.items) ? excJson.items : []);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -111,6 +165,67 @@ export default function SigmaRuleDetailPage() {
   }, [ruleId, labels.notFound]);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleEnabled = async () => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/tc/sigma/rules/${encodeURIComponent(data.id)}/enabled`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !data.enabled }),
+      });
+      if (res.ok) await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updatePromotion = async (patch: { disposition?: string; tier?: string; status?: string }) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/tc/sigma/rules/${encodeURIComponent(data.id)}/promotion`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addException = async (form: {
+    scope_field: string; scope_value: string;
+    reason: string; owner: string; expires_in_days: number | null;
+  }) => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/tc/sigma/rules/${encodeURIComponent(data.id)}/exceptions`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope_field: form.scope_field,
+          scope_value: form.scope_value,
+          reason: form.reason || null,
+          owner: form.owner || null,
+          expires_in_days: form.expires_in_days,
+        }),
+      });
+      if (res.ok) await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteException = async (id: number) => {
+    setBusy(true);
+    try {
+      await fetch(`/api/tc/sigma/exceptions/${id}`, { method: "DELETE" });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -291,8 +406,102 @@ export default function SigmaRuleDetailPage() {
           </NeuCard>
         </div>
 
-        {/* Right column — top hosts */}
+        {/* Right column — tuning + exceptions + top hosts */}
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {/* Tuning */}
+          <NeuCard style={{ padding: "16px" }}>
+            <div style={{ fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase",
+              color: "var(--tc-text-muted)", fontWeight: 600, marginBottom: "12px",
+              display: "flex", alignItems: "center", gap: "6px" }}>
+              <Sliders size={12} /> {labels.tuning}
+            </div>
+
+            <ChromeButton onClick={toggleEnabled} variant="glass" disabled={busy}
+              style={{ width: "100%", marginBottom: "10px" }}>
+              <Power size={13} /> {data.enabled ? labels.disable : labels.enable}
+            </ChromeButton>
+
+            <SmallSelect label={labels.disposition} value={data.disposition}
+              disabled={busy}
+              onChange={v => updatePromotion({ disposition: v })}
+              options={[
+                { value: "monitor", label: labels.monitor },
+                { value: "detect", label: labels.detectD },
+                { value: "block", label: labels.block },
+              ]} />
+
+            <SmallSelect label={labels.tier} value={data.tier}
+              disabled={busy}
+              onChange={v => updatePromotion({ tier: v })}
+              options={[
+                { value: "queue", label: labels.queue },
+                { value: "page", label: labels.page },
+                { value: "rba_only", label: labels.rba },
+              ]} />
+
+            <SmallSelect label={labels.statusL} value={data.status || "experimental"}
+              disabled={busy}
+              onChange={v => updatePromotion({ status: v })}
+              options={[
+                { value: "experimental", label: labels.expL },
+                { value: "test", label: labels.test },
+                { value: "stable", label: labels.stable },
+                { value: "deprecated", label: labels.deprecated },
+              ]} />
+          </NeuCard>
+
+          {/* Exceptions */}
+          <NeuCard style={{ padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+              <div style={{ fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase",
+                color: "var(--tc-text-muted)", fontWeight: 600,
+                display: "flex", alignItems: "center", gap: "6px" }}>
+                <ShieldOff size={12} /> {labels.exceptions}
+                {exceptions.length > 0 && (
+                  <span style={{ color: "var(--tc-text)", fontWeight: 700 }}> · {exceptions.length}</span>
+                )}
+              </div>
+            </div>
+
+            <ExceptionForm labels={labels} onAdd={addException} busy={busy} />
+
+            {exceptions.length === 0 ? (
+              <div style={{ marginTop: "10px", color: "var(--tc-text-muted)", fontSize: "11px" }}>{labels.noExc}</div>
+            ) : (
+              <div style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                {exceptions.map(e => (
+                  <div key={e.id} style={{
+                    padding: "8px 10px", background: "var(--tc-surface-alt)",
+                    borderRadius: "var(--tc-radius-sm)", fontSize: "11px",
+                    display: "flex", flexDirection: "column", gap: "4px",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontFamily: "monospace", color: "var(--tc-text)" }}>
+                        <span style={{ color: "var(--tc-text-muted)" }}>{e.scope_field} =</span> {e.scope_value}
+                      </span>
+                      <button onClick={() => deleteException(e.id)}
+                        disabled={busy}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: 0 }}>
+                        <Trash2 size={11} />
+                      </button>
+                    </div>
+                    {(e.reason || e.owner) && (
+                      <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
+                        {e.reason} {e.owner && `· ${e.owner}`}
+                      </div>
+                    )}
+                    {e.expires_at && (
+                      <div style={{ fontSize: "10px", color: "var(--tc-amber)" }}>
+                        ⤳ {new Date(e.expires_at).toLocaleDateString(locale === "fr" ? "fr-FR" : "en-US")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </NeuCard>
+
+          {/* Top hosts */}
           <NeuCard style={{ padding: "16px" }}>
             <div style={{ fontSize: "10px", letterSpacing: "0.12em", textTransform: "uppercase",
               color: "var(--tc-text-muted)", fontWeight: 600, marginBottom: "12px" }}>
@@ -317,6 +526,100 @@ export default function SigmaRuleDetailPage() {
       </div>
     </PageShell>
   );
+}
+
+function SmallSelect({ label, value, onChange, options, disabled }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[]; disabled?: boolean;
+}) {
+  return (
+    <div style={{ marginBottom: "10px" }}>
+      <div style={{ fontSize: "9px", letterSpacing: "0.12em", textTransform: "uppercase",
+        color: "var(--tc-text-muted)", fontWeight: 600, marginBottom: "4px" }}>
+        {label}
+      </div>
+      <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)}
+        style={{ width: "100%", padding: "6px 10px",
+          background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+          borderRadius: "var(--tc-radius-md)", color: "var(--tc-text)",
+          fontSize: "12px", fontFamily: "inherit", outline: "none" }}>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ExceptionForm({ labels, onAdd, busy }: {
+  labels: Record<string, string>;
+  onAdd: (f: { scope_field: string; scope_value: string; reason: string; owner: string; expires_in_days: number | null }) => void;
+  busy: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState("hostname");
+  const [val, setVal] = useState("");
+  const [reason, setReason] = useState("");
+  const [owner, setOwner] = useState("");
+  const [days, setDays] = useState("30");
+
+  if (!open) {
+    return (
+      <ChromeButton onClick={() => setOpen(true)} variant="glass" disabled={busy} style={{ width: "100%" }}>
+        <Plus size={12} /> {labels.addExc}
+      </ChromeButton>
+    );
+  }
+
+  const submit = () => {
+    if (!val.trim()) return;
+    const d = parseInt(days, 10);
+    onAdd({
+      scope_field: scope,
+      scope_value: val.trim(),
+      reason: reason.trim(),
+      owner: owner.trim(),
+      expires_in_days: Number.isFinite(d) && d > 0 ? d : null,
+    });
+    setVal(""); setReason(""); setOwner(""); setDays("30");
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "10px",
+      background: "var(--tc-surface-alt)", borderRadius: "var(--tc-radius-sm)" }}>
+      <select value={scope} onChange={e => setScope(e.target.value)}
+        style={{ padding: "6px 10px", background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+          borderRadius: "var(--tc-radius-md)", color: "var(--tc-text)", fontSize: "11px", fontFamily: "inherit" }}>
+        <option value="hostname">{labels.excHost}</option>
+        <option value="source_ip">{labels.excIp}</option>
+        <option value="username">{labels.excUser}</option>
+        <option value="tag">{labels.excTag}</option>
+      </select>
+      <input value={val} onChange={e => setVal(e.target.value)} placeholder={labels.excValue}
+        style={inputStyle()} />
+      <input value={reason} onChange={e => setReason(e.target.value)} placeholder={labels.excReason}
+        style={inputStyle()} />
+      <input value={owner} onChange={e => setOwner(e.target.value)} placeholder={labels.excOwner}
+        style={inputStyle()} />
+      <input value={days} onChange={e => setDays(e.target.value)} type="number"
+        placeholder={labels.excExpires} style={inputStyle()} />
+      <div style={{ display: "flex", gap: "6px" }}>
+        <ChromeButton onClick={submit} variant="primary" disabled={busy || !val.trim()} style={{ flex: 1 }}>
+          {labels.save}
+        </ChromeButton>
+        <ChromeButton onClick={() => setOpen(false)} variant="glass" disabled={busy}>
+          {labels.cancel}
+        </ChromeButton>
+      </div>
+    </div>
+  );
+}
+
+function inputStyle(): React.CSSProperties {
+  return {
+    padding: "6px 10px", background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+    borderRadius: "var(--tc-radius-md)", color: "var(--tc-text)",
+    fontSize: "11px", fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+  };
 }
 
 function Metric({ label, value, valueLabel, accent, icon }: {

@@ -948,6 +948,61 @@ pub trait ThreatClawStore: Send + Sync {
     /// behind reality. Cheap on small rule counts (~75 rules today).
     async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError>;
 
+    /// Toggle a rule's `enabled` flag. Returns whether a row was updated
+    /// (false when the id does not exist).
+    async fn set_sigma_rule_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Update the promotion ladder fields. Pass `None` to leave a field
+    /// untouched. Each value is validated against the CHECK constraint
+    /// in the migration so a misbehaving caller cannot poison the
+    /// column.
+    async fn set_sigma_rule_promotion(
+        &self,
+        id: &str,
+        disposition: Option<&str>,
+        tier: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<bool, DatabaseError>;
+
+    /// List all active exceptions (no expiry OR expiry in future) for a
+    /// given rule. Used by the dashboard rule detail page.
+    async fn list_sigma_rule_exceptions(
+        &self,
+        rule_id: &str,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// List every active exception in the system, joined with the rule
+    /// title. Powers the suppression audit page.
+    async fn list_sigma_exceptions_all(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
+    /// Insert a new exception. Returns the new id.
+    async fn insert_sigma_rule_exception(
+        &self,
+        rule_id: &str,
+        scope_field: &str,
+        scope_value: &str,
+        reason: Option<&str>,
+        owner: Option<&str>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<i64, DatabaseError>;
+
+    /// Delete an exception by id. Returns the number of rows removed
+    /// (0 if the id did not exist).
+    async fn delete_sigma_rule_exception(&self, id: i64) -> Result<u64, DatabaseError>;
+
+    /// Load every currently active exception so the engine can apply
+    /// the allowlist at match time. Engine calls this at reload, not
+    /// per log line.
+    async fn load_active_sigma_exceptions(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;
 

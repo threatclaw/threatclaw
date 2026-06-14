@@ -10,6 +10,13 @@ use tokio::sync::RwLock;
 pub static SIGMA_RULES: LazyLock<Arc<RwLock<Vec<CompiledRule>>>> =
     LazyLock::new(|| Arc::new(RwLock::new(Vec::new())));
 
+/// Active exception list, refreshed at the same cadence as the rules.
+/// Indexed at lookup time on (rule_id, scope_field, scope_value) — the
+/// cardinality is expected to stay below a few hundred so a linear scan
+/// is fine.
+pub static SIGMA_EXCEPTIONS: LazyLock<Arc<RwLock<Vec<ActiveException>>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(Vec::new())));
+
 // ── Types ──
 
 pub struct CompiledRule {
@@ -22,6 +29,79 @@ pub struct CompiledRule {
     pub tags: Vec<String>,
     pub matchers: HashMap<String, Vec<FieldMatcher>>, // named selections
     pub condition: Condition,
+    /// Promotion ladder disposition controlling how matches are surfaced
+    /// (monitor / detect / block). Default 'detect'.
+    pub disposition: String,
+}
+
+/// Cached active exception. Comparison against alert fields happens
+/// case-insensitively for textual scopes (hostname / username / tag)
+/// and exact for source_ip.
+#[derive(Debug, Clone)]
+pub struct ActiveException {
+    pub rule_id: String,
+    pub scope_field: String,
+    pub scope_value: String,
+}
+
+/// True if any active exception silences the rule for the given alert
+/// context. Engine checks this AFTER `match_rule` returned a hit, but
+/// BEFORE the alert is written to the DB — so excluded matches leave no
+/// trace beyond a trace::debug line.
+pub fn alert_is_excepted(
+    exceptions: &[ActiveException],
+    rule_id: &str,
+    hostname: Option<&str>,
+    source_ip: Option<&str>,
+    username: Option<&str>,
+    rule_tags: &[String],
+) -> bool {
+    for ex in exceptions {
+        if ex.rule_id != rule_id {
+            continue;
+        }
+        let scope_lower = ex.scope_value.to_lowercase();
+        match ex.scope_field.as_str() {
+            "hostname" => {
+                if let Some(h) = hostname {
+                    if h.eq_ignore_ascii_case(&ex.scope_value) {
+                        return true;
+                    }
+                    // Allow a trailing wildcard so an operator can scope
+                    // an exception to a host family (e.g. `srv-prod-*`).
+                    if let Some(prefix) = ex.scope_value.strip_suffix('*') {
+                        if h.to_lowercase().starts_with(&prefix.to_lowercase()) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            "source_ip" => {
+                if let Some(ip) = source_ip {
+                    if ip == ex.scope_value {
+                        return true;
+                    }
+                }
+            }
+            "username" => {
+                if let Some(u) = username {
+                    if u.eq_ignore_ascii_case(&ex.scope_value) {
+                        return true;
+                    }
+                }
+            }
+            "tag" => {
+                if rule_tags
+                    .iter()
+                    .any(|t| t.to_lowercase() == scope_lower)
+                {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 pub enum FieldMatcher {
@@ -486,17 +566,54 @@ fn wildcard_match_inner(pattern: &[char], text: &[char], pi: usize, ti: usize) -
 /// Load enabled sigma rules from DB and compile them.
 pub async fn init(store: &dyn crate::db::Database) {
     let rules = load_and_compile(store).await;
-    let count = rules.len();
+    let rule_count = rules.len();
     *SIGMA_RULES.write().await = rules;
-    tracing::info!("SIGMA ENGINE: {} rules compiled and loaded", count);
+
+    let exceptions = load_active_exceptions(store).await;
+    let exc_count = exceptions.len();
+    *SIGMA_EXCEPTIONS.write().await = exceptions;
+
+    tracing::info!(
+        "SIGMA ENGINE: {} rules compiled, {} active exceptions loaded",
+        rule_count,
+        exc_count
+    );
 }
 
-/// Reload rules (after CRUD changes).
+/// Reload rules and exceptions (after CRUD changes).
 pub async fn reload(store: &dyn crate::db::Database) {
     let rules = load_and_compile(store).await;
-    let count = rules.len();
+    let rule_count = rules.len();
     *SIGMA_RULES.write().await = rules;
-    tracing::info!("SIGMA ENGINE: Reloaded — {} rules", count);
+
+    let exceptions = load_active_exceptions(store).await;
+    let exc_count = exceptions.len();
+    *SIGMA_EXCEPTIONS.write().await = exceptions;
+
+    tracing::info!(
+        "SIGMA ENGINE: Reloaded — {} rules, {} exceptions",
+        rule_count,
+        exc_count
+    );
+}
+
+async fn load_active_exceptions(store: &dyn crate::db::Database) -> Vec<ActiveException> {
+    match store.load_active_sigma_exceptions().await {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| {
+                Some(ActiveException {
+                    rule_id: r.get("rule_id")?.as_str()?.to_string(),
+                    scope_field: r.get("scope_field")?.as_str()?.to_string(),
+                    scope_value: r.get("scope_value")?.as_str()?.to_string(),
+                })
+            })
+            .collect(),
+        Err(e) => {
+            tracing::warn!("SIGMA ENGINE: Failed to load exceptions: {e}");
+            Vec::new()
+        }
+    }
 }
 
 async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> {
@@ -520,6 +637,10 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
         }
 
         if let Some((matchers, condition)) = compile_detection(detection) {
+            let disposition = row["disposition"]
+                .as_str()
+                .unwrap_or("detect")
+                .to_string();
             compiled.push(CompiledRule {
                 id,
                 title,
@@ -537,6 +658,7 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
                     .unwrap_or_default(),
                 matchers,
                 condition,
+                disposition,
             });
         } else {
             tracing::debug!(
@@ -754,6 +876,29 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                     canonical_asset
                 };
 
+                // Phase B — active exception filter. Operator-scoped
+                // allowlist that silences a rule for a hostname / source
+                // IP / username / tag. Loaded at engine reload, expired
+                // entries already dropped by the SQL `WHERE` clause.
+                {
+                    let exceptions = SIGMA_EXCEPTIONS.read().await;
+                    if alert_is_excepted(
+                        &exceptions,
+                        &m.rule_id,
+                        Some(&canonical_asset),
+                        source_ip,
+                        username,
+                        &rule.tags,
+                    ) {
+                        tracing::debug!(
+                            "SIGMA ENGINE: alert dropped by exception — rule={} asset={}",
+                            m.rule_id,
+                            canonical_asset
+                        );
+                        continue;
+                    }
+                }
+
                 // Phase 5 (Bug 8) — sérialise les `matched_fields` extraits par
                 // l'engine sigma (ex: signature Suricata, dest_port, proto, action
                 // firewall, bytes échangés) et les persiste en DB pour qu'ils
@@ -764,12 +909,29 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 for (k, v) in &m.matched_fields {
                     mf_obj.insert(k.clone(), serde_json::Value::String(v.clone()));
                 }
+                // Phase B — promotion ladder disposition. `block` tags the
+                // alert so the HITL panel surfaces an explicit "auto-action
+                // recommended" pill. `monitor` forces the alert level down
+                // to informational so it lands in audit-only mode and the
+                // promotion-to-finding short-circuit below filters it out.
+                let effective_level: String = match rule.disposition.as_str() {
+                    "monitor" => "informational".to_string(),
+                    other => {
+                        if other == "block" {
+                            mf_obj.insert(
+                                "_disposition".into(),
+                                serde_json::Value::String("block".into()),
+                            );
+                        }
+                        m.level.clone()
+                    }
+                };
                 let mf_value = serde_json::Value::Object(mf_obj);
 
                 let _ = store
                     .insert_sigma_alert_with_fields(
                         &m.rule_id,
-                        &m.level,
+                        &effective_level,
                         &m.rule_title,
                         &canonical_asset,
                         source_ip,
@@ -787,7 +949,10 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 alerts_created += 1;
 
                 // ── Decide if this alert promotes to a finding ──
-                let level_lc = m.level.to_lowercase();
+                // Use the *effective* level so a rule in `monitor` mode
+                // (which we just downgraded to informational) never
+                // promotes — that's the entire point of audit-only.
+                let level_lc = effective_level.to_lowercase();
                 let promote = match level_lc.as_str() {
                     "critical" | "high" => true,
                     "medium" => {

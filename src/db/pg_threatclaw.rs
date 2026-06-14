@@ -1408,7 +1408,7 @@ impl ThreatClawStore for PgBackend {
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
-            "SELECT id, title, level, logsource_category, logsource_product, logsource_service, tags, detection_json FROM sigma_rules WHERE enabled = true",
+            "SELECT id, title, level, logsource_category, logsource_product, logsource_service, tags, detection_json, disposition FROM sigma_rules WHERE enabled = true",
             &[],
         ).await.map_err(query_err)?;
         let mut results = Vec::new();
@@ -1424,6 +1424,7 @@ impl ThreatClawStore for PgBackend {
                 "logsource_service": row.try_get::<_, &str>(5).ok(),
                 "tags": tags,
                 "detection_json": detection,
+                "disposition": row.try_get::<_, &str>(8).unwrap_or("detect"),
             }));
         }
         Ok(results)
@@ -1442,7 +1443,8 @@ impl ThreatClawStore for PgBackend {
                         r.tags, r.author, r.updated_at::text, \
                         COALESCE(s.fire_count_7d, 0), COALESCE(s.fire_count_30d, 0), \
                         s.last_fire_at::text, COALESCE(s.fp_count_7d, 0), \
-                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d \
+                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d, \
+                        r.disposition, r.tier, r.promoted_at::text \
                  FROM sigma_rules r \
                  LEFT JOIN sigma_rule_stats s ON s.rule_id = r.id \
                  ORDER BY r.id",
@@ -1473,6 +1475,9 @@ impl ThreatClawStore for PgBackend {
                 "fp_count_7d": row.get::<_, i64>(15),
                 "distinct_hosts_7d": row.get::<_, i64>(16),
                 "top_hostname_7d": row.try_get::<_, &str>(17).ok(),
+                "disposition": row.try_get::<_, &str>(18).unwrap_or("detect"),
+                "tier": row.try_get::<_, &str>(19).unwrap_or("queue"),
+                "promoted_at": row.try_get::<_, &str>(20).ok(),
             }));
         }
         Ok(out)
@@ -1493,7 +1498,8 @@ impl ThreatClawStore for PgBackend {
                         r.tags, r.author, r.rule_yaml, r.detection_json, r.updated_at::text, \
                         COALESCE(s.fire_count_7d, 0), COALESCE(s.fire_count_30d, 0), \
                         s.last_fire_at::text, COALESCE(s.fp_count_7d, 0), \
-                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d \
+                        COALESCE(s.distinct_hosts_7d, 0), s.top_hostname_7d, \
+                        r.disposition, r.tier, r.promoted_at::text \
                  FROM sigma_rules r \
                  LEFT JOIN sigma_rule_stats s ON s.rule_id = r.id \
                  WHERE r.id = $1",
@@ -1575,6 +1581,9 @@ impl ThreatClawStore for PgBackend {
             "fp_count_7d": row.get::<_, i64>(17),
             "distinct_hosts_7d": row.get::<_, i64>(18),
             "top_hostname_7d": row.try_get::<_, &str>(19).ok(),
+            "disposition": row.try_get::<_, &str>(20).unwrap_or("detect"),
+            "tier": row.try_get::<_, &str>(21).unwrap_or("queue"),
+            "promoted_at": row.try_get::<_, &str>(22).ok(),
             "recent_alerts": recent,
             "top_hostnames_7d": top_hosts,
         })))
@@ -1586,6 +1595,216 @@ impl ThreatClawStore for PgBackend {
             .await
             .map_err(query_err)?;
         Ok(())
+    }
+
+    async fn set_sigma_rule_enabled(
+        &self,
+        id: &str,
+        enabled: bool,
+    ) -> Result<bool, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute(
+                "UPDATE sigma_rules SET enabled = $2, updated_at = NOW() WHERE id = $1",
+                &[&id, &enabled],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n > 0)
+    }
+
+    async fn set_sigma_rule_promotion(
+        &self,
+        id: &str,
+        disposition: Option<&str>,
+        tier: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<bool, DatabaseError> {
+        // Validate against the enums the CHECK constraints enforce, so
+        // the SQL fails before tripping a constraint round-trip.
+        if let Some(d) = disposition {
+            if !matches!(d, "monitor" | "detect" | "block") {
+                return Err(DatabaseError::Query(format!("invalid disposition {d}")));
+            }
+        }
+        if let Some(t) = tier {
+            if !matches!(t, "page" | "queue" | "rba_only") {
+                return Err(DatabaseError::Query(format!("invalid tier {t}")));
+            }
+        }
+        if let Some(s) = status {
+            if !matches!(s, "experimental" | "test" | "stable" | "deprecated") {
+                return Err(DatabaseError::Query(format!("invalid status {s}")));
+            }
+        }
+
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Build the UPDATE dynamically so unset fields aren't overwritten.
+        let mut sets: Vec<String> = Vec::new();
+        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+            vec![Box::new(id.to_string())];
+        let mut idx = 2;
+        if let Some(d) = disposition {
+            sets.push(format!("disposition = ${idx}"));
+            params.push(Box::new(d.to_string()));
+            idx += 1;
+        }
+        if let Some(t) = tier {
+            sets.push(format!("tier = ${idx}"));
+            params.push(Box::new(t.to_string()));
+            idx += 1;
+        }
+        if let Some(s) = status {
+            sets.push(format!("status = ${idx}, promoted_at = NOW()"));
+            params.push(Box::new(s.to_string()));
+            idx += 1;
+        }
+        let _ = idx;
+        if sets.is_empty() {
+            return Ok(false);
+        }
+        sets.push("updated_at = NOW()".to_string());
+        let sql = format!(
+            "UPDATE sigma_rules SET {} WHERE id = $1",
+            sets.join(", ")
+        );
+        let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
+            params.iter().map(|p| p.as_ref() as _).collect();
+        let n = conn.execute(&sql, &refs[..]).await.map_err(query_err)?;
+        Ok(n > 0)
+    }
+
+    async fn list_sigma_rule_exceptions(
+        &self,
+        rule_id: &str,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, rule_id, scope_field, scope_value, reason, owner, \
+                        created_at::text, expires_at::text \
+                 FROM sigma_rule_exceptions \
+                 WHERE rule_id = $1 \
+                   AND (expires_at IS NULL OR expires_at > NOW()) \
+                 ORDER BY created_at DESC",
+                &[&rule_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, i64>(0),
+                    "rule_id": r.get::<_, &str>(1),
+                    "scope_field": r.get::<_, &str>(2),
+                    "scope_value": r.get::<_, &str>(3),
+                    "reason": r.try_get::<_, &str>(4).ok(),
+                    "owner": r.try_get::<_, &str>(5).ok(),
+                    "created_at": r.try_get::<_, &str>(6).ok(),
+                    "expires_at": r.try_get::<_, &str>(7).ok(),
+                })
+            })
+            .collect())
+    }
+
+    async fn list_sigma_exceptions_all(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT e.id, e.rule_id, r.title, e.scope_field, e.scope_value, \
+                        e.reason, e.owner, e.created_at::text, e.expires_at::text \
+                 FROM sigma_rule_exceptions e \
+                 JOIN sigma_rules r ON r.id = e.rule_id \
+                 WHERE e.expires_at IS NULL OR e.expires_at > NOW() \
+                 ORDER BY e.created_at DESC LIMIT 500",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, i64>(0),
+                    "rule_id": r.get::<_, &str>(1),
+                    "rule_title": r.get::<_, &str>(2),
+                    "scope_field": r.get::<_, &str>(3),
+                    "scope_value": r.get::<_, &str>(4),
+                    "reason": r.try_get::<_, &str>(5).ok(),
+                    "owner": r.try_get::<_, &str>(6).ok(),
+                    "created_at": r.try_get::<_, &str>(7).ok(),
+                    "expires_at": r.try_get::<_, &str>(8).ok(),
+                })
+            })
+            .collect())
+    }
+
+    async fn insert_sigma_rule_exception(
+        &self,
+        rule_id: &str,
+        scope_field: &str,
+        scope_value: &str,
+        reason: Option<&str>,
+        owner: Option<&str>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<i64, DatabaseError> {
+        if !matches!(scope_field, "hostname" | "source_ip" | "username" | "tag") {
+            return Err(DatabaseError::Query(format!(
+                "invalid scope_field {scope_field}"
+            )));
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO sigma_rule_exceptions \
+                    (rule_id, scope_field, scope_value, reason, owner, expires_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                &[
+                    &rule_id,
+                    &scope_field,
+                    &scope_value,
+                    &reason,
+                    &owner,
+                    &expires_at,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn delete_sigma_rule_exception(&self, id: i64) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute("DELETE FROM sigma_rule_exceptions WHERE id = $1", &[&id])
+            .await
+            .map_err(query_err)
+    }
+
+    async fn load_active_sigma_exceptions(
+        &self,
+    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT rule_id, scope_field, scope_value FROM sigma_rule_exceptions \
+                 WHERE expires_at IS NULL OR expires_at > NOW()",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                serde_json::json!({
+                    "rule_id": r.get::<_, &str>(0),
+                    "scope_field": r.get::<_, &str>(1),
+                    "scope_value": r.get::<_, &str>(2),
+                })
+            })
+            .collect())
     }
 
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {
