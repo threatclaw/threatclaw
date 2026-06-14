@@ -1,0 +1,5 @@
+rule: 02773bed-83bf-469f-b7ff-e676e7d78bab
+title: BloodHound Collection Files
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

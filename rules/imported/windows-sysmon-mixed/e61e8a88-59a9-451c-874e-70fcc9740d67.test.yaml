@@ -1,0 +1,5 @@
+rule: e61e8a88-59a9-451c-874e-70fcc9740d67
+title: New DNS ServerLevelPluginDll Installed
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

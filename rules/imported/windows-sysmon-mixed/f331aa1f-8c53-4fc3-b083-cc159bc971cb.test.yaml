@@ -1,0 +1,5 @@
+rule: f331aa1f-8c53-4fc3-b083-cc159bc971cb
+title: Malicious PowerShell Scripts - FileCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

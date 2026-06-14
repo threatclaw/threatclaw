@@ -1,0 +1,5 @@
+rule: 7fff6773-2baa-46de-a24a-b6eec1aba2d1
+title: UAC Bypass Using NTFS Reparse Point - File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

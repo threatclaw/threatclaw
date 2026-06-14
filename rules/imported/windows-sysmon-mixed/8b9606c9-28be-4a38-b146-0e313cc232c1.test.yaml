@@ -1,0 +1,5 @@
+rule: 8b9606c9-28be-4a38-b146-0e313cc232c1
+title: Potential Ransomware Activity Using LegalNotice Message
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

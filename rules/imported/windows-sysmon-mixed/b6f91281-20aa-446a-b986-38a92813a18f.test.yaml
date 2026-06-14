@@ -1,0 +1,5 @@
+rule: b6f91281-20aa-446a-b986-38a92813a18f
+title: DLL Search Order Hijackig Via Additional Space in Path
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

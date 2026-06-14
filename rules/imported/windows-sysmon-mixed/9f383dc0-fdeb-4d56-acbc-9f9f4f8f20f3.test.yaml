@@ -1,0 +1,5 @@
+rule: 9f383dc0-fdeb-4d56-acbc-9f9f4f8f20f3
+title: Unusual File Modification by dns.exe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

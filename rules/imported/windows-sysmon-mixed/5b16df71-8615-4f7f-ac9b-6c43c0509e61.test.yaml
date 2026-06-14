@@ -1,0 +1,5 @@
+rule: 5b16df71-8615-4f7f-ac9b-6c43c0509e61
+title: Hide Schedule Task Via Index Value Tamper
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,50 @@
+title: Usage of Renamed Sysinternals Tools - RegistrySet
+id: 8023f872-3f1d-4301-a384-801889917ab4
+status: test
+description: Detects non-sysinternals tools setting the "accepteula" key which normally is set on sysinternals tool execution
+references:
+- Internal Research
+author: Nasreddine Bencherchali (Nextron Systems)
+date: 2022-08-24
+tags:
+- attack.resource-development
+- attack.t1588.002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.TargetObject|contains:
+    - \PsExec
+    - \ProcDump
+    - \Handle
+    - \LiveKd
+    - \Process Explorer
+    - \PsLoglist
+    - \PsPasswd
+    - \Active Directory Explorer
+    data.TargetObject|endswith: \EulaAccepted
+  filter_main_image_names:
+    data.Image|endswith:
+    - \PsExec.exe
+    - \PsExec64.exe
+    - \procdump.exe
+    - \procdump64.exe
+    - \handle.exe
+    - \handle64.exe
+    - \livekd.exe
+    - \livekd64.exe
+    - \procexp.exe
+    - \procexp64.exe
+    - \psloglist.exe
+    - \psloglist64.exe
+    - \pspasswd.exe
+    - \pspasswd64.exe
+    - \ADExplorer.exe
+    - \ADExplorer64.exe
+  filter_optional_null:
+    data.Image: null
+  condition: selection and not 1 of filter_main_* and not 1 of filter_optional_*
+falsepositives:
+- Unlikely
+level: high

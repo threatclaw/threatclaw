@@ -1,0 +1,5 @@
+rule: 20384606-a124-4fec-acbb-8bd373728613
+title: Suspicious Network Connection Binary No CommandLine
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

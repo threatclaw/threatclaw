@@ -1,0 +1,5 @@
+rule: 73a883d0-0348-4be4-a8d8-51031c2564f8
+title: Potential Registry Persistence Attempt Via Windows Telemetry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

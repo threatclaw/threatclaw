@@ -1,0 +1,5 @@
+rule: 6b98b92b-4f00-4f62-b4fe-4d1920215771
+title: Potential DLL Sideloading Of Non-Existent DLLs From System Folders
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 0eb46774-f1ab-4a74-8238-1155855f2263
+title: Disable Windows Defender Functionalities Via Registry Keys
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

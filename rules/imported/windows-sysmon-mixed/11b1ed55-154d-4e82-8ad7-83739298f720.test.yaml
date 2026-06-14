@@ -1,0 +1,5 @@
+rule: 11b1ed55-154d-4e82-8ad7-83739298f720
+title: NTDS.DIT Creation By Uncommon Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

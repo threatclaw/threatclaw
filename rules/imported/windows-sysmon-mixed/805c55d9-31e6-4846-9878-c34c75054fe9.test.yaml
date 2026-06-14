@@ -1,0 +1,5 @@
+rule: 805c55d9-31e6-4846-9878-c34c75054fe9
+title: Octopus Scanner Malware
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

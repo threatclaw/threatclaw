@@ -1,0 +1,5 @@
+rule: f356a9c4-effd-4608-bbf8-408afd5cd006
+title: Suspicious Cobalt Strike DNS Beaconing - Sysmon
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

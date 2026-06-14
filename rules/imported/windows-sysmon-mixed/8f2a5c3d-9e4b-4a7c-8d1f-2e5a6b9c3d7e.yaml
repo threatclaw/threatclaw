@@ -1,0 +1,43 @@
+title: Suspicious Space Characters in TypedPaths Registry Path - FileFix
+id: 8f2a5c3d-9e4b-4a7c-8d1f-2e5a6b9c3d7e
+status: experimental
+description: 'Detects the occurrence of numerous space characters in TypedPaths registry paths, which may indicate execution
+  via phishing lures using file-fix techniques to hide malicious commands.
+
+  '
+references:
+- https://expel.com/blog/cache-smuggling-when-a-picture-isnt-a-thousand-words/
+- https://mrd0x.com/filefix-clickfix-alternative/
+author: Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2025-11-04
+tags:
+- attack.execution
+- attack.stealth
+- attack.t1204.004
+- attack.t1027.010
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_key:
+    data.TargetObject|endswith: \Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths\url1
+    data.Details|contains: '#'
+  selection_space_variation:
+    data.Details|contains:
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    -             
+    - '            '
+  condition: all of selection_*
+falsepositives:
+- Unlikely
+level: high

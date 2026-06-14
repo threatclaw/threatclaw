@@ -1,0 +1,5 @@
+rule: e94b9ddc-eec5-4bb8-8a58-b9dc5f4e185f
+title: UEFI Persistence Via Wpbbin - FileCreation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

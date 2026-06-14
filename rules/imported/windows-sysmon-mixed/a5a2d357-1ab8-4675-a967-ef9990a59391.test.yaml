@@ -1,0 +1,5 @@
+rule: a5a2d357-1ab8-4675-a967-ef9990a59391
+title: LSASS Process Memory Dump Files
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

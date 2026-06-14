@@ -1,0 +1,5 @@
+rule: 460479f3-80b7-42da-9c43-2cc1d54dbccd
+title: Creation of a Local Hidden User Account by Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

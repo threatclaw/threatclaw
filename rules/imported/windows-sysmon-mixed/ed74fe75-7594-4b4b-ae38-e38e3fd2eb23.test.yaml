@@ -1,0 +1,5 @@
+rule: ed74fe75-7594-4b4b-ae38-e38e3fd2eb23
+title: Outbound RDP Connections Over Non-Standard Tools
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

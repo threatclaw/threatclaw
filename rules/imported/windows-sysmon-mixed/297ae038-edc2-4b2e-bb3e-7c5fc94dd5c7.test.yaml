@@ -1,0 +1,5 @@
+rule: 297ae038-edc2-4b2e-bb3e-7c5fc94dd5c7
+title: New Connection Initiated To Potential Dead Drop Resolver Domain
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

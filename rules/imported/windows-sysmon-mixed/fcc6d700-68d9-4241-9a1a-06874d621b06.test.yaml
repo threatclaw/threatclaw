@@ -1,0 +1,5 @@
+rule: fcc6d700-68d9-4241-9a1a-06874d621b06
+title: Suspicious File Created Via OneNote Application
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

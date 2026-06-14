@@ -1,0 +1,5 @@
+rule: fccfb43e-09a7-4bd2-8b37-a5a7df33386d
+title: .RDP File Created By Uncommon Application
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

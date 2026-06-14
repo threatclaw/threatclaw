@@ -1,0 +1,5 @@
+rule: c61daa90-3c1e-4f18-af62-8f288b5c9aaf
+title: Uncommon File Creation By Mysql Daemon Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

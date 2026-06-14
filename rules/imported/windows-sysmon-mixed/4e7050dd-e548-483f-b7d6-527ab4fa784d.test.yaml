@@ -1,0 +1,5 @@
+rule: 4e7050dd-e548-483f-b7d6-527ab4fa784d
+title: NTDS.DIT Creation By Uncommon Parent Process
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

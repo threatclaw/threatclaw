@@ -1,0 +1,5 @@
+rule: 9e099d99-44c2-42b6-a6d8-54c3545cab29
+title: HackTool - Mimikatz Kirbi File Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

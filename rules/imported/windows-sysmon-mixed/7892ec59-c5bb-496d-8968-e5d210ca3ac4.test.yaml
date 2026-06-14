@@ -1,0 +1,5 @@
+rule: 7892ec59-c5bb-496d-8968-e5d210ca3ac4
+title: DPAPI Backup Keys And Certificate Export Activity IOC
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 5b175490-b652-4b02-b1de-5b5b4083c5f8
+title: RedMimicry Winnti Playbook Registry Manipulation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

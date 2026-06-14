@@ -1,0 +1,5 @@
+rule: 5de03871-5d46-4539-a82d-3aa992a69a83
+title: Registry Disable System Restore
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

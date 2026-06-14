@@ -1,0 +1,5 @@
+rule: d67572a0-e2ec-45d6-b8db-c100d14b8ef2
+title: NetNTLM Downgrade Attack - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

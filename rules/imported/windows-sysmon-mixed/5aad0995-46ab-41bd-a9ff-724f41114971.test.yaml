@@ -1,0 +1,5 @@
+rule: 5aad0995-46ab-41bd-a9ff-724f41114971
+title: Esentutl Volume Shadow Copy Service Keys
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

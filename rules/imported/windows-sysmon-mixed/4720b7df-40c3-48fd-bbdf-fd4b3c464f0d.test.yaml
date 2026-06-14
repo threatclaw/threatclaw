@@ -1,0 +1,5 @@
+rule: 4720b7df-40c3-48fd-bbdf-fd4b3c464f0d
+title: Scheduled TaskCache Change by Uncommon Program
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

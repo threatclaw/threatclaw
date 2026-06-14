@@ -1,0 +1,5 @@
+rule: 555155a2-03bf-4fe7-af74-d176b3fdbe16
+title: Driver Added To Disallowed Images In HVCI - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

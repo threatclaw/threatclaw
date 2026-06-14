@@ -1,0 +1,5 @@
+rule: 74babdd6-a758-4549-9632-26535279e654
+title: Suspicious Executable File Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

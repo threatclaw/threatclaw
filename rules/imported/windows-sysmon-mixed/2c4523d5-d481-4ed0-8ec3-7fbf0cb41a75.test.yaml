@@ -1,0 +1,5 @@
+rule: 2c4523d5-d481-4ed0-8ec3-7fbf0cb41a75
+title: Driver Load From A Temporary Directory
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

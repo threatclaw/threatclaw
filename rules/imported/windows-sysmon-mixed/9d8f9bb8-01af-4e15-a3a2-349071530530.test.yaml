@@ -1,0 +1,5 @@
+rule: 9d8f9bb8-01af-4e15-a3a2-349071530530
+title: Suspicious Path In Keyboard Layout IME File Registry Value
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

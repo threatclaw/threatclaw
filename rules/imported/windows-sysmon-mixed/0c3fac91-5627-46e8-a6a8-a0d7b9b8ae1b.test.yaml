@@ -1,0 +1,5 @@
+rule: 0c3fac91-5627-46e8-a6a8-a0d7b9b8ae1b
+title: Suspicious Get-Variable.exe Creation
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

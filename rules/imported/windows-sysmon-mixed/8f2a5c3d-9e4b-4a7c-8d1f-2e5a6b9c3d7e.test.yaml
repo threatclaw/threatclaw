@@ -1,0 +1,5 @@
+rule: 8f2a5c3d-9e4b-4a7c-8d1f-2e5a6b9c3d7e
+title: Suspicious Space Characters in TypedPaths Registry Path - FileFix
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

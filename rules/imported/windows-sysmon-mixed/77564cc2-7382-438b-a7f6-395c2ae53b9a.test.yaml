@@ -1,0 +1,5 @@
+rule: 77564cc2-7382-438b-a7f6-395c2ae53b9a
+title: Remote Thread Created In KeePass.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

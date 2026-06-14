@@ -1,0 +1,5 @@
+rule: a6976974-ea6f-4e97-818e-ea08625c52cb
+title: Potential RipZip Attack on Startup Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

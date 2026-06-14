@@ -1,0 +1,5 @@
+rule: 55e29995-75e7-451a-bef0-6225e2f13597
+title: Potential Credential Dumping Via LSASS SilentProcessExit Technique
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

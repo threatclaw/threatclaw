@@ -1,0 +1,52 @@
+title: Potential Registry Persistence Attempt Via Windows Telemetry
+id: 73a883d0-0348-4be4-a8d8-51031c2564f8
+status: test
+description: 'Detects potential persistence behavior using the windows telemetry registry key.
+
+  Windows telemetry makes use of the binary CompatTelRunner.exe to run a variety of commands and perform the actual telemetry
+  collections.
+
+  This binary was created to be easily extensible, and to that end, it relies on the registry to instruct on which commands
+  to run.
+
+  The problem is, it will run any arbitrary command without restriction of location or type.
+
+  '
+references:
+- https://www.trustedsec.com/blog/abusing-windows-telemetry-for-persistence/
+author: Lednyov Alexey, oscd.community, Sreeman
+date: 2020-10-16
+tags:
+- attack.privilege-escalation
+- attack.execution
+- attack.persistence
+- attack.t1053.005
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.TargetObject|contains: \SOFTWARE\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\TelemetryController\
+    data.TargetObject|endswith: \Command
+    data.Details|contains:
+    - .bat
+    - .bin
+    - .cmd
+    - .dat
+    - .dll
+    - .exe
+    - .hta
+    - .jar
+    - .js
+    - .msi
+    - .ps
+    - .sh
+    - .vb
+  filter_main_generic:
+    data.Details|contains:
+    - \system32\CompatTelRunner.exe
+    - \system32\DeviceCensus.exe
+  condition: selection and not 1 of filter_main_*
+falsepositives:
+- Unknown
+level: high

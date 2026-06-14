@@ -1,0 +1,5 @@
+rule: 5a9e1b2c-8f7d-4a1e-9b3c-0f6d7e5a4b1f
+title: Windows Defender Threat Severity Default Action Modified
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

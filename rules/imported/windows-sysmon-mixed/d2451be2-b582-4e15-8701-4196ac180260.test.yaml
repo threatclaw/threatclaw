@@ -1,0 +1,5 @@
+rule: d2451be2-b582-4e15-8701-4196ac180260
+title: Potential DLL Sideloading Of KeyScramblerIE.DLL Via KeyScrambler.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

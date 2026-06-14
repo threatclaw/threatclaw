@@ -1,0 +1,5 @@
+rule: 75e508f7-932d-4ebc-af77-269237a84ce1
+title: DLL Loaded From Suspicious Location Via Cmspt.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

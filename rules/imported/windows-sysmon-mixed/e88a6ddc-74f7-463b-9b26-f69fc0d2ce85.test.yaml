@@ -1,0 +1,5 @@
+rule: e88a6ddc-74f7-463b-9b26-f69fc0d2ce85
+title: New TimeProviders Registered With Uncommon DLL Name
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 1908fcc1-1b92-4272-8214-0fbaf2fa5163
+title: Malicious DLL File Dropped in the Teams or OneDrive Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

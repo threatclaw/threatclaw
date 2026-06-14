@@ -1,0 +1,5 @@
+rule: ee4c5d06-3abc-48cc-8885-77f1c20f4451
+title: DLL Sideloading Of ShellChromeAPI.DLL
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

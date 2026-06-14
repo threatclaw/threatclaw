@@ -1,0 +1,5 @@
+rule: 0cf2e1c6-8d10-4273-8059-738778f981ad
+title: Potential WerFault ReflectDebugger Registry Value Abuse
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

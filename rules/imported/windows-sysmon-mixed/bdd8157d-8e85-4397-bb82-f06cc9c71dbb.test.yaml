@@ -1,0 +1,5 @@
+rule: bdd8157d-8e85-4397-bb82-f06cc9c71dbb
+title: UAC Bypass Using IEInstal - File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

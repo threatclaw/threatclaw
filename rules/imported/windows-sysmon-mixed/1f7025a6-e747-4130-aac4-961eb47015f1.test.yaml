@@ -1,0 +1,5 @@
+rule: 1f7025a6-e747-4130-aac4-961eb47015f1
+title: HackTool - DiagTrackEoP Default Named Pipe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

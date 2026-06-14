@@ -1,0 +1,5 @@
+rule: de46c52b-0bf8-4936-a327-aace94f94ac6
+title: Process Explorer Driver Creation By Non-Sysinternals Binary
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

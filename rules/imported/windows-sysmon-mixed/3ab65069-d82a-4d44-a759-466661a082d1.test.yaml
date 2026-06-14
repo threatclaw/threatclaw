@@ -1,0 +1,5 @@
+rule: 3ab65069-d82a-4d44-a759-466661a082d1
+title: Communication To LocaltoNet Tunneling Service Initiated
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

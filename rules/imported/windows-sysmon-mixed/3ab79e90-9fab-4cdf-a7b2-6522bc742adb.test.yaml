@@ -1,0 +1,5 @@
+rule: 3ab79e90-9fab-4cdf-a7b2-6522bc742adb
+title: HackTool - RemoteKrbRelay SMB Relay Secrets Dump Module Indicators
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

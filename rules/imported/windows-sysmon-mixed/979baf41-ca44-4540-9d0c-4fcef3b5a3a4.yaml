@@ -1,0 +1,52 @@
+title: Potential File Extension Spoofing Using Right-to-Left Override
+id: 979baf41-ca44-4540-9d0c-4fcef3b5a3a4
+status: test
+description: 'Detects suspicious filenames that contain a right-to-left override character and a potentially spoofed file
+  extensions.
+
+  '
+references:
+- https://redcanary.com/blog/right-to-left-override/
+- https://www.malwarebytes.com/blog/news/2014/01/the-rtlo-method
+- https://tria.ge/241015-l98snsyeje/behavioral2
+- https://www.unicode.org/versions/Unicode5.2.0/ch02.pdf
+author: Jonathan Peters (Nextron Systems), Florian Roth (Nextron Systems), Swachchhanda Shrawan Poudel (Nextron Systems)
+date: 2024-11-17
+tags:
+- attack.execution
+- attack.stealth
+- attack.t1036.002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_rtlo_unicode:
+    data.TargetFilename|contains:
+    - \u202e
+    - '[U+202E]'
+    - ‮
+  selection_extensions:
+    data.TargetFilename|contains:
+    - 3pm.
+    - 4pm.
+    - cod.
+    - fdp.
+    - ftr.
+    - gepj.
+    - gnp.
+    - gpj.
+    - ism.
+    - lmth.
+    - nls.
+    - piz.
+    - slx.
+    - tdo.
+    - vsc.
+    - vwm.
+    - xcod.
+    - xslx.
+    - xtpp.
+  condition: all of selection_*
+falsepositives:
+- Filenames that contains scriptures such as arabic or hebrew might make use of this character
+level: high

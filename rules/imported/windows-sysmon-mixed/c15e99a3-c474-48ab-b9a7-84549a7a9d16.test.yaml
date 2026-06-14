@@ -1,0 +1,5 @@
+rule: c15e99a3-c474-48ab-b9a7-84549a7a9d16
+title: Remote Thread Creation Ttdinject.exe Proxy
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

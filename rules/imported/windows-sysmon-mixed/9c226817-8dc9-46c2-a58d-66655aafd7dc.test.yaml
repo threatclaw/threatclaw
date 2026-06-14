@@ -1,0 +1,5 @@
+rule: 9c226817-8dc9-46c2-a58d-66655aafd7dc
+title: Modify User Shell Folders Startup Value
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

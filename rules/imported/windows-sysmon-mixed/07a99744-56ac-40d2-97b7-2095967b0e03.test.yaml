@@ -1,0 +1,5 @@
+rule: 07a99744-56ac-40d2-97b7-2095967b0e03
+title: Potential Privilege Escalation Attempt Via .Exe.Local Technique
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

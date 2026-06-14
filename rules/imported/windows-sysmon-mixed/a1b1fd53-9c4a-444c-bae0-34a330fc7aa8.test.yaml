@@ -1,0 +1,5 @@
+rule: a1b1fd53-9c4a-444c-bae0-34a330fc7aa8
+title: Potential Persistence Via DLLPathOverride
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

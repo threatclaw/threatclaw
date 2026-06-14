@@ -1,0 +1,5 @@
+rule: 36803969-5421-41ec-b92f-8500f79c23b0
+title: Potential Persistence Via GlobalFlags
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 7b434893-c57d-4f41-908d-6a17bf1ae98f
+title: Network Connection Initiated From Process Located In Potentially Suspicious Or Uncommon Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

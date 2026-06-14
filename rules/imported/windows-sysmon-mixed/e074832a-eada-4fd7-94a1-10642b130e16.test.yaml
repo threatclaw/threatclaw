@@ -1,0 +1,5 @@
+rule: e074832a-eada-4fd7-94a1-10642b130e16
+title: HackTool - SafetyKatz Dump Indicator
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

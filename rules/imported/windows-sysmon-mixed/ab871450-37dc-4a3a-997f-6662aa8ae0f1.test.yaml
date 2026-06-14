@@ -1,0 +1,5 @@
+rule: ab871450-37dc-4a3a-997f-6662aa8ae0f1
+title: Disable Macro Runtime Scan Scope
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 272e55a4-9e6b-4211-acb6-78f51f0b1b40
+title: Folder Removed From Exploit Guard ProtectedFolders List - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

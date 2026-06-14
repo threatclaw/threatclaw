@@ -1,0 +1,5 @@
+rule: 0dba975d-a193-4ed1-a067-424df57570d1
+title: Uncommon Network Connection Initiated By Certutil.EXE
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

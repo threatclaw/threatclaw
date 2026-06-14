@@ -1,0 +1,5 @@
+rule: 6309645e-122d-4c5b-bb2b-22e4f9c2fa42
+title: HackTool - Potential CobaltStrike Process Injection
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

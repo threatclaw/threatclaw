@@ -1,0 +1,5 @@
+rule: 0cbe38c0-270c-41d9-ab79-6e5a9a669290
+title: Trusted Path Bypass via Windows Directory Spoofing
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

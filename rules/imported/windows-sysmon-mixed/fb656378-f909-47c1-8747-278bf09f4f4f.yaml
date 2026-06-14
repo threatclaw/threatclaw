@@ -1,0 +1,24 @@
+title: Potential Credential Dumping Attempt Via PowerShell Remote Thread
+id: fb656378-f909-47c1-8747-278bf09f4f4f
+status: test
+description: Detects remote thread creation by PowerShell processes into "lsass.exe"
+references:
+- https://speakerdeck.com/heirhabarov/hunting-for-powershell-abuse
+author: oscd.community, Natalia Shornikova
+date: 2020-10-06
+tags:
+- attack.credential-access
+- attack.t1003.001
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.SourceImage|endswith:
+    - \powershell.exe
+    - \pwsh.exe
+    data.TargetImage|endswith: \lsass.exe
+  condition: selection
+falsepositives:
+- Unknown
+level: high

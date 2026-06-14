@@ -1,0 +1,44 @@
+title: Windows Shell/Scripting Application File Write to Suspicious Folder
+id: 1277f594-a7d1-4f28-a2d3-73af5cbeab43
+status: test
+description: Detects Windows shells and scripting applications that write files to suspicious folders
+references:
+- Internal Research
+author: Florian Roth (Nextron Systems)
+date: 2021-11-20
+tags:
+- attack.execution
+- attack.t1059
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_1:
+    data.Image|endswith:
+    - \bash.exe
+    - \cmd.exe
+    - \cscript.exe
+    - \msbuild.exe
+    - \powershell.exe
+    - \pwsh.exe
+    - \sh.exe
+    - \wscript.exe
+    data.TargetFilename|startswith:
+    - C:\PerfLogs\
+    - C:\Users\Public\
+  selection_2:
+    data.Image|endswith:
+    - \certutil.exe
+    - \forfiles.exe
+    - \mshta.exe
+    - \schtasks.exe
+    - \scriptrunner.exe
+    - \wmic.exe
+    data.TargetFilename|contains:
+    - C:\PerfLogs\
+    - C:\Users\Public\
+    - C:\Windows\Temp\
+  condition: 1 of selection_*
+falsepositives:
+- Unknown
+level: high

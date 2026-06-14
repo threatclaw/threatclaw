@@ -1,0 +1,48 @@
+title: Service Binary in Suspicious Folder
+id: a07f0359-4c90-4dc4-a681-8ffea40b4f47
+status: test
+description: Detect the creation of a service with a service binary located in a suspicious directory
+references:
+- https://github.com/redcanaryco/atomic-red-team/blob/f339e7da7d05f6057fdfcdd3742bfcf365fee2a9/atomics/T1562.001/T1562.001.md
+author: Florian Roth (Nextron Systems), frack113
+date: 2022-05-02
+tags:
+- attack.persistence
+- attack.defense-impairment
+- attack.t1112
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection_service_start:
+    data.TargetObject|startswith: HKLM\System\CurrentControlSet\Services\
+    data.TargetObject|endswith: \Start
+    data.Image|contains:
+    - \Users\Public\
+    - \Perflogs\
+    - \ADMIN$\
+    - \Temp\
+    data.Details:
+    - DWORD (0x00000000)
+    - DWORD (0x00000001)
+    - DWORD (0x00000002)
+  selection_service_imagepath:
+    data.TargetObject|startswith: HKLM\System\CurrentControlSet\Services\
+    data.TargetObject|endswith: \ImagePath
+    data.Details|contains:
+    - \Users\Public\
+    - \Perflogs\
+    - \ADMIN$\
+    - \Temp\
+  filter_optional_avast:
+    data.Image|contains|all:
+    - \Common Files\
+    - \Temp\
+  filter_optional_mbamservice:
+    data.TargetObject|endswith: \CurrentControlSet\Services\MBAMInstallerService\ImagePath
+    data.Details|endswith: \AppData\Local\Temp\MBAMInstallerService.exe"
+    data.Image: C:\Windows\system32\services.exe
+  condition: 1 of selection_* and not 1 of filter_optional_*
+falsepositives:
+- Unknown
+level: high

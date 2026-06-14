@@ -1,0 +1,5 @@
+rule: fcddca7c-b9c0-4ddf-98da-e1e2d18b0157
+title: Disabled Windows Defender Eventlog
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

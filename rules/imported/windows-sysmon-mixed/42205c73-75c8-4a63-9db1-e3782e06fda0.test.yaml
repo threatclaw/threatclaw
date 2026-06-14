@@ -1,0 +1,5 @@
+rule: 42205c73-75c8-4a63-9db1-e3782e06fda0
+title: Suspicious Application Allowed Through Exploit Guard
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

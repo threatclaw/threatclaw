@@ -1,0 +1,5 @@
+rule: d102b8f5-61dc-4e68-bd83-9a3187c67377
+title: Renamed VsCode Code Tunnel Execution - File Indicator
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

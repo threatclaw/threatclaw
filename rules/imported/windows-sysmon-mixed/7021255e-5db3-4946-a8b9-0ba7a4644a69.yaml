@@ -1,0 +1,22 @@
+title: Potential Provisioning Registry Key Abuse For Binary Proxy Execution - REG
+id: 7021255e-5db3-4946-a8b9-0ba7a4644a69
+status: test
+description: Detects potential abuse of the provisioning registry key for indirect command execution through "Provlaunch.exe".
+references:
+- https://lolbas-project.github.io/lolbas/Binaries/Provlaunch/
+- https://twitter.com/0gtweet/status/1674399582162153472
+author: Swachchhanda Shrawan Poudel
+date: 2023-08-02
+tags:
+- attack.stealth
+- attack.t1218
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.TargetObject|contains: \SOFTWARE\Microsoft\Provisioning\Commands\
+  condition: selection
+falsepositives:
+- Unknown
+level: high

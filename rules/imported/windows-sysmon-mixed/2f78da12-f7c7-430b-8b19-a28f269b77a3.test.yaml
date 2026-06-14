@@ -1,0 +1,5 @@
+rule: 2f78da12-f7c7-430b-8b19-a28f269b77a3
+title: Disable Windows Event Logging Via Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 602a1f13-c640-4d73-b053-be9a2fa58b96
+title: HackTool - Powerup Write Hijack DLL
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

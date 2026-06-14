@@ -1,0 +1,5 @@
+rule: 790317c0-0a36-4a6a-a105-6e576bf99a14
+title: COM Object Hijacking Via Modification Of Default System CLSID Default Value
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f37b4bce-49d0-4087-9f5b-58bffda77316
+title: Potential AutoLogger Sessions Tampering
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

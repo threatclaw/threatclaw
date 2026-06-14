@@ -1,0 +1,5 @@
+rule: 8d5aca11-22b3-4f22-b7ba-90e60533e1fb
+title: Wmiexec Default Output File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

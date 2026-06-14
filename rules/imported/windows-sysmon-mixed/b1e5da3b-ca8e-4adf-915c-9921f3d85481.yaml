@@ -1,0 +1,30 @@
+title: RDP to HTTP or HTTPS Target Ports
+id: b1e5da3b-ca8e-4adf-915c-9921f3d85481
+status: test
+description: Detects svchost hosting RDP termsvcs communicating to target systems on TCP port 80 or 443
+references:
+- https://twitter.com/tekdefense/status/1519711183162556416?s=12&t=OTsHCBkQOTNs1k3USz65Zg
+- https://www.mandiant.com/resources/bypassing-network-restrictions-through-rdp-tunneling
+author: Florian Roth (Nextron Systems)
+date: 2022-04-29
+tags:
+- attack.command-and-control
+- attack.t1572
+- attack.lateral-movement
+- attack.t1021.001
+- car.2013-07-002
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.Image|endswith: \svchost.exe
+    data.Initiated: 'true'
+    data.SourcePort: 3389
+    data.DestinationPort:
+    - 80
+    - 443
+  condition: selection
+falsepositives:
+- Unknown
+level: high

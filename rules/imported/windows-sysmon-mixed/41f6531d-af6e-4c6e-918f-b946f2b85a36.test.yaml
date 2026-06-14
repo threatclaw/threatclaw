@@ -1,0 +1,5 @@
+rule: 41f6531d-af6e-4c6e-918f-b946f2b85a36
+title: Potential Persistence Via LSA Extensions
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

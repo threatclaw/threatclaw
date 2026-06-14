@@ -1,0 +1,5 @@
+rule: 28036918-04d3-423d-91c0-55ecf99fb892
+title: NET NGenAssemblyUsageLog Registry Key Tamper
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

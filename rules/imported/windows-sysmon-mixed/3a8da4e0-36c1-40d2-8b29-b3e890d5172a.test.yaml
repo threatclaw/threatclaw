@@ -1,0 +1,5 @@
+rule: 3a8da4e0-36c1-40d2-8b29-b3e890d5172a
+title: NTDS Exfiltration Filename Patterns
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

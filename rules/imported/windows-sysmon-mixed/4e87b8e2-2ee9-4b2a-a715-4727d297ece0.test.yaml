@@ -1,0 +1,5 @@
+rule: 4e87b8e2-2ee9-4b2a-a715-4727d297ece0
+title: Potential SAM Database Dump
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

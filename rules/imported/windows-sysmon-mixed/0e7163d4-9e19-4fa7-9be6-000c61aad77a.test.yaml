@@ -1,0 +1,5 @@
+rule: 0e7163d4-9e19-4fa7-9be6-000c61aad77a
+title: CobaltStrike Named Pipe Pattern Regex
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

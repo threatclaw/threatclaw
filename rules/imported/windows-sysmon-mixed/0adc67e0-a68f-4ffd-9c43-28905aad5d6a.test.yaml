@@ -1,0 +1,5 @@
+rule: 0adc67e0-a68f-4ffd-9c43-28905aad5d6a
+title: HackTool - Koh Default Named Pipe
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

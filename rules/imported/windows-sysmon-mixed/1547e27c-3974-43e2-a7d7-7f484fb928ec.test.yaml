@@ -1,0 +1,5 @@
+rule: 1547e27c-3974-43e2-a7d7-7f484fb928ec
+title: Registry Persistence via Service in Safe Mode
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

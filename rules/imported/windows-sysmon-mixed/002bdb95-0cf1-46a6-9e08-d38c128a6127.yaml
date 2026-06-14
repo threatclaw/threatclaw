@@ -1,0 +1,43 @@
+title: WScript or CScript Dropper - File
+id: 002bdb95-0cf1-46a6-9e08-d38c128a6127
+status: test
+description: Detects a file ending in jse, vbe, js, vba, vbs, wsf, wsh written by cscript.exe or wscript.exe
+references:
+- WScript or CScript Dropper (cea72823-df4d-4567-950c-0b579eaf0846)
+author: Tim Shelton
+date: 2022-01-10
+tags:
+- attack.execution
+- attack.t1059.005
+- attack.t1059.007
+logsource:
+  category: osquery
+  product: sysmon
+detection:
+  selection:
+    data.Image|endswith:
+    - \wscript.exe
+    - \cscript.exe
+    data.TargetFilename|contains:
+    - :\Perflogs\
+    - :\ProgramData\
+    - :\Temp\
+    - :\Tmp\
+    - :\Users\
+    - :\Windows\Temp\
+    - \AppData\Local\Temp
+    - \AppData\Roaming\Temp
+    - \Start Menu\Programs\Startup\
+    - \Temporary Internet
+    data.TargetFilename|endswith:
+    - .js
+    - .jse
+    - .vba
+    - .vbe
+    - .vbs
+    - .wsf
+    - .wsh
+  condition: selection
+falsepositives:
+- Unknown
+level: high

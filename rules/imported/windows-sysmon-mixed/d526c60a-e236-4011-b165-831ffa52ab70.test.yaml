@@ -1,0 +1,5 @@
+rule: d526c60a-e236-4011-b165-831ffa52ab70
+title: Windows Vulnerable Driver Blocklist Disabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

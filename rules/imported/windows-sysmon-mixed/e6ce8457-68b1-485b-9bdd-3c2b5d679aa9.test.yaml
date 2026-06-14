@@ -1,0 +1,5 @@
+rule: e6ce8457-68b1-485b-9bdd-3c2b5d679aa9
+title: VBA DLL Loaded Via Office Application
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

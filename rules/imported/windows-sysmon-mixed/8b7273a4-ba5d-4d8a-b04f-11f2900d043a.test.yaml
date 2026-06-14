@@ -1,0 +1,5 @@
+rule: 8b7273a4-ba5d-4d8a-b04f-11f2900d043a
+title: Windows Hypervisor Enforced Code Integrity Disabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

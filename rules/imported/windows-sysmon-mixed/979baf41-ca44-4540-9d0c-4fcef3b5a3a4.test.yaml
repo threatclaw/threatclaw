@@ -1,0 +1,5 @@
+rule: 979baf41-ca44-4540-9d0c-4fcef3b5a3a4
+title: Potential File Extension Spoofing Using Right-to-Left Override
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

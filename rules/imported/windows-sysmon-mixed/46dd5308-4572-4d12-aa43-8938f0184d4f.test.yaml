@@ -1,0 +1,5 @@
+rule: 46dd5308-4572-4d12-aa43-8938f0184d4f
+title: Bypass UAC Using DelegateExecute
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

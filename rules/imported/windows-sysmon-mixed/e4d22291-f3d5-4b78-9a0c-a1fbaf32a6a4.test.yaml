@@ -1,0 +1,5 @@
+rule: e4d22291-f3d5-4b78-9a0c-a1fbaf32a6a4
+title: Potentially Suspicious ODBC Driver Registered
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

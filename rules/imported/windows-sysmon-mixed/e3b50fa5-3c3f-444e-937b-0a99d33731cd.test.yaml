@@ -1,0 +1,5 @@
+rule: e3b50fa5-3c3f-444e-937b-0a99d33731cd
+title: Outlook Macro Execution Without Warning Setting Enabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

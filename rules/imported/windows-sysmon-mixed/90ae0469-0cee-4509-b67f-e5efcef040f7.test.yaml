@@ -1,0 +1,5 @@
+rule: 90ae0469-0cee-4509-b67f-e5efcef040f7
+title: Aruba Network Service Potential DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

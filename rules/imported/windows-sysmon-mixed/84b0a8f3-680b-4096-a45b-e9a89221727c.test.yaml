@@ -1,0 +1,5 @@
+rule: 84b0a8f3-680b-4096-a45b-e9a89221727c
+title: PCRE.NET Package Image Load
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

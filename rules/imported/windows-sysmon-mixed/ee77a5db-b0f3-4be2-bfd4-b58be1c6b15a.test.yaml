@@ -1,0 +1,5 @@
+rule: ee77a5db-b0f3-4be2-bfd4-b58be1c6b15a
+title: Potential Attachment Manager Settings Attachments Tamper
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

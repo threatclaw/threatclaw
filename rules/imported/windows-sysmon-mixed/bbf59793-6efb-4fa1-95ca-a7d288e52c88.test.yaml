@@ -1,0 +1,5 @@
+rule: bbf59793-6efb-4fa1-95ca-a7d288e52c88
+title: Winlogon Notify Key Logon Persistence
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

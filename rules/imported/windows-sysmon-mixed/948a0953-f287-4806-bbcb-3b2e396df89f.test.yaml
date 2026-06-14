@@ -1,0 +1,5 @@
+rule: 948a0953-f287-4806-bbcb-3b2e396df89f
+title: Unsigned Mfdetours.DLL Sideloading
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

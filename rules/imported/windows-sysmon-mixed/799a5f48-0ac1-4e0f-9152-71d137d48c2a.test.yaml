@@ -1,0 +1,5 @@
+rule: 799a5f48-0ac1-4e0f-9152-71d137d48c2a
+title: Abusable DLL Potential Sideloading From Suspicious Location
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

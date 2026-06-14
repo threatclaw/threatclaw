@@ -1,0 +1,5 @@
+rule: bf4fc428-dcc3-4bbd-99fe-2422aeee2544
+title: ETW Logging Disabled In .NET Processes - Sysmon Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

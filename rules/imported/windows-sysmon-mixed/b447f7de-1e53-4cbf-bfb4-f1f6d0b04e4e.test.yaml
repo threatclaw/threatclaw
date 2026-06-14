@@ -1,0 +1,5 @@
+rule: b447f7de-1e53-4cbf-bfb4-f1f6d0b04e4e
+title: Suspicious Binaries and Scripts in Public Folder
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

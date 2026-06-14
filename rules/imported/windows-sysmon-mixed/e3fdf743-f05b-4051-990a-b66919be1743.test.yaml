@@ -1,0 +1,5 @@
+rule: e3fdf743-f05b-4051-990a-b66919be1743
+title: Change User Account Associated with the FAX Service
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

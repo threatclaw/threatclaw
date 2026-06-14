@@ -1,0 +1,5 @@
+rule: 277efb8f-60be-4f10-b4d3-037802f37167
+title: Registry Persistence Mechanisms in Recycle Bin
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

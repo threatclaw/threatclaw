@@ -1,0 +1,5 @@
+rule: 2f7979ae-f82b-45af-ac1d-2b10e93b0baa
+title: Potential DCOM InternetExplorer.Application DLL Hijack
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

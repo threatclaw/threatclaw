@@ -1,0 +1,5 @@
+rule: b98968aa-dbc0-4a9c-ac35-108363cbf8d5
+title: WINEKEY Registry Modification
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

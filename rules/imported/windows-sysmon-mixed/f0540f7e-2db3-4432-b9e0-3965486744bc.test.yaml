@@ -1,0 +1,5 @@
+rule: f0540f7e-2db3-4432-b9e0-3965486744bc
+title: Legitimate Application Dropped Executable
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

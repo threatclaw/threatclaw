@@ -1,0 +1,5 @@
+rule: c082c2b0-525b-4dbc-9a26-a57dc4692074
+title: DNS Query by Finger Utility
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

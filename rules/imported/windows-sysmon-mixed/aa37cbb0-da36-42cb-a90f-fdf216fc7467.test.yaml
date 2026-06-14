@@ -1,0 +1,5 @@
+rule: aa37cbb0-da36-42cb-a90f-fdf216fc7467
+title: AMSI Disabled via Registry Modification
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

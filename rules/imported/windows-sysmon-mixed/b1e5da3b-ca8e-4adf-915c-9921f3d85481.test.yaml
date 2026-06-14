@@ -1,0 +1,5 @@
+rule: b1e5da3b-ca8e-4adf-915c-9921f3d85481
+title: RDP to HTTP or HTTPS Target Ports
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

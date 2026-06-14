@@ -1,0 +1,5 @@
+rule: 73921b9c-cafd-4446-b0c6-fdb0ace42bc0
+title: Windows Credential Guard Disabled - Registry
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

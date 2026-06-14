@@ -1,0 +1,5 @@
+rule: 6e90ae7a-7cd3-473f-a035-4ebb72d961da
+title: PCRE.NET Package Temp Files
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 8839e550-52d7-4958-9f2f-e13c1e736838
+title: Security Event Logging Disabled via MiniNt Registry Key - Registry Set
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

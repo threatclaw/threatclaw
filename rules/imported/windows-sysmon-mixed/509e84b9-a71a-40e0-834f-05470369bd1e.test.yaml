@@ -1,0 +1,5 @@
+rule: 509e84b9-a71a-40e0-834f-05470369bd1e
+title: Default RDP Port Changed to Non Standard Port
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: f742bde7-9528-42e5-bd82-84f51a8387d2
+title: Uncommon Microsoft Office Trusted Location Added
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

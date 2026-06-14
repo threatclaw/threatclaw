@@ -1,0 +1,5 @@
+rule: a5c7a43f-6009-4a8c-80c5-32abf1c53ecc
+title: Microsoft Office Protected View Disabled
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'
