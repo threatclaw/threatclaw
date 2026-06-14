@@ -140,12 +140,17 @@ pub async fn scan_asset_software(
         return result;
     }
 
-    // Load existing CVE findings for this asset (avoid duplicates)
+    // Load existing CVE findings for this asset (avoid duplicates).
+    // Track inserts that happen during this very scan too — without this,
+    // a CVE that matches several sub-packages (e.g. CVE-2026-42897 hitting
+    // 5 Visual C++ runtime variants installed side-by-side) would be
+    // written once per package because `existing_cves` is only seeded
+    // before the loop and never refreshed.
     let existing_findings = store
         .list_findings(None, None, Some(asset_name), 500, 0)
         .await
         .unwrap_or_default();
-    let existing_cves: std::collections::HashSet<String> = existing_findings
+    let mut seen_cves: std::collections::HashSet<String> = existing_findings
         .iter()
         .filter_map(|f| f.metadata.get("cve")?.as_str().map(String::from))
         .collect();
@@ -162,7 +167,7 @@ pub async fn scan_asset_software(
         // Check CISA KEV for this software (fast, local DB)
         let kev_cves = check_kev_for_software(store, &name, version).await;
         for cve_id in &kev_cves {
-            if existing_cves.contains(cve_id) {
+            if !seen_cves.insert(cve_id.clone()) {
                 continue;
             }
 
@@ -203,7 +208,7 @@ pub async fn scan_asset_software(
         if CRITICAL_SOFTWARE.iter().any(|cs| name_lower.contains(cs)) {
             let cached_cves = check_nvd_cache_for_software(store, &name, version).await;
             for (cve_id, cvss, severity) in &cached_cves {
-                if existing_cves.contains(cve_id) {
+                if !seen_cves.insert(cve_id.clone()) {
                     continue;
                 }
 
