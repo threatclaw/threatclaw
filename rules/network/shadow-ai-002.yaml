@@ -1,0 +1,49 @@
+title: Shadow AI — DNS query for LLM endpoint
+id: shadow-ai-002
+status: stable
+description: |
+  Detects DNS query (dns.log) for a known LLM provider FQDN. Catches usage even when TLS fails or SNI is encrypted (ECH). Lower severity than ssl.log hit because resolution does not confirm actual connection.
+references:
+  - https://attack.mitre.org/techniques/T1567/004/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.exfiltration
+  - attack.t1567.004
+  - ai.governance
+  - ai.shadow
+  - ai.commercial
+logsource:
+  category: zeek
+  product: dns
+detection:
+  selection:
+    'query|contains':
+      - openai.com
+      - anthropic.com
+      - claude.ai
+      - mistral.ai
+      - cohere.ai
+      - generativelanguage.googleapis.com
+      - gemini.google.com
+      - aistudio.google.com
+      - copilot.microsoft.com
+      - openrouter.ai
+      - together.xyz
+      - groq.com
+      - fireworks.ai
+      - perplexity.ai
+      - x.ai
+      - grok.com
+      - deepseek.com
+      - huggingface.co
+      - replicate.com
+      - cursor.sh
+      - githubcopilot.com
+      - codeium.com
+      - tabnine.com
+      - windsurf.com
+  condition: selection
+falsepositives:
+  - Unknown
+level: low

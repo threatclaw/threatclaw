@@ -1,0 +1,29 @@
+title: Shadow AI — Self-hosted LLM runtime port
+id: shadow-ai-003
+status: stable
+description: |
+  Detects TCP connection (conn.log) targeting a default port used by Ollama (11434), vLLM (8000), LM Studio (1234/43411), Jan.ai (1337), GPT4All (4891) or Text Generation WebUI (7860). Indicates possible undeclared LLM server on the LAN. Ports 8080/3000/5000 are intentionally excluded (too noisy).
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - discovery
+  - ai.governance
+  - ai.shadow
+  - ai.self_hosted
+logsource:
+  category: zeek
+  product: conn
+detection:
+  selection:
+    id.resp_p:
+      - 11434
+      - 1234
+      - 43411
+      - 8000
+      - 7860
+      - 1337
+      - 4891
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

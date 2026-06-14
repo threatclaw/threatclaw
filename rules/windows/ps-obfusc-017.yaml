@@ -1,0 +1,24 @@
+title: PowerShell Service Persistence
+id: ps-obfusc-017
+status: stable
+description: |
+  Detects service creation for persistence
+references:
+  - https://attack.mitre.org/techniques/T1543/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1543.003
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - New-Service
+      - sc.exe create
+      - Set-Service
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

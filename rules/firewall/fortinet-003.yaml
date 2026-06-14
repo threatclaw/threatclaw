@@ -1,0 +1,26 @@
+title: FortiGate config changed
+id: fortinet-003
+status: stable
+description: |
+  A configuration change was applied (rule edit, address add, user create). Verify the operator was authorized.
+references:
+  - https://attack.mitre.org/techniques/T1098/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1098
+logsource:
+  category: fortinet
+  product: fortigate
+detection:
+  selection:
+    'msg|contains':
+      - Edit
+      - Add
+      - Delete
+    subtype: config
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

@@ -1,0 +1,17 @@
+rule: lnx-evasion-002
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      full_log: setenforce 0
+  - description: Second positive value from the rule selection
+    event:
+      full_log: SELINUX=disabled
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      full_log: operation completed successfully

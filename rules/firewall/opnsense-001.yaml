@@ -1,0 +1,26 @@
+title: OPNsense auth failed
+id: opnsense-001
+status: stable
+description: |
+  Authentication failure against OPNsense GUI / SSH / API. Burst = brute force or stolen-token probing.
+references:
+  - https://attack.mitre.org/techniques/T1110/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1110
+logsource:
+  category: opnsense
+  product: opnsense
+detection:
+  selection:
+    'line|contains':
+      - authentication failure
+      - Failed password
+      - auth denied
+      - action denied
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

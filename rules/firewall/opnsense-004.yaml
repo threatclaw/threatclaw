@@ -1,0 +1,22 @@
+title: OPNsense IDS alert
+id: opnsense-004
+status: stable
+description: |
+  Suricata IDS raised an alert on traffic crossing the firewall. Investigate the embedded rule and src/dst pair.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.discovery
+  - attack.t1046
+logsource:
+  category: opnsense
+  product: opnsense
+detection:
+  selection:
+    'line|contains': '"event_type":"alert"'
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

@@ -1,0 +1,25 @@
+title: OPNsense possible DNS-rebind attack
+id: opnsense-dns-006
+status: stable
+description: |
+  dnsmasq filtered an answer that resolved an external domain to an internal IP — classic DNS-rebinding signature.
+references:
+  - https://attack.mitre.org/techniques/T1071/004/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.command_and_control
+  - attack.t1071.004
+logsource:
+  category: opnsense
+  product: opnsense
+detection:
+  selection:
+    'line|contains':
+      - DNS-rebind
+      - rebind protection
+      - stop-dns-rebind
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

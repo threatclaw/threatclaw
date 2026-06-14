@@ -1,0 +1,24 @@
+title: FortiGate policy disabled
+id: fortinet-004
+status: stable
+description: |
+  A firewall policy was disabled — likely pre-pivot defense evasion.
+references:
+  - https://attack.mitre.org/techniques/T1562/004/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.004
+logsource:
+  category: fortinet
+  product: fortigate
+detection:
+  selection:
+    'msg|contains':
+      - status disable
+      - policy disable
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

@@ -1,0 +1,17 @@
+rule: lnx-auth-004
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      full_log: is not in the sudoers file
+  - description: Second positive value from the rule selection
+    event:
+      full_log: This incident will be reported
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      full_log: operation completed successfully

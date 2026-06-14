@@ -1,0 +1,25 @@
+title: PowerShell Web Request
+id: ps-obfusc-004
+status: stable
+description: |
+  Detects Invoke-WebRequest and aliases
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.execution
+  - attack.t1059.001
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - Invoke-WebRequest
+      - Invoke-RestMethod
+      - iwr 
+      - irm 
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

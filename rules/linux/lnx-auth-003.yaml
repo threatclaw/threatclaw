@@ -1,0 +1,24 @@
+title: Sudo Authentication Failure
+id: lnx-auth-003
+status: stable
+description: |
+  Sudo refusal for a non-privileged account attempting escalation
+references:
+  - https://attack.mitre.org/techniques/T1548/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.privilege_escalation
+  - attack.t1548.003
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - sudo
+      - authentication failure
+      - incorrect password attempt
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

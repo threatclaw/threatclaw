@@ -1,0 +1,26 @@
+title: Kerberoasting — RC4 TGS Request
+id: win-auth-001
+status: stable
+description: |
+  Detects TGS service ticket requests using RC4 encryption (etype 0x17), typical of Kerberoasting attacks
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1558.003
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - '4769'
+  filter_rc4:
+    'commandline|contains':
+      - '0x17'
+      - RC4
+  condition: selection and filter_rc4
+falsepositives:
+  - Unknown
+level: high

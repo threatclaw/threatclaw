@@ -1,0 +1,25 @@
+title: Security Log Cleared
+id: win-auth-009
+status: stable
+description: |
+  Detects Windows security event log clearing — anti-forensics
+references:
+  - https://attack.mitre.org/techniques/T1070/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1070.001
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - 1102
+      - audit log was cleared
+      - The audit log was cleared
+      - Log clear
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

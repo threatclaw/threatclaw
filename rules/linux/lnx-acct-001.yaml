@@ -1,0 +1,25 @@
+title: Local User Created
+id: lnx-acct-001
+status: stable
+description: |
+  useradd / adduser invocation — possible post-exploitation persistence
+references:
+  - https://attack.mitre.org/techniques/T1136/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1136.001
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - 'new user:'
+      - useradd
+      - adduser
+      - 'new group:'
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

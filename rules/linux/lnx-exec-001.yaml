@@ -1,0 +1,34 @@
+title: Remote Payload Piped To Shell
+id: lnx-exec-001
+status: stable
+description: |
+  wget/curl output fed into a shell — classic drive-by install
+references:
+  - https://attack.mitre.org/techniques/T1059/004/
+  - https://attack.mitre.org/techniques/T1105/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.execution
+  - attack.t1059.004
+  - attack.t1105
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - curl
+      - wget
+  pipe:
+    'full_log|contains':
+      - '| sh'
+      - '| bash'
+      - '|sh'
+      - '|bash'
+      - '| /bin/sh'
+      - '-O-'
+      - '-O -'
+  condition: selection and pipe
+falsepositives:
+  - Unknown
+level: critical

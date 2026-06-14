@@ -1,0 +1,25 @@
+title: PowerShell AMSI Bypass
+id: ps-obfusc-013
+status: stable
+description: |
+  Detects attempts to disable AMSI
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - AmsiUtils
+      - amsiInitFailed
+      - Amsi.dll
+      - AmsiScanBuffer
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

@@ -1,0 +1,17 @@
+rule: win-auth-003
+
+# Auto-generated minimal fixture — hand-polish welcome.
+# `positive` events must match the rule; `negative` must not.
+
+positive:
+  - description: First positive value from the rule selection
+    event:
+      commandline: 4662
+  - description: Second positive value from the rule selection
+    event:
+      commandline: DS-Replication-Get-Changes
+
+negative:
+  - description: Unrelated event that should not trigger
+    event:
+      commandline: cmd.exe /c echo normal-operation

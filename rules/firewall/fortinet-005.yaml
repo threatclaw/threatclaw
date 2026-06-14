@@ -1,0 +1,24 @@
+title: FortiGate admin/API user created
+id: fortinet-005
+status: stable
+description: |
+  A new admin or API user was created. Verify it was authorized — common backdoor pattern after token compromise.
+references:
+  - https://attack.mitre.org/techniques/T1136/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1136
+logsource:
+  category: fortinet
+  product: fortigate
+detection:
+  selection:
+    'msg|contains':
+      - Add system.admin
+      - Add system.api-user
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

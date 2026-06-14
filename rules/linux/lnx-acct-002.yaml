@@ -1,0 +1,24 @@
+title: Account Promoted To UID 0
+id: lnx-acct-002
+status: stable
+description: |
+  Account UID changed to 0 via usermod — critical privilege escalation pattern
+references:
+  - https://attack.mitre.org/techniques/T1548/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.privilege_escalation
+  - attack.t1548
+logsource:
+  category: syslog
+detection:
+  selection:
+    'full_log|contains':
+      - usermod
+      - uid=0
+      - changed uid to 0
+  condition: selection
+falsepositives:
+  - Unknown
+level: critical

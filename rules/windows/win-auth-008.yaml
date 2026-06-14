@@ -1,0 +1,24 @@
+title: Suspicious Service Installed
+id: win-auth-008
+status: stable
+description: |
+  Detects new service installation for persistence
+references:
+  - https://attack.mitre.org/techniques/T1543/003/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1543.003
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - 7045
+      - service was installed
+      - A service was installed
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

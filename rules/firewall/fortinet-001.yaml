@@ -1,0 +1,25 @@
+title: FortiGate auth failed
+id: fortinet-001
+status: stable
+description: |
+  Authentication failure on FortiGate (admin GUI / SSH / API). Burst signals brute force or stolen-token probing.
+references:
+  - https://attack.mitre.org/techniques/T1110/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1110
+logsource:
+  category: fortinet
+  product: fortigate
+detection:
+  selection:
+    'msg|contains':
+      - login failed
+      - auth failed
+      - Login disabled
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

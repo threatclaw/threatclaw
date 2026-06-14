@@ -1,0 +1,25 @@
+title: PowerShell Registry Run Key Persistence
+id: ps-obfusc-019
+status: stable
+description: |
+  Detects registry run key manipulation
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1547.001
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - Set-ItemProperty
+      - New-ItemProperty
+      - 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+      - 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

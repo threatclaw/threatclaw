@@ -1,0 +1,24 @@
+title: PowerShell Base64 Decode In Script
+id: ps-obfusc-008
+status: stable
+description: |
+  Detects FromBase64String decoding
+references:
+  - https://attack.mitre.org/techniques/T1140/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.defense_evasion
+  - attack.t1140
+logsource:
+  category: process
+detection:
+  selection:
+    'commandline|contains':
+      - FromBase64String
+      - '[Convert]::FromBase64'
+      - ToBase64String
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

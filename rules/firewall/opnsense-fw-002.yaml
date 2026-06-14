@@ -1,0 +1,24 @@
+title: Block RDP from Internet
+id: opnsense-fw-002
+status: stable
+description: |
+  Block event on RDP port (3389) from a non-RFC1918 source — botnet sweep signature
+references:
+  - https://attack.mitre.org/techniques/T1595/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.reconnaissance
+  - attack.t1595
+logsource:
+  category: firewall
+  product: opnsense
+detection:
+  selection:
+    action: block
+    dst_port: 3389
+    direction: in
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

@@ -1,0 +1,29 @@
+title: Golden Ticket — Suspicious TGT
+id: win-auth-004
+status: stable
+description: |
+  Detects potential Golden Ticket usage via anomalous Kerberos TGT
+references:
+  - https://attack.mitre.org/techniques/T1558/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.credential_access
+  - attack.t1558.001
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - 4768
+      - 4769
+  suspicious:
+    'commandline|contains':
+      - 0x17
+      - RC4
+      - krbtgt
+      - golden
+  condition: selection and suspicious
+falsepositives:
+  - Unknown
+level: critical

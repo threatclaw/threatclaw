@@ -1,0 +1,31 @@
+title: Shadow AI — OpenAI-compatible API path (HTTP)
+id: shadow-ai-004
+status: stable
+description: |
+  Detects clear-text HTTP request (http.log) targeting /v1/chat/completions, /v1/completions, /v1/embeddings, /api/generate, /api/chat or /api/tags. Fires on LAN-local LLM runtimes behind plain HTTP (Ollama, vLLM, LM Studio without TLS).
+references:
+  - https://attack.mitre.org/techniques/T1567/004/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.exfiltration
+  - attack.t1567.004
+  - ai.governance
+  - ai.shadow
+  - ai.self_hosted
+logsource:
+  category: zeek
+  product: http
+detection:
+  selection:
+    'uri|contains':
+      - /v1/chat/completions
+      - /v1/completions
+      - /v1/embeddings
+      - /api/generate
+      - /api/chat
+      - /api/tags
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

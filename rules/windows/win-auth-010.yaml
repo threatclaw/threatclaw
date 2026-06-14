@@ -1,0 +1,25 @@
+title: RDP Lateral Movement
+id: win-auth-010
+status: stable
+description: |
+  Detects Remote Desktop logon events
+references:
+  - https://attack.mitre.org/techniques/T1021/001/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.lateral_movement
+  - attack.t1021.001
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - 4624
+      - RemoteInteractive
+      - Type 10
+      - RDP
+  condition: selection
+falsepositives:
+  - Unknown
+level: medium

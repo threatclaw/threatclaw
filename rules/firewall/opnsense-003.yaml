@@ -1,0 +1,30 @@
+title: OPNsense sensitive admin action
+id: opnsense-003
+status: stable
+description: |
+  A sensitive control-plane action ran on OPNsense (firmware upgrade, config restore, user delete, package install). Verify the operator was authorized.
+references:
+  - https://attack.mitre.org/techniques/T1098/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1098
+logsource:
+  category: opnsense
+  product: opnsense
+detection:
+  selection:
+    'line|contains':
+      - system.firmware.upgrade
+      - system.config.restore
+      - system.user.delete
+      - firmware.poweroff
+      - firmware.reboot
+      - system.halt
+      - openvpn.set
+      - system.user.add
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

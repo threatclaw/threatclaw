@@ -1,0 +1,28 @@
+title: Admin Group Membership Change
+id: win-auth-007
+status: stable
+description: |
+  Detects user added to admin/privileged group
+references:
+  - https://attack.mitre.org/techniques/T1098/
+author: ThreatClaw
+date: 2026-06-14
+tags:
+  - attack.persistence
+  - attack.t1098
+logsource:
+  category: alert
+detection:
+  selection:
+    'commandline|contains':
+      - 4728
+      - 4732
+      - 4756
+      - added to
+      - Administrators
+      - Domain Admins
+      - Enterprise Admins
+  condition: selection
+falsepositives:
+  - Unknown
+level: high

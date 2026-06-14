@@ -1,0 +1,22 @@
+rule: win-auth-001
+
+# Kerberoasting RC4 — needs BOTH selection (4769) AND filter_rc4 (0x17 or RC4).
+
+positive:
+  - description: Event 4769 with RC4 etype 0x17
+    event:
+      commandline: '4769 TGS Request etype 0x17 user svc-sql'
+  - description: Event 4769 with explicit RC4 mention
+    event:
+      commandline: 'EventID=4769 ticket_encryption=RC4'
+
+negative:
+  - description: 4769 with AES encryption (legit)
+    event:
+      commandline: '4769 TGS Request etype 0x12 AES256'
+  - description: Event 4768 (TGT request, different event)
+    event:
+      commandline: '4768 TGT request etype 0x17'
+  - description: Unrelated security event
+    event:
+      commandline: 'EventID=4624 logon success'
