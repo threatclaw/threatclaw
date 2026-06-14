@@ -1,0 +1,5 @@
+rule: 87df9ee1-5416-453a-8a08-e8d4a51e9ce1
+title: Delete Volume Shadow Copies Via WMI With PowerShell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: afd3df04-948d-46f6-ae44-25966c44b97f
+title: PSAsyncShell - Asynchronous TCP Reverse Shell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

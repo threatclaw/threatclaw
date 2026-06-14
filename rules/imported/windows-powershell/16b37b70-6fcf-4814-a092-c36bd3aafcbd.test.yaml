@@ -1,0 +1,5 @@
+rule: 16b37b70-6fcf-4814-a092-c36bd3aafcbd
+title: PowerShell ShellCode
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

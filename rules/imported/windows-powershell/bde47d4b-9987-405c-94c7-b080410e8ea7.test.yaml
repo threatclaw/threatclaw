@@ -1,0 +1,5 @@
+rule: bde47d4b-9987-405c-94c7-b080410e8ea7
+title: Clearing Windows Console History
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

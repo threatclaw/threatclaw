@@ -1,0 +1,21 @@
+title: PowerShell PSAttack
+id: b7ec41a4-042c-4f31-a5db-d0fcde9fa5c5
+status: test
+description: Detects the use of PSAttack PowerShell hack tool
+references:
+- https://adsecurity.org/?p=2921
+author: Sean Metcalf (source), Florian Roth (Nextron Systems)
+date: 2017-03-05
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  category: osquery
+  product: powershell
+detection:
+  selection:
+    data.ScriptBlockText|contains: PS ATTACK!!!
+  condition: selection
+falsepositives:
+- Unknown
+level: high

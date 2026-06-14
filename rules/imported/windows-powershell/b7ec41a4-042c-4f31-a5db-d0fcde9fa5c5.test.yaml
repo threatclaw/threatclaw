@@ -1,0 +1,5 @@
+rule: b7ec41a4-042c-4f31-a5db-d0fcde9fa5c5
+title: PowerShell PSAttack
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

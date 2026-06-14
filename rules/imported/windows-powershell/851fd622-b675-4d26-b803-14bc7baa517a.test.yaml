@@ -1,0 +1,5 @@
+rule: 851fd622-b675-4d26-b803-14bc7baa517a
+title: HackTool - WinPwn Execution - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

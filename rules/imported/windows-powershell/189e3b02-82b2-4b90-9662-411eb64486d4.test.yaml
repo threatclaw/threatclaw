@@ -1,0 +1,5 @@
+rule: 189e3b02-82b2-4b90-9662-411eb64486d4
+title: Potential Invoke-Mimikatz PowerShell Script
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

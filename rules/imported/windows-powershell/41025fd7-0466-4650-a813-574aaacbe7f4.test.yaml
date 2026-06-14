@@ -1,0 +1,5 @@
+rule: 41025fd7-0466-4650-a813-574aaacbe7f4
+title: Malicious PowerShell Scripts - PoshModule
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

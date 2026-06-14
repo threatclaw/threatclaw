@@ -1,0 +1,5 @@
+rule: bf72941a-cba0-41ea-b18c-9aca3925690d
+title: PowerShell ADRecon Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

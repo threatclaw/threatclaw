@@ -1,0 +1,5 @@
+rule: ed965133-513f-41d9-a441-e38076a0798f
+title: Suspicious PowerShell Invocations - Generic
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

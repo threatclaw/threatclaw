@@ -1,0 +1,71 @@
+title: Suspicious PowerShell Invocations - Specific - PowerShell Module
+id: 8ff28fdd-e2fa-4dfa-aeda-ef3d61c62090
+status: test
+description: Detects suspicious PowerShell invocation command parameters
+references:
+- Internal Research
+- https://github.com/HackTricks-wiki/hacktricks/blob/e4c7b21b8f36c97c35b7c622732b38a189ce18f7/src/windows-hardening/windows-local-privilege-escalation/privilege-escalation-with-autorun-binaries.md
+author: Florian Roth (Nextron Systems), Jonhnathan Ribeiro
+date: 2017-03-05
+tags:
+- attack.execution
+- attack.t1059.001
+logsource:
+  category: osquery
+  product: powershell
+detection:
+  selection_convert_b64:
+    data.ContextInfo|contains|all:
+    - -nop
+    - ' -w '
+    - hidden
+    - ' -c '
+    - '[Convert]::FromBase64String'
+  selection_iex:
+    data.ContextInfo|contains|all:
+    - ' -w '
+    - hidden
+    - -noni
+    - -nop
+    - ' -c '
+    - iex
+    - New-Object
+  selection_enc:
+    data.ContextInfo|contains|all:
+    - ' -w '
+    - hidden
+    - -ep
+    - bypass
+    - -Enc
+  selection_reg:
+    data.ContextInfo|contains|all:
+    - powershell
+    - reg
+    - add
+    data.ContextInfo|contains:
+    - \software\microsoft\windows\currentversion\run
+    - \software\wow6432node\microsoft\windows\currentversion\run
+    - \software\microsoft\windows\currentversion\policies\explorer\run
+  selection_webclient:
+    data.ContextInfo|contains|all:
+    - bypass
+    - -noprofile
+    - -windowstyle
+    - hidden
+    - new-object
+    - system.net.webclient
+    - .download
+  selection_iex_webclient:
+    data.ContextInfo|contains|all:
+    - iex
+    - New-Object
+    - Net.WebClient
+    - .Download
+  filter_chocolatey:
+    data.ContextInfo|contains:
+    - (New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1
+    - Write-ChocolateyWarning
+  condition: 1 of selection_* and not 1 of filter_*
+falsepositives:
+- Unknown
+level: high

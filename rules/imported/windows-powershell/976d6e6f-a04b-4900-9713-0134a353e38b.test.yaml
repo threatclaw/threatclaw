@@ -1,0 +1,5 @@
+rule: 976d6e6f-a04b-4900-9713-0134a353e38b
+title: Veeam Backup Servers Credential Dumping Script Execution
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

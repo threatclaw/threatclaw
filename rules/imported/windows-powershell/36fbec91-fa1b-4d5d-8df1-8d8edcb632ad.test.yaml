@@ -1,0 +1,5 @@
+rule: 36fbec91-fa1b-4d5d-8df1-8d8edcb632ad
+title: Code Executed Via Office Add-in XLL File
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

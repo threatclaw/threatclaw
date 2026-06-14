@@ -1,0 +1,5 @@
+rule: 846c7a87-8e14-4569-9d49-ecfd4276a01c
+title: DSInternals Suspicious PowerShell Cmdlets - ScriptBlock
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

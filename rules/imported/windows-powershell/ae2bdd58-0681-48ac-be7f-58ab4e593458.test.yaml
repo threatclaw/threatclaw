@@ -1,0 +1,5 @@
+rule: ae2bdd58-0681-48ac-be7f-58ab4e593458
+title: Tamper Windows Defender Remove-MpPreference - ScriptBlockLogging
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

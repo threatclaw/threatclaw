@@ -1,0 +1,23 @@
+title: Live Memory Dump Using Powershell
+id: cd185561-4760-45d6-a63e-a51325112cae
+status: test
+description: Detects usage of a PowerShell command to dump the live memory of a Windows machine
+references:
+- https://learn.microsoft.com/en-us/powershell/module/storage/get-storagediagnosticinfo?view=windowsserver2022-ps
+author: Max Altgelt (Nextron Systems)
+date: 2021-09-21
+tags:
+- attack.credential-access
+- attack.t1003
+logsource:
+  category: osquery
+  product: powershell
+detection:
+  selection:
+    data.ScriptBlockText|contains|all:
+    - Get-StorageDiagnosticInfo
+    - -IncludeLiveDump
+  condition: selection
+falsepositives:
+- Diagnostics
+level: high

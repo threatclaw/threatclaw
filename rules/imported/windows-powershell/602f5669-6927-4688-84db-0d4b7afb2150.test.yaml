@@ -1,0 +1,5 @@
+rule: 602f5669-6927-4688-84db-0d4b7afb2150
+title: Disable Powershell Command History
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

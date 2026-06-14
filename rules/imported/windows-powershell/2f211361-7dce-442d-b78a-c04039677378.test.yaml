@@ -1,0 +1,5 @@
+rule: 2f211361-7dce-442d-b78a-c04039677378
+title: Invoke-Obfuscation Obfuscated IEX Invocation - PowerShell Module
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

@@ -1,0 +1,5 @@
+rule: 953945c5-22fe-4a92-9f8a-a9edc1e522da
+title: Abuse of Service Permissions to Hide Services Via Set-Service - PS
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

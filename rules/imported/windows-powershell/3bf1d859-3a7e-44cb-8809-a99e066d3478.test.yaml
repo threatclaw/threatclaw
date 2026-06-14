@@ -1,0 +1,5 @@
+rule: 3bf1d859-3a7e-44cb-8809-a99e066d3478
+title: PowerShell Set-Acl On Windows Folder - PsScript
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

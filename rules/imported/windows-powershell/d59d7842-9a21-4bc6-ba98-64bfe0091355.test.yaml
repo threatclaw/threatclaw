@@ -1,0 +1,5 @@
+rule: d59d7842-9a21-4bc6-ba98-64bfe0091355
+title: Powershell DNSExfiltration
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

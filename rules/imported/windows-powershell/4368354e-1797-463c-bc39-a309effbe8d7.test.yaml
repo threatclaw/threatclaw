@@ -1,0 +1,5 @@
+rule: 4368354e-1797-463c-bc39-a309effbe8d7
+title: Powershell Add Name Resolution Policy Table Rule
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

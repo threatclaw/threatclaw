@@ -1,0 +1,5 @@
+rule: 115fdba9-f017-42e6-84cf-d5573bf2ddf8
+title: Disable of ETW Trace - Powershell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

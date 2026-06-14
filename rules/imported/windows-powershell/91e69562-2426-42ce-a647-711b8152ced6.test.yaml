@@ -1,0 +1,5 @@
+rule: 91e69562-2426-42ce-a647-711b8152ced6
+title: AADInternals PowerShell Cmdlets Execution - PsScript
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

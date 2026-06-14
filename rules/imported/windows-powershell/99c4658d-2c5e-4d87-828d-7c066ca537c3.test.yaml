@@ -1,0 +1,5 @@
+rule: 99c4658d-2c5e-4d87-828d-7c066ca537c3
+title: Disable-WindowsOptionalFeature Command PowerShell
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

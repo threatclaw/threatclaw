@@ -1,0 +1,5 @@
+rule: 8d31a8ce-46b5-4dd6-bdc3-680931f1db86
+title: Bad Opsec Powershell Code Artifacts
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

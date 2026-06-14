@@ -1,0 +1,5 @@
+rule: 7d0d0329-0ef1-4e84-a9f5-49500f9d7c6c
+title: Malicious PowerShell Commandlets - PoshModule
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'

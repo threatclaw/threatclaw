@@ -1,0 +1,5 @@
+rule: 14c71865-6cd3-44ae-adaa-1db923fae5f2
+title: Tamper Windows Defender - ScriptBlockLogging
+positive: []
+negative: []
+notes: 'TODO: add at least one positive and one negative event fixture.'
