@@ -24,6 +24,9 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server URL |
 | `MISTRAL_API_KEY` | — | Mistral AI API key |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `TC_REPORT_LANG` | `English` | Output language for LLM-generated forensic narratives (`English`, `French`, `Chinese`, ...). Independent from the dashboard UI language. Falls back to the DB setting `system/report.language` when defined. *(v1.0.34+)* |
+| `TC_PULL_FORENSIC_FAST` | `true` | Pull the Q4_K_M forensic model alongside the Q8_0 for CPU-only or RAM-constrained installs. Set to `false` to skip the extra ~5 GB. |
+| `TC_AUTO_PULL_MODELS` | `true` | Start the local AI model download in the background on first boot. Set to `false` for fully offline installs. |
 
 ### Agent
 
