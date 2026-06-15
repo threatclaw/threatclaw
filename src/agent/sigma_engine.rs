@@ -488,18 +488,23 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
                     matched.push((field.clone(), val));
                     return true;
                 }
+                // Field exists but does not contain the substring — strict miss.
+                // We must NOT fall back to scanning the entire JSON body, or
+                // unrelated fields silently satisfy the rule (e.g. a rule
+                // targeting `commandline` matching a PID stored in `data.pid`).
+                return false;
             }
-            // Also search the entire log text for the substring. Record the
-            // substring that actually matched, not a generic marker, so the
-            // SOC console and the downstream source_ip / username extractors
-            // get at least the matched token to work with. The previous
-            // "(found in log body)" marker left matched_fields useless for
-            // any automated remediation (blocking the source IP, locking
-            // the user, etc.) because the actual value was discarded.
-            let text = log.to_string().to_lowercase();
-            if text.contains(substring) {
-                matched.push((field.clone(), substring.clone()));
-                return true;
+            // Field not present. Symbolic aliases (`full_log`, `message`, ...)
+            // intentionally collapse to a whole-event scan because legacy
+            // syslog rules reference them as a stand-in for "the log body".
+            // For every other field name a missing key means the rule is not
+            // applicable to this event — return false.
+            if is_symbolic_log_alias(field) {
+                let text = log.to_string().to_lowercase();
+                if text.contains(substring) {
+                    matched.push((field.clone(), substring.clone()));
+                    return true;
+                }
             }
             false
         }
@@ -547,17 +552,15 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
                     matched.push((field.clone(), val));
                     return true;
                 }
+                return false;
             }
-            // Defense in depth: also probe the whole log body — same semantics as
-            // FieldMatcher::Contains so rules don't depend on whether the field
-            // is exposed at top-level or nested. Record the specific value that
-            // matched, not a generic marker, so the downstream extractors keep
-            // a usable handle on the offending token (see Contains arm above).
-            let text = log.to_string().to_lowercase();
-            for v in values {
-                if text.contains(v.as_str()) {
-                    matched.push((field.clone(), v.clone()));
-                    return true;
+            if is_symbolic_log_alias(field) {
+                let text = log.to_string().to_lowercase();
+                for v in values {
+                    if text.contains(v.as_str()) {
+                        matched.push((field.clone(), v.clone()));
+                        return true;
+                    }
                 }
             }
             false
@@ -589,14 +592,14 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
                     matched.push((field.clone(), val));
                     return true;
                 }
+                return false;
             }
-            // Body-scan fallback: every fragment must appear somewhere in the
-            // serialized event. Mirrors the Contains/ContainsAny fallback, but
-            // gated on all() so noisy hits don't sneak through.
-            let text = log.to_string().to_lowercase();
-            if values.iter().all(|v| text.contains(v.as_str())) {
-                matched.push((field.clone(), values.join(" + ")));
-                return true;
+            if is_symbolic_log_alias(field) {
+                let text = log.to_string().to_lowercase();
+                if values.iter().all(|v| text.contains(v.as_str())) {
+                    matched.push((field.clone(), values.join(" + ")));
+                    return true;
+                }
             }
             false
         }
@@ -621,6 +624,22 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             false
         }
     }
+}
+
+/// True if the field name is a symbolic alias for the whole log body —
+/// legacy syslog rules reference these as a stand-in for "the raw log
+/// line". For these aliases (and only these), a missing key triggers a
+/// fallback scan of the serialized event. Any other field reference is
+/// honored strictly: missing = no match, present-but-different = no
+/// match. Without this gate, a rule targeting `commandline` would
+/// silently match unrelated tokens elsewhere in the event (e.g. a port
+/// number stored in `data.SourcePort`), which is the root cause of the
+/// false positives that surfaced during the 2026-06 audit.
+fn is_symbolic_log_alias(field: &str) -> bool {
+    matches!(
+        field.to_lowercase().as_str(),
+        "full_log" | "raw_log" | "raw_text" | "log_text" | "message" | "body" | "log"
+    )
 }
 
 /// Find a field value in a JSONB log. Supports dot notation and flat search.
@@ -1497,9 +1516,42 @@ mod tests {
 
     #[test]
     fn matcher_contains_falls_back_to_body_scan() {
-        // Field doesn't exist at top level but value is in the JSON body.
+        // Symbolic alias (`message`) absent at top level — fallback to whole body.
         let log = json!({ "data": { "raw": "Failed login from 10.0.0.1" } });
         assert!(run_matcher(&FieldMatcher::Contains("message".into(), "failed login".into()), &log));
+    }
+
+    #[test]
+    fn matcher_contains_strict_for_non_symbolic_field() {
+        // Regression for the 2026-06 FP storm: a rule targeting `commandline`
+        // must NOT silently match unrelated fields just because the substring
+        // appears somewhere else in the event. Before the fix, `commandline`
+        // would fall back to scanning the whole JSON, so an event without a
+        // commandline field — but with "23" stored in a port number elsewhere
+        // — would falsely satisfy a rule looking for the literal "23" in a
+        // command line. Now the matcher is strict: missing field = no match.
+        let log = json!({
+            "data": { "TargetPort": 23, "Image": "powershell.exe" }
+        });
+        assert!(!run_matcher(
+            &FieldMatcher::Contains("commandline".into(), "23".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn matcher_contains_present_but_no_substring_is_strict() {
+        // Field exists and does NOT contain the substring — must NOT fall
+        // back to whole-body scan even though the substring is present in a
+        // different field of the same event.
+        let log = json!({
+            "commandline": "powershell.exe",
+            "host": "23-RDP-server"
+        });
+        assert!(!run_matcher(
+            &FieldMatcher::Contains("commandline".into(), "rdp".into()),
+            &log
+        ));
     }
 
     #[test]
