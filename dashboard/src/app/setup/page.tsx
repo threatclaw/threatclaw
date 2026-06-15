@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import SetupWizard from "@/components/setup/SetupWizard";
 import EmbossedButton from "@/components/chrome/EmbossedButton";
 import ConfigPage from "@/components/setup/ConfigPage";
-import { Settings, Play, Key, Monitor, Copy, RefreshCw, MessageSquare } from "lucide-react";
+import { Settings, Play, Key, Monitor, Copy, RefreshCw, MessageSquare, Eye, EyeOff } from "lucide-react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 
@@ -47,6 +47,11 @@ function AgentPage() {
   // the operator must opt in explicitly.
   const [showRotateConfirm, setShowRotateConfirm] = useState(false);
   const [rotating, setRotating] = useState(false);
+  // Token is masked by default. The operator clicks Reveal to see the
+  // full value; Copy works without revealing because we never need to
+  // expose the token on screen to put it on the clipboard. Aligns with
+  // the AWS Console / GitHub Personal Access Token pattern.
+  const [tokenRevealed, setTokenRevealed] = useState(false);
 
   useEffect(() => {
     // Load token + agents
@@ -152,8 +157,13 @@ function AgentPage() {
             {tokenExists && token ? (
               <>
                 <code style={{ fontSize: "10px", color: "var(--tc-green)", background: "var(--tc-neu-inner)", padding: "6px 10px", borderRadius: "var(--tc-radius-sm)", flex: 1, fontFamily: "monospace", letterSpacing: "0.02em" }}>
-                  {token.substring(0, 8)}{"••••••••••••••••"}
+                  {tokenRevealed ? token : "•".repeat(Math.min(token.length, 32))}
                 </code>
+                <button onClick={() => setTokenRevealed(v => !v)} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }} title={tokenRevealed ? (locale === "fr" ? "Masquer" : "Hide") : (locale === "fr" ? "Reveler" : "Reveal")}>
+                  {tokenRevealed
+                    ? (<><EyeOff size={10} /> {locale === "fr" ? "Masquer" : "Hide"}</>)
+                    : (<><Eye size={10} /> {locale === "fr" ? "Reveler" : "Reveal"}</>)}
+                </button>
                 <button onClick={() => copyCmd(token)} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }}>
                   <Copy size={10} /> {locale === "fr" ? "Copier" : "Copy"}
                 </button>
