@@ -1058,9 +1058,6 @@ fn numeric_cmp(
 /// command line produces a different fingerprint and therefore a
 /// different dedup bucket, so a brand-new attack on the same host no
 /// longer reuses the suppression window of an unrelated earlier match.
-/// Same payload arriving twice within the suppression window still
-/// dedupes naturally — the fingerprint only changes when the matched
-/// content does.
 fn sigma_match_fingerprint(matched_fields: &[(String, String)]) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -1071,6 +1068,69 @@ fn sigma_match_fingerprint(matched_fields: &[(String, String)]) -> String {
         f.to_lowercase().hash(&mut h);
         v.to_lowercase().hash(&mut h);
     }
+    format!("{:016x}", h.finish())
+}
+
+/// Same as `sigma_match_fingerprint` but also folds in the common
+/// discriminator fields from the log (target user, source / destination
+/// address, process id). The Golden Ticket rule for instance only
+/// captures `channel`, `eventid` and `TicketEncryptionType` in
+/// `matched_fields` — every account being targeted hashes identically
+/// from those three values, so two distinct compromises against
+/// `alice` and `bobby` would never both surface without the extra
+/// context. Discriminators we look at: top-level and `data.*` variants
+/// of `TargetUserName`, `SubjectUserName`, `username`, `user`,
+/// `Account`, `IpAddress`, `source_ip`, `src_ip`, `dst_ip`, `dest_ip`,
+/// `ProcessId`, `CommandLine` — anything present is folded in.
+fn sigma_match_fingerprint_with_log(
+    matched_fields: &[(String, String)],
+    log: &serde_json::Value,
+) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    const DISCRIMINATORS: &[&str] = &[
+        "TargetUserName",
+        "SubjectUserName",
+        "username",
+        "user",
+        "user_name",
+        "Account",
+        "IpAddress",
+        "source_ip",
+        "src_ip",
+        "src",
+        "source",
+        "rhost",
+        "dst_ip",
+        "dest_ip",
+        "dst",
+        "destination",
+        "ProcessId",
+        "CommandLine",
+    ];
+
+    let mut h = DefaultHasher::new();
+    let mut pairs: Vec<&(String, String)> = matched_fields.iter().collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    for (f, v) in pairs {
+        f.to_lowercase().hash(&mut h);
+        v.to_lowercase().hash(&mut h);
+    }
+
+    // Fold in any discriminator we can find — checked both at top level
+    // and nested under `data` (Windows osquery shape).
+    for d in DISCRIMINATORS {
+        for path in [d.to_string(), format!("data.{d}")] {
+            if let Some(v) = find_field(log, &path)
+                && !v.is_empty()
+            {
+                path.to_lowercase().hash(&mut h);
+                v.to_lowercase().hash(&mut h);
+                break;
+            }
+        }
+    }
+
     format!("{:016x}", h.finish())
 }
 
@@ -1415,21 +1475,16 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 let raw_hostname = log.hostname.as_deref().unwrap_or("unknown");
                 let canonical_asset = resolve_canonical_asset(store.as_ref(), raw_hostname).await;
 
-                // Dedup key now factors in a fingerprint of the matched
-                // fields — this is what makes the difference between
-                // "the same brute-force IP firing the same rule again"
-                // (legitimately deduped, just noise) and "a different
-                // attacker targeting a different account on the same
-                // host" (a brand new event the operator must see).
-                // The previous (rule_id, asset) tuple silently absorbed
-                // the second case for an hour; on a stress test where
-                // the same rule fired with different usernames /
-                // source IPs in rapid succession, the dashboard
-                // only ever surfaced the first one. The fingerprint
-                // collapses textually-similar matches (same payload
-                // arriving twice) without hiding semantically distinct
-                // ones.
-                let fp = sigma_match_fingerprint(&m.matched_fields);
+                // Dedup key blends the matched fields with a handful of
+                // log discriminators (target user, source / destination
+                // address, process id) so the fingerprint changes when
+                // the *target* of the attack changes, even if the rule
+                // itself only ever captured the constant parts (event
+                // id, encryption type, channel). Without the
+                // discriminators a Golden Ticket rule fingerprints
+                // identically for every user — the second compromised
+                // account never makes it past the suppression window.
+                let fp = sigma_match_fingerprint_with_log(&m.matched_fields, &log.data);
                 let dedup_key = format!("{}_{}_{}", m.rule_id, canonical_asset, fp);
                 if !cycle_dedup.insert(dedup_key.clone()) {
                     continue;
