@@ -12,6 +12,13 @@ static RATE_LIMITS: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 const MAX_REQUESTS_PER_MINUTE: u32 = 60;
+/// Per-source-type backstop. The per-host key below is derived from the
+/// client-supplied `hostname`, which is spoofable: a token holder could
+/// otherwise mint an unlimited number of per-host buckets and flood the DB.
+/// This bounds total throughput per source type (≈ per server-issued token)
+/// regardless of hostname. Sized for a ~10k-host fleet syncing every 5 min with
+/// burst/retry headroom — raise proportionally for larger fleets.
+const MAX_REQUESTS_PER_SOURCE_PER_MINUTE: u32 = 20_000;
 const MAX_BODY_SIZE: usize = 65_536; // 64 KB
 const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log ingestion
 /// Osquery + endpoint agents ship the full system snapshot (software, patches,
@@ -60,8 +67,8 @@ fn rate_limit_key(source: &str, json: &serde_json::Value) -> String {
     }
 }
 
-/// Check rate limit for a bucket key. Returns true if allowed.
-fn check_rate_limit(key: &str) -> bool {
+/// Check a rate-limit bucket against a per-minute cap. Returns true if allowed.
+fn check_bucket(key: &str, max_per_min: u32) -> bool {
     let now = chrono::Utc::now();
     // Recover from a poisoned lock instead of propagating the panic: a single
     // panic elsewhere must not permanently wedge all webhook ingestion.
@@ -70,8 +77,8 @@ fn check_rate_limit(key: &str) -> bool {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     // Opportunistic eviction of stale buckets so the map can't grow without
-    // bound as hostnames churn over long uptimes (now keyed per host).
-    if limits.len() > 20_000 {
+    // bound as hostnames churn over long uptimes (keyed per host + per source).
+    if limits.len() > 50_000 {
         limits.retain(|_, (_, started)| (now - *started).num_seconds() < 120);
     }
 
@@ -84,7 +91,12 @@ fn check_rate_limit(key: &str) -> bool {
     }
 
     entry.0 += 1;
-    entry.0 <= MAX_REQUESTS_PER_MINUTE
+    entry.0 <= max_per_min
+}
+
+/// Per-host (or per-source) bucket at the default per-minute cap.
+fn check_rate_limit(key: &str) -> bool {
+    check_bucket(key, MAX_REQUESTS_PER_MINUTE)
 }
 
 /// Process an incoming webhook. Returns number of findings/alerts created.
@@ -122,9 +134,16 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
         }
     };
 
-    // Rate limit — keyed per host for endpoint agents so the whole fleet does
-    // not share a single bucket (see rate_limit_key). Done after parse since the
-    // per-host key lives in the payload; body-size cap above bounds the cost.
+    // Rate limit, two tiers. Outer: a generous per-source-type backstop that
+    // bounds total DB load even if a token holder spoofs the client-supplied
+    // hostname to mint buckets. Inner: a tight per-host bucket (rate_limit_key)
+    // for fairness so the 10k-host fleet does not share one bucket and a single
+    // noisy host is still capped. Done after parse since the per-host key lives
+    // in the payload; the body-size cap above bounds the cost.
+    if !check_bucket(&format!("__src/{source}"), MAX_REQUESTS_PER_SOURCE_PER_MINUTE) {
+        tracing::warn!("WEBHOOK: source-level rate limit hit for {}", source);
+        return 0;
+    }
     let rl_key = rate_limit_key(source, &json);
     if !check_rate_limit(&rl_key) {
         tracing::warn!("WEBHOOK: rate limited {}", rl_key);
@@ -1152,6 +1171,22 @@ mod tests {
         assert!(
             !check_rate_limit(&key),
             "61st request from the same host must be blocked"
+        );
+    }
+
+    #[test]
+    fn test_source_backstop_caps_hostname_spoofing() {
+        // The per-host key is derived from a spoofable client field; the
+        // per-source backstop must still bound total throughput no matter how
+        // many distinct hostnames are minted. Private key + small cap to avoid
+        // cross-test interference on the shared limiter map.
+        let src_key = "__src/test-spoof-source";
+        for _ in 0..40 {
+            assert!(check_bucket(src_key, 40));
+        }
+        assert!(
+            !check_bucket(src_key, 40),
+            "source backstop must block once its cap is hit, regardless of hostname"
         );
     }
 
