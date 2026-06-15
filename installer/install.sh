@@ -29,7 +29,7 @@
 set -eo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-readonly TC_VERSION="1.0.34-beta"
+readonly TC_VERSION="1.0.35-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
 readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/main"
 readonly LOG_FILE="/var/log/threatclaw-install.log"
@@ -335,7 +335,14 @@ download_graphs() {
   _files=$(http_fetch_stdout "$_api" 2>/dev/null \
     | grep -o '"name":"[^"]*\.yaml"' | cut -d'"' -f4) || true
   if [ -z "$_files" ]; then
-    log_warn "Could not list investigation graphs from GitHub — skipping"
+    # The most common cause is api.github.com being rate-limited (60 req/h
+    # without a token) or unreachable from the install network. The core
+    # container ships the same 52 investigation graphs under
+    # /app/graphs-bundled/sigma/ as a fallback that loads automatically
+    # when the host directory is empty, so the install keeps working
+    # exactly as if the download had succeeded. The warning is
+    # informational; nothing to act on.
+    log_warn "GitHub API not reachable for the investigation-graph index — install will use the 52 graphs bundled inside the core container instead (no functional impact)"
     return 0
   fi
   local _n=0

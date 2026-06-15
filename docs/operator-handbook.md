@@ -212,6 +212,34 @@ The Config page exposes every setting per category: general
 3. Set a wide time range and search the JSON payload.
 4. Once you confirm the host is internal, declare it in Inventory.
 
+### Webhook token lifecycle (lookup before rotating)
+
+The webhook token shown on **Setup > Endpoints** is what authenticates
+every endpoint agent's 5-minute sync. It is durable:
+
+- A `--update` does **not** touch the token.
+- Restarting the core does **not** touch the token.
+- The token only changes when the operator clicks the **Regenerate**
+  button on the dashboard.
+
+That click invalidates every installed agent immediately. The
+dashboard now asks for explicit confirmation before rotating, but
+the rule still applies: regenerate only on suspected compromise or
+when you change deployment strategy.
+
+If you need to recover after an accidental rotation, copy the new
+token from **Setup > Endpoints** and either:
+
+- Edit each agent's local token file:
+  - Linux: `/etc/threatclaw/agent.conf`
+  - Windows: `C:\ProgramData\ThreatClaw\agent-sync.ps1` (the `$Token`
+    variable near the top)
+- Or reinstall the agent with the new token using the install one-liner
+  on the same page.
+
+The next scheduled-task tick (within 5 minutes) succeeds and the asset
+reappears in Inventory.
+
 ### Force a model re-pull
 
 If the L2 forensic timeline reports a 404 on the

@@ -40,6 +40,13 @@ function AgentPage() {
   const [serverUrl, setServerUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Confirmation modal for the destructive "Regenerate" path. The
+  // first-install "Generate" path stays one-click — there is nothing
+  // to invalidate yet — but rotating an existing token silently
+  // breaks every agent that was installed with the previous value, so
+  // the operator must opt in explicitly.
+  const [showRotateConfirm, setShowRotateConfirm] = useState(false);
+  const [rotating, setRotating] = useState(false);
 
   useEffect(() => {
     // Load token + agents
@@ -66,6 +73,20 @@ function AgentPage() {
     if (data.token) {
       setToken(data.token);
       setTokenExists(true);
+    }
+  };
+
+  // Rotation handler — only called from the modal's confirm button so
+  // an accidental click on Regenerate cannot silently break every
+  // existing agent's sync. The first-install Generate path bypasses
+  // this and goes straight through `generateToken`.
+  const confirmRotateToken = async () => {
+    setRotating(true);
+    try {
+      await generateToken();
+    } finally {
+      setRotating(false);
+      setShowRotateConfirm(false);
     }
   };
 
@@ -136,7 +157,7 @@ function AgentPage() {
                 <button onClick={() => copyCmd(token)} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }}>
                   <Copy size={10} /> {locale === "fr" ? "Copier" : "Copy"}
                 </button>
-                <button onClick={generateToken} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }}>
+                <button onClick={() => setShowRotateConfirm(true)} className="tc-btn-embossed" style={{ fontSize: "9px", padding: "5px 8px", display: "flex", alignItems: "center", gap: "4px" }}>
                   <RefreshCw size={10} /> {locale === "fr" ? "Regenerer" : "Regenerate"}
                 </button>
               </>
@@ -263,6 +284,67 @@ function AgentPage() {
           </table>
         )}
       </div>
+
+      {/* Rotate confirmation modal — opened by the Regenerate button.
+          The first-install Generate path never reaches this since there
+          is nothing to invalidate; this is the destructive case where
+          we must warn before issuing the POST. */}
+      {showRotateConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !rotating && setShowRotateConfirm(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="tc-card"
+            style={{
+              maxWidth: "520px", width: "92%", padding: "24px",
+              background: "var(--tc-bg)", border: "1px solid var(--tc-border)",
+              borderLeft: "4px solid var(--tc-red)",
+            }}
+          >
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "10px" }}>
+              {locale === "fr" ? "Regenerer le token ?" : "Regenerate token?"}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--tc-text)", lineHeight: 1.55, marginBottom: "10px" }}>
+              {locale === "fr"
+                ? "Generer un nouveau token va invalider IMMEDIATEMENT toutes les machines deja installees avec le token actuel. Aucun agent ne pourra plus envoyer ses donnees jusqu'a ce que vous mettiez le nouveau token sur chaque machine, OU que vous reinstalliez l'agent."
+                : "Generating a new token will IMMEDIATELY invalidate every machine already installed with the current token. No agent will be able to sync until you push the new token onto each machine, OR reinstall the agent."}
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", lineHeight: 1.5, marginBottom: "20px" }}>
+              {locale === "fr"
+                ? "Le token est durable a travers les mises a jour ThreatClaw — vous ne devriez avoir a le regenerer que si vous suspectez une compromission, ou que vous changez de strategie de deploiement."
+                : "The token persists across ThreatClaw updates — you should only need to regenerate it if you suspect compromise or change your deployment strategy."}
+            </div>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowRotateConfirm(false)}
+                disabled={rotating}
+                className="tc-btn-embossed"
+                style={{ fontSize: "11px", padding: "7px 14px" }}
+              >
+                {locale === "fr" ? "Annuler" : "Cancel"}
+              </button>
+              <button
+                onClick={confirmRotateToken}
+                disabled={rotating}
+                className="tc-btn-embossed"
+                style={{ fontSize: "11px", padding: "7px 14px", background: "var(--tc-red)", color: "#fff", border: "none" }}
+              >
+                {rotating
+                  ? (locale === "fr" ? "Rotation en cours..." : "Rotating...")
+                  : (locale === "fr" ? "Regenerer quand meme" : "Regenerate anyway")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

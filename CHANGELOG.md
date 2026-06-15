@@ -6,6 +6,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.35-beta] — 2026-06-15
+
+### Added
+- Confirmation modal before rotating the agent webhook token on **Setup > Endpoints**. The single-click "Regenerate" path previously invalidated every previously-installed endpoint agent the moment it was clicked, and a customer hit this case on a casual visit to the page to look up the current token. The modal now spells out that the rotation invalidates every machine already installed with the previous token, that the operator must push the new token onto each machine or reinstall the agent, and that the token is durable across ThreatClaw updates so rotation is only necessary on suspected compromise. The first-install "Generate" path stays one-click since there is nothing to invalidate yet.
+
+### Changed
+- Incident card titles, IE timeline step labels, and the asset coverage panel now render in English by default for fresh installs. The L1 ReAct prompts also default to English so the AI narrative on a fresh deployment is consistent end-to-end without further configuration. French installs that explicitly persisted the dashboard language setting keep their behaviour; only the default for fresh installs changes.
+- Installer warning when listing the bundled investigation graphs from upstream rewritten to make clear that the install will use the graphs already bundled inside the core container when the upstream listing fails — the original wording suggested a broken install when in fact nothing was wrong.
+
+### Docs
+- New "Webhook token lifecycle" section in the operator handbook explains that the token is durable across updates and restarts, and only changes on an explicit click. Also lists the recovery path — copy the new token from the dashboard, edit the per-agent token file or reinstall the agent with the install one-liner — so an operator can self-recover after an accidental rotation.
+
 ## [1.0.34-beta] — 2026-06-15
 
 ### Fixed
