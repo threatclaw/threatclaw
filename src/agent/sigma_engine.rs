@@ -1676,7 +1676,39 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         logs.last().map(|l| l.time.clone()),
         logs.last().map(|l| l.id),
     ) {
-        save_sigma_cursor(store.as_ref(), &last_time, last_id).await;
+        // Future-clamp the persisted cursor. Some upstream syslog
+        // producers ship timestamps that have already been adjusted to
+        // the local timezone of the host but get re-tagged as UTC at
+        // ingest (the rsyslog template defaulted to a TZ-naïve format on
+        // one of the cyb06 sources). A handful of those rows therefore
+        // land in the logs table with `time` an hour or two in the
+        // future. Without this clamp, the cursor leaps forward to that
+        // future value and every subsequent batch skips every log that
+        // arrives in the meantime — the engine looked alive but was
+        // actually starved. We never persist a cursor past `now()`.
+        let now = chrono::Utc::now();
+        let effective_time = match chrono::DateTime::parse_from_rfc3339(&last_time)
+            .or_else(|_| {
+                chrono::DateTime::parse_from_str(&last_time, "%Y-%m-%d %H:%M:%S%.f%#z")
+            })
+            .or_else(|_| {
+                chrono::DateTime::parse_from_str(&last_time, "%Y-%m-%d %H:%M:%S%#z")
+            }) {
+            Ok(parsed) => {
+                let parsed_utc = parsed.with_timezone(&chrono::Utc);
+                if parsed_utc > now {
+                    tracing::warn!(
+                        "SIGMA: last-log time {} is in the future, clamping cursor to now",
+                        last_time
+                    );
+                    now.to_rfc3339()
+                } else {
+                    last_time
+                }
+            }
+            Err(_) => last_time,
+        };
+        save_sigma_cursor(store.as_ref(), &effective_time, last_id).await;
     }
     let _ = SIGMA_CURSOR_KEY;  // referenced for clarity in tests/audit
 
