@@ -878,10 +878,24 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         return;
     }
 
-    let logs = match store.query_logs(minutes_back, None, None, 2000).await {
+    // Fixed-size window. At very high log volume (10k+ hosts) this can cap
+    // before every log in the window is evaluated against the rules; warn
+    // rather than silently drop. Full fix = cursor-based paging (validate the
+    // throughput impact under load before raising this much further).
+    const SIGMA_LOG_BATCH: i64 = 5000;
+    let logs = match store
+        .query_logs(minutes_back, None, None, SIGMA_LOG_BATCH)
+        .await
+    {
         Ok(l) => l,
         Err(_) => return,
     };
+    if logs.len() as i64 >= SIGMA_LOG_BATCH {
+        tracing::warn!(
+            "SIGMA: log batch hit the {} cap — some logs in this window were not evaluated against rules",
+            SIGMA_LOG_BATCH
+        );
+    }
 
     // Observe-and-enrol: any hostname appearing in the recent log batch that
     // is not yet in the assets table gets upserted with `source = "syslog"`

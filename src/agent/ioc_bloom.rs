@@ -115,8 +115,13 @@ impl BloomFilter {
 
 /// Build the Bloom filter from all cached feeds in PostgreSQL.
 /// Called at boot and every 6 hours after feed sync.
+/// Capacity the IoC Bloom filter is sized for. Combined MISP/ThreatFox/URLhaus/
+/// MalwareBazaar/KEV feeds can exceed the old 500k; oversizing keeps the false
+/// positive rate near the configured 1% and we warn before saturation (below).
+pub const BLOOM_CAPACITY: usize = 2_000_000;
+
 pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
-    let mut filter = BloomFilter::new(500_000, 0.01);
+    let mut filter = BloomFilter::new(BLOOM_CAPACITY, 0.01);
 
     // OpenPhish URLs
     if let Ok(Some(data)) = store.get_setting("_enrichment", "openphish_urls").await {
@@ -194,6 +199,16 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
         filter.ioc_count(),
         filter.memory_kb()
     );
+
+    // Warn before the filter saturates — past capacity the false-positive rate
+    // climbs and every log line starts triggering a verify_in_cache DB lookup.
+    if filter.ioc_count() as f64 > 0.9 * BLOOM_CAPACITY as f64 {
+        tracing::warn!(
+            "BLOOM: near capacity ({}/{} IoC) — false-positive rate degrading, raise BLOOM_CAPACITY",
+            filter.ioc_count(),
+            BLOOM_CAPACITY
+        );
+    }
 
     filter
 }

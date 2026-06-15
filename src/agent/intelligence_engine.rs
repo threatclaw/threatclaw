@@ -231,6 +231,11 @@ static INVESTIGATION_BLOOM: std::sync::LazyLock<Arc<tokio::sync::RwLock<Investig
 pub(crate) static INVESTIGATION_SEMAPHORE: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(1)));
 
+/// Max open findings pulled per cycle for scoring. Was 500 — at fleet scale
+/// that silently truncated the risk picture; bumped and the callers now warn
+/// when the cap is actually hit (full fix = severity-ordered pagination).
+const IE_FINDINGS_CAP: i64 = 5000;
+
 struct InvestigationDedup {
     /// asset → (verdict_type, investigated_at)
     seen: HashMap<String, (String, chrono::DateTime<chrono::Utc>)>,
@@ -272,6 +277,19 @@ impl InvestigationDedup {
         let now = chrono::Utc::now();
         self.seen
             .retain(|_, (_, when)| (now - *when).num_hours() < 24);
+        // Hard cap so a high churn of distinct asset keys can't grow the map
+        // without bound between 24h sweeps: evict the oldest entry when full.
+        const MAX_DEDUP_ENTRIES: usize = 50_000;
+        if self.seen.len() >= MAX_DEDUP_ENTRIES {
+            if let Some(oldest) = self
+                .seen
+                .iter()
+                .min_by_key(|(_, (_, when))| *when)
+                .map(|(k, _)| k.clone())
+            {
+                self.seen.remove(&oldest);
+            }
+        }
         self.seen.insert(asset, (verdict, now));
     }
 }
@@ -1175,7 +1193,7 @@ async fn build_dossier_from_situation(
 
     // Re-fetch open findings for this specific asset
     let all_findings = store
-        .list_findings(None, Some("open"), None, 500, 0)
+        .list_findings(None, Some("open"), None, IE_FINDINGS_CAP, 0)
         .await
         .unwrap_or_default();
     // Collect findings for this asset, sorted by severity (CRITICAL first), limited to 10
@@ -1458,9 +1476,15 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
 
     // ── 1. Collect all open findings ──
     let findings = store
-        .list_findings(None, Some("open"), None, 500, 0)
+        .list_findings(None, Some("open"), None, IE_FINDINGS_CAP, 0)
         .await
         .unwrap_or_default();
+    if findings.len() as i64 >= IE_FINDINGS_CAP {
+        tracing::warn!(
+            "INTELLIGENCE: open findings hit the {} cap — some were not scored this cycle",
+            IE_FINDINGS_CAP
+        );
+    }
     let alerts = store
         .list_alerts(None, Some("new"), 200, 0)
         .await
@@ -1678,7 +1702,58 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
             lateral.total_detections,
             lateral.summary
         );
-        // TODO: auto-create CRITICAL finding for lateral movement
+        // Persist as findings so lateral movement surfaces to the RSSI rather
+        // than only living in the logs. Dedup by (entry, target) since critical
+        // paths and chains can overlap.
+        let mut seen_paths = std::collections::HashSet::new();
+        for path in lateral.critical_paths.iter().chain(lateral.chains.iter()) {
+            if !seen_paths.insert((path.entry_point.clone(), path.final_target.clone())) {
+                continue;
+            }
+            let title = format!(
+                "Mouvement latéral détecté → {} ({} hops depuis {})",
+                path.final_target, path.depth, path.entry_point
+            );
+            let description = format!(
+                "Chaîne de mouvement latéral détectée par traversée de graphe.\n\
+                 Point d'entrée: {}\nChemin: {}\nCible finale: {}{}\nMéthode: {}",
+                path.entry_point,
+                path.hops.join(" → "),
+                path.final_target,
+                if path.target_is_critical {
+                    " (ACTIF CRITIQUE)"
+                } else {
+                    ""
+                },
+                path.detection,
+            );
+            crate::connectors::log_db_write(
+                "intelligence_engine:lateral_movement",
+                store.insert_finding(&crate::db::threatclaw_store::NewFinding {
+                    skill_id: "graph-lateral-movement".into(),
+                    title,
+                    description: Some(description),
+                    severity: if path.target_is_critical {
+                        "CRITICAL".into()
+                    } else {
+                        "HIGH".into()
+                    },
+                    category: Some("lateral-movement".into()),
+                    asset: Some(path.final_target.clone()),
+                    source: Some("Graph lateral movement detection".into()),
+                    metadata: Some(serde_json::json!({
+                        "entry_point": path.entry_point,
+                        "hops": path.hops,
+                        "depth": path.depth,
+                        "final_target": path.final_target,
+                        "target_is_critical": path.target_is_critical,
+                        "detection": path.detection,
+                        "mitre": ["T1021"]
+                    })),
+                }),
+            )
+            .await;
+        }
     }
 
     // ── 5e. CAMPAIGN DETECTION — correlate coordinated attacks ──
@@ -1771,7 +1846,7 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
         );
         // Re-fetch findings after inserting new ones
         let findings = store
-            .list_findings(None, Some("open"), None, 500, 0)
+            .list_findings(None, Some("open"), None, IE_FINDINGS_CAP, 0)
             .await
             .unwrap_or_default();
         // Rebuild asset map with new findings
@@ -3362,7 +3437,37 @@ pub fn spawn_intelligence_ticker(
                 });
             }
 
-            let situation = run_intelligence_cycle(store.clone()).await;
+            // Run the cycle in its own task so a panic anywhere inside it (any
+            // reachable unwrap/expect on a malformed log line, etc.) surfaces as
+            // a JoinError instead of silently killing this ticker and freezing
+            // all ingestion. On panic: log, emit the heartbeat, skip this
+            // cycle's escalation, and continue the loop.
+            let situation = match tokio::spawn(run_intelligence_cycle(store.clone())).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        "INTELLIGENCE: cycle panicked ({e}) — recovered, skipping escalation this cycle"
+                    );
+                    let _ = store
+                        .set_setting(
+                            "_system",
+                            "ie_last_tick",
+                            &serde_json::json!(chrono::Utc::now().to_rfc3339()),
+                        )
+                        .await;
+                    tokio::time::sleep(interval).await;
+                    continue;
+                }
+            };
+
+            // Heartbeat so a health check can detect a wedged/stopped engine.
+            let _ = store
+                .set_setting(
+                    "_system",
+                    "ie_last_tick",
+                    &serde_json::json!(chrono::Utc::now().to_rfc3339()),
+                )
+                .await;
 
             // Dynamic interval: adapt speed to threat level
             let has_kill_chain = situation
