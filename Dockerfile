@@ -49,6 +49,12 @@ COPY skills-catalog/ skills-catalog/
 COPY templates/ templates/
 # [[bench]] entries in Cargo.toml require bench sources to exist for cargo to parse the manifest
 COPY benches/ benches/
+# On-disk Sigma rule catalog — synced into the DB at boot by sigma_file_loader.
+# Without this COPY the runtime image has no /app/rules directory, the loader
+# logs "rules directory not found" and the engine only compiles whatever was
+# previously persisted in sigma_rules (so a fresh install ships with the
+# legacy 74-rule catalog instead of the 1k+ packs we bundle since v1.0.32).
+COPY rules/ rules/
 
 # Installer scripts are referenced by `include_str!` in the agent self-serve
 # handlers so the curl|bash one-liner can target any deployed instance.
@@ -80,6 +86,7 @@ COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/AGENT_SOUL.toml /app/AGENT_SOUL.toml
 COPY --from=builder /app/skills-catalog /app/skills-catalog
 COPY --from=builder /app/templates /app/templates
+COPY --from=builder /app/rules /app/rules
 COPY --from=typst-bin /bin/typst /usr/local/bin/typst
 # Bundle investigation graphs — fallback when host ./graphs/sigma/ bind-mount is empty
 COPY graphs/sigma/ /app/graphs-bundled/sigma/
