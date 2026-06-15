@@ -52,10 +52,10 @@ const BACKUP_SETTINGS_KEY: &str = "tc_config_backup_settings";
 
 /// Load backup settings from DB.
 pub async fn load_settings(store: &dyn Database) -> BackupSettings {
-    if let Ok(Some(val)) = store.get_setting("_system", BACKUP_SETTINGS_KEY).await {
-        if let Ok(s) = serde_json::from_value(val) {
-            return s;
-        }
+    if let Ok(Some(val)) = store.get_setting("_system", BACKUP_SETTINGS_KEY).await
+        && let Ok(s) = serde_json::from_value(val)
+    {
+        return s;
     }
     BackupSettings::default()
 }
@@ -204,8 +204,7 @@ pub async fn list_backups(store: &dyn Database) -> Vec<BackupInfo> {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
-                .flatten()
+                .and_then(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
             out.push(BackupInfo {
@@ -266,10 +265,10 @@ async fn apply_retention(settings: &BackupSettings) -> Result<(), String> {
             if !name.starts_with("tc-backup-") || !name.ends_with(".json.gz") {
                 continue;
             }
-            if let Ok(metadata) = entry.metadata() {
-                if let Ok(modified) = metadata.modified() {
-                    files.push((name, modified));
-                }
+            if let Ok(metadata) = entry.metadata()
+                && let Ok(modified) = metadata.modified()
+            {
+                files.push((name, modified));
             }
         }
     }
@@ -317,10 +316,10 @@ pub async fn check_daily_backup(store: &dyn Database) {
 
     // Already done today?
     let today = now.format("%Y-%m-%d").to_string();
-    if let Ok(Some(last)) = store.get_setting("_system", "last_daily_backup").await {
-        if last.as_str() == Some(today.as_str()) {
-            return;
-        }
+    if let Ok(Some(last)) = store.get_setting("_system", "last_daily_backup").await
+        && last.as_str() == Some(today.as_str())
+    {
+        return;
     }
 
     match create_backup(store).await {

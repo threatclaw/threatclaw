@@ -194,13 +194,13 @@ async fn async_main() -> anyhow::Result<()> {
     // CLI wizard disabled by default — configuration is done via the web dashboard.
     // Use `threatclaw onboard` explicitly if you need the CLI wizard.
     #[cfg(any(feature = "postgres", feature = "libsql"))]
-    if !cli.no_onboard {
-        if let Some(reason) = threatclaw::setup::check_onboard_needed() {
-            tracing::info!(
-                "First-run detected ({}). Configure via the dashboard at http://localhost:3001/setup",
-                reason
-            );
-        }
+    if !cli.no_onboard
+        && let Some(reason) = threatclaw::setup::check_onboard_needed()
+    {
+        tracing::info!(
+            "First-run detected ({}). Configure via the dashboard at http://localhost:3001/setup",
+            reason
+        );
     }
 
     // Load initial config from env + disk + optional TOML (before DB is available).
