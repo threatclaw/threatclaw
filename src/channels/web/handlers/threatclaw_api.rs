@@ -1645,7 +1645,7 @@ pub async fn skill_test_handler(
             let password = cfg.get("password").cloned().unwrap_or_default();
             if url.is_empty() || username.is_empty() {
                 return Ok(Json(
-                    serde_json::json!({ "ok": false, "error": "URL et utilisateur requis" }),
+                    serde_json::json!({ "ok": false, "error": "URL and username required" }),
                 ));
             }
             let wazuh_client = reqwest::Client::builder()
@@ -1703,7 +1703,7 @@ pub async fn skill_test_handler(
                             .unwrap_or(false);
                         serde_json::json!({
                             "ok": true,
-                            "detail": format!("DNS OK — {} {}", first_domain, if has_spf { "(SPF trouvé)" } else { "(pas de SPF)" })
+                            "detail": format!("DNS OK — {} {}", first_domain, if has_spf { "(SPF found)" } else { "(no SPF)" })
                         })
                     } else {
                         serde_json::json!({ "ok": false, "error": "Résolution DNS échouée" })
@@ -1718,7 +1718,7 @@ pub async fn skill_test_handler(
             if tenant_id.is_empty() || client_id.is_empty() {
                 return Ok(Json(serde_json::json!({
                     "ok": false,
-                    "error": "tenant_id et client_id requis"
+                    "error": "tenant_id and client_id required"
                 })));
             }
             let auth_method = crate::connectors::microsoft_graph::AuthMethod::parse(
@@ -1791,7 +1791,7 @@ pub async fn skill_test_handler(
             serde_json::json!({ "ok": true, "detail": "Génération locale — aucune API externe requise" })
         }
         _ => {
-            serde_json::json!({ "ok": false, "error": format!("Test non disponible pour {}", skill_id) })
+            serde_json::json!({ "ok": false, "error": format!("Test not available for {}", skill_id) })
         }
     };
 
@@ -6282,7 +6282,7 @@ async fn compute_asset_coverage(
                 kind: "velociraptor",
                 label: "Velociraptor (DFIR)",
                 state: "covered",
-                detail: "Agent enrôlé · collecte forensique disponible".into(),
+                detail: "Agent enrolled · forensic collection available".into(),
                 last_seen: Some(asset.last_seen.clone()),
                 action_hint: None,
             },
@@ -6337,17 +6337,17 @@ async fn compute_asset_coverage(
                 label: "Endpoint EDR",
                 state: "gap",
                 detail: format!(
-                    "{} configuré mais aucun signal observé sur cet asset",
+                    "{} configured but no signal observed on this asset",
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Vérifier l'enrôlement de l'agent".into()),
+                action_hint: Some("Check that the agent is enrolled".into()),
             },
             (None, _) => CoverageItem {
                 kind: "edr",
                 label: "Endpoint EDR",
                 state: "not_configured",
-                detail: "Aucun EDR connecté (Wazuh, Elastic Endpoint…)".into(),
+                detail: "No EDR connected (Wazuh, Elastic Endpoint, ...)".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -6387,7 +6387,7 @@ async fn compute_asset_coverage(
                 kind: "firewall",
                 label: "Firewall",
                 state: "covered",
-                detail: format!("{} · trafic visible sur cet asset", short_skill_label(sid)),
+                detail: format!("{} · traffic visible on this asset", short_skill_label(sid)),
                 last_seen,
                 action_hint: None,
             },
@@ -6396,17 +6396,17 @@ async fn compute_asset_coverage(
                 label: "Firewall",
                 state: "gap",
                 detail: format!(
-                    "{} configuré mais aucun log lié à cet asset",
+                    "{} configured but no log linked to this asset",
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Vérifier le routage des logs vers ThreatClaw".into()),
+                action_hint: Some("Check that the firewall is forwarding logs to ThreatClaw".into()),
             },
             (None, _) => CoverageItem {
                 kind: "firewall",
                 label: "Firewall",
                 state: "not_configured",
-                detail: "Aucun firewall connecté".into(),
+                detail: "No firewall connected".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -6432,7 +6432,7 @@ async fn compute_asset_coverage(
                 kind: "ids",
                 label: "IDS / Sigma",
                 state: "covered",
-                detail: format!("{} · règles évaluées sur cet asset", short_skill_label(sid)),
+                detail: format!("{} · rules evaluated on this asset", short_skill_label(sid)),
                 last_seen,
                 action_hint: None,
             },
@@ -6441,17 +6441,17 @@ async fn compute_asset_coverage(
                 label: "IDS / Sigma",
                 state: "gap",
                 detail: format!(
-                    "{} configuré, aucune alerte ne touche cet asset",
+                    "{} configured, but no alert fires on this asset",
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Vérifier que les logs réseau couvrent ce host".into()),
+                action_hint: Some("Check that the network logs cover this host".into()),
             },
             (None, _) => CoverageItem {
                 kind: "ids",
                 label: "IDS / Sigma",
                 state: "not_configured",
-                detail: "Aucun IDS connecté (Suricata, Zeek…)".into(),
+                detail: "No IDS connected (Suricata, Zeek, ...)".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -6484,28 +6484,28 @@ async fn compute_asset_coverage(
         let item = match (configured.as_ref(), observed) {
             (Some(sid), true) => CoverageItem {
                 kind: "vuln_scan",
-                label: "Scan vulnérabilités",
+                label: "Vulnerability scan",
                 state: "covered",
-                detail: format!("{} · scans récents disponibles", short_skill_label(sid)),
+                detail: format!("{} · recent scans available", short_skill_label(sid)),
                 last_seen,
                 action_hint: None,
             },
             (Some(sid), false) => CoverageItem {
                 kind: "vuln_scan",
-                label: "Scan vulnérabilités",
+                label: "Vulnerability scan",
                 state: "gap",
                 detail: format!(
-                    "{} configuré, aucun scan récent sur cet asset",
+                    "{} configured, no recent scan on this asset",
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Lancer un scan ad-hoc".into()),
+                action_hint: Some("Run an ad-hoc scan".into()),
             },
             (None, _) => CoverageItem {
                 kind: "vuln_scan",
-                label: "Scan vulnérabilités",
+                label: "Vulnerability scan",
                 state: "not_configured",
-                detail: "Aucun scanner installé (Nmap, Nuclei…)".into(),
+                detail: "No scanner installed (Nmap, Nuclei, ...)".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -6533,28 +6533,28 @@ async fn compute_asset_coverage(
         let item = match (configured.as_ref(), owner_known) {
             (Some(sid), true) => CoverageItem {
                 kind: "iam",
-                label: "IAM / Annuaire",
+                label: "IAM / Directory",
                 state: "covered",
-                detail: format!("{} actif · owner identifié", short_skill_label(sid)),
+                detail: format!("{} active · owner identified", short_skill_label(sid)),
                 last_seen: None,
                 action_hint: None,
             },
             (Some(sid), false) => CoverageItem {
                 kind: "iam",
-                label: "IAM / Annuaire",
+                label: "IAM / Directory",
                 state: "gap",
                 detail: format!(
-                    "{} configuré mais aucun owner rattaché à cet asset",
+                    "{} configured but no owner attached to this asset",
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Renseigner manuellement le responsable".into()),
+                action_hint: Some("Set the owner manually".into()),
             },
             (None, _) => CoverageItem {
                 kind: "iam",
-                label: "IAM / Annuaire",
+                label: "IAM / Directory",
                 state: "not_configured",
-                detail: "Aucun annuaire d'identité connecté".into(),
+                detail: "No identity directory connected".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -8218,18 +8218,18 @@ pub async fn export_report_handler(
                 "incident_type_label": incident_type_label,
                 "detected_at": now.format("%d/%m/%Y %H:%M").to_string(),
                 "closure_date": now.format("%d/%m/%Y").to_string(),
-                "incident_duration": "En cours d'évaluation",
+                "incident_duration": "Under evaluation",
                 "final_severity": severity,
                 "score": format!("{:.0}", score),
                 "alerts_count": alerts.len().to_string(),
                 "findings_count": findings.len().to_string(),
                 "assets_count": assets.len().to_string(),
-                "full_description": format!("L'incident a été détecté par ThreatClaw Engine. {} alertes ont été générées, dont {} critiques. {} vulnérabilités ont été identifiées sur {} assets.", alerts.len(), critical_alerts.len(), findings.len(), assets.len()),
-                "root_cause": "Analyse des causes racines consolidée par ThreatClaw Engine à partir des corrélations multi-sources et du graph d'attaque.",
-                "attack_vector": "En cours d'identification",
-                "operational_impact": if score < 50.0 { "Impact significatif détecté" } else { "Impact limité grâce à la détection précoce" },
-                "financial_impact": "En cours d'évaluation",
-                "data_exposed": "Aucune donnée personnelle identifiée comme exposée",
+                "full_description": format!("The incident was detected by ThreatClaw Engine. {} alerts were generated, of which {} are critical. {} vulnerabilities were identified across {} assets.", alerts.len(), critical_alerts.len(), findings.len(), assets.len()),
+                "root_cause": "Root-cause analysis consolidated by ThreatClaw Engine from multi-source correlations and the attack graph.",
+                "attack_vector": "Under identification",
+                "operational_impact": if score < 50.0 { "Significant impact detected" } else { "Limited impact thanks to early detection" },
+                "financial_impact": "Under evaluation",
+                "data_exposed": "No personal data identified as exposed",
                 "affected_users": "—",
                 "affected_assets": assets.iter().take(30).map(&asset_json).collect::<Vec<_>>(),
                 "notified_authority": "ANSSI / CSIRT-FR",

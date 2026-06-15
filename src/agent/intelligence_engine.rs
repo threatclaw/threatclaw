@@ -744,72 +744,20 @@ pub struct GraphIntelSummary {
 /// to French. The ingested findings keep their raw English titles
 /// (we don't own those producers), so we map the recurrent patterns at
 /// display time for the FR locale (default for ThreatClaw).
+/// Pre-v1.0.34 this function translated the EN finding title produced
+/// by upstream skills (Wazuh / Sigma / Trivy / OpenCanary / ML DBSCAN)
+/// into French so the incident title read consistently in an
+/// otherwise-French dashboard. Since v1.0.35 the canonical output of
+/// the IE is English (`humanize_incident_title` and friends), so this
+/// helper is now a passthrough kept under the same name to avoid
+/// rippling a rename through every caller.
+///
+/// French installs that need translated incident titles should switch
+/// the dashboard language in **Config > General > Language**; the
+/// dashboard's render-time i18n then handles labelling at the
+/// presentation layer rather than in DB-persisted strings.
 fn translate_finding_title_fr(raw: &str) -> String {
-    let mut t = raw.to_string();
-    let pairs: &[(&str, &str)] = &[
-        // ML DBSCAN
-        ("Behavioral outlier:", "Anomalie comportementale :"),
-        (
-            "Behavioral anomaly detected:",
-            "Anomalie comportementale détectée :",
-        ),
-        ("deviates from", "s'écarte de"),
-        ("similar assets", "assets similaires"),
-        // Wazuh OpenCanary
-        (
-            "OpenCanary: Telnet login attempt",
-            "OpenCanary — tentative de login Telnet",
-        ),
-        (
-            "OpenCanary: SSH login attempt",
-            "OpenCanary — tentative de login SSH",
-        ),
-        (
-            "OpenCanary: port scan recorded",
-            "OpenCanary — scan de ports détecté",
-        ),
-        (
-            "OpenCanary: HTTP login attempt",
-            "OpenCanary — tentative de login HTTP",
-        ),
-        (
-            "OpenCanary: FTP login attempt",
-            "OpenCanary — tentative de login FTP",
-        ),
-        // Wazuh generic
-        (
-            "Failed authentication attempts",
-            "Échecs d'authentification répétés",
-        ),
-        (
-            "Multiple authentication failures",
-            "Échecs d'authentification multiples",
-        ),
-        (
-            "Successful sudo to ROOT",
-            "Élévation sudo vers root réussie",
-        ),
-        (
-            "Possible kernel level rootkit",
-            "Rootkit niveau noyau possible",
-        ),
-        // Sigma generic
-        ("auth failed", "échec d'authentification"),
-        ("admin login", "login admin"),
-        ("config changed", "configuration modifiée"),
-        ("port scan", "scan de ports"),
-        ("brute force", "brute force"),
-        // Scanners (Trivy / Nuclei / etc.)
-        ("Critical CVE found", "CVE critique trouvée"),
-        (
-            "High severity vulnerability",
-            "Vulnérabilité de sévérité haute",
-        ),
-    ];
-    for (en, fr) in pairs {
-        t = t.replace(en, fr);
-    }
-    t
+    raw.to_string()
 }
 
 /// Classification of an asset string with respect to the customer inventory.
@@ -1035,13 +983,13 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         // which was both factually wrong and primed the L2 to hallucinate an
         // SSH attack story.
         if rule_lc.contains("osquery-win-failed-logon-burst") {
-            return format!("Brute force Windows sur {asset}{from}{user}");
+            return format!("Windows brute force on {asset}{from}{user}");
         }
         if rule_lc.contains("ssh-brute") || rule_lc.contains("ssh-auth") {
-            return format!("SSH brute force sur {asset}{from}{user}");
+            return format!("SSH brute force on {asset}{from}{user}");
         }
         if rule_lc.contains("rdp-brute") {
-            return format!("RDP brute force sur {asset}{from}{user}");
+            return format!("RDP brute force on {asset}{from}{user}");
         }
         if rule_lc.contains("opnsense-004")
             || title_lc.contains("ids alert")
@@ -1094,17 +1042,17 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
                     .source_ip
                     .as_deref()
                     .filter(|s| !s.is_empty())
-                    .map(|ip| format!(" vers {ip}"))
+                    .map(|ip| format!(" to {ip}"))
                     .unwrap_or_default();
-                return format!("Trafic sortant suspect depuis {asset}{to} (à vérifier)");
+                return format!("Suspicious outbound traffic from {asset}{to} (review needed)");
             }
-            return format!("Alerte IDS / IPS sur {asset}{from}");
+            return format!("IDS / IPS alert on {asset}{from}");
         }
         if rule_lc.contains("opensql") || title_lc.contains("auth failed") {
-            return format!("Échec d'authentification sur {asset}{from}{user}");
+            return format!("Authentication failure on {asset}{from}{user}");
         }
         if rule_lc.contains("port-scan") || title_lc.contains("port scan") {
-            return format!("Port scan sur {asset}{from}");
+            return format!("Port scan on {asset}{from}");
         }
         // Fallback générique sigma : on garde le rule_name et l'IP source
         let cve_count = dossier
@@ -1113,11 +1061,11 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
             .filter(|f| f.skill_id.as_deref() == Some("software-vuln"))
             .count();
         let cve_suffix = if cve_count > 0 {
-            format!(" — {cve_count} CVE KEV exploitables")
+            format!(" — {cve_count} exploitable KEV CVE(s)")
         } else {
             String::new()
         };
-        return format!("{} sur {asset}{from}{cve_suffix}", alert.rule_name);
+        return format!("{} on {asset}{from}{cve_suffix}", alert.rule_name);
     }
 
     // Pas de sigma alert : titre basé sur les findings (ancien comportement).
@@ -1149,68 +1097,68 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         let lc = title.to_lowercase();
         if lc.contains("auth failed") || lc.contains("brute force") || rule_id.contains("auth") {
             let from = if !source_ip.is_empty() {
-                format!(" depuis {source_ip}")
+                format!(" from {source_ip}")
             } else {
                 String::new()
             };
             let user = if !username.is_empty() {
-                format!(" sur {username}")
+                format!(" on {username}")
             } else {
                 String::new()
             };
-            return format!("Brute force / auth failed sur {asset}{user}{from}");
+            return format!("Brute force / auth failed on {asset}{user}{from}");
         }
         if lc.contains("admin login") || lc.contains("admin login successful") {
             return format!(
-                "Login admin {asset}{}",
+                "Admin login on {asset}{}",
                 if !source_ip.is_empty() {
-                    format!(" depuis {source_ip}")
+                    format!(" from {source_ip}")
                 } else {
                     String::new()
                 }
             );
         }
         if lc.contains("sensitive admin") || lc.contains("config changed") {
-            return format!("Action admin sensible sur {asset}");
+            return format!("Sensitive admin action on {asset}");
         }
         if lc.contains("ids alert") || lc.contains("suricata") {
-            return format!("Alerte IDS / IPS sur {asset}");
+            return format!("IDS / IPS alert on {asset}");
         }
         if lc.contains("port scan") {
             return format!(
-                "Port scan sur {asset}{}",
+                "Port scan on {asset}{}",
                 if !source_ip.is_empty() {
-                    format!(" depuis {source_ip}")
+                    format!(" from {source_ip}")
                 } else {
                     String::new()
                 }
             );
         }
         if lc.contains("rogue ap") {
-            return format!("Point d'accès Wi-Fi non autorisé proche de {asset}");
+            return format!("Rogue Wi-Fi access point near {asset}");
         }
         if lc.contains("dns")
             && (lc.contains("rebind") || lc.contains("blacklist") || lc.contains("dnssec"))
         {
-            return format!("Anomalie DNS sur {asset}");
+            return format!("DNS anomaly on {asset}");
         }
-        // Generic fallback that's still useful. Use the FR-translated
-        // form so the RSSI doesn't see "Behavioral outlier deviates
-        // from..." in the middle of an otherwise French UI.
-        let title_fr = translate_finding_title_fr(title);
+        // Generic fallback. translate_finding_title_fr() is kept for backward
+        // compatibility on French installs that override the title via the
+        // dashboard, but the default canonical form is now English.
+        let title_canonical = translate_finding_title_fr(title);
         if count > 1 {
             format!(
-                "{count} signaux {} sur {asset} — {title_fr}",
+                "{count} {} signal(s) on {asset} — {title_canonical}",
                 f.severity.to_lowercase()
             )
         } else {
-            format!("{title_fr} sur {asset}")
+            format!("{title_canonical} on {asset}")
         }
     } else {
         // No findings (rare — patterns like firewall_detection without a
         // promoted finding). Use the dossier-level signals.
         format!(
-            "Activité suspecte sur {asset} (score {:.0})",
+            "Suspicious activity on {asset} (score {:.0})",
             dossier.global_score
         )
     }
@@ -3709,7 +3657,7 @@ pub fn spawn_intelligence_ticker(
                                         crate::agent::investigation_log::StepBuilder::new(
                                             crate::db::threatclaw_store::StepKind::IncidentCreated,
                                             format!(
-                                                "Récurrence — incident dedupé (4h window) · {} alert(s) · pattern='{}'",
+                                                "Recurrence — incident deduplicated (4h window) · {} alert(s) · pattern='{}'",
                                                 worst_asset.active_alerts,
                                                 pattern_key.as_deref().unwrap_or("?")
                                             ),
@@ -3768,7 +3716,7 @@ pub fn spawn_intelligence_ticker(
                                             crate::agent::investigation_log::StepBuilder::new(
                                                 crate::db::threatclaw_store::StepKind::IncidentCreated,
                                                 format!(
-                                                    "Incident créé · {} alert(s) sigma · {} finding(s) attaque · sévérité {}",
+                                                    "Incident created · {} sigma alert(s) · {} attack finding(s) · severity {}",
                                                     alert_ids.len(),
                                                     finding_ids.len(),
                                                     incident_severity

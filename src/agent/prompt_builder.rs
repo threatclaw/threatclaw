@@ -13,6 +13,12 @@ use crate::agent::soul::AgentSoul;
 pub const MAX_PROMPT_CHARS: usize = 14000;
 
 /// Get the user's language preference (from DB or default).
+///
+/// Default is `en` since v1.0.35 — a fresh install drives the LLM
+/// prompts and analysis output in English unless the operator picks
+/// another language in **Config > General > Language**. French
+/// installs that explicitly persisted `tc_config_general/language =
+/// fr` keep their behaviour; only the default changes.
 pub async fn get_language(store: &dyn crate::db::Database) -> String {
     store
         .get_setting("tc_config_general", "language")
@@ -20,7 +26,7 @@ pub async fn get_language(store: &dyn crate::db::Database) -> String {
         .ok()
         .flatten()
         .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_else(|| "fr".into())
+        .unwrap_or_else(|| "en".into())
 }
 
 /// Réponse structurée attendue du LLM.
