@@ -1391,6 +1391,20 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
 
+    /// Find an open or investigating incident on the same asset AND
+    /// the same pattern_key within the 4 h dedup window. A new attack
+    /// pattern on a host that already has an open incident must create
+    /// its own incident — otherwise the title and the timeline of the
+    /// first incident absorb a totally different attack silently and
+    /// the operator only sees the older title in the dashboard.
+    /// Passing `pattern_key = None` falls back to legacy asset-only
+    /// matching for callers that have not extracted the pattern yet.
+    async fn find_open_incident_for_asset_with_pattern(
+        &self,
+        asset: &str,
+        pattern_key: Option<&str>,
+    ) -> Result<Option<i32>, DatabaseError>;
+
     async fn find_open_incident_for_asset(&self, asset: &str)
     -> Result<Option<i32>, DatabaseError>;
 

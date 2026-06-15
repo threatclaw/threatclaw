@@ -3703,11 +3703,37 @@ pub fn spawn_intelligence_ticker(
                                     incident_severity
                                 };
 
-                                // Deduplicate: if an open incident exists for this asset within the last 4h,
-                                // touch it (update alert_count + updated_at) instead of creating a duplicate.
-                                // Prevents Telegram spam when a recurring pattern keeps firing.
+                                // Dedup is now pattern-aware. A new attack pattern on
+                                // a host that already has an open incident has to
+                                // open its own incident — otherwise the dashboard
+                                // shows the title of the older attack and the
+                                // operator misses the new one (the symptom that
+                                // surfaced during the 2026-06-15 simulation: a
+                                // post-compromise UID 0 promotion got silently
+                                // absorbed into the morning's SSH brute force
+                                // incident and only `last_pattern_key` reflected
+                                // the change). Extract the pattern key first so the
+                                // dedup query can use it as a second key alongside
+                                // the asset.
+                                let dedup_pattern_key: Option<String> = dossier
+                                    .sigma_alerts
+                                    .first()
+                                    .map(|a| a.rule_id.clone())
+                                    .or_else(|| {
+                                        dossier.findings.first().and_then(|f| {
+                                            f.metadata
+                                                .get("rule_id")
+                                                .or_else(|| f.metadata.get("sigma_rule"))
+                                                .and_then(|v| v.as_str())
+                                                .map(String::from)
+                                                .or_else(|| f.source.clone())
+                                        })
+                                    });
                                 let incident_id = match store
-                                    .find_open_incident_for_asset(&worst_asset.asset)
+                                    .find_open_incident_for_asset_with_pattern(
+                                        &worst_asset.asset,
+                                        dedup_pattern_key.as_deref(),
+                                    )
                                     .await
                                 {
                                     Ok(Some(existing_id)) => {
@@ -3716,29 +3742,10 @@ pub fn spawn_intelligence_ticker(
                                             existing_id,
                                             worst_asset.asset
                                         );
-                                        // Sprint 5 #2 — pattern key from the
-                                        // dominant sigma rule of this dossier.
-                                        // Falls back to the top finding's source
-                                        // if no sigma alert is in play. None
-                                        // when neither is available — preserves
-                                        // the always-bump behavior on legacy
-                                        // dossiers without trigger metadata.
-                                        // Use rule_id (machine identifier) for dedup key —
-                                        // consistent with Investigation Graph trigger matching.
-                                        let pattern_key: Option<String> = dossier
-                                            .sigma_alerts
-                                            .first()
-                                            .map(|a| a.rule_id.clone())
-                                            .or_else(|| {
-                                                dossier.findings.first().and_then(|f| {
-                                                    f.metadata
-                                                        .get("rule_id")
-                                                        .or_else(|| f.metadata.get("sigma_rule"))
-                                                        .and_then(|v| v.as_str())
-                                                        .map(String::from)
-                                                        .or_else(|| f.source.clone())
-                                                })
-                                            });
+                                        // Pattern key was already extracted before the
+                                        // dedup lookup (see `dedup_pattern_key`
+                                        // above) — reuse it here for the touch.
+                                        let pattern_key = dedup_pattern_key.clone();
                                         let _ = store
                                             .touch_incident(
                                                 existing_id,

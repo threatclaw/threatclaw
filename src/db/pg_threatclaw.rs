@@ -3559,6 +3559,38 @@ impl ThreatClawStore for PgBackend {
         })))
     }
 
+    async fn find_open_incident_for_asset_with_pattern(
+        &self,
+        asset: &str,
+        pattern_key: Option<&str>,
+    ) -> Result<Option<i32>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let key_owned = pattern_key.map(String::from);
+        // Pattern-aware dedup. The asset-only fallback (key IS NULL ⇒
+        // legacy semantics) is preserved for callers that have not
+        // extracted a pattern_key. Otherwise: only merge into an
+        // existing incident when the pattern matches, OR when the
+        // existing incident has not yet been stamped with a pattern at
+        // all. A different pattern on the same asset escalates as a
+        // new incident, so the title and timeline reflect the new
+        // attack instead of being absorbed by an older one.
+        let row = conn
+            .query_opt(
+                "SELECT id FROM incidents \
+                 WHERE LOWER(asset) = LOWER($1) \
+                   AND status IN ('open', 'investigating') \
+                   AND updated_at > NOW() - INTERVAL '4 hours' \
+                   AND ($2::text IS NULL \
+                        OR last_pattern_key IS NULL \
+                        OR last_pattern_key = $2) \
+                 ORDER BY created_at DESC LIMIT 1",
+                &[&asset, &key_owned],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(|r| r.get("id")))
+    }
+
     async fn find_open_incident_for_asset(
         &self,
         asset: &str,
