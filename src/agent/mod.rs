@@ -74,6 +74,7 @@ pub mod react_cycle;
 pub mod react_runner;
 pub mod remediation_engine;
 pub mod remediation_guard;
+pub mod report_lang;
 pub mod remediation_whitelist;
 pub mod retroact;
 mod router;
