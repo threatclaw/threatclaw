@@ -1072,18 +1072,17 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         if rule_lc.contains("port-scan") || title_lc.contains("port scan") {
             return format!("Port scan on {asset}{from}");
         }
-        // Fallback générique sigma : on garde le rule_name et l'IP source
-        let cve_count = dossier
-            .findings
-            .iter()
-            .filter(|f| f.skill_id.as_deref() == Some("software-vuln"))
-            .count();
-        let cve_suffix = if cve_count > 0 {
-            format!(" — {cve_count} exploitable KEV CVE(s)")
-        } else {
-            String::new()
-        };
-        return format!("{} on {asset}{from}{cve_suffix}", alert.rule_name);
+        // Fallback générique sigma : on garde le rule_name et l'IP source.
+        // The previous version appended `— N exploitable KEV CVE(s)` here
+        // whenever the asset had any open software-vuln finding. That
+        // information is real but it does not belong in the *title* of a
+        // sigma-driven incident: a Golden Ticket detection titled
+        // "Golden Ticket on srv-01 — 5 exploitable KEV CVE(s)" tells the
+        // operator that the attack leveraged those CVEs, which is almost
+        // never the case. The CVE exposure is a separate dimension and
+        // stays available in the dossier / summary; the title now sticks
+        // to the actual detection pattern.
+        return format!("{} on {asset}{from}", alert.rule_name);
     }
 
     // Pas de sigma alert : titre basé sur les findings (ancien comportement).
