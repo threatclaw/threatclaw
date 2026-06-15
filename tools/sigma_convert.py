@@ -11,8 +11,11 @@ YAML adapted to our multi-source ingestion model:
   - field names are rewritten to canonical paths per source (e.g. Sysmon
     `CommandLine` -> `data.CommandLine`, PowerShell `ScriptBlockText` ->
     `data.ScriptBlockText`)
-  - unsupported features (|re, |base64offset, count() aggregations,
-    near/timeframe) are detected and the rule is rejected with a reason
+  - unsupported features (count() aggregations, near/timeframe) are
+    detected and the rule is rejected with a reason. Sigma 2.0 value
+    modifiers (|re, |cased, |cidr, |exists, |windash, |base64,
+    |base64offset, |utf16le|be|wide, |fieldref, |lt|lte|gt|gte) are
+    handled natively by the engine since 2026-06-15.
 
 Usage:
   tools/sigma_convert.py <input> [--out rules/<pack>] [--report file.md]
@@ -321,11 +324,27 @@ def field_map_for(category: str | None, product: str | None) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # Modifier handling
 # ---------------------------------------------------------------------------
-SUPPORTED_MODS = {"contains", "startswith", "endswith", "all"}
-# Modifiers we silently drop -- their effect is approximated by other matchers.
-DROP_MODS = {"windash", "expand"}
-# Modifiers that mean the rule can't be converted automatically.
-REJECT_MODS = {"re", "base64", "base64offset", "cidr", "utf16", "utf16le", "utf16be", "wide"}
+# Modifiers the ThreatClaw engine handles natively. The list grew on
+# 2026-06-15 when sigma_engine started honouring the Sigma 2.0 spec:
+# `|re`, `|cased`, `|cidr`, `|exists`, `|windash`, `|base64`,
+# `|base64offset`, `|utf16le|be|wide`, `|fieldref`, `|lt|lte|gt|gte`.
+# Before the engine fix the converter rejected those rules outright;
+# now they pass through and let the engine do the work.
+SUPPORTED_MODS = {
+    "contains", "startswith", "endswith", "all",
+    "re", "cased", "cidr", "exists",
+    "windash", "base64", "base64offset",
+    "utf16", "utf16le", "utf16be", "wide",
+    "fieldref",
+    "lt", "lte", "gt", "gte",
+    "neq",
+}
+# Modifiers we silently drop -- their effect is approximated elsewhere.
+DROP_MODS = {"expand"}
+# Modifiers that still defeat automatic conversion. `count()` / `near` /
+# `timeframe` aggregations belong here, but they are detected upstream
+# (via the condition string), not via the field-key modifier list.
+REJECT_MODS: set[str] = set()
 
 
 @dataclass

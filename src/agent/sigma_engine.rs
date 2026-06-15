@@ -2089,6 +2089,116 @@ mod tests {
         assert!(matches!(m, FieldMatcher::ContainsCased(_, _)));
     }
 
+    // ── End-to-end integration tests with real SigmaHQ rule shapes ──
+
+    #[test]
+    fn sigmahq_real_regex_rule_compiles_to_regex_matcher() {
+        // Powershell Token Obfuscation, deb9b646-… real SigmaHQ rule.
+        let detection = json!({
+            "selection": [
+                { "CommandLine|re": r"\w+`(?:\w+|-|.)`[\w+|\s]" },
+                { "CommandLine|re": r#""(?:\{\d\})+"\s*-f"# }
+            ],
+            "filter_main_envpath": {
+                "data.CommandLine|contains": "${env:path}"
+            },
+            "condition": "selection and not 1 of filter_main_*"
+        });
+        let (selections, _cond) = compile_detection_for_tests(&detection).unwrap();
+        let sel = selections.get("selection").expect("selection must compile");
+        let regex_count = sel
+            .iter()
+            .filter(|m| matches!(m, FieldMatcher::Regex(_, _)))
+            .count();
+        assert!(
+            regex_count >= 1,
+            "Expected at least one Regex matcher in compiled selection"
+        );
+    }
+
+    #[test]
+    fn sigmahq_real_base64offset_rule_expands_to_contains_any() {
+        // PowerShell Base64 Encoded IEX Cmdlet, 88f680b8-… real SigmaHQ rule.
+        let detection = json!({
+            "selection": [
+                {
+                    "CommandLine|base64offset|contains": [
+                        "IEX ([",
+                        "iex (New",
+                        "IEX(New"
+                    ]
+                }
+            ],
+            "condition": "selection"
+        });
+        let (selections, _cond) = compile_detection_for_tests(&detection).unwrap();
+        let sel = selections.get("selection").expect("selection must compile");
+        // base64offset must expand into a ContainsAny with at least 3*3=9 variants
+        // (3 values × 3 shift positions), give or take dedup.
+        let contains_any = sel
+            .iter()
+            .find_map(|m| match m {
+                FieldMatcher::ContainsAny(_, vs) => Some(vs.clone()),
+                _ => None,
+            })
+            .expect("Expected a ContainsAny matcher after base64offset expansion");
+        assert!(
+            contains_any.len() >= 6,
+            "Expected base64offset to emit several variants per value, got {}",
+            contains_any.len()
+        );
+    }
+
+    #[test]
+    fn sigmahq_cidr_rule_compiles_to_cidr_matcher() {
+        let detection = json!({
+            "selection": {
+                "src_ip|cidr": "10.0.0.0/8"
+            },
+            "condition": "selection"
+        });
+        let (selections, _cond) = compile_detection_for_tests(&detection).unwrap();
+        let sel = selections.get("selection").unwrap();
+        assert!(matches!(sel.first(), Some(FieldMatcher::Cidr(_, _))));
+
+        // End-to-end match against a live log.
+        let log_inside = json!({ "src_ip": "10.5.1.42" });
+        let log_outside = json!({ "src_ip": "192.168.1.1" });
+        let m = sel.first().unwrap();
+        assert!(run_matcher(m, &log_inside));
+        assert!(!run_matcher(m, &log_outside));
+    }
+
+    #[test]
+    fn sigmahq_windash_rule_expands_to_dash_variants() {
+        let detection = json!({
+            "selection": {
+                "data.CommandLine|windash|contains": " -hp"
+            },
+            "condition": "selection"
+        });
+        let (selections, _cond) = compile_detection_for_tests(&detection).unwrap();
+        let sel = selections.get("selection").unwrap();
+        let contains_any = sel
+            .iter()
+            .find_map(|m| match m {
+                FieldMatcher::ContainsAny(_, vs) => Some(vs.clone()),
+                _ => None,
+            })
+            .expect("windash must compile to ContainsAny");
+        // At least the original + the / variant + the en-dash variant.
+        assert!(
+            contains_any.len() >= 3,
+            "windash expansion thin: got {:?}",
+            contains_any
+        );
+
+        // E2E: live log with the slash variant must match.
+        let log = json!({ "data": { "CommandLine": "7z.exe a /hp:secret archive.7z" } });
+        let m = sel.first().unwrap();
+        assert!(run_matcher(m, &log), "windash slash variant should match");
+    }
+
     #[test]
     fn matcher_contains_present_but_no_substring_is_strict() {
         // Field exists and does NOT contain the substring — must NOT fall

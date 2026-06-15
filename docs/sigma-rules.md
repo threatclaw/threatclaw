@@ -159,30 +159,61 @@ flags rules in this state.
 
 ## Engine capabilities
 
-The native engine implements a subset of the SigmaHQ specification.
-Supported:
+The native engine implements the SigmaHQ specification subset listed
+below. Sigma 2.0 value modifiers landed on 2026-06-15 — anything in
+the table below can be used directly in a rule and is also accepted
+by the converter.
 
-- field modifiers: `|contains`, `|startswith`, `|endswith`, plus the
-  `|all` chain (`field|contains|all: [a, b, c]` requires every value)
-- exact match with `*` and `?` wildcards
-- conditions: `selection`, `X and Y`, `X or Y`, `not X`,
-  `X and not Y`, `1 of <pattern>`, `all of <pattern>` (with
-  prefix `selection_*`, suffix `*_filter`, or the literal `them`)
-- the `logsource` substring filter described above
-- body-scan fallback when a field is not found at the explicit path
-  (lets `commandline|contains: ['comsvcs']` work against
-  `data.CommandLine` on Sysmon and `message` on raw syslog with one
-  rule)
+### Match operators
 
-Not supported in v1.0.33-beta (rejected by the converter, planned
-for the engine roadmap):
+| Modifier | Semantics | Example |
+|----------|-----------|---------|
+| (default) | case-insensitive equality | `User: alice` |
+| `\|contains` | substring anywhere in the field | `commandline\|contains: powershell` |
+| `\|startswith` | substring at the start of the field | `Image\|startswith: 'C:\Windows\'` |
+| `\|endswith` | substring at the end of the field | `Image\|endswith: .exe` |
+| `\|all` (chained with the above) | every value must match (vs default OR) | `CommandLine\|contains\|all: [' -hp', ' a ']` |
+| `\|cased` (chained with the above) | case-sensitive variant | `User\|cased: Administrator` |
 
-- regex (`|re`)
-- CIDR (`|cidr`)
-- base64 offsets (`|base64offset|contains`)
-- cross-field references (`|fieldref`)
-- aggregation (`count() > N over window`, `near`)
-- parenthesized condition grouping (`(X or Y) and Z`)
+### Value transformers
+
+| Modifier | What it does |
+|----------|--------------|
+| `\|re` | PCRE-style regex. Use `\|re\|i` for an explicit case-insensitive flag. |
+| `\|cidr` | Field is parsed as an IPv4 or IPv6 address and tested against the supplied CIDR. |
+| `\|windash` | Expands the value into every dash variant (`-`, `/`, `–`, `—`, `―`) so a single rule covers all five forms. |
+| `\|base64` | Encodes the value as Base64 at compile time so a Contains match catches it inside an EncodedCommand. |
+| `\|base64offset` | Emits the three shift-aligned Base64 variants — useful when the substring's byte alignment in the parent buffer is not known. |
+| `\|utf16le`, `\|utf16be`, `\|wide`, `\|utf16` (with BOM) | Encodes the value as UTF-16 bytes rendered into a lossy substring so PowerShell EncodedCommand-style payloads are reachable. |
+| `\|fieldref` | Compares two fields in the same event — the anti-evasion idiom for parent/child self-spawn patterns. |
+| `\|exists: true\|false` | Field-presence check, regardless of value. |
+| `\|lt`, `\|lte`, `\|gt`, `\|gte` | Numeric comparison against the field, coerced from string if needed. |
+
+### Conditions
+
+- `selection`, `X and Y`, `X or Y`, `not X`, `X and not Y`
+- `1 of <pattern>`, `all of <pattern>` where `<pattern>` is a prefix
+  (`selection_*`), suffix (`*_filter`), or the literal `them`
+- the `logsource` substring filter described in the previous section
+
+### Strict field matching (2026-06-15)
+
+When a rule targets a real field — `commandline`, `data.Image`,
+`channel`, etc. — the engine honours that field strictly. A missing
+key means no match, a present-but-different key means no match. Earlier
+builds fell back to scanning the whole serialized event whenever the
+key was absent, which let a rule looking for `commandline\|contains:
+"RDP"` accidentally match a port number stored in `data.SourcePort`.
+
+Symbolic body aliases (`full_log`, `raw_log`, `message`, `body`, `log`,
+`log_text`, `raw_text`) keep the whole-event fallback because legacy
+syslog rules use them as a stand-in for the raw log line.
+
+### Still out of scope
+
+- Aggregations (`count() > N over window`, `near`).
+- Parenthesized condition grouping (`(X or Y) and Z`).
+- Sigma correlation rules (the 2.1.0 metrics / value_sum family).
 
 ## Importing upstream SigmaHQ rules
 
@@ -208,13 +239,18 @@ What the converter does:
 - rewrites field names per source (Sysmon `CommandLine` →
   `data.CommandLine`, PowerShell `ScriptBlockText` →
   `data.ScriptBlockText`)
-- rejects rules that use unsupported features (regex, CIDR,
-  parenthesized conditions, aggregations) with a logged reason in
-  the report
+- rejects rules that use features the engine still doesn't handle
+  (parenthesized conditions, aggregations, correlation rules) with a
+  logged reason in the report. Sigma 2.0 value modifiers (`|re`,
+  `|cidr`, `|windash`, `|base64`/`|base64offset`, `|utf16*`,
+  `|fieldref`, `|exists`, `|lt|lte|gt|gte`) now pass through cleanly.
 
-On the upstream catalog of 3133 rules, the converter accepts about
-2857 (91%). The report lists the rejections so you can decide which
-to rewrite by hand.
+On the upstream catalog of 3133 rules the converter accepts about
+2857 rules (91%) on the pre-2026-06-15 modifier scope. The set
+of Sigma 2.0 value modifiers added on that date raises the ceiling
+further — re-run the converter on the same upstream snapshot to see
+the new acceptance count. The report lists the rejections so you
+can decide which to rewrite by hand.
 
 Imported rules land with `disposition: monitor` by default so they
 surface as informational signal without auto-promoting findings
