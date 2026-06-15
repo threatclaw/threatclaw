@@ -163,8 +163,13 @@ def score_assets():
             "baseline_match": anomaly_score < 0.3,
         }
 
-        # Persist score to DB
-        db.write_ml_score(asset_id, anomaly_score, reason, feats)
+    # Persist all scores in a single batched round-trip. Previously this was one
+    # DB connection + INSERT per asset inside the loop above (10k+ connections
+    # per cycle at fleet scale); execute_values collapses it to one statement.
+    db.write_ml_scores_batch(
+        (asset_id, r["score"], r["reason"], r["features"])
+        for asset_id, r in results.items()
+    )
 
     logger.info("Scored %d assets. Anomalies (>0.7): %d",
                 len(results),

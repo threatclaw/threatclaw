@@ -37,12 +37,45 @@ pub async fn verify_token(store: &dyn Database, source: &str, token: &str) -> bo
     }
 }
 
-/// Check rate limit for a source. Returns true if allowed.
-fn check_rate_limit(source: &str) -> bool {
-    let now = chrono::Utc::now();
-    let mut limits = RATE_LIMITS.lock().unwrap();
+/// Compute the rate-limit bucket key for an incoming webhook.
+///
+/// Endpoint agents (osquery) all post under the single `osquery` source type
+/// but each host is an independent sender. Keying the limiter by source type
+/// alone means the entire fleet shares ONE 60 req/min bucket — at a few hundred
+/// hosts the bucket saturates and the rest of the fleet's telemetry is silently
+/// dropped (at 10k hosts, ~97% lost). Key per host instead so each agent gets
+/// its own budget; a single misbehaving host is still capped without starving
+/// the others. Other sources (zeek, suricata, …) have one or few senders, so
+/// the source type is a fine bucket.
+fn rate_limit_key(source: &str, json: &serde_json::Value) -> String {
+    match source {
+        "osquery" => {
+            let host = json["hostname"]
+                .as_str()
+                .or_else(|| json["host"].as_str())
+                .unwrap_or("unknown");
+            format!("osquery/{host}")
+        }
+        other => other.to_string(),
+    }
+}
 
-    let entry = limits.entry(source.to_string()).or_insert((0, now));
+/// Check rate limit for a bucket key. Returns true if allowed.
+fn check_rate_limit(key: &str) -> bool {
+    let now = chrono::Utc::now();
+    // Recover from a poisoned lock instead of propagating the panic: a single
+    // panic elsewhere must not permanently wedge all webhook ingestion.
+    let mut limits = RATE_LIMITS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Opportunistic eviction of stale buckets so the map can't grow without
+    // bound as hostnames churn over long uptimes (now keyed per host).
+    if limits.len() > 20_000 {
+        limits.retain(|_, (_, started)| (now - *started).num_seconds() < 120);
+    }
+
+    let entry = limits.entry(key.to_string()).or_insert((0, now));
 
     // Reset window if > 1 minute old
     if (now - entry.1).num_seconds() >= 60 {
@@ -59,12 +92,6 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
     // Verify token
     if !verify_token(store, source, token).await {
         tracing::warn!("WEBHOOK: invalid token for source {}", source);
-        return 0;
-    }
-
-    // Rate limit
-    if !check_rate_limit(source) {
-        tracing::warn!("WEBHOOK: rate limited source {}", source);
         return 0;
     }
 
@@ -94,6 +121,15 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
             return 0;
         }
     };
+
+    // Rate limit — keyed per host for endpoint agents so the whole fleet does
+    // not share a single bucket (see rate_limit_key). Done after parse since the
+    // per-host key lives in the payload; body-size cap above bounds the cost.
+    let rl_key = rate_limit_key(source, &json);
+    if !check_rate_limit(&rl_key) {
+        tracing::warn!("WEBHOOK: rate limited {}", rl_key);
+        return 0;
+    }
 
     // Dispatch to source-specific parser
     match source {
@@ -1087,5 +1123,46 @@ mod tests {
         assert!(!check_rate_limit("test-source"));
         // Different source should still work
         assert!(check_rate_limit("other-source"));
+    }
+
+    #[test]
+    fn test_rate_limit_per_host_fleet() {
+        // Regression for the 10k-host telemetry-drop bug: many osquery hosts
+        // each sending one webhook in the same window must ALL be allowed.
+        // Under the old per-source-type bucket only the first 60 passed and the
+        // rest of the fleet was silently dropped.
+        for i in 0..500 {
+            let json = serde_json::json!({ "hostname": format!("fleet-host-{i}") });
+            let key = rate_limit_key("osquery", &json);
+            assert!(
+                check_rate_limit(&key),
+                "osquery host {i} should have its own rate-limit budget"
+            );
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_single_host_still_capped() {
+        // A single noisy/compromised host is still capped at 60/min.
+        let json = serde_json::json!({ "hostname": "noisy-flooder-host" });
+        let key = rate_limit_key("osquery", &json);
+        for _ in 0..MAX_REQUESTS_PER_MINUTE {
+            assert!(check_rate_limit(&key));
+        }
+        assert!(
+            !check_rate_limit(&key),
+            "61st request from the same host must be blocked"
+        );
+    }
+
+    #[test]
+    fn test_rate_limit_key_per_source() {
+        // osquery → per host; everything else → per source type.
+        let o = serde_json::json!({ "hostname": "dc01" });
+        assert_eq!(rate_limit_key("osquery", &o), "osquery/dc01");
+        let o2 = serde_json::json!({ "host": "fallback-field" });
+        assert_eq!(rate_limit_key("osquery", &o2), "osquery/fallback-field");
+        let z = serde_json::json!({ "id.orig_h": "1.2.3.4" });
+        assert_eq!(rate_limit_key("zeek", &z), "zeek");
     }
 }

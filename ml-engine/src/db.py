@@ -169,6 +169,52 @@ def write_ml_score(asset_id, score, reason, features):
         conn.close()
 
 
+def write_ml_scores_batch(rows):
+    """Batch-upsert ML anomaly scores in a single round-trip.
+
+    rows: iterable of (asset_id, score, reason, features_dict).
+
+    Replaces one DB connection + one INSERT per asset (10k+ connections per
+    scoring cycle at fleet scale, which exhausts max_connections and overruns
+    the 5-minute window) with a single connection and one execute_values.
+    """
+    rows = list(rows)
+    if not rows:
+        return
+    values = [
+        (
+            str(asset_id),
+            float(score),
+            str(reason),
+            json.dumps(features) if isinstance(features, dict) else "{}",
+        )
+        for asset_id, score, reason, features in rows
+    ]
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO ml_scores (asset_id, score, reason, features, computed_at)
+                VALUES %s
+                ON CONFLICT (asset_id) DO UPDATE SET
+                    score = EXCLUDED.score, reason = EXCLUDED.reason,
+                    features = EXCLUDED.features, computed_at = NOW()
+                """,
+                values,
+                template="(%s, %s, %s, %s::jsonb, NOW())",
+            )
+            conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logging.getLogger("ml.db").warning(
+            "write_ml_scores_batch failed (%d rows): %s", len(values), e
+        )
+    finally:
+        conn.close()
+
+
 def run_maintenance(retention_days=90):
     """Run nightly DB maintenance: cleanup + vacuum + analyze."""
     conn = get_conn()
