@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.37-beta] — 2026-06-15
+
+### Fixed
+- Incident titles for sigma-driven detections no longer append the static CVE exposure count of the asset. The previous title shape (`Golden Ticket on srv-01 — 5 exploitable KEV CVE(s)`) suggested to the operator that the attack had leveraged those CVEs, when in practice the CVE exposure was an unrelated static-scan finding on the same host. Titles now stick to the actual detection pattern; CVE exposure remains visible in the dossier summary and finding list.
+- The 5-minute incident deduplication window is now pattern-aware. Previously the cycle merged every new detection on the same host into the first open incident, even when the new detection described a completely different attack. After this change, a new attack pattern on a host that already has an open incident creates its own incident with the right title and timeline. The earlier behaviour silently absorbed a post-compromise privilege escalation into the morning's brute-force incident on the same host, and only the dashboard's hidden pattern field reflected the change.
+- The detection engine now produces a separate alert when the same rule fires on a different target. The previous implementation deduplicated only on rule and host for the full one-hour suppression window, so a Golden Ticket against `alice` followed by another against `bobby` collapsed into the first alert and the second one was never surfaced. The dedup key now folds in target user, source / destination address and a hash of the matched fields, so semantically distinct events surface independently while repeat hits of the exact same payload still dedupe naturally.
+- The detection cycle now caps any persisted log timestamp at wall-clock at the database boundary. Some syslog producers ship a timestamp adjusted to a local timezone that the ingestion path then re-tags as UTC, so each row landed an hour or two ahead of wall-clock. The cycle's forward cursor uses that timestamp to advance — a single future row froze every subsequent read between then and the bogus timestamp. The clamp catches every producer regardless of the path used and notes the upstream timezone bug for separate investigation.
+- The per-tag fair-share quota on the cycle's read path no longer caps coverage at scale. With the previous quota, a syslog spike of ~10 000 events per 5-minute cycle saturated the per-tag share and left the tail of the backlog — the part that carried the actual attack signal — unevaluated for hours while the cycle chewed through the spike's front. The batch size and per-tag share were both raised so a single source can take most of the batch when needed while still reserving capacity for the others, and the cycle now drains a six-times-larger spike per tick.
+- The deep narrative validator no longer rejects a response whose MITRE technique entries are listed by bare ID when the attested entries are stored with the full label. Both sides are normalized to the technique ID before comparison so `T1110.001` matches `T1110.001 Password Brute Force` without a rejection.
+- Three customer-facing truncation paths (incident investigator description, Telegram report send-out, Telegram chat reply) are codepoint-bounded so a multi-byte UTF-8 character at the cut boundary cannot panic the 5-minute cycle. The earlier byte-slice cut crashed the cycle on the first finding whose description ended on an accent — every subsequent cycle silently refused to fire until the process was restarted.
+
+### Changed
+- Four detection rules were rewritten so they detect their intended attack instead of pattern-matching unrelated content: Account Promoted To Root, Sudo Authentication Failure, Remote Desktop Lateral Movement, and Golden Ticket — RC4 TGT. Each ships with regression test fixtures that assert both the canonical attack and the canonical false-positive shape it must not match.
+
 ## [1.0.36-beta] — 2026-06-15
 
 ### Fixed
