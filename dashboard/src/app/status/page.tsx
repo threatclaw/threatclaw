@@ -158,7 +158,16 @@ export default function StatusPage() {
         const d = await r.json();
         if (mounted) {
           const list = (d?.sources ?? []) as Array<{ status: string }>;
-          setSourcesActive(list.filter((s) => s.status === "active" || s.status === "listening" || s.status === "ok").length);
+          // Match the alive states emitted by /api/tc/sources/status:
+          //  - "connected"   = source has logs in the last 24h (the green path)
+          //  - "listening"   = always-on inputs (syslog/fluent-bit) waiting for events
+          //  - "active"/"ok" = legacy aliases kept for safety
+          // The Console panel uses the same set in page.tsx; keep them aligned so
+          // the central CpuCard's "Logs" slot does not show red while the
+          // engine log clearly streams events from a connected source.
+          setSourcesActive(list.filter((s) =>
+            ["connected", "listening", "active", "ok"].includes(s.status),
+          ).length);
         }
       } catch {
         /* */
