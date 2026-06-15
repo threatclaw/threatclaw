@@ -268,6 +268,14 @@ Contact the team for the link.
 
 ## Next reads
 
+- [`sigma-rules.md`](sigma-rules.md) — the 1095-rule catalog,
+  promotion ladder, exceptions, the upstream SigmaHQ importer
+- [`hitl-workflow.md`](hitl-workflow.md) — how a sigma alert
+  becomes an approvable action across Slack / Telegram / dashboard,
+  the safety guard, and the pre-flight checklist before turning on
+  Responder mode
+- [`hunt.md`](hunt.md) — the log lake page: filters, saved queries,
+  the pivot-from-incident button
 - [`inventory-gate.md`](inventory-gate.md) — what the inventory gate
   filters and why
 - [`attack-prediction.md`](attack-prediction.md) — predicted attack
