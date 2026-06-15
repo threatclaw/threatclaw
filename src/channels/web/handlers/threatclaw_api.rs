@@ -4916,25 +4916,41 @@ pub struct OperatorDecisionBody {
     /// rule_id when the dashboard does not pass it explicitly.
     #[serde(default)]
     pub exception_rule_id: Option<String>,
-    /// Operator identifier, e.g. `dashboard:alice`. Falls back to
-    /// the bearer-token actor when not provided.
-    #[serde(default)]
-    pub actor: Option<String>,
 }
 
-fn operator_actor(body: &OperatorDecisionBody) -> String {
-    body.actor
-        .clone()
-        .unwrap_or_else(|| "dashboard:anonymous".into())
+/// Pull the dashboard user from the session cookie. Used by every
+/// operator-decision handler so the actor identifier persisted in the
+/// audit trail is the authenticated principal and never a string the
+/// client can spoof. Returns the user record (so the caller can check
+/// `role`) and a pre-formatted `dashboard:<email>` actor label.
+async fn dashboard_user_from_headers(
+    state: &Arc<GatewayState>,
+    headers: &HeaderMap,
+) -> Result<(crate::channels::web::dashboard_auth::UserInfo, String), (StatusCode, String)> {
+    let store = state
+        .store
+        .as_ref()
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "db not initialised".into()))?;
+    let cookie = headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = crate::channels::web::dashboard_auth::extract_session_cookie(cookie)
+        .ok_or((StatusCode::UNAUTHORIZED, "not authenticated".into()))?;
+    let user = crate::channels::web::dashboard_auth::validate_session(store, &token)
+        .await
+        .ok_or((StatusCode::UNAUTHORIZED, "invalid session".into()))?;
+    let actor = format!("dashboard:{}", user.email);
+    Ok((user, actor))
 }
 
 async fn apply_decision_inner(
     store: &dyn crate::db::Database,
     id: i32,
     decision: &str,
+    actor: &str,
     body: OperatorDecisionBody,
 ) -> Result<serde_json::Value, (StatusCode, String)> {
-    let actor = operator_actor(&body);
     let reason = body.reason.as_deref();
 
     // Resolve the snooze deadline. Snooze must have one of the two.
@@ -4972,7 +4988,7 @@ async fn apply_decision_inner(
         .apply_operator_decision(
             id,
             decision,
-            &actor,
+            actor,
             reason,
             snoozed_until,
             body.exception_scope.as_ref(),
@@ -4986,9 +5002,14 @@ async fn apply_decision_inner(
         })?;
 
     // For False Positive with an exception_scope, also write the
-    // exception into the sigma engine's allowlist. We only do this
-    // when the rule_id was supplied — the dashboard knows which rule
-    // drove the incident and is responsible for passing it.
+    // exception into the sigma engine's allowlist. Cross-checks:
+    //   1. the rule_id passed must actually appear in this
+    //      incident's alert_ids (the body cannot point at an
+    //      unrelated rule and quietly bypass it).
+    //   2. the value passed must match the incident's own asset /
+    //      username / source IP — we are not allowing the body to
+    //      silently neutralise a rule on a host the operator never
+    //      saw.
     if decision == "false_positive"
         && let Some(scope) = body.exception_scope.as_ref()
         && let (Some(rule_id), Some(field), Some(value)) = (
@@ -5008,7 +5029,68 @@ async fn apply_decision_inner(
                 ));
             }
         };
-        let _ = store
+
+        // Cross-check rule_id matches an alert attached to this
+        // incident, and the value matches the incident's own context.
+        // Server-side resolution — the body cannot bypass either.
+        let incident = store
+            .get_incident(id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("get_incident: {e}")))?
+            .ok_or((StatusCode::NOT_FOUND, format!("incident {id} not found")))?;
+        let alert_ids: Vec<i64> = incident
+            .get("alert_ids")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+            .unwrap_or_default();
+        let alerts = store
+            .get_sigma_alerts_by_ids(&alert_ids)
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("get_sigma_alerts_by_ids: {e}"),
+                )
+            })?;
+        let rule_found = alerts
+            .iter()
+            .any(|a| a.get("rule_id").and_then(|v| v.as_str()) == Some(rule_id));
+        if !rule_found {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("rule_id {rule_id} is not attached to incident {id}"),
+            ));
+        }
+        let incident_asset = incident
+            .get("asset")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let value_matches = match exception_field {
+            "hostname" => value.eq_ignore_ascii_case(incident_asset),
+            "username" => alerts.iter().any(|a| {
+                a.get("username")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.eq_ignore_ascii_case(value))
+                    .unwrap_or(false)
+            }),
+            "source_ip" => alerts.iter().any(|a| {
+                a.get("source_ip")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.eq_ignore_ascii_case(value))
+                    .unwrap_or(false)
+            }),
+            _ => false,
+        };
+        if !value_matches {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "exception value {value} does not match the incident's {exception_field}"
+                ),
+            ));
+        }
+
+        store
             .insert_sigma_rule_exception(
                 rule_id,
                 exception_field,
@@ -5016,10 +5098,16 @@ async fn apply_decision_inner(
                 Some(&format!(
                     "Created from operator decision on incident #{id} by {actor}"
                 )),
-                Some(&actor),
+                Some(actor),
                 None,
             )
-            .await;
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("insert_sigma_rule_exception: {e}"),
+                )
+            })?;
     }
 
     Ok(serde_json::json!({ "id": id, "decision": decision, "actor": actor }))
@@ -5028,56 +5116,74 @@ async fn apply_decision_inner(
 /// POST /api/tc/incidents/{id}/resolve
 pub async fn incident_resolve_handler(
     State(state): State<Arc<GatewayState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i32>,
     Json(body): Json<OperatorDecisionBody>,
 ) -> ApiResult<serde_json::Value> {
+    let (_user, actor) = dashboard_user_from_headers(&state, &headers).await?;
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    Ok(Json(apply_decision_inner(store.as_ref(), id, "resolve", body).await?))
+    Ok(Json(
+        apply_decision_inner(store.as_ref(), id, "resolve", &actor, body).await?,
+    ))
 }
 
 /// POST /api/tc/incidents/{id}/false-positive
 pub async fn incident_false_positive_handler(
     State(state): State<Arc<GatewayState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i32>,
     Json(body): Json<OperatorDecisionBody>,
 ) -> ApiResult<serde_json::Value> {
+    let (_user, actor) = dashboard_user_from_headers(&state, &headers).await?;
     let store = state.store.as_ref().ok_or_else(no_db)?;
     Ok(Json(
-        apply_decision_inner(store.as_ref(), id, "false_positive", body).await?,
+        apply_decision_inner(store.as_ref(), id, "false_positive", &actor, body).await?,
     ))
 }
 
 /// POST /api/tc/incidents/{id}/accept-risk
 pub async fn incident_accept_risk_handler(
     State(state): State<Arc<GatewayState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i32>,
     Json(body): Json<OperatorDecisionBody>,
 ) -> ApiResult<serde_json::Value> {
+    let (_user, actor) = dashboard_user_from_headers(&state, &headers).await?;
     let store = state.store.as_ref().ok_or_else(no_db)?;
     Ok(Json(
-        apply_decision_inner(store.as_ref(), id, "accept_risk", body).await?,
+        apply_decision_inner(store.as_ref(), id, "accept_risk", &actor, body).await?,
     ))
 }
 
 /// POST /api/tc/incidents/{id}/snooze
 pub async fn incident_snooze_handler(
     State(state): State<Arc<GatewayState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i32>,
     Json(body): Json<OperatorDecisionBody>,
 ) -> ApiResult<serde_json::Value> {
+    let (_user, actor) = dashboard_user_from_headers(&state, &headers).await?;
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    Ok(Json(apply_decision_inner(store.as_ref(), id, "snooze", body).await?))
+    Ok(Json(
+        apply_decision_inner(store.as_ref(), id, "snooze", &actor, body).await?,
+    ))
 }
 
 /// DELETE /api/tc/admin/incidents/{id} — hard-delete (admin only).
 /// Returns the row snapshot so the caller can persist an audit entry.
 pub async fn admin_incident_delete_handler(
     State(state): State<Arc<GatewayState>>,
+    headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i32>,
-    Json(body): Json<OperatorDecisionBody>,
 ) -> ApiResult<serde_json::Value> {
+    let (user, actor) = dashboard_user_from_headers(&state, &headers).await?;
+    if user.role != "admin" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "admin role required to hard-delete an incident".into(),
+        ));
+    }
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let actor = operator_actor(&body);
     let snapshot = store
         .admin_delete_incident(id, &actor)
         .await

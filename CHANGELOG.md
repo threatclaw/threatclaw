@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.38-beta] — 2026-06-15
+
+### Changed
+- The operator decision menu on an incident is rewritten around four explicit actions plus an admin-only Delete. The previous three buttons (Archive, False Positive, Ignore) were near-synonyms that all came down to "hide it from my view", and the downstream tuning loop drew the wrong conclusion every time. The new menu separates the intentions cleanly: **Resolve** ("I handled this — real incident, now closed"), **False Positive** ("the detection was wrong" — with an optional follow-up that creates a sigma exception scoped to the asset, the target user, or the source IP), **Accept Risk** ("real, but the business chose to accept it"), and **Snooze** ("remind me in N hours"). The admin-only **Delete** entry hard-deletes a row with an audit-log entry — useful for test data or accidental incidents, not part of the normal triage flow. Each pick opens a small modal, no decision is taken in a single click except Resolve.
+- The intelligence cycle wakes up snoozed incidents automatically. When a snooze deadline passes, the incident returns to the active queue with a note explaining the wake-up — no operator action required.
+
+### Operations
+- Existing historical incidents that were closed with `status='closed'` are now stored as `status='resolved'`. The two terms had been used interchangeably and the dashboard filter now uses a single canonical state.
+
 ## [1.0.37-beta] — 2026-06-15
 
 ### Fixed
