@@ -1,16 +1,16 @@
 # Attack Prediction
 
-ThreatClaw's prediction page (**Inventaire → Prédiction d'attaque**)
+ThreatClaw's prediction page (**Inventory → Attack prediction**)
 shows the most likely paths an attacker would take to reach the
 customer's critical assets, and which fixes break the most paths.
 
 ## Two views
 
-The page has two tabs answering two different questions :
+The page has two tabs answering two different questions:
 
-### Prédiction (default)
+### Prediction (default)
 
-> *"If an attacker tries now, where do they pass ?"*
+> *"If an attacker tries right now, where do they pass?"*
 
 Static analysis based on the inventory + CVE findings + criticality.
 It computes paths in three families :
@@ -29,9 +29,9 @@ least one critical asset declared**. It does not need any observed
 attack history, which makes it the day-one value of the product —
 useful for onboarding, weekly patch planning and exposure reporting.
 
-### Activité observée
+### Observed activity
 
-> *"What lateral movement has actually happened ?"*
+> *"What lateral movement has actually happened?"*
 
 Graph-walker that traverses edges derived from observed events :
 
@@ -50,8 +50,8 @@ endpoint logs and IDS signatures.
 
 | To get | You need |
 |---|---|
-| At least one path in the **Prédiction** tab | One asset with `criticality = critical`, plus CVE findings on assets that connect to it. The endpoint agent populates the inventory and CVE findings automatically. |
-| At least one path in the **Activité observée** tab | Authentication events ingested (AD, Windows Event 4624, sshd accepted) so the engine can derive `LATERAL_PATH` edges, **or** sigma alerts that produce `ATTACKS` edges. |
+| At least one path in the **Prediction** tab | One asset with `criticality = critical`, plus CVE findings on assets that connect to it. The endpoint agent populates the inventory and CVE findings automatically. |
+| At least one path in the **Observed activity** tab | Authentication events ingested (AD, Windows Event 4624, sshd accepted) so the engine can derive `LATERAL_PATH` edges, **or** sigma alerts that produce `ATTACKS` edges. |
 | A meaningful exposure score | The `exposure_class` field on assets : `internet`, `dmz`, `lan`, `vlan_dev`. The default heuristic uses the IP range; declared values take precedence. |
 
 ## Per-path information
@@ -73,8 +73,8 @@ Each path card shows :
 ## Recompute
 
 The prediction is recomputed every 6 hours by a background task.
-You can force a recompute from the dashboard's **Recalculer** button
-or :
+You can force a recompute from the dashboard's **Recompute** button
+or:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TC_TOKEN" \
@@ -85,7 +85,7 @@ Recompute is cheap (under a second on a typical SMB topology).
 
 ## Choke points
 
-The **Activité observée** tab also surfaces the top assets whose
+The **Observed activity** tab also surfaces the top assets whose
 hardening would break the largest number of predicted paths. Patch a
 choke point and many downstream paths disappear in the next cycle —
 this is the "biggest bang for the buck" ranking.
@@ -100,6 +100,6 @@ this is the "biggest bang for the buck" ranking.
 - **All assets are flagged `internal` only**. The `External →
   Vulnerable → Critical` family needs at least one entry point with
   exposure to the perimeter.
-- **The graph topology is empty** in the **Activité observée** tab.
+- **The graph topology is empty** in the **Observed activity** tab.
   This is normal until the deployment starts ingesting authentication
   events from AD or sigma alerts from network sensors.
