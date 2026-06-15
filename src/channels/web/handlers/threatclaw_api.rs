@@ -1675,7 +1675,7 @@ pub async fn skill_test_handler(
             let domains = cfg.get("domains").cloned().unwrap_or_default();
             if domains.is_empty() {
                 return Ok(Json(
-                    serde_json::json!({ "ok": false, "error": "Aucun domaine configuré" }),
+                    serde_json::json!({ "ok": false, "error": "No domain configured" }),
                 ));
             }
             let first_domain = domains.split(',').next().unwrap_or("").trim();
@@ -1785,10 +1785,10 @@ pub async fn skill_test_handler(
             }
         }
         "skill-compliance-nis2" | "skill-compliance-iso27001" => {
-            serde_json::json!({ "ok": true, "detail": "Analyse locale — aucune API externe requise" })
+            serde_json::json!({ "ok": true, "detail": "Local analysis — no external API required" })
         }
         "skill-report-gen" => {
-            serde_json::json!({ "ok": true, "detail": "Génération locale — aucune API externe requise" })
+            serde_json::json!({ "ok": true, "detail": "Local generation — no external API required" })
         }
         _ => {
             serde_json::json!({ "ok": false, "error": format!("Test not available for {}", skill_id) })
@@ -6290,15 +6290,15 @@ async fn compute_asset_coverage(
                 kind: "velociraptor",
                 label: "Velociraptor (DFIR)",
                 state: "gap",
-                detail: "Configuré mais agent non enrôlé sur cet asset".into(),
+                detail: "Configured but agent not enrolled on this asset".into(),
                 last_seen: None,
-                action_hint: Some("Déployer l'agent Velociraptor".into()),
+                action_hint: Some("Deploy the Velociraptor agent".into()),
             },
             (None, _) => CoverageItem {
                 kind: "velociraptor",
                 label: "Velociraptor (DFIR)",
                 state: "not_configured",
-                detail: "Aucun connecteur Velociraptor sur cette installation".into(),
+                detail: "No Velociraptor connector on this installation".into(),
                 last_seen: None,
                 action_hint: None,
             },
@@ -8073,9 +8073,9 @@ pub async fn export_report_handler(
         "resolved"
     };
     let incident_status_label = match incident_status {
-        "ongoing" => "En cours",
-        "contained" => "Contenu",
-        _ => "Résolu",
+        "ongoing" => "Ongoing",
+        "contained" => "Contained",
+        _ => "Resolved",
     };
 
     let severity = if score < 30.0 {
