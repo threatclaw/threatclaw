@@ -105,10 +105,10 @@ pub fn alert_is_excepted(
 }
 
 pub enum FieldMatcher {
-    Exact(String, String),            // field, value
-    Contains(String, String),         // field, substring
-    StartsWith(String, String),       // field, prefix
-    EndsWith(String, String),         // field, suffix
+    Exact(String, String),            // field, value (case-insensitive)
+    Contains(String, String),         // field, substring (case-insensitive)
+    StartsWith(String, String),       // field, prefix (case-insensitive)
+    EndsWith(String, String),         // field, suffix (case-insensitive)
     Wildcard(String, String),         // field, glob pattern
     AnyOf(String, Vec<String>),       // field, [values] — exact match OR
     ContainsAny(String, Vec<String>), // field|contains: [a,b,c] — substring OR
@@ -120,6 +120,75 @@ pub enum FieldMatcher {
     ContainsAll(String, Vec<String>),
     StartsWithAll(String, Vec<String>),
     EndsWithAll(String, Vec<String>),
+
+    // ── Sigma 2.0 modifiers ────────────────────────────────────────────
+    // `|cased` — case-sensitive equivalents (the default in Sigma is
+    // case-insensitive; the modifier opts back into byte-exact matching).
+    ExactCased(String, String),
+    ContainsCased(String, String),
+    StartsWithCased(String, String),
+    EndsWithCased(String, String),
+    /// `|re` — PCRE-style regular expression. Compiled once at rule load.
+    Regex(String, regex::Regex),
+    /// `|cidr` — value handled as a CIDR network range. Supports IPv4/IPv6.
+    Cidr(String, CidrNet),
+    /// `|exists: true|false` — field presence check.
+    Exists(String, bool),
+    /// `|lt`/`|lte`/`|gt`/`|gte` — numeric comparison against an f64 value.
+    NumericLt(String, f64),
+    NumericLte(String, f64),
+    NumericGt(String, f64),
+    NumericGte(String, f64),
+    /// `|fieldref` — compares the field's value against another field in the
+    /// same event (case-insensitive). Used by anti-evasion rules where the
+    /// expected token is itself in the event (e.g. ProcessId == ParentProcessId).
+    FieldRef(String, String),
+}
+
+/// Lightweight CIDR network used by FieldMatcher::Cidr. We hand-roll the
+/// match logic instead of pulling in `ipnet` because the operation is
+/// trivial and Sigma rules carry at most a few hundred CIDR entries.
+#[derive(Debug, Clone)]
+pub struct CidrNet {
+    addr: std::net::IpAddr,
+    prefix: u8,
+}
+
+impl CidrNet {
+    pub fn parse(spec: &str) -> Option<Self> {
+        let (ip_str, prefix_str) = spec.split_once('/')?;
+        let addr: std::net::IpAddr = ip_str.parse().ok()?;
+        let prefix: u8 = prefix_str.parse().ok()?;
+        let max = if addr.is_ipv4() { 32 } else { 128 };
+        if prefix > max {
+            return None;
+        }
+        Some(Self { addr, prefix })
+    }
+
+    pub fn contains(&self, candidate: &std::net::IpAddr) -> bool {
+        match (self.addr, candidate) {
+            (std::net::IpAddr::V4(net), std::net::IpAddr::V4(ip)) => {
+                let net = u32::from(net);
+                let ip = u32::from(*ip);
+                if self.prefix == 0 {
+                    return true;
+                }
+                let mask = u32::MAX << (32 - self.prefix);
+                (net & mask) == (ip & mask)
+            }
+            (std::net::IpAddr::V6(net), std::net::IpAddr::V6(ip)) => {
+                let net = u128::from(net);
+                let ip = u128::from(*ip);
+                if self.prefix == 0 {
+                    return true;
+                }
+                let mask = u128::MAX << (128 - self.prefix);
+                (net & mask) == (ip & mask)
+            }
+            _ => false,
+        }
+    }
 }
 
 pub enum Condition {
@@ -186,12 +255,30 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                     .copied()
                     .unwrap_or("");
 
+                // Expansion modifiers — `|windash`, `|base64`, `|base64offset`,
+                // `|utf16le`/`|wide` — fan a single rule value out into several
+                // substring variants. Compose any of them with `|contains` and
+                // emit one ContainsAny per (field, variants) so the rest of the
+                // engine stays uniform. If the rule already specified `|all`,
+                // the expansion stays in OR semantics for the value variants
+                // themselves (any encoded form is enough) — `|all` only forces
+                // every list element to match when the YAML value is a list.
+                if let Some(variants) = expand_value_modifier(modifier, val) {
+                    if !variants.is_empty() {
+                        matchers.push(FieldMatcher::ContainsAny(field.clone(), variants));
+                        continue;
+                    }
+                }
+
                 match val {
                     Value::String(s) => {
                         matchers.push(make_matcher(&field, modifier, s));
                     }
                     Value::Number(n) => {
                         matchers.push(FieldMatcher::Exact(field, n.to_string()));
+                    }
+                    Value::Bool(b) => {
+                        matchers.push(FieldMatcher::Exact(field, b.to_string()));
                     }
                     Value::Array(arr) => {
                         let values: Vec<String> = arr
@@ -251,13 +338,75 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
 }
 
 fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
-    match modifier {
-        "contains" => FieldMatcher::Contains(field.to_string(), value.to_lowercase()),
-        "startswith" => FieldMatcher::StartsWith(field.to_string(), value.to_lowercase()),
-        "endswith" => FieldMatcher::EndsWith(field.to_string(), value.to_lowercase()),
-        "re" => FieldMatcher::Wildcard(field.to_string(), value.to_string()), // simplified
+    // The compile path passes one stripped modifier at a time. Multi-segment
+    // syntax like `|contains|cased` is normalized at the caller into ordered
+    // segments, but for simple two-token shapes we parse the trailing flag
+    // here so callers don't have to special-case every combination.
+    let (base, cased) = match modifier.split_once("|cased").or_else(|| {
+        modifier.strip_suffix("cased").map(|m| (m.trim_end_matches('|'), ""))
+    }) {
+        Some((m, _)) if !m.is_empty() => (m, true),
+        _ if modifier == "cased" => ("", true),
+        _ => (modifier, false),
+    };
+
+    match base {
+        // ── case-insensitive (default Sigma) ─────────────────────────
+        "contains" if !cased => FieldMatcher::Contains(field.to_string(), value.to_lowercase()),
+        "startswith" if !cased => FieldMatcher::StartsWith(field.to_string(), value.to_lowercase()),
+        "endswith" if !cased => FieldMatcher::EndsWith(field.to_string(), value.to_lowercase()),
+
+        // ── case-sensitive (Sigma 2.0 `|cased`) ───────────────────────
+        "contains" if cased => FieldMatcher::ContainsCased(field.to_string(), value.to_string()),
+        "startswith" if cased => FieldMatcher::StartsWithCased(field.to_string(), value.to_string()),
+        "endswith" if cased => FieldMatcher::EndsWithCased(field.to_string(), value.to_string()),
+        "" if cased => FieldMatcher::ExactCased(field.to_string(), value.to_string()),
+
+        // ── regular expression ────────────────────────────────────────
+        "re" | "re|i" => {
+            let prefix = if base == "re|i" { "(?i)" } else { "" };
+            match regex::Regex::new(&format!("{prefix}{value}")) {
+                Ok(re) => FieldMatcher::Regex(field.to_string(), re),
+                Err(_) => {
+                    // Invalid regex — fall back to a literal substring so the
+                    // rule still loads. A warning here would be nice but the
+                    // loader logs the rule id elsewhere.
+                    FieldMatcher::Contains(field.to_string(), value.to_lowercase())
+                }
+            }
+        }
+
+        // ── CIDR network ──────────────────────────────────────────────
+        "cidr" => match CidrNet::parse(value) {
+            Some(net) => FieldMatcher::Cidr(field.to_string(), net),
+            None => FieldMatcher::Exact(field.to_string(), value.to_lowercase()),
+        },
+
+        // ── presence check ────────────────────────────────────────────
+        "exists" => {
+            let expected = matches!(value.to_lowercase().as_str(), "true" | "1" | "yes");
+            FieldMatcher::Exists(field.to_string(), expected)
+        }
+
+        // ── numeric comparators ───────────────────────────────────────
+        "lt" => parse_numeric(value)
+            .map(|n| FieldMatcher::NumericLt(field.to_string(), n))
+            .unwrap_or_else(|| FieldMatcher::Exact(field.to_string(), value.to_lowercase())),
+        "lte" => parse_numeric(value)
+            .map(|n| FieldMatcher::NumericLte(field.to_string(), n))
+            .unwrap_or_else(|| FieldMatcher::Exact(field.to_string(), value.to_lowercase())),
+        "gt" => parse_numeric(value)
+            .map(|n| FieldMatcher::NumericGt(field.to_string(), n))
+            .unwrap_or_else(|| FieldMatcher::Exact(field.to_string(), value.to_lowercase())),
+        "gte" => parse_numeric(value)
+            .map(|n| FieldMatcher::NumericGte(field.to_string(), n))
+            .unwrap_or_else(|| FieldMatcher::Exact(field.to_string(), value.to_lowercase())),
+
+        // ── field-to-field reference ──────────────────────────────────
+        "fieldref" => FieldMatcher::FieldRef(field.to_string(), value.to_string()),
+
+        // ── default (no modifier or unknown) ──────────────────────────
         _ => {
-            // Check if value contains wildcards
             if value.contains('*') || value.contains('?') {
                 FieldMatcher::Wildcard(field.to_string(), value.to_lowercase())
             } else {
@@ -265,6 +414,173 @@ fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
             }
         }
     }
+}
+
+fn parse_numeric(s: &str) -> Option<f64> {
+    s.trim().parse::<f64>().ok()
+}
+
+/// Sigma 2.0 modifier shapes that expand a single rule value into several
+/// substring variants (windash, base64, base64offset, utf16le/utf16be/wide).
+/// Returns the variants if `modifier` is one of those — `None` for any other
+/// modifier so the caller falls back to the normal compile path. Composing
+/// with `|contains` is implicit: the substring is always searched anywhere
+/// in the field. Composing with `|all` would change OR→AND across the
+/// variants but we keep OR semantics here: any encoded form is enough.
+fn expand_value_modifier(modifier: &str, val: &Value) -> Option<Vec<String>> {
+    // Modifier may arrive as `windash|contains` / `contains|windash` / `windash`
+    // — Sigma allows the order to vary.
+    let segments: std::collections::HashSet<&str> = modifier.split('|').collect();
+
+    let pick: &str = if segments.contains("windash") {
+        "windash"
+    } else if segments.contains("base64offset") {
+        "base64offset"
+    } else if segments.contains("base64") {
+        "base64"
+    } else if segments.contains("utf16le") || segments.contains("wide") {
+        "utf16le"
+    } else if segments.contains("utf16be") {
+        "utf16be"
+    } else if segments.contains("utf16") {
+        "utf16"
+    } else {
+        return None;
+    };
+
+    let raw_values: Vec<String> = match val {
+        Value::String(s) => vec![s.clone()],
+        Value::Array(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        _ => return Some(Vec::new()),
+    };
+
+    let mut out: Vec<String> = Vec::new();
+    for v in raw_values {
+        match pick {
+            "windash" => {
+                for variant in windash_variants(&v) {
+                    if !out.contains(&variant) {
+                        out.push(variant);
+                    }
+                }
+            }
+            "base64" => {
+                use base64::Engine;
+                let encoded = base64::engine::general_purpose::STANDARD
+                    .encode(v.as_bytes())
+                    .to_lowercase();
+                if !out.contains(&encoded) {
+                    out.push(encoded);
+                }
+            }
+            "base64offset" => {
+                for variant in base64offset_variants(&v) {
+                    if !out.contains(&variant) {
+                        out.push(variant);
+                    }
+                }
+            }
+            "utf16le" => {
+                let encoded = utf16le_string(&v);
+                if !out.contains(&encoded) {
+                    out.push(encoded);
+                }
+            }
+            "utf16be" => {
+                let bytes: Vec<u8> = v
+                    .encode_utf16()
+                    .flat_map(|c| c.to_be_bytes())
+                    .collect();
+                let s = String::from_utf8_lossy(&bytes).to_lowercase();
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+            "utf16" => {
+                // Sigma `|utf16` — UTF-16 with a leading BOM. We emit both LE
+                // and BE so the matcher fires whatever byte order the live
+                // payload uses; logging upstream is unpredictable for these
+                // encodings.
+                let mut le_bytes = vec![0xFF, 0xFE];
+                le_bytes.extend(v.encode_utf16().flat_map(|c| c.to_le_bytes()));
+                let mut be_bytes = vec![0xFE, 0xFF];
+                be_bytes.extend(v.encode_utf16().flat_map(|c| c.to_be_bytes()));
+                let le = String::from_utf8_lossy(&le_bytes).to_lowercase();
+                let be = String::from_utf8_lossy(&be_bytes).to_lowercase();
+                if !out.contains(&le) { out.push(le); }
+                if !out.contains(&be) { out.push(be); }
+            }
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// Generate the set of substring variants Sigma's `|windash` modifier expects.
+/// Sigma 2.0 spec: every `-flag` token is duplicated with `/flag`, `–flag`,
+/// `—flag`, `―flag` (en/em/horizontal-bar dashes). Returns the original value
+/// plus every dash permutation, deduped. Lowercased for use with Contains.
+pub fn windash_variants(value: &str) -> Vec<String> {
+    const DASHES: &[&str] = &["-", "/", "\u{2013}", "\u{2014}", "\u{2015}"];
+    let lower = value.to_lowercase();
+    let mut out = vec![lower.clone()];
+    if let Some(rest) = lower.strip_prefix('-') {
+        for d in DASHES {
+            let candidate = format!("{d}{rest}");
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    } else if let Some(idx) = lower.find(" -") {
+        // Token in the middle of a string: " -flag" or " /flag".
+        let (prefix, tail) = lower.split_at(idx);
+        let rest = tail.trim_start_matches(' ').trim_start_matches('-');
+        for d in DASHES {
+            let candidate = format!("{prefix} {d}{rest}");
+            if !out.contains(&candidate) {
+                out.push(candidate);
+            }
+        }
+    }
+    out
+}
+
+/// Encode a string in all three Sigma `|base64offset` shifted byte positions.
+/// The Sigma spec records that a substring's base64 representation depends on
+/// its byte alignment, so the engine has to check three encodings to catch a
+/// command-line fragment regardless of where it falls in the parent buffer.
+pub fn base64offset_variants(value: &str) -> Vec<String> {
+    use base64::Engine;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(3);
+    for shift in 0..3 {
+        let mut padded = vec![0u8; shift];
+        padded.extend_from_slice(bytes);
+        let encoded = engine.encode(&padded);
+        // Strip the leading shift-padded characters so the substring search
+        // matches whatever offset the live buffer has.
+        let trim_start = ((shift * 8 + 5) / 6).min(encoded.len());
+        let trim_end = (encoded.len()).saturating_sub(((shift * 8) % 3 + 2) / 3);
+        if trim_start < trim_end {
+            out.push(encoded[trim_start..trim_end].to_lowercase());
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Encode a string as UTF-16 little-endian bytes rendered into a lossy
+/// substring. Used by Sigma's `|utf16le` / `|wide` modifiers when the rule
+/// expects to find UTF-16 text inside a UTF-8 log line (e.g. PowerShell
+/// EncodedCommand payloads after decode-as-utf8 happened).
+pub fn utf16le_string(value: &str) -> String {
+    let bytes: Vec<u8> = value
+        .encode_utf16()
+        .flat_map(|c| c.to_le_bytes())
+        .collect();
+    String::from_utf8_lossy(&bytes).to_lowercase()
 }
 
 /// Parse a condition string into a Condition tree.
@@ -623,7 +939,109 @@ fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, 
             }
             false
         }
+
+        // ── Sigma 2.0 modifier arms ─────────────────────────────────────
+        FieldMatcher::ExactCased(field, expected) => {
+            if let Some(val) = find_field(log, field) {
+                if val == *expected {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::ContainsCased(field, substring) => {
+            if let Some(val) = find_field(log, field) {
+                if val.contains(substring.as_str()) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::StartsWithCased(field, prefix) => {
+            if let Some(val) = find_field(log, field) {
+                if val.starts_with(prefix.as_str()) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::EndsWithCased(field, suffix) => {
+            if let Some(val) = find_field(log, field) {
+                if val.ends_with(suffix.as_str()) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::Regex(field, re) => {
+            if let Some(val) = find_field(log, field) {
+                if re.is_match(&val) {
+                    matched.push((field.clone(), val));
+                    return true;
+                }
+            }
+            false
+        }
+        FieldMatcher::Cidr(field, net) => {
+            if let Some(val) = find_field(log, field) {
+                if let Ok(ip) = val.parse::<std::net::IpAddr>() {
+                    if net.contains(&ip) {
+                        matched.push((field.clone(), val));
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        FieldMatcher::Exists(field, expected) => {
+            let present = find_field(log, field).is_some();
+            if present == *expected {
+                matched.push((field.clone(), present.to_string()));
+                return true;
+            }
+            false
+        }
+        FieldMatcher::NumericLt(field, n) => numeric_cmp(field, log, |x| x < *n, matched),
+        FieldMatcher::NumericLte(field, n) => numeric_cmp(field, log, |x| x <= *n, matched),
+        FieldMatcher::NumericGt(field, n) => numeric_cmp(field, log, |x| x > *n, matched),
+        FieldMatcher::NumericGte(field, n) => numeric_cmp(field, log, |x| x >= *n, matched),
+        FieldMatcher::FieldRef(field, other) => {
+            // Compare two fields in the same event. Used by anti-evasion
+            // rules where the suspicious condition is equality between two
+            // fields (e.g. ProcessId == ParentProcessId for a parent-child
+            // self-spawn pattern). Case-insensitive on both sides.
+            if let (Some(a), Some(b)) = (find_field(log, field), find_field(log, other)) {
+                if a.to_lowercase() == b.to_lowercase() {
+                    matched.push((field.clone(), a));
+                    return true;
+                }
+            }
+            false
+        }
     }
+}
+
+fn numeric_cmp(
+    field: &str,
+    log: &Value,
+    cmp: impl Fn(f64) -> bool,
+    matched: &mut Vec<(String, String)>,
+) -> bool {
+    let Some(val) = find_field(log, field) else {
+        return false;
+    };
+    let Ok(parsed) = val.parse::<f64>() else {
+        return false;
+    };
+    if cmp(parsed) {
+        matched.push((field.to_string(), val));
+        return true;
+    }
+    false
 }
 
 /// True if the field name is a symbolic alias for the whole log body —
@@ -1537,6 +1955,138 @@ mod tests {
             &FieldMatcher::Contains("commandline".into(), "23".into()),
             &log
         ));
+    }
+
+    // ── Sigma 2.0 modifier coverage ─────────────────────────────────
+
+    #[test]
+    fn modifier_cased_distinguishes_case() {
+        let log = json!({ "User": "Administrator" });
+        // Default Sigma is case-insensitive — should match.
+        assert!(run_matcher(
+            &FieldMatcher::Exact("User".into(), "administrator".into()),
+            &log
+        ));
+        // |cased — exact byte match, case matters.
+        assert!(run_matcher(
+            &FieldMatcher::ExactCased("User".into(), "Administrator".into()),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::ExactCased("User".into(), "administrator".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn modifier_regex_matches_pattern() {
+        let log = json!({ "commandline": "powershell.exe -EncodedCommand AAAA" });
+        let re = regex::Regex::new(r"(?i)powershell.*-encodedcommand").unwrap();
+        assert!(run_matcher(&FieldMatcher::Regex("commandline".into(), re), &log));
+    }
+
+    #[test]
+    fn modifier_regex_fails_on_no_match() {
+        let log = json!({ "commandline": "cmd.exe /c dir" });
+        let re = regex::Regex::new(r"powershell").unwrap();
+        assert!(!run_matcher(&FieldMatcher::Regex("commandline".into(), re), &log));
+    }
+
+    #[test]
+    fn modifier_cidr_v4_in_range() {
+        let log = json!({ "src_ip": "10.0.0.42" });
+        let net = CidrNet::parse("10.0.0.0/24").unwrap();
+        assert!(run_matcher(&FieldMatcher::Cidr("src_ip".into(), net), &log));
+    }
+
+    #[test]
+    fn modifier_cidr_v4_out_of_range() {
+        let log = json!({ "src_ip": "10.0.1.42" });
+        let net = CidrNet::parse("10.0.0.0/24").unwrap();
+        assert!(!run_matcher(&FieldMatcher::Cidr("src_ip".into(), net), &log));
+    }
+
+    #[test]
+    fn modifier_cidr_v6_in_range() {
+        let log = json!({ "src_ip": "2001:db8::1" });
+        let net = CidrNet::parse("2001:db8::/32").unwrap();
+        assert!(run_matcher(&FieldMatcher::Cidr("src_ip".into(), net), &log));
+    }
+
+    #[test]
+    fn modifier_exists_true_when_present() {
+        let log = json!({ "EventID": 4624 });
+        assert!(run_matcher(&FieldMatcher::Exists("EventID".into(), true), &log));
+        assert!(!run_matcher(&FieldMatcher::Exists("EventID".into(), false), &log));
+    }
+
+    #[test]
+    fn modifier_exists_false_when_absent() {
+        let log = json!({ "EventID": 4624 });
+        assert!(run_matcher(&FieldMatcher::Exists("Missing".into(), false), &log));
+        assert!(!run_matcher(&FieldMatcher::Exists("Missing".into(), true), &log));
+    }
+
+    #[test]
+    fn modifier_numeric_lt_gt() {
+        let log = json!({ "score": "85" });
+        assert!(run_matcher(&FieldMatcher::NumericGt("score".into(), 80.0), &log));
+        assert!(!run_matcher(&FieldMatcher::NumericLt("score".into(), 80.0), &log));
+        assert!(run_matcher(&FieldMatcher::NumericLte("score".into(), 85.0), &log));
+        assert!(run_matcher(&FieldMatcher::NumericGte("score".into(), 85.0), &log));
+    }
+
+    #[test]
+    fn modifier_fieldref_matches_when_fields_equal() {
+        let log = json!({ "ProcessId": "1234", "ParentProcessId": "1234" });
+        assert!(run_matcher(
+            &FieldMatcher::FieldRef("ProcessId".into(), "ParentProcessId".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn modifier_fieldref_no_match_when_different() {
+        let log = json!({ "ProcessId": "1234", "ParentProcessId": "5678" });
+        assert!(!run_matcher(
+            &FieldMatcher::FieldRef("ProcessId".into(), "ParentProcessId".into()),
+            &log
+        ));
+    }
+
+    #[test]
+    fn windash_variants_replaces_leading_dash() {
+        let vs = windash_variants("-hp");
+        assert!(vs.contains(&"-hp".to_string()));
+        assert!(vs.contains(&"/hp".to_string()));
+        assert!(vs.contains(&"\u{2013}hp".to_string())); // en dash
+        assert!(vs.contains(&"\u{2014}hp".to_string())); // em dash
+    }
+
+    #[test]
+    fn base64offset_variants_emits_three_shifts() {
+        let vs = base64offset_variants("admin");
+        assert!(vs.len() >= 3, "expected at least 3 shift variants, got {vs:?}");
+    }
+
+    #[test]
+    fn make_matcher_re_compiles_regex() {
+        let m = make_matcher("commandline", "re", r"powershell.*-EncodedCommand");
+        assert!(matches!(m, FieldMatcher::Regex(_, _)));
+    }
+
+    #[test]
+    fn make_matcher_cidr_parses_value() {
+        let m = make_matcher("src_ip", "cidr", "192.168.0.0/16");
+        assert!(matches!(m, FieldMatcher::Cidr(_, _)));
+    }
+
+    #[test]
+    fn make_matcher_cased_modifier() {
+        let m = make_matcher("User", "cased", "Administrator");
+        assert!(matches!(m, FieldMatcher::ExactCased(_, _)));
+        let m = make_matcher("User", "contains|cased", "Admin");
+        assert!(matches!(m, FieldMatcher::ContainsCased(_, _)));
     }
 
     #[test]
