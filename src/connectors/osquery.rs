@@ -1075,6 +1075,56 @@ pub async fn process_osquery_webhook(
         return result;
     }
 
+    // Observe-and-enrol the asset on first sync. Without this hook a Windows
+    // endpoint that runs the osquery agent never lands in the inventory: the
+    // syslog path enrols Linux hosts as a side effect of fluent-bit forwarding
+    // (see sigma_engine::enrol_observed_hostnames), but Windows agents push
+    // straight through the osquery webhook with no syslog companion and so
+    // skip every enrolment hook downstream. Match the syslog enrol shape so
+    // the operator UI presents both OS families the same way; the OS hint
+    // helps the dashboard pick the right icon and inventory filter.
+    if let Ok(None) = store.find_asset_by_hostname(hostname).await {
+        let os_hint = body["os"]
+            .as_str()
+            .or_else(|| body["agent_os"].as_str())
+            .or_else(|| body["platform"].as_str())
+            .map(|s| s.to_string());
+        let asset = crate::db::threatclaw_store::NewAsset {
+            id: format!("osquery-observed-{}", hostname),
+            name: hostname.to_string(),
+            category: "endpoint".to_string(),
+            subcategory: Some("osquery-agent".to_string()),
+            role: None,
+            criticality: "medium".to_string(),
+            ip_addresses: vec![],
+            mac_address: None,
+            hostname: Some(hostname.to_string()),
+            fqdn: None,
+            url: None,
+            os: os_hint,
+            mac_vendor: None,
+            services: serde_json::Value::Array(vec![]),
+            source: "osquery".to_string(),
+            owner: None,
+            location: None,
+            tags: vec!["observed".to_string(), "osquery".to_string()],
+        };
+        if let Err(e) = store.upsert_asset(&asset).await {
+            tracing::warn!(
+                target: "asset_enrolment",
+                "osquery observe-and-enrol failed for {}: {}",
+                hostname,
+                e
+            );
+        } else {
+            tracing::info!(
+                target: "asset_enrolment",
+                "OSQUERY: enrolled new asset for {} (source=osquery)",
+                hostname
+            );
+        }
+    }
+
     // Update last_seen for this agent
     if !agent_id.is_empty() {
         let key = format!("agent_{}", agent_id);

@@ -155,13 +155,37 @@ pull_models_background() {
   FORENSIC_BASE="hf.co/fdtn-ai/Foundation-Sec-8B-Reasoning-Q8_0-GGUF"
   if ! echo "$MODELS" | grep -q "$FORENSIC_BASE"; then
     echo "[models] Downloading Forensic model (Foundation-Sec Reasoning Q8_0) — ~8.5 GB..."
-    curl -s -X POST "${OLLAMA_URL}/api/pull" -d "{\"name\":\"$FORENSIC_BASE\",\"stream\":false}" > /dev/null 2>&1
+    # Retry the pull on transient network errors -- a partial download leaves
+    # the base manifest absent, the subsequent /api/create then 404s and the
+    # threatclaw-forensic alias is never registered. Three attempts cover the
+    # usual hf.co timeouts without blocking the boot for an unreachable
+    # registry forever.
+    for attempt in 1 2 3; do
+      pull_status=$(curl -s -o /tmp/forensic_pull.json -w "%{http_code}" -X POST "${OLLAMA_URL}/api/pull" \
+        -d "{\"name\":\"$FORENSIC_BASE\",\"stream\":false}" --max-time 1800)
+      if [ "$pull_status" = "200" ]; then
+        echo "[models] Forensic base pulled (attempt $attempt)"
+        break
+      fi
+      echo "[models] WARN forensic pull attempt $attempt failed (http=$pull_status, body=$(head -c 200 /tmp/forensic_pull.json 2>/dev/null))"
+      sleep $((attempt * 10))
+    done
+    # Refresh the model inventory so the create-check below sees the new base.
+    MODELS=$(curl -s "${OLLAMA_URL}/api/tags" 2>/dev/null | python3 -c "import sys,json; print(' '.join(m['name'] for m in json.load(sys.stdin).get('models',[])))" 2>/dev/null || echo "")
   fi
   if ! echo "$MODELS" | grep -q "threatclaw-forensic"; then
-    echo "[models] Creating threatclaw-forensic..."
-    curl -s -X POST "${OLLAMA_URL}/api/create" \
-      -d "{\"name\":\"threatclaw-forensic\",\"from\":\"$FORENSIC_BASE\",\"system\":\"You are ThreatClaw forensic analysis engine. Perform deep investigation and return ONLY valid JSON. Never fabricate evidence or MITRE techniques not directly supported by the provided data.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192,\"num_predict\":2048}}" --max-time 30 > /dev/null 2>&1
-    echo "[models] threatclaw-forensic ready"
+    if ! echo "$MODELS" | grep -q "$FORENSIC_BASE"; then
+      echo "[models] ERROR cannot create threatclaw-forensic — base model $FORENSIC_BASE not pulled"
+    else
+      echo "[models] Creating threatclaw-forensic..."
+      create_status=$(curl -s -o /tmp/forensic_create.json -w "%{http_code}" -X POST "${OLLAMA_URL}/api/create" \
+        -d "{\"name\":\"threatclaw-forensic\",\"from\":\"$FORENSIC_BASE\",\"system\":\"You are ThreatClaw forensic analysis engine. Perform deep investigation and return ONLY valid JSON. Never fabricate evidence or MITRE techniques not directly supported by the provided data.\",\"parameters\":{\"temperature\":0.2,\"num_ctx\":8192,\"num_predict\":2048}}" --max-time 60)
+      if [ "$create_status" = "200" ]; then
+        echo "[models] threatclaw-forensic ready"
+      else
+        echo "[models] ERROR threatclaw-forensic create failed (http=$create_status, body=$(head -c 200 /tmp/forensic_create.json 2>/dev/null))"
+      fi
+    fi
   fi
 
   # ── threatclaw-forensic-fast (Foundation-Sec Reasoning Q4_K_M) —
