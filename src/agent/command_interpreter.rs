@@ -865,11 +865,14 @@ async fn execute_instruct(
                 let content = data["message"]["content"]
                     .as_str()
                     .unwrap_or("Pas de réponse");
-                // Truncate for Telegram (4096 char limit)
+                // Truncate for Telegram (4096 char limit). Slicing by byte
+                // index panics on a multi-byte UTF-8 boundary, so iterate by
+                // codepoints — same intent, never crashes.
                 let truncated = if content.len() > 3500 {
+                    let head: String = content.chars().take(3500).collect();
                     format!(
                         "{}...\n\n[tronqué — voir dashboard pour le rapport complet]",
-                        &content[..3500]
+                        head
                     )
                 } else {
                     content.to_string()

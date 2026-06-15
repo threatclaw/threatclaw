@@ -1103,9 +1103,11 @@ async fn send_telegram(token: &str, chat_id: &str, text: &str) {
         Err(_) => return,
     };
 
-    // Truncate for Telegram limit (4096 chars)
+    // Truncate for Telegram limit (4096 chars). Codepoint-bounded so we
+    // never split a multi-byte UTF-8 character at the cut point.
     let text = if text.len() > 4000 {
-        format!("{}...", &text[..4000])
+        let head: String = text.chars().take(4000).collect();
+        format!("{}...", head)
     } else {
         text.to_string()
     };

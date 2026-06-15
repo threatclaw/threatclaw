@@ -312,11 +312,14 @@ pub async fn run_l1_analysis(incident_id: i32, store: Arc<dyn Database>) -> Resu
             if desc.is_empty() {
                 findings_lines.push(format!("- [{}] {} ({})", f.severity, f.title, f.skill_id));
             } else {
-                let short = if desc.len() > 200 {
-                    &desc[..200]
-                } else {
-                    &desc
-                };
+                // Char-boundary-safe truncation. `&desc[..200]` panics when the
+                // 200th byte falls inside a multi-byte UTF-8 codepoint (accents,
+                // emojis, CJK). The cycle that hit this on cyb06 on 2026-06-15
+                // brought the entire 5-min IE loop down — no sigma cycle ran
+                // for ~10 minutes because every retry blew up on the same
+                // finding. Truncating by codepoints keeps the prompt bounded
+                // without ever splitting a character.
+                let short: String = desc.chars().take(200).collect();
                 findings_lines.push(format!(
                     "- [{}] {} ({}): {}",
                     f.severity, f.title, f.skill_id, short
