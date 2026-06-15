@@ -1281,13 +1281,26 @@ pub(crate) fn validate_l2_response(parsed: &Value, ctx: &ForensicContext) -> Val
         }
     }
 
-    // (e) MITRE techniques : ne doivent être que celles attestées
+    // (e) MITRE techniques : ne doivent être que celles attestées.
+    // Compare on the technique ID only (the part before any whitespace) so
+    // a model that outputs the bare ID `T1110.001` is not rejected by an
+    // attested entry stored as `T1110.001 Password Brute Force`. Both sides
+    // are normalized to their token prefix before comparison.
     if let Some(mitre_arr) = parsed["mitre_techniques"].as_array() {
-        let attested: std::collections::HashSet<&str> =
-            ctx.mitre_existing.iter().map(|s| s.as_str()).collect();
+        let attested_ids: std::collections::HashSet<String> = ctx
+            .mitre_existing
+            .iter()
+            .map(|s| {
+                s.split_whitespace()
+                    .next()
+                    .unwrap_or(s)
+                    .to_string()
+            })
+            .collect();
         for t in mitre_arr {
             if let Some(s) = t.as_str() {
-                if !attested.is_empty() && !attested.contains(s) {
+                let llm_id = s.split_whitespace().next().unwrap_or(s);
+                if !attested_ids.is_empty() && !attested_ids.contains(llm_id) {
                     result.violations.push(format!(
                         "mitre_techniques contains '{}' which is not attested by findings (allowed: {:?})",
                         s, ctx.mitre_existing

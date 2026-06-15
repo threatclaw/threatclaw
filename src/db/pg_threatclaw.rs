@@ -1390,9 +1390,31 @@ impl ThreatClawStore for PgBackend {
         //
         // Same reasoning for `time`: parse to DateTime<Utc> client-side so
         // tokio-postgres binds it as timestamptz without a cast.
+        // Future-clamp: some syslog producers (rsyslog with a TZ-naïve
+        // template piped through fluent-bit's syslog-rfc3164 parser) emit
+        // a timestamp that has already been adjusted to a local timezone
+        // and is then tagged as UTC at parse time, so the row lands an
+        // hour or two ahead of wall-clock. The sigma cursor relies on
+        // monotonically-recent timestamps to advance forward and a
+        // future row poisons it for the rest of the day. We accept the
+        // record but pin its time to `now()` when it would otherwise be
+        // ahead — the upstream TZ bug is logged separately. Clock drift
+        // of a few seconds is tolerated; only meaningful skew (> 60 s)
+        // triggers the clamp.
         let parsed_time = chrono::DateTime::parse_from_rfc3339(time)
             .map(|d| d.with_timezone(&chrono::Utc))
             .map_err(|e| DatabaseError::Query(format!("invalid timestamp: {}", e)))?;
+        let parsed_time = {
+            let now = chrono::Utc::now();
+            if parsed_time > now + chrono::Duration::seconds(60) {
+                tracing::warn!(
+                    "INSERT_LOG: tag={tag} time={time} is ahead of wall-clock by >60s, clamping to now (likely upstream TZ bug)"
+                );
+                now
+            } else {
+                parsed_time
+            }
+        };
         let row = conn
             .query_one(
                 "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) RETURNING id",
