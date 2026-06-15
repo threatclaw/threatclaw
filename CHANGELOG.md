@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.33-beta] — 2026-06-15
+
+### Fixed
+- Windows endpoints running the osquery agent now appear in the dashboard inventory on first sync. The osquery webhook handler previously only updated the internal agent registration table and the software inventory when an asset row already existed; it never created the asset itself. Linux happened to work because the rsyslog forwarder shipped by the same installer pushes syslog events through a separate path that auto-enrolls new hostnames as observed assets. Windows has no syslog companion, so the asset was never created and the agent remained invisible despite syncing every five minutes. The webhook now mirrors the syslog enrolment shape and emits an asset row on the first sync, with an OS hint carried through to the dashboard so the right icon and inventory filter apply. Existing agents are picked up retroactively — no agent reinstall is required.
+- The local AI forensic model download is now retried up to three times with backoff when the underlying base pull from Hugging Face fails, the model inventory is refreshed between the pull and the alias-create steps so the create step sees the freshly pulled base, and every failure now logs the HTTP status code and the response body returned by Ollama instead of being silenced. The previous behaviour silently moved on when the long Q8_0 download was interrupted by a transient network error, the subsequent alias create then 404'd against a missing base, the `threatclaw-forensic` alias never registered, and every L2 forensic enrichment retried indefinitely against the missing model — producing the sustained CPU and memory load reported on a fresh install whose hf.co connection timed out during the initial pull.
+
 ## [1.0.32-beta] — 2026-06-15
 
 ### Added
