@@ -1,17 +1,31 @@
 rule: win-auth-010
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: Successful RDP logon (4624 + LogonType 10) — the canonical lateral movement landing
     event:
-      commandline: 4624
-  - description: Second positive value from the rule selection
-    event:
-      commandline: RemoteInteractive
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '10'
+        TargetUserName: alice
+        IpAddress: 10.0.0.42
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: SSH-over-OpenSSH failure (4625 LogonType 8) — the FP shape that flooded INC-55 / win-auth-010 alerts
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '4625'
+      data:
+        LogonType: '8'
+        ProcessName: 'C:\Windows\System32\OpenSSH\sshd.exe'
+        TargetUserName: NOUSER
+  - description: Console logon (LogonType 2) — not RDP
+    event:
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '2'
+        TargetUserName: admin
+  - description: Process create event happening to contain "4624" somewhere in the cmdline
+    event:
+      commandline: 'powershell.exe -c "Get-EventLog Security -InstanceId 4624"'

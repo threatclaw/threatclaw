@@ -1,17 +1,29 @@
 rule: lnx-auth-003
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: Sudo PAM rejecting a wrong password
     event:
-      full_log: sudo
-  - description: Second positive value from the rule selection
+      ident: sudo
+      message: "pam_unix(sudo:auth): authentication failure; logname=alice uid=1001 euid=0 tty=/dev/pts/2 ruser=alice rhost=  user=alice"
+  - description: Sudo rejecting a command not in the sudoers file
     event:
-      full_log: authentication failure
+      ident: sudo
+      message: "alice : command not allowed ; TTY=pts/2 ; PWD=/home/alice ; USER=root ; COMMAND=/sbin/reboot"
+  - description: User not in sudoers
+    event:
+      ident: sudo
+      message: "guest : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/guest ; USER=root ; COMMAND=/bin/ls"
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: Successful sudo session (the historical FP shape)
     event:
-      full_log: operation completed successfully
+      ident: sudo
+      message: "alice : TTY=pts/2 ; PWD=/home/alice ; USER=root ; COMMAND=/bin/cat /etc/passwd"
+  - description: SSH PAM mentioning sudo in a totally unrelated context
+    event:
+      ident: sshd-session
+      message: "pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=10.0.0.1  user=root"
+  - description: Cron message that happens to contain the word sudo
+    event:
+      ident: cron
+      message: "(root) CMD (/usr/sbin/sudo-test --check)"

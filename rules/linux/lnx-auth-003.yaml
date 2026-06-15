@@ -2,23 +2,36 @@ title: Sudo Authentication Failure
 id: lnx-auth-003
 status: stable
 description: |
-  Sudo refusal for a non-privileged account attempting escalation
+  Detects a sudo authentication failure event. The previous version of
+  this rule used a three-element OR list on `full_log|contains` whose
+  first element was the bare word `sudo`, which matched every normal
+  sudo session message ("sudo: alice : TTY=...") and produced one alert
+  per legitimate operator command. The rewrite requires the log to be
+  emitted by the sudo program AND to carry one of the PAM trailers that
+  sudo writes only on a refused escalation attempt — same intent, no
+  false positives on routine sudo activity.
 references:
   - https://attack.mitre.org/techniques/T1548/003/
+  - https://man7.org/linux/man-pages/man8/sudo.8.html
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-15
 tags:
   - attack.privilege_escalation
   - attack.t1548.003
 logsource:
   category: syslog
 detection:
-  selection:
-    'full_log|contains':
-      - sudo
+  program:
+    ident: sudo
+  failure_signal:
+    'message|contains':
       - authentication failure
       - incorrect password attempt
-  condition: selection
+      - 'NOT in sudoers'
+      - command not allowed
+  condition: program and failure_signal
 falsepositives:
-  - Unknown
+  - Legitimate operator mistyped sudo password. Frequent on shared
+    bastions — apply an exception scoped to the host if the noise
+    overwhelms the signal.
 level: medium

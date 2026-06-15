@@ -1,17 +1,27 @@
 rule: lnx-acct-002
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
+# Positive cases — a real usermod UID=0 promotion. Both selections fire.
 positive:
-  - description: First positive value from the rule selection
+  - description: Classic shadow-utils usermod log entry promoting a regular user
     event:
-      full_log: usermod
-  - description: Second positive value from the rule selection
+      ident: usermod
+      message: "change user 'attacker' UID from 1001 to 0"
+  - description: Same shape but with the GID phrasing first (still triggers on UID portion)
     event:
-      full_log: uid=0
+      ident: usermod
+      message: "change user 'svc' GID from 1001 to 100, change user 'svc' UID from 1001 to 0"
 
+# Negative cases — the historical false positive sources. Must NOT fire.
 negative:
-  - description: Unrelated event that should not trigger
+  - description: PAM SSH auth failure on root — the canonical FP that flooded INC-64
     event:
-      full_log: operation completed successfully
+      ident: sshd-session
+      message: "pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=10.200.0.4  user=root"
+  - description: Normal sudo session for an unrelated user — contains "uid=0" in the audit trailer
+    event:
+      ident: sudo
+      message: "session opened for user root by alice(uid=1001)"
+  - description: usermod running but for a benign attribute change (shell, not UID)
+    event:
+      ident: usermod
+      message: "change user 'alice' shell from /bin/sh to /bin/bash"

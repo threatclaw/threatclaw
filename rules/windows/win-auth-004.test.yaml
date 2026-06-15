@@ -1,23 +1,38 @@
 rule: win-auth-004
 
-# Needs Kerberos event id (4768 or 4769) AND a suspicious marker
-# (0x17 etype, RC4, krbtgt account, "golden" ticket reference).
-
 positive:
-  - description: 4768 TGT request for krbtgt (golden ticket vector)
+  - description: 4768 TGT request with RC4 encryption — canonical Golden Ticket smell
     event:
-      commandline: 'EventID=4768 service=krbtgt etype 0x17'
-  - description: 4769 TGS with RC4 encryption
+      channel: Security
+      eventid: '4768'
+      data:
+        TargetUserName: alice
+        ServiceName: krbtgt
+        TicketEncryptionType: '0x17'
+  - description: 4769 TGS request with RC4 encryption
     event:
-      commandline: '4769 ticket_encryption=RC4 user=svc-app'
-  - description: Explicit golden ticket marker
-    event:
-      commandline: '4769 golden ticket detected by analytics'
+      channel: Security
+      eventid: '4769'
+      data:
+        TargetUserName: alice
+        ServiceName: 'host/srv-fileserver$'
+        TicketEncryptionType: '0x17'
 
 negative:
-  - description: 4768 with AES (legit)
+  - description: 4768 with AES256 encryption (legitimate native Windows client)
     event:
-      commandline: '4768 service=user01 etype 0x12 AES'
-  - description: Plain logon event
+      channel: Security
+      eventid: '4768'
+      data:
+        TargetUserName: alice
+        TicketEncryptionType: '0x12'
+  - description: Successful interactive logon (different event entirely)
     event:
-      commandline: 'EventID=4624 logon successful'
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '2'
+        TargetUserName: alice
+  - description: Process create event that happens to include "RC4" in its command line
+    event:
+      commandline: 'openssl enc -rc4 -in /tmp/data -out /tmp/out'
