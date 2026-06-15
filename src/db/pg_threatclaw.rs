@@ -3780,6 +3780,14 @@ impl ThreatClawStore for PgBackend {
                 // se fait côté SQL via split_part. Sans cette résolution, asset
                 // 'debian' (id=asset-bc24..., ip=[10.77.0.136]) manque les
                 // sigma_alerts hostname='10.77.0.136'. Voir #1577 cas d'école.
+                // Exclude alerts the analyst has already triaged out — without
+                // this filter the IE keeps re-picking false_positive and
+                // resolved rows in the next cycle, regenerating the very
+                // incident the analyst just closed. Surfaced during the
+                // 2026-06 cleanup when INC-64 closed-as-FP came back as
+                // INC-65 immediately on the next 5-min tick because the
+                // historical lnx-acct-002 alerts marked false_positive were
+                // still considered active context.
                 "WITH asset_ips AS ( \
                    SELECT split_part(unnest(ip_addresses), ':', 1) AS ip \
                    FROM assets \
@@ -3794,6 +3802,7 @@ impl ThreatClawStore for PgBackend {
                      OR hostname IN (SELECT ip FROM asset_ips) \
                      OR source_ip::text IN (SELECT ip FROM asset_ips) \
                  ) AND matched_at >= $2 \
+                   AND status NOT IN ('false_positive', 'resolved') \
                  ORDER BY \
                    CASE WHEN level = 'critical' THEN 0 \
                         WHEN level = 'high'     THEN 1 \
