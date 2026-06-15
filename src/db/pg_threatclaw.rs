@@ -1306,7 +1306,18 @@ impl ThreatClawStore for PgBackend {
         limit: i64,
     ) -> Result<Vec<LogRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let per_tag = std::cmp::max(limit / 4, 200);
+        // Per-tag cap balances fairness (no one source can starve the
+        // others) with throughput (the dominant source has to be able to
+        // catch up). Setting it to 80 % of the total limit lets a single
+        // tag burst through most of the batch when it is the only one
+        // ingesting heavily, while still reserving ~20 % for the other
+        // sources so a syslog flood cannot completely drown out osquery.
+        // The previous limit/4 cap (1250 on a 5000-row batch) meant a
+        // syslog spike of >5000 events per 5-min cycle never drained —
+        // each cycle ate only 1250 rows from the front of the backlog
+        // while ~10 k waited at the tail, so a real attack at the tail
+        // never made it to the engine until the spike subsided.
+        let per_tag = std::cmp::max((limit * 4) / 5, 1000);
         let interval_clause = format!("INTERVAL '{} minutes'", minutes_back_floor);
 
         // Resolve the effective floor: max of (cursor, now - minutes_back_floor).

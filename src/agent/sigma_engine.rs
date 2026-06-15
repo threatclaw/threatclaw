@@ -1325,7 +1325,11 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     //
     // Cursor format (persisted as a setting):
     //   { "time": "2026-06-15T14:30:00Z", "id": 123456 }
-    const SIGMA_LOG_BATCH: i64 = 5000;
+    // Cycle batch size. Pushed from 5000 to 10000 on 2026-06-15 after the
+    // red-team simulation revealed a syslog burst of ~10 k rows per 5-min
+    // tick drained too slowly under the old cap (cf. query_logs_after_cursor
+    // for the per-tag fairness rationale).
+    const SIGMA_LOG_BATCH: i64 = 10000;
     const SIGMA_CURSOR_KEY: &str = "sigma_log_cursor";
 
     let (cursor_time, cursor_id) = load_sigma_cursor(store.as_ref()).await;
