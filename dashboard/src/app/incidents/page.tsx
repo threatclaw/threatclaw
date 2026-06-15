@@ -18,6 +18,7 @@ import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, 
 import { fetchAlerts, fetchAlertsCounts, type Alert } from "@/lib/tc-api";
 import type { IncidentAction } from "@/types/incident_action";
 import { displayAsset, displayAssetVerbose } from "@/types/asset_display";
+import { OperatorDecisionMenu } from "@/components/incidents/OperatorDecisionMenu";
 
 // ═══════════════════════════════════════════════
 // INCIDENTS TAB
@@ -809,13 +810,15 @@ function IncidentsTab({ locale }: { locale: Locale }) {
                         <FileText size={9} />
                         {tr("incidents_report", locale)}
                       </button>
-                      <button
-                        className="inc-btn-sm"
-                        onClick={() => setConfirmFp(inc)}
-                        title={tr("incidents_markFalsePositiveTitle", locale)}
-                      >
-                        FP
-                      </button>
+                      <OperatorDecisionMenu
+                        incidentId={inc.id}
+                        ruleId={null}
+                        assetHostname={inc.asset ?? null}
+                        username={null}
+                        sourceIp={null}
+                        actor="dashboard:operator"
+                        onDone={() => load()}
+                      />
                     </div>
                   </div>
 
