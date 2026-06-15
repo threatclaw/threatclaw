@@ -101,8 +101,8 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
             alert_ids.len(),
             finding_ids.len()
         );
-        let msg = "Données insuffisantes pour produire une analyse forensique fiable. \
-            Une seule alerte sans preuves corroborantes ne permet pas d'établir une narrative avec certitude.";
+        let msg = "Insufficient evidence to produce a reliable forensic analysis. \
+            A single alert without corroborating evidence cannot establish a narrative with confidence.";
         db.mark_forensic_enriched(id, Some(msg), None, None)
             .await
             .map_err(|e| format!("DB stamp failed: {e}"))?;
@@ -140,7 +140,8 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
     // panel d'actions au stack effectivement câblé chez le client.
     let registry = SkillRegistry::from_db(db.as_ref()).await;
 
-    let prompt = build_forensic_prompt(&context);
+    let report_lang = crate::agent::report_lang::report_language(db.as_ref()).await;
+    let prompt = build_forensic_prompt(&context, &report_lang);
 
     // Phase 7f — timeout 1200s → 300s. Au-delà de 5 min, le L2 a soit crashé
     // soit le hardware sature ; pas la peine d'attendre 20 min pour stamper.
@@ -219,7 +220,7 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                 crate::agent::investigation_log::StepBuilder::new(
                     crate::db::threatclaw_store::StepKind::DeriveActions,
                     format!(
-                        "Fallback déterministe (L2 timeout) — {action_count} action(s) HITL proposée(s)"
+                        "Deterministic fallback (L2 timeout) — {action_count} HITL action(s) proposed"
                     ),
                 )
                 .status(crate::db::threatclaw_store::StepStatus::Fallback)
@@ -305,7 +306,7 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                         crate::agent::investigation_log::StepBuilder::new(
                             crate::db::threatclaw_store::StepKind::LlmCall,
                             format!(
-                                "L2 forensic — réponse rejetée par le reconciler ({} violation(s)) — fallback déterministe",
+                                "L2 forensic — response rejected by reconciler ({} violation(s)) — deterministic fallback",
                                 validation.violations.len()
                             ),
                         )
@@ -392,7 +393,7 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
                             // Phase 9o — log le panel d'actions HITL produit.
                             crate::agent::investigation_log::StepBuilder::new(
                                 crate::db::threatclaw_store::StepKind::DeriveActions,
-                                format!("Panel HITL — {n} action(s) proposée(s)"),
+                                format!("HITL panel — {n} action(s) proposed"),
                             )
                             .payload(serde_json::json!({
                                 "actions": final_bundle
@@ -465,35 +466,35 @@ pub(crate) struct ForensicContext {
     pub mitre_existing: Vec<String>,
 }
 
-fn build_forensic_prompt(ctx: &ForensicContext) -> String {
+fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
     let mut p = String::with_capacity(8000);
 
-    p.push_str("Tu es un analyste forensique expert. Produis un rapport pour le RSSI.\n\n");
+    p.push_str("You are an expert forensic analyst. Produce a report for the CISO.\n\n");
 
-    // ── Règle absolue (en HAUT pour qu'elle pèse plus) ──
-    p.push_str("## RÈGLE ABSOLUE — anti-hallucination\n\n");
-    p.push_str("Tu n'as accès QU'AUX données du dossier ci-dessous (sections DOSSIER FACTUEL, ");
-    p.push_str("FINDINGS et SIGMA ALERTS). Tu ne dois mentionner :\n");
-    p.push_str("- AUCUNE IP, CVE, signature, ou hash absent du dossier\n");
-    p.push_str("- AUCUN service externe (Wazuh, GreyNoise, fail2ban, GoAccess, ELK, Splunk...) ");
-    p.push_str("absent du dossier\n");
-    p.push_str("- AUCUNE technique MITRE ATT&CK qui ne soit pas dans la liste fournie\n");
-    p.push_str("- AUCUN exécutable, malware, ou outil qui ne soit pas explicitement cité dans les findings\n\n");
+    // ── Absolute rule pinned at the top so it carries the most weight ──
+    p.push_str("## ABSOLUTE RULE — anti-hallucination\n\n");
+    p.push_str("You only have access to the data in the dossier below (sections FACTUAL DOSSIER, ");
+    p.push_str("FINDINGS and SIGMA ALERTS). You must not mention:\n");
+    p.push_str("- ANY IP, CVE, signature, or hash that is not in the dossier\n");
+    p.push_str("- ANY external service (Wazuh, GreyNoise, fail2ban, GoAccess, ELK, Splunk, ...) ");
+    p.push_str("that is not in the dossier\n");
+    p.push_str("- ANY MITRE ATT&CK technique that is not in the list provided\n");
+    p.push_str("- ANY executable, malware, or tool that is not explicitly cited in the findings\n\n");
     p.push_str(
-        "Chaque claim de ton `analysis` DOIT être traçable à un `finding_id` ou `alert_id` ",
+        "Every claim in your `analysis` MUST be traceable to a `finding_id` or `alert_id` ",
     );
-    p.push_str("listé ci-dessous. Si les données sont insuffisantes, dis-le clairement plutôt que d'inférer.\n\n");
+    p.push_str("listed below. If the data is insufficient, say so clearly rather than inferring.\n\n");
 
-    // ── Dossier factuel ──
-    p.push_str("## DOSSIER FACTUEL\n\n");
+    // ── Factual dossier ──
+    p.push_str("## FACTUAL DOSSIER\n\n");
     p.push_str(&format!("Incident ID: {}\n", ctx.incident_id));
     p.push_str(&format!("Asset: {}\n", ctx.asset));
-    p.push_str(&format!("Sévérité: {}\n", ctx.severity));
+    p.push_str(&format!("Severity: {}\n", ctx.severity));
     p.push_str(&format!(
-        "Nombre d'alertes corrélées: {}\n\n",
+        "Correlated alert count: {}\n\n",
         ctx.alert_count
     ));
-    p.push_str(&format!("Titre généré par l'IE: {}\n\n", ctx.title));
+    p.push_str(&format!("IE-generated title: {}\n\n", ctx.title));
 
     // ── Findings (source de vérité) ──
     //
@@ -523,17 +524,17 @@ fn build_forensic_prompt(ctx: &ForensicContext) -> String {
     };
     let masked = ctx.findings.len().saturating_sub(findings_filtered.len());
     p.push_str(&format!(
-        "## FINDINGS ({} entrées{})\n\n",
+        "## FINDINGS ({} entries{})\n\n",
         findings_filtered.len(),
         if masked > 0 {
-            format!(" — {masked} finding(s) software-vuln masqués (incident sigma-driven)")
+            format!(" — {masked} software-vuln finding(s) masked (sigma-driven incident)")
         } else {
             String::new()
         }
     ));
     if findings_filtered.is_empty() {
         p.push_str(
-            "(aucun finding pertinent — l'incident est piloté par les SIGMA ALERTS ci-dessous)\n\n",
+            "(no relevant finding — the incident is driven by the SIGMA ALERTS below)\n\n",
         );
     } else {
         for f in findings_filtered.iter().take(10) {
@@ -554,13 +555,13 @@ fn build_forensic_prompt(ctx: &ForensicContext) -> String {
         p.push('\n');
     }
 
-    // ── Sigma alerts (source de vérité) ──
+    // ── Sigma alerts (source of truth) ──
     p.push_str(&format!(
-        "## SIGMA ALERTS ({} entrées)\n\n",
+        "## SIGMA ALERTS ({} entries)\n\n",
         ctx.sigma_alerts.len()
     ));
     if ctx.sigma_alerts.is_empty() {
-        p.push_str("(aucun sigma alert lié — l'incident est probablement basé sur des findings statiques)\n\n");
+        p.push_str("(no linked sigma alert — the incident is probably based on static findings)\n\n");
     } else {
         for a in ctx.sigma_alerts.iter().take(10) {
             let aid = a["id"].as_i64().unwrap_or(0);
@@ -590,21 +591,21 @@ fn build_forensic_prompt(ctx: &ForensicContext) -> String {
         p.push('\n');
     }
 
-    // ── MITRE existant (déjà extrait par l'IE depuis metadata.mitre des findings) ──
+    // ── Existing MITRE techniques (already extracted by the IE from finding metadata.mitre) ──
     if !ctx.mitre_existing.is_empty() {
-        p.push_str("## MITRE ATT&CK techniques attestées par les findings\n\n");
-        p.push_str("(Tu ne peux mentionner QUE ces techniques. Aucune autre.)\n\n");
+        p.push_str("## MITRE ATT&CK techniques attested by the findings\n\n");
+        p.push_str("(You may ONLY mention these techniques. No others.)\n\n");
         for t in &ctx.mitre_existing {
             p.push_str(&format!("- {t}\n"));
         }
         p.push('\n');
     } else {
-        p.push_str("## MITRE ATT&CK techniques attestées\n\n");
-        p.push_str("Aucune technique MITRE n'a été extraite des findings. ");
-        p.push_str("Ne mentionne AUCUNE technique MITRE dans ton rapport.\n\n");
+        p.push_str("## MITRE ATT&CK techniques attested\n\n");
+        p.push_str("No MITRE technique was extracted from the findings. ");
+        p.push_str("Do NOT mention any MITRE technique in your report.\n\n");
     }
 
-    // ── Phase 6 — Source IPs externes détectées (cibles potentielles de blocage) ──
+    // ── External source IPs (candidates for blocking) ──
     let external_source_ips: Vec<String> = ctx
         .sigma_alerts
         .iter()
@@ -619,43 +620,45 @@ fn build_forensic_prompt(ctx: &ForensicContext) -> String {
         .into_iter()
         .collect();
     if !external_source_ips.is_empty() {
-        p.push_str("## IPS SOURCE EXTERNES (candidates au blocage)\n\n");
+        p.push_str("## EXTERNAL SOURCE IPS (block candidates)\n\n");
         for ip in &external_source_ips {
             p.push_str(&format!("- {ip}\n"));
         }
-        p.push_str("\n→ Si une de ces IPs est l'origine d'un sigma alert (auth failed, IDS, brute force) sur un asset interne, ");
-        p.push_str("propose une action `opnsense_block_ip` (ou équivalent fortinet/pfsense/mikrotik) avec cette IP comme paramètre.\n\n");
+        p.push_str("\n→ If one of these IPs is the origin of a sigma alert (auth failed, IDS, brute force) on an internal asset, ");
+        p.push_str("propose an `opnsense_block_ip` action (or the fortinet/pfsense/mikrotik equivalent) with that IP as the parameter.\n\n");
     }
 
-    // ── Instructions de sortie ──
+    // ── Output instructions ──
     p.push_str("## INSTRUCTIONS\n\n");
-    p.push_str("1. Rédige `analysis` : narrative forensique 200-400 mots lisible par un RSSI ");
-    p.push_str("non-technique, basée UNIQUEMENT sur les findings et sigma alerts ci-dessus.\n");
-    p.push_str("   - NE NOMME PAS de groupe APT (Lazarus, APT28, Carbanak...) sauf si attesté ");
-    p.push_str("dans une finding/alert ci-dessus.\n");
-    p.push_str("   - NE PARLE PAS d'exfiltration, ransomware, C2, malware, backdoor sauf si ");
-    p.push_str("explicitement présent dans les sigma alerts ci-dessus.\n");
-    p.push_str("   - Si l'attaque visible est un SSH brute force, dis-le simplement : ");
-    p.push_str("\"Tentatives d'authentification SSH répétées depuis <IP> sur <asset>\". ");
-    p.push_str("Pas de spéculation sur des objectifs d'attaque non documentés.\n");
-    p.push_str("   - Si DOSSIER FACTUEL contient un titre IE clair, suis-le pour la nature de l'incident.\n");
+    p.push_str("1. Write `analysis`: a 200-400 word forensic narrative readable by a non-technical CISO, ");
+    p.push_str("grounded ONLY in the findings and sigma alerts above.\n");
+    p.push_str("   - DO NOT NAME any APT group (Lazarus, APT28, Carbanak, ...) unless it is attested ");
+    p.push_str("in a finding/alert above.\n");
+    p.push_str("   - DO NOT mention exfiltration, ransomware, C2, malware, or backdoor unless they are ");
+    p.push_str("explicitly present in the sigma alerts above.\n");
+    p.push_str("   - If the visible attack is an SSH brute force, simply say: ");
+    p.push_str("\"Repeated SSH authentication attempts from <IP> against <asset>\". ");
+    p.push_str("Do not speculate on undocumented attacker objectives.\n");
+    p.push_str("   - If the FACTUAL DOSSIER contains a clear IE title, follow it for the nature of the incident.\n");
     p.push_str(
-        "2. `mitre_techniques` : liste UNIQUEMENT les codes ATT&CK déjà attestés ci-dessus.\n",
+        "2. `mitre_techniques`: list ONLY the ATT&CK codes already attested above.\n",
     );
-    p.push_str("3. `evidence_citations` : pour chaque claim majeur de l'analysis, cite le ");
-    p.push_str("`finding_id` ou `alert_id` correspondant (champ `evidence_id`).\n");
-    p.push_str("4. `proposed_actions` : si une IP source externe est listée ci-dessus, propose ");
-    p.push_str("UNE action `opnsense_block_ip` avec params `{ip: \"<ip>\"}` et un rationale ");
-    p.push_str("court qui réfère le sigma alert.\n");
-    p.push_str("5. Si les données sont insuffisantes pour produire une narrative claire, ");
-    p.push_str("réponds avec `analysis: \"Données insuffisantes — N findings et M alerts ");
-    p.push_str("disponibles, mais aucune corrélation observable.\"`\n\n");
+    p.push_str("3. `evidence_citations`: for each major claim in the analysis, cite the matching ");
+    p.push_str("`finding_id` or `alert_id` (field `evidence_id`).\n");
+    p.push_str("4. `proposed_actions`: if an external source IP is listed above, propose ");
+    p.push_str("ONE `opnsense_block_ip` action with params `{ip: \"<ip>\"}` and a short rationale ");
+    p.push_str("referring to the sigma alert.\n");
+    p.push_str("5. If the data is insufficient to produce a clear narrative, ");
+    p.push_str("respond with `analysis: \"Insufficient data — N findings and M alerts ");
+    p.push_str("available, but no observable correlation.\"`\n\n");
 
-    p.push_str("Réponds en JSON strict avec les champs: ");
+    p.push_str("Respond in strict JSON with the fields: ");
     p.push_str("verdict (confirmed/inconclusive), severity, confidence (0.0-1.0), ");
     p.push_str("analysis (string), mitre_techniques (array of strings), ");
     p.push_str("evidence_citations (array of {claim, evidence_type, evidence_id, excerpt}), ");
     p.push_str("proposed_actions (array of {cmd_id, params, rationale}).\n");
+
+    p.push_str(&crate::agent::report_lang::output_language_directive(output_lang));
 
     p
 }
@@ -841,7 +844,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
                 .filter_map(|a| a["id"].as_i64())
                 .collect();
             let rationale = format!(
-                "IP externe attestée par {} sigma alert(s) (ids={:?}) sur l'asset {} — proposition de blocage HITL",
+                "External IP attested by {} sigma alert(s) (ids={:?}) on asset {} — HITL block proposed",
                 alert_ids.len(),
                 alert_ids,
                 ctx.asset
@@ -850,7 +853,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
                 actions.push(IncidentAction::block_ip(ip, firewall_skill, rationale));
             } else {
                 actions.push(IncidentAction::manual(
-                    format!("Bloquer manuellement l'IP {ip} au pare-feu (aucun firewall ThreatClaw connecté)"),
+                    format!("Manually block IP {ip} at the firewall (no ThreatClaw firewall connected)"),
                     rationale,
                 ));
             }
@@ -873,7 +876,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
             .filter_map(|a| a["id"].as_i64())
             .collect();
         let rationale = format!(
-            "Compromission suspectée — {} alert(s) ({:?}) — isolation EDR du host {}",
+            "Suspected compromise — {} alert(s) ({:?}) — EDR host isolation for {}",
             alert_ids.len(),
             alert_ids,
             ctx.asset
@@ -882,7 +885,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
             Some(skill) => actions.push(IncidentAction::isolate_host(&ctx.asset, skill, rationale)),
             None => actions.push(IncidentAction::manual(
                 format!(
-                    "Isoler manuellement {} au niveau EDR (aucun EDR ThreatClaw connecté)",
+                    "Manually isolate {} at the EDR layer (no ThreatClaw EDR connected)",
                     ctx.asset
                 ),
                 rationale,
@@ -899,12 +902,12 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
     if propose_disable_user {
         for user in &usernames {
             let rationale = format!(
-                "Compte ciblé par tentatives d'authentification — désactivation HITL recommandée pour {user}"
+                "Account targeted by authentication attempts — HITL disable recommended for {user}"
             );
             match iam_skill.as_deref() {
                 Some(skill) => actions.push(IncidentAction::disable_user(user, skill, rationale)),
                 None => actions.push(IncidentAction::manual(
-                    format!("Désactiver manuellement le compte {user} dans l'annuaire (aucun IAM ThreatClaw connecté)"),
+                    format!("Manually disable account {user} in the directory (no ThreatClaw IAM connected)"),
                     rationale,
                 )),
             }
@@ -919,14 +922,14 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
             .filter_map(|a| a["matched_fields"]["pid"].as_u64().map(|p| p as u32))
             .collect();
         for pid in pids {
-            let rationale = format!("PID {pid} attesté par les sigma alerts cryptomining");
+            let rationale = format!("PID {pid} attested by cryptomining sigma alerts");
             match edr_skill {
                 Some(skill) => actions.push(IncidentAction::kill_process(
                     &ctx.asset, pid, skill, rationale,
                 )),
                 None => actions.push(IncidentAction::manual(
                     format!(
-                        "Tuer manuellement le PID {pid} sur {} (aucun EDR connecté)",
+                        "Manually kill PID {pid} on {} (no EDR connected)",
                         ctx.asset
                     ),
                     rationale,
@@ -944,13 +947,13 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
                 .unwrap_or(false)
         })
     {
-        let rationale = "Golden ticket attesté — rotation immédiate du krbtgt (impact: tous les TGT existants invalidés)".to_string();
+        let rationale = "Golden ticket attested — immediate krbtgt rotation (impact: all existing TGTs invalidated)".to_string();
         match iam_skill.as_deref() {
             Some(skill) if skill == "skill-active-directory" => {
                 actions.push(IncidentAction::reset_krbtgt(skill, rationale))
             }
             _ => actions.push(IncidentAction::manual(
-                "Faire tourner manuellement le krbtgt AD deux fois (aucun connecteur AD)"
+                "Manually rotate the AD krbtgt twice (no AD connector)"
                     .to_string(),
                 rationale,
             )),
@@ -964,7 +967,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
     ) && edr_skill.is_some()
     {
         let rationale = format!(
-            "Collecte forensique sur {} pour reconstituer la chaîne d'attaque",
+            "Forensic collection on {} to reconstruct the attack chain",
             ctx.asset
         );
         actions.push(IncidentAction::collect_artifacts(
@@ -986,13 +989,13 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
             .filter(|ip| !is_private_ipv4(ip))
             .collect();
         let dest_list = if dest_ips.is_empty() {
-            "(IP externe non attestée)".into()
+            "(external IP not attested)".into()
         } else {
             dest_ips.into_iter().collect::<Vec<_>>().join(", ")
         };
         actions.push(IncidentAction::manual(
-            format!("Vérifier le trafic sortant de {} vers {dest_list}", ctx.asset),
-            "Trafic outbound suspect — possible Windows Update / auto-updater légitime, OU exfiltration. Analyse manuelle requise avant blocage.".to_string(),
+            format!("Review outbound traffic from {} to {dest_list}", ctx.asset),
+            "Suspicious outbound traffic — could be a legitimate Windows Update / auto-updater, or exfiltration. Manual review required before blocking.".to_string(),
         ));
     }
 
@@ -1238,22 +1241,20 @@ fn ctx_mitre_only(ctx: &ForensicContext) -> Vec<String> {
 fn build_fallback_summary(ctx: &ForensicContext, violations: &[String]) -> String {
     let mut s = String::with_capacity(1000);
     s.push_str(&format!(
-        "Analyse automatique (réponse LLM rejetée — {} violation{} détectée{}).\n\n",
+        "Automatic summary (LLM response rejected — {} violation{} detected).\n\n",
         violations.len(),
-        if violations.len() > 1 { "s" } else { "" },
         if violations.len() > 1 { "s" } else { "" }
     ));
     s.push_str(&format!(
-        "Asset concerné: {}. Sévérité: {}. {} alerte{} corrélée{}.\n\n",
+        "Affected asset: {}. Severity: {}. {} correlated alert{}.\n\n",
         ctx.asset,
         ctx.severity,
         ctx.alert_count,
-        if ctx.alert_count > 1 { "s" } else { "" },
         if ctx.alert_count > 1 { "s" } else { "" }
     ));
 
     if !ctx.findings.is_empty() {
-        s.push_str(&format!("Findings ({} entrées):\n", ctx.findings.len()));
+        s.push_str(&format!("Findings ({} entries):\n", ctx.findings.len()));
         for f in ctx.findings.iter().take(5) {
             let title = f["title"].as_str().unwrap_or("");
             let sev = f["severity"].as_str().unwrap_or("");
@@ -1264,7 +1265,7 @@ fn build_fallback_summary(ctx: &ForensicContext, violations: &[String]) -> Strin
 
     if !ctx.sigma_alerts.is_empty() {
         s.push_str(&format!(
-            "Sigma alerts ({} entrées):\n",
+            "Sigma alerts ({} entries):\n",
             ctx.sigma_alerts.len()
         ));
         for a in ctx.sigma_alerts.iter().take(5) {
@@ -1286,7 +1287,7 @@ fn build_fallback_summary(ctx: &ForensicContext, violations: &[String]) -> Strin
         s.push('\n');
     }
 
-    s.push_str("Une analyse approfondie par un analyste humain est recommandée pour ce dossier.");
+    s.push_str("A deeper review by a human analyst is recommended for this dossier.");
     s
 }
 
