@@ -1414,21 +1414,21 @@ export default function InvestigatePage() {
             <aside className="inv-right">
               {/* Operator decisions — v1.0.39 wires the canonical
                   OperatorDecisionMenu (Resolve / FP / Accept Risk /
-                  Snooze + admin-only Delete) here. The Relaunch and
-                  Ignore Pattern actions remain as secondary buttons. */}
+                  Snooze + admin-only Delete) inline so each action is
+                  a full-width button stacked vertically. Relaunch and
+                  Ignore Pattern remain as secondary actions below. */}
               {inc && inc.status !== "archived" && inc.status !== "resolved" && (
                 <div className="inv-actions">
                   <div className="inv-actions-head">{tr("investigate_operatorDecisions", locale)}</div>
                   <div className="inv-actions-body">
-                    <div style={{ padding: "8px 0" }}>
-                      <OperatorDecisionMenu
-                        incidentId={inc.id}
-                        assetHostname={inc.asset_hostname || inc.asset_name || inc.asset}
-                        adminMode={userRole === "admin"}
-                        onDone={() => { load(); }}
-                      />
-                    </div>
-                    <button className="inv-act-btn" onClick={reinvestigateInv} disabled={reinvestigating}>
+                    <OperatorDecisionMenu
+                      incidentId={inc.id}
+                      variant="inline"
+                      assetHostname={inc.asset_hostname || inc.asset_name || inc.asset}
+                      adminMode={userRole === "admin"}
+                      onDone={() => { load(); }}
+                    />
+                    <button className="inv-act-btn" onClick={reinvestigateInv} disabled={reinvestigating} style={{ marginTop: 8 }}>
                       {reinvestigating ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
                       <span>{reinvestigating ? tr("investigate_inProgress", locale) : tr("investigate_relaunchInvestigation", locale)}</span>
                       {!reinvestigating && <ArrowRight size={11} className="act-arrow" />}

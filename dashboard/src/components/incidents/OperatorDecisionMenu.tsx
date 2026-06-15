@@ -50,6 +50,12 @@ interface Props {
   actor?: string;
   /** When true, the menu also exposes the admin-only Delete entry. */
   adminMode?: boolean;
+  /** Layout. `dropdown` (default) renders a single "Decision" button
+   *  that toggles a popover — used on dense list views. `inline`
+   *  renders each action as a full-width button stacked vertically —
+   *  used on the incident detail page where vertical space is cheap
+   *  and discoverability matters more than density. */
+  variant?: "dropdown" | "inline";
   /** Called after a successful POST. The parent should re-fetch. */
   onDone?: (decision: DecisionKind) => void;
 }
@@ -171,67 +177,89 @@ export function OperatorDecisionMenu(props: Props) {
     return opts;
   };
 
+  const variant = props.variant ?? "dropdown";
+
+  const items = (
+    <>
+      <MenuItem
+        icon={<Check size={11} />}
+        label="Resolve"
+        hint="I handled this"
+        onClick={() => startModal("resolve")}
+      />
+      <MenuItem
+        icon={<Cross size={11} />}
+        label="False Positive"
+        hint="Detection was wrong"
+        onClick={() => startModal("false_positive")}
+      />
+      <MenuItem
+        icon={<Shield size={11} />}
+        label="Accept Risk"
+        hint="Business accepts the risk"
+        onClick={() => startModal("accept_risk")}
+      />
+      <MenuItem
+        icon={<Clock size={11} />}
+        label="Snooze"
+        hint="Remind me in N hours"
+        onClick={() => startModal("snooze")}
+      />
+      {props.adminMode && (
+        <MenuItem
+          icon={<Trash2 size={11} />}
+          label="Delete (admin)"
+          hint="Hard-delete this row"
+          onClick={() => startModal("delete")}
+          danger
+        />
+      )}
+    </>
+  );
+
   return (
     <>
-      <div style={{ position: "relative" }}>
-        <button
-          className="inc-btn-sm"
-          onClick={() => setOpen((v) => !v)}
-          title="Operator decision"
+      {variant === "inline" ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            background: "var(--tc-surface)",
+            border: "1px solid var(--tc-border)",
+            fontSize: 12,
+          }}
         >
-          Decision <ChevronDown size={9} />
-        </button>
-        {open && (
-          <div
-            onMouseLeave={() => setOpen(false)}
-            style={{
-              position: "absolute",
-              right: 0,
-              top: "100%",
-              marginTop: 4,
-              background: "var(--tc-surface)",
-              border: "1px solid var(--tc-border)",
-              minWidth: 200,
-              zIndex: 50,
-              fontSize: 12,
-            }}
+          {items}
+        </div>
+      ) : (
+        <div style={{ position: "relative" }}>
+          <button
+            className="inc-btn-sm"
+            onClick={() => setOpen((v) => !v)}
+            title="Operator decision"
           >
-            <MenuItem
-              icon={<Check size={11} />}
-              label="Resolve"
-              hint="I handled this"
-              onClick={() => startModal("resolve")}
-            />
-            <MenuItem
-              icon={<Cross size={11} />}
-              label="False Positive"
-              hint="Detection was wrong"
-              onClick={() => startModal("false_positive")}
-            />
-            <MenuItem
-              icon={<Shield size={11} />}
-              label="Accept Risk"
-              hint="Business accepts the risk"
-              onClick={() => startModal("accept_risk")}
-            />
-            <MenuItem
-              icon={<Clock size={11} />}
-              label="Snooze"
-              hint="Remind me in N hours"
-              onClick={() => startModal("snooze")}
-            />
-            {props.adminMode && (
-              <MenuItem
-                icon={<Trash2 size={11} />}
-                label="Delete (admin)"
-                hint="Hard-delete this row"
-                onClick={() => startModal("delete")}
-                danger
-              />
-            )}
-          </div>
-        )}
-      </div>
+            Decision <ChevronDown size={9} />
+          </button>
+          {open && (
+            <div
+              onMouseLeave={() => setOpen(false)}
+              style={{
+                position: "absolute",
+                right: 0,
+                top: "100%",
+                marginTop: 4,
+                background: "var(--tc-surface)",
+                border: "1px solid var(--tc-border)",
+                minWidth: 200,
+                zIndex: 50,
+                fontSize: 12,
+              }}
+            >
+              {items}
+            </div>
+          )}
+        </div>
+      )}
 
       {modal && (
         <ModalShell title={titleFor(modal.kind)} onClose={close}>

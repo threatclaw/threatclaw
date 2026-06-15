@@ -119,10 +119,23 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
         .get_findings_by_ids(&finding_ids)
         .await
         .unwrap_or_default();
-    let sigma_alerts = db
+    // L2 must never narrate around alerts the engine itself has
+    // disowned. `false_positive` and `migrated` (V81 / V83 — alerts
+    // produced by a buggy pre-v1.0.37 rule that was rewritten) carry
+    // no factual weight; including them produces narratives that
+    // reference attacks that never happened. Status='resolved' stays
+    // in: that is a real alert an operator has triaged out and the
+    // narrative can legitimately reference it.
+    let sigma_alerts: Vec<serde_json::Value> = db
         .get_sigma_alerts_by_ids(&alert_ids)
         .await
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| {
+            let status = a.get("status").and_then(|v| v.as_str()).unwrap_or("");
+            !matches!(status, "false_positive" | "migrated")
+        })
+        .collect();
 
     let context = ForensicContext {
         incident_id: id,
