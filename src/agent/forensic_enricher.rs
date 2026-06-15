@@ -999,6 +999,77 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
         ));
     }
 
+    // ── (8) Fallback — ML / findings-only incident with no derivable
+    //        signature-based action. Behavioral anomaly findings (ML
+    //        Isolation Forest, DGA classifier, DNS LSTM) do not carry a
+    //        source IP, a username, or a PID, so the signature-driven
+    //        branches above all skip. Without this fallback the HITL
+    //        panel is empty and the operator has no guidance on what to
+    //        do, which is exactly the case the customer flagged on
+    //        INC-62 (5 ML findings, 0 sigma alerts, 0 actions).
+    //
+    //        We deliberately do NOT propose a generic "investigate
+    //        anomaly" line. Instead we pull the top deviation the ML
+    //        engine already persisted on the finding (feature name,
+    //        current value, sigma, direction) and surface it on the
+    //        action card so the operator immediately knows *which*
+    //        signal is anomalous (weekend_ratio, logs_count,
+    //        auth_failures, ...) and can pivot the Hunt page to the
+    //        right time window or log type. The deviations live under
+    //        finding.metadata.deviations and are written by the
+    //        ml-engine (anomaly_detector.py).
+    if actions.is_empty() && !ctx.findings.is_empty() {
+        let signal_kind = ctx
+            .findings
+            .iter()
+            .filter_map(|f| f["skill_id"].as_str())
+            .next()
+            .unwrap_or("behavioral");
+
+        // Top deviation across the findings — prefer the highest sigma
+        // since that is what drove the anomaly score the most.
+        let top_dev = ctx
+            .findings
+            .iter()
+            .filter_map(|f| f["metadata"]["deviations"].as_array())
+            .flat_map(|arr| arr.iter())
+            .max_by(|a, b| {
+                let sa = a["sigma"].as_f64().unwrap_or(0.0);
+                let sb = b["sigma"].as_f64().unwrap_or(0.0);
+                sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+        let (title, rationale) = if let Some(d) = top_dev {
+            let feature = d["feature"].as_str().unwrap_or("activity");
+            let current = d["current"].as_f64().unwrap_or(0.0);
+            let baseline = d["baseline_mean"].as_f64().unwrap_or(0.0);
+            let sigma = d["sigma"].as_f64().unwrap_or(0.0);
+            let direction = d["direction"].as_str().unwrap_or("above");
+            (
+                format!(
+                    "Review the {feature} spike on {} ({:.1}σ {direction} baseline)",
+                    ctx.asset, sigma
+                ),
+                format!(
+                    "{} {signal_kind} finding(s) on this asset. Top deviating feature: {feature} = {current:.1} (baseline mean {baseline:.1}, {sigma:.1}σ {direction}). Pivot to the Hunt page filtered on this asset and the matching time window to confirm whether the spike maps to a real attack or to expected business activity (batch job, backup window, vendor patch run). Close as a false positive once the root cause is identified.",
+                    ctx.findings.len()
+                ),
+            )
+        } else {
+            (
+                format!(
+                    "Review {signal_kind} activity on {} — no directly actionable signature",
+                    ctx.asset
+                ),
+                format!(
+                    "{} finding(s) flagged on this asset without a signature-based action. Inspect recent logs, running processes, and any new software installed. Promote to a sigma exception or close the incident as a false positive once the root cause is identified.",
+                    ctx.findings.len()
+                ),
+            )
+        };
+        actions.push(IncidentAction::manual(title, rationale));
+    }
+
     actions
 }
 
