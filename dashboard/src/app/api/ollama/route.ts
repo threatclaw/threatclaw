@@ -1,9 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const SERVER_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
+const CORE_URL = process.env.TC_CORE_URL || "http://127.0.0.1:3000";
+
+// Unauthenticated callers must not be able to pull models (disk exhaustion) or
+// reach the test_cloud SSRF below — gate the whole route on a valid session.
+async function hasValidSession(req: NextRequest): Promise<boolean> {
+  const cookie = req.headers.get("cookie");
+  if (!cookie || !cookie.includes("tc_session")) return false;
+  try {
+    const resp = await fetch(`${CORE_URL}/api/auth/me`, {
+      headers: { Cookie: cookie },
+      signal: AbortSignal.timeout(5000),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// SSRF guard for the cloud-key test: only an explicit https URL to a public
+// host. Blocks cloud metadata (169.254.169.254), localhost and RFC-1918 ranges
+// that an attacker could otherwise reach via baseUrl.
+function isSafeCloudBase(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const h = u.hostname.toLowerCase();
+  return !(
+    h === "localhost" ||
+    h.endsWith(".internal") ||
+    h.endsWith(".local") ||
+    /^127\./.test(h) ||
+    /^10\./.test(h) ||
+    /^192\.168\./.test(h) ||
+    /^169\.254\./.test(h) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+  );
+}
 
 /** GET /api/ollama?url=... — list models */
 export async function GET(req: NextRequest) {
+  if (!(await hasValidSession(req))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   // Always use server-side OLLAMA_URL (client can't reach Docker network)
   const url = SERVER_URL;
 
@@ -21,6 +65,9 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/ollama — pull model or test model */
 export async function POST(req: NextRequest) {
+  if (!(await hasValidSession(req))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const body = await req.json();
   // Always use server-side OLLAMA_URL
   const url = SERVER_URL;
@@ -92,6 +139,12 @@ export async function POST(req: NextRequest) {
       } else {
         // OpenAI compatible
         const baseUrl = body.baseUrl || "https://api.openai.com";
+        if (!isSafeCloudBase(baseUrl)) {
+          return NextResponse.json(
+            { ok: false, error: "Invalid base URL (must be https to a public host)" },
+            { status: 400 },
+          );
+        }
         testUrl = `${baseUrl}/v1/models`;
         headers["Authorization"] = `Bearer ${apiKey}`;
       }

@@ -194,8 +194,28 @@ pub async fn list_notes(store: &dyn Database, limit: u64) -> Vec<serde_json::Val
 
 /// Delete a note and its ANNOTATES edges.
 pub async fn delete_note(store: &dyn Database, note_id: &str) -> bool {
+    // Defence in depth on top of esc(): a real note id is always `note--<uuid>`
+    // (see StixNote::new). Reject anything else before it reaches the Cypher
+    // string so malformed/crafted ids can't probe the AGE parser.
+    if !is_valid_note_id(note_id) {
+        tracing::warn!("delete_note: rejected malformed note id");
+        return false;
+    }
     let cypher = format!("MATCH (n:Note {{id: '{}'}}) DETACH DELETE n", esc(note_id));
     mutate(store, &cypher).await
+}
+
+/// Validate a note id has the canonical `note--<uuid>` shape.
+fn is_valid_note_id(id: &str) -> bool {
+    match id.strip_prefix("note--") {
+        Some(uuid) => {
+            uuid.len() == 36
+                && uuid
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == '-')
+        }
+        None => false,
+    }
 }
 
 /// Build note context for injection into L2 Reasoning prompt.

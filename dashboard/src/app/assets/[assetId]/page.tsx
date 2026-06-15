@@ -527,7 +527,7 @@ function SectionSummary({
             </select>
           </Field>
           <Field label={tr("assetDetail_location", locale)}>{asset.location || "—"}</Field>
-          {asset.url && (
+          {asset.url && /^https?:\/\//i.test(asset.url) && (
             <div style={{ gridColumn: "1/3" }}>
               <span style={labelStyle}>URL</span>
               <a

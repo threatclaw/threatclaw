@@ -3,7 +3,31 @@ import { NextRequest, NextResponse } from "next/server";
 const CORE_URL = process.env.TC_CORE_URL || "http://127.0.0.1:3000";
 const CORE_TOKEN = process.env.TC_CORE_TOKEN || process.env.GATEWAY_AUTH_TOKEN || "";
 
+// This proxy attaches the privileged core Bearer token to every forwarded
+// request. The page middleware (proxy.ts) deliberately excludes /api/*, so the
+// session MUST be validated here — otherwise any unauthenticated caller reaching
+// this route drives the core API (block IP, isolate host, disable user…) with
+// full privileges. Validate the tc_session cookie against the core before
+// attaching the token.
+async function hasValidSession(req: NextRequest): Promise<boolean> {
+  const cookie = req.headers.get("cookie");
+  if (!cookie || !cookie.includes("tc_session")) return false;
+  try {
+    const resp = await fetch(`${CORE_URL}/api/auth/me`, {
+      headers: { Cookie: cookie },
+      signal: AbortSignal.timeout(5000),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function proxyRequest(req: NextRequest) {
+  if (!(await hasValidSession(req))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // Extract the path after /api/tc/
   const url = new URL(req.url);
   const fullPath = url.pathname;

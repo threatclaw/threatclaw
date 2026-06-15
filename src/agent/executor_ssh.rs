@@ -101,15 +101,21 @@ pub fn execute_ssh(
         "BatchMode=yes".to_string(),
         "-o".to_string(),
         format!("ConnectTimeout={}", timeout_secs.min(10)),
-        "-o".to_string(),
-        "StrictHostKeyChecking=accept-new".to_string(),
         "-p".to_string(),
         target.port.to_string(),
     ];
 
-    // Add host key if known (TOFU model)
-    if let Some(ref _key) = target.ssh_host_key {
+    // Host key policy. When a host key is already stored we pin it (yes:
+    // reject anything else). Only fall back to accept-new (TOFU first contact)
+    // when none is stored yet — and never unconditionally, so a MITM on a known
+    // target can't get its key silently accepted by overriding order of -o.
+    if target.ssh_host_key.is_some() {
         ssh_args.extend_from_slice(&["-o".to_string(), "StrictHostKeyChecking=yes".to_string()]);
+    } else {
+        ssh_args.extend_from_slice(&[
+            "-o".to_string(),
+            "StrictHostKeyChecking=accept-new".to_string(),
+        ]);
     }
 
     let destination = format!("{}@{}", target.username, target.host);

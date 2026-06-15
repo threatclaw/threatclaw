@@ -82,31 +82,18 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 }
 
 /// Generate a session token and return (raw_token, sha256_hash).
+///
+/// The raw token is 256 bits drawn from the OS CSPRNG (`OsRng`) — the same
+/// source used for argon2 salts above. This previously derived the token from a
+/// timestamp + PID + counter + thread id, none of which are secret: on a fresh
+/// process (counter=0, PID in a narrow range) the token space was predictable
+/// and brute-forceable. Never derive session secrets from non-random inputs.
 pub fn generate_session_token() -> (String, String) {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    use argon2::password_hash::rand_core::RngCore;
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
 
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-
-    let mut hasher = Sha256::new();
-    hasher.update(nanos.to_le_bytes());
-    hasher.update(std::process::id().to_le_bytes());
-    hasher.update(COUNTER.fetch_add(1, Ordering::Relaxed).to_le_bytes());
-    hasher.update(format!("{:?}", std::thread::current().id()).as_bytes());
-    // Extra entropy: mix in a second time sample
-    hasher.update(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-            .to_le_bytes(),
-    );
-    let hash = hasher.finalize();
-
-    let raw_token = hex::encode(hash);
+    let raw_token = hex::encode(bytes);
     let token_hash = hex::encode(Sha256::digest(raw_token.as_bytes()));
     (raw_token, token_hash)
 }
