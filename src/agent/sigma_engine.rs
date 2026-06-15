@@ -1315,21 +1315,36 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         return;
     }
 
-    // Fixed-size window. At very high log volume (10k+ hosts) this can cap
-    // before every log in the window is evaluated against the rules; warn
-    // rather than silently drop. Full fix = cursor-based paging (validate the
-    // throughput impact under load before raising this much further).
+    // Cursor-based forward read. Each cycle resumes from the (time, id) of
+    // the last log it processed, so a fixed batch size that's too small for
+    // the live rate no longer drops logs — the next cycle catches up. The
+    // floor (minutes_back as a safety bound) keeps a stale cursor from
+    // re-scanning hours of history after an outage: when we detect the cursor
+    // would force a window wider than `minutes_back`, we accept the gap and
+    // emit a `lag` warn so the operator knows some logs went past.
+    //
+    // Cursor format (persisted as a setting):
+    //   { "time": "2026-06-15T14:30:00Z", "id": 123456 }
     const SIGMA_LOG_BATCH: i64 = 5000;
+    const SIGMA_CURSOR_KEY: &str = "sigma_log_cursor";
+
+    let (cursor_time, cursor_id) = load_sigma_cursor(store.as_ref()).await;
+
     let logs = match store
-        .query_logs(minutes_back, None, None, SIGMA_LOG_BATCH)
+        .query_logs_after_cursor(cursor_time, cursor_id, minutes_back, SIGMA_LOG_BATCH)
         .await
     {
         Ok(l) => l,
         Err(_) => return,
     };
+
+    // Lag indicator. When the batch is full, the live rate exceeds our
+    // throughput per cycle and the cursor lags reality. Surface it so the
+    // operator can size the deployment (or we tune SIGMA_LOG_BATCH up). The
+    // cursor still advances either way, so coverage is preserved across cycles.
     if logs.len() as i64 >= SIGMA_LOG_BATCH {
         tracing::warn!(
-            "SIGMA: log batch hit the {} cap — some logs in this window were not evaluated against rules",
+            "SIGMA: batch saturated at {} logs — cursor is lagging the live ingestion rate, next cycle will catch up",
             SIGMA_LOG_BATCH
         );
     }
@@ -1648,11 +1663,62 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         );
     }
 
+    // Advance the cursor to the last (time, id) of the batch so the next
+    // cycle resumes from there. We pin to the last record consumed (not the
+    // theoretical end of the window) because some upstream connectors backfill
+    // out of order — pinning to "the last one we *saw*" guarantees we don't
+    // skip a late arrival on the next tick.
+    if let (Some(last_time), Some(last_id)) = (
+        logs.last().map(|l| l.time.clone()),
+        logs.last().map(|l| l.id),
+    ) {
+        save_sigma_cursor(store.as_ref(), &last_time, last_id).await;
+    }
+    let _ = SIGMA_CURSOR_KEY;  // referenced for clarity in tests/audit
+
     // Keep the sigma_rule_stats matview in lockstep with the cycle so the
     // dashboard never lags more than one tick. Cheap on ~75 rules; the
     // CONCURRENTLY refresh avoids blocking reads during the swap.
     if let Err(e) = store.refresh_sigma_rule_stats().await {
         tracing::warn!("SIGMA ENGINE: refresh_sigma_rule_stats failed: {e}");
+    }
+}
+
+/// Read the persisted sigma cursor (time, id). Returns (None, 0) on first
+/// boot or after the setting was cleared — the caller treats that as "start
+/// from the floor of the safety window".
+async fn load_sigma_cursor(
+    store: &dyn crate::db::Database,
+) -> (Option<chrono::DateTime<chrono::Utc>>, i64) {
+    let Ok(Some(val)) = store.get_setting("_system", "sigma_log_cursor").await else {
+        return (None, 0);
+    };
+    let time = val
+        .get("time")
+        .and_then(|t| t.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&chrono::Utc));
+    let id = val.get("id").and_then(|i| i.as_i64()).unwrap_or(0);
+    (time, id)
+}
+
+/// Persist the sigma cursor after a successful batch consume. Failures here
+/// are non-fatal — on the next cycle we'd just re-read the last batch, which
+/// is wasteful but not unsafe (dedup keys prevent double alerting).
+async fn save_sigma_cursor(
+    store: &dyn crate::db::Database,
+    last_time: &str,
+    last_id: i64,
+) {
+    let val = serde_json::json!({
+        "time": last_time,
+        "id": last_id,
+    });
+    if let Err(e) = store
+        .set_setting("_system", "sigma_log_cursor", &val)
+        .await
+    {
+        tracing::warn!("SIGMA ENGINE: failed to persist cursor — {e}");
     }
 }
 

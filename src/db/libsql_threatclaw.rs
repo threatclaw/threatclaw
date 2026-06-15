@@ -125,6 +125,15 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<LogRecord>, DatabaseError> {
         Err(not_supported())
     }
+    async fn query_logs_after_cursor(
+        &self,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+        _: i64,
+        _: i64,
+        _: i64,
+    ) -> Result<Vec<LogRecord>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn count_logs(&self, _: i64) -> Result<i64, DatabaseError> {
         Err(not_supported())
     }

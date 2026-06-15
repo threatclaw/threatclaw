@@ -843,6 +843,26 @@ pub trait ThreatClawStore: Send + Sync {
         limit: i64,
     ) -> Result<Vec<LogRecord>, DatabaseError>;
 
+    /// Cursor-based read of new log records — the variant used by the
+    /// sigma cycle. Returns logs whose `(time, id)` is strictly greater
+    /// than `(after_time, after_id)`, ordered ascending so the caller
+    /// can advance the cursor to the last row consumed. A fair-share
+    /// PARTITION-BY-tag quota is still applied so a single high-volume
+    /// source cannot starve the others (same idea as `query_logs` with
+    /// no filters, but oriented forward in time instead of "latest N").
+    ///
+    /// `after_time` of None / `after_id` of 0 means "from the beginning
+    /// of the configured window" — caller passes `minutes_back` as a
+    /// safety bound to prevent a stale cursor from re-scanning days of
+    /// history after an outage.
+    async fn query_logs_after_cursor(
+        &self,
+        after_time: Option<chrono::DateTime<chrono::Utc>>,
+        after_id: i64,
+        minutes_back_floor: i64,
+        limit: i64,
+    ) -> Result<Vec<LogRecord>, DatabaseError>;
+
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError>;
 
     /// Hunt-panel search across the logs hypertable. Returns a page of

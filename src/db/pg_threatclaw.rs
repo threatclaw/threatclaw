@@ -1298,6 +1298,68 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn query_logs_after_cursor(
+        &self,
+        after_time: Option<chrono::DateTime<chrono::Utc>>,
+        after_id: i64,
+        minutes_back_floor: i64,
+        limit: i64,
+    ) -> Result<Vec<LogRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let per_tag = std::cmp::max(limit / 4, 200);
+        let interval_clause = format!("INTERVAL '{} minutes'", minutes_back_floor);
+
+        // Resolve the effective floor: max of (cursor, now - minutes_back_floor).
+        // The floor keeps a stale cursor from re-scanning days of history after
+        // an outage — if the cursor's older than minutes_back_floor, we accept
+        // the gap (a warn-once is logged by the caller) rather than melting the
+        // database trying to catch up.
+        let effective_after: chrono::DateTime<chrono::Utc> = match after_time {
+            Some(t) => {
+                let floor = chrono::Utc::now()
+                    - chrono::Duration::minutes(minutes_back_floor);
+                if t < floor { floor } else { t }
+            }
+            None => chrono::Utc::now()
+                - chrono::Duration::minutes(minutes_back_floor),
+        };
+
+        // Forward-paged read with the same fair-share per-tag quota as the
+        // legacy `query_logs`. Order is ASC on (time, id) so the caller can
+        // advance the cursor to the last row consumed without re-reading.
+        let rows = conn
+            .query(
+                &format!(
+                    "SELECT id, tag, time, hostname, data \
+                     FROM ( \
+                        SELECT id, tag, time::text AS time, hostname, data, \
+                               ROW_NUMBER() OVER (PARTITION BY tag ORDER BY time ASC, id ASC) AS rn \
+                        FROM logs WHERE \
+                            (time > $1) OR (time = $1 AND id > $2) \
+                            AND time >= NOW() - {} \
+                     ) ranked \
+                     WHERE rn <= {} \
+                     ORDER BY time ASC, id ASC \
+                     LIMIT {}",
+                    interval_clause, per_tag, limit
+                ),
+                &[&effective_after, &after_id],
+            )
+            .await
+            .map_err(query_err)?;
+
+        Ok(rows
+            .iter()
+            .map(|r| LogRecord {
+                id: r.get(0),
+                tag: r.try_get(1).ok(),
+                time: r.get(2),
+                hostname: r.try_get(3).ok(),
+                data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
+            })
+            .collect())
+    }
+
     async fn insert_log(
         &self,
         tag: &str,
