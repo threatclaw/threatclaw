@@ -319,7 +319,10 @@ services:
   ml-engine:
     <<: *security-defaults
     image: ghcr.io/threatclaw/ml-engine:latest
-    entrypoint: ["/bin/sh", "-c", "export DATABASE_URL=\"postgres://threatclaw:$(cat /run/secrets/tc_db_password)@threatclaw-db:5432/threatclaw?sslmode=require\" && exec python -m src.main"]
+    # verify-full: validate the server cert chain against the mounted CA and the
+    # hostname (pg cert SAN = threatclaw-db). The Rust core already does the
+    # equivalent via rustls + the native trust store; libpq needs it spelled out.
+    entrypoint: ["/bin/sh", "-c", "export DATABASE_URL=\"postgres://threatclaw:$(cat /run/secrets/tc_db_password)@threatclaw-db:5432/threatclaw?sslmode=verify-full&sslrootcert=/app/certs/ca.crt\" && exec python -m src.main"]
     environment:
       ML_MODEL_DIR: /models
     read_only: true

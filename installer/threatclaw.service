@@ -16,6 +16,18 @@ ExecReload=/usr/bin/docker compose --env-file /opt/threatclaw/.env up -d --force
 TimeoutStartSec=300
 TimeoutStopSec=120
 
+# Hardening. The unit only invokes `docker compose`; these directives shrink the
+# blast radius without blocking it. ProtectSystem=full keeps /usr,/boot,/etc
+# read-only while leaving /opt and /var writable; ProtectHome=read-only still
+# allows reading registry creds. Kept conservative so the compose wrapper (which
+# talks to the docker socket and pulls images) is not broken.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
 # Restart policy — restart after 30s if the oneshot fails
 Restart=on-failure
 RestartSec=30

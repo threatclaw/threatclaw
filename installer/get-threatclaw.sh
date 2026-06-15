@@ -168,7 +168,10 @@ download_binary() {
     curl -fsSL -o "$TMP_BIN" "${DOWNLOAD_URL}" || error "Download failed. Is the release public?"
 
     info "Verifying checksum..."
-    curl -fsSL -o "${TMP_BIN}.sha256" "${CHECKSUM_URL}" 2>/dev/null || warn "Checksum file not found — skipping verification"
+    # Checksum verification is mandatory — never install an unverified binary
+    # that is about to run as root. A missing checksum file or no hashing tool
+    # is a hard failure, not a silent skip.
+    curl -fsSL -o "${TMP_BIN}.sha256" "${CHECKSUM_URL}" 2>/dev/null || { rm -rf "$TMPDIR"; error "Checksum file not found — refusing to install an unverified binary."; }
 
     if [ -f "${TMP_BIN}.sha256" ]; then
         EXPECTED=$(cat "${TMP_BIN}.sha256" | awk '{print $1}')
@@ -177,8 +180,8 @@ download_binary() {
         elif command -v shasum &> /dev/null; then
             ACTUAL=$(shasum -a 256 "$TMP_BIN" | awk '{print $1}')
         else
-            warn "No sha256sum or shasum found — skipping verification"
-            ACTUAL="$EXPECTED"
+            rm -rf "$TMPDIR"
+            error "No sha256sum/shasum available to verify the download — refusing to install unverified."
         fi
         if [ "$EXPECTED" != "$ACTUAL" ]; then
             rm -rf "$TMPDIR"

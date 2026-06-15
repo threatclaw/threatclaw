@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # ThreatClaw Agent Installer
-# Usage: curl -fsSL get.threatclaw.io/agent | sudo bash -s -- --url https://TC_IP:8445 --token YOUR_TOKEN
+#
+# Preferred (keeps the token out of `ps`/shell history): pass it via env or file.
+#   TC_URL=https://TC_IP:8445 TC_TOKEN=YOUR_TOKEN sudo -E bash -c "$(curl -fsSL get.threatclaw.io/agent)"
+#   ... | sudo bash -s -- --url https://TC_IP:8445 --token-file /run/tc-token
+# Still supported (token visible in argv during install):
+#   curl -fsSL get.threatclaw.io/agent | sudo bash -s -- --url https://TC_IP:8445 --token YOUR_TOKEN
 #
 # Installs osquery, configures it as ThreatClaw Agent, starts the service.
 # Supports: Debian/Ubuntu, RHEL/CentOS/Fedora, macOS (brew).
@@ -27,9 +32,10 @@ info() { echo -e "${BLUE}[ThreatClaw Agent]${NC} $*"; }
 # ── Parse args ──
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --url)    TC_URL="$2"; shift 2 ;;
-    --token)  TC_TOKEN="$2"; shift 2 ;;
-    --id)     AGENT_ID="$2"; shift 2 ;;
+    --url)        TC_URL="$2"; shift 2 ;;
+    --token)      TC_TOKEN="$2"; shift 2 ;;
+    --token-file) TC_TOKEN="$(cat "$2")"; shift 2 ;;
+    --id)         AGENT_ID="$2"; shift 2 ;;
     --help)
       echo "Usage: install-agent.sh --url https://TC:8445 --token TOKEN [--id AGENT_ID]"
       exit 0 ;;

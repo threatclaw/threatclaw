@@ -31,7 +31,9 @@ set -eo pipefail
 # ── Constants ────────────────────────────────────────────────────────────────
 readonly TC_VERSION="1.0.35-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
-readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/main"
+# Pin config fetches to the release tag, not the moving `main` tip — a force-push
+# or account compromise on main otherwise lands arbitrary content in a root install.
+readonly REPO_RAW="https://raw.githubusercontent.com/threatclaw/threatclaw/v${TC_VERSION}"
 readonly LOG_FILE="/var/log/threatclaw-install.log"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
@@ -258,11 +260,15 @@ relocate_docker_storage() {
   if [ -f "$daemon_json" ]; then
     # Merge with existing config using python/jq if available
     if command -v python3 &>/dev/null; then
-      python3 -c "
-import json
-with open('$daemon_json') as f: cfg = json.load(f)
-cfg['data-root'] = '$new_root'
-with open('$daemon_json', 'w') as f: json.dump(cfg, f, indent=2)
+      # Pass the (user-supplied via --docker-data) path through the environment,
+      # not interpolated into the Python source, so a path containing a quote
+      # can't break out of the string literal and inject code as root.
+      NEW_ROOT="$new_root" DAEMON_JSON="$daemon_json" python3 -c "
+import json, os
+p = os.environ['DAEMON_JSON']
+with open(p) as f: cfg = json.load(f)
+cfg['data-root'] = os.environ['NEW_ROOT']
+with open(p, 'w') as f: json.dump(cfg, f, indent=2)
 " 2>/dev/null
     else
       # Fallback: backup and overwrite
