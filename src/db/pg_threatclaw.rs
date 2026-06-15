@@ -3172,6 +3172,128 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn apply_operator_decision(
+        &self,
+        id: i32,
+        decision: &str,
+        actor: &str,
+        reason: Option<&str>,
+        snoozed_until: Option<chrono::DateTime<chrono::Utc>>,
+        exception_scope: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Decision → (status, verdict, label written into notes).
+        let (status, verdict, label) = match decision {
+            "resolve" => ("resolved", "confirmed", "Resolve"),
+            "false_positive" => ("resolved", "false_positive", "False Positive"),
+            "accept_risk" => ("resolved", "risk_accepted", "Accept Risk"),
+            "snooze" => ("snoozed", "pending", "Snooze"),
+            other => {
+                return Err(DatabaseError::Query(format!(
+                    "apply_operator_decision: unknown decision {other:?}"
+                )))
+            }
+        };
+        let resolved_at_clause = if status == "resolved" {
+            "NOW()"
+        } else {
+            "NULL"
+        };
+        let snooze_owned = snoozed_until;
+        let reason_owned = reason.map(String::from);
+        let scope_owned = exception_scope.cloned();
+        let note_payload = serde_json::json!({
+            "at": chrono::Utc::now().to_rfc3339(),
+            "by": actor,
+            "decision": label,
+            "reason": reason.unwrap_or(""),
+            "snoozed_until": snoozed_until.map(|t| t.to_rfc3339()),
+            "exception_scope": exception_scope,
+        });
+        let sql = format!(
+            "UPDATE incidents \
+             SET status = $2, \
+                 verdict = $3, \
+                 resolved_at = {resolved_at_clause}, \
+                 snoozed_until = $4, \
+                 decision_reason = COALESCE($5, decision_reason), \
+                 exception_scope = COALESCE($6, exception_scope), \
+                 notes = COALESCE(notes, '[]'::jsonb) || jsonb_build_array($7::jsonb), \
+                 updated_at = NOW() \
+             WHERE id = $1"
+        );
+        conn.execute(
+            &sql,
+            &[
+                &id,
+                &status,
+                &verdict,
+                &snooze_owned,
+                &reason_owned,
+                &scope_owned,
+                &note_payload,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn wake_expired_snoozes(&self) -> Result<Vec<i32>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "UPDATE incidents \
+                 SET status = 'open', \
+                     snoozed_until = NULL, \
+                     notes = COALESCE(notes, '[]'::jsonb) || jsonb_build_array(jsonb_build_object( \
+                         'at', NOW()::text, \
+                         'by', 'system:snooze-scheduler', \
+                         'decision', 'Snooze expired', \
+                         'reason', 'Returning to active queue' \
+                     )), \
+                     updated_at = NOW() \
+                 WHERE status = 'snoozed' \
+                   AND snoozed_until IS NOT NULL \
+                   AND snoozed_until <= NOW() \
+                 RETURNING id",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.iter().map(|r| r.get(0)).collect())
+    }
+
+    async fn admin_delete_incident(
+        &self,
+        id: i32,
+        actor: &str,
+    ) -> Result<serde_json::Value, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Capture a snapshot of the row before delete so the caller
+        // can persist it in the audit log. We return id / asset /
+        // title / verdict / status / created_at — enough to
+        // reconstruct what was wiped without re-reading the row.
+        let row = conn
+            .query_one(
+                "DELETE FROM incidents WHERE id = $1 \
+                 RETURNING jsonb_build_object( \
+                    'id', id, \
+                    'asset', asset, \
+                    'title', title, \
+                    'status', status, \
+                    'verdict', verdict, \
+                    'created_at', created_at::text, \
+                    'deleted_at', NOW()::text, \
+                    'deleted_by', $2::text \
+                 )",
+                &[&id, &actor],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
     async fn update_incident_title(&self, id: i32, title: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         conn.execute(

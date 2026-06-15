@@ -2611,6 +2611,23 @@ async fn check_daily_cleanup(store: &dyn Database) {
         }
     }
 
+    // Wake up incidents whose Snooze deadline has passed (v1.0.38).
+    // Each cycle is cheap — a partial-index range scan on
+    // `snoozed_until` — and incidents typically come back within
+    // hours, so 5 min granularity matches the dashboard's
+    // expectations without adding a second scheduler.
+    match store.wake_expired_snoozes().await {
+        Ok(ids) if !ids.is_empty() => {
+            tracing::info!(
+                "SNOOZE: woke {} expired incident(s) — ids={:?}",
+                ids.len(),
+                ids
+            );
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!("SNOOZE: wake_expired_snoozes failed: {}", e),
+    }
+
     tracing::info!("CLEANUP: Running daily cleanup (sigma alerts retention + archived purge)");
     match store.cleanup_old_sigma_alerts(30).await {
         Ok(deleted) => tracing::info!("CLEANUP: Purged {} old sigma alerts", deleted),

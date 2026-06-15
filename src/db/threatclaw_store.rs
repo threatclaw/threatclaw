@@ -1291,6 +1291,41 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn update_incident_status(&self, id: i32, status: &str) -> Result<(), DatabaseError>;
 
+    /// Apply one of the four operator-decision actions (Resolve,
+    /// False Positive, Accept Risk, Snooze) on an incident, in one
+    /// transactional write. The status / verdict / decision_reason /
+    /// snoozed_until / exception_scope columns are updated together
+    /// so the dashboard never sees a half-written row. The `actor`
+    /// argument is the operator identifier (`dashboard:alice`,
+    /// `api:scripted-runbook`, etc.) and is persisted in the
+    /// incident notes so the next operator sees who took the action.
+    async fn apply_operator_decision(
+        &self,
+        id: i32,
+        decision: &str,
+        actor: &str,
+        reason: Option<&str>,
+        snoozed_until: Option<chrono::DateTime<chrono::Utc>>,
+        exception_scope: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError>;
+
+    /// Wake up every incident whose snooze deadline has passed: move
+    /// them back to `status='open'`, clear `snoozed_until`, and append
+    /// a note. Returns the IDs of the woken-up incidents so the caller
+    /// can re-emit notifications. Called from the 1-minute scheduler
+    /// in the intelligence cycle.
+    async fn wake_expired_snoozes(&self) -> Result<Vec<i32>, DatabaseError>;
+
+    /// Hard-delete an incident row. Admin-only path. The caller has
+    /// already authenticated and authorized the operator; the store
+    /// just writes. Returns the rule_ids / asset of the deleted row
+    /// for the audit log entry the handler will write.
+    async fn admin_delete_incident(
+        &self,
+        id: i32,
+        actor: &str,
+    ) -> Result<serde_json::Value, DatabaseError>;
+
     /// Overwrite the incident title with a short LLM-rewritten label
     /// (≤120 chars). Called when L1/L2 returns a non-empty `incident_title_fr`
     /// that improves on the heuristic title set at incident creation

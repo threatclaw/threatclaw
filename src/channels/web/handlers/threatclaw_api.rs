@@ -4886,6 +4886,211 @@ pub async fn incident_archive_handler(
     Ok(Json(serde_json::json!({ "status": "archived", "id": id })))
 }
 
+// ── Operator decisions (v1.0.38) ─────────────────────────────────────
+//
+// Replace the old Archive / FP / Ignore trio with four explicit
+// decisions plus an admin-only Delete. Each decision is one POST
+// endpoint that returns the resulting status. The store-side write
+// is wrapped in `apply_operator_decision` so the three target columns
+// (status, verdict, snoozed_until) move together.
+
+#[derive(serde::Deserialize, Default)]
+pub struct OperatorDecisionBody {
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// For Snooze only. Hours from now until the incident wakes back
+    /// up. Alternatively the caller can pass `snoozed_until` directly.
+    #[serde(default)]
+    pub snooze_hours: Option<i64>,
+    /// Absolute RFC3339 timestamp. Wins over `snooze_hours` if both
+    /// are set.
+    #[serde(default)]
+    pub snoozed_until: Option<String>,
+    /// For False Positive only. Optional follow-up — also creates a
+    /// sigma exception when set. Shape:
+    /// `{"kind":"asset"|"username"|"source_ip","value":"..."}`.
+    #[serde(default)]
+    pub exception_scope: Option<serde_json::Value>,
+    /// For False Positive only. The sigma rule_id the operator wants
+    /// the exception against. Defaults to the incident's top alert
+    /// rule_id when the dashboard does not pass it explicitly.
+    #[serde(default)]
+    pub exception_rule_id: Option<String>,
+    /// Operator identifier, e.g. `dashboard:alice`. Falls back to
+    /// the bearer-token actor when not provided.
+    #[serde(default)]
+    pub actor: Option<String>,
+}
+
+fn operator_actor(body: &OperatorDecisionBody) -> String {
+    body.actor
+        .clone()
+        .unwrap_or_else(|| "dashboard:anonymous".into())
+}
+
+async fn apply_decision_inner(
+    store: &dyn crate::db::Database,
+    id: i32,
+    decision: &str,
+    body: OperatorDecisionBody,
+) -> Result<serde_json::Value, (StatusCode, String)> {
+    let actor = operator_actor(&body);
+    let reason = body.reason.as_deref();
+
+    // Resolve the snooze deadline. Snooze must have one of the two.
+    let snoozed_until = if decision == "snooze" {
+        let resolved = if let Some(ts) = body.snoozed_until.as_deref() {
+            chrono::DateTime::parse_from_rfc3339(ts)
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        format!("invalid snoozed_until: {e}"),
+                    )
+                })?
+        } else if let Some(hours) = body.snooze_hours {
+            if hours <= 0 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "snooze_hours must be > 0".into(),
+                ));
+            }
+            chrono::Utc::now() + chrono::Duration::hours(hours)
+        } else {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "snooze requires snooze_hours or snoozed_until".into(),
+            ));
+        };
+        Some(resolved)
+    } else {
+        None
+    };
+
+    // Apply the decision.
+    store
+        .apply_operator_decision(
+            id,
+            decision,
+            &actor,
+            reason,
+            snoozed_until,
+            body.exception_scope.as_ref(),
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("apply_operator_decision: {e}"),
+            )
+        })?;
+
+    // For False Positive with an exception_scope, also write the
+    // exception into the sigma engine's allowlist. We only do this
+    // when the rule_id was supplied — the dashboard knows which rule
+    // drove the incident and is responsible for passing it.
+    if decision == "false_positive"
+        && let Some(scope) = body.exception_scope.as_ref()
+        && let (Some(rule_id), Some(field), Some(value)) = (
+            body.exception_rule_id.as_deref(),
+            scope.get("kind").and_then(|v| v.as_str()),
+            scope.get("value").and_then(|v| v.as_str()),
+        )
+    {
+        let exception_field = match field {
+            "asset" => "hostname",
+            "username" => "username",
+            "source_ip" => "source_ip",
+            other => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("unknown exception_scope.kind: {other}"),
+                ));
+            }
+        };
+        let _ = store
+            .insert_sigma_rule_exception(
+                rule_id,
+                exception_field,
+                value,
+                Some(&format!(
+                    "Created from operator decision on incident #{id} by {actor}"
+                )),
+                Some(&actor),
+                None,
+            )
+            .await;
+    }
+
+    Ok(serde_json::json!({ "id": id, "decision": decision, "actor": actor }))
+}
+
+/// POST /api/tc/incidents/{id}/resolve
+pub async fn incident_resolve_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<OperatorDecisionBody>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    Ok(Json(apply_decision_inner(store.as_ref(), id, "resolve", body).await?))
+}
+
+/// POST /api/tc/incidents/{id}/false-positive
+pub async fn incident_false_positive_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<OperatorDecisionBody>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    Ok(Json(
+        apply_decision_inner(store.as_ref(), id, "false_positive", body).await?,
+    ))
+}
+
+/// POST /api/tc/incidents/{id}/accept-risk
+pub async fn incident_accept_risk_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<OperatorDecisionBody>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    Ok(Json(
+        apply_decision_inner(store.as_ref(), id, "accept_risk", body).await?,
+    ))
+}
+
+/// POST /api/tc/incidents/{id}/snooze
+pub async fn incident_snooze_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<OperatorDecisionBody>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    Ok(Json(apply_decision_inner(store.as_ref(), id, "snooze", body).await?))
+}
+
+/// DELETE /api/tc/admin/incidents/{id} — hard-delete (admin only).
+/// Returns the row snapshot so the caller can persist an audit entry.
+pub async fn admin_incident_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<OperatorDecisionBody>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let actor = operator_actor(&body);
+    let snapshot = store
+        .admin_delete_incident(id, &actor)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
+    tracing::warn!(
+        "INCIDENT DELETE: id={} by={} snapshot={}",
+        id,
+        actor,
+        snapshot
+    );
+    Ok(Json(snapshot))
+}
+
 /// POST /api/tc/alerts/archive-resolved — archive all acknowledged/resolved sigma alerts.
 pub async fn alerts_archive_resolved_handler(
     State(state): State<Arc<GatewayState>>,

@@ -531,6 +531,27 @@ impl ThreatClawStore for LibSqlBackend {
     async fn refresh_monthly_rssi_summary(&self) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn apply_operator_decision(
+        &self,
+        _: i32,
+        _: &str,
+        _: &str,
+        _: Option<&str>,
+        _: Option<chrono::DateTime<chrono::Utc>>,
+        _: Option<&serde_json::Value>,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn wake_expired_snoozes(&self) -> Result<Vec<i32>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn admin_delete_incident(
+        &self,
+        _: i32,
+        _: &str,
+    ) -> Result<serde_json::Value, DatabaseError> {
+        Err(not_supported())
+    }
     async fn update_incident_status(&self, _: i32, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

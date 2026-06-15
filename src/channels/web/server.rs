@@ -798,6 +798,26 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::incident_archive_handler),
         )
         .route(
+            "/api/tc/incidents/{id}/resolve",
+            post(super::handlers::threatclaw_api::incident_resolve_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/false-positive",
+            post(super::handlers::threatclaw_api::incident_false_positive_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/accept-risk",
+            post(super::handlers::threatclaw_api::incident_accept_risk_handler),
+        )
+        .route(
+            "/api/tc/incidents/{id}/snooze",
+            post(super::handlers::threatclaw_api::incident_snooze_handler),
+        )
+        .route(
+            "/api/tc/admin/incidents/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::admin_incident_delete_handler),
+        )
+        .route(
             "/api/tc/alerts/archive-resolved",
             post(super::handlers::threatclaw_api::alerts_archive_resolved_handler),
         )
