@@ -114,7 +114,9 @@ export default function SocTopBar() {
         const list: { severity?: string | null; verdict?: string; status?: string }[] = d?.incidents ?? [];
         const n = list.filter((i) => {
           const s = (i.severity ?? "").toUpperCase();
-          return (s === "HIGH" || s === "CRITICAL") && i.status !== "closed" && i.verdict !== "false_positive";
+          const closed = i.status === "closed" || i.status === "resolved" || i.status === "archived";
+          const archivedVerdict = i.verdict === "false_positive" || i.verdict === "migrated" || i.verdict === "inconclusive";
+          return (s === "HIGH" || s === "CRITICAL") && !closed && !archivedVerdict;
         }).length;
         setCriticalCount(n);
       } catch {

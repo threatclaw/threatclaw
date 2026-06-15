@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.39-beta] — 2026-06-15
+
+### Changed
+- The one-shot cleanup that reclassifies the historical alerts and incidents produced by the pre-v1.0.37 detection engine now records the disposition as `migrated` instead of `false_positive`. Some of those rows correspond to legitimate evaluation activity that the previous rule mis-titled — calling them false positives mislabels real events. The new disposition carries the honest semantic: superseded by a rewritten rule, re-evaluated by the new rule on the next sigma cycle, and a fresh incident raised if the underlying activity is real. A safety-net migration also re-labels rows that already received the previous disposition on operators upgrading from v1.0.37-beta or v1.0.38-beta.
+- The dashboard archives view recognises the new `migrated` verdict, surfaces a filter chip for it, and renders it in a neutral colour so the row does not present as either a positive or a negative finding. The critical-incident pill in the top bar now also treats `resolved` and `archived` incidents as closed instead of counting them as open, fixing a regression introduced when the canonical closed state moved from `closed` to `resolved` in v1.0.38-beta.
+
 ## [1.0.38-beta] — 2026-06-15
 
 ### Changed

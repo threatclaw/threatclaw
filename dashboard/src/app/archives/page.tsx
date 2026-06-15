@@ -30,6 +30,7 @@ function verdictStyleFor(locale: Locale): Record<string, { color: string; label:
   return {
     inconclusive: { color: "#e0a020", label: tr("archives_inconclusive", locale) },
     false_positive: { color: "#30a050", label: tr("archives_falsePositive", locale) },
+    migrated: { color: "#7a8090", label: locale === "fr" ? "Reclassé" : "Reclassified" },
   };
 }
 
@@ -52,7 +53,7 @@ export default function ArchivesPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [verdictFilter, setVerdictFilter] = useState<"" | "inconclusive" | "false_positive">("");
+  const [verdictFilter, setVerdictFilter] = useState<"" | "inconclusive" | "false_positive" | "migrated">("");
   const [sinceHours, setSinceHours] = useState(168);
   const [search, setSearch] = useState("");
 
@@ -71,7 +72,7 @@ export default function ArchivesPage() {
       const unique = all.filter(inc => { if (seen.has(inc.id)) return false; seen.add(inc.id); return true; });
       const cutoff = sinceHours > 0 ? Date.now() - sinceHours * 3600 * 1000 : 0;
       setIncidents(unique.filter((inc: Incident) => {
-        const isArchiveVerdict = inc.verdict === "inconclusive" || inc.verdict === "false_positive";
+        const isArchiveVerdict = inc.verdict === "inconclusive" || inc.verdict === "false_positive" || inc.verdict === "migrated";
         const inPeriod = cutoff === 0 || new Date(inc.created_at).getTime() >= cutoff;
         return isArchiveVerdict && inPeriod;
       }));
@@ -110,6 +111,7 @@ export default function ArchivesPage() {
         .arch-filter-btn { font-size: 9px; font-weight: 700; padding: 4px 10px; font-family: ui-monospace, 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid var(--tc-border); background: var(--tc-surface-alt); color: var(--tc-text-muted); cursor: pointer; }
         .arch-filter-btn.active-amber { border-color: rgba(224,160,32,0.4); background: rgba(224,160,32,0.08); color: #e0a020; }
         .arch-filter-btn.active-green { border-color: rgba(48,160,80,0.4); background: rgba(48,160,80,0.08); color: #30a050; }
+        .arch-filter-btn.active-slate { border-color: rgba(122,128,144,0.45); background: rgba(122,128,144,0.10); color: #a0a8b8; }
         .arch-select { font-size: 10px; padding: 4px 8px; background: var(--tc-input); border: 1px solid var(--tc-border); color: var(--tc-text); font-family: ui-monospace, 'JetBrains Mono', monospace; cursor: pointer; }
         .arch-table-head { display: grid; grid-template-columns: 70px 48px 120px 1fr 130px 80px; gap: 0; padding: 6px 14px; background: var(--tc-surface-alt); border: 1px solid var(--tc-border); border-bottom: none; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; font-family: ui-monospace, 'JetBrains Mono', monospace; color: var(--tc-text-muted); }
         .arch-row { border: 1px solid var(--tc-border); border-top: none; background: var(--tc-surface); }
@@ -153,6 +155,12 @@ export default function ArchivesPage() {
           onClick={() => setVerdictFilter(verdictFilter === "false_positive" ? "" : "false_positive")}
         >
           {tr("archives_falsePositive", locale)}
+        </button>
+        <button
+          className={`arch-filter-btn${verdictFilter === "migrated" ? " active-slate" : ""}`}
+          onClick={() => setVerdictFilter(verdictFilter === "migrated" ? "" : "migrated")}
+        >
+          {locale === "fr" ? "Reclassé" : "Reclassified"}
         </button>
         <select
           className="arch-select"

@@ -1,12 +1,19 @@
 -- migrations/V81__cleanup_pre_engine_fix_fps.sql
 --
--- One-shot cleanup of the false-positive alerts and incidents produced
--- by the pre-v1.0.37 detection engine. Four rewritten rules
--- (Account Promoted To Root, Sudo Authentication Failure, Remote
--- Desktop Lateral Movement, Golden Ticket — RC4 TGT) used to fire on
--- the rule's bare contains tokens — every operator that ran a
+-- One-shot reclassification of the alerts and incidents produced by
+-- the pre-v1.0.37 detection engine. Four rewritten rules (Account
+-- Promoted To Root, Sudo Authentication Failure, Remote Desktop
+-- Lateral Movement, Golden Ticket — RC4 TGT) used to fire on the
+-- rule's bare contains tokens — every operator that ran a
 -- v1.0.32 → v1.0.36 engine has those rows in their alert and incident
 -- tables and would otherwise need to triage them manually on upgrade.
+--
+-- Status / verdict set to `migrated` (not `false_positive`): some of
+-- these rows correspond to legitimate activity the operator launched
+-- during their own evaluation — the previous rule simply gave them
+-- a misleading title. Calling them FP would mis-classify real events.
+-- `migrated` carries the honest semantic: superseded by a rewritten
+-- rule, re-detected by the new rule on the next sigma cycle if real.
 --
 -- The discriminator is the matched_field VALUE itself. The buggy
 -- engine recorded the literal contains token (`uid=0`, `usermod`,
@@ -14,7 +21,7 @@
 -- always record the field's actual content (`change user 'foo' UID
 -- from X to 0`, a full PAM trailer, the LogonType / EncryptionType
 -- field name). The two shapes never overlap, so matching on the bare
--- token list lets us auto-close FPs without touching a legitimate hit.
+-- token list lets us auto-close without touching a legitimate hit.
 --
 -- Three safety constraints, in line with the security review:
 --   1. Pin VALUES, not just keys. Match `commandline = '4624'` etc.,
@@ -78,15 +85,16 @@ WITH fp_alerts AS (
       )
 )
 UPDATE sigma_alerts
-SET status = 'false_positive',
+SET status = 'migrated',
     resolved_at = NOW(),
     resolved_by = 'system:v1.0.37-engine-fix-migration',
     analyst_notes = COALESCE(analyst_notes, '') ||
         CASE WHEN COALESCE(analyst_notes, '') = '' THEN '' ELSE E'\n' END ||
-        'Auto-closed by V81 cleanup: matched_fields value matches the ' ||
+        'Reclassified by V81: matched_fields value matches the ' ||
         'pre-v1.0.37 engine signature for this rule (bare contains token ' ||
-        'instead of full field content). Re-evaluate manually if you ' ||
-        'suspect a real attack hides behind it.'
+        'instead of full field content). The rewritten rule re-evaluates ' ||
+        'the underlying log on the next sigma cycle; if the activity is ' ||
+        'real, a fresh alert is raised against it.'
 WHERE id IN (SELECT id FROM fp_alerts);
 
 -- ── 2. Incidents ─────────────────────────────────────────────────────
@@ -103,12 +111,12 @@ WITH fp_incidents AS (
           'account-promoted-uid0',
           'golden-ticket'
       )
-      -- Every linked alert must be FP-flagged BY THIS migration.
+      -- Every linked alert must be migrated BY THIS migration.
       AND NOT EXISTS (
           SELECT 1 FROM unnest(i.alert_ids) AS aid
           WHERE aid NOT IN (
               SELECT id FROM sigma_alerts
-              WHERE status = 'false_positive'
+              WHERE status = 'migrated'
                 AND resolved_by = 'system:v1.0.37-engine-fix-migration'
           )
       )
@@ -116,19 +124,20 @@ WITH fp_incidents AS (
 )
 UPDATE incidents
 SET status = 'resolved',
-    verdict = 'false_positive',
+    verdict = 'migrated',
     resolved_at = NOW(),
     notes = COALESCE(notes, '[]'::jsonb) || jsonb_build_array(
         jsonb_build_object(
             'at', NOW()::text,
             'by', 'system:v1.0.37-engine-fix-migration',
-            'note', 'Auto-closed by V81 cleanup. The pre-v1.0.37 detection engine had a ' ||
-                    'fallback bug that let four rules (Account Promoted To Root, Sudo ' ||
+            'note', 'Reclassified as migrated by V81. The pre-v1.0.37 detection engine had ' ||
+                    'a fallback bug that let four rules (Account Promoted To Root, Sudo ' ||
                     'Authentication Failure, Remote Desktop Lateral Movement, Golden ' ||
-                    'Ticket — RC4 TGT) fire on unrelated content. Every alert linked to ' ||
-                    'this incident was a textbook instance of that bug. If you suspect ' ||
-                    'a real attack was hidden in this stream, re-open the incident and ' ||
-                    'check the alert payloads directly.'
+                    'Ticket — RC4 TGT) fire on the wrong field content. The rewritten ' ||
+                    'rules re-evaluate the underlying logs on the next sigma cycle — if ' ||
+                    'the activity is real, a fresh incident is raised against it. This ' ||
+                    'incident is not flagged as a false positive: that label is reserved ' ||
+                    'for operator-confirmed dispositions on the new rules.'
         )
     )
 WHERE id IN (SELECT id FROM fp_incidents);
