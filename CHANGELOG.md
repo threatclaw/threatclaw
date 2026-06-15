@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.34-beta] — 2026-06-15
+
+### Fixed
+- The production container image now ships the on-disk Sigma rule catalog. Previous v1.0.32 and v1.0.33 builds were packaged with the rules directory missing from the runtime layer, so the file loader logged `rules directory not found` at boot and the engine only compiled whatever was already persisted in the `sigma_rules` table from a prior install — a fresh install therefore loaded a 74-rule legacy catalog instead of the 1095-rule pack that has shipped on disk since v1.0.32. After updating, the engine count climbs to the full 1095 rules on the next boot.
+- The entrypoint no longer prints `Permission denied` when the shared volume that brokers the core-dashboard auth token is read-only or has root-owned permissions on first creation. The script now probes writability up front and silently falls back to the `TC_AUTH_TOKEN` env var — the dashboard already supports the fallback path so nothing functional changes, only the noisy warning at boot.
+
+### Added
+- The L2 forensic analysis now responds in a configurable language so the narrative the operator reads matches the operator's working language without changing the prompt grounding. Default is English. Configure with `TC_REPORT_LANG=French` (or any natural-language name) in `.env`, or set the `system/report.language` DB setting from the dashboard. The structural part of the prompt stays English because Foundation-Sec is more reliably grounded in English; only the customer-visible narrative honors the language. The dashboard UI language remains independent (set in **Config > General > Language**).
+- New `docs/operator-handbook.md`, `docs/sigma-rules.md`, `docs/hitl-workflow.md` and `docs/hunt.md`. The handbook is the page to bookmark once an install is up — it covers the three-layer detection model (engine log vs incidents vs Attack Timeline), the 5-minute Intelligence Engine cadence, and a tour of every dashboard panel. The Sigma guide walks through the 1095-rule catalog, the promotion ladder (`monitor` / `detect` / `block`), exceptions, the field map per ingestion source, and the upstream SigmaHQ importer at `tools/sigma_convert.py`. The HITL guide covers the proposed-action panel, the cross-channel approval surfaces, the safety guard, and the pre-flight checklist before turning on Responder mode. The Hunt guide documents the log lake page with three worked examples and the REST equivalent.
+
+### Changed
+- The L2 forensic prompt was rewritten in English (the prompt itself is never customer-visible). Every previously-hardcoded French string in `forensic_enricher.rs` — timeline step labels, action descriptions, the deterministic fallback narrative — is now English canonical so the dashboard reads consistently end-to-end without depending on the LLM language. The remaining server-emitted French strings in `intelligence_engine.rs` step labels and the API handler error responses are scheduled for the next release.
+
 ## [1.0.33-beta] — 2026-06-15
 
 ### Fixed

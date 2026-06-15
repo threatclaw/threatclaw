@@ -97,11 +97,23 @@ if [ -z "${GATEWAY_AUTH_TOKEN:-}" ]; then
 fi
 
 # ── Write token to shared volume for dashboard (secure permissions) ──
+# The shared-config named volume comes up with root ownership the first
+# time it is created, so a non-root entrypoint cannot write to it and
+# the redirect itself prints a "Permission denied" before the 2>/dev/null
+# attached to the command (the shell evaluates the redirect first).
+# Probe writability up front and skip silently when the volume is read-
+# only or otherwise rejected — the dashboard then falls back to the
+# TC_AUTH_TOKEN env var that we already export above.
 set +e
-if [ -d "/shared" ]; then
-  echo "TC_CORE_TOKEN=${GATEWAY_AUTH_TOKEN}" > /shared/.env.token 2>/dev/null
-  chmod 600 /shared/.env.token 2>/dev/null
-  [ $? -eq 0 ] && echo "[init] Token shared with dashboard (mode 0600)" || echo "[init] WARN: Token not shared — dashboard uses TC_AUTH_TOKEN from .env"
+if [ -d "/shared" ] && [ -w "/shared" ]; then
+  if echo "TC_CORE_TOKEN=${GATEWAY_AUTH_TOKEN}" > /shared/.env.token 2>/dev/null; then
+    chmod 600 /shared/.env.token 2>/dev/null
+    echo "[init] Token shared with dashboard (mode 0600)"
+  else
+    echo "[init] Token volume present but not writable — dashboard falls back to TC_AUTH_TOKEN env"
+  fi
+elif [ -d "/shared" ]; then
+  echo "[init] Token volume present but not writable — dashboard falls back to TC_AUTH_TOKEN env"
 fi
 set -e
 
