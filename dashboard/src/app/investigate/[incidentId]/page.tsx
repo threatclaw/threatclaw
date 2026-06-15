@@ -12,6 +12,7 @@ import {
   MessageSquare, Send, Filter, XCircle, Archive, ArrowLeft, Brain, Search,
 } from "lucide-react";
 import SuppressionWizard from "@/components/incidents/SuppressionWizard";
+import { OperatorDecisionMenu } from "@/components/incidents/OperatorDecisionMenu";
 import AttackTimeline from "@/components/incidents/AttackTimeline";
 import InvestigationTimeline from "@/components/incidents/InvestigationTimeline";
 import type { InvestigationStep } from "@/components/incidents/InvestigationTimeline";
@@ -453,7 +454,15 @@ export default function InvestigatePage() {
   const [notePosting, setNotePosting] = useState(false);
   const [confirmFp, setConfirmFp] = useState(false);
   const [suppressingIncident, setSuppressingIncident] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.user?.role) setUserRole(d.user.role); })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -1403,16 +1412,22 @@ export default function InvestigatePage() {
 
             {/* RIGHT COLUMN */}
             <aside className="inv-right">
-              {/* RSSI decisions */}
-              {inc && inc.status !== "archived" && (
+              {/* Operator decisions — v1.0.39 wires the canonical
+                  OperatorDecisionMenu (Resolve / FP / Accept Risk /
+                  Snooze + admin-only Delete) here. The Relaunch and
+                  Ignore Pattern actions remain as secondary buttons. */}
+              {inc && inc.status !== "archived" && inc.status !== "resolved" && (
                 <div className="inv-actions">
                   <div className="inv-actions-head">{tr("investigate_operatorDecisions", locale)}</div>
                   <div className="inv-actions-body">
-                    <button className="inv-act-btn" onClick={() => setConfirmFp(true)}>
-                      <XCircle size={14} />
-                      <span>{tr("investigate_markFalsePositive", locale)}</span>
-                      <ArrowRight size={11} className="act-arrow" />
-                    </button>
+                    <div style={{ padding: "8px 0" }}>
+                      <OperatorDecisionMenu
+                        incidentId={inc.id}
+                        assetHostname={inc.asset_hostname || inc.asset_name || inc.asset}
+                        adminMode={userRole === "admin"}
+                        onDone={() => { load(); }}
+                      />
+                    </div>
                     <button className="inv-act-btn" onClick={reinvestigateInv} disabled={reinvestigating}>
                       {reinvestigating ? <RefreshCw size={14} className="inv-spin" /> : <Brain size={14} />}
                       <span>{reinvestigating ? tr("investigate_inProgress", locale) : tr("investigate_relaunchInvestigation", locale)}</span>
@@ -1421,11 +1436,6 @@ export default function InvestigatePage() {
                     <button className="inv-act-btn" onClick={() => setSuppressingIncident(true)}>
                       <Filter size={14} />
                       <span>{tr("investigate_ignorePattern", locale)}</span>
-                      <ArrowRight size={11} className="act-arrow" />
-                    </button>
-                    <button className="inv-act-btn" onClick={archiveIncident}>
-                      <Archive size={14} />
-                      <span>{tr("investigate_archive", locale)}</span>
                       <ArrowRight size={11} className="act-arrow" />
                     </button>
                   </div>

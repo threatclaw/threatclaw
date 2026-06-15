@@ -316,9 +316,12 @@ function IncidentsTab({ locale }: { locale: Locale }) {
     }
   };
 
-  // Only confirmed active incidents on this page
+  // Only confirmed active incidents on this page. V82 renamed the
+  // canonical closed state from 'closed' to 'resolved'; we filter on
+  // 'open' explicitly so resolved / archived / closed historical rows
+  // stay out of the live list. The archives page surfaces those.
   const confirmedActive = incidents.filter(inc =>
-    inc.verdict === "confirmed" && inc.status !== "closed"
+    inc.verdict === "confirmed" && inc.status === "open"
   );
   const filteredIncidents = search
     ? confirmedActive.filter(inc => {
