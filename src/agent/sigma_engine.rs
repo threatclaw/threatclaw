@@ -1053,6 +1053,27 @@ fn numeric_cmp(
 /// silently match unrelated tokens elsewhere in the event (e.g. a port
 /// number stored in `data.SourcePort`), which is the root cause of the
 /// false positives that surfaced during the 2026-06 audit.
+/// Stable 16-character hex digest of the matched field values, used as
+/// part of the per-rule dedup key. Different username / source IP /
+/// command line produces a different fingerprint and therefore a
+/// different dedup bucket, so a brand-new attack on the same host no
+/// longer reuses the suppression window of an unrelated earlier match.
+/// Same payload arriving twice within the suppression window still
+/// dedupes naturally — the fingerprint only changes when the matched
+/// content does.
+fn sigma_match_fingerprint(matched_fields: &[(String, String)]) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    let mut pairs: Vec<&(String, String)> = matched_fields.iter().collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    for (f, v) in pairs {
+        f.to_lowercase().hash(&mut h);
+        v.to_lowercase().hash(&mut h);
+    }
+    format!("{:016x}", h.finish())
+}
+
 fn is_symbolic_log_alias(field: &str) -> bool {
     matches!(
         field.to_lowercase().as_str(),
@@ -1394,7 +1415,22 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 let raw_hostname = log.hostname.as_deref().unwrap_or("unknown");
                 let canonical_asset = resolve_canonical_asset(store.as_ref(), raw_hostname).await;
 
-                let dedup_key = format!("{}_{}", m.rule_id, canonical_asset);
+                // Dedup key now factors in a fingerprint of the matched
+                // fields — this is what makes the difference between
+                // "the same brute-force IP firing the same rule again"
+                // (legitimately deduped, just noise) and "a different
+                // attacker targeting a different account on the same
+                // host" (a brand new event the operator must see).
+                // The previous (rule_id, asset) tuple silently absorbed
+                // the second case for an hour; on a stress test where
+                // the same rule fired with different usernames /
+                // source IPs in rapid succession, the dashboard
+                // only ever surfaced the first one. The fingerprint
+                // collapses textually-similar matches (same payload
+                // arriving twice) without hiding semantically distinct
+                // ones.
+                let fp = sigma_match_fingerprint(&m.matched_fields);
+                let dedup_key = format!("{}_{}_{}", m.rule_id, canonical_asset, fp);
                 if !cycle_dedup.insert(dedup_key.clone()) {
                     continue;
                 }
