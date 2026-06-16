@@ -61,12 +61,19 @@ async function proxyRequest(req: NextRequest) {
   if (CORE_TOKEN) {
     headers["Authorization"] = `Bearer ${CORE_TOKEN}`;
   }
-  // Endpoint-agent ingress: forward the agent's own webhook token + the
-  // hostname / user-agent so the core handler can match it against the
-  // per-source token stored in settings. The handler also accepts the
-  // token as a query parameter, but agents that prefer header auth must
-  // still work end-to-end.
-  if (isAgent) {
+  // Forward the browser session cookie to the core for non-agent
+  // routes. Handlers added in v1.0.38 (operator decisions: Resolve /
+  // FP / Accept Risk / Snooze / Delete) identify the actor by
+  // resolving the tc_session cookie against the dashboard auth table.
+  // Without the cookie, the core handler returned 401 "not
+  // authenticated" on every click. The Bearer authenticates the proxy
+  // itself to the gateway; the cookie identifies the user. Skip this
+  // on agent ingress routes — they authenticate by webhook_token, not
+  // by a dashboard session.
+  if (!isAgent) {
+    const cookie = req.headers.get("cookie");
+    if (cookie) headers["Cookie"] = cookie;
+  } else {
     const webhookToken = req.headers.get("x-webhook-token");
     if (webhookToken) headers["X-Webhook-Token"] = webhookToken;
     const ua = req.headers.get("user-agent");

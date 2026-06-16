@@ -223,6 +223,7 @@ function IncidentsTab({ locale }: { locale: Locale }) {
   // propre flow de confirmation, donc pas besoin ici.
   const [confirmFp, setConfirmFp] = useState<Incident | null>(null);
   const [executing, setExecuting] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -316,13 +317,17 @@ function IncidentsTab({ locale }: { locale: Locale }) {
     }
   };
 
-  // Only confirmed active incidents on this page. V82 renamed the
-  // canonical closed state from 'closed' to 'resolved'; we filter on
-  // 'open' explicitly so resolved / archived / closed historical rows
-  // stay out of the live list. The archives page surfaces those.
-  const confirmedActive = incidents.filter(inc =>
-    inc.verdict === "confirmed" && inc.status === "open"
-  );
+  // Only confirmed incidents on this page. V82 renamed the canonical
+  // closed state from 'closed' to 'resolved'; by default we keep just
+  // the open ones so the operator queue is not polluted by historical
+  // rows. A toggle exposes the resolved confirmed incidents on demand
+  // for operators who want to review their recent triage.
+  const confirmedActive = incidents.filter(inc => {
+    if (inc.verdict !== "confirmed") return false;
+    if (inc.status === "open") return true;
+    if (showResolved && inc.status === "resolved") return true;
+    return false;
+  });
   const filteredIncidents = search
     ? confirmedActive.filter(inc => {
         const q = search.toLowerCase();
@@ -696,6 +701,18 @@ function IncidentsTab({ locale }: { locale: Locale }) {
               </button>
             )}
           </div>
+          <button
+            className="inc-archive-btn"
+            onClick={() => setShowResolved(v => !v)}
+            style={{
+              borderColor: showResolved ? "rgba(48,160,80,0.4)" : "var(--tc-border)",
+              background: showResolved ? "rgba(48,160,80,0.08)" : "var(--tc-surface-alt)",
+              color: showResolved ? "#30a050" : "var(--tc-text-muted)",
+            }}
+            title={locale === "fr" ? "Inclure les incidents résolus dans la liste" : "Include resolved incidents in the list"}
+          >
+            {showResolved ? (locale === "fr" ? "+ Résolus" : "+ Resolved") : (locale === "fr" ? "Voir résolus" : "Show resolved")}
+          </button>
           <button className="inc-archive-btn" onClick={archiveResolved}>
             <FileText size={11} />
             {tr("incidents_archiveResolved", locale)}
