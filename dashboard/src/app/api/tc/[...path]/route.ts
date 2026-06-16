@@ -23,13 +23,33 @@ async function hasValidSession(req: NextRequest): Promise<boolean> {
   }
 }
 
+// Endpoint-agent ingress paths carry their own webhook_token in the
+// request, validated by the core handler (constant-time compare against
+// the per-source token stored in `settings`). External agents installed
+// on customer Windows / Linux endpoints reach the gateway over the
+// public IP — they have no dashboard session and never will. Skip the
+// session check for these paths so the proxy can forward them to core.
+// The Bearer is still attached (core's middleware still passes), then
+// the core handler runs the webhook_token check and silent-drops on
+// mismatch. Keep this list narrow: any route added here MUST validate
+// its own per-source token.
+function isAgentIngressPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/api/tc/webhook/ingest/") ||
+    pathname === "/api/tc/agent/manifest" ||
+    pathname === "/api/tc/agent/install.sh" ||
+    pathname === "/api/tc/agent/install.ps1"
+  );
+}
+
 async function proxyRequest(req: NextRequest) {
-  if (!(await hasValidSession(req))) {
+  const url = new URL(req.url);
+  const isAgent = isAgentIngressPath(url.pathname);
+  if (!isAgent && !(await hasValidSession(req))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   // Extract the path after /api/tc/
-  const url = new URL(req.url);
   const fullPath = url.pathname;
   const tcPath = fullPath.replace(/^\/api\/tc\//, "");
   // Forward request — token is sent only via Authorization header
@@ -40,6 +60,17 @@ async function proxyRequest(req: NextRequest) {
   };
   if (CORE_TOKEN) {
     headers["Authorization"] = `Bearer ${CORE_TOKEN}`;
+  }
+  // Endpoint-agent ingress: forward the agent's own webhook token + the
+  // hostname / user-agent so the core handler can match it against the
+  // per-source token stored in settings. The handler also accepts the
+  // token as a query parameter, but agents that prefer header auth must
+  // still work end-to-end.
+  if (isAgent) {
+    const webhookToken = req.headers.get("x-webhook-token");
+    if (webhookToken) headers["X-Webhook-Token"] = webhookToken;
+    const ua = req.headers.get("user-agent");
+    if (ua) headers["User-Agent"] = ua;
   }
 
   try {
