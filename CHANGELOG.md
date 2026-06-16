@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
-## [1.0.39-beta] — 2026-06-15
+## [1.0.40-beta] — 2026-06-16
 
 ### Fixed
 - External endpoint agents (osquery on Windows and Linux) could not reach the gateway over the public address. The dashboard proxy fronting the core API required a dashboard session cookie before forwarding any request, including the four agent ingress paths that already authenticate themselves with a per-source webhook token. Every external agent sync failed with HTTP 401 even when the operator had correctly configured the webhook token. The proxy now skips the session check for the agent ingress paths and forwards the agent's webhook token to the core, which validates it constant-time against the per-source value in settings. Internal collectors that already reached the core over the docker network were unaffected.
