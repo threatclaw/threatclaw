@@ -1,17 +1,25 @@
 rule: lnx-auth-004
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: unprivileged user refused by sudo
     event:
-      full_log: is not in the sudoers file
-  - description: Second positive value from the rule selection
+      ident: sudo
+      message: 'alice : user NOT in sudoers ; TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/bin/bash'
+  - description: standard sudo refusal trailer
     event:
-      full_log: This incident will be reported
+      ident: sudo
+      message: 'eve is not in the sudoers file. This incident will be reported.'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: routine sudo session for an authorised admin
     event:
-      full_log: operation completed successfully
+      ident: sudo
+      message: 'admin : TTY=pts/0 ; PWD=/home/admin ; USER=root ; COMMAND=/usr/bin/apt-get update'
+  - description: another program quoting the phrase in a config note
+    event:
+      ident: rsyslogd
+      message: 'config note: "is not in the sudoers file" message is forwarded to siem'
+  - description: sudo authentication failure (covered by lnx-auth-003)
+    event:
+      ident: sudo
+      message: 'pam_unix(sudo:auth): authentication failure; logname= uid=1000 euid=0'

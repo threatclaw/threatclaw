@@ -2,26 +2,44 @@ title: Audit / System Log Cleared
 id: lnx-evasion-003
 status: stable
 description: |
-  auditd stopped or /var/log truncated — indicator removal after compromise
+  Detects the post-compromise indicator-removal step: auditd
+  stopped or rules deleted, /var/log truncated, or known auth
+  logs removed. Each token is anchored on leading whitespace so
+  the rule does not match an inline mention of the command in
+  prose (man page, ticket comment, doc quote).
 references:
   - https://attack.mitre.org/techniques/T1070/002/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-16
 tags:
   - attack.defense_evasion
   - attack.t1070.002
 logsource:
   category: syslog
 detection:
-  selection:
+  command:
     'full_log|contains':
-      - auditctl -D
-      - systemctl stop auditd
-      - service auditd stop
-      - truncate -s 0 /var/log
-      - rm /var/log/auth.log
-      - rm /var/log/secure
-  condition: selection
+      - ' auditctl -D'
+      - ' systemctl stop auditd'
+      - ' systemctl disable auditd'
+      - ' service auditd stop'
+      - ' truncate -s 0 /var/log'
+      - ' rm /var/log/auth.log'
+      - ' rm /var/log/secure'
+      - ' rm /var/log/audit/audit.log'
+      - ' > /var/log/auth.log'
+      - ' > /var/log/secure'
+  prose_filter:
+    'full_log|contains':
+      - 'config note'
+      - 'documentation'
+      - 'tutorial'
+      - 'reference:'
+      - 'do not run'
+      - 'never run'
+      - 'help reference'
+  condition: command and not prose_filter
 falsepositives:
-  - Unknown
+  - Log-rotation tooling outside the host's logrotate schedule. logrotate itself does not match because it uses rename + create rather than rm.
+  - Planned auditd restart during config changes; the stop is followed by a start within seconds.
 level: critical

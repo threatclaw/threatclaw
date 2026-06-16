@@ -2,12 +2,19 @@ title: Remote Payload Piped To Shell
 id: lnx-exec-001
 status: stable
 description: |
-  wget/curl output fed into a shell — classic drive-by install
+  Classic drive-by install: a remote payload is downloaded with
+  curl or wget and piped straight into a shell, executing whatever
+  the remote endpoint chose to send. The previous rule matched on
+  the bare tokens "curl" and "wget", which appear in nearly every
+  CI log. The rewrite requires the download token AND a
+  shell-pipe token to appear together in the same line, each
+  anchored on whitespace so they cannot match a substring inside
+  an unrelated word.
 references:
   - https://attack.mitre.org/techniques/T1059/004/
   - https://attack.mitre.org/techniques/T1105/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-16
 tags:
   - attack.execution
   - attack.t1059.004
@@ -15,20 +22,21 @@ tags:
 logsource:
   category: syslog
 detection:
-  selection:
+  download_tool:
     'full_log|contains':
-      - curl
-      - wget
-  pipe:
+      - ' curl '
+      - ' wget '
+  pipe_to_shell:
     'full_log|contains':
-      - '| sh'
-      - '| bash'
-      - '|sh'
-      - '|bash'
-      - '| /bin/sh'
-      - '-O-'
-      - '-O -'
-  condition: selection and pipe
+      - ' | sh'
+      - ' | bash'
+      - ' |sh'
+      - ' |bash'
+      - ' | /bin/sh'
+      - ' | /bin/bash'
+      - ' | dash'
+      - ' | zsh'
+  condition: download_tool and pipe_to_shell
 falsepositives:
-  - Unknown
+  - Legitimate operator installing a tool with the official one-line installer (vendor scripts often use `curl ... | sh`). Apply an asset-scoped exception when this is the team's deploy pattern.
 level: critical

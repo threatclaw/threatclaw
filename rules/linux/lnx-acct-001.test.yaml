@@ -1,17 +1,29 @@
 rule: lnx-acct-001
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: useradd creates a new local account
     event:
-      full_log: 'new user:'
-  - description: Second positive value from the rule selection
+      ident: useradd
+      message: 'new user: name=backdoor, UID=0, GID=0, home=/root, shell=/bin/bash'
+  - description: groupadd creates a new local group
     event:
-      full_log: useradd
+      ident: groupadd
+      message: 'new group: name=dockerprivs, GID=999'
+  - description: adduser Debian wrapper
+    event:
+      ident: adduser
+      message: 'new user: name=alice, UID=1001, GID=1001, home=/home/alice, shell=/bin/bash'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: someone reading the useradd man page
     event:
-      full_log: operation completed successfully
+      ident: man
+      message: 'opened /usr/share/man/man8/useradd.8.gz'
+  - description: apt-get install whose changelog mentions useradd
+    event:
+      ident: dpkg
+      message: 'unpacking debianutils — changelog notes useradd integration'
+  - description: routine sshd session, unrelated to account creation
+    event:
+      ident: sshd
+      message: 'pam_unix(sshd:session): session opened for user admin(uid=1000) by (uid=0)'

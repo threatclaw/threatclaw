@@ -1,17 +1,33 @@
 rule: lnx-evasion-003
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: attacker truncates the system log
     event:
-      full_log: auditctl -D
-  - description: Second positive value from the rule selection
+      ident: bash
+      full_log: 'Jun 16 14:00:00 host root: invoked: truncate -s 0 /var/log/auth.log'
+  - description: auditd stopped via systemctl
     event:
-      full_log: systemctl stop auditd
+      ident: systemd
+      full_log: 'Jun 16 14:01:00 host systemd[1]: systemctl stop auditd.service requested by uid=0'
+  - description: auditd rules wiped
+    event:
+      ident: audit
+      full_log: 'type=EXECVE msg=audit: argc=2 a0="auditctl" a1="-D" by uid=0 invoked: auditctl -D'
+  - description: auth log removed by rm
+    event:
+      ident: bash
+      full_log: 'invoked: rm /var/log/auth.log by uid=0'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: logrotate run that compresses auth.log
     event:
-      full_log: operation completed successfully
+      ident: logrotate
+      full_log: 'rotating auth.log: renaming to auth.log.1 and compressing'
+  - description: routine status query of auditd
+    event:
+      ident: systemd
+      full_log: 'systemctl status auditd.service returned: active (running)'
+  - description: documentation quoting the danger of truncating logs
+    event:
+      ident: rsyslogd
+      full_log: 'config note: never run truncate -s 0 /var/log on a prod host'

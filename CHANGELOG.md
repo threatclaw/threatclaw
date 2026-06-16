@@ -6,6 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.42-beta] — 2026-06-16
+
+### Fixed
+- The four operator-decision endpoints introduced in v1.0.38-beta (Resolve, False Positive, Accept Risk, Snooze) plus the admin Delete returned "not authenticated" on every click. The dashboard proxy attaches its own Bearer token to authenticate itself to the gateway but was not forwarding the user's session cookie, so the handler that resolves the cookie against the dashboard auth table found nothing and rejected the request. The proxy now forwards the cookie on every non-agent route; agent ingress paths still authenticate by webhook token only and remain cookie-free.
+- The intelligence cycle no longer recreates an incident every five minutes when a recurring signal hits a pattern the operator has already triaged out. Previously the dedup query only matched open and investigating incidents; a resolved or snoozed incident on the same asset+pattern within the 4h window was invisible to the dedup, so a flapping rule could mint a fresh incident every cycle. The cycle now performs a rate-limit lookup against resolved and snoozed incidents in the same window, and skips creation when one is present.
+- Seven Linux detection rules whose previous body used bare contains tokens (matching anywhere in the log body) have been rewritten with the strict program-and-signal pattern that v1.0.37 introduced for the first four. Each rule ships a regression fixture asserting the canonical attack shape and the canonical noise shape it must not match, so the test runner catches a future drift back to the bare-token form:
+    - `lnx-persist-001` (Cron Job Added) — was matching every routine cron session message; now requires crond + the parenthesised "(USER) REPLACE (FILE)" trailer.
+    - `lnx-auth-001` (SSH Password Brute Force) — was matching every routine SSH session message; now requires sshd + an explicit failure trailer.
+    - `lnx-auth-002` (SSH Root Login Attempt) — was matching every routine SSH session message; now requires sshd + a root-targeting trailer.
+    - `lnx-fim-001` (Sensitive Auth File Modified) — was matching every read of /etc/passwd or /etc/shadow; now scoped to the account-management binaries that legitimately write these files.
+    - `lnx-acct-001` (Local User Created) — was matching man pages and package install logs mentioning the binary name; now scoped to ident=useradd / adduser / groupadd.
+    - `lnx-auth-004` (Sudo — Not in Sudoers) — was matching any program that quoted the phrase; now scoped to ident=sudo with the explicit refusal trailer.
+    - `lnx-exec-001` (Remote Payload Piped To Shell) — was matching every log line mentioning curl or wget; now requires the download token AND a shell-pipe token together, each anchored on whitespace.
+- Three host-firewall and policy rules (`lnx-evasion-001`, `lnx-evasion-002`, `lnx-evasion-003`) gained a prose filter so a config note or tutorial that quotes the destructive command does not fire the rule. The command tokens themselves are now anchored on leading whitespace.
+- The dashboard `/incidents` list defaulted to status='open' confirmed incidents only (correct for the operator queue). A "Show resolved" toggle now exposes the resolved confirmed rows on demand so the analyst can review recent triage without leaving the page.
+
+### Operations
+- On upgrade the migration sweep is a no-op for V81–V84 because they already ran in v1.0.41. The rule rewrites take effect at the next sigma cycle once the core image is replaced; rules that were operator-disabled during the v1.0.41 hardening window stay disabled and must be re-enabled explicitly on the inventory page if the operator wants the new shape live.
+
 ## [1.0.41-beta] — 2026-06-16
 
 ### Fixed

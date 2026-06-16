@@ -3802,6 +3802,29 @@ pub fn spawn_intelligence_ticker(
                                         existing_id
                                     }
                                     _ => {
+                                        // Rate-limit guard: if the operator has just
+                                        // resolved or snoozed an incident with the same
+                                        // asset + pattern within the last 4 hours, do
+                                        // not create a new one. The signal is
+                                        // recurring on a pattern that already received
+                                        // a triage decision; minting a fresh incident
+                                        // every cycle would defeat the operator's
+                                        // choice and flood the queue.
+                                        if let Ok(Some(prev_id)) = store
+                                            .find_recently_dispositioned_incident_for_asset_with_pattern(
+                                                &worst_asset.asset,
+                                                dedup_pattern_key.as_deref(),
+                                            )
+                                            .await
+                                        {
+                                            tracing::info!(
+                                                "INTELLIGENCE: Skipping create for {} — recent triaged incident #{} on the same pattern within the 4h rate-limit window",
+                                                worst_asset.asset,
+                                                prev_id
+                                            );
+                                            break 'incident_creation;
+                                        }
+
                                         // Phase B — human-friendly title even before
                                         // L2 has a chance to refine. dossier.summary()
                                         // produces "Dossier de88d8aa — asset=...

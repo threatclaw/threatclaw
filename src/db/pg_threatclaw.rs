@@ -3766,6 +3766,36 @@ impl ThreatClawStore for PgBackend {
         Ok(row.map(|r| r.get("id")))
     }
 
+    async fn find_recently_dispositioned_incident_for_asset_with_pattern(
+        &self,
+        asset: &str,
+        pattern_key: Option<&str>,
+    ) -> Result<Option<i32>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let key_owned = pattern_key.map(String::from);
+        // Same window as the open-incident lookup, but on rows the
+        // operator has already triaged out (resolved) or paused
+        // (snoozed). Used to rate-limit incident creation so a flapping
+        // signal does not recreate a fresh incident every 5-minute
+        // cycle on a pattern that the operator already decided to
+        // close. The caller treats a Some(_) hit as "skip create".
+        let row = conn
+            .query_opt(
+                "SELECT id FROM incidents \
+                 WHERE LOWER(asset) = LOWER($1) \
+                   AND status IN ('resolved', 'snoozed') \
+                   AND updated_at > NOW() - INTERVAL '4 hours' \
+                   AND ($2::text IS NULL \
+                        OR last_pattern_key IS NULL \
+                        OR last_pattern_key = $2) \
+                 ORDER BY updated_at DESC LIMIT 1",
+                &[&asset, &key_owned],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.map(|r| r.get("id")))
+    }
+
     async fn find_open_incident_for_asset(
         &self,
         asset: &str,

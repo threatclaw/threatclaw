@@ -1443,6 +1443,17 @@ pub trait ThreatClawStore: Send + Sync {
     async fn find_open_incident_for_asset(&self, asset: &str)
     -> Result<Option<i32>, DatabaseError>;
 
+    /// Rate-limit lookup: is there a `resolved` or `snoozed` incident on
+    /// the same asset+pattern within the last 4 hours? Used by the
+    /// intelligence cycle to avoid recreating an incident that an
+    /// operator just closed (or that is intentionally snoozed). Returns
+    /// Some(id) of the most recent matching row, None otherwise.
+    async fn find_recently_dispositioned_incident_for_asset_with_pattern(
+        &self,
+        asset: &str,
+        pattern_key: Option<&str>,
+    ) -> Result<Option<i32>, DatabaseError>;
+
     /// Touch an existing open incident: bump alert_count by delta, refresh updated_at.
     /// Used when a recurring pattern on the same asset would otherwise create a duplicate.
     /// Bump `alert_count` and `updated_at` on an existing incident.

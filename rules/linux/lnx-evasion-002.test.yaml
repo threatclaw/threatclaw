@@ -1,17 +1,29 @@
 rule: lnx-evasion-002
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: SELinux switched to permissive at runtime
     event:
-      full_log: setenforce 0
-  - description: Second positive value from the rule selection
+      ident: audit
+      full_log: 'type=EXECVE msg=audit: argc=2 a0="setenforce" a1="0" by uid=0 invoked: setenforce 0'
+  - description: AppArmor profile removed via apparmor_parser
     event:
-      full_log: SELINUX=disabled
+      ident: apparmor
+      full_log: 'invoked: apparmor_parser -R /etc/apparmor.d/usr.sbin.sshd'
+  - description: SELinux config file edited to disable enforcement
+    event:
+      ident: vi
+      full_log: 'wrote /etc/selinux/config with SELINUX=disabled at request of uid=0'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: routine SELinux status check via sestatus
     event:
-      full_log: operation completed successfully
+      ident: sestatus
+      full_log: 'sestatus returned: SELinux status: enabled, current mode: enforcing'
+  - description: man page opened that mentions setenforce in the description
+    event:
+      ident: man
+      full_log: 'opened /usr/share/man/man8/setenforce.8.gz for reading by uid=1000'
+  - description: AppArmor service reloading a policy (not disabling)
+    event:
+      ident: apparmor
+      full_log: 'AppArmor: reloading profile /etc/apparmor.d/usr.sbin.sshd'
