@@ -70,6 +70,72 @@ FROM alias_map m WHERE scan_queue.asset_id = m.alias_id;
 -- merge_aliases is dropped via ON DELETE CASCADE when the duplicate
 -- asset row is removed below; no explicit rewrite is necessary.
 
+-- Smart-merge field-level info from the aliases into the canonical
+-- row before deletion. The osquery agent populates fields that the
+-- syslog path does not (os hint, fqdn, mac), so the surviving row
+-- carries the union of the available facts. Scalars: canonical value
+-- wins if non-empty, otherwise the first non-empty alias value.
+-- Arrays (ip_addresses, tags): union de-duplicated.
+WITH agg AS (
+    SELECT
+        m.canonical_id,
+        MAX(NULLIF(a.os, '')) AS alias_os,
+        MAX(NULLIF(a.fqdn, '')) AS alias_fqdn,
+        MAX(NULLIF(a.mac_address, '')) AS alias_mac_address,
+        MAX(NULLIF(a.mac_vendor, '')) AS alias_mac_vendor,
+        MAX(NULLIF(a.location, '')) AS alias_location,
+        MAX(NULLIF(a.owner, '')) AS alias_owner,
+        MAX(NULLIF(a.role, '')) AS alias_role,
+        MAX(NULLIF(a.subcategory, '')) AS alias_subcategory,
+        MAX(NULLIF(a.url, '')) AS alias_url,
+        ARRAY(
+            SELECT DISTINCT v
+            FROM alias_map m2
+            JOIN assets a2 ON a2.id = m2.alias_id
+            CROSS JOIN LATERAL unnest(COALESCE(a2.ip_addresses, ARRAY[]::text[])) AS v
+            WHERE m2.canonical_id = m.canonical_id AND v IS NOT NULL AND v <> ''
+        ) AS alias_ips,
+        ARRAY(
+            SELECT DISTINCT v
+            FROM alias_map m3
+            JOIN assets a3 ON a3.id = m3.alias_id
+            CROSS JOIN LATERAL unnest(COALESCE(a3.tags, ARRAY[]::text[])) AS v
+            WHERE m3.canonical_id = m.canonical_id AND v IS NOT NULL AND v <> ''
+        ) AS alias_tags
+    FROM alias_map m
+    JOIN assets a ON a.id = m.alias_id
+    GROUP BY m.canonical_id
+)
+UPDATE assets SET
+    os          = COALESCE(NULLIF(assets.os, ''),          agg.alias_os),
+    fqdn        = COALESCE(NULLIF(assets.fqdn, ''),        agg.alias_fqdn),
+    mac_address = COALESCE(NULLIF(assets.mac_address, ''), agg.alias_mac_address),
+    mac_vendor  = COALESCE(NULLIF(assets.mac_vendor, ''),  agg.alias_mac_vendor),
+    location    = COALESCE(NULLIF(assets.location, ''),    agg.alias_location),
+    owner       = COALESCE(NULLIF(assets.owner, ''),       agg.alias_owner),
+    role        = COALESCE(NULLIF(assets.role, ''),        agg.alias_role),
+    subcategory = COALESCE(NULLIF(assets.subcategory, ''), agg.alias_subcategory),
+    url         = COALESCE(NULLIF(assets.url, ''),         agg.alias_url),
+    ip_addresses = ARRAY(
+        SELECT DISTINCT v
+        FROM (
+            SELECT unnest(COALESCE(assets.ip_addresses, ARRAY[]::text[])) AS v
+            UNION ALL
+            SELECT unnest(agg.alias_ips)
+        ) t
+        WHERE v IS NOT NULL AND v <> ''
+    ),
+    tags = ARRAY(
+        SELECT DISTINCT v
+        FROM (
+            SELECT unnest(COALESCE(assets.tags, ARRAY[]::text[])) AS v
+            UNION ALL
+            SELECT unnest(agg.alias_tags)
+        ) t
+        WHERE v IS NOT NULL AND v <> ''
+    )
+FROM agg WHERE assets.id = agg.canonical_id;
+
 -- Finally drop the duplicate asset rows. Any residual merge_aliases
 -- rows that pointed to them are removed via ON DELETE CASCADE.
 DELETE FROM assets WHERE id IN (SELECT alias_id FROM alias_map);
