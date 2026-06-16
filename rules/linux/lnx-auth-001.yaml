@@ -2,23 +2,33 @@ title: SSH Password Brute Force
 id: lnx-auth-001
 status: stable
 description: |
-  Multiple SSH password failures from the same source — classic brute-force probe
+  Detects an SSH password authentication failure event. Several of
+  these in a row from the same source IP are the classic brute-force
+  probe. The previous version of this rule matched on the bare token
+  `sshd`, which fired on every normal SSH session message (session
+  opened, session closed, service restarts). The rewrite requires
+  the log to be emitted by the sshd program AND to carry one of the
+  failure trailers sshd writes only on a refused authentication.
 references:
   - https://attack.mitre.org/techniques/T1110/001/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-16
 tags:
   - attack.credential_access
   - attack.t1110.001
 logsource:
   category: syslog
 detection:
-  selection:
-    'full_log|contains':
-      - Failed password for
-      - sshd
-      - authentication failure
-  condition: selection
+  program:
+    ident: sshd
+  failure_signal:
+    'message|contains':
+      - 'Failed password for'
+      - 'authentication failure'
+      - 'maximum authentication attempts exceeded'
+      - 'preauth'
+  condition: program and failure_signal
 falsepositives:
-  - Unknown
+  - Operator mistyping their SSH password from a bastion host. Apply
+    an asset-scoped exception if the noise overwhelms the signal.
 level: high

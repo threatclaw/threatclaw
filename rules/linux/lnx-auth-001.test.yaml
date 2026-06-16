@@ -1,17 +1,37 @@
 rule: lnx-auth-001
 
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
+# Pins the strict program + failure-signal shape so the rule cannot
+# drift back to the v1.0.36 bare-`sshd` match that fired on every
+# routine SSH session message.
 
 positive:
-  - description: First positive value from the rule selection
+  - description: Classic password failure on an attempted SSH session
     event:
-      full_log: Failed password for
-  - description: Second positive value from the rule selection
+      ident: sshd
+      message: 'Failed password for invalid user admin from 1.2.3.4 port 49222 ssh2'
+  - description: PAM authentication failure trailer behind sshd
     event:
-      full_log: sshd
+      ident: sshd
+      message: 'pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=1.2.3.4 user=root'
+  - description: Pre-auth probe burst from a scanner
+    event:
+      ident: sshd
+      message: 'Connection closed by authenticating user root 1.2.3.4 port 49222 [preauth]'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: Routine successful root login from the operator's bastion
     event:
-      full_log: operation completed successfully
+      ident: sshd
+      message: 'Accepted publickey for root from 10.0.0.5 port 50300 ssh2: RSA SHA256:...'
+  - description: Normal SSH session opened by PAM (no failure trailer)
+    event:
+      ident: sshd
+      message: 'pam_unix(sshd:session): session opened for user admin(uid=1000) by (uid=0)'
+  - description: sshd service restart by systemd
+    event:
+      ident: sshd
+      message: 'Server listening on 0.0.0.0 port 22.'
+  - description: Other program with sshd mentioned in passing should not fire
+    event:
+      ident: systemd
+      message: 'Started OpenBSD Secure Shell server (sshd.service).'

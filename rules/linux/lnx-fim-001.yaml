@@ -2,27 +2,45 @@ title: Sensitive Auth File Modified
 id: lnx-fim-001
 status: stable
 description: |
-  Change detected on /etc/passwd or /etc/shadow — typical backdoor persistence
+  Detects a modification of /etc/passwd, /etc/shadow, /etc/group or
+  /etc/sudoers. Classic backdoor persistence vector: an attacker
+  appends a user with uid 0 or grants their own user passwordless
+  sudo. The previous version of this rule fired on every log line
+  that simply mentioned one of these paths, including routine
+  `tail /etc/passwd` and `cat /etc/shadow` (both reads), and was
+  generating dozens of false positives per host per day. The
+  rewrite scopes the match to the programs that legitimately
+  modify these files (`useradd`, `usermod`, `userdel`, `passwd`,
+  `chpasswd`, `groupadd`, `groupmod`, `groupdel`, `visudo`), all of
+  which write a `pam_unix` or syslog trailer that includes the
+  username being changed.
 references:
   - https://attack.mitre.org/techniques/T1098/
+  - https://attack.mitre.org/techniques/T1136/001/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-16
 tags:
   - attack.persistence
   - attack.t1098
+  - attack.t1136.001
 logsource:
   category: syslog
 detection:
-  selection:
-    'full_log|contains':
-      - /etc/passwd
-      - /etc/shadow
-      - /etc/sudoers
-  filter:
-    'full_log|contains':
-      - read
-      - opened for reading
-  condition: selection and not filter
+  program:
+    ident:
+      - useradd
+      - usermod
+      - userdel
+      - passwd
+      - chpasswd
+      - groupadd
+      - groupmod
+      - groupdel
+      - visudo
+  condition: program
 falsepositives:
-  - Unknown
+  - Configuration management tooling (Ansible, Puppet, Salt, Chef)
+    creating service accounts. Apply an asset-scoped exception on
+    the deployment target.
+  - Approved IAM-driven account synchronisation jobs.
 level: high
