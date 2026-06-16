@@ -2544,9 +2544,40 @@ impl ThreatClawStore for PgBackend {
         hostname: &str,
     ) -> Result<Option<AssetRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Normalize on both sides so the two enrolment paths converge on
+        // the same asset row. fluent-bit / rsyslog ship the hostname
+        // verbatim from the sender, which is often a FQDN
+        // (`web-01.dexun.internal`). The osquery agent ships the short
+        // hostname (`web-01`). Before this normalization those two paths
+        // created two separate assets for the same machine, leaving the
+        // operator with a duplicate inventory entry that wouldn't merge.
+        //
+        // Match order, most specific first:
+        //   0. exact hostname (lower-cased) — preferred
+        //   1. exact name (legacy match)
+        //   2. short-hostname match (segment before the first `.`)
+        //   3. short-name match
+        // Two machines that happen to share the same short hostname but
+        // live in different domains will collide; this is rare in
+        // practice and the operator can override by setting an explicit
+        // hostname on the asset record.
         let lower = hostname.to_lowercase();
         let rows = conn.query(
-            "SELECT * FROM assets WHERE LOWER(hostname) = $1 OR LOWER(name) = $1 ORDER BY CASE WHEN LOWER(hostname) = $1 THEN 0 ELSE 1 END LIMIT 1",
+            "WITH n AS (SELECT $1::text AS h, SPLIT_PART($1::text, '.', 1) AS hs) \
+             SELECT a.* FROM assets a, n \
+             WHERE LOWER(a.hostname) = n.h \
+                OR LOWER(a.name) = n.h \
+                OR LOWER(SPLIT_PART(a.hostname, '.', 1)) = n.hs \
+                OR LOWER(SPLIT_PART(a.name, '.', 1)) = n.hs \
+             ORDER BY \
+               CASE \
+                 WHEN LOWER(a.hostname) = n.h THEN 0 \
+                 WHEN LOWER(a.name) = n.h THEN 1 \
+                 WHEN LOWER(SPLIT_PART(a.hostname, '.', 1)) = n.hs THEN 2 \
+                 ELSE 3 \
+               END, \
+               a.created_at ASC \
+             LIMIT 1",
             &[&lower],
         ).await.map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))

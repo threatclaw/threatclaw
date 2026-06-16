@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.41-beta] — 2026-06-16
+
+### Fixed
+- Linux endpoints reported by both fluent-bit syslog forwarding and the osquery agent could land twice in the inventory when one path emitted the FQDN (for example `web-01.internal`) and the other the short hostname (`web-01`). The asset lookup now matches across both shapes, preferring exact-hostname match first and falling back to the short-hostname segment, so the two enrolment paths converge on a single asset row. A one-shot rewrite on upgrade also merges the existing duplicate rows: only auto-enrolled assets (carrying the `observed` tag) are touched, the oldest row in each group becomes canonical, and every cross-table reference (findings, incidents, graph executions, ml scores, scan queue, sentinel entities, merge aliases) is redirected onto it before the redundant row is removed. Operator-curated assets are left untouched.
+
 ## [1.0.40-beta] — 2026-06-16
 
 ### Fixed
