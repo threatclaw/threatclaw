@@ -2676,6 +2676,18 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn add_asset_tag(&self, id: &str, tag: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE assets SET tags = array_append(tags, $2), updated_at = NOW() \
+             WHERE id = $1 AND NOT ($2 = ANY(tags))",
+            &[&id, &tag],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn set_asset_dedup_confidence(
         &self,
         id: &str,

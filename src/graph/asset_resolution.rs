@@ -143,6 +143,36 @@ fn build_asset_name(discovered: &DiscoveredAsset) -> String {
     discovered.ip.clone().unwrap_or_else(|| "unknown".into())
 }
 
+/// When a discovery matches one asset by MAC but its hostname matches a
+/// DIFFERENT existing asset, the two records may be the same machine (to merge)
+/// or genuinely distinct. Rather than silently fold them, tag both
+/// `possible-duplicate` and raise an alert so the operator decides via the merge
+/// UI. Never blocks ingestion — the MAC match still wins as the merge target.
+async fn flag_hostname_conflict(store: &dyn Database, target_id: &str, discovered: &DiscoveredAsset) {
+    let Some(ref hostname) = discovered.hostname else {
+        return;
+    };
+    let h = hostname.trim().to_lowercase();
+    if h.is_empty() {
+        return;
+    }
+    if let Ok(Some(other)) = store.find_asset_by_hostname(&h).await {
+        if other.id != target_id {
+            let _ = store.add_asset_tag(target_id, "possible-duplicate").await;
+            let _ = store.add_asset_tag(&other.id, "possible-duplicate").await;
+            let title = format!(
+                "Possible duplicate assets: '{}' (matched by MAC) and '{}' (same hostname '{}') — review: merge or keep separate",
+                target_id, other.id, h
+            );
+            crate::connectors::log_db_write(
+                "asset_resolution:merge_conflict",
+                store.insert_sigma_alert("asset-merge-conflict", "medium", &title, "", None, None),
+            )
+            .await;
+        }
+    }
+}
+
 /// Resolve a discovered asset: find existing match or create new.
 /// This is the core function — called by every discovery source.
 pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -> ResolutionResult {
@@ -152,6 +182,10 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
     if let Some(ref mac) = discovered.mac {
         let mac_clean = normalize_mac(mac);
         if let Some(existing) = find_asset_by_field(store, "mac", &mac_clean).await {
+            // Multi-match conflict: the MAC says `existing`, but the discovered
+            // hostname may match a DIFFERENT existing asset. Flag for review
+            // instead of silently conflating two records.
+            flag_hostname_conflict(store, &existing.id, discovered).await;
             return merge_asset(store, &existing, discovered, &now).await;
         }
     }
