@@ -175,6 +175,44 @@ async fn flag_hostname_conflict(store: &dyn Database, target_id: &str, discovere
     }
 }
 
+/// When a strong identifier (MAC/hostname) binds a discovery to a real asset and
+/// the discovery also carries an IP, check whether a DIFFERENT, auto-created
+/// provisional asset (IP-only, tag `auto-discovered`) holds that same IP. If so
+/// the provisional is a likely duplicate of the real host now that the IP is tied
+/// to a strong identity — flag both `possible-duplicate` so the operator merges.
+/// Skips pairs already marked keep-separate. Never blocks ingestion.
+async fn flag_provisional_ip_conflict(
+    store: &dyn Database,
+    target_id: &str,
+    discovered: &DiscoveredAsset,
+) {
+    let Some(ref ip) = discovered.ip else {
+        return;
+    };
+    let ip = ip.trim();
+    if ip.is_empty() {
+        return;
+    }
+    if let Ok(Some(other)) = store.find_asset_by_ip(ip).await {
+        if other.id != target_id
+            && other.tags.iter().any(|t| t == "auto-discovered")
+            && !other.tags.iter().any(|t| t == "keep-separate")
+        {
+            let _ = store.add_asset_tag(target_id, "possible-duplicate").await;
+            let _ = store.add_asset_tag(&other.id, "possible-duplicate").await;
+            let title = format!(
+                "Possible duplicate: provisional IP-only asset '{}' (IP {}) likely belongs to '{}' — review: merge or keep separate",
+                other.id, ip, target_id
+            );
+            crate::connectors::log_db_write(
+                "asset_resolution:provisional_ip_conflict",
+                store.insert_sigma_alert("asset-merge-conflict", "medium", &title, "", None, None),
+            )
+            .await;
+        }
+    }
+}
+
 /// Resolve a discovered asset: find existing match or create new.
 /// This is the core function — called by every discovery source.
 pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -> ResolutionResult {
@@ -188,6 +226,7 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
             // hostname may match a DIFFERENT existing asset. Flag for review
             // instead of silently conflating two records.
             flag_hostname_conflict(store, &existing.id, discovered).await;
+            flag_provisional_ip_conflict(store, &existing.id, discovered).await;
             return merge_asset(store, &existing, discovered, &now).await;
         }
     }
@@ -224,6 +263,7 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
                 sources: vec![pg_existing.source.clone()],
                 last_seen: None,
             };
+            flag_provisional_ip_conflict(store, &pg_existing.id, discovered).await;
             return merge_asset(store, &synthesised, discovered, &now).await;
         }
         // Fall back to the graph for legacy datasets that may have a node
