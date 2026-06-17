@@ -16,7 +16,11 @@ set -euo pipefail
 TC_URL="${TC_URL:-}"
 TC_TOKEN="${TC_TOKEN:-}"
 AGENT_ID=""
-OSQUERY_VERSION="5.12.1"
+# We don't pin osquery's version: pkg.osquery.io only keeps the latest in its
+# apt/yum repos, so a `=5.12.1-*` pin breaks the install entirely the day
+# upstream rotates. The agent works against any 5.x. Kept here for the
+# log line only.
+OSQUERY_VERSION_FLOOR="5.12.1"
 SYNC_INTERVAL=300  # 5 minutes
 
 # ── Colors ──
@@ -88,7 +92,7 @@ install_osquery() {
     return 0
   fi
 
-  log "Installing osquery $OSQUERY_VERSION..."
+  log "Installing osquery (latest from pkg.osquery.io, $OSQUERY_VERSION_FLOOR or newer)..."
 
   case $OS in
     debian)
