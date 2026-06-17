@@ -1,0 +1,49 @@
+title: Sysmon PowerShell Encoded Command Execution
+id: win-syslog-002
+status: stable
+description: |
+  Detects a Sysmon Process Create event for a PowerShell process
+  whose command line carries the EncodedCommand / -enc / -ec
+  switches. Encoded commands are the staple of post-exploitation
+  frameworks (Empire, Cobalt Strike, Mythic, Sliver) and trivially
+  bypass naïve signature scanners; legitimate administrative use
+  is rare and almost always explicit.
+
+  The Sysmon command line field is emitted under the literal token
+  `CommandLine:` regardless of host locale, so the rule matches on
+  every NXLog-forwarded Windows host without needing per-locale
+  variants.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_pwsh
+author: ThreatClaw
+date: 2026-06-17
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.001
+logsource:
+  category: syslog
+detection:
+  program:
+    ident: Microsoft-Windows-Sysmon
+  process_create:
+    'message|contains':
+      - 'Process Create:'
+  powershell_image:
+    'message|contains':
+      - 'powershell.exe'
+      - 'pwsh.exe'
+  encoded_flag:
+    'message|contains':
+      - 'EncodedCommand'
+      - ' -enc '
+      - ' -ec '
+      - ' -EC '
+      - ' -ENC '
+  condition: program and process_create and powershell_image and encoded_flag
+falsepositives:
+  - A handful of vendor installers and Office add-ins still rely on
+    encoded command launchers. Tag those processes by parent image
+    once the vendor pattern is confirmed.
+level: high

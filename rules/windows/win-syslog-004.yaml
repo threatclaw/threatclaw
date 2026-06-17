@@ -1,0 +1,49 @@
+title: PowerShell ScriptBlock With Reflective Loader Pattern
+id: win-syslog-004
+status: stable
+description: |
+  Detects a Microsoft-Windows-PowerShell ScriptBlock log (event 4104)
+  whose body carries reflective-loader primitives —
+  `Reflection.Assembly::Load`, `System.Reflection.Emit`,
+  `VirtualAlloc` / `WriteProcessMemory` / `CreateRemoteThread`
+  P/Invoke patterns, or the canonical AMSI bypass strings.
+  Legitimate administrative scripts virtually never need these
+  primitives, while every PowerShell-based offensive loader uses
+  at least one of them.
+
+  The ScriptBlock log is emitted on every PowerShell host with
+  ScriptBlock Logging enabled (group policy:
+  `Computer Configuration > Administrative Templates > Windows
+  Components > Windows PowerShell > Turn on PowerShell Script Block
+  Logging`). On a deployment where the policy is not yet set this
+  rule will not fire — that itself is an audit finding.
+references:
+  - https://attack.mitre.org/techniques/T1059/001/
+  - https://attack.mitre.org/techniques/T1620/
+author: ThreatClaw
+date: 2026-06-17
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.001
+  - attack.t1620
+logsource:
+  category: syslog
+detection:
+  program:
+    ident: Microsoft-Windows-PowerShell
+  reflective_loader:
+    'message|contains':
+      - 'Reflection.Assembly]::Load'
+      - 'System.Reflection.Emit'
+      - 'VirtualAlloc'
+      - 'WriteProcessMemory'
+      - 'CreateRemoteThread'
+      - 'amsiInitFailed'
+      - 'AmsiUtils'
+  condition: program and reflective_loader
+falsepositives:
+  - Penetration-testing tooling executed in a sanctioned engagement.
+    Apply an engagement-scoped exception with an expiry date so the
+    detection re-arms when the engagement ends.
+level: critical

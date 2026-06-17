@@ -1,0 +1,45 @@
+title: Sysmon Process Create From User-Writable Directory
+id: win-syslog-001
+status: stable
+description: |
+  Detects a Sysmon Process Create event whose Image path lies inside
+  a user-writable directory (Temp, AppData, ProgramData, public Users
+  folders). Attackers stage payloads in these locations to bypass
+  AppLocker / WDAC rules that pin trust to Program Files and
+  System32.
+
+  This rule targets the Sysmon EventID 1 message that NXLog (or any
+  syslog forwarder) ships to ThreatClaw as a Microsoft-Windows-Sysmon
+  payload. The structured Sysmon channel emits the fields in
+  English regardless of the host locale, so the substring match is
+  portable across French / German / Spanish Windows installs.
+references:
+  - https://attack.mitre.org/techniques/T1059/
+  - https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon
+author: ThreatClaw
+date: 2026-06-17
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059
+logsource:
+  category: syslog
+detection:
+  program:
+    ident: Microsoft-Windows-Sysmon
+  process_create:
+    'message|contains':
+      - 'Process Create:'
+  suspicious_image_path:
+    'message|contains':
+      - 'Image: C:\Users\Public\'
+      - 'Image: C:\ProgramData\'
+      - 'Image: C:\Windows\Temp\'
+      - '\AppData\Local\Temp\'
+      - '\AppData\Roaming\'
+  condition: program and process_create and suspicious_image_path
+falsepositives:
+  - Endpoint management tooling that stages updaters in ProgramData
+    (e.g. some EDR agents). Apply an asset-scoped exception once the
+    vendor path is confirmed.
+level: high

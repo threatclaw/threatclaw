@@ -1,0 +1,33 @@
+rule: win-syslog-001
+
+# Pins the strict Sysmon-process-create + user-writable-image-path
+# shape so the rule cannot drift back to a bare token match that
+# would fire on every routine Sysmon event.
+
+positive:
+  - description: Sysmon Process Create staging payload in C:\Users\Public
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  RuleName: -  ProcessId: 1234  Image: C:\Users\Public\Downloads\loader.exe  CommandLine: "C:\Users\Public\Downloads\loader.exe"  User: WORKGROUP\victim'
+  - description: Sysmon Process Create from %APPDATA%\Local\Temp
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  RuleName: -  ProcessId: 9876  Image: C:\Users\victim\AppData\Local\Temp\stage2.exe  CommandLine: "stage2.exe /silent"'
+  - description: Sysmon Process Create from C:\ProgramData
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\ProgramData\OfflineUpdate\update.exe  CommandLine: "update.exe -f"'
+
+negative:
+  - description: Routine Sysmon Process Create from C:\Program Files (legit binary path)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  Image: C:\Program Files\osquery\osqueryi.exe  CommandLine: "osqueryi.exe --json"'
+  - description: Sysmon FileCreate event (different EventID — must not match the rule)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'FileCreate:  TargetFilename: C:\Users\Public\Downloads\notes.txt'
+  - description: PowerShell ScriptBlock referencing C:\Users\Public in a string (not a Sysmon process_create)
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : Get-Content C:\Users\Public\Documents\README.txt'

@@ -1,0 +1,34 @@
+rule: win-syslog-004
+
+# Pins Microsoft-Windows-PowerShell ScriptBlock log + reflective-
+# loader primitives. Must not fire on Sysmon process_create with
+# the same tokens (different ident, different channel) — those are
+# covered by win-syslog-002 / -003.
+
+positive:
+  - description: ScriptBlock with Reflection.Assembly]::Load
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : $a = [Reflection.Assembly]::Load($bytes); $a.EntryPoint.Invoke($null, $null)'
+  - description: ScriptBlock with VirtualAlloc / WriteProcessMemory P/Invoke
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : $VirtualAlloc = ($Win32Functions.VirtualAlloc).Invoke(...); WriteProcessMemory(...)'
+  - description: ScriptBlock with AMSI bypass string
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : [Ref].Assembly.GetType("System.Management.Automation.AmsiUtils").GetField("amsiInitFailed","NonPublic,Static").SetValue($null,$true)'
+
+negative:
+  - description: Routine PowerShell ScriptBlock invoking a cmdlet (no reflective primitive)
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : Get-Service | Where-Object {$_.Status -eq "Running"}'
+  - description: Sysmon Process Create that mentions a token in a command argument (different ident — must not match)
+    event:
+      ident: Microsoft-Windows-Sysmon
+      message: 'Process Create:  CommandLine: "powershell.exe -c Write-Output VirtualAlloc"'
+  - description: PowerShell ScriptBlock referencing the string Reflection.Assembly in a comment (no actual ::Load call)
+    event:
+      ident: Microsoft-Windows-PowerShell
+      message: 'Création du texte Scriptblock : # This script demonstrates how Reflection.Assembly is used.'
