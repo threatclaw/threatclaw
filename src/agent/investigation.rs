@@ -259,6 +259,73 @@ pub async fn run_investigation(
     // Get language preference
     let lang = crate::agent::prompt_builder::get_language(store.as_ref()).await;
 
+    // ── Pre-flight enrichment ──
+    //
+    // Observation 2026-06-17: 15/15 verdict_source='react' incidents on
+    // a 7-day audit landed with skill_calls=0. The prompt advertised
+    // the skills as optional ("Si tu as besoin de plus d'info, demande
+    // l'appel d'une skill") and Qwen3 8B (CPU-only on the standard
+    // staging profile) systematically took the short path: it returned
+    // a verdict on the first iteration without ever requesting a
+    // skill. The LLM then judged on whatever shape the dossier already
+    // had — sometimes empty (incident #122 root cause) — and produced
+    // hallucinated CRITICAL verdicts.
+    //
+    // Pre-flight enrichment removes the LLM's discretion on the
+    // baseline lookups. Two deterministic skill calls run BEFORE the
+    // first prompt:
+    //   - asset_context: the L1 must know the asset's category,
+    //     criticality and OS to ground its severity choice. Without
+    //     it the verdict is a coin toss on noisy hosts.
+    //   - ip_reputation: every distinct source_ip in the sigma alerts
+    //     (capped to 5 to keep the prompt short and the cost bounded)
+    //     gets a GreyNoise lookup. Most "brute force" verdicts on
+    //     internal deploy hosts collapse to false_positive once the
+    //     source IP is known as benign internal infra.
+    //
+    // The results land in skill_results before iteration 1, so even
+    // a one-shot LLM gets enriched evidence on the very first prompt.
+    // skill_calls is bumped accordingly so the investigation_log
+    // reflects what actually ran.
+    let preflight_skills = collect_preflight_skills(&dossier);
+    if !preflight_skills.is_empty() {
+        info!(
+            "INVESTIGATION: pre-flight enrichment — {} skill(s) queued",
+            preflight_skills.len()
+        );
+        for req in &preflight_skills {
+            if skill_calls >= config.max_skill_calls {
+                break;
+            }
+            match tokio::time::timeout(
+                config.skill_timeout,
+                execute_investigation_skill(req, &store),
+            )
+            .await
+            {
+                Ok(result) => {
+                    info!(
+                        "INVESTIGATION: pre-flight {} → success={} ({}ms)",
+                        result.skill_name, result.success, result.duration_ms
+                    );
+                    if !result.success {
+                        failed_skills.insert(req.skill_name.clone());
+                    }
+                    skill_results.push((req.skill_name.clone(), result.data));
+                }
+                Err(_) => {
+                    warn!("INVESTIGATION: pre-flight {} timed out", req.skill_name);
+                    failed_skills.insert(req.skill_name.clone());
+                    skill_results.push((
+                        req.skill_name.clone(),
+                        serde_json::json!({"error": "timeout"}),
+                    ));
+                }
+            }
+            skill_calls += 1;
+        }
+    }
+
     loop {
         // Guard-rails
         if iteration >= config.max_iterations {
@@ -656,6 +723,57 @@ pub async fn run_investigation(
     }
 }
 
+/// Build the deterministic enrichment list that runs BEFORE the LLM
+/// is consulted. Each entry runs through the regular skill execution
+/// path so the results land in `skill_results` exactly as if the LLM
+/// had requested them — the only difference is that we ship a baseline
+/// of evidence on the very first prompt instead of trusting the model
+/// to ask for it. Stays deliberately small (≤ 1 + 5 calls) so a CPU
+/// Ollama keeps the verdict cycle inside its overall timeout.
+fn collect_preflight_skills(dossier: &IncidentDossier) -> Vec<SkillRequest> {
+    let mut out: Vec<SkillRequest> = Vec::new();
+
+    // Always look up the primary asset so the L1 grounds its severity
+    // judgment in the asset's declared criticality and OS instead of
+    // making them up. asset_context is the only skill that always has
+    // a sensible call shape: { "asset": primary_asset } — every other
+    // skill needs a dossier-derived parameter that may not exist.
+    out.push(SkillRequest {
+        skill_name: "asset_context".to_string(),
+        params: serde_json::json!({ "asset": dossier.primary_asset }),
+    });
+
+    // Distinct, RFC1918-aware source IPs pulled from sigma alerts.
+    // 5 is the cap: a CPU Ollama call costs ~150 s and we want the
+    // whole pre-flight phase to remain bounded below ~30 s wall-clock
+    // (skills run sequentially today). Internal RFC1918 IPs are still
+    // useful — GreyNoise returns "unknown" for them, which is itself
+    // a signal: noisy public-internet brute forcers do not surface
+    // there. If we ever flip to parallel pre-flight execution this
+    // cap can move up.
+    let mut seen = std::collections::HashSet::new();
+    for alert in &dossier.sigma_alerts {
+        if let Some(ref ip) = alert.source_ip {
+            let trimmed = ip.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !seen.insert(trimmed.to_string()) {
+                continue;
+            }
+            out.push(SkillRequest {
+                skill_name: "ip_reputation".to_string(),
+                params: serde_json::json!({ "ip": trimmed }),
+            });
+            if seen.len() >= 5 {
+                break;
+            }
+        }
+    }
+
+    out
+}
+
 fn make_error_result(
     dossier_id: uuid::Uuid,
     asset: String,
@@ -764,5 +882,113 @@ mod tests {
         }"#;
         let parsed = parse_llm_response(raw).expect("parse");
         assert!(parsed.evidence_citations.is_empty());
+    }
+
+    // Pre-flight enrichment tests (Bug #2 — incident #122 root cause):
+    // the L1 ReAct used to ship verdicts with skill_calls=0 because the
+    // prompt advertised skills as optional. We now run a deterministic
+    // baseline before the LLM is consulted, and these tests pin the
+    // shape of that baseline.
+
+    fn make_test_dossier(asset: &str, ips: Vec<&str>) -> IncidentDossier {
+        use crate::agent::incident_dossier::*;
+        use crate::agent::intelligence_engine::NotificationLevel;
+        let sigma_alerts: Vec<DossierAlert> = ips
+            .into_iter()
+            .enumerate()
+            .map(|(i, ip)| DossierAlert {
+                id: i as i64,
+                rule_id: "test-rule".into(),
+                rule_name: "noise".into(),
+                level: "high".into(),
+                source_ip: if ip.is_empty() {
+                    None
+                } else {
+                    Some(ip.to_string())
+                },
+                matched_fields: serde_json::json!({}),
+                created_at: Utc::now(),
+                username: None,
+            })
+            .collect();
+        IncidentDossier {
+            id: uuid::Uuid::new_v4(),
+            created_at: Utc::now(),
+            primary_asset: asset.into(),
+            findings: vec![],
+            sigma_alerts,
+            enrichment: EnrichmentBundle {
+                ip_reputations: vec![],
+                cve_details: vec![],
+                threat_intel: vec![],
+                enrichment_lines: vec![],
+            },
+            correlations: CorrelationBundle {
+                kill_chain_detected: false,
+                kill_chain_steps: vec![],
+                active_attack: false,
+                known_exploits: vec![],
+                related_assets: vec![],
+                campaign_id: None,
+            },
+            graph_intel: None,
+            ml_scores: MlBundle {
+                anomaly_score: 0.0,
+                dga_domains: vec![],
+                behavioral_cluster: None,
+            },
+            asset_score: 0.0,
+            global_score: 0.0,
+            notification_level: NotificationLevel::Silence,
+            connected_skills: vec![],
+            graph_context: None,
+            investigation_log: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_preflight_always_includes_asset_context() {
+        let dossier = make_test_dossier("test-host", vec![]);
+        let skills = collect_preflight_skills(&dossier);
+        assert!(skills.iter().any(|s| s.skill_name == "asset_context"));
+        let ac = skills.iter().find(|s| s.skill_name == "asset_context").unwrap();
+        assert_eq!(ac.params.get("asset").and_then(|v| v.as_str()), Some("test-host"));
+    }
+
+    #[test]
+    fn test_preflight_adds_one_ip_reputation_per_distinct_source_ip() {
+        let dossier = make_test_dossier(
+            "test-host",
+            vec!["1.1.1.1", "2.2.2.2", "1.1.1.1"], // dup must collapse
+        );
+        let skills = collect_preflight_skills(&dossier);
+        let ip_skills: Vec<&SkillRequest> =
+            skills.iter().filter(|s| s.skill_name == "ip_reputation").collect();
+        assert_eq!(ip_skills.len(), 2);
+        let ips: std::collections::HashSet<&str> = ip_skills
+            .iter()
+            .filter_map(|s| s.params.get("ip").and_then(|v| v.as_str()))
+            .collect();
+        assert!(ips.contains("1.1.1.1"));
+        assert!(ips.contains("2.2.2.2"));
+    }
+
+    #[test]
+    fn test_preflight_caps_ip_reputation_at_five() {
+        let dossier = make_test_dossier(
+            "test-host",
+            vec!["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5", "6.6.6.6", "7.7.7.7"],
+        );
+        let skills = collect_preflight_skills(&dossier);
+        let ip_count = skills.iter().filter(|s| s.skill_name == "ip_reputation").count();
+        assert_eq!(ip_count, 5, "must cap ip_reputation at 5 calls");
+    }
+
+    #[test]
+    fn test_preflight_skips_alerts_without_source_ip() {
+        let dossier = make_test_dossier("test-host", vec!["", "1.1.1.1", ""]);
+        let skills = collect_preflight_skills(&dossier);
+        let ip_count = skills.iter().filter(|s| s.skill_name == "ip_reputation").count();
+        assert_eq!(ip_count, 1, "alerts with no source_ip must not produce a skill call");
     }
 }
