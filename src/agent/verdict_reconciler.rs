@@ -42,6 +42,10 @@ pub struct SignalsSnapshot {
     pub graph_lateral_paths: u32,
     pub graph_linked_cves: usize,
     pub graph_known: bool,
+    /// Rule H — total number of sigma alerts on the dossier itself.
+    /// If 0, the LLM judged on an empty evidence basket; we cannot
+    /// confirm a verdict in that case.
+    pub dossier_sigma_alerts_count: usize,
 }
 
 impl SignalsSnapshot {
@@ -80,6 +84,7 @@ impl SignalsSnapshot {
             graph_lateral_paths,
             graph_linked_cves,
             graph_known,
+            dossier_sigma_alerts_count: dossier.sigma_alerts.len(),
         }
     }
 }
@@ -336,6 +341,53 @@ pub fn rule_e_fabricated_citations(
     })
 }
 
+/// Rule H: LLM claims `confirmed` on an empty evidence basket.
+///
+/// Triggers when:
+/// - LLM verdict = "confirmed"
+/// - dossier carried zero sigma alerts
+/// - ml_anomaly_score < 0.5 (ML didn't flag anything either)
+///
+/// Surfaced by incident #122 (2026-06-17): a bug in
+/// `recent_sigma_alerts_for_asset` returned 0 rows for assets whose
+/// id was prefixed (`syslog-observed-sd-98664`) while the alerts
+/// keyed on the bare hostname (`sd-98664`). The dossier reached
+/// L1 ReAct empty, the LLM hallucinated "Anomalies comportementales
+/// multiples" CRITICAL, and rule_a_confirmed_but_weak did not fire
+/// because `global_score` was saturated by the dossier-construction
+/// side that DOES count the alerts. Rule H closes that hole at the
+/// reconciler so the same shape of bug can never again ship a
+/// CRITICAL with no underlying signal.
+///
+/// Downgrades to `inconclusive MEDIUM` with confidence × 0.5.
+pub fn rule_h_confirmed_empty_dossier(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    if signals.dossier_sigma_alerts_count > 0 {
+        return None;
+    }
+    if signals.ml_anomaly_score >= 0.5 {
+        return None;
+    }
+    Some(Modification {
+        new_verdict: "inconclusive".into(),
+        new_severity: "MEDIUM".into(),
+        new_confidence: (llm.confidence * 0.5).clamp(0.0, 1.0),
+        reason_code: "rule_h_confirmed_empty_dossier".into(),
+        reason_text: format!(
+            "LLM claimed 'confirmed' but the dossier carried 0 sigma alerts \
+             and ml_anomaly={:.2} (< 0.5). No deterministic signal supports \
+             the verdict — likely hallucination on an empty evidence basket. \
+             Downgraded for analyst review.",
+            signals.ml_anomaly_score
+        ),
+    })
+}
+
 /// Outcome of a full reconciliation run.
 #[derive(Debug, Clone)]
 pub struct ReconciliationOutcome {
@@ -378,6 +430,7 @@ pub fn reconcile_verdict(
 
     let modification = rule_d_validation_errors(llm, &signals, mode)
         .or_else(|| rule_e_fabricated_citations(llm, citation_report, mode))
+        .or_else(|| rule_h_confirmed_empty_dossier(llm, &signals))
         .or_else(|| rule_a_confirmed_but_weak(llm, &signals))
         .or_else(|| rule_f_confirmed_but_isolated_graph(llm, &signals))
         .or_else(|| rule_b_false_positive_but_strong(llm, &signals))
@@ -579,6 +632,7 @@ mod tests {
             graph_lateral_paths: 0,
             graph_linked_cves: 0,
             graph_known: false,
+            dossier_sigma_alerts_count: 1,
         }
     }
 
@@ -594,6 +648,7 @@ mod tests {
             graph_lateral_paths: 2,
             graph_linked_cves: 1,
             graph_known: true,
+            dossier_sigma_alerts_count: 5,
         }
     }
 
@@ -717,9 +772,20 @@ mod tests {
 
     #[test]
     fn test_reconcile_lenient_logs_but_does_not_apply() {
-        // Rule A should trigger but apply=false in Lenient.
+        // Rule A should trigger but apply=false in Lenient. We add a single
+        // non-critical sigma alert so Rule H (empty dossier) does not preempt.
         let llm = snap("confirmed", "HIGH", 0.9);
-        let dossier = empty_dossier(); // weak signals
+        let mut dossier = empty_dossier();
+        dossier.sigma_alerts.push(DossierAlert {
+            id: 1,
+            rule_id: "low-rule".into(),
+            rule_name: "noise".into(),
+            level: "low".into(),
+            source_ip: None,
+            matched_fields: serde_json::json!({}),
+            created_at: Utc::now(),
+            username: None,
+        });
         let report = ValidationReport::default();
         let outcome = reconcile_verdict(
             &llm,
@@ -926,6 +992,7 @@ mod tests {
             graph_lateral_paths: 2, // real lateral paths from attack_paths_predicted
             graph_linked_cves: 0,
             graph_known: true,
+            dossier_sigma_alerts_count: 1,
         };
         assert!(
             rule_f_confirmed_but_isolated_graph(&llm, &s).is_none(),
@@ -937,6 +1004,54 @@ mod tests {
         assert!(
             rule_f_confirmed_but_isolated_graph(&llm, &s).is_some(),
             "Rule F must fire when lateral_paths=0 and no CVE and no sigma critical"
+        );
+    }
+
+    // Incident #122 regression: Rule H must downgrade a "confirmed"
+    // verdict reached on an empty sigma_alerts basket.
+    #[test]
+    fn test_rule_h_fires_on_empty_dossier() {
+        let llm = snap("confirmed", "CRITICAL", 0.85);
+        let s = SignalsSnapshot {
+            global_score: 100.0,
+            ml_anomaly_score: 0.1,
+            sigma_critical_count: 0,
+            sigma_high_count: 0,
+            kev_cve_count: 0,
+            validation_error_count: 0,
+            validation_warning_count: 0,
+            graph_lateral_paths: 0,
+            graph_linked_cves: 0,
+            graph_known: false,
+            dossier_sigma_alerts_count: 0,
+        };
+        let m = rule_h_confirmed_empty_dossier(&llm, &s).expect("Rule H must fire");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.new_severity, "MEDIUM");
+        assert!((m.new_confidence - 0.85 * 0.5).abs() < 1e-9);
+        assert_eq!(m.reason_code, "rule_h_confirmed_empty_dossier");
+    }
+
+    #[test]
+    fn test_rule_h_skips_when_alerts_present() {
+        let llm = snap("confirmed", "CRITICAL", 0.85);
+        let mut s = signals_weak();
+        s.dossier_sigma_alerts_count = 3;
+        assert!(
+            rule_h_confirmed_empty_dossier(&llm, &s).is_none(),
+            "Rule H must not fire when dossier carries sigma alerts"
+        );
+    }
+
+    #[test]
+    fn test_rule_h_skips_when_ml_anomalous() {
+        let llm = snap("confirmed", "CRITICAL", 0.85);
+        let mut s = signals_weak();
+        s.dossier_sigma_alerts_count = 0;
+        s.ml_anomaly_score = 0.7;
+        assert!(
+            rule_h_confirmed_empty_dossier(&llm, &s).is_none(),
+            "Rule H must not fire when ML flagged the asset (ml=0.7)"
         );
     }
 }

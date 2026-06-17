@@ -4098,17 +4098,45 @@ impl ThreatClawStore for PgBackend {
                 // INC-65 immediately on the next 5-min tick because the
                 // historical lnx-acct-002 alerts marked false_positive were
                 // still considered active context.
-                "WITH asset_ips AS ( \
-                   SELECT split_part(unnest(ip_addresses), ':', 1) AS ip \
+                // 2026-06-17 — resolve the asset to its full hostname set
+                // (id, name, hostname) BEFORE matching sigma_alerts. The old
+                // version compared sigma_alerts.hostname only against `$1`,
+                // which is the asset.id passed by the IE — so for assets
+                // auto-enrolled as `syslog-observed-sd-98664` (id) whose real
+                // hostname is `sd-98664`, the lookup returned 0 rows even
+                // though dozens of alerts had hostname='sd-98664'. The
+                // empty result then drove the dossier to L1 ReAct on no
+                // evidence, and the LLM hallucinated CRITICAL "behavioral
+                // anomalies" verdicts (incidents #47/48/51/56/62/84/89/122).
+                // We now broaden the match to every alias the assets table
+                // knows for this entity (id, name, hostname) plus its IP
+                // addresses, both case-sensitive and lower-cased so a sigma
+                // alert keyed on `SRV-CYBE06-001` aligns with an asset
+                // declared as `srv-cybe06-001` after V84.
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname, COALESCE(ip_addresses, '{}'::text[]) AS ips \
                    FROM assets \
                    WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT id AS alias FROM asset_resolved \
+                   UNION SELECT name FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT hostname FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT LOWER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT LOWER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT UPPER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT UPPER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT $1 \
+                 ), asset_ips AS ( \
+                   SELECT split_part(unnest(ips), ':', 1) AS ip FROM asset_resolved \
                  ) \
                  SELECT id, rule_id, COALESCE(title, rule_id, 'unknown'), level, \
                         matched_at, COALESCE(matched_fields, '{}'), username, \
                         source_ip::text \
                  FROM sigma_alerts \
                  WHERE ( \
-                     hostname = $1 OR source_ip::text = $1 \
+                     hostname IN (SELECT alias FROM asset_aliases) \
+                     OR source_ip::text IN (SELECT alias FROM asset_aliases) \
                      OR hostname IN (SELECT ip FROM asset_ips) \
                      OR source_ip::text IN (SELECT ip FROM asset_ips) \
                  ) AND matched_at >= $2 \
