@@ -1794,6 +1794,13 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         // future value and every subsequent batch skips every log that
         // arrives in the meantime — the engine looked alive but was
         // actually starved. We never persist a cursor past `now()`.
+        //
+        // Rate-limited warning: the previous version logged "is in the
+        // future" on every cycle (~every 32 s on cyb06), filling the
+        // operator log with the same message hundreds of times a day.
+        // The drift is a known upstream NTP bug; we now emit the warn
+        // at most once every 5 minutes so the persistent
+        // misconfiguration is still visible without drowning the log.
         let now = chrono::Utc::now();
         let effective_time = match chrono::DateTime::parse_from_rfc3339(&last_time)
             .or_else(|_| {
@@ -1805,10 +1812,37 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
             Ok(parsed) => {
                 let parsed_utc = parsed.with_timezone(&chrono::Utc);
                 if parsed_utc > now {
-                    tracing::warn!(
-                        "SIGMA: last-log time {} is in the future, clamping cursor to now",
-                        last_time
-                    );
+                    let last_warn = store
+                        .get_setting("_sigma_state", "future_clamp_last_warn")
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.as_str().map(String::from))
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                        .map(|t| t.with_timezone(&chrono::Utc));
+                    let should_warn = match last_warn {
+                        Some(t) => now.signed_duration_since(t)
+                            >= chrono::Duration::minutes(5),
+                        None => true,
+                    };
+                    if should_warn {
+                        tracing::warn!(
+                            "SIGMA: last-log time {} is in the future, clamping cursor to now (host clock drift — fix the upstream NTP)",
+                            last_time
+                        );
+                        let _ = store
+                            .set_setting(
+                                "_sigma_state",
+                                "future_clamp_last_warn",
+                                &serde_json::Value::String(now.to_rfc3339()),
+                            )
+                            .await;
+                    } else {
+                        tracing::debug!(
+                            "SIGMA: last-log time {} is in the future, clamping cursor to now (warn rate-limited)",
+                            last_time
+                        );
+                    }
                     now.to_rfc3339()
                 } else {
                     last_time

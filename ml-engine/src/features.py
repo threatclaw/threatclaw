@@ -106,6 +106,36 @@ def extract_asset_features(hours_back=24):
         if a.get("hostname"):
             ip_to_asset[a["hostname"]] = a["id"]
 
+    # Junk-hostname blocklist mirrored from sigma_engine.rs
+    # `looks_like_program_or_container_id`. Without it, the ML engine
+    # writes ml_scores for asset_ids that never end up in the assets
+    # table — the syslog observe-and-enrol pass intentionally skips
+    # these hostnames, but the ML cycle would happily score them and
+    # leave orphan rows in `ml_scores` that V86 has to clean up.
+    PROGRAM_BLOCKLIST = {
+        "kernel", "systemd", "rsyslogd", "syslog-ng", "dockerd",
+        "containerd", "containerd-shim", "cron", "crond", "sshd",
+        "sshd-session", "audit", "auditd", "sudo", "su", "login",
+        "init", "dhclient", "networkmanager", "wpa_supplicant",
+        "agetty", "polkitd", "snapd", "chronyd", "ntpd", "named",
+        "postfix", "nginx", "apache2", "httpd", "haproxy", "kubelet",
+        "kube-proxy", "systemd-logind", "systemd-tmpfiles", "lynis",
+        "osqueryd",
+    }
+
+    def is_junk_hostname(h):
+        if not h:
+            return True
+        low = h.lower()
+        if low in PROGRAM_BLOCKLIST:
+            return True
+        if low.startswith("threatclaw-"):
+            return True
+        # Docker container ids — 12 or 64 hex chars with no dash/dot/_
+        if len(h) in (12, 64) and all(c in "0123456789abcdef" for c in low):
+            return True
+        return False
+
     features = defaultdict(lambda: {
         "alerts_count": 0, "alerts_critical": 0, "alerts_high": 0,
         "unique_source_ips": set(), "unique_rules": set(),
@@ -117,6 +147,13 @@ def extract_asset_features(hours_back=24):
     # Process alerts
     for a in alerts:
         hostname = a.get("hostname") or ""
+        if is_junk_hostname(hostname):
+            continue
+        # Prefer the canonical asset id when the assets table knows
+        # this hostname; otherwise fall back to the raw hostname
+        # (legitimate for hosts under is_monitored but not yet
+        # enrolled). Skip the row entirely when neither path
+        # resolves — orphan ml_scores are gone.
         asset_id = ip_to_asset.get(hostname, hostname)
         if not asset_id or not is_monitored(asset_id):
             continue
@@ -151,6 +188,8 @@ def extract_asset_features(hours_back=24):
     # Process logs
     for log in logs:
         hostname = log.get("hostname") or ""
+        if is_junk_hostname(hostname):
+            continue
         asset_id = ip_to_asset.get(hostname, hostname)
         if not asset_id or not is_monitored(asset_id):
             continue
