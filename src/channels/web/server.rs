@@ -1319,6 +1319,12 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::webhook_get_token_handler)
                 .post(super::handlers::threatclaw_api::webhook_generate_token_handler),
         )
+        // Pre-flight token check (agent installer): validate without ingesting.
+        .route(
+            "/api/tc/webhook/ping/{source}",
+            get(super::handlers::threatclaw_api::webhook_ping_handler)
+                .post(super::handlers::threatclaw_api::webhook_ping_handler),
+        )
         // Endpoint agents (osquery-based)
         .route(
             "/api/tc/agent/manifest",

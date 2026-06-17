@@ -69,6 +69,28 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# ── Pre-flight ──
+# Verify the server is reachable AND the token is valid BEFORE touching the
+# system, so a wrong URL/port (often :8445, not 443) or a bad token fails fast
+# instead of leaving a half-configured agent that silently never reports.
+# -k matches the sync script (self-signed cert); this checks reachability +
+# token, not cert validity.
+info "Pre-flight: checking connection and token at $TC_URL ..."
+ping_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
+  -X POST -H "X-Webhook-Token: $TC_TOKEN" \
+  "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null || echo "000")
+case "$ping_code" in
+  # Only abort on the two unambiguous failures: a clearly-rejected token (401) or
+  # no response at all (000 = server/port/firewall). ANY other HTTP response means
+  # the server is reachable and the token check is merely inconclusive (older
+  # server with no ping endpoint, a proxy filtering this path, a transient 5xx,
+  # rate-limit...) — don't block a valid install; the first sync is the real test.
+  2??) log "Pre-flight OK — server reachable and token valid" ;;
+  401) warn "Server reachable but the webhook token is INVALID — check the token (Dashboard > Skills > Osquery). Nothing was installed."; exit 1 ;;
+  000) warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."; exit 1 ;;
+  *)   warn "Server reachable; token check inconclusive (HTTP $ping_code) — proceeding (the first sync is the real test)." ;;
+esac
+
 # ── Detect OS ──
 detect_os() {
   if [ -f /etc/debian_version ]; then

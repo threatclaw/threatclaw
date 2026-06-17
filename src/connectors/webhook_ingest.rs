@@ -99,6 +99,70 @@ fn check_rate_limit(key: &str) -> bool {
     check_bucket(key, MAX_REQUESTS_PER_MINUTE)
 }
 
+/// Generous per-source cap for the pre-flight ping. This is an anti-DoS guard,
+/// NOT the brute-force defence — the 32-char random token entropy is. Sized high
+/// so a mass agent rollout (many installs pinging at once) is never blocked.
+const MAX_PING_PER_SOURCE_PER_MINUTE: u32 = 600;
+/// Raise one probe alert once a source crosses this many invalid pings in a window.
+const PING_ALERT_THRESHOLD: u32 = 10;
+
+/// Invalid-token ping count per source, for probe detection (reset on success).
+static PING_FAILURES: std::sync::LazyLock<Mutex<HashMap<String, u32>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Outcome of a pre-flight token ping. Side-effect free (validates only).
+pub enum PingResult {
+    Ok,
+    BadToken,
+    RateLimited,
+}
+
+/// Validate a webhook token WITHOUT ingesting anything — the agent installer's
+/// pre-flight calls this so it can tell the operator "token invalid" apart from
+/// "server unreachable" before mutating the endpoint.
+///
+/// Security (this is a security product — be exact):
+/// - constant-time comparison via `verify_token` (`subtle::ConstantTimeEq`) → no timing oracle
+/// - uniform result; the caller maps a bad/missing/malformed token to one bare 401 (no leak)
+/// - rate-limited (anti-DoS only; brute-force is defeated by the 32-char token entropy)
+/// - repeated failures are logged and raise a sigma alert → the platform DETECTS
+///   token-probing against itself instead of leaving a silent oracle
+pub async fn ping_token(store: &dyn Database, source: &str, token: &str) -> PingResult {
+    if !check_bucket(&format!("__ping/{source}"), MAX_PING_PER_SOURCE_PER_MINUTE) {
+        return PingResult::RateLimited;
+    }
+    if verify_token(store, source, token).await {
+        if let Ok(mut f) = PING_FAILURES.lock() {
+            f.remove(source);
+        }
+        return PingResult::Ok;
+    }
+    // Invalid token: count + log; raise one alert at the threshold (probe detection).
+    let fails = {
+        let mut f = PING_FAILURES.lock().unwrap_or_else(|e| e.into_inner());
+        let n = f.entry(source.to_string()).or_insert(0);
+        *n += 1;
+        *n
+    };
+    tracing::warn!(
+        "WEBHOOK-PING: invalid token for source {} (failure #{})",
+        source,
+        fails
+    );
+    if fails == PING_ALERT_THRESHOLD {
+        let title = format!(
+            "Webhook token probing on source '{}' — {} invalid pre-flight attempts",
+            source, fails
+        );
+        crate::connectors::log_db_write(
+            "webhook_ping:probe_alert",
+            store.insert_sigma_alert("webhook-token-probe", "high", &title, "", None, None),
+        )
+        .await;
+    }
+    PingResult::BadToken
+}
+
 /// Process an incoming webhook. Returns number of findings/alerts created.
 pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, body: &[u8]) -> u32 {
     // Verify token

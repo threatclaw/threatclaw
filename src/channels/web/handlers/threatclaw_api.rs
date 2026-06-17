@@ -5805,6 +5805,48 @@ pub async fn webhook_ingest_handler(
     StatusCode::OK // Always 200
 }
 
+/// GET|POST /api/tc/webhook/ping/{source} — validate a webhook token without
+/// ingesting anything. The agent installer pre-flight calls this so it can tell
+/// "server unreachable" apart from "token invalid" before touching the endpoint.
+/// Side-effect free; constant-time token check; uniform 401 on any bad token.
+pub async fn webhook_ping_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(source): Path<String>,
+    headers: axum::http::HeaderMap,
+    Query(params): Query<HashMap<String, String>>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let store = match state.store.as_ref() {
+        Some(s) => s.as_ref(),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "ok": false })),
+            );
+        }
+    };
+    let token = headers
+        .get("x-webhook-token")
+        .and_then(|v| v.to_str().ok())
+        .or_else(|| params.get("token").map(|s| s.as_str()))
+        .unwrap_or("");
+    use crate::connectors::webhook_ingest::PingResult;
+    match crate::connectors::webhook_ingest::ping_token(store, &source, token).await {
+        PingResult::Ok => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "ok": true, "source": source })),
+        ),
+        PingResult::RateLimited => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({ "ok": false })),
+        ),
+        // Uniform 401 — no distinction between missing / wrong / malformed token.
+        PingResult::BadToken => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "ok": false })),
+        ),
+    }
+}
+
 pub async fn webhook_generate_token_handler(
     State(state): State<Arc<GatewayState>>,
     Path(source): Path<String>,

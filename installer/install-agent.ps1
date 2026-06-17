@@ -65,6 +65,47 @@ Write-TC "TC URL:    $Url"
 Write-TC "Agent ID:  $AgentId"
 Write-Host ""
 
+# ── 0. Pre-flight ────────────────────────────────────────────────────────────
+# Verify the server is reachable AND the token is valid BEFORE touching the
+# system. Fail fast with a clear message so a wrong URL/port (often :8445, not
+# 443) or a bad token never leaves a half-configured agent that silently fails.
+Write-TC "Pre-flight: checking connection and token at $Url ..."
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Self-signed cert: skip validation for the check (same policy as the sync script).
+try {
+    Add-Type -TypeDefinition @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TcPreflightCertPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
+}
+"@
+} catch { }
+try { [Net.ServicePointManager]::CertificatePolicy = New-Object TcPreflightCertPolicy } catch { }
+
+try {
+    Invoke-WebRequest -Uri "$Url/api/tc/webhook/ping/osquery" -Method Post `
+        -Headers @{ "X-Webhook-Token" = $Token } -TimeoutSec 10 -UseBasicParsing | Out-Null
+    Write-TC "Pre-flight OK - server reachable and token valid"
+} catch {
+    $code = $null
+    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+    # Only abort on the two unambiguous failures: a clearly-rejected token (401)
+    # or no response at all (server/port/firewall). ANY other HTTP response means
+    # the server is reachable and the token check is merely inconclusive (older
+    # server with no ping endpoint, a proxy filtering this path, a transient 5xx,
+    # rate-limit...) — don't block a valid install; the first sync below is the
+    # real test.
+    if ($code -eq 401) {
+        Write-TCError "Server reachable but the webhook token is INVALID. Check TC_TOKEN (Dashboard > Skills > Osquery). Nothing was installed."
+    } elseif ($code) {
+        Write-TC "Pre-flight: server reachable; token check inconclusive (HTTP $code) - proceeding" -Color Yellow
+    } else {
+        Write-TCError "Cannot reach ThreatClaw at $Url. Check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."
+    }
+}
+Write-Host ""
+
 # ── 1. Install osquery ──────────────────────────────────────────────────────
 
 $OsqueryBin = "C:\Program Files\osquery\osqueryd\osqueryd.exe"
