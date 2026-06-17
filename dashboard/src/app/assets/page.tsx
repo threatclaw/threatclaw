@@ -876,6 +876,7 @@ export default function AssetsPage() {
   const [mergePrimary, setMergePrimary] = useState("");
   const [mergeReason, setMergeReason] = useState("");
   const [merging, setMerging] = useState(false);
+  const [showDupes, setShowDupes] = useState(false); // filter to flagged possible-duplicate assets
 
   // Modal state
   const [showModal, setShowModal] = useState(false);
@@ -996,6 +997,7 @@ export default function AssetsPage() {
 
   const filtered = assets.filter((a) => {
     if (!billablePred(a)) return false;
+    if (showDupes && !(a.tags || []).includes("possible-duplicate")) return false;
     if (!search) return true;
     const s = search.toLowerCase();
     return a.name.toLowerCase().includes(s) || a.ip_addresses.some(ip => ip.includes(s)) ||
@@ -1096,9 +1098,26 @@ export default function AssetsPage() {
     }
   };
 
+  const keepSeparate = async (id: string) => {
+    try {
+      await fetch(`/api/tc/assets/${encodeURIComponent(id)}/keep-separate`, { method: "POST" });
+      loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const dupCount = assets.filter(a => (a.tags || []).includes("possible-duplicate")).length;
+
   const headerActions = (
     <div style={{ display: "flex", gap: "8px" }}>
       <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> {locale === "fr" ? "Ajouter" : "Add"}</button>
+      {dupCount > 0 && (
+        <button onClick={() => setShowDupes(d => !d)} style={showDupes ? btnPrimary : btnSecondary}
+          title={locale === "fr" ? "Doublons possibles à vérifier" : "Possible duplicates to review"}>
+          <AlertTriangle size={12} /> {dupCount}
+        </button>
+      )}
       <button onClick={() => { setMergeMode(m => !m); setMergeSel(new Set()); }}
         style={mergeMode ? btnPrimary : btnSecondary}
         title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
@@ -1248,6 +1267,12 @@ export default function AssetsPage() {
                         {crit.label}
                       </span>
                       {a.subcategory && <span style={{ fontSize: "8px", color: "var(--tc-text-muted)", padding: "1px 4px", borderRadius: "3px", background: "var(--tc-input)" }}>{a.subcategory}</span>}
+                      {(a.tags || []).includes("possible-duplicate") && (
+                        <span style={{ fontSize: "8px", fontWeight: 700, padding: "1px 5px", borderRadius: "3px",
+                          background: "rgba(184,134,11,0.15)", color: "#c8961a", border: "1px solid rgba(184,134,11,0.35)" }}>
+                          {locale === "fr" ? "DOUBLON ?" : "DUPLICATE ?"}
+                        </span>
+                      )}
                       {/* Phase 11a — badges `source` brute (dhcp/opnsense/...) et `auto-détecté`
                           retirés de la liste : info technique secondaire qui surchargeait la
                           ligne. Toujours visibles dans la page détail (footer Sources du Résumé). */}
@@ -1287,6 +1312,13 @@ export default function AssetsPage() {
 
                   {/* Actions */}
                   <div style={{ display: "flex", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    {(a.tags || []).includes("possible-duplicate") && (
+                      <button onClick={() => keepSeparate(a.id)}
+                        title={locale === "fr" ? "Marquer comme machines distinctes (ne plus signaler)" : "Mark as distinct machines (stop flagging)"}
+                        style={{ background: "var(--tc-input)", border: "1px solid rgba(184,134,11,0.4)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "#c8961a", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit" }}>
+                        {locale === "fr" ? "Garder séparé" : "Keep separate"}
+                      </button>
+                    )}
                     <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> {tr("assets_details", locale)}</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
                     <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>

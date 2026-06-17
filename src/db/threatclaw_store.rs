@@ -1143,6 +1143,10 @@ pub trait ThreatClawStore: Send + Sync {
     /// possible duplicate for operator review.
     async fn add_asset_tag(&self, id: &str, tag: &str) -> Result<(), DatabaseError>;
 
+    /// Remove a tag from an asset (no-op if absent). Used to clear the
+    /// `possible-duplicate` flag once the operator has reviewed it.
+    async fn remove_asset_tag(&self, id: &str, tag: &str) -> Result<(), DatabaseError>;
+
     /// Sprint 3 #2 — RSSI override of the seed/auto-detected criticality.
     /// Updates the canonical `assets` row; the caller is responsible for
     /// keeping the AGE graph node in sync (via threat_graph::upsert_asset).

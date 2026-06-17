@@ -7048,6 +7048,21 @@ pub async fn asset_unmerge_handler(
 ///
 /// `days` defaults to 90. Pass 0 to disable auto-expiry (NEVER recommended;
 /// the operator should justify a permanent exclusion).
+///
+/// POST /api/tc/assets/{id}/keep-separate — the operator reviewed a flagged
+/// possible-duplicate and decided this asset is a distinct machine. Tag it
+/// `keep-separate` (resolve_asset then stops re-flagging the pair) and clear the
+/// `possible-duplicate` flag.
+pub async fn asset_keep_separate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let _ = store.add_asset_tag(&id, "keep-separate").await;
+    let _ = store.remove_asset_tag(&id, "possible-duplicate").await;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 pub async fn asset_exclude_set_handler(
     State(state): State<Arc<GatewayState>>,
     Path(id): Path<String>,

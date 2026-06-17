@@ -157,7 +157,9 @@ async fn flag_hostname_conflict(store: &dyn Database, target_id: &str, discovere
         return;
     }
     if let Ok(Some(other)) = store.find_asset_by_hostname(&h).await {
-        if other.id != target_id {
+        // Skip if the operator already reviewed this pair and chose "keep
+        // separate" (tagged keep-separate) — don't re-flag what they dismissed.
+        if other.id != target_id && !other.tags.iter().any(|t| t == "keep-separate") {
             let _ = store.add_asset_tag(target_id, "possible-duplicate").await;
             let _ = store.add_asset_tag(&other.id, "possible-duplicate").await;
             let title = format!(

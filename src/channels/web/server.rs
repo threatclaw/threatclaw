@@ -1242,6 +1242,10 @@ pub async fn start_server(
             "/api/tc/assets/{id}/exclude",
             axum::routing::put(super::handlers::threatclaw_api::asset_exclude_set_handler),
         )
+        .route(
+            "/api/tc/assets/{id}/keep-separate",
+            post(super::handlers::threatclaw_api::asset_keep_separate_handler),
+        )
         // Phase G acceptance probe
         .route(
             "/api/tc/admin/phase-g-acceptance",
