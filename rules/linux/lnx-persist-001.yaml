@@ -29,6 +29,7 @@ detection:
       - crond
       - cron
       - CROND
+      - CRON
   modification:
     'message|contains|all':
       - ') REPLACE ('
