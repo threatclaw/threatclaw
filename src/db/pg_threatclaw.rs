@@ -1270,16 +1270,47 @@ impl ThreatClawStore for PgBackend {
         let interval_clause = format!("INTERVAL '{} minutes'", minutes_back);
 
         // Build query — interval is safe (i64), limit is safe (i64)
+        // Hostname filtering uses an asset-alias CTE so the L1 LLM can
+        // pass either the raw hostname it sees in the dossier (typical)
+        // or the prefixed asset.id (`syslog-observed-X`) and still hit
+        // the rows — log_search would otherwise miss any auto-enrolled
+        // host whose id and hostname diverge.
         let rows = match (hostname, tag) {
             (Some(h), Some(t)) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} AND hostname = $1 AND tag = $2 ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &format!("WITH asset_resolved AS ( \
+                                SELECT id, name, hostname FROM assets \
+                                WHERE id = $1 OR name = $1 OR hostname = $1 \
+                                   OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                              ), asset_aliases AS ( \
+                                SELECT id AS alias FROM asset_resolved \
+                                UNION SELECT name FROM asset_resolved WHERE name IS NOT NULL \
+                                UNION SELECT hostname FROM asset_resolved WHERE hostname IS NOT NULL \
+                                UNION SELECT $1 \
+                              ) \
+                              SELECT id, tag, time::text, hostname, data FROM logs \
+                              WHERE time >= NOW() - {} \
+                                AND hostname IN (SELECT alias FROM asset_aliases) \
+                                AND tag = $2 ORDER BY time DESC LIMIT {}", interval_clause, limit),
                     &[&h, &t],
                 ).await.map_err(query_err)?
             }
             (Some(h), None) => {
                 conn.query(
-                    &format!("SELECT id, tag, time::text, hostname, data FROM logs WHERE time >= NOW() - {} AND hostname = $1 ORDER BY time DESC LIMIT {}", interval_clause, limit),
+                    &format!("WITH asset_resolved AS ( \
+                                SELECT id, name, hostname FROM assets \
+                                WHERE id = $1 OR name = $1 OR hostname = $1 \
+                                   OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                              ), asset_aliases AS ( \
+                                SELECT id AS alias FROM asset_resolved \
+                                UNION SELECT name FROM asset_resolved WHERE name IS NOT NULL \
+                                UNION SELECT hostname FROM asset_resolved WHERE hostname IS NOT NULL \
+                                UNION SELECT $1 \
+                              ) \
+                              SELECT id, tag, time::text, hostname, data FROM logs \
+                              WHERE time >= NOW() - {} \
+                                AND hostname IN (SELECT alias FROM asset_aliases) \
+                              ORDER BY time DESC LIMIT {}", interval_clause, limit),
                     &[&h],
                 ).await.map_err(query_err)?
             }
@@ -3818,10 +3849,27 @@ impl ThreatClawStore for PgBackend {
         // all. A different pattern on the same asset escalates as a
         // new incident, so the title and timeline reflect the new
         // attack instead of being absorbed by an older one.
+        //
+        // The asset column is matched against the full alias set
+        // (id / name / hostname / lower variants) for the same reason
+        // recent_sigma_alerts_for_asset does: when an operator creates
+        // an incident manually under the bare hostname while the IE
+        // creates one under the auto-enrol id (or vice versa), the
+        // dedup needs to recognise both shapes as the same machine.
         let row = conn
             .query_opt(
-                "SELECT id FROM incidents \
-                 WHERE LOWER(asset) = LOWER($1) \
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT LOWER(id) AS alias FROM asset_resolved \
+                   UNION SELECT LOWER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT LOWER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT LOWER($1) \
+                 ) \
+                 SELECT id FROM incidents \
+                 WHERE LOWER(asset) IN (SELECT alias FROM asset_aliases) \
                    AND status IN ('open', 'investigating') \
                    AND updated_at > NOW() - INTERVAL '4 hours' \
                    AND ($2::text IS NULL \
@@ -3848,10 +3896,21 @@ impl ThreatClawStore for PgBackend {
         // signal does not recreate a fresh incident every 5-minute
         // cycle on a pattern that the operator already decided to
         // close. The caller treats a Some(_) hit as "skip create".
+        // Asset-alias-aware match — see find_open_incident_for_asset_with_pattern.
         let row = conn
             .query_opt(
-                "SELECT id FROM incidents \
-                 WHERE LOWER(asset) = LOWER($1) \
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT LOWER(id) AS alias FROM asset_resolved \
+                   UNION SELECT LOWER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT LOWER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT LOWER($1) \
+                 ) \
+                 SELECT id FROM incidents \
+                 WHERE LOWER(asset) IN (SELECT alias FROM asset_aliases) \
                    AND status IN ('resolved', 'snoozed') \
                    AND updated_at > NOW() - INTERVAL '4 hours' \
                    AND ($2::text IS NULL \
@@ -3877,14 +3936,25 @@ impl ThreatClawStore for PgBackend {
         // utiliser l'un ou l'autre. Sans LOWER, la dedup rate et on crée
         // un doublon (#114bis pour SRV-01-DOM alors que #114 srv-01-dom
         // existe déjà).
+        // Asset-alias-aware match — see find_open_incident_for_asset_with_pattern.
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn
             .query_opt(
-                "SELECT id FROM incidents \
-             WHERE LOWER(asset) = LOWER($1) \
-               AND status IN ('open', 'investigating') \
-               AND updated_at > NOW() - INTERVAL '4 hours' \
-             ORDER BY created_at DESC LIMIT 1",
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT LOWER(id) AS alias FROM asset_resolved \
+                   UNION SELECT LOWER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT LOWER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT LOWER($1) \
+                 ) \
+                 SELECT id FROM incidents \
+                 WHERE LOWER(asset) IN (SELECT alias FROM asset_aliases) \
+                   AND status IN ('open', 'investigating') \
+                   AND updated_at > NOW() - INTERVAL '4 hours' \
+                 ORDER BY created_at DESC LIMIT 1",
                 &[&asset],
             )
             .await
