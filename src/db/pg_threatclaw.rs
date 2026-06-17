@@ -1508,17 +1508,24 @@ impl ThreatClawStore for PgBackend {
         source_ip: Option<&str>,
         username: Option<&str>,
         matched_fields: &serde_json::Value,
+        log_id: Option<i64>,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // Stub rule (idempotent)
+        // Stub rule (idempotent) — only created when the caller bypasses
+        // the on-disk rule loader (legacy compat path: external IDS
+        // connectors that ship findings under a rule_id we have not yet
+        // declared). `status='auto-stub'` keeps the row out of the
+        // dashboard's rule list and the `sigma_rule_stats` matview
+        // refresh; `enabled=false` keeps it inert if the engine ever
+        // tried to compile it (no detection body).
         let rule_yaml = format!(
-            "title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test",
+            "title: {}\nstatus: auto-stub\nlevel: {}\ndetection:\n  condition: test",
             title, level
         );
         let empty_json = serde_json::json!({});
         conn.execute(
-            "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) \
-             VALUES ($1, $2, $3, $4, $5::jsonb, true) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO sigma_rules (id, title, level, status, rule_yaml, detection_json, enabled) \
+             VALUES ($1, $2, $3, 'auto-stub', $4, $5::jsonb, false) ON CONFLICT (id) DO NOTHING",
             &[&rule_id, &title, &level, &rule_yaml, &empty_json],
         )
         .await
@@ -1529,22 +1536,31 @@ impl ThreatClawStore for PgBackend {
             .filter(|ip| !ip.is_empty())
             .and_then(|ip| ip.parse().ok());
 
-        let row = if let Some(ip) = parsed_ip {
-            conn.query_one(
+        // log_id wires the alert back to the source log line so the
+        // operator can drill into the raw event from the alert detail
+        // page. Without this every sigma_alert lands with log_id NULL
+        // and the forensic view is broken (audit 2026-06-17).
+        let row = match (parsed_ip, log_id) {
+            (Some(ip), Some(lid)) => conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip, matched_fields, log_id) \
+                 VALUES ($1, $2, $3, $4, $5, 'new', $6, $7, $8) RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str, &ip, matched_fields, &lid],
+            ).await.map_err(query_err)?,
+            (Some(ip), None) => conn.query_one(
                 "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, source_ip, matched_fields) \
                  VALUES ($1, $2, $3, $4, $5, 'new', $6, $7) RETURNING id",
                 &[&rule_id, &level, &title, &hostname, &user_str, &ip, matched_fields],
-            )
-            .await
-            .map_err(query_err)?
-        } else {
-            conn.query_one(
+            ).await.map_err(query_err)?,
+            (None, Some(lid)) => conn.query_one(
+                "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, matched_fields, log_id) \
+                 VALUES ($1, $2, $3, $4, $5, 'new', $6, $7) RETURNING id",
+                &[&rule_id, &level, &title, &hostname, &user_str, matched_fields, &lid],
+            ).await.map_err(query_err)?,
+            (None, None) => conn.query_one(
                 "INSERT INTO sigma_alerts (rule_id, level, title, hostname, username, status, matched_fields) \
                  VALUES ($1, $2, $3, $4, $5, 'new', $6) RETURNING id",
                 &[&rule_id, &level, &title, &hostname, &user_str, matched_fields],
-            )
-            .await
-            .map_err(query_err)?
+            ).await.map_err(query_err)?,
         };
         Ok(row.get(0))
     }

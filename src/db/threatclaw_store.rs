@@ -928,6 +928,11 @@ pub trait ThreatClawStore: Send + Sync {
     /// dossier reçu par le L2 reste flou et favorise les hallucinations.
     /// Default impl forward vers `insert_sigma_alert` pour les backends qui
     /// n'ont pas encore migré.
+    ///
+    /// `log_id` wires the alert to the source log row so the operator
+    /// can drill into the raw event from the alert detail page. None
+    /// for callers that synthesise an alert without a backing log row
+    /// (e.g. external IDS connectors that ship pre-aggregated events).
     async fn insert_sigma_alert_with_fields(
         &self,
         rule_id: &str,
@@ -937,6 +942,7 @@ pub trait ThreatClawStore: Send + Sync {
         source_ip: Option<&str>,
         username: Option<&str>,
         _matched_fields: &serde_json::Value,
+        _log_id: Option<i64>,
     ) -> Result<i64, DatabaseError> {
         self.insert_sigma_alert(rule_id, level, title, hostname, source_ip, username)
             .await

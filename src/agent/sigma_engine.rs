@@ -1660,6 +1660,7 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                         source_ip,
                         username,
                         &mf_value,
+                        Some(log.id),
                     )
                     .await;
                 let _ = store
@@ -1695,6 +1696,22 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 };
 
                 if promote {
+                    // Apply the same junk-hostname filter the observe-and-enrol
+                    // pass uses, otherwise findings land on assets that don't
+                    // exist and never will (`kernel`, `dockerd`,
+                    // `bc130c79e5dd`). Pre-fix cyb06 had findings keyed on
+                    // sshd-session, lynis, and a Docker container id, plus a
+                    // CRITICAL incident on a 12-hex container id — purely
+                    // orphan rows the operator could not act on.
+                    if looks_like_program_or_container_id(&canonical_asset) {
+                        tracing::debug!(
+                            "SIGMA: skip finding on junk hostname '{}' (rule={})",
+                            canonical_asset,
+                            m.rule_id
+                        );
+                        continue;
+                    }
+
                     let f_dedup_key = format!("{}_{}", m.rule_id, canonical_asset);
                     let recently_filed = store
                         .get_setting("_finding_dedup", &f_dedup_key)
