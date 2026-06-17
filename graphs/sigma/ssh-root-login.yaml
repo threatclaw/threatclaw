@@ -1,0 +1,47 @@
+spec_version: cacao-2.0
+name: ssh-root-login
+description: |
+  Sigma "SSH Root Login Attempt" (lnx-auth-002) : tentative
+  d'authentification SSH visant explicitement le compte root. Sur
+  la majorite des hosts production, PermitRootLogin=no et donc la
+  tentative est par definition refusee. Toute occurrence est une
+  violation de politique a porter a l'operateur, modulee par la
+  criticite de l'asset et le volume.
+trigger:
+  sigma_rule: lnx-auth-002
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 3"
+    on_true: incident_persistent
+    on_false: check_critical_asset
+  check_critical_asset:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: incident_critical
+    on_false: route_llm
+  incident_persistent:
+    type: action
+    command:
+      type: threatclaw-incident
+      severity: "HIGH"
+      title_fr: "Tentatives root SSH repetees"
+    on_completion: terminal
+  incident_critical:
+    type: action
+    command:
+      type: threatclaw-incident
+      severity: "HIGH"
+      title_fr: "Tentative root SSH sur asset critique"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  terminal:
+    type: end

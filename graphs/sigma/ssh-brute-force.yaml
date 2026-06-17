@@ -1,0 +1,49 @@
+spec_version: cacao-2.0
+name: ssh-brute-force
+description: |
+  Sigma "SSH Password Brute Force" (lnx-auth-001) : tentative
+  d'authentification SSH refusee. Un evenement isole est
+  typiquement un operateur qui se trompe de mot de passe ; un
+  burst depuis la meme IP ou un compte different est l'empreinte
+  d'un scanner / botnet. On separe les deux cas avant de
+  consommer du temps LLM.
+trigger:
+  sigma_rule: lnx-auth-001
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    # recent_count_5m = sigma + findings + firewall_events sur l'asset
+    # dans les 5 dernieres minutes. >=5 -> on est probablement face a
+    # un vrai scanner et on incidente direct ; sinon on route vers LLM.
+    condition: "signals.recent_count_5m >= 5"
+    on_true: incident_brute
+    on_false: check_critical_asset
+  check_critical_asset:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_likely_typo
+  incident_brute:
+    type: action
+    command:
+      type: threatclaw-incident
+      severity: "HIGH"
+      title_fr: "Brute force SSH detecte"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_likely_typo:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "echec SSH isole sur asset non-critique — operateur tape probablement faux mot de passe"
+    on_completion: terminal
+  terminal:
+    type: end

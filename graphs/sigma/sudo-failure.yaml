@@ -1,0 +1,59 @@
+spec_version: cacao-2.0
+name: sudo-failure
+description: |
+  Sigma "Sudo Authentication Failure" (lnx-auth-003) : echec
+  d'authentification sudo, mot de passe incorrect ou non sudoer.
+  Cas legitimes frequents (operateur qui retape un mot de passe).
+  Cas suspect : meme utilisateur en repetition, ou compte service
+  qui essaie d'escalader. On filtre sur volume + criticite avant
+  LLM.
+trigger:
+  sigma_rule: lnx-auth-003
+steps:
+  start:
+    type: start
+    on_completion: check_burst
+  check_burst:
+    type: if-condition
+    condition: "signals.recent_count_5m >= 5"
+    on_true: incident_burst
+    on_false: check_service_acct
+  check_service_acct:
+    type: if-condition
+    # Comptes service ne devraient jamais sudo. Trigger immediat.
+    condition: "signals.is_service_acct == true"
+    on_true: incident_service
+    on_false: check_critical_asset
+  check_critical_asset:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: route_llm
+    on_false: archive_likely_typo
+  incident_burst:
+    type: action
+    command:
+      type: threatclaw-incident
+      severity: "MEDIUM"
+      title_fr: "Sudo echec en rafale"
+    on_completion: terminal
+  incident_service:
+    type: action
+    command:
+      type: threatclaw-incident
+      severity: "HIGH"
+      title_fr: "Sudo echec sur compte service"
+    on_completion: terminal
+  route_llm:
+    type: action
+    command:
+      type: threatclaw-investigate-llm
+      timeout_secs: 1500
+    on_completion: terminal
+  archive_likely_typo:
+    type: action
+    command:
+      type: threatclaw-archive
+      reason: "echec sudo isole sur asset non-critique — operateur tape probablement faux mot de passe"
+    on_completion: terminal
+  terminal:
+    type: end
