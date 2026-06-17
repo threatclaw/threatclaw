@@ -632,16 +632,46 @@ impl ThreatClawStore for PgBackend {
                 // matching insensible à la casse sur findings et
                 // sigma_alerts pour absorber les variations 'srv-01-dom'
                 // / 'SRV-01-DOM' qui apparaissent selon la source.
-                "SELECT \
+                //
+                // 2026-06-17: resolve the asset to its full alias set
+                // (id, name, hostname, ip_addresses) before counting.
+                // Without this the dispatcher's recent_count_5m /
+                // recent_count_1h signals returned 0 for every
+                // auto-enrolled asset (id = 'syslog-observed-sd-98664'
+                // while sigma_alerts keyed on the bare hostname
+                // 'sd-98664'). The graph CACAO then saw the asset as
+                // perfectly quiet and delegated to the LLM on a void.
+                // The same shape of mismatch silenced the sigma engine's
+                // medium-rule promotion path that uses this count to
+                // decide whether to escalate to an incident.
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname, COALESCE(ip_addresses, '{}'::text[]) AS ips \
+                   FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT id AS alias FROM asset_resolved \
+                   UNION SELECT name FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT hostname FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT LOWER(name) FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT LOWER(hostname) FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT $1 \
+                 ), asset_ips AS ( \
+                   SELECT split_part(unnest(ips), ':', 1) AS ip FROM asset_resolved \
+                 ) \
+                 SELECT \
                    (SELECT COUNT(*) FROM sigma_alerts \
-                      WHERE LOWER(hostname) = LOWER($1) \
+                      WHERE LOWER(hostname) IN (SELECT LOWER(alias) FROM asset_aliases) \
                         AND matched_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
                  + (SELECT COUNT(*) FROM findings \
-                      WHERE LOWER(asset) = LOWER($1) \
+                      WHERE LOWER(asset) IN (SELECT LOWER(alias) FROM asset_aliases) \
                         AND detected_at > NOW() - ($2::int * INTERVAL '1 minute'))::bigint \
                  + (SELECT COUNT(*) FROM firewall_events \
                       WHERE timestamp > NOW() - ($2::int * INTERVAL '1 minute') \
-                        AND (host(src_ip) = $1 OR host(dst_ip) = $1))::bigint \
+                        AND ( \
+                          host(src_ip) IN (SELECT ip FROM asset_ips) \
+                          OR host(dst_ip) IN (SELECT ip FROM asset_ips) \
+                        ))::bigint \
                  AS total",
                 &[&asset, &(minutes as i32)],
             )
@@ -4171,17 +4201,39 @@ impl ThreatClawStore for PgBackend {
     }
 
     async fn count_attack_paths_for_asset(&self, asset: &str) -> Result<u32, DatabaseError> {
+        // 2026-06-17 — same alias-resolution treatment as
+        // recent_sigma_alerts_for_asset and count_recent_signals_on_asset.
+        // attack_paths_predicted may key on the asset.id, name or hostname
+        // depending on which graph populated the run (path_risk vs.
+        // CACAO graphs), so we test every alias the assets table knows
+        // for this entity.
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn
             .query_opt(
-                "WITH last_run AS ( \
+                "WITH asset_resolved AS ( \
+                   SELECT id, name, hostname FROM assets \
+                   WHERE id = $1 OR name = $1 OR hostname = $1 \
+                      OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1) \
+                 ), asset_aliases AS ( \
+                   SELECT id AS alias FROM asset_resolved \
+                   UNION SELECT name FROM asset_resolved WHERE name IS NOT NULL \
+                   UNION SELECT hostname FROM asset_resolved WHERE hostname IS NOT NULL \
+                   UNION SELECT $1 \
+                 ), last_run AS ( \
                     SELECT run_id FROM attack_paths_predicted \
                     ORDER BY computed_at DESC LIMIT 1 \
                  ) \
                  SELECT COUNT(*)::bigint \
                  FROM attack_paths_predicted \
                  WHERE run_id = (SELECT run_id FROM last_run) \
-                   AND (src_asset = $1 OR dst_asset = $1 OR $1 = ANY(path_assets))",
+                   AND ( \
+                     src_asset IN (SELECT alias FROM asset_aliases) \
+                     OR dst_asset IN (SELECT alias FROM asset_aliases) \
+                     OR EXISTS ( \
+                       SELECT 1 FROM unnest(path_assets) AS p \
+                       WHERE p IN (SELECT alias FROM asset_aliases) \
+                     ) \
+                   )",
                 &[&asset],
             )
             .await
@@ -4605,13 +4657,43 @@ impl ThreatClawStore for PgBackend {
         since: chrono::DateTime<chrono::Utc>,
         limit: i64,
     ) -> Result<Vec<FirewallEventRecord>, DatabaseError> {
+        // 2026-06-17 — accept an asset id (textual) in addition to a raw IP.
+        // The IE dispatcher passes `dossier.primary_asset`, which for
+        // auto-enrolled hosts is something like `syslog-observed-sd-98664`.
+        // The previous body cast `$1::inet`, which throws
+        // `invalid input syntax for type inet` on any non-IP string —
+        // the call site swallowed that as `Err → false`, so the
+        // ml-anomaly-perimeter-blocked graph signal `all_fw_blocked` was
+        // permanently false for every non-IP asset on the platform.
+        // We now resolve the input through the assets table first: if a
+        // row matches by id/name/hostname, we use its declared
+        // ip_addresses to drive the firewall lookup; otherwise we treat
+        // the input as a literal IP. The `inet`-typed comparison only
+        // sees values that have already been validated as IPs by the
+        // CTE filter.
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
             .query(
-                r#"SELECT id, timestamp, fw_source, interface, action, direction, proto,
+                r#"WITH asset_ips AS (
+                       SELECT split_part(unnest(ip_addresses), ':', 1) AS ip
+                       FROM assets
+                       WHERE id = $1 OR name = $1 OR hostname = $1
+                          OR LOWER(name) = LOWER($1) OR LOWER(hostname) = LOWER($1)
+                   ), candidates AS (
+                       SELECT ip FROM asset_ips
+                       UNION SELECT $1 WHERE $1 ~ '^[0-9a-fA-F:.]+$'
+                   ), valid_ips AS (
+                       SELECT ip::inet AS ip
+                       FROM candidates
+                       WHERE ip ~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+                          OR ip ~ ':'
+                   )
+                   SELECT id, timestamp, fw_source, interface, action, direction, proto,
                           src_ip, src_port, dst_ip, dst_port, rule_id, raw_meta
                    FROM firewall_events
-                   WHERE (src_ip = $1::inet OR dst_ip = $1::inet) AND timestamp >= $2
+                   WHERE (src_ip IN (SELECT ip FROM valid_ips)
+                          OR dst_ip IN (SELECT ip FROM valid_ips))
+                     AND timestamp >= $2
                    ORDER BY timestamp DESC
                    LIMIT $3"#,
                 &[&ip, &since, &limit],
