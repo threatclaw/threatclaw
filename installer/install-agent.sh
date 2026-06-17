@@ -443,15 +443,19 @@ TIMEREOF
 # "systemd" / "kernel" / "containerd" instead of the real host. Forcing
 # %HOSTNAME% explicitly avoids that.
 configure_rsyslog_forwarder() {
-  if ! command -v rsyslogd >/dev/null 2>&1; then
-    warn "rsyslog not installed - auth/audit logs won't be forwarded"
-    warn "Install rsyslog or wire your own forwarder to ${TC_URL%:*}:514"
-    return
-  fi
-
-  # Extract host:port for syslog (TC_URL may include https:// + a webhook port)
+  # Extract bare host first so the warning below points at a real URL.
+  # TC_URL may be `https://10.0.0.1`, `https://10.0.0.1:8443`, or `host`.
+  # ${TC_URL%:*} drops everything from the first `:` and produced
+  # "https:514" in the warning when no port was set — strip scheme + port
+  # explicitly with sed instead.
   local tc_host
   tc_host=$(echo "$TC_URL" | sed -E 's|^https?://||; s|:[0-9]+.*$||; s|/.*$||')
+
+  if ! command -v rsyslogd >/dev/null 2>&1; then
+    warn "rsyslog not installed - auth/audit logs won't be forwarded"
+    warn "Install rsyslog (apt install rsyslog) or wire your own forwarder to ${tc_host}:514"
+    return
+  fi
 
   local conf="/etc/rsyslog.d/99-threatclaw.conf"
   log "Configuring rsyslog forwarder -> ${tc_host}:514"
