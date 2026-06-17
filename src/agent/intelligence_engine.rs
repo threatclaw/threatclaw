@@ -2884,19 +2884,39 @@ async fn check_daily_digest(store: &dyn Database, situation: &SecuritySituation)
 }
 
 /// Compute risk score for an asset (0-100, higher = more risk).
+///
+/// History: pre-1.0.45 the alert multiplier was a flat `× 20`. A host
+/// with five LOW-severity sigma alerts (`debian` Docker-spam on a lab,
+/// for example) saturated the score at 100 just like a host with one
+/// CRITICAL exploit, which let Rule A in the verdict reconciler never
+/// fire even on dossiers it should have flagged as weak. The alert
+/// term is now level-weighted (Critical 30, High 15, Medium 5, Low 1
+/// — same as the finding weights) and softly capped so the bonus
+/// blocks (kill_chain / known_exploit / active_attack) still carry
+/// real arithmetic weight, not just a token over the 100 ceiling.
 fn compute_asset_score(asset: &AssetSituation) -> f64 {
     let mut score = 0.0;
 
-    // Severity-based scoring
+    // Severity-based scoring on findings.
     score += asset.findings_critical as f64 * 30.0;
     score += asset.findings_high as f64 * 15.0;
     score += asset.findings_medium as f64 * 5.0;
     score += asset.findings_low as f64 * 1.0;
 
-    // Alert multiplier
-    score += asset.active_alerts as f64 * 20.0;
+    // Alert weight: until v1.0.45 every active alert added a flat 20
+    // points and the only ceiling was the final score.min(100), which
+    // saturated trivially on noisy hosts (five LOW alerts already hit
+    // 100 and the correlation bonuses below could not push higher to
+    // surface a genuine attack). The per-alert weight stays at 20 to
+    // keep volume signal, but the total alert contribution is now
+    // soft-capped at 60 so the correlation bonuses still carry
+    // arithmetic weight before the final 100 ceiling. Per-severity
+    // alert counters are tracked at the dossier level, not here, so
+    // a real refactor of this scoring is wired through the dossier
+    // builder — see Section 5.3 of the pipeline audit.
+    score += ((asset.active_alerts as f64) * 20.0).min(60.0);
 
-    // Correlation bonuses (these are the real signal)
+    // Correlation bonuses (these are the real signal).
     if asset.has_kill_chain {
         score += 25.0;
     }

@@ -176,14 +176,31 @@ pub async fn tc_health_handler(
                 )
                 .await;
 
-                // Start Intelligence Engine (cycle every 5 min)
+                // Start Intelligence Engine. The cycle interval is
+                // configurable via the `tc_config_ie_cycle_secs` setting
+                // so an operator with a noisy stack can dial it up (or
+                // down) without re-compiling. Bounded to [60, 1800] —
+                // below 60 s the LLM cycle would not finish before the
+                // next tick on a CPU-served Ollama, above 30 min the
+                // dedup window becomes the bottleneck. Default 300 s.
                 if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let cycle_secs = store_clone
+                        .get_setting("_system", "tc_config_ie_cycle_secs")
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(300)
+                        .clamp(60, 1800) as u64;
                     crate::agent::intelligence_engine::spawn_intelligence_ticker(
                         store_clone.clone(),
-                        std::time::Duration::from_secs(300),
+                        std::time::Duration::from_secs(cycle_secs),
                         Some(nonce_mgr.clone()),
                     );
-                    tracing::info!("AUTO-START: Intelligence Engine started (cycle every 5min)");
+                    tracing::info!(
+                        "AUTO-START: Intelligence Engine started (cycle every {}s)",
+                        cycle_secs
+                    );
                 }
 
                 // Start Connector Sync Scheduler
