@@ -46,9 +46,42 @@ pub struct SignalsSnapshot {
     /// If 0, the LLM judged on an empty evidence basket; we cannot
     /// confirm a verdict in that case.
     pub dossier_sigma_alerts_count: usize,
+    /// Rule I — how many investigation skill calls the L1 ReAct loop
+    /// actually executed before settling on a verdict. Pre-v1.0.44 the
+    /// loop ran zero calls on 100% of incidents; the pre-flight
+    /// enrichment now guarantees at least one. A subsequent regression
+    /// to zero would mean the loop short-circuited before any
+    /// external evidence was gathered.
+    pub skill_calls_executed: usize,
+    /// Rule J — citation tracker counts. evidence_citations_verified
+    /// is the number of LLM citations that point to an item present
+    /// in the dossier. evidence_citations_total is the number of
+    /// citations the LLM emitted. A confirmed verdict with zero
+    /// verified citations means the LLM is asserting confidence
+    /// without grounding.
+    pub evidence_citations_verified: usize,
+    pub evidence_citations_total: usize,
 }
 
 impl SignalsSnapshot {
+    /// Build a snapshot from a dossier + validation report + investigation
+    /// telemetry (skill calls executed and citation outcomes). The extra
+    /// signals feed Rule I and Rule J; pass zero / empty when those
+    /// counters are not available (legacy call site).
+    pub fn from_context_with_investigation(
+        dossier: &IncidentDossier,
+        report: &ValidationReport,
+        skill_calls_executed: usize,
+        evidence_citations_verified: usize,
+        evidence_citations_total: usize,
+    ) -> Self {
+        let mut s = Self::from_context(dossier, report);
+        s.skill_calls_executed = skill_calls_executed;
+        s.evidence_citations_verified = evidence_citations_verified;
+        s.evidence_citations_total = evidence_citations_total;
+        s
+    }
+
     /// Build a snapshot from a dossier + validation report.
     pub fn from_context(dossier: &IncidentDossier, report: &ValidationReport) -> Self {
         let sigma_critical_count = dossier
@@ -85,6 +118,13 @@ impl SignalsSnapshot {
             graph_linked_cves,
             graph_known,
             dossier_sigma_alerts_count: dossier.sigma_alerts.len(),
+            // Default zero — investigation-level telemetry must be wired
+            // through `from_context_with_investigation` to populate these
+            // fields. Test fixtures and legacy callers that lack the
+            // counters fall back here, so Rule I / Rule J skip cleanly.
+            skill_calls_executed: 0,
+            evidence_citations_verified: 0,
+            evidence_citations_total: 0,
         }
     }
 }
@@ -397,6 +437,94 @@ pub struct ReconciliationOutcome {
     pub apply: bool,
 }
 
+/// Rule I: LLM claims `confirmed` after running zero investigation
+/// skill calls. The pre-flight enrichment in `run_investigation`
+/// guarantees at least one call (asset_context) on every fresh
+/// investigation, so observing zero here means the loop short-
+/// circuited before any external evidence was actually gathered —
+/// the LLM is asserting confidence from prompt context alone.
+/// Downgrades to `inconclusive MEDIUM` with confidence × 0.6.
+///
+/// Skipped when the dossier already carries multiple sigma alerts
+/// (signal-rich path; the LLM may have judged on the rule corpus
+/// alone and skill calls are not load-bearing) or when ML flagged
+/// the asset above 0.7 (independent evidence).
+pub fn rule_i_confirmed_without_skill_calls(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    if signals.skill_calls_executed > 0 {
+        return None;
+    }
+    if signals.sigma_critical_count >= 2 {
+        return None;
+    }
+    if signals.ml_anomaly_score >= 0.7 {
+        return None;
+    }
+    Some(Modification {
+        new_verdict: "inconclusive".into(),
+        new_severity: "MEDIUM".into(),
+        new_confidence: (llm.confidence * 0.6).clamp(0.0, 1.0),
+        reason_code: "rule_i_confirmed_without_skill_calls".into(),
+        reason_text: format!(
+            "LLM claimed 'confirmed' but the investigation loop ran 0 skill calls. \
+             Pre-flight enrichment normally guarantees at least one; observing zero \
+             means the loop short-circuited and the verdict has no external evidence. \
+             sigma_critical={}, ml_anomaly={:.2}",
+            signals.sigma_critical_count, signals.ml_anomaly_score
+        ),
+    })
+}
+
+/// Rule J: LLM claims `confirmed` while every citation it emitted
+/// fails verification. The citation tracker (`evidence_tracker`)
+/// partitions citations into verified (found in the dossier),
+/// unverifiable (referenced an item we cannot resolve), and
+/// fabricated (found nothing matching). Rule E catches the
+/// fabricated case directly. Rule J catches the subtler shape:
+/// the LLM emitted at least one citation, none verified, but none
+/// outright fabricated either (every cite is `unverifiable`). That
+/// means the LLM cited evidence the engine could not check — the
+/// confidence is not grounded.
+///
+/// Downgrades to `inconclusive MEDIUM` with confidence × 0.6.
+pub fn rule_j_confirmed_without_verified_citations(
+    llm: &LlmVerdictSnapshot,
+    signals: &SignalsSnapshot,
+) -> Option<Modification> {
+    if llm.verdict != "confirmed" {
+        return None;
+    }
+    if signals.evidence_citations_total == 0 {
+        return None;
+    }
+    if signals.evidence_citations_verified > 0 {
+        return None;
+    }
+    // Sigma corroboration overrides — if the engine itself has
+    // critical/high-level deterministic signals, the LLM's
+    // unverifiable cites are noise around a real verdict.
+    if signals.sigma_critical_count >= 1 {
+        return None;
+    }
+    Some(Modification {
+        new_verdict: "inconclusive".into(),
+        new_severity: "MEDIUM".into(),
+        new_confidence: (llm.confidence * 0.6).clamp(0.0, 1.0),
+        reason_code: "rule_j_confirmed_without_verified_citations".into(),
+        reason_text: format!(
+            "LLM claimed 'confirmed' and cited {} item(s) but none could be \
+             verified against the dossier. The verdict is not grounded in \
+             evidence we can actually inspect.",
+            signals.evidence_citations_total
+        ),
+    })
+}
+
 /// Run the full rule cascade and produce a log + outcome.
 ///
 /// Priority order (first match wins):
@@ -412,7 +540,32 @@ pub fn reconcile_verdict(
     citation_report: &crate::agent::evidence_tracker::CitationReport,
     mode: ValidationMode,
 ) -> ReconciliationOutcome {
-    let signals = SignalsSnapshot::from_context(dossier, report);
+    reconcile_verdict_full(llm, dossier, report, citation_report, mode, 0)
+}
+
+/// Same as `reconcile_verdict` but lets the caller report how many
+/// investigation skill calls actually ran. Wired from
+/// `run_investigation` so Rule I sees the real counter; older
+/// callers (re-investigate path, tests) fall back to the simpler
+/// entrypoint which assumes zero (Rule I then only fires when no
+/// other rule already overrode the verdict).
+pub fn reconcile_verdict_full(
+    llm: &LlmVerdictSnapshot,
+    dossier: &IncidentDossier,
+    report: &ValidationReport,
+    citation_report: &crate::agent::evidence_tracker::CitationReport,
+    mode: ValidationMode,
+    skill_calls_executed: usize,
+) -> ReconciliationOutcome {
+    let signals = SignalsSnapshot::from_context_with_investigation(
+        dossier,
+        report,
+        skill_calls_executed,
+        citation_report.verified.len(),
+        citation_report.verified.len()
+            + citation_report.unverifiable.len()
+            + citation_report.fabricated_count(),
+    );
 
     if mode == ValidationMode::Off {
         return ReconciliationOutcome {
@@ -431,6 +584,8 @@ pub fn reconcile_verdict(
     let modification = rule_d_validation_errors(llm, &signals, mode)
         .or_else(|| rule_e_fabricated_citations(llm, citation_report, mode))
         .or_else(|| rule_h_confirmed_empty_dossier(llm, &signals))
+        .or_else(|| rule_i_confirmed_without_skill_calls(llm, &signals))
+        .or_else(|| rule_j_confirmed_without_verified_citations(llm, &signals))
         .or_else(|| rule_a_confirmed_but_weak(llm, &signals))
         .or_else(|| rule_f_confirmed_but_isolated_graph(llm, &signals))
         .or_else(|| rule_b_false_positive_but_strong(llm, &signals))
@@ -633,6 +788,9 @@ mod tests {
             graph_linked_cves: 0,
             graph_known: false,
             dossier_sigma_alerts_count: 1,
+            skill_calls_executed: 1,
+            evidence_citations_verified: 0,
+            evidence_citations_total: 0,
         }
     }
 
@@ -649,6 +807,9 @@ mod tests {
             graph_linked_cves: 1,
             graph_known: true,
             dossier_sigma_alerts_count: 5,
+            skill_calls_executed: 2,
+            evidence_citations_verified: 1,
+            evidence_citations_total: 1,
         }
     }
 
@@ -772,8 +933,10 @@ mod tests {
 
     #[test]
     fn test_reconcile_lenient_logs_but_does_not_apply() {
-        // Rule A should trigger but apply=false in Lenient. We add a single
-        // non-critical sigma alert so Rule H (empty dossier) does not preempt.
+        // Rule A should trigger but apply=false in Lenient. Sigma alert
+        // present so Rule H (empty dossier) does not preempt; pass
+        // skill_calls=1 through reconcile_verdict_full so Rule I does not
+        // preempt either. The signal-weak cascade ends on Rule A.
         let llm = snap("confirmed", "HIGH", 0.9);
         let mut dossier = empty_dossier();
         dossier.sigma_alerts.push(DossierAlert {
@@ -787,12 +950,13 @@ mod tests {
             username: None,
         });
         let report = ValidationReport::default();
-        let outcome = reconcile_verdict(
+        let outcome = reconcile_verdict_full(
             &llm,
             &dossier,
             &report,
             &crate::agent::evidence_tracker::CitationReport::default(),
             ValidationMode::Lenient,
+            1,
         );
         assert!(!outcome.apply);
         assert!(outcome.log.modification.is_some());
@@ -993,6 +1157,9 @@ mod tests {
             graph_linked_cves: 0,
             graph_known: true,
             dossier_sigma_alerts_count: 1,
+            skill_calls_executed: 1,
+            evidence_citations_verified: 0,
+            evidence_citations_total: 0,
         };
         assert!(
             rule_f_confirmed_but_isolated_graph(&llm, &s).is_none(),
@@ -1024,6 +1191,9 @@ mod tests {
             graph_linked_cves: 0,
             graph_known: false,
             dossier_sigma_alerts_count: 0,
+            skill_calls_executed: 1,
+            evidence_citations_verified: 0,
+            evidence_citations_total: 0,
         };
         let m = rule_h_confirmed_empty_dossier(&llm, &s).expect("Rule H must fire");
         assert_eq!(m.new_verdict, "inconclusive");
@@ -1053,5 +1223,95 @@ mod tests {
             rule_h_confirmed_empty_dossier(&llm, &s).is_none(),
             "Rule H must not fire when ML flagged the asset (ml=0.7)"
         );
+    }
+
+    // Rule I — confirmed without skill calls.
+
+    #[test]
+    fn test_rule_i_fires_on_zero_skill_calls() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.skill_calls_executed = 0;
+        s.sigma_critical_count = 0;
+        s.ml_anomaly_score = 0.1;
+        let m = rule_i_confirmed_without_skill_calls(&llm, &s).expect("Rule I must fire");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.new_severity, "MEDIUM");
+        assert!((m.new_confidence - 0.85 * 0.6).abs() < 1e-9);
+        assert_eq!(m.reason_code, "rule_i_confirmed_without_skill_calls");
+    }
+
+    #[test]
+    fn test_rule_i_skips_when_skill_calls_present() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.skill_calls_executed = 2;
+        assert!(rule_i_confirmed_without_skill_calls(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_i_skips_on_multiple_sigma_critical() {
+        // Signal-rich path: even with zero skill calls, two critical
+        // sigma alerts are enough deterministic evidence.
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.skill_calls_executed = 0;
+        s.sigma_critical_count = 2;
+        assert!(rule_i_confirmed_without_skill_calls(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_i_skips_on_high_ml_anomaly() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.skill_calls_executed = 0;
+        s.ml_anomaly_score = 0.8;
+        assert!(rule_i_confirmed_without_skill_calls(&llm, &s).is_none());
+    }
+
+    // Rule J — confirmed without any verified citation.
+
+    #[test]
+    fn test_rule_j_fires_when_every_citation_unverifiable() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.evidence_citations_total = 3;
+        s.evidence_citations_verified = 0;
+        s.sigma_critical_count = 0;
+        let m =
+            rule_j_confirmed_without_verified_citations(&llm, &s).expect("Rule J must fire");
+        assert_eq!(m.new_verdict, "inconclusive");
+        assert_eq!(m.reason_code, "rule_j_confirmed_without_verified_citations");
+        assert!((m.new_confidence - 0.85 * 0.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_rule_j_skips_when_no_citation_was_emitted() {
+        // No citation at all is a different shape — Rule J only catches
+        // the case where the LLM cited something but nothing landed.
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.evidence_citations_total = 0;
+        s.evidence_citations_verified = 0;
+        assert!(rule_j_confirmed_without_verified_citations(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_j_skips_when_any_citation_verified() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.evidence_citations_total = 3;
+        s.evidence_citations_verified = 1;
+        assert!(rule_j_confirmed_without_verified_citations(&llm, &s).is_none());
+    }
+
+    #[test]
+    fn test_rule_j_skips_when_sigma_critical_present() {
+        let llm = snap("confirmed", "HIGH", 0.85);
+        let mut s = signals_weak();
+        s.evidence_citations_total = 2;
+        s.evidence_citations_verified = 0;
+        s.sigma_critical_count = 1;
+        assert!(rule_j_confirmed_without_verified_citations(&llm, &s).is_none());
     }
 }

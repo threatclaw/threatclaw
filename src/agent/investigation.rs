@@ -475,12 +475,13 @@ pub async fn run_investigation(
                         citation_report.fabricated.len()
                     );
                 }
-                let outcome = crate::agent::verdict_reconciler::reconcile_verdict(
+                let outcome = crate::agent::verdict_reconciler::reconcile_verdict_full(
                     &llm_snapshot,
                     &dossier,
                     &report,
                     &citation_report,
                     validation_mode,
+                    skill_calls,
                 );
 
                 if let Some(modif) = &outcome.log.modification {
