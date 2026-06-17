@@ -465,36 +465,32 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
                     }
                 }
                 ip_classifier::IpClass::InternalUnknown => {
-                    // Unknown device on internal network — auto-create asset
-                    let auto_id = format!("auto-{}", clean_ip.replace('.', "-"));
+                    // Unknown device on internal network — enrol through the single
+                    // resolver. resolve_asset matches an existing asset by IP (with
+                    // the <24h DHCP guard) or creates a canonical `asset-{ip}` row;
+                    // the `auto-discovered` tag comes from classification_for_source.
+                    // Replaces the old private `auto-{ip}` id + direct graph upsert.
                     if !asset_ip_map.contains_key(clean_ip) {
-                        let _ = store
-                            .upsert_asset(&crate::db::threatclaw_store::NewAsset {
-                                id: auto_id.clone(),
-                                name: format!("Unknown {}", clean_ip),
-                                category: "unknown".into(),
-                                subcategory: None,
-                                role: None,
-                                criticality: "medium".into(),
-                                ip_addresses: vec![clean_ip.to_string()],
-                                mac_address: None,
-                                hostname: None,
-                                fqdn: None,
-                                url: None,
-                                os: None,
-                                mac_vendor: None,
-                                services: serde_json::json!([]),
-                                source: "alert-auto".into(),
-                                owner: None,
-                                location: None,
-                                tags: vec!["auto-discovered".into()],
-                            })
-                            .await;
-                        upsert_asset(store, &auto_id, clean_ip, "unknown", "medium").await;
-                        asset_ip_map.insert(clean_ip.to_string(), auto_id.clone());
+                        let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+                            mac: None,
+                            hostname: None,
+                            fqdn: None,
+                            ip: Some(clean_ip.to_string()),
+                            os: None,
+                            ports: None,
+                            services: serde_json::json!([]),
+                            ou: None,
+                            vlan: None,
+                            vm_id: None,
+                            criticality: None,
+                            source: "alert-auto".into(),
+                        };
+                        let res =
+                            crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+                        asset_ip_map.insert(clean_ip.to_string(), res.asset_id.clone());
                         tracing::info!(
-                            "GRAPH: Auto-created unknown asset {} for internal IP {}",
-                            auto_id,
+                            "GRAPH: Auto-enrolled unknown asset {} for internal IP {}",
+                            res.asset_id,
                             clean_ip
                         );
                     }

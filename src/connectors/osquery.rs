@@ -1089,40 +1089,31 @@ pub async fn process_osquery_webhook(
             .or_else(|| body["agent_os"].as_str())
             .or_else(|| body["platform"].as_str())
             .map(|s| s.to_string());
-        let asset = crate::db::threatclaw_store::NewAsset {
-            id: format!("osquery-observed-{}", hostname),
-            name: hostname.to_string(),
-            category: "endpoint".to_string(),
-            subcategory: Some("osquery-agent".to_string()),
-            role: None,
-            criticality: "medium".to_string(),
-            ip_addresses: vec![],
-            mac_address: None,
+        // Enrol through the single resolver (resolve_asset) so the host gets the
+        // canonical id shared with the os_version enrichment below and every
+        // other source — instead of a private `osquery-observed-*` id that would
+        // duplicate. The osquery-agent subtype + tags come from
+        // classification_for_source. Covers Windows agents with no syslog companion.
+        let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+            mac: None,
             hostname: Some(hostname.to_string()),
             fqdn: None,
-            url: None,
+            ip: None,
             os: os_hint,
-            mac_vendor: None,
-            services: serde_json::Value::Array(vec![]),
-            source: "osquery".to_string(),
-            owner: None,
-            location: None,
-            tags: vec!["observed".to_string(), "osquery".to_string()],
+            ports: None,
+            services: serde_json::json!([]),
+            ou: None,
+            vlan: None,
+            vm_id: None,
+            criticality: None,
+            source: "osquery".into(),
         };
-        if let Err(e) = store.upsert_asset(&asset).await {
-            tracing::warn!(
-                target: "asset_enrolment",
-                "osquery observe-and-enrol failed for {}: {}",
-                hostname,
-                e
-            );
-        } else {
-            tracing::info!(
-                target: "asset_enrolment",
-                "OSQUERY: enrolled new asset for {} (source=osquery)",
-                hostname
-            );
-        }
+        let _ = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+        tracing::info!(
+            target: "asset_enrolment",
+            "OSQUERY: enrolled new asset for {} (source=osquery)",
+            hostname
+        );
     }
 
     // Update last_seen for this agent

@@ -526,6 +526,23 @@ async fn merge_asset(
 }
 
 /// Create a new asset node in the graph.
+/// Source-aware classification hints for a newly created asset.
+///
+/// Centralises what used to live in each source's own enrol code (osquery's
+/// `osquery-agent` subtype, syslog's `syslog-source`, …). When every source
+/// funnels through `resolve_asset`, an asset keeps the same subtype/tags
+/// whichever connector created it — the goal of the single-chokepoint design.
+/// Network-discovery sources (nmap, fortinet, …) return `None` so the
+/// fingerprint-based category/subcategory stands unchanged.
+fn classification_for_source(source: &str) -> (Option<&'static str>, &'static [&'static str]) {
+    match source {
+        "osquery" => (Some("osquery-agent"), &["observed", "osquery"]),
+        "syslog" => (Some("syslog-source"), &["observed", "syslog"]),
+        "alert-auto" => (None, &["auto-discovered"]),
+        _ => (None, &[]),
+    }
+}
+
 async fn create_new_asset(
     store: &dyn Database,
     discovered: &DiscoveredAsset,
@@ -580,12 +597,21 @@ async fn create_new_asset(
 
     // Also write to PostgreSQL assets table (the source of truth for the dashboard)
     let category = crate::agent::fingerprint::guess_category(discovered);
+    // Source-aware subtype + tags so the asset keeps its classification whichever
+    // connector funnels it through resolve_asset (see classification_for_source).
+    let (subcat, extra_tags) = classification_for_source(&discovered.source);
+    let mut tags = build_discovery_tags(discovered);
+    for t in extra_tags {
+        if !tags.iter().any(|x| x == t) {
+            tags.push((*t).to_string());
+        }
+    }
     let _ = store
         .upsert_asset(&crate::db::threatclaw_store::NewAsset {
             id: asset_id.clone(),
             name: build_asset_name(discovered),
             category: category.into(),
-            subcategory: None,
+            subcategory: subcat.map(|s| s.to_string()),
             role: None,
             criticality: discovered
                 .criticality
@@ -602,7 +628,7 @@ async fn create_new_asset(
             source: discovered.source.clone(),
             owner: None,
             location: None,
-            tags: build_discovery_tags(discovered),
+            tags,
         })
         .await;
 
@@ -963,6 +989,27 @@ mod tests {
             source: "nmap".into(),
         };
         assert_eq!(generate_asset_id(&d), "asset-192-168-1-10");
+    }
+
+    #[test]
+    fn test_classification_for_source() {
+        // Agent sources carry a subtype + provenance tags, centralised here so an
+        // asset is classified the same whichever connector funnels it through
+        // resolve_asset.
+        assert_eq!(classification_for_source("osquery").0, Some("osquery-agent"));
+        assert!(classification_for_source("osquery").1.contains(&"observed"));
+        assert_eq!(classification_for_source("syslog").0, Some("syslog-source"));
+        assert!(classification_for_source("syslog").1.contains(&"observed"));
+        assert!(
+            classification_for_source("alert-auto")
+                .1
+                .contains(&"auto-discovered")
+        );
+        // Network-discovery sources keep the fingerprint classification: no
+        // forced subtype, no extra tags.
+        assert_eq!(classification_for_source("nmap").0, None);
+        assert!(classification_for_source("nmap").1.is_empty());
+        assert_eq!(classification_for_source("fortinet").0, None);
     }
 
     #[test]

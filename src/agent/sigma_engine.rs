@@ -1883,40 +1883,30 @@ async fn enrol_observed_hostnames(
         if let Ok(Some(_)) = store.find_asset_by_hostname(h).await {
             continue;
         }
-        let asset = crate::db::threatclaw_store::NewAsset {
-            id: format!("syslog-observed-{}", h),
-            name: h.to_string(),
-            category: "endpoint".to_string(),
-            subcategory: Some("syslog-source".to_string()),
-            role: None,
-            criticality: "medium".to_string(),
-            ip_addresses: vec![],
-            mac_address: None,
+        // Enrol through the single resolver so a host seen via syslog and via
+        // the agent collapses to one canonical id instead of a private
+        // `syslog-observed-*` id. The syslog-source subtype + tags come from
+        // classification_for_source.
+        let discovered = crate::graph::asset_resolution::DiscoveredAsset {
+            mac: None,
             hostname: Some(h.to_string()),
             fqdn: None,
-            url: None,
+            ip: None,
             os: None,
-            mac_vendor: None,
-            services: serde_json::Value::Array(vec![]),
-            source: "syslog".to_string(),
-            owner: None,
-            location: None,
-            tags: vec!["observed".to_string(), "syslog".to_string()],
+            ports: None,
+            services: serde_json::json!([]),
+            ou: None,
+            vlan: None,
+            vm_id: None,
+            criticality: None,
+            source: "syslog".into(),
         };
-        if let Err(e) = store.upsert_asset(&asset).await {
-            tracing::warn!(
-                target: "asset_enrolment",
-                "syslog observe-and-enrol failed for {}: {}",
-                h,
-                e
-            );
-        } else {
-            tracing::info!(
-                target: "asset_enrolment",
-                "auto-enrolled asset from syslog source: {}",
-                h
-            );
-        }
+        let _ = crate::graph::asset_resolution::resolve_asset(store, &discovered).await;
+        tracing::info!(
+            target: "asset_enrolment",
+            "auto-enrolled asset from syslog source: {}",
+            h
+        );
     }
 }
 
