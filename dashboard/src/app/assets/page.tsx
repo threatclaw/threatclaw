@@ -7,7 +7,7 @@ import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
   Plus, Search, Settings, Trash2, X, RefreshCw, Loader2, Shield, ChevronRight, ChevronLeft,
-  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download,
+  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download, GitMerge,
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
@@ -869,6 +869,14 @@ export default function AssetsPage() {
   const [billableFilter, setBillableFilter] = useState<BillableFilter>("all");
   const [search, setSearch] = useState("");
 
+  // Merge mode: select 2+ assets that are the same machine → POST /api/tc/assets/merge.
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeSel, setMergeSel] = useState<Set<string>>(new Set());
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergePrimary, setMergePrimary] = useState("");
+  const [mergeReason, setMergeReason] = useState("");
+  const [merging, setMerging] = useState(false);
+
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState(0); // 0=pick category, 1=fill form
@@ -1045,9 +1053,57 @@ export default function AssetsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const toggleMergeSel = (id: string) =>
+    setMergeSel(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const openMerge = () => {
+    const ids = Array.from(mergeSel);
+    if (ids.length < 2) return;
+    setMergePrimary(ids[0]);
+    setMergeReason("");
+    setMergeOpen(true);
+  };
+
+  const doMerge = async () => {
+    const aliasIds = Array.from(mergeSel).filter(id => id !== mergePrimary);
+    if (!mergePrimary || aliasIds.length === 0 || !mergeReason.trim()) return;
+    setMerging(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/tc/assets/merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ canonical_id: mergePrimary, alias_ids: aliasIds, reason: mergeReason.trim() }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (j.error) {
+        setError(j.error);
+      } else {
+        setMergeSel(new Set());
+        setMergeMode(false);
+        setMergeOpen(false);
+        loadData();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMerging(false);
+    }
+  };
+
   const headerActions = (
     <div style={{ display: "flex", gap: "8px" }}>
       <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> {locale === "fr" ? "Ajouter" : "Add"}</button>
+      <button onClick={() => { setMergeMode(m => !m); setMergeSel(new Set()); }}
+        style={mergeMode ? btnPrimary : btnSecondary}
+        title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
+        <GitMerge size={12} />{mergeMode ? <span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span> : null}
+      </button>
       <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
         <Upload size={12} />
       </button>
@@ -1173,6 +1229,11 @@ export default function AssetsPage() {
               <div key={a.id}>
                 <NeuCard style={{ padding: "12px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  {mergeMode && (
+                    <input type="checkbox" checked={mergeSel.has(a.id)}
+                      onChange={() => toggleMergeSel(a.id)} onClick={e => e.stopPropagation()}
+                      style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer", accentColor: "var(--tc-red)" }} />
+                  )}
                   {/* Icon */}
                   <div style={{ width: "32px", height: "32px", borderRadius: "var(--tc-radius-sm)", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: cat?.color || "var(--tc-text-muted)", flexShrink: 0 }}>
                     <Icon size={16} />
@@ -1452,6 +1513,72 @@ export default function AssetsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* Merge action bar */}
+      {mergeMode && mergeSel.size > 0 && (
+        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 50,
+          display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderRadius: "var(--tc-radius)",
+          background: "var(--tc-card)", border: "1px solid var(--tc-border)", boxShadow: "0 6px 24px rgba(0,0,0,0.3)" }}>
+          <span style={{ fontSize: 12, color: "var(--tc-text)" }}>
+            {mergeSel.size} {locale === "fr" ? "sélectionné(s)" : "selected"}
+          </span>
+          <button onClick={openMerge} disabled={mergeSel.size < 2}
+            style={{ ...btnPrimary, opacity: mergeSel.size < 2 ? 0.5 : 1 }}>
+            <GitMerge size={12} /> {locale === "fr" ? "Fusionner" : "Merge"}
+          </button>
+          <button onClick={() => { setMergeMode(false); setMergeSel(new Set()); }} style={btnSecondary}>
+            {locale === "fr" ? "Annuler" : "Cancel"}
+          </button>
+        </div>
+      )}
+
+      {/* Merge confirmation dialog */}
+      {mergeOpen && (
+        <div onClick={() => !merging && setMergeOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: 480, maxWidth: "90vw", maxHeight: "85vh", overflow: "auto", padding: 20, borderRadius: "var(--tc-radius)", background: "var(--tc-card)", border: "1px solid var(--tc-border)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tc-text)", marginBottom: 4 }}>
+              {locale === "fr" ? "Fusionner les assets" : "Merge assets"}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 14 }}>
+              {locale === "fr"
+                ? "Choisis la fiche à garder. Les autres y seront fusionnées (IP, tags, sources, findings) puis supprimées. Réversible 30 jours."
+                : "Pick the record to keep. The others are merged into it (IPs, tags, sources, findings) then removed. Reversible 30 days."}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+              {Array.from(mergeSel).map(id => {
+                const a = assets.find(x => x.id === id);
+                return (
+                  <label key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: "var(--tc-radius-sm)",
+                    border: `1px solid ${mergePrimary === id ? "var(--tc-red)" : "var(--tc-border)"}`, background: "var(--tc-input)", cursor: "pointer" }}>
+                    <input type="radio" name="merge-primary" checked={mergePrimary === id}
+                      onChange={() => setMergePrimary(id)} style={{ accentColor: "var(--tc-red)" }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--tc-text)" }}>{a?.name || id}</div>
+                      <div style={{ fontSize: 9, color: "var(--tc-text-muted)" }}>
+                        {(a?.hostname || "—")} · {(a?.ip_addresses?.[0] || "—")} · {a?.source || "—"}
+                        {mergePrimary === id ? ` · ${locale === "fr" ? "PRINCIPAL" : "PRIMARY"}` : ""}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <input value={mergeReason} onChange={e => setMergeReason(e.target.value)}
+              placeholder={locale === "fr" ? "Raison (obligatoire — audit)" : "Reason (required — audited)"}
+              style={{ width: "100%", padding: "8px 10px", marginBottom: 14, borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border)", background: "var(--tc-input)", color: "var(--tc-text)", fontFamily: "inherit", fontSize: 12 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => setMergeOpen(false)} disabled={merging} style={btnSecondary}>
+                {locale === "fr" ? "Annuler" : "Cancel"}
+              </button>
+              <button onClick={doMerge} disabled={merging || !mergeReason.trim()}
+                style={{ ...btnPrimary, opacity: (merging || !mergeReason.trim()) ? 0.5 : 1 }}>
+                {merging ? <Loader2 size={12} /> : <GitMerge size={12} />} {locale === "fr" ? "Fusionner" : "Merge"}
+              </button>
+            </div>
           </div>
         </div>
       )}
