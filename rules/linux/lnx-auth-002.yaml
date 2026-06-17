@@ -2,13 +2,15 @@ title: SSH Root Login Attempt
 id: lnx-auth-002
 status: stable
 description: |
-  Detects an SSH session targeting the root account. Most production
-  hosts run with `PermitRootLogin=no`; an attempt against root is a
-  policy violation worth flagging. The previous version matched on
-  the bare token `sshd`, which fired on every normal SSH session
-  message. The rewrite requires the log to be emitted by the sshd
-  program AND to carry one of the trailers sshd writes only when the
-  remote side requested the root account.
+  Detects an SSH session targeting the root account where the
+  authentication was refused. The earlier rewrite still tripped on
+  the bare substring `for root from`, which OpenSSH emits on every
+  normal session — even on a successful key login (`Accepted
+  publickey for root from ...`) or on the routine
+  `Postponed publickey for root from ... [preauth]` message that
+  signals the preauth phase finished cleanly. We now require sshd
+  AND a trailer sshd only writes when the remote side was actually
+  rejected, so legitimate root logins do not page the operator.
 references:
   - https://attack.mitre.org/techniques/T1078/003/
 author: ThreatClaw
@@ -23,10 +25,12 @@ detection:
     ident: sshd
   root_target:
     'message|contains':
-      - 'for root from'
       - 'Invalid user root from'
       - 'Failed password for root from'
       - 'Failed publickey for root from'
+      - 'Disconnecting authenticating user root'
+      - 'Disconnected from authenticating user root'
+      - 'User root from'
   condition: program and root_target
 falsepositives:
   - Approved root-allowed bastion or jump host (rare). Apply an
