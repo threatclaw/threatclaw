@@ -170,6 +170,28 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
     // 2026-05-04 for context.
     if let Some(ref hostname) = discovered.hostname {
         let hostname_clean = hostname.to_lowercase().trim().to_string();
+        // PostgreSQL is the source of truth for the dashboard. The
+        // observe-and-enrol paths in osquery.rs and sigma_engine.rs write
+        // directly to the assets table without touching the graph, so the
+        // graph lookup below misses them and `generate_asset_id` would mint
+        // a fresh id (`w10-1`) alongside the existing `osquery-observed-W10-1`
+        // row, surfacing as two assets for the same machine on the
+        // inventory page. Consult PostgreSQL first; if a row already
+        // exists for this hostname, reuse its id by routing through the
+        // merge path with a synthesised ExistingAsset.
+        if let Ok(Some(pg_existing)) = store.find_asset_by_hostname(&hostname_clean).await {
+            let synthesised = ExistingAsset {
+                id: pg_existing.id.clone(),
+                mac: pg_existing.mac_address.clone(),
+                hostname: pg_existing.hostname.clone(),
+                ip: pg_existing.ip_addresses.first().cloned(),
+                sources: vec![pg_existing.source.clone()],
+                last_seen: None,
+            };
+            return merge_asset(store, &synthesised, discovered, &now).await;
+        }
+        // Fall back to the graph for legacy datasets that may have a node
+        // without a matching PostgreSQL row.
         if let Some(existing) = find_asset_by_hostname(store, &hostname_clean).await {
             if let (Some(existing_mac), Some(new_mac)) = (&existing.mac, &discovered.mac) {
                 let existing_norm = normalize_mac(existing_mac);
