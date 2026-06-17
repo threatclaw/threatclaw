@@ -12,6 +12,13 @@ description: |
   so it cannot stand alone as a failure signal. We now require the
   log to be emitted by the sshd program AND to carry one of the
   failure trailers sshd writes only on a refused authentication.
+
+  Program identifier: OpenSSH 9.x split the daemon into two
+  processes — `sshd` (master/listener) and `sshd-session` (forked
+  per connection). The failure trailers are emitted by the latter,
+  so we accept both idents. Without `sshd-session` in the list,
+  the rule had silently stopped firing on modern installs (cyb06
+  2026-06-17 audit: 166 sshd-session messages in 6 h, zero alerts).
 references:
   - https://attack.mitre.org/techniques/T1110/001/
 author: ThreatClaw
@@ -23,7 +30,9 @@ logsource:
   category: syslog
 detection:
   program:
-    ident: sshd
+    ident:
+      - sshd
+      - sshd-session
   failure_signal:
     'message|contains':
       - 'Failed password for'

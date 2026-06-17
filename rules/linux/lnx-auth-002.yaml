@@ -11,6 +11,10 @@ description: |
   signals the preauth phase finished cleanly. We now require sshd
   AND a trailer sshd only writes when the remote side was actually
   rejected, so legitimate root logins do not page the operator.
+
+  Program identifier: OpenSSH 9.x split the daemon into `sshd`
+  (master) and `sshd-session` (forked per-connection). The
+  refusal trailers are emitted by the latter, so we accept both.
 references:
   - https://attack.mitre.org/techniques/T1078/003/
 author: ThreatClaw
@@ -22,7 +26,9 @@ logsource:
   category: syslog
 detection:
   program:
-    ident: sshd
+    ident:
+      - sshd
+      - sshd-session
   root_target:
     'message|contains':
       - 'Invalid user root from'
