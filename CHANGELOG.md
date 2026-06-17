@@ -6,6 +6,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.45-beta] — 2026-06-17
+
+### Added
+- Asset inventory merge mode: tick-box selection, conflict flagging on cross-source mismatch, and a "keep separate" action for legitimate look-alike pairs.
+- Four CACAO dispatchers (SSH brute force, SSH root login, sudo failure, sensitive auth file modified) and four Windows-syslog rules covering Sysmon process create, encoded PowerShell, downloader cradle and reflective loader.
+- Endpoint agent installer runs a pre-flight check against the gateway before touching the host: a clearly-rejected token or an unreachable URL aborts with an actionable message instead of leaving a half-configured agent.
+
+### Changed
+- Verdict reconciler gains Rule I (downgrade `confirmed` when the investigation ran zero skill calls) and Rule J (downgrade `confirmed` when no LLM citation could be verified).
+- Asset-alias resolution extended to `find_open_incident_for_asset*` and `query_logs` so dedup and the L1 log-search skill match across id / name / hostname.
+- Intelligence-engine cycle interval is now a `tc_config_ie_cycle_secs` setting (60–1800 s, default 300).
+
+### Fixed
+- Sigma alerts now carry `log_id`, restoring the alert → raw log drill-down.
+- Junk hostnames (kernel, dockerd, container ids, …) no longer reach the finding insert path or the ML scoring loop.
+- Snoozed-then-woken incidents stuck on `pending` are finalised to `inconclusive` instead of staying in the active queue indefinitely.
+- Asset-score formula soft-caps the alert term at 60 so the correlation bonuses (kill chain, known exploit, active attack) still have room to push above the noise floor.
+- Auto-stub sigma rules created by the legacy alert insert path now ship as `enabled=false` and stay out of the dashboard rule list.
+- Future-clamp sigma engine warning is rate-limited to once every 5 minutes.
+
+### Operations
+- One-shot schema cleanup on upgrade drops accumulated stale rows (ML scores, findings, auto-stub rules) and is a no-op on a clean stack.
+
 ## [1.0.44-beta] — 2026-06-17
 
 ### Fixed
