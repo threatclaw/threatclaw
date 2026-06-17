@@ -249,8 +249,21 @@ async fn execute_asset_context(params: &Value, store: &Arc<dyn Database>) -> (bo
         None => return (false, json!({"error": "Missing 'asset' parameter"})),
     };
 
-    match store.get_asset(asset_id).await {
-        Ok(Some(a)) => (
+    // Two-step resolution: try exact id first (the IE pre-flight passes
+    // dossier.primary_asset which is always an asset.id), then fall
+    // back to hostname/name lookup so the L1 LLM can also query using
+    // whatever shape it sees in the dossier (a bare hostname is the
+    // typical case when sigma alerts get printed to the prompt).
+    // Without the fallback the LLM hit {found:false} whenever it tried
+    // to dig deeper than what the pre-flight already loaded.
+    let asset = match store.get_asset(asset_id).await {
+        Ok(Some(a)) => Some(a),
+        Ok(None) => store.find_asset_by_hostname(asset_id).await.ok().flatten(),
+        Err(e) => return (false, json!({"error": format!("Asset lookup: {e}")})),
+    };
+
+    match asset {
+        Some(a) => (
             true,
             json!({
                 "id": a.id,
@@ -264,7 +277,6 @@ async fn execute_asset_context(params: &Value, store: &Arc<dyn Database>) -> (bo
                 "services": a.services,
             }),
         ),
-        Ok(None) => (true, json!({"asset": asset_id, "found": false})),
-        Err(e) => (false, json!({"error": format!("Asset lookup: {e}")})),
+        None => (true, json!({"asset": asset_id, "found": false})),
     }
 }

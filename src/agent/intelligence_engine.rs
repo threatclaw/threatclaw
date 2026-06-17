@@ -2517,10 +2517,27 @@ pub async fn reinvestigate_incident(
     // evidence_citations default to empty — the LLM output here is a raw
     // JSON blob that we do not re-decode into Confirmed{ evidence_citations }.
     let empty_citations = serde_json::json!([]);
+    // If the incident was created in the default `pending` state and the
+    // first investigation never finalised it (e.g. crashed before the
+    // verdict write, or was snoozed before reaching a decision), the
+    // re-investigate path used to re-persist `pending` verbatim, which
+    // left the row stuck in the active queue indefinitely. cyb06 audit
+    // 2026-06-17 surfaced two such rows snoozed by the operator, woken
+    // by the snooze scheduler, re-enriched here, and still labelled
+    // `pending` 15h+ after the wake-up. We now force a finalisation in
+    // that case: `inconclusive` keeps the row visible without claiming a
+    // strong stance, and the operator can override on the detail page.
+    // Verdicts other than `pending` are preserved verbatim (original
+    // intent: keep `confirmed` / `false_positive` decisions audit-stable).
+    let next_verdict: &str = if current_verdict == "pending" {
+        "inconclusive"
+    } else {
+        &current_verdict
+    };
     store
         .update_incident_verdict(
             incident_id,
-            &current_verdict,
+            next_verdict,
             current_confidence,
             &new_summary,
             &parsed_mitre,
@@ -2528,8 +2545,10 @@ pub async fn reinvestigate_incident(
             &inv_log,
             &empty_citations,
             // Re-investigate doesn't change the original source — preserve
-            // whatever was set when the incident was first decided.
-            None,
+            // whatever was set when the incident was first decided. When the
+            // pending → inconclusive promotion fires we tag it so the audit
+            // log shows the finalisation came from the re-investigate path.
+            if current_verdict == "pending" { Some("react") } else { None },
         )
         .await
         .map_err(|e| format!("DB update failed: {e}"))?;
