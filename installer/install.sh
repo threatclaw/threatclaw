@@ -502,6 +502,31 @@ check_requirements() {
 
 # ── Detect existing reverse proxy ────────────────────────────────────────────
 detect_proxy() {
+  # ── Existing install: NEVER change the published port ──────────────────────
+  # Agents bake `https://host:PORT` at install time and never re-discover it.
+  # If a re-run (or a redeploy that re-enters this flow) re-detected the port,
+  # the published port could flip (e.g. 443→8443 because ThreatClaw's OWN nginx
+  # now occupies 443) and EVERY agent would silently lose connectivity until it
+  # is reinstalled. On a 100-host fleet that is unacceptable. So if a previous
+  # install already pinned a port in .env, reuse it verbatim and skip detection.
+  local existing_env="${TC_DIR}/.env"
+  if [ -f "$existing_env" ] && grep -q '^TC_HTTPS_PORT=' "$existing_env" 2>/dev/null; then
+    TC_HTTPS_PORT=$(grep '^TC_HTTPS_PORT=' "$existing_env" | head -1 | cut -d= -f2)
+    TC_HTTP_PORT=$(grep '^TC_HTTP_PORT=' "$existing_env" | head -1 | cut -d= -f2)
+    TC_HTTP_PORT="${TC_HTTP_PORT:-80}"
+    local existing_mode
+    existing_mode=$(grep '^TC_DEPLOY_MODE=' "$existing_env" | head -1 | cut -d= -f2)
+    if [ -n "$existing_mode" ]; then
+      TC_DEPLOY_MODE="$existing_mode"
+    elif [ "$TC_HTTPS_PORT" = "443" ]; then
+      TC_DEPLOY_MODE="standalone"
+    else
+      TC_DEPLOY_MODE="custom-port"
+    fi
+    log_info "Existing install detected — preserving published port ${TC_HTTPS_PORT} (agents keep their connectivity)"
+    return
+  fi
+
   # Skip detection if --yes (non-interactive) — default to standalone or custom-port
   if ! ss -tlnp 2>/dev/null | grep -q ':443 '; then
     TC_DEPLOY_MODE="standalone"
@@ -754,9 +779,24 @@ start_services() {
       log_info "TLS certificates already exist — skipping"
     fi
 
-    # Set HTTPS ports in .env
-    echo "TC_HTTPS_PORT=${TC_HTTPS_PORT}" >> .env
-    echo "TC_HTTP_PORT=${TC_HTTP_PORT}" >> .env
+    # Set HTTPS ports in .env — idempotent (update in place on re-runs so the
+    # published port can never drift or accumulate duplicate lines).
+    if grep -q '^TC_HTTPS_PORT=' .env 2>/dev/null; then
+      sed -i "s/^TC_HTTPS_PORT=.*/TC_HTTPS_PORT=${TC_HTTPS_PORT}/" .env
+    else
+      echo "TC_HTTPS_PORT=${TC_HTTPS_PORT}" >> .env
+    fi
+    if grep -q '^TC_HTTP_PORT=' .env 2>/dev/null; then
+      sed -i "s/^TC_HTTP_PORT=.*/TC_HTTP_PORT=${TC_HTTP_PORT}/" .env
+    else
+      echo "TC_HTTP_PORT=${TC_HTTP_PORT}" >> .env
+    fi
+    # Persist the deploy mode so future re-runs preserve it without re-detecting.
+    if grep -q '^TC_DEPLOY_MODE=' .env 2>/dev/null; then
+      sed -i "s/^TC_DEPLOY_MODE=.*/TC_DEPLOY_MODE=${TC_DEPLOY_MODE}/" .env
+    else
+      echo "TC_DEPLOY_MODE=${TC_DEPLOY_MODE}" >> .env
+    fi
   fi
 
   # In external-proxy mode, re-expose core and dashboard ports directly
