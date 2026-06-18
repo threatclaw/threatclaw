@@ -61,13 +61,19 @@ interface ConfigPageProps {
 
 export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProps) {
   const locale = useLocale();
-  const [internalTab, setInternalTab] = useState(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("configTab") || params.get("tab") || "general";
-    }
-    return "general";
-  });
+  // Initial tab is read from the URL after mount only — querystring
+  // values diverge between the server (always empty) and the client
+  // (the real ?configTab=...), and an init lazy-callback that touches
+  // window throws React error #418 (hydration mismatch) when those
+  // differ. Pay the cost of a one-frame "general" flash on a
+  // ?configTab=alerts deep link; that's cheaper than a console
+  // error every time the page mounts.
+  const [internalTab, setInternalTab] = useState("general");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("configTab") || params.get("tab");
+    if (fromUrl) setInternalTab(fromUrl);
+  }, []);
   const activeTab = currentTab ?? internalTab;
   // Kept for the legacy internal nav callers; safe to remove once the
   // inner nav is fully retired in a follow-up.
@@ -95,7 +101,17 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
     olvid: { enabled: false, daemonUrl: "http://localhost:50051", clientKey: "", discussionId: "" },
   });
   const [permLevel, setPermLevel] = useState("ALERT_ONLY");
-  const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: (typeof window !== "undefined" && localStorage.getItem("tc-language")) || "fr", nvdApiKey: "" });
+  // Default to "fr" server-side; the actual stored preference is
+  // read in a useEffect right below so React doesn't see a different
+  // value between the server render and the first client render
+  // (the source of React error #418).
+  const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: "fr", nvdApiKey: "" });
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("tc-language");
+      if (stored) setGeneral(g => ({ ...g, language: stored }));
+    } catch {}
+  }, []);
 
   // Telegram status
   const [telegramStatus, setTelegramStatus] = useState<{ ok: boolean; username?: string; error?: string } | null>(null);
@@ -2290,7 +2306,13 @@ function LogSourcesTab() {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { const i = setInterval(loadStats, 10000); return () => clearInterval(i); }, [loadStats]);
 
-  const serverIp = typeof window !== "undefined" ? window.location.hostname : "YOUR_IP";
+  // The placeholder must match between server and client until
+  // mount completes — otherwise React reports a hydration mismatch
+  // (error #418) the moment this branch of ConfigPage renders.
+  const [serverIp, setServerIp] = useState("YOUR_IP");
+  useEffect(() => {
+    setServerIp(window.location.hostname);
+  }, []);
   const port = stats?.syslog_port || 514;
   const hasLogs = (stats?.today || 0) > 0;
 

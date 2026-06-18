@@ -183,13 +183,24 @@ export default function SkillsPage() {
   const [disabledSkills, setDisabledSkills] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
-  const initialQuery = (() => {
-    if (typeof window === "undefined") return new URLSearchParams("");
-    return new URLSearchParams(window.location.search);
-  })();
-  const [search, setSearch] = useState<string>(initialQuery.get("search") || "");
-  const [catFilter, setCatFilter] = useState<string>(initialQuery.get("cat") || "");
-  const [installedOnly, setInstalledOnly] = useState<boolean>(initialQuery.get("installed") === "1");
+  // Filters seeded from the URL after mount only. Reading
+  // window.location.search during the synchronous render produced
+  // a different state on the server (always empty) than on the
+  // client (the real query string), which is what surfaces as
+  // React error #418 on /skills?installed=1 or /skills?cat=...
+  // navigations. The one-frame flash before the effect runs is
+  // visually invisible but kills the hydration warning.
+  const [search, setSearch] = useState<string>("");
+  const [catFilter, setCatFilter] = useState<string>("");
+  const [installedOnly, setInstalledOnly] = useState<boolean>(false);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const s = q.get("search");
+    const c = q.get("cat");
+    if (s) setSearch(s);
+    if (c) setCatFilter(c);
+    if (q.get("installed") === "1") setInstalledOnly(true);
+  }, []);
 
   const [modalSkill, setModalSkill] = useState<SkillManifest | null>(null);
   const [configValues, setConfigValues] = useState<Record<string, Record<string, string>>>({});

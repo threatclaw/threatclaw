@@ -1,6 +1,7 @@
 "use client";
 
 import { Inter } from "next/font/google";
+import { useEffect, useState } from "react";
 import "./globals.css";
 import SocTopBar from "@/components/chrome/SocTopBar";
 import { SectionSidebar } from "@/components/chrome/SectionSidebar";
@@ -15,7 +16,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isSetupWizard = pathname === "/setup" && typeof window !== "undefined" && !localStorage.getItem("threatclaw_onboarded");
+  // The wizard chrome lives behind two predicates: the route AND a
+  // localStorage flag. Reading localStorage during the synchronous
+  // render produced a different value on the server (always false)
+  // than on the client (true when the user hadn't onboarded yet),
+  // which is the exact recipe for React error #418 (hydration
+  // mismatch). Render the post-onboarding chrome on the server and
+  // patch the wizard state in after mount — the first paint of an
+  // un-onboarded /setup visit briefly shows the SocTopBar, then
+  // collapses it; acceptable trade for losing the console error.
+  const [onboarded, setOnboarded] = useState(true);
+  useEffect(() => {
+    try {
+      setOnboarded(!!localStorage.getItem("threatclaw_onboarded"));
+    } catch {
+      setOnboarded(true);
+    }
+  }, []);
+  const isSetupWizard = pathname === "/setup" && !onboarded;
   const isLoginPage = pathname === "/login";
 
   return (
