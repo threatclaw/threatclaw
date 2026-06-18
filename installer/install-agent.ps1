@@ -83,26 +83,44 @@ public class TcPreflightCertPolicy : ICertificatePolicy {
 } catch { }
 try { [Net.ServicePointManager]::CertificatePolicy = New-Object TcPreflightCertPolicy } catch { }
 
-try {
-    Invoke-WebRequest -Uri "$Url/api/tc/webhook/ping/osquery" -Method Post `
-        -Headers @{ "X-Webhook-Token" = $Token } -TimeoutSec 10 -UseBasicParsing | Out-Null
-    Write-TC "Pre-flight OK - server reachable and token valid"
-} catch {
-    $code = $null
-    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
-    # Only abort on the two unambiguous failures: a clearly-rejected token (401)
-    # or no response at all (server/port/firewall). ANY other HTTP response means
-    # the server is reachable and the token check is merely inconclusive (older
-    # server with no ping endpoint, a proxy filtering this path, a transient 5xx,
-    # rate-limit...) — don't block a valid install; the first sync below is the
-    # real test.
-    if ($code -eq 401) {
-        Write-TCError "Server reachable but the webhook token is INVALID. Check TC_TOKEN (Dashboard > Skills > Osquery). Nothing was installed."
-    } elseif ($code) {
-        Write-TC "Pre-flight: server reachable; token check inconclusive (HTTP $code) - proceeding" -Color Yellow
-    } else {
-        Write-TCError "Cannot reach ThreatClaw at $Url. Check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."
+$tcReachable = $false
+$tcBody = ""
+if ($env:TC_SKIP_PREFLIGHT) {
+    # Escape hatch: bypass the pre-flight entirely (e.g. an unusual proxy the
+    # check can't see through). The first sync remains the real test.
+    Write-TC "Pre-flight SKIPPED (TC_SKIP_PREFLIGHT set) - proceeding without checking" -Color Yellow
+    $tcReachable = $true
+} else {
+    try {
+        $r = Invoke-WebRequest -Uri "$Url/api/tc/webhook/ping/osquery" -Method Post `
+            -Headers @{ "X-Webhook-Token" = $Token } -TimeoutSec 10 -UseBasicParsing
+        $tcReachable = $true
+        $tcBody = "$($r.Content)"
+    } catch {
+        # A thrown HTTP response (401/403/404/5xx...) still means the server is
+        # reachable — read its body so we can look for our marker.
+        if ($_.Exception.Response) {
+            $tcReachable = $true
+            try {
+                $tcReader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                $tcBody = $tcReader.ReadToEnd()
+            } catch { }
+        }
     }
+}
+if ($env:TC_DEBUG) { Write-TC ("DEBUG pre-flight: reachable={0} body={1}" -f $tcReachable, $tcBody) -Color Cyan }
+# Decide ONLY on our `tc_preflight` body marker, never on the HTTP status — auth
+# middleware, proxies and WAFs inject their own codes (a server without this
+# endpoint returns 401; a WAF may return 403). Only an explicit 'bad_token' from
+# our endpoint aborts on the token; only total unreachability aborts on connectivity.
+if ($tcBody -match 'bad_token') {
+    Write-TCError "Server reachable but the webhook token is INVALID. Check TC_TOKEN (Dashboard > Skills > Osquery). Nothing was installed."
+} elseif (-not $tcReachable) {
+    Write-TCError "Cannot reach ThreatClaw at $Url. Check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."
+} elseif ($tcBody -match '"tc_preflight":"ok"') {
+    Write-TC "Pre-flight OK - server reachable and token valid"
+} else {
+    Write-TC "Pre-flight: server reachable; token check inconclusive - proceeding" -Color Yellow
 }
 Write-Host ""
 

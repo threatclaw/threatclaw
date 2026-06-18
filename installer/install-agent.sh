@@ -76,20 +76,32 @@ fi
 # -k matches the sync script (self-signed cert); this checks reachability +
 # token, not cert validity.
 info "Pre-flight: checking connection and token at $TC_URL ..."
-ping_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 \
-  -X POST -H "X-Webhook-Token: $TC_TOKEN" \
-  "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null || echo "000")
-case "$ping_code" in
-  # Only abort on the two unambiguous failures: a clearly-rejected token (401) or
-  # no response at all (000 = server/port/firewall). ANY other HTTP response means
-  # the server is reachable and the token check is merely inconclusive (older
-  # server with no ping endpoint, a proxy filtering this path, a transient 5xx,
-  # rate-limit...) — don't block a valid install; the first sync is the real test.
-  2??) log "Pre-flight OK — server reachable and token valid" ;;
-  401) warn "Server reachable but the webhook token is INVALID — check the token (Dashboard > Skills > Osquery). Nothing was installed."; exit 1 ;;
-  000) warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."; exit 1 ;;
-  *)   warn "Server reachable; token check inconclusive (HTTP $ping_code) — proceeding (the first sync is the real test)." ;;
-esac
+if [ -n "${TC_SKIP_PREFLIGHT:-}" ]; then
+  # Escape hatch: bypass the pre-flight (e.g. an unusual proxy it can't see
+  # through). The first sync remains the real test.
+  warn "Pre-flight SKIPPED (TC_SKIP_PREFLIGHT set) — proceeding without checking."
+  ping_code="skip"; ping_body=""
+else
+  ping_resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
+    -X POST -H "X-Webhook-Token: $TC_TOKEN" \
+    "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null)
+  ping_code=$(printf '%s' "$ping_resp" | tail -n1)
+  ping_body=$(printf '%s' "$ping_resp" | sed '$d')
+fi
+[ -n "${TC_DEBUG:-}" ] && info "DEBUG pre-flight: code=$ping_code body=$ping_body"
+# Decide ONLY on our `tc_preflight` body marker, never on the HTTP status — auth
+# middleware, proxies and WAFs inject their own codes (a server without this
+# endpoint returns 401; a WAF may return 403). Only an explicit bad_token from our
+# endpoint aborts on the token; only total unreachability aborts on connectivity.
+if printf '%s' "$ping_body" | grep -q 'bad_token'; then
+  warn "Server reachable but the webhook token is INVALID — check the token (Dashboard > Skills > Osquery). Nothing was installed."; exit 1
+elif [ -z "$ping_code" ] || [ "$ping_code" = "000" ]; then
+  warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."; exit 1
+elif printf '%s' "$ping_body" | grep -q '"tc_preflight":"ok"'; then
+  log "Pre-flight OK — server reachable and token valid"
+else
+  warn "Server reachable; token check inconclusive — proceeding (the first sync is the real test)."
+fi
 
 # ── Detect OS ──
 detect_os() {
