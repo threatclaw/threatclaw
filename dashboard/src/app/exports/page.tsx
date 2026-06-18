@@ -349,7 +349,7 @@ function ExportModal({
       display: "flex", alignItems: "center", justifyContent: "center", padding: "20px",
     }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: "var(--tc-surface)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius)",
+        background: "var(--tc-surface)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-card)",
         padding: "20px", minWidth: "420px", maxWidth: "540px", width: "100%", maxHeight: "85vh", overflowY: "auto",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>

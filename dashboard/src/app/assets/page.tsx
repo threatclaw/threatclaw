@@ -1621,8 +1621,8 @@ function AssetsPageInner() {
       {/* Merge action bar */}
       {mergeMode && mergeSel.size > 0 && (
         <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", zIndex: 50,
-          display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderRadius: "var(--tc-radius)",
-          background: "var(--tc-card)", border: "1px solid var(--tc-border)", boxShadow: "0 6px 24px rgba(0,0,0,0.3)" }}>
+          display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderRadius: "var(--tc-radius-card)",
+          background: "var(--tc-bg)", border: "1px solid var(--tc-border)", boxShadow: "0 6px 24px rgba(0,0,0,0.3)" }}>
           <span style={{ fontSize: 12, color: "var(--tc-text)" }}>
             {mergeSel.size} {locale === "fr" ? "sélectionné(s)" : "selected"}
           </span>
@@ -1668,7 +1668,7 @@ function AssetsPageInner() {
           <div onClick={() => !merging && setMergeOpen(false)}
             style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ width: dialogWidth, maxWidth: "92vw", maxHeight: "88vh", overflow: "auto", padding: 20, borderRadius: "var(--tc-radius)", background: "var(--tc-card)", border: "1px solid var(--tc-border)" }}>
+              style={{ width: dialogWidth, maxWidth: "92vw", maxHeight: "88vh", overflow: "auto", padding: 20, borderRadius: "var(--tc-radius-card)", background: "var(--tc-bg)", border: "1px solid var(--tc-border)" }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tc-text)", marginBottom: 4 }}>
                 {locale === "fr" ? "Fusionner les assets" : "Merge assets"}
               </div>
