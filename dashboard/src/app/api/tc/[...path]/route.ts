@@ -1,7 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "crypto";
 
 const CORE_URL = process.env.TC_CORE_URL || "http://127.0.0.1:3000";
 const CORE_TOKEN = process.env.TC_CORE_TOKEN || process.env.GATEWAY_AUTH_TOKEN || "";
+
+// Session-validation cache + spike-tolerant timeout.
+//
+// Every /api/tc/* call used to fire its own /api/auth/me probe with a 5 s
+// hard timeout and no memoisation. A page mounting 6-8 fetches in parallel
+// therefore drove 6-8 concurrent /api/auth/me on the core, each one
+// writing the renewed sliding-window expiry back to the settings table.
+// When the IE cycle (or any other heavy write loop) bumped DB latency
+// above 5 s for a few seconds, the timeout fired, the proxy returned 401,
+// and the browser showed Next's generic "This page couldn't load" or
+// emptied tables until the user signed out and back in. Symptom matched
+// "1-2 times a day" from a customer report on cyb06.
+//
+// Mitigation:
+//   1. Memoise per-cookie validation in-process for 45 s on success,
+//      5 s on failure. Same-cookie concurrent fetches collapse onto a
+//      single probe.
+//   2. Raise the probe timeout to 15 s and retry once on timeout
+//      (not on a real 401 — those propagate immediately so a logged-out
+//      user isn't kept around for 30 extra seconds).
+const SESSION_VALIDATION_TTL_OK_MS = 45_000;
+const SESSION_VALIDATION_TTL_KO_MS = 5_000;
+const SESSION_VALIDATION_TIMEOUT_MS = 15_000;
+
+type ValidationCacheEntry = { ok: boolean; expiresAt: number };
+const sessionValidationCache = new Map<string, ValidationCacheEntry>();
+
+// Hash the token rather than indexing by the raw value — keeps the
+// secret out of any accidental Map dump and gives a stable bounded key.
+function sessionCacheKey(cookie: string): string | null {
+  const m = cookie.match(/(?:^|;\s*)tc_session=([^;]+)/);
+  if (!m) return null;
+  return createHash("sha256").update(m[1]).digest("hex");
+}
+
+type ProbeResult = "ok" | "unauthorized" | "timeout" | "error";
+
+async function probeAuthMe(cookie: string, timeoutMs: number): Promise<ProbeResult> {
+  try {
+    const resp = await fetch(`${CORE_URL}/api/auth/me`, {
+      headers: { Cookie: cookie },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (resp.ok) return "ok";
+    if (resp.status === 401) return "unauthorized";
+    return "error";
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") return "timeout";
+    return "error";
+  }
+}
 
 // This proxy attaches the privileged core Bearer token to every forwarded
 // request. The page middleware (proxy.ts) deliberately excludes /api/*, so the
@@ -12,15 +64,41 @@ const CORE_TOKEN = process.env.TC_CORE_TOKEN || process.env.GATEWAY_AUTH_TOKEN |
 async function hasValidSession(req: NextRequest): Promise<boolean> {
   const cookie = req.headers.get("cookie");
   if (!cookie || !cookie.includes("tc_session")) return false;
-  try {
-    const resp = await fetch(`${CORE_URL}/api/auth/me`, {
-      headers: { Cookie: cookie },
-      signal: AbortSignal.timeout(5000),
-    });
-    return resp.ok;
-  } catch {
-    return false;
+
+  const key = sessionCacheKey(cookie);
+  const now = Date.now();
+  if (key) {
+    const cached = sessionValidationCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.ok;
+    }
   }
+
+  let result = await probeAuthMe(cookie, SESSION_VALIDATION_TIMEOUT_MS);
+  if (result === "timeout") {
+    // Single retry — the IE cycle write spike usually clears within a
+    // second once the cache window opens. Don't retry on a real 401:
+    // forwarding a stale session would cost the user 15 extra seconds
+    // before the UI even sees the rejection.
+    result = await probeAuthMe(cookie, SESSION_VALIDATION_TIMEOUT_MS);
+  }
+
+  const ok = result === "ok";
+  if (key) {
+    sessionValidationCache.set(key, {
+      ok,
+      expiresAt: now + (ok ? SESSION_VALIDATION_TTL_OK_MS : SESSION_VALIDATION_TTL_KO_MS),
+    });
+    // Bounded clean-up: a single-tenant SOC dashboard barely accumulates
+    // entries, but a long-running process with rotating tokens shouldn't
+    // grow this map without an upper bound either.
+    if (sessionValidationCache.size > 1024) {
+      sessionValidationCache.forEach((v, k) => {
+        if (v.expiresAt <= now) sessionValidationCache.delete(k);
+      });
+    }
+  }
+  return ok;
 }
 
 // Endpoint-agent ingress paths carry their own webhook_token in the
