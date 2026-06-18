@@ -6,6 +6,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.47-beta] — 2026-06-18
+
+### Fixed
+- Endpoint agent pre-flight no longer aborts a valid install on HTTP 401 from a WAF, an older core without the ping route, or any non-token rejection. The decision is now made on a `tc_preflight` body marker (`bad_token` / `ok`) shipped by the ping handler, with `TC_SKIP_PREFLIGHT` and `TC_DEBUG` escape hatches; the first sync remains the authoritative token check.
+- Asset merge wizard modal no longer renders transparent. The 2-asset side-by-side picker referenced two CSS variables that the theme stylesheet does not define, so the dialog inherited the page background and the merge banner had no border radius. Swapped to the tokens used elsewhere on the dashboard. The `/exports` page carried the same border-radius regression and is fixed in the same pass.
+
 ## [1.0.46-beta] — 2026-06-18
 
 ### Added
