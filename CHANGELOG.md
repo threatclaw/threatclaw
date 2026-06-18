@@ -9,7 +9,7 @@ Earlier `v0.x` entries below cover pre-public internal development and are kept 
 ## [1.0.47-beta] — 2026-06-18
 
 ### Fixed
-- Endpoint agent pre-flight no longer aborts a valid install on HTTP 401 from a WAF, an older core without the ping route, or any non-token rejection. The decision is now made on a `tc_preflight` body marker (`bad_token` / `ok`) shipped by the ping handler, with `TC_SKIP_PREFLIGHT` and `TC_DEBUG` escape hatches; the first sync remains the authoritative token check.
+- Endpoint agent pre-flight no longer aborts a valid install on a 401 from a WAF, an older core without the ping route, or any non-token rejection. The token decision now relies on a dedicated body marker from the ping handler, and the first sync remains the authoritative check. Diagnostic escape hatches are available for support.
 - Asset merge wizard modal no longer renders transparent. The 2-asset side-by-side picker referenced two CSS variables that the theme stylesheet does not define, so the dialog inherited the page background and the merge banner had no border radius. Swapped to the tokens used elsewhere on the dashboard. The `/exports` page carried the same border-radius regression and is fixed in the same pass.
 
 ## [1.0.46-beta] — 2026-06-18
