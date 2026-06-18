@@ -5830,19 +5830,23 @@ pub async fn webhook_ping_handler(
         .or_else(|| params.get("token").map(|s| s.as_str()))
         .unwrap_or("");
     use crate::connectors::webhook_ingest::PingResult;
+    // The installer pre-flight decides on the `tc_preflight` BODY marker, never on
+    // the HTTP status — auth middleware, proxies and WAFs inject their own codes
+    // (a core without this endpoint returns 401; a WAF may return 403), so only
+    // our explicit body marker is trustworthy. `ok` is kept for backward compat.
     match crate::connectors::webhook_ingest::ping_token(store, &source, token).await {
         PingResult::Ok => (
             StatusCode::OK,
-            Json(serde_json::json!({ "ok": true, "source": source })),
+            Json(serde_json::json!({ "tc_preflight": "ok", "ok": true, "source": source })),
         ),
         PingResult::RateLimited => (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(serde_json::json!({ "ok": false })),
+            Json(serde_json::json!({ "tc_preflight": "rate_limited", "ok": false })),
         ),
         // Uniform 401 — no distinction between missing / wrong / malformed token.
         PingResult::BadToken => (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "ok": false })),
+            Json(serde_json::json!({ "tc_preflight": "bad_token", "ok": false })),
         ),
     }
 }
