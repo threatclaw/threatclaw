@@ -7050,6 +7050,144 @@ pub async fn asset_merge_handler(
     // Identify the operator from the auth layer (best-effort).
     let merged_by = "operator"; // TODO when /api/auth/me lands as a server-side context
 
+    // Optional descriptive-field patch for the 2-asset wizard. The wizard
+    // sends one of "canonical" | "alias" per descriptive field; the
+    // identity fields (hostname, mac, fqdn, ips, tags, services) are
+    // always unioned so resolve_asset keeps matching either side after
+    // the merge and never re-creates the duplicate.
+    let attributes_patch = body.get("attributes_patch").cloned();
+    if attributes_patch.is_some() && alias_ids.len() != 1 {
+        return Ok(Json(serde_json::json!({
+            "error": "attributes_patch is only valid with exactly one alias_id (wizard mode)"
+        })));
+    }
+    if let Some(patch) = attributes_patch.as_ref() {
+        let alias = &alias_ids[0];
+        let canonical = match store.get_asset(&canonical_id).await {
+            Ok(Some(a)) => a,
+            _ => {
+                return Ok(Json(serde_json::json!({
+                    "error": "canonical_id not found"
+                })))
+            }
+        };
+        let alias_record = match store.get_asset(alias).await {
+            Ok(Some(a)) => a,
+            _ => {
+                return Ok(Json(serde_json::json!({
+                    "error": "alias_id not found"
+                })))
+            }
+        };
+
+        let pick_str = |field: &str, can: &str, ali: &str| -> String {
+            match patch.get(field).and_then(|v| v.as_str()) {
+                Some("alias") => ali.to_string(),
+                _ => can.to_string(),
+            }
+        };
+        let pick_opt = |field: &str, can: &Option<String>, ali: &Option<String>| -> Option<String> {
+            match patch.get(field).and_then(|v| v.as_str()) {
+                Some("alias") => ali.clone().or_else(|| can.clone()),
+                _ => can.clone().or_else(|| ali.clone()),
+            }
+        };
+
+        // Identity fields — always union so the auto-resolver still
+        // matches whichever hostname/MAC/IP a future sync surfaces.
+        let mut ip_addresses = canonical.ip_addresses.clone();
+        for ip in &alias_record.ip_addresses {
+            if !ip_addresses.contains(ip) {
+                ip_addresses.push(ip.clone());
+            }
+        }
+        let mut tags = canonical.tags.clone();
+        for t in &alias_record.tags {
+            if !tags.contains(t) {
+                tags.push(t.clone());
+            }
+        }
+        // Hostname/MAC/FQDN: prefer canonical's value when present;
+        // fall back to alias so the canonical row still carries the
+        // identity that resolve_asset would otherwise look up on the
+        // (soon-to-be-merged) alias row.
+        let hostname = canonical
+            .hostname
+            .clone()
+            .or_else(|| alias_record.hostname.clone());
+        let mac_address = canonical
+            .mac_address
+            .clone()
+            .or_else(|| alias_record.mac_address.clone());
+        let fqdn = canonical
+            .fqdn
+            .clone()
+            .or_else(|| alias_record.fqdn.clone());
+
+        // Services: union by (port, proto). Cheap heuristic since the
+        // shape is `[{port, proto, ...}, ...]`; we keep the canonical
+        // entry on collision (it's the row the operator chose to keep).
+        let services = {
+            let mut out = canonical
+                .services
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let alias_services = alias_record
+                .services
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            for svc in alias_services {
+                let key = (
+                    svc.get("port").and_then(|v| v.as_i64()),
+                    svc.get("proto").and_then(|v| v.as_str()).map(String::from),
+                );
+                let exists = out.iter().any(|x| {
+                    let xk = (
+                        x.get("port").and_then(|v| v.as_i64()),
+                        x.get("proto").and_then(|v| v.as_str()).map(String::from),
+                    );
+                    xk == key
+                });
+                if !exists {
+                    out.push(svc);
+                }
+            }
+            serde_json::Value::Array(out)
+        };
+
+        let merged_asset = crate::db::threatclaw_store::NewAsset {
+            id: canonical_id.clone(),
+            name: pick_str("name", &canonical.name, &alias_record.name),
+            category: pick_str("category", &canonical.category, &alias_record.category),
+            subcategory: pick_opt("subcategory", &canonical.subcategory, &alias_record.subcategory),
+            role: pick_opt("role", &canonical.role, &alias_record.role),
+            criticality: pick_str("criticality", &canonical.criticality, &alias_record.criticality),
+            ip_addresses,
+            mac_address,
+            hostname,
+            fqdn,
+            url: pick_opt("url", &canonical.url, &alias_record.url),
+            os: pick_opt("os", &canonical.os, &alias_record.os),
+            mac_vendor: canonical
+                .mac_vendor
+                .clone()
+                .or_else(|| alias_record.mac_vendor.clone()),
+            services,
+            source: canonical.source.clone(),
+            owner: pick_opt("owner", &canonical.owner, &alias_record.owner),
+            location: pick_opt("location", &canonical.location, &alias_record.location),
+            tags,
+        };
+
+        if let Err(e) = store.upsert_asset(&merged_asset).await {
+            return Ok(Json(serde_json::json!({
+                "error": format!("could not apply attributes_patch to canonical: {e}"),
+            })));
+        }
+    }
+
     let mut succeeded: Vec<String> = Vec::new();
     let mut failed: Vec<serde_json::Value> = Vec::new();
     for alias in &alias_ids {
@@ -7624,9 +7762,16 @@ pub async fn backup_import_handler(
 pub async fn version_check_handler(
     State(_state): State<Arc<GatewayState>>,
 ) -> ApiResult<serde_json::Value> {
-    let current = "2.0.0-beta";
+    // Read the running version from the compiled binary's Cargo metadata
+    // instead of a hand-edited literal — the previous "2.0.0-beta" string
+    // drifted past every release and the operator dashboard kept lying
+    // about which version was deployed.
+    let current = env!("CARGO_PKG_VERSION");
+    // The GitHub release tag is prefixed with `v` (e.g. `v1.0.45-beta`)
+    // while Cargo's version is bare. Normalise both sides before
+    // comparing so we never flag a spurious update.
+    let current_normalised = format!("v{current}");
 
-    // Check GitHub for latest release
     let latest = match reqwest::Client::new()
         .get("https://api.github.com/repos/threatclaw/threatclaw/releases/latest")
         .header("User-Agent", "ThreatClaw")
@@ -7636,12 +7781,15 @@ pub async fn version_check_handler(
     {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            body["tag_name"].as_str().unwrap_or(current).to_string()
+            body["tag_name"]
+                .as_str()
+                .unwrap_or(&current_normalised)
+                .to_string()
         }
-        _ => current.to_string(),
+        _ => current_normalised.clone(),
     };
 
-    let update_available = latest != current && !latest.is_empty();
+    let update_available = latest != current_normalised && !latest.is_empty();
 
     Ok(Json(serde_json::json!({
         "current": current,

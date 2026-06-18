@@ -32,14 +32,14 @@ steps:
   incident_burst:
     type: action
     command:
-      type: threatclaw-incident
+      type: threatclaw-emit-incident
       severity: "MEDIUM"
       title_fr: "Sudo echec en rafale"
     on_completion: terminal
   incident_service:
     type: action
     command:
-      type: threatclaw-incident
+      type: threatclaw-emit-incident
       severity: "HIGH"
       title_fr: "Sudo echec sur compte service"
     on_completion: terminal

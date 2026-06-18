@@ -2741,7 +2741,7 @@ function BackupTab() {
 
         <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
           <div style={{ fontSize: "12px", color: "var(--tc-text)" }}>
-            {tr("cfg_currentVersion", locale)} <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{versionInfo?.current || "2.0.0-beta"}</span>
+            {tr("cfg_currentVersion", locale)} <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{versionInfo?.current || "—"}</span>
           </div>
           {versionInfo?.update_available && (
             <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
@@ -2759,15 +2759,13 @@ function BackupTab() {
 
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", padding: "10px", background: "var(--tc-input)",
           borderRadius: "var(--tc-radius-sm)", fontFamily: "monospace", lineHeight: 1.8 }}>
+          {tr("cfg_updateOnelinerComment", locale)}<br/>
+          curl -fsSL https://get.threatclaw.io | sudo bash<br/>
+          <br/>
           {tr("cfg_updateDockerComment", locale)}<br/>
           cd /opt/threatclaw<br/>
           docker compose pull<br/>
-          docker compose up -d<br/>
-          <br/>
-          {tr("cfg_updateBinaryComment", locale)}<br/>
-          git pull origin main<br/>
-          cargo build --release<br/>
-          systemctl restart threatclaw
+          docker compose up -d
         </div>
       </ChromeInsetCard>
     </>

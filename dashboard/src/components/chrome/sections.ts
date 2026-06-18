@@ -139,8 +139,8 @@ export const SECTIONS: Record<SectionKey, Section> = {
     items: [
       {
         href: "/hunt",
-        labelFr: "Hunt panel",
-        labelEn: "Hunt panel",
+        labelFr: "Recherche logs",
+        labelEn: "Log search",
         icon: Search,
         tooltipFr: "Puits de log — fouille libre avec filtres hostname/tag/plage et plein texte sur la rétention courante.",
         tooltipEn: "Log lake — free-text hunt over current retention with hostname/tag/range filters.",

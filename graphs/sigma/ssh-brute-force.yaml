@@ -29,7 +29,7 @@ steps:
   incident_brute:
     type: action
     command:
-      type: threatclaw-incident
+      type: threatclaw-emit-incident
       severity: "HIGH"
       title_fr: "Brute force SSH detecte"
     on_completion: terminal

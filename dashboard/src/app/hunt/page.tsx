@@ -63,7 +63,7 @@ function previewMessage(data: Record<string, unknown>): string {
 export default function HuntPage() {
   const locale = useLocale();
   const labels = useMemo(() => ({
-    title:        locale === "fr" ? "Hunt panel"      : "Hunt panel",
+    title:        locale === "fr" ? "Recherche logs"  : "Log search",
     subtitle:     locale === "fr"
       ? "Puits de log : filtre, fouille, pivote."
       : "Log lake : filter, hunt, pivot.",
@@ -110,6 +110,13 @@ export default function HuntPage() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [saved, setSaved] = useState<SavedQuery[]>([]);
+  // Set to true when filters were hydrated programmatically (URL pivot,
+  // saved query). A second effect consumes the flag once React has
+  // committed the new filter state — that guarantees runSearch reads
+  // the freshly-committed hostname/tag/range instead of an empty
+  // closure (the previous setTimeout-0 trick raced the commit and
+  // produced empty queries on the incident → /hunt pivot).
+  const [autoSearchPending, setAutoSearchPending] = useState(false);
   const [savingBusy, setSavingBusy] = useState(false);
   const [assetHostnames, setAssetHostnames] = useState<string[]>([]);
 
@@ -229,8 +236,7 @@ export default function HuntPage() {
     setRangeKey(p.rangeKey || "24h");
     setCustomFrom(p.customFrom || "");
     setCustomTo(p.customTo || "");
-    // Defer one tick so state is committed before runSearch reads it.
-    setTimeout(() => { runSearch(false); }, 0);
+    setAutoSearchPending(true);
   };
 
   const deleteSaved = async (id: number) => {
@@ -257,12 +263,15 @@ export default function HuntPage() {
       if (to)   setCustomTo(to.slice(0, 16));
       dirty = true;
     }
-    if (dirty) {
-      // Defer one tick so state is committed before search builds QS.
-      setTimeout(() => { runSearch(false); }, 0);
-    }
+    if (dirty) setAutoSearchPending(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  React.useEffect(() => {
+    if (!autoSearchPending) return;
+    setAutoSearchPending(false);
+    runSearch(false);
+  }, [autoSearchPending, runSearch]);
 
   return (
     <PageShell title={labels.title} subtitle={labels.subtitle}>

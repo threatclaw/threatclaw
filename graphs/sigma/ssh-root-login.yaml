@@ -26,14 +26,14 @@ steps:
   incident_persistent:
     type: action
     command:
-      type: threatclaw-incident
+      type: threatclaw-emit-incident
       severity: "HIGH"
       title_fr: "Tentatives root SSH repetees"
     on_completion: terminal
   incident_critical:
     type: action
     command:
-      type: threatclaw-incident
+      type: threatclaw-emit-incident
       severity: "HIGH"
       title_fr: "Tentative root SSH sur asset critique"
     on_completion: terminal

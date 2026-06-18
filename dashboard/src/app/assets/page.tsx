@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
@@ -876,6 +876,13 @@ export default function AssetsPage() {
   const [mergePrimary, setMergePrimary] = useState("");
   const [mergeReason, setMergeReason] = useState("");
   const [merging, setMerging] = useState(false);
+  // Per-field side picker for the 2-asset wizard. When the operator
+  // selects exactly two assets, the merge modal switches to a
+  // side-by-side view; for each descriptive field the operator picks
+  // which side (canonical=A, alias=B) the canonical row keeps. Identity
+  // fields (hostname, mac, fqdn, ips, services, tags) are always
+  // unioned server-side regardless of this map — see asset_merge_handler.
+  const [mergePatch, setMergePatch] = useState<Record<string, "canonical" | "alias">>({});
   const [showDupes, setShowDupes] = useState(false); // filter to flagged possible-duplicate assets
 
   // Modal state
@@ -918,6 +925,27 @@ export default function AssetsPage() {
   }, [activeTab]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Honour `?edit=<assetId>` from the detail page's "Modifier" button.
+  // Without this hook the pivot just landed back on the asset list and
+  // looked like a silent no-op. We open the edit modal as soon as the
+  // matching asset shows up in the loaded list, then strip the param so
+  // a refresh on this page doesn't keep re-opening the modal.
+  const searchParams = useSearchParams();
+  const pendingEditId = searchParams?.get("edit") || null;
+  const editConsumedRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!pendingEditId || editConsumedRef.current === pendingEditId) return;
+    if (assets.length === 0) return;
+    const target = assets.find(a => a.id === pendingEditId);
+    if (!target) return;
+    editConsumedRef.current = pendingEditId;
+    openEdit(target);
+    router.replace("/assets");
+    // openEdit and router are stable enough here; deps kept minimal on
+    // purpose so this only fires when the list re-renders with new data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEditId, assets]);
 
   // ── Modal handlers ──
 
@@ -1068,6 +1096,14 @@ export default function AssetsPage() {
     if (ids.length < 2) return;
     setMergePrimary(ids[0]);
     setMergeReason("");
+    // Default every descriptive field to the canonical side. The wizard
+    // (rendered only when ids.length === 2) lets the operator flip
+    // individual fields to the alias side before committing.
+    setMergePatch({
+      name: "canonical", category: "canonical", subcategory: "canonical",
+      role: "canonical", criticality: "canonical", owner: "canonical",
+      location: "canonical", url: "canonical", os: "canonical",
+    });
     setMergeOpen(true);
   };
 
@@ -1077,14 +1113,42 @@ export default function AssetsPage() {
     setMerging(true);
     setError(null);
     try {
+      // Only ship the descriptive-field patch when the wizard was
+      // actually visible (exactly 2 assets selected). Larger merges
+      // fall back to the simple flow — picking a side per field
+      // across N>2 is too much UX for too rare a case.
+      const payload: Record<string, unknown> = {
+        canonical_id: mergePrimary,
+        alias_ids: aliasIds,
+        reason: mergeReason.trim(),
+      };
+      if (mergeSel.size === 2) {
+        payload.attributes_patch = mergePatch;
+      }
       const res = await fetch("/api/tc/assets/merge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ canonical_id: mergePrimary, alias_ids: aliasIds, reason: mergeReason.trim() }),
+        body: JSON.stringify(payload),
       });
       const j = await res.json().catch(() => ({}));
+      // The handler returns { merged: [...], failed: [{alias_id, error}, ...] }
+      // and only surfaces top-level `error` for validation issues. Without
+      // the failed/merged inspection below, a 100% DB-rejection silently
+      // closed the modal and gave operators no feedback at all.
+      const failedList: Array<{ alias_id: string; error: string }> = Array.isArray(j.failed) ? j.failed : [];
+      const mergedList: string[] = Array.isArray(j.merged) ? j.merged : [];
       if (j.error) {
         setError(j.error);
+      } else if (failedList.length > 0 && mergedList.length === 0) {
+        const first = failedList[0];
+        setError(`${locale === "fr" ? "Fusion refusée" : "Merge refused"}: ${first.error} (${first.alias_id})`);
+      } else if (failedList.length > 0) {
+        const first = failedList[0];
+        setError(`${locale === "fr" ? "Fusion partielle" : "Partial merge"}: ${mergedList.length} OK, ${failedList.length} ${locale === "fr" ? "échec" : "failed"} — ${first.error}`);
+        setMergeSel(new Set());
+        setMergeMode(false);
+        setMergeOpen(false);
+        loadData();
       } else {
         setMergeSel(new Set());
         setMergeMode(false);
@@ -1121,7 +1185,7 @@ export default function AssetsPage() {
       <button onClick={() => { setMergeMode(m => !m); setMergeSel(new Set()); }}
         style={mergeMode ? btnPrimary : btnSecondary}
         title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
-        <GitMerge size={12} />{mergeMode ? <span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span> : null}
+        <GitMerge size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span>
       </button>
       <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
         <Upload size={12} />
@@ -1567,53 +1631,146 @@ export default function AssetsPage() {
       )}
 
       {/* Merge confirmation dialog */}
-      {mergeOpen && (
-        <div onClick={() => !merging && setMergeOpen(false)}
-          style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ width: 480, maxWidth: "90vw", maxHeight: "85vh", overflow: "auto", padding: 20, borderRadius: "var(--tc-radius)", background: "var(--tc-card)", border: "1px solid var(--tc-border)" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tc-text)", marginBottom: 4 }}>
-              {locale === "fr" ? "Fusionner les assets" : "Merge assets"}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 14 }}>
-              {locale === "fr"
-                ? "Choisis la fiche à garder. Les autres y seront fusionnées (IP, tags, sources, findings) puis supprimées. Réversible 30 jours."
-                : "Pick the record to keep. The others are merged into it (IPs, tags, sources, findings) then removed. Reversible 30 days."}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-              {Array.from(mergeSel).map(id => {
-                const a = assets.find(x => x.id === id);
-                return (
-                  <label key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: "var(--tc-radius-sm)",
-                    border: `1px solid ${mergePrimary === id ? "var(--tc-red)" : "var(--tc-border)"}`, background: "var(--tc-input)", cursor: "pointer" }}>
-                    <input type="radio" name="merge-primary" checked={mergePrimary === id}
-                      onChange={() => setMergePrimary(id)} style={{ accentColor: "var(--tc-red)" }} />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--tc-text)" }}>{a?.name || id}</div>
-                      <div style={{ fontSize: 9, color: "var(--tc-text-muted)" }}>
-                        {(a?.hostname || "—")} · {(a?.ip_addresses?.[0] || "—")} · {a?.source || "—"}
-                        {mergePrimary === id ? ` · ${locale === "fr" ? "PRINCIPAL" : "PRIMARY"}` : ""}
+      {mergeOpen && (() => {
+        const ids = Array.from(mergeSel);
+        const isTwoWayWizard = ids.length === 2;
+        // For the wizard we keep both rows resolved up front. side A
+        // is the operator-chosen canonical (mergePrimary); side B is
+        // the alias. Flipping the canonical radio swaps them — the
+        // mergePatch keeps its keys, which keeps the existing radio
+        // selections meaningful (still "keep A" / "take from B").
+        const aliasIdForWizard = isTwoWayWizard ? ids.find(i => i !== mergePrimary) : "";
+        const A = isTwoWayWizard ? assets.find(x => x.id === mergePrimary) : undefined;
+        const B = isTwoWayWizard ? assets.find(x => x.id === aliasIdForWizard) : undefined;
+        // Descriptive fields exposed in the wizard. Identity (hostname,
+        // mac, fqdn, ip_addresses, services, tags) is intentionally
+        // absent — the backend always unions those so the auto-merge
+        // pipeline keeps matching either side post-fusion.
+        const descriptiveFields: Array<{ key: string; labelFr: string; labelEn: string; read: (a: Asset | undefined) => string }> = [
+          { key: "name",        labelFr: "Nom",          labelEn: "Name",        read: a => a?.name || "" },
+          { key: "category",    labelFr: "Catégorie",    labelEn: "Category",    read: a => a?.category || "" },
+          { key: "subcategory", labelFr: "Sous-catégorie", labelEn: "Subcategory", read: a => a?.subcategory || "" },
+          { key: "role",        labelFr: "Rôle",         labelEn: "Role",        read: a => a?.role || "" },
+          { key: "criticality", labelFr: "Criticité",    labelEn: "Criticality", read: a => a?.criticality || "" },
+          { key: "owner",       labelFr: "Propriétaire", labelEn: "Owner",       read: a => a?.owner || "" },
+          { key: "location",    labelFr: "Site",         labelEn: "Location",    read: a => a?.location || "" },
+          { key: "url",         labelFr: "URL",          labelEn: "URL",         read: a => a?.url || "" },
+          { key: "os",          labelFr: "OS",           labelEn: "OS",          read: a => a?.os || "" },
+        ];
+        const dialogWidth = isTwoWayWizard ? 720 : 480;
+        return (
+          <div onClick={() => !merging && setMergeOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ width: dialogWidth, maxWidth: "92vw", maxHeight: "88vh", overflow: "auto", padding: 20, borderRadius: "var(--tc-radius)", background: "var(--tc-card)", border: "1px solid var(--tc-border)" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tc-text)", marginBottom: 4 }}>
+                {locale === "fr" ? "Fusionner les assets" : "Merge assets"}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 14 }}>
+                {isTwoWayWizard
+                  ? (locale === "fr"
+                      ? "Choisis la fiche principale puis, champ par champ, quelle valeur garder. Les identifiants (hostname, MAC, IPs, services, tags) sont toujours fusionnés. Réversible 30 jours."
+                      : "Pick the primary record, then choose which value to keep for each field. Identity fields (hostname, MAC, IPs, services, tags) are always merged. Reversible 30 days.")
+                  : (locale === "fr"
+                      ? "Choisis la fiche à garder. Les autres y seront fusionnées (IP, tags, sources, findings) puis supprimées. Réversible 30 jours."
+                      : "Pick the record to keep. The others are merged into it (IPs, tags, sources, findings) then removed. Reversible 30 days.")}
+              </div>
+
+              {/* Primary picker — common to both modes */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+                {ids.map(id => {
+                  const a = assets.find(x => x.id === id);
+                  return (
+                    <label key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: "var(--tc-radius-sm)",
+                      border: `1px solid ${mergePrimary === id ? "var(--tc-red)" : "var(--tc-border)"}`, background: "var(--tc-input)", cursor: "pointer" }}>
+                      <input type="radio" name="merge-primary" checked={mergePrimary === id}
+                        onChange={() => setMergePrimary(id)} style={{ accentColor: "var(--tc-red)" }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--tc-text)" }}>{a?.name || id}</div>
+                        <div style={{ fontSize: 9, color: "var(--tc-text-muted)" }}>
+                          {(a?.hostname || "—")} · {(a?.ip_addresses?.[0] || "—")} · {a?.source || "—"}
+                          {mergePrimary === id ? ` · ${locale === "fr" ? "PRINCIPAL" : "PRIMARY"}` : ""}
+                        </div>
                       </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {isTwoWayWizard && A && B && (
+                <>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                    {locale === "fr" ? "Champ par champ" : "Field by field"}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 1fr", gap: 6, fontSize: 11, marginBottom: 14 }}>
+                    <div></div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)" }}>
+                      A · {A.name || A.id}
                     </div>
-                  </label>
-                );
-              })}
-            </div>
-            <input value={mergeReason} onChange={e => setMergeReason(e.target.value)}
-              placeholder={locale === "fr" ? "Raison (obligatoire — audit)" : "Reason (required — audited)"}
-              style={{ width: "100%", padding: "8px 10px", marginBottom: 14, borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border)", background: "var(--tc-input)", color: "var(--tc-text)", fontFamily: "inherit", fontSize: 12 }} />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button onClick={() => setMergeOpen(false)} disabled={merging} style={btnSecondary}>
-                {locale === "fr" ? "Annuler" : "Cancel"}
-              </button>
-              <button onClick={doMerge} disabled={merging || !mergeReason.trim()}
-                style={{ ...btnPrimary, opacity: (merging || !mergeReason.trim()) ? 0.5 : 1 }}>
-                {merging ? <Loader2 size={12} /> : <GitMerge size={12} />} {locale === "fr" ? "Fusionner" : "Merge"}
-              </button>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--tc-text-muted)" }}>
+                      B · {B.name || B.id}
+                    </div>
+                    {descriptiveFields.map(f => {
+                      const vA = f.read(A);
+                      const vB = f.read(B);
+                      const sel = mergePatch[f.key] || "canonical";
+                      const flip = (side: "canonical" | "alias") =>
+                        setMergePatch(p => ({ ...p, [f.key]: side }));
+                      const cell = (side: "canonical" | "alias", value: string) => {
+                        const active = sel === side;
+                        return (
+                          <button onClick={() => flip(side)}
+                            style={{
+                              textAlign: "left", padding: "6px 8px", borderRadius: "var(--tc-radius-sm)",
+                              border: `1px solid ${active ? "var(--tc-red)" : "var(--tc-border)"}`,
+                              background: active ? "var(--tc-red-bg, rgba(220,38,38,0.08))" : "var(--tc-input)",
+                              color: value ? "var(--tc-text)" : "var(--tc-text-muted)",
+                              fontFamily: "inherit", fontSize: 11, cursor: "pointer",
+                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                            {value || "—"}
+                          </button>
+                        );
+                      };
+                      return (
+                        <React.Fragment key={f.key}>
+                          <div style={{ color: "var(--tc-text-muted)", alignSelf: "center" }}>
+                            {locale === "fr" ? f.labelFr : f.labelEn}
+                          </div>
+                          {cell("canonical", vA)}
+                          {cell("alias", vB)}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+
+                  {/* Identity preview — read-only */}
+                  <div style={{ fontSize: 10, color: "var(--tc-text-muted)", marginBottom: 14, padding: "8px 10px",
+                    background: "var(--tc-input)", borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border)" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      {locale === "fr" ? "Toujours fusionnés (union)" : "Always merged (union)"}
+                    </div>
+                    <div>hostname · MAC · FQDN · IPs · services · tags</div>
+                  </div>
+                </>
+              )}
+
+              <input value={mergeReason} onChange={e => setMergeReason(e.target.value)}
+                placeholder={locale === "fr" ? "Raison (obligatoire — audit)" : "Reason (required — audited)"}
+                style={{ width: "100%", padding: "8px 10px", marginBottom: 14, borderRadius: "var(--tc-radius-sm)", border: "1px solid var(--tc-border)", background: "var(--tc-input)", color: "var(--tc-text)", fontFamily: "inherit", fontSize: 12 }} />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button onClick={() => setMergeOpen(false)} disabled={merging} style={btnSecondary}>
+                  {locale === "fr" ? "Annuler" : "Cancel"}
+                </button>
+                <button onClick={doMerge} disabled={merging || !mergeReason.trim()}
+                  style={{ ...btnPrimary, opacity: (merging || !mergeReason.trim()) ? 0.5 : 1 }}>
+                  {merging ? <Loader2 size={12} /> : <GitMerge size={12} />} {locale === "fr" ? "Fusionner" : "Merge"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </PageShell>
   );
 }
