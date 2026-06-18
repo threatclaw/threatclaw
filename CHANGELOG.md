@@ -6,6 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.46-beta] — 2026-06-18
+
+### Added
+- 2-asset merge wizard: side-by-side picker for descriptive fields (name, category, role, criticality, owner, location, URL, OS). Identity fields (hostname, MAC, FQDN, IPs, services, tags) are always unioned server-side so the auto-resolver keeps matching either side after the merge.
+
+### Changed
+- Hunt panel renamed "Recherche logs" / "Log search" in the sidebar, page title and incident pivot.
+- Config page reads its current version from the compiled binary instead of a hand-edited literal; update snippet now shows the install.sh one-liner and a plain Docker compose pull/up sequence.
+- Three CACAO dispatchers use the correct `threatclaw-emit-incident` variant.
+
+### Fixed
+- "This page couldn't load" no longer fires on stale chunk requests after a redeploy: nginx caches `/_next/static/*` aggressively and returns an empty 404 body so the browser can recover on a hard reload.
+- Five React hydration mismatches (error #418) on the root layout, the config page and the skills catalogue.
+- The dashboard proxy memoises `/api/auth/me` per cookie for 45 s and retries once on timeout, killing the 401 storms triggered by DB-write spikes during the intelligence-engine cycle.
+- Asset detail "Modifier" button now opens the edit modal instead of silently dropping the user back on the inventory.
+- Merge dialog surfaces backend failures instead of closing silently when the database rejects the operation.
+- Endpoint agent installer pins the published HTTPS port across re-runs so a full reinstall on an existing host never moves the gateway port out from under the deployed agents.
+
 ## [1.0.45-beta] — 2026-06-17
 
 ### Added
