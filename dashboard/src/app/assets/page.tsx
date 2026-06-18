@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { t as tr, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
@@ -858,7 +858,13 @@ export function AssetFindings({ asset }: { asset: any }) {
   );
 }
 
-export default function AssetsPage() {
+// Next.js 16 (Turbopack) requires any subtree that calls
+// useSearchParams to be wrapped in a Suspense boundary, otherwise the
+// page can no longer be statically prerendered (CI build fails with
+// "useSearchParams() should be wrapped in a suspense boundary at
+// page /assets"). We default-export a thin wrapper so the build
+// passes; the inner component holds the actual page logic.
+function AssetsPageInner() {
   const router = useRouter();
   const locale = useLocale();
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -1772,6 +1778,14 @@ export default function AssetsPage() {
         );
       })()}
     </PageShell>
+  );
+}
+
+export default function AssetsPage() {
+  return (
+    <Suspense fallback={null}>
+      <AssetsPageInner />
+    </Suspense>
   );
 }
 
