@@ -255,6 +255,35 @@ pub async fn resolve_asset(store: &dyn Database, discovered: &DiscoveredAsset) -
         // exists for this hostname, reuse its id by routing through the
         // merge path with a synthesised ExistingAsset.
         if let Ok(Some(pg_existing)) = store.find_asset_by_hostname(&hostname_clean).await {
+            // Deletion-lifecycle tombstone. If the operator deleted this host:
+            //  - "block reappearance" set → refuse to resurrect it. The source
+            //    keeps reporting but we ingest nothing for it (decommissioned).
+            //  - not blocked → the operator allowed it back: reactivate the row
+            //    so the merge below brings it live again, clean.
+            if pg_existing.status == "deleted" {
+                if pg_existing.reenrol_blocked {
+                    tracing::info!(
+                        target: "asset_enrolment",
+                        "ASSET TOMBSTONE: '{}' is decommissioned (reenrol_blocked) — ingestion skipped",
+                        hostname_clean
+                    );
+                    return ResolutionResult {
+                        asset_id: pg_existing.id.clone(),
+                        action: ResolutionAction::Conflict,
+                        confidence: 0.0,
+                        sources: vec![pg_existing.source.clone()],
+                        conflict: Some(
+                            "asset decommissioned (reenrol_blocked) — ingestion skipped".into(),
+                        ),
+                    };
+                }
+                let _ = store.reactivate_asset(&pg_existing.id).await;
+                tracing::info!(
+                    target: "asset_enrolment",
+                    "ASSET REACTIVATED: soft-deleted '{}' reported again — restored to active",
+                    hostname_clean
+                );
+            }
             let synthesised = ExistingAsset {
                 id: pg_existing.id.clone(),
                 mac: pg_existing.mac_address.clone(),

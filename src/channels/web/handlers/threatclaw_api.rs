@@ -5992,6 +5992,140 @@ pub async fn endpoint_agents_handler(
     })))
 }
 
+/// DELETE /api/tc/endpoint-agents/{id} — remove a stale agent from the registry.
+///
+/// This only deletes the `_osquery_agents` registry row (the entry shown on the
+/// Agents page). It does NOT uninstall anything on the endpoint: if the agent is
+/// still running on the machine it will re-register itself on its next sync
+/// (~5 min). The dashboard warns about this for recently-seen agents and offers
+/// the remote uninstall command for a real decommission. For long-dead agents
+/// (decommissioned machines) this is a clean, permanent cleanup.
+///
+/// The registry key is `agent_<id>`; the dashboard sends back the `agent_id` it
+/// was given, which for installer agents already carries an `agent-` prefix
+/// (`agent-host-serial` → key `agent_agent-host-serial`) and for the legacy
+/// indexed slots is the full `agent_N` key. Normalise both to the stored key.
+pub async fn endpoint_agent_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let key = if agent_id.starts_with("agent_") {
+        agent_id.clone()
+    } else {
+        format!("agent_{agent_id}")
+    };
+    let deleted = store
+        .delete_setting("_osquery_agents", &key)
+        .await
+        .unwrap_or(false);
+    Ok(Json(serde_json::json!({
+        "deleted": deleted,
+        "agent_id": agent_id,
+    })))
+}
+
+/// GET /api/tc/assets/{id}/impact — how many rows a deletion would touch.
+/// Feeds the deletion modal's impact preview (incidents/findings/alerts/logs/ml).
+pub async fn asset_impact_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.asset_impact(&id).await {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/tc/assets/{id}/purge — delete an asset at a chosen level.
+/// Body: `{ "scope": "reset"|"delete"|"purge", "block_reenrol": bool }`.
+pub async fn asset_purge_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let scope = body.get("scope").and_then(|v| v.as_str()).unwrap_or("");
+    let block_reenrol = body
+        .get("block_reenrol")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !matches!(scope, "reset" | "delete" | "purge") {
+        return Ok(Json(serde_json::json!({
+            "ok": false, "error": "scope must be reset | delete | purge"
+        })));
+    }
+    match store.purge_asset(&id, scope, block_reenrol).await {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/tc/assets/{id}/reactivate — restore a soft-deleted asset from the
+/// trash: status back to active, tombstone cleared. The next sync re-enrols it.
+pub async fn asset_reactivate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.reactivate_asset(&id).await {
+        Ok(()) => Ok(Json(serde_json::json!({ "ok": true, "id": id }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/tc/assets/{id}/decommission — retire a machine in one gesture:
+/// soft-delete the asset with the tombstone (won't reappear), AND remove the
+/// matching agent(s) from the registry. Returns the remote uninstall commands
+/// to finish on the endpoint itself (we can't uninstall it from here).
+pub async fn asset_decommission_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let host = match store.get_asset(&id).await {
+        Ok(Some(a)) => a.hostname.unwrap_or_default(),
+        _ => String::new(),
+    };
+    // 1. Soft-delete + tombstone so a still-reporting source can't resurrect it.
+    let asset = store
+        .purge_asset(&id, "delete", true)
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
+    // 2. Drop the agent registry entries for the same hostname.
+    let mut agents_removed = 0;
+    if !host.is_empty() {
+        if let Ok(all) = store.list_settings("_osquery_agents").await {
+            for row in all {
+                let same_host = row
+                    .value
+                    .get("hostname")
+                    .and_then(|v| v.as_str())
+                    .map(|h| h.eq_ignore_ascii_case(&host))
+                    .unwrap_or(false);
+                if same_host
+                    && store
+                        .delete_setting("_osquery_agents", &row.key)
+                        .await
+                        .unwrap_or(false)
+                {
+                    agents_removed += 1;
+                }
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "asset": asset,
+        "agents_removed": agents_removed,
+        "uninstall": {
+            "linux": "curl -fsSL get.threatclaw.io/agent/uninstall | sudo bash",
+            "windows": "irm get.threatclaw.io/agent/uninstall/windows | iex",
+        },
+    })))
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════

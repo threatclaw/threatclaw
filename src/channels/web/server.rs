@@ -1243,6 +1243,22 @@ pub async fn start_server(
             axum::routing::put(super::handlers::threatclaw_api::asset_exclude_set_handler),
         )
         .route(
+            "/api/tc/assets/{id}/impact",
+            get(super::handlers::threatclaw_api::asset_impact_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/purge",
+            post(super::handlers::threatclaw_api::asset_purge_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/reactivate",
+            post(super::handlers::threatclaw_api::asset_reactivate_handler),
+        )
+        .route(
+            "/api/tc/assets/{id}/decommission",
+            post(super::handlers::threatclaw_api::asset_decommission_handler),
+        )
+        .route(
             "/api/tc/assets/{id}/keep-separate",
             post(super::handlers::threatclaw_api::asset_keep_separate_handler),
         )
@@ -1341,6 +1357,10 @@ pub async fn start_server(
         .route(
             "/api/tc/endpoint-agents",
             get(super::handlers::threatclaw_api::endpoint_agents_handler),
+        )
+        .route(
+            "/api/tc/endpoint-agents/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::endpoint_agent_delete_handler),
         )
         // New enrichment APIs (web security)
         .route(

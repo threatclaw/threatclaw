@@ -2451,7 +2451,11 @@ impl ThreatClawStore for PgBackend {
         // operator must not see it as a live asset. Without this filter a manual
         // merge "did nothing" — the alias kept showing after the list reloaded.
         // An explicit status='merged' filter still surfaces them on demand.
-        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
+        // Hide both merge aliases (status='merged') and soft-deleted assets
+        // (status='deleted') from the default inventory. An explicit status
+        // filter still surfaces either — that's how the trash/Corbeille view
+        // lists status='deleted'.
+        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') AND ($2::text = 'deleted' OR status IS DISTINCT FROM 'deleted') ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
         let rows = conn
             .query(sql, &[&category_owned, &status_owned, &limit, &offset])
             .await
@@ -2470,7 +2474,7 @@ impl ThreatClawStore for PgBackend {
         let row = conn.query_one(
             // Match list_assets: exclude merged aliases so the tab counts agree
             // with the rows actually shown (otherwise the count stays inflated).
-            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged')",
+            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') AND ($2::text = 'deleted' OR status IS DISTINCT FROM 'deleted')",
             &[&category_owned, &status_owned],
         ).await.map_err(query_err)?;
         Ok(row.get(0))
@@ -2584,6 +2588,156 @@ impl ThreatClawStore for PgBackend {
         conn.execute("DELETE FROM assets WHERE id = $1", &[&id])
             .await
             .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn asset_impact(&self, id: &str) -> Result<serde_json::Value, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Resolve the asset's identifiers first — tables reference an asset
+        // inconsistently: findings.asset / incidents.asset hold the id OR the
+        // name, sigma_alerts/logs key on hostname, ml_scores on asset_id. We
+        // match against all of them so the preview is honest.
+        let asset = match self.get_asset(id).await? {
+            Some(a) => a,
+            None => {
+                return Ok(serde_json::json!({
+                    "incidents": 0, "findings": 0, "alerts": 0, "logs": 0, "ml_scores": 0
+                }))
+            }
+        };
+        let host = asset.hostname.clone().unwrap_or_default();
+        // id + name cover the `asset`/`asset_id` text columns; host covers the
+        // hostname-keyed tables (case-insensitive).
+        let names: Vec<String> = vec![asset.id.clone(), asset.name.clone()];
+        let row = conn
+            .query_one(
+                "SELECT \
+                   (SELECT COUNT(*) FROM incidents   WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2)))::bigint, \
+                   (SELECT COUNT(*) FROM findings    WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2)))::bigint, \
+                   (SELECT COUNT(*) FROM sigma_alerts WHERE $2 <> '' AND LOWER(hostname) = LOWER($2))::bigint, \
+                   (SELECT COUNT(*) FROM logs        WHERE $2 <> '' AND LOWER(hostname) = LOWER($2))::bigint, \
+                   (SELECT COUNT(*) FROM ml_scores   WHERE asset_id = ANY($1) OR ($2 <> '' AND asset_id = $2))::bigint",
+                &[&names, &host],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(serde_json::json!({
+            "incidents": row.get::<_, i64>(0),
+            "findings": row.get::<_, i64>(1),
+            "alerts": row.get::<_, i64>(2),
+            "logs": row.get::<_, i64>(3),
+            "ml_scores": row.get::<_, i64>(4),
+        }))
+    }
+
+    async fn purge_asset(
+        &self,
+        id: &str,
+        scope: &str,
+        block_reenrol: bool,
+    ) -> Result<serde_json::Value, DatabaseError> {
+        if !matches!(scope, "reset" | "delete" | "purge") {
+            return Ok(serde_json::json!({ "ok": false, "error": "invalid scope" }));
+        }
+        let asset = match self.get_asset(id).await? {
+            Some(a) => a,
+            None => return Ok(serde_json::json!({ "ok": false, "error": "asset not found" })),
+        };
+        let host = asset.hostname.clone().unwrap_or_default();
+        let names: Vec<String> = vec![asset.id.clone(), asset.name.clone()];
+        let del_incidents = matches!(scope, "delete" | "purge");
+        let del_logs = scope == "purge";
+        let hard = scope == "purge";
+
+        let mut conn = self.pool().get().await.map_err(pool_err)?;
+        let tx = conn.transaction().await.map_err(query_err)?;
+
+        // Always — scrub analysis artifacts. Findings/incidents reference the
+        // asset by id-or-name; sigma_alerts/ml_scores/logs key on hostname. The
+        // `$host <> ''` guard stops an asset with no hostname from matching the
+        // empty-hostname rows of unrelated sources.
+        tx.execute(
+            "DELETE FROM findings WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2))",
+            &[&names, &host],
+        ).await.map_err(query_err)?;
+        tx.execute(
+            "DELETE FROM sigma_alerts WHERE $1 <> '' AND LOWER(hostname) = LOWER($1)",
+            &[&host],
+        ).await.map_err(query_err)?;
+        tx.execute(
+            "DELETE FROM ml_scores WHERE asset_id = ANY($1) OR ($2 <> '' AND asset_id = $2)",
+            &[&names, &host],
+        ).await.map_err(query_err)?;
+
+        if del_incidents {
+            // Incident child rows (ai_analyses, investigation_steps, sentinel_*)
+            // are FK ON DELETE CASCADE, so they go with the parent incident.
+            tx.execute(
+                "DELETE FROM incidents WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2))",
+                &[&names, &host],
+            ).await.map_err(query_err)?;
+        }
+        if del_logs && !host.is_empty() {
+            // `logs` is a TimescaleDB compressed hypertable: a host-scoped delete
+            // decompresses whole chunks and trips
+            // max_tuples_decompressed_per_dml_transaction (observed live on a
+            // 34k-row host). Lift the limit for THIS transaction when TimescaleDB
+            // is present; plain-Postgres deployments (no hypertable) delete fine
+            // without it, so the SET is skipped there to stay portable.
+            let has_ts: bool = tx
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')",
+                    &[],
+                )
+                .await
+                .map_err(query_err)?
+                .get(0);
+            if has_ts {
+                tx.batch_execute(
+                    "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0",
+                )
+                .await
+                .map_err(query_err)?;
+            }
+            tx.execute(
+                "DELETE FROM logs WHERE LOWER(hostname) = LOWER($1)",
+                &[&host],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+
+        if hard {
+            tx.execute("DELETE FROM assets WHERE id = $1", &[&asset.id])
+                .await
+                .map_err(query_err)?;
+        } else if scope == "delete" {
+            // Soft delete: kept for the trash view, hidden from inventory, and
+            // optionally tombstoned so resolve_asset won't resurrect it.
+            tx.execute(
+                "UPDATE assets SET status = 'deleted', reenrol_blocked = $2, updated_at = NOW() WHERE id = $1",
+                &[&asset.id, &block_reenrol],
+            ).await.map_err(query_err)?;
+        }
+        // "reset" leaves the asset row untouched (stays active → re-accumulates).
+
+        tx.commit().await.map_err(query_err)?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "scope": scope,
+            "soft": !hard,
+            "reenrol_blocked": scope == "delete" && block_reenrol,
+        }))
+    }
+
+    async fn reactivate_asset(&self, id: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE assets SET status = 'active', reenrol_blocked = false, updated_at = NOW() WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
@@ -5556,6 +5710,7 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
             .try_get::<_, f32>("classification_confidence")
             .unwrap_or(1.0),
         status: r.get("status"),
+        reenrol_blocked: r.try_get("reenrol_blocked").unwrap_or(false),
         sources: r.try_get::<_, Vec<String>>("sources").unwrap_or_default(),
         software: r
             .try_get::<_, serde_json::Value>("software")
