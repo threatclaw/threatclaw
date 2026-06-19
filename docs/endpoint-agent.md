@@ -102,6 +102,21 @@ Useful day-to-day commands:
 | Check status    | `Get-ScheduledTask -TaskName 'ThreatClaw Agent Sync'`                    | `systemctl status threatclaw-agent.timer`      |
 | Trigger now     | `Start-ScheduledTask -TaskName 'ThreatClaw Agent Sync'`                  | `sudo systemctl start threatclaw-agent.service` |
 | Tail the log    | `Get-Content C:\ProgramData\ThreatClaw\agent-sync.log -Tail 20 -Wait`    | `journalctl -u threatclaw-agent -f`            |
+
+### Log rotation
+
+- **Linux** logs through systemd's journal, so rotation is handled by
+  journald at the OS level. Default caps live in
+  `/etc/systemd/journald.conf` (typically `SystemMaxUse=10%` of the
+  partition); shrink them with `journalctl --vacuum-size=200M` if a
+  host needs a tighter cap.
+- **Windows** writes to a single file at
+  `C:\ProgramData\ThreatClaw\agent-sync.log`. The sync script rotates
+  it at every run: when the file grows past **5 MB**, it is moved to
+  `agent-sync.log.1` (one slot, the previous `.1` is discarded) and a
+  fresh log starts. That keeps a host bounded at roughly **10 MB of
+  agent log** even after years of operation. The hot file alone stays
+  in the dozens of kB under normal traffic.
 | Stop temporarily| `Disable-ScheduledTask -TaskName 'ThreatClaw Agent Sync'`                | `sudo systemctl stop threatclaw-agent.timer`   |
 | Re-enable       | `Enable-ScheduledTask -TaskName 'ThreatClaw Agent Sync'`                 | `sudo systemctl start threatclaw-agent.timer`  |
 
