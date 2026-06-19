@@ -318,6 +318,9 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<serde_json::Value, DatabaseError> {
         Err(not_supported())
     }
+    async fn reactivate_asset(&self, _: &str) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         Err(not_supported())
     }

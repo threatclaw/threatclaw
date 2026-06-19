@@ -213,6 +213,10 @@ pub struct AssetRecord {
     pub classification_method: String,
     pub classification_confidence: f32,
     pub status: String,
+    /// V87 — when true, resolve_asset refuses to resurrect this (soft-deleted)
+    /// asset from a still-reporting source. Set by a "delete + block" action.
+    #[serde(default)]
+    pub reenrol_blocked: bool,
     pub sources: Vec<String>,
     pub software: serde_json::Value,
     pub user_modified: Vec<String>,
@@ -1125,6 +1129,11 @@ pub trait ThreatClawStore: Send + Sync {
         scope: &str,
         block_reenrol: bool,
     ) -> Result<serde_json::Value, DatabaseError>;
+
+    /// Restore a soft-deleted asset: status back to 'active', tombstone cleared.
+    /// Used by the trash/Corbeille "Reactivate" action and by resolve_asset when
+    /// a soft-deleted-but-not-blocked host reports again.
+    async fn reactivate_asset(&self, id: &str) -> Result<(), DatabaseError>;
 
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 

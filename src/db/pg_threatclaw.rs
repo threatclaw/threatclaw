@@ -2451,7 +2451,11 @@ impl ThreatClawStore for PgBackend {
         // operator must not see it as a live asset. Without this filter a manual
         // merge "did nothing" — the alias kept showing after the list reloaded.
         // An explicit status='merged' filter still surfaces them on demand.
-        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
+        // Hide both merge aliases (status='merged') and soft-deleted assets
+        // (status='deleted') from the default inventory. An explicit status
+        // filter still surfaces either — that's how the trash/Corbeille view
+        // lists status='deleted'.
+        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') AND ($2::text = 'deleted' OR status IS DISTINCT FROM 'deleted') ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
         let rows = conn
             .query(sql, &[&category_owned, &status_owned, &limit, &offset])
             .await
@@ -2470,7 +2474,7 @@ impl ThreatClawStore for PgBackend {
         let row = conn.query_one(
             // Match list_assets: exclude merged aliases so the tab counts agree
             // with the rows actually shown (otherwise the count stays inflated).
-            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged')",
+            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') AND ($2::text = 'deleted' OR status IS DISTINCT FROM 'deleted')",
             &[&category_owned, &status_owned],
         ).await.map_err(query_err)?;
         Ok(row.get(0))
@@ -2724,6 +2728,17 @@ impl ThreatClawStore for PgBackend {
             "soft": !hard,
             "reenrol_blocked": scope == "delete" && block_reenrol,
         }))
+    }
+
+    async fn reactivate_asset(&self, id: &str) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE assets SET status = 'active', reenrol_blocked = false, updated_at = NOW() WHERE id = $1",
+            &[&id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
     }
 
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
@@ -5695,6 +5710,7 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
             .try_get::<_, f32>("classification_confidence")
             .unwrap_or(1.0),
         status: r.get("status"),
+        reenrol_blocked: r.try_get("reenrol_blocked").unwrap_or(false),
         sources: r.try_get::<_, Vec<String>>("sources").unwrap_or_default(),
         software: r
             .try_get::<_, serde_json::Value>("software")
