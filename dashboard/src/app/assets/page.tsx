@@ -872,6 +872,7 @@ function AssetsPageInner() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
+  const [showTrash, setShowTrash] = useState(false); // Corbeille: lists status='deleted'
   const [billableFilter, setBillableFilter] = useState<BillableFilter>("all");
   const [search, setSearch] = useState("");
 
@@ -911,7 +912,9 @@ function AssetsPageInner() {
     setLoading(true);
     try {
       const [aRes, cRes, countRes] = await Promise.all([
-        fetch(`/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`, { signal: AbortSignal.timeout(10000) }),
+        fetch(showTrash
+          ? `/api/tc/assets?status=deleted&limit=500`
+          : `/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`, { signal: AbortSignal.timeout(10000) }),
         fetch("/api/tc/assets/categories", { signal: AbortSignal.timeout(10000) }),
         fetch("/api/tc/assets/counts", { signal: AbortSignal.timeout(10000) }),
       ]);
@@ -928,7 +931,23 @@ function AssetsPageInner() {
       setError(tr("assets_backendUnreachable", locale));
     }
     setLoading(false);
-  }, [activeTab]);
+  }, [activeTab, showTrash]);
+
+  // Corbeille actions.
+  const reactivateAsset = async (id: string) => {
+    await fetch(`/api/tc/assets/${id}/reactivate`, { method: "POST" }).catch(() => {});
+    loadData();
+  };
+  const purgeFromTrash = async (id: string) => {
+    if (!confirm(locale === "fr"
+      ? "Purger definitivement ? Action irreversible (l'asset et ses logs seront effaces)."
+      : "Purge permanently? Irreversible (the asset and its logs will be erased).")) return;
+    await fetch(`/api/tc/assets/${id}/purge`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "purge", block_reenrol: false }),
+    }).catch(() => {});
+    loadData();
+  };
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -1221,6 +1240,11 @@ function AssetsPageInner() {
         title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
         <GitMerge size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span>
       </button>
+      <button onClick={() => { setShowTrash(t => !t); setMergeMode(false); setMergeSel(new Set()); }}
+        style={showTrash ? btnPrimary : btnSecondary}
+        title={locale === "fr" ? "Corbeille (assets supprimés)" : "Trash (deleted assets)"}>
+        <Trash2 size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Corbeille" : "Trash"}</span>
+      </button>
       <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
         <Upload size={12} />
       </button>
@@ -1418,8 +1442,25 @@ function AssetsPageInner() {
                       </button>
                     )}
                     <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> {tr("assets_details", locale)}</button>
-                    <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
-                    <button onClick={() => openDelete(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
+                    {showTrash ? (
+                      <>
+                        <button onClick={() => reactivateAsset(a.id)}
+                          title={locale === "fr" ? "Réactiver (revient au prochain sync)" : "Reactivate (returns on next sync)"}
+                          style={{ background: "var(--tc-input)", border: "1px solid rgba(48,160,80,0.4)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "#30a050", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}>
+                          <RefreshCw size={11} /> {locale === "fr" ? "Réactiver" : "Reactivate"}
+                        </button>
+                        <button onClick={() => purgeFromTrash(a.id)}
+                          title={locale === "fr" ? "Purger définitivement (irréversible)" : "Purge permanently (irreversible)"}
+                          style={{ background: "var(--tc-input)", border: "1px solid rgba(200,40,40,0.4)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-red)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}>
+                          <Trash2 size={11} /> {locale === "fr" ? "Purger" : "Purge"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
+                        <button onClick={() => openDelete(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
+                      </>
+                    )}
                   </div>
 
                 </div>

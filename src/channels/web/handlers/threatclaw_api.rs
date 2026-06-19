@@ -6062,6 +6062,19 @@ pub async fn asset_purge_handler(
     }
 }
 
+/// POST /api/tc/assets/{id}/reactivate — restore a soft-deleted asset from the
+/// trash: status back to active, tombstone cleared. The next sync re-enrols it.
+pub async fn asset_reactivate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.reactivate_asset(&id).await {
+        Ok(()) => Ok(Json(serde_json::json!({ "ok": true, "id": id }))),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════
