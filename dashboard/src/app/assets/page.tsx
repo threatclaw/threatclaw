@@ -1026,6 +1026,7 @@ function AssetsPageInner() {
   const [delImpact, setDelImpact] = useState<any>(null);
   const [delScope, setDelScope] = useState<"reset" | "delete" | "purge">("delete");
   const [delBlock, setDelBlock] = useState(false);
+  const [delDecom, setDelDecom] = useState(false); // decommission: also remove the agent
   const [delBusy, setDelBusy] = useState(false);
 
   const openDelete = (a: Asset) => {
@@ -1033,6 +1034,7 @@ function AssetsPageInner() {
     setDelImpact(null);
     setDelScope("delete");
     setDelBlock(false);
+    setDelDecom(false);
     fetch(`/api/tc/assets/${a.id}/impact`)
       .then(r => r.json())
       .then(setDelImpact)
@@ -1043,11 +1045,16 @@ function AssetsPageInner() {
     if (!delAsset) return;
     setDelBusy(true);
     try {
-      await fetch(`/api/tc/assets/${delAsset.id}/purge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: delScope, block_reenrol: delScope === "delete" ? delBlock : false }),
-      }).catch(() => {});
+      const decommission = delScope === "delete" && delBlock && delDecom;
+      if (decommission) {
+        await fetch(`/api/tc/assets/${delAsset.id}/decommission`, { method: "POST" }).catch(() => {});
+      } else {
+        await fetch(`/api/tc/assets/${delAsset.id}/purge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: delScope, block_reenrol: delScope === "delete" ? delBlock : false }),
+        }).catch(() => {});
+      }
       setDelAsset(null);
       loadData();
     } finally {
@@ -1878,9 +1885,38 @@ function AssetsPageInner() {
             ))}
             {delScope === "delete" && (
               <label style={{ display: "flex", alignItems: "center", gap: "8px", margin: "10px 2px", fontSize: "11px", color: "var(--tc-text)" }}>
-                <input type="checkbox" checked={delBlock} onChange={() => setDelBlock(!delBlock)} />
+                <input type="checkbox" checked={delBlock} onChange={() => { setDelBlock(!delBlock); if (delBlock) setDelDecom(false); }} />
                 {locale === "fr" ? "Empecher la reapparition (machine declassee)" : "Prevent reappearance (decommissioned machine)"}
               </label>
+            )}
+            {delScope === "delete" && delBlock && (
+              <div style={{ margin: "0 2px 10px 22px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: "var(--tc-text)" }}>
+                  <input type="checkbox" checked={delDecom} onChange={() => setDelDecom(!delDecom)} />
+                  {locale === "fr" ? "Decommissionner : retirer aussi l'agent de cette machine" : "Decommission: also remove this machine's agent"}
+                </label>
+                {delDecom && (
+                  <div style={{ marginTop: "8px" }}>
+                    <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>
+                      {locale === "fr" ? "A lancer sur la machine pour desinstaller l'agent :" : "Run on the machine to uninstall the agent:"}
+                    </div>
+                    {[
+                      { os: "Linux / macOS", cmd: "curl -fsSL get.threatclaw.io/agent/uninstall | sudo bash" },
+                      { os: "Windows", cmd: "irm get.threatclaw.io/agent/uninstall/windows | iex" },
+                    ].map(({ os, cmd }) => (
+                      <div key={os} style={{ marginBottom: "6px" }}>
+                        <div style={{ fontSize: "9px", color: "var(--tc-text-faint)" }}>{os}</div>
+                        <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                          <code style={{ flex: 1, fontSize: "10px", padding: "5px 7px", background: "rgba(0,0,0,0.25)", borderRadius: "4px", color: "var(--tc-text)", overflowX: "auto", whiteSpace: "nowrap" }}>{cmd}</code>
+                          <button onClick={() => navigator.clipboard.writeText(cmd)} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "4px 8px" }}>
+                            {locale === "fr" ? "Copier" : "Copy"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
             {delScope === "purge" && (
               <div style={{ fontSize: "11px", color: "var(--tc-red)", fontWeight: 600, margin: "10px 0" }}>
@@ -1893,9 +1929,11 @@ function AssetsPageInner() {
               </button>
               <button onClick={submitDelete} disabled={delBusy} className="tc-btn-embossed"
                 style={{ fontSize: "11px", padding: "7px 14px", background: "var(--tc-red)", color: "#fff", border: "none", opacity: delBusy ? 0.6 : 1 }}>
-                {delBusy ? "..." : (locale === "fr"
-                  ? (delScope === "reset" ? "Reinitialiser" : delScope === "purge" ? "Purger" : "Supprimer")
-                  : (delScope === "reset" ? "Reset" : delScope === "purge" ? "Purge" : "Delete"))}
+                {delBusy ? "..." : (delScope === "delete" && delBlock && delDecom)
+                  ? (locale === "fr" ? "Decommissionner" : "Decommission")
+                  : (locale === "fr"
+                    ? (delScope === "reset" ? "Reinitialiser" : delScope === "purge" ? "Purger" : "Supprimer")
+                    : (delScope === "reset" ? "Reset" : delScope === "purge" ? "Purge" : "Delete"))}
               </button>
             </div>
           </div>

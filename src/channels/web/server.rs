@@ -1255,6 +1255,10 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::asset_reactivate_handler),
         )
         .route(
+            "/api/tc/assets/{id}/decommission",
+            post(super::handlers::threatclaw_api::asset_decommission_handler),
+        )
+        .route(
             "/api/tc/assets/{id}/keep-separate",
             post(super::handlers::threatclaw_api::asset_keep_separate_handler),
         )

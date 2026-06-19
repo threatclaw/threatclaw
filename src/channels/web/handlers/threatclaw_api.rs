@@ -6075,6 +6075,57 @@ pub async fn asset_reactivate_handler(
     }
 }
 
+/// POST /api/tc/assets/{id}/decommission — retire a machine in one gesture:
+/// soft-delete the asset with the tombstone (won't reappear), AND remove the
+/// matching agent(s) from the registry. Returns the remote uninstall commands
+/// to finish on the endpoint itself (we can't uninstall it from here).
+pub async fn asset_decommission_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let host = match store.get_asset(&id).await {
+        Ok(Some(a)) => a.hostname.unwrap_or_default(),
+        _ => String::new(),
+    };
+    // 1. Soft-delete + tombstone so a still-reporting source can't resurrect it.
+    let asset = store
+        .purge_asset(&id, "delete", true)
+        .await
+        .unwrap_or_else(|e| serde_json::json!({ "ok": false, "error": e.to_string() }));
+    // 2. Drop the agent registry entries for the same hostname.
+    let mut agents_removed = 0;
+    if !host.is_empty() {
+        if let Ok(all) = store.list_settings("_osquery_agents").await {
+            for row in all {
+                let same_host = row
+                    .value
+                    .get("hostname")
+                    .and_then(|v| v.as_str())
+                    .map(|h| h.eq_ignore_ascii_case(&host))
+                    .unwrap_or(false);
+                if same_host
+                    && store
+                        .delete_setting("_osquery_agents", &row.key)
+                        .await
+                        .unwrap_or(false)
+                {
+                    agents_removed += 1;
+                }
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "asset": asset,
+        "agents_removed": agents_removed,
+        "uninstall": {
+            "linux": "curl -fsSL get.threatclaw.io/agent/uninstall | sudo bash",
+            "windows": "irm get.threatclaw.io/agent/uninstall/windows | iex",
+        },
+    })))
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════
