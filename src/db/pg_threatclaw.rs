@@ -2446,7 +2446,12 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let category_owned = category.map(|s| s.to_string());
         let status_owned = status.map(|s| s.to_string());
-        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
+        // Hide merged aliases from the default inventory: merge_assets sets the
+        // alias row to status='merged' so findings/alerts still resolve, but the
+        // operator must not see it as a live asset. Without this filter a manual
+        // merge "did nothing" — the alias kept showing after the list reloaded.
+        // An explicit status='merged' filter still surfaces them on demand.
+        let sql = "SELECT * FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged') ORDER BY criticality DESC, last_seen DESC LIMIT $3 OFFSET $4";
         let rows = conn
             .query(sql, &[&category_owned, &status_owned, &limit, &offset])
             .await
@@ -2463,7 +2468,9 @@ impl ThreatClawStore for PgBackend {
         let category_owned = category.map(|s| s.to_string());
         let status_owned = status.map(|s| s.to_string());
         let row = conn.query_one(
-            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2)",
+            // Match list_assets: exclude merged aliases so the tab counts agree
+            // with the rows actually shown (otherwise the count stays inflated).
+            "SELECT COUNT(*)::bigint FROM assets WHERE ($1::text IS NULL OR category = $1) AND ($2::text IS NULL OR status = $2) AND ($2::text = 'merged' OR status IS DISTINCT FROM 'merged')",
             &[&category_owned, &status_owned],
         ).await.map_err(query_err)?;
         Ok(row.get(0))
