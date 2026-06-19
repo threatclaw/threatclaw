@@ -1247,6 +1247,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::asset_impact_handler),
         )
         .route(
+            "/api/tc/assets/{id}/purge",
+            post(super::handlers::threatclaw_api::asset_purge_handler),
+        )
+        .route(
             "/api/tc/assets/{id}/keep-separate",
             post(super::handlers::threatclaw_api::asset_keep_separate_handler),
         )

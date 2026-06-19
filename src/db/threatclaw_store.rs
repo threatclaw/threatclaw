@@ -1110,6 +1110,22 @@ pub trait ThreatClawStore: Send + Sync {
     /// `{ incidents, findings, alerts, logs, ml_scores }`.
     async fn asset_impact(&self, id: &str) -> Result<serde_json::Value, DatabaseError>;
 
+    /// Delete an asset at one of three levels (atomic):
+    /// - `"reset"`  — wipe findings + sigma_alerts + ml_scores; KEEP incidents +
+    ///   logs; the asset row stays `active` so it re-accumulates clean.
+    /// - `"delete"` — the above + incidents; the asset row is soft-deleted
+    ///   (`status='deleted'`), `reenrol_blocked` set from `block_reenrol`. Kept
+    ///   for the trash/Corbeille view and reversible via re-activation.
+    /// - `"purge"`  — the above + logs; the asset row is hard-deleted
+    ///   (irreversible — RGPD erasure).
+    /// `block_reenrol` only applies to `"delete"` (tombstone). Returns a summary.
+    async fn purge_asset(
+        &self,
+        id: &str,
+        scope: &str,
+        block_reenrol: bool,
+    ) -> Result<serde_json::Value, DatabaseError>;
+
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
     async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError>;

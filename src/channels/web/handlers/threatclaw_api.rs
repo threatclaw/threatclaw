@@ -6038,6 +6038,30 @@ pub async fn asset_impact_handler(
     }
 }
 
+/// POST /api/tc/assets/{id}/purge — delete an asset at a chosen level.
+/// Body: `{ "scope": "reset"|"delete"|"purge", "block_reenrol": bool }`.
+pub async fn asset_purge_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let scope = body.get("scope").and_then(|v| v.as_str()).unwrap_or("");
+    let block_reenrol = body
+        .get("block_reenrol")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !matches!(scope, "reset" | "delete" | "purge") {
+        return Ok(Json(serde_json::json!({
+            "ok": false, "error": "scope must be reset | delete | purge"
+        })));
+    }
+    match store.purge_asset(&id, scope, block_reenrol).await {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════

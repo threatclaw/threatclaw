@@ -2626,6 +2626,106 @@ impl ThreatClawStore for PgBackend {
         }))
     }
 
+    async fn purge_asset(
+        &self,
+        id: &str,
+        scope: &str,
+        block_reenrol: bool,
+    ) -> Result<serde_json::Value, DatabaseError> {
+        if !matches!(scope, "reset" | "delete" | "purge") {
+            return Ok(serde_json::json!({ "ok": false, "error": "invalid scope" }));
+        }
+        let asset = match self.get_asset(id).await? {
+            Some(a) => a,
+            None => return Ok(serde_json::json!({ "ok": false, "error": "asset not found" })),
+        };
+        let host = asset.hostname.clone().unwrap_or_default();
+        let names: Vec<String> = vec![asset.id.clone(), asset.name.clone()];
+        let del_incidents = matches!(scope, "delete" | "purge");
+        let del_logs = scope == "purge";
+        let hard = scope == "purge";
+
+        let mut conn = self.pool().get().await.map_err(pool_err)?;
+        let tx = conn.transaction().await.map_err(query_err)?;
+
+        // Always — scrub analysis artifacts. Findings/incidents reference the
+        // asset by id-or-name; sigma_alerts/ml_scores/logs key on hostname. The
+        // `$host <> ''` guard stops an asset with no hostname from matching the
+        // empty-hostname rows of unrelated sources.
+        tx.execute(
+            "DELETE FROM findings WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2))",
+            &[&names, &host],
+        ).await.map_err(query_err)?;
+        tx.execute(
+            "DELETE FROM sigma_alerts WHERE $1 <> '' AND LOWER(hostname) = LOWER($1)",
+            &[&host],
+        ).await.map_err(query_err)?;
+        tx.execute(
+            "DELETE FROM ml_scores WHERE asset_id = ANY($1) OR ($2 <> '' AND asset_id = $2)",
+            &[&names, &host],
+        ).await.map_err(query_err)?;
+
+        if del_incidents {
+            // Incident child rows (ai_analyses, investigation_steps, sentinel_*)
+            // are FK ON DELETE CASCADE, so they go with the parent incident.
+            tx.execute(
+                "DELETE FROM incidents WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2))",
+                &[&names, &host],
+            ).await.map_err(query_err)?;
+        }
+        if del_logs && !host.is_empty() {
+            // `logs` is a TimescaleDB compressed hypertable: a host-scoped delete
+            // decompresses whole chunks and trips
+            // max_tuples_decompressed_per_dml_transaction (observed live on a
+            // 34k-row host). Lift the limit for THIS transaction when TimescaleDB
+            // is present; plain-Postgres deployments (no hypertable) delete fine
+            // without it, so the SET is skipped there to stay portable.
+            let has_ts: bool = tx
+                .query_one(
+                    "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')",
+                    &[],
+                )
+                .await
+                .map_err(query_err)?
+                .get(0);
+            if has_ts {
+                tx.batch_execute(
+                    "SET LOCAL timescaledb.max_tuples_decompressed_per_dml_transaction = 0",
+                )
+                .await
+                .map_err(query_err)?;
+            }
+            tx.execute(
+                "DELETE FROM logs WHERE LOWER(hostname) = LOWER($1)",
+                &[&host],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+
+        if hard {
+            tx.execute("DELETE FROM assets WHERE id = $1", &[&asset.id])
+                .await
+                .map_err(query_err)?;
+        } else if scope == "delete" {
+            // Soft delete: kept for the trash view, hidden from inventory, and
+            // optionally tombstoned so resolve_asset won't resurrect it.
+            tx.execute(
+                "UPDATE assets SET status = 'deleted', reenrol_blocked = $2, updated_at = NOW() WHERE id = $1",
+                &[&asset.id, &block_reenrol],
+            ).await.map_err(query_err)?;
+        }
+        // "reset" leaves the asset row untouched (stays active → re-accumulates).
+
+        tx.commit().await.map_err(query_err)?;
+        Ok(serde_json::json!({
+            "ok": true,
+            "scope": scope,
+            "soft": !hard,
+            "reenrol_blocked": scope == "delete" && block_reenrol,
+        }))
+    }
+
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
