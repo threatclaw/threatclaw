@@ -226,11 +226,40 @@ cmd_update() {
   # Investigation graphs (sigma YAML library — refresh on update)
   download_graphs
 
+  # Snapshot the image ids ThreatClaw is running BEFORE we pull new ones, so we
+  # can later remove ONLY our own superseded images. We never touch another
+  # app's images, and the removal below uses `docker image rm` WITHOUT -f, so
+  # Docker's own ref-count refuses any image still referenced by a container
+  # (ours or a co-located app's). An update can therefore never break anything
+  # else on the host.
+  local tc_old_images
+  tc_old_images=$( { docker compose ps -q 2>/dev/null || docker-compose ps -q 2>/dev/null; } \
+    | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u )
+
   # Pull latest images + force-recreate containers with new config
   log_info "Pulling latest images..."
   docker compose pull 2>/dev/null || docker-compose pull 2>/dev/null
   docker compose up -d --force-recreate 2>/dev/null || docker-compose up -d --force-recreate 2>/dev/null
   log_info "ThreatClaw updated to latest"
+
+  # Reclaim disk: drop our own now-superseded images. Without this, repeated
+  # updates leave old core/dashboard images behind and fill the disk — a 58 GB
+  # box was observed hitting 100% and crash-looping PostgreSQL. We only remove
+  # ids that were in use before the update and are no longer running now; pinned
+  # images (postgres, ollama) keep the same id across updates and are skipped.
+  if [ -n "$tc_old_images" ]; then
+    local tc_new_images
+    tc_new_images=$( { docker compose ps -q 2>/dev/null || docker-compose ps -q 2>/dev/null; } \
+      | xargs -r docker inspect --format '{{.Image}}' 2>/dev/null | sort -u )
+    local _removed=0 _img
+    for _img in $tc_old_images; do
+      # Still used by the new containers (unchanged pinned image) — keep it.
+      printf '%s\n' "$tc_new_images" | grep -qxF "$_img" && continue
+      # No -f: Docker refuses if any other container still references it.
+      docker image rm "$_img" >/dev/null 2>&1 && _removed=$((_removed + 1))
+    done
+    [ "$_removed" -gt 0 ] && log_info "Reclaimed disk: removed ${_removed} superseded ThreatClaw image(s)"
+  fi
 }
 
 # ── Docker storage relocation ────────────────────────────────────────────────
