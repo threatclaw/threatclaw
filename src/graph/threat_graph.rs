@@ -251,19 +251,58 @@ pub async fn upsert_technique(store: &dyn Database, mitre_id: &str, name: &str, 
 // RELATIONSHIP CREATION — Connect nodes
 // ══════════════════════════════════════════════════════════
 
-/// Record an attack: IP → ATTACKS → Asset
-pub async fn record_attack(store: &dyn Database, ip_addr: &str, asset_id: &str, method: &str) {
+/// Severity rank used as a comparable property on observation edges. Lets
+/// `find_observed_sources` aggregate with MAX(rank) without alphabetic
+/// surprises (e.g. "critical" < "low" as strings).
+fn severity_rank(level: &str) -> u8 {
+    match level.to_lowercase().as_str() {
+        "critical" => 5,
+        "high" => 4,
+        "medium" => 3,
+        "low" => 2,
+        "informational" | "info" => 1,
+        _ => 0,
+    }
+}
+
+/// Record an observation: IP → OBSERVED → Asset.
+///
+/// The label used to be `ATTACKS` but that overstated the relationship:
+/// every sigma alert and firewall event that mentions a source IP got a
+/// new edge, so legitimate LAN traffic (admin tooling, DC chatter, scanner
+/// sweeps) ended up tagged as "attacks" and ballooned the per-asset
+/// counter on the dashboard. `OBSERVED` is neutral — the IP was seen as
+/// the source of an event toward the asset; severity and the
+/// `internal` flag tell the UI whether it's actually concerning.
+///
+/// Callers MUST decide whether the edge is worth creating before calling
+/// this. In particular, `sync_graph_from_db` silently drops internal
+/// observations below medium severity so the counter stops drowning in
+/// benign LAN chatter.
+pub async fn record_observation(
+    store: &dyn Database,
+    ip_addr: &str,
+    asset_id: &str,
+    event_type: &str,
+    severity: &str,
+    internal: bool,
+) {
     if !validate_ip(ip_addr) || !validate_id(asset_id) {
-        tracing::warn!("GRAPH: Invalid IP or asset ID in record_attack, skipping");
+        tracing::warn!("GRAPH: Invalid IP or asset ID in record_observation, skipping");
         return;
     }
+    let now = chrono::Utc::now().to_rfc3339();
     let cypher = format!(
         "MATCH (ip:IP {{addr: '{}'}}), (a:Asset {{id: '{}'}}) \
-         CREATE (ip)-[:ATTACKS {{method: '{}', timestamp: '{}'}}]->(a)",
+         CREATE (ip)-[:OBSERVED {{event_type: '{}', severity: '{}', severity_rank: {}, internal: {}, first_seen: '{}', last_seen: '{}'}}]->(a)",
         sanitize_cypher_value(ip_addr),
         sanitize_cypher_value(asset_id),
-        sanitize_cypher_value(method),
-        chrono::Utc::now().to_rfc3339()
+        sanitize_cypher_value(event_type),
+        sanitize_cypher_value(severity),
+        severity_rank(severity),
+        internal,
+        now,
+        now,
     );
     mutate(store, &cypher).await;
 }
@@ -286,20 +325,42 @@ pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &s
 // INVESTIGATION QUERIES — Power the deterministic pipeline
 // ══════════════════════════════════════════════════════════
 
-/// Find all IPs that have attacked a specific asset.
-pub async fn find_attackers(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
+/// Find all IPs that have been observed as the source of an event toward
+/// the given asset, deduplicated by IP. Each row in the result is a
+/// distinct IP with a `count` of how many edges feed into it and the
+/// worst-seen severity — what the UI actually wants to render. The old
+/// `find_attackers` returned one row per edge and the dashboard rendered
+/// the raw length, surfacing "4268 attackers" for a single chatty LAN
+/// peer on a customer install.
+pub async fn find_observed_sources(
+    store: &dyn Database,
+    asset_id: &str,
+) -> Vec<serde_json::Value> {
     if !validate_id(asset_id) {
         return vec![];
     }
     query(
         store,
         &format!(
-            "MATCH (ip:IP)-[att:ATTACKS]->(a:Asset {{id: '{}'}}) \
-         RETURN ip.addr, ip.country, ip.classification, att.method",
+            "MATCH (ip:IP)-[r:OBSERVED]->(a:Asset {{id: '{}'}}) \
+             RETURN ip.addr, ip.country, ip.classification, \
+                    COUNT(r) AS event_count, \
+                    MAX(r.severity_rank) AS max_severity_rank, \
+                    MIN(r.first_seen) AS first_seen, \
+                    MAX(r.last_seen) AS last_seen, \
+                    MAX(r.internal) AS any_internal \
+             ORDER BY event_count DESC",
             sanitize_cypher_value(asset_id)
         ),
     )
     .await
+}
+
+/// Back-compat shim — keeps the old name working for any caller still
+/// reaching for it during the rename sweep. Same payload as
+/// `find_observed_sources`.
+pub async fn find_attackers(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
+    find_observed_sources(store, asset_id).await
 }
 
 /// Find all CVEs affecting an asset (especially KEV).
@@ -319,7 +380,7 @@ pub async fn find_ip_targets(store: &dyn Database, ip_addr: &str) -> Vec<serde_j
         return vec![];
     }
     query(store, &format!(
-        "MATCH (ip:IP {{addr: '{}'}})-[:ATTACKS]->(a:Asset) RETURN a.id, a.hostname, a.criticality",
+        "MATCH (ip:IP {{addr: '{}'}})-[:OBSERVED]->(a:Asset) RETURN a.id, a.hostname, a.criticality",
         sanitize_cypher_value(ip_addr)
     )).await
 }
@@ -349,6 +410,36 @@ pub async fn build_investigation_context(
 pub async fn sync_graph_from_db(store: &dyn Database) {
     use crate::agent::ip_classifier;
     use crate::db::threatclaw_store::ThreatClawStore;
+
+    // ── One-shot legacy cleanup: drop the old ATTACKS edges ──
+    // Older installs accumulated an ATTACKS edge per sigma alert, including
+    // benign LAN traffic between two monitored hosts. The label has been
+    // renamed to OBSERVED with severity / internal properties, but the
+    // historical edges have no severity_rank and would skew
+    // `find_observed_sources` if we left them in place. Run once,
+    // guarded by a setting flag so subsequent syncs skip the cleanup.
+    let cleaned = store
+        .get_setting("_system", "legacy_attacks_dropped")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !cleaned {
+        let _ = mutate(
+            store,
+            "MATCH ()-[r:ATTACKS]->() DELETE r",
+        )
+        .await;
+        let _ = store
+            .set_setting(
+                "_system",
+                "legacy_attacks_dropped",
+                &serde_json::json!(true),
+            )
+            .await;
+        tracing::info!("GRAPH: legacy ATTACKS edges dropped (one-shot migration)");
+    }
 
     // ── Incremental sync: only process data newer than last sync ──
     let last_sync = store
@@ -444,6 +535,7 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         });
 
         let source_ip_clean = parse_attacker_ip(a.source_ip.as_deref());
+        let alert_severity: &str = if a.level.is_empty() { "informational" } else { &a.level };
 
         if let Some(clean_ip) = source_ip_clean.as_deref() {
             let classification = ip_classifier::classify(clean_ip, &networks, &known_ips);
@@ -452,16 +544,41 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
                 ip_classifier::IpClass::External => {
                     upsert_ip(store, clean_ip, None, None, Some("suspicious")).await;
                     if let Some(ref victim_id) = victim_id {
-                        record_attack(store, clean_ip, victim_id, &a.title).await;
+                        record_observation(
+                            store,
+                            clean_ip,
+                            victim_id,
+                            &a.title,
+                            alert_severity,
+                            false,
+                        )
+                        .await;
                     }
                 }
                 ip_classifier::IpClass::InternalKnown(ref asset_id) => {
+                    // Suppress benign LAN chatter: an admin tooling sigma
+                    // alert at low/info severity between two internal
+                    // assets is not "the IP attacked the asset", and
+                    // recording it as an observation buries any real
+                    // signal under thousands of false positives on busy
+                    // networks (see ticket "4268 attackers from a single
+                    // LAN peer"). Medium+ severity stays — those are
+                    // genuine lateral-movement candidates.
+                    let sev_rank = severity_rank(alert_severity);
                     if let Some(ref victim_id) = victim_id
                         && victim_id != asset_id
+                        && sev_rank >= severity_rank("medium")
                     {
                         upsert_ip(store, clean_ip, None, None, Some("lateral")).await;
-                        record_attack(store, clean_ip, victim_id, &format!("lateral: {}", a.title))
-                            .await;
+                        record_observation(
+                            store,
+                            clean_ip,
+                            victim_id,
+                            &format!("lateral: {}", a.title),
+                            alert_severity,
+                            true,
+                        )
+                        .await;
                     }
                 }
                 ip_classifier::IpClass::InternalUnknown => {

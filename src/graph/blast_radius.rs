@@ -130,8 +130,8 @@ async fn find_connected_assets(store: &dyn Database, asset_id: &str, _hop: u8) -
     let results = query(
         store,
         &format!(
-            "MATCH (ip:IP)-[:ATTACKS]->(src:Asset {{id: '{}'}}), \
-         (ip)-[:ATTACKS]->(other:Asset) \
+            "MATCH (ip:IP)-[:OBSERVED]->(src:Asset {{id: '{}'}}), \
+         (ip)-[:OBSERVED]->(other:Asset) \
          WHERE other.id <> '{}' \
          RETURN DISTINCT other.id, other.hostname, other.criticality",
             esc(asset_id),

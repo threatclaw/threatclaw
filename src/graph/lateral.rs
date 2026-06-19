@@ -101,7 +101,7 @@ pub async fn detect_multi_hop_chains(store: &dyn Database) -> Vec<LateralPath> {
     // Find IPs that attack 2+ different assets — indicates lateral movement or recon
     let results = query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(a1:Asset), (ip)-[:ATTACKS]->(a2:Asset) \
+        "MATCH (ip:IP)-[:OBSERVED]->(a1:Asset), (ip)-[:OBSERVED]->(a2:Asset) \
          WHERE a1 <> a2 \
          RETURN DISTINCT ip.addr, a1.id, a1.hostname, a2.id, a2.hostname, a2.criticality \
          LIMIT 50",
@@ -148,7 +148,7 @@ pub async fn detect_fan_out(store: &dyn Database, threshold: i64) -> Vec<FanOutA
     let results = query(
         store,
         &format!(
-            "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
+            "MATCH (ip:IP)-[:OBSERVED]->(a:Asset) \
          WITH ip, collect(DISTINCT a.hostname) AS targets, count(DISTINCT a) AS cnt \
          WHERE cnt >= {} \
          RETURN ip.addr, ip.country, ip.classification, cnt, targets \
@@ -200,7 +200,7 @@ pub async fn detect_paths_to_critical(store: &dyn Database) -> Vec<LateralPath> 
     // Find malicious IPs that attack critical assets
     let results = query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
+        "MATCH (ip:IP)-[:OBSERVED]->(a:Asset) \
          WHERE ip.classification = 'malicious' AND a.criticality = 'critical' \
          RETURN ip.addr, a.id, a.hostname \
          LIMIT 20",
@@ -238,7 +238,7 @@ pub async fn detect_paths_to_critical(store: &dyn Database) -> Vec<LateralPath> 
 pub async fn detect_shared_vulnerability_paths(store: &dyn Database) -> Vec<serde_json::Value> {
     query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(a1:Asset)<-[:AFFECTS]-(c:CVE)-[:AFFECTS]->(a2:Asset) \
+        "MATCH (ip:IP)-[:OBSERVED]->(a1:Asset)<-[:AFFECTS]-(c:CVE)-[:AFFECTS]->(a2:Asset) \
          WHERE a1 <> a2 \
          RETURN ip.addr, a1.hostname, c.id, c.cvss, a2.hostname, a2.criticality \
          ORDER BY c.cvss DESC \

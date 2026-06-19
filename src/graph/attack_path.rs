@@ -113,8 +113,8 @@ pub async fn predict_attack_paths(store: &dyn Database) -> AttackPathAnalysis {
 async fn find_external_to_critical(store: &dyn Database) -> Vec<AttackPath> {
     let results = query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(pivot:Asset), \
-         (ip2:IP)-[:ATTACKS]->(target:Asset {criticality: 'critical'}) \
+        "MATCH (ip:IP)-[:OBSERVED]->(pivot:Asset), \
+         (ip2:IP)-[:OBSERVED]->(target:Asset {criticality: 'critical'}) \
          WHERE ip.classification = 'malicious' AND pivot <> target \
          RETURN DISTINCT ip.addr, pivot.id, pivot.hostname, target.id, target.hostname \
          LIMIT 20",
@@ -164,7 +164,7 @@ async fn find_cve_chain_paths(store: &dyn Database) -> Vec<AttackPath> {
     let results = query(
         store,
         "MATCH (c:CVE)-[:AFFECTS]->(entry:Asset), \
-         (ip:IP)-[:ATTACKS]->(entry), \
+         (ip:IP)-[:OBSERVED]->(entry), \
          (c2:CVE)-[:AFFECTS]->(target:Asset {criticality: 'critical'}) \
          WHERE c.cvss >= 7.0 AND entry <> target \
          RETURN DISTINCT ip.addr, entry.id, entry.hostname, c.id AS entry_cve, c.cvss, c.in_kev, \
@@ -228,7 +228,7 @@ async fn find_cve_chain_paths(store: &dyn Database) -> Vec<AttackPath> {
 async fn find_direct_critical_exposure(store: &dyn Database) -> Vec<AttackPath> {
     let results = query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(target:Asset {criticality: 'critical'}) \
+        "MATCH (ip:IP)-[:OBSERVED]->(target:Asset {criticality: 'critical'}) \
          WHERE ip.classification = 'malicious' \
          RETURN ip.addr, target.id, target.hostname \
          LIMIT 10",

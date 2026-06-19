@@ -114,7 +114,7 @@ pub async fn profile_threat_actors(store: &dyn Database) -> ThreatActorAnalysis 
     // Group IPs by country and find their techniques
     let results = query(
         store,
-        "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
+        "MATCH (ip:IP)-[:OBSERVED]->(a:Asset) \
          WITH ip, collect(DISTINCT a.hostname) AS targets, count(DISTINCT a) AS target_count \
          WHERE target_count >= 1 \
          RETURN ip.addr, ip.country, ip.asn, ip.classification, targets, target_count \

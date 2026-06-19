@@ -738,9 +738,13 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
           </div>
         )}
 
-        {/* Attackers */}
+        {/* Observed sources — the backend now deduplicates by IP and
+            returns event_count + max_severity_rank + any_internal, so we
+            render `attackers.length` as the distinct IP count rather than
+            the raw edge count (which used to surface "4268 attackers"
+            for a single chatty LAN peer). */}
         <div>
-          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assetsSections_attackers", locale)}</div>
+          <div style={{ color: "var(--tc-text-muted)", fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.05em" }}>{tr("assetsSections_observedSources", locale)}</div>
           <div style={{ fontSize: "16px", fontWeight: 800, color: (data.attackers?.length || 0) > 0 ? "#e04040" : "#30a050", marginTop: "2px" }}>
             {data.attackers?.length || 0}
           </div>
@@ -755,16 +759,41 @@ export function GraphIntelSection({ assetId }: { assetId: string }) {
         </div>
       </div>
 
-      {/* Attacker IPs list */}
+      {/* Observed IPs list — one badge per distinct IP with ×event_count.
+          Color reflects worst-seen severity_rank (5=critical … 1=info)
+          and whether the source is external. */}
       {data.attackers && data.attackers.length > 0 && (
         <div style={{ marginTop: "8px" }}>
-          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assetsSections_attackerIps", locale)}</div>
+          <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "4px" }}>{tr("assetsSections_observedIps", locale)}</div>
           <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-            {data.attackers.slice(0, 10).map((a: any, i: number) => (
-              <span key={i} style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: "rgba(208,48,32,0.08)", color: "#e04040", border: "1px solid rgba(208,48,32,0.15)" }}>
-                {a["ip.addr"] || a.addr || JSON.stringify(a).slice(0, 20)}
-              </span>
-            ))}
+            {data.attackers.slice(0, 10).map((a: any, i: number) => {
+              const addr = a["ip.addr"] || a.addr || "—";
+              const count = Number(a.event_count ?? a["event_count"] ?? 0);
+              const sevRank = Number(a.max_severity_rank ?? a["max_severity_rank"] ?? 0);
+              const isInternal = (a.any_internal ?? a["any_internal"]) === true;
+              // Severity colour scale: critical/high = red, medium = amber,
+              // low/info = muted. External keeps the red accent regardless
+              // of severity since "anyone on the Internet talking to this
+              // asset" is itself a signal worth surfacing.
+              let color = "var(--tc-text-muted)";
+              let bg = "rgba(255,255,255,0.04)";
+              let border = "1px solid var(--tc-border)";
+              if (!isInternal || sevRank >= 4) {
+                color = "#e04040";
+                bg = "rgba(208,48,32,0.08)";
+                border = "1px solid rgba(208,48,32,0.15)";
+              } else if (sevRank >= 3) {
+                color = "var(--tc-amber)";
+                bg = "rgba(234,179,8,0.08)";
+                border = "1px solid rgba(234,179,8,0.20)";
+              }
+              return (
+                <span key={i} title={isInternal ? tr("assetsSections_internalSource", locale) : tr("assetsSections_externalSource", locale)}
+                  style={{ fontSize: "9px", fontFamily: "monospace", padding: "1px 6px", borderRadius: "3px", background: bg, color, border }}>
+                  {addr}{count > 1 ? ` ×${count}` : ""}
+                </span>
+              );
+            })}
           </div>
         </div>
       )}

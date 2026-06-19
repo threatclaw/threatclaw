@@ -103,7 +103,7 @@ pub async fn compute_ip_confidence(
     let attack_results = query(
         store,
         &format!(
-            "MATCH (ip:IP {{addr: '{}'}})-[att:ATTACKS]->(a:Asset) RETURN count(att)",
+            "MATCH (ip:IP {{addr: '{}'}})-[att:OBSERVED]->(a:Asset) RETURN count(att)",
             esc(ip_addr)
         ),
     )

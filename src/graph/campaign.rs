@@ -78,7 +78,7 @@ pub async fn detect_campaigns(store: &dyn Database) -> CampaignAnalysis {
 /// Detect IPs from the same country attacking the same asset.
 async fn detect_country_clusters(store: &dyn Database) -> Vec<Campaign> {
     let results = query(store,
-        "MATCH (ip1:IP)-[:ATTACKS]->(a:Asset)<-[:ATTACKS]-(ip2:IP) \
+        "MATCH (ip1:IP)-[:OBSERVED]->(a:Asset)<-[:OBSERVED]-(ip2:IP) \
          WHERE ip1 <> ip2 AND ip1.country = ip2.country AND ip1.country IS NOT NULL \
          WITH a, ip1.country AS country, collect(DISTINCT ip1.addr) + collect(DISTINCT ip2.addr) AS ips, count(*) AS attacks \
          WHERE size(ips) >= 3 \
@@ -131,7 +131,7 @@ async fn detect_country_clusters(store: &dyn Database) -> Vec<Campaign> {
 /// Detect IPs sharing the same ASN attacking multiple assets.
 async fn detect_asn_clusters(store: &dyn Database) -> Vec<Campaign> {
     let results = query(store,
-        "MATCH (ip:IP)-[:ATTACKS]->(a:Asset) \
+        "MATCH (ip:IP)-[:OBSERVED]->(a:Asset) \
          WHERE ip.asn IS NOT NULL \
          WITH ip.asn AS asn, collect(DISTINCT ip.addr) AS ips, collect(DISTINCT a.hostname) AS targets, count(*) AS attacks \
          WHERE size(ips) >= 2 AND size(targets) >= 2 \
