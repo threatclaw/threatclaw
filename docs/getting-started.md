@@ -214,12 +214,43 @@ irm https://get.threatclaw.io/agent/windows | iex
 The installer creates a scheduled task that syncs every 5 minutes as
 SYSTEM.
 
+> See the [Endpoint Agent guide](endpoint-agent.md) for what the
+> agent actually collects, advanced install flags, day-to-day
+> operations, and the clean uninstall procedure.
+
 ### Verify the agent is registered
 
 The **Setup → Endpoints** page lists every registered agent with its
 hostname and last sync timestamp. The agent's host then appears in
 **Inventory → Assets** with its software, OS, and a CVE finding for
 every package matched against public vulnerability feeds.
+
+## Update, reinstall, uninstall
+
+The same `get.threatclaw.io` one-liner that bootstraps the server
+also drives every lifecycle operation. Pass a flag to pick the mode
+(use `--yes` to skip the interactive confirmation):
+
+```bash
+# Pull the latest images and restart in place
+curl -fsSL https://get.threatclaw.io | sudo bash -s -- --update
+
+# Wipe data and reinstall fresh — keeps the Docker image cache so
+# the reinstall is fast. The "start over with the same OS" option.
+curl -fsSL https://get.threatclaw.io | sudo bash -s -- --clean --yes
+
+# Full removal: stop and delete the containers, volumes and Docker
+# images of the project, and remove `/opt/threatclaw`. Docker itself
+# and the system packages stay installed.
+curl -fsSL https://get.threatclaw.io | sudo bash -s -- --uninstall --yes
+```
+
+`--update` is safe to schedule from cron; `--clean` and
+`--uninstall` are destructive and should be run interactively unless
+you fully control the host. Custom install paths (`--data DIR`,
+`--port PORT`, `--docker-data DIR`) are honoured by every mode — pass
+the same values the original install used so the script can locate
+the deployment.
 
 ## Declare critical assets
 

@@ -368,6 +368,21 @@ function Run-Query {
     } catch { return "[]" }
 }
 
+# Rotate the agent log if it has grown past TC_LOG_MAX_BYTES (default
+# 5 MB). One rotation slot — agent-sync.log.1 — is kept; the previous
+# slot is discarded. Linux ships log to journald which handles
+# rotation at the OS level, so this only matters on Windows. Run once
+# at the top of the sync rather than per-line to keep Write-Log
+# constant-cost.
+$LogMaxBytes = 5MB
+try {
+    if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length -gt $LogMaxBytes)) {
+        $rotated = "$LogFile.1"
+        if (Test-Path $rotated) { Remove-Item -Path $rotated -Force -ErrorAction SilentlyContinue }
+        Move-Item -Path $LogFile -Destination $rotated -Force -ErrorAction SilentlyContinue
+    }
+} catch { }
+
 function Write-Log {
     param([string]$Msg)
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -551,5 +566,7 @@ Write-Host "  Useful commands:" -ForegroundColor Cyan
 Write-Host "    Check status:   Get-ScheduledTask -TaskName 'ThreatClaw Agent Sync'"
 Write-Host "    Manual sync:    powershell -File C:\ProgramData\ThreatClaw\agent-sync.ps1"
 Write-Host "    View logs:      Get-Content C:\ProgramData\ThreatClaw\agent-sync.log"
-Write-Host "    Uninstall:      Unregister-ScheduledTask -TaskName 'ThreatClaw Agent Sync'"
+Write-Host "    Uninstall:      irm get.threatclaw.io/agent/uninstall/windows | iex"
+Write-Host "                    (removes the scheduled task, Sysmon, osquery, and C:\ProgramData\ThreatClaw)"
+Write-Host "                    add -KeepSysmon / -KeepOsquery to keep either component"
 Write-Host ""

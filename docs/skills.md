@@ -21,9 +21,42 @@ ThreatClaw skills are sandboxed modules that extend the agent's capabilities. Ea
 
 The dashboard exposes the up-to-date skill catalog at **Settings → Skills**, including which ones are enabled, what they require (API keys, credentials), and their last-run status.
 
-## Connectors and tools
+## Connectors
 
-Beyond first-party skills, ThreatClaw ships a registry of **integration tools** (notification channels, MCP servers, productivity platforms) that any skill can use. The full list is exposed at runtime via the dashboard's Skills marketplace tab.
+Connectors are skills that pull from — or push to — an external system
+already present in the customer environment. They are what makes the
+inventory rich and what lets the platform act when the operator
+approves a remediation. Each connector is configured once under
+**Skills → its tile**; the data starts flowing on the next cycle.
+
+| Category | Connectors |
+|----------|------------|
+| Endpoint / EDR | `osquery`, `velociraptor`, `wazuh` |
+| Firewall / network | `pfsense`, `fortinet`, `mikrotik`, `unifi`, `freebox` (the OPNsense skill ships as an external skill, not bundled) |
+| Discovery | `nmap-discovery`, `dhcp-parser` |
+| SIEM / log sources | `elastic-siem`, `graylog`, `microsoft-sentinel`, `zeek`, `suricata`, `crowdsec` |
+| Identity & directory | `active-directory`, `authentik`, `keycloak`, `microsoft-graph` |
+| Inventory & CMDB | `glpi` |
+| DNS / filtering | `pihole` |
+| Virtualisation & backup | `proxmox`, `proxmox-backup`, `veeam` |
+| Edge / CDN | `cloudflare` |
+| Incident response & ticketing | `dfir-iris`, `thehive`, `defectdojo` |
+| Automation / SOAR | `shuffle` |
+| Monitoring | `uptimerobot` |
+
+The dashboard exposes the catalog at **Settings → Skills** with the
+current configuration state, last-run timestamp, and per-connector
+health. New connectors land in the catalog automatically as soon as
+their skill manifest is added to the registry.
+
+## Notification channels
+
+Independent from the connector list, ten messaging channels are
+available to deliver alerts and HITL prompts: Slack, Telegram, Discord,
+WhatsApp, Signal, Email (SMTP), Mattermost, Ntfy, Gotify and Olvid.
+Each channel is configured under **Setup → Channels**; see
+[`configuration.md`](configuration.md#channels) for the per-channel
+setup steps.
 
 ## Building your own
 

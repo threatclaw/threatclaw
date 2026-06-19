@@ -557,6 +557,9 @@ main() {
   log "The agent will sync to ThreatClaw every ${SYNC_INTERVAL} seconds."
   log "Check status: systemctl status threatclaw-agent.timer"
   log "Manual sync:  /usr/local/bin/threatclaw-agent-sync"
+  log "Uninstall:    curl -fsSL get.threatclaw.io/agent/uninstall | sudo bash"
+  log "              (removes the systemd units, the agent script, and osquery)"
+  log "              set TC_KEEP_OSQUERY=1 to keep osquery installed"
   echo ""
 
   # First sync

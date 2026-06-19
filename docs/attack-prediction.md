@@ -38,8 +38,11 @@ Graph-walker that traverses edges derived from observed events :
 - `LATERAL_PATH` : two hosts share a successful login by the same
   user account in the last 30 days, so credential reuse opens a
   practical pivot path between them.
-- `ATTACKS` : a sigma alert flagged a source-to-destination pattern
-  that matches a known attack technique.
+- `OBSERVED` : an IP appeared as the source of a sigma alert or
+  firewall event targeting this asset. The edge carries a severity
+  rank (info / low / medium / high / critical) and an `internal`
+  flag — internal traffic below medium severity is filtered at edge
+  creation so legitimate LAN chatter does not inflate the counter.
 
 This view is empty when the underlying telemetry is missing
 (authentication logs not yet ingested, no sigma alerts firing). It

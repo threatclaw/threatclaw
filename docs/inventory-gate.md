@@ -100,7 +100,7 @@ runs on a machine, it counts as monitored.
 | Scenario | Risk | Mitigation |
 |---|---|---|
 | A real public-facing asset isn't in `assets` and isn't in `internal_networks` | Attacks against it are dropped to forensic, never escalated | Declare every public-facing asset during onboarding. The `assets` table accepts public IPs. |
-| Two genuinely distinct hosts share a hostname | They get merged into a single asset | The assets UI exposes a manual `unmerge` action. The merge is logged in the audit trail. |
+| Two genuinely distinct hosts share a hostname | They get merged into a single asset | The assets UI exposes a manual `unmerge` action. The merge is logged in the audit trail. The dashboard's 2-asset merge wizard (side-by-side picker) also lets the operator review every descriptive field before committing, while identity fields (hostname, MAC, FQDN, IPs, services, tags) are always unioned so the auto-resolver keeps matching either side after the merge. |
 | Outbound exfil from a compromised internal host | Auto-archived as "perimeter mitigated" | Suppression rules distinguish source direction — outbound from a private host stays escalated even when blocked at the perimeter. |
 
 ## Where the rule lives
