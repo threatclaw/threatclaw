@@ -1,7 +1,8 @@
 # Hunt — The Log Lake
 
-The Hunt page exposes the raw log payload for free-text
-investigation. It is the right tool when:
+The Hunt page (labelled **Recherche logs** / **Log search** in the
+sidebar) exposes the raw log payload for free-text investigation. It
+is the right tool when:
 
 - a card mentions an alert and you want to see the underlying raw
   event,
@@ -14,8 +15,11 @@ investigation. It is the right tool when:
 
 ## Where it sits
 
-The dashboard menu carries a **Hunt** entry. The page itself lives
-at `/hunt`.
+The dashboard menu carries a **Recherche logs** / **Log search**
+entry under the **Investigation** section. The page itself lives at
+`/hunt`. From any incident detail page, the **Voir les logs** /
+**View logs** button pivots into this page with the hostname and a
+±10 min window around the incident pre-filled.
 
 ## Filters
 

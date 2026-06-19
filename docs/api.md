@@ -2,96 +2,62 @@
 
 ThreatClaw exposes a REST API on port 3000 (configurable). All endpoints require Bearer token authentication.
 
-The full OpenAPI 3.1 specification is available to authenticated users via the dashboard.
+> **The authoritative endpoint list is the runtime OpenAPI 3.1 spec at
+> `/api/tc/openapi.json`.** This page describes the families of endpoints,
+> their authentication model, and the integration entry points an
+> external system is most likely to talk to. The dashboard renders the
+> same spec in a browsable form under **Settings → API**.
 
 ## Authentication
+
+Every call carries an `Authorization: Bearer <token>` header:
 
 ```bash
 curl -H "Authorization: Bearer <token>" http://localhost:3000/api/tc/health
 ```
 
-The token is displayed at startup or set via `GATEWAY_AUTH_TOKEN`.
+The token is generated at first boot and stored in `/opt/threatclaw/.env`
+(or wherever the install script wrote it). It can also be set via the
+`GATEWAY_AUTH_TOKEN` environment variable.
 
-## Endpoints
+Two endpoint families bypass the gateway token:
 
-### System
+- `/api/tc/webhook/ingest/<source>` accepts a per-source webhook token
+  (via the `X-Webhook-Token` header). Endpoint agents push data here.
+- `/api/tc/agent/{install,uninstall}.{sh,ps1}` and `/api/tc/agent/manifest`
+  serve installer scripts and the agent's query manifest. They are
+  unauthenticated because the install one-liner runs before the host has
+  any credential, and the manifest is authenticated by the webhook token
+  the agent already has.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/health` | System health, version, LLM status |
-| GET | `/api/tc/openapi.json` | OpenAPI specification (authenticated) |
+## Endpoint families
 
-### Findings
+| Family | Path prefix | What it does |
+|---|---|---|
+| **System** | `/api/tc/health`, `/api/tc/version`, `/api/tc/pause` | Liveness, version, kill switch |
+| **Findings** | `/api/tc/findings*` | Vulnerability findings: list, count, get, status updates |
+| **Alerts** | `/api/tc/alerts*` | SOC alerts list and per-level counts |
+| **Sigma** | `/api/tc/sigma*` | Rule catalog, per-rule stats, exception ladder, audit log, MITRE coverage matrix |
+| **Incidents** | `/api/tc/incidents*` | Incidents and operator decisions: resolve, false-positive, accept-risk, snooze, archive, reinvestigate, notes, HITL action queue |
+| **Assets** | `/api/tc/assets*` | Inventory: list, get, full detail, security view, criticality override, exclude, merge / unmerge, keep-separate |
+| **Hunt (log lake)** | `/api/tc/logs/search`, `/api/tc/hunt/saved*` | Free-text search over recent logs + saved searches |
+| **Skills & config** | `/api/tc/skills/catalog`, `/api/tc/config/<skill_id>` | Skill catalog (reads `skill.json` files) and per-skill configuration |
+| **Graph & prediction** | `/api/tc/graph*`, `/api/tc/security/attack-paths*`, `/api/tc/security/choke-points` | Observed sources, lateral-movement candidates, CVE-chain attack paths, choke-point ranking |
+| **Endpoint agents** | `/api/tc/endpoint-agents`, `/api/tc/webhook/*`, `/api/tc/agent/*` | Registered hosts, webhook token management, install / uninstall script delivery, agent manifest |
+| **Metrics** | `/api/tc/metrics` | Dashboard summary (open incidents, pending findings, agent freshness…) |
+| **OpenAI-compatible** | `/v1/chat/completions`, `/v1/models` | Direct LLM access in OpenAI format for tooling that already speaks the protocol |
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/findings` | List findings (filter by severity, status, skill) |
-| POST | `/api/tc/findings` | Create a finding |
-| GET | `/api/tc/findings/counts` | Count findings by severity |
-| GET | `/api/tc/findings/{id}` | Get finding details |
-| PUT | `/api/tc/findings/{id}/status` | Update finding status |
+Sigma, asset and incident families changed substantially across recent
+releases. Use the runtime OpenAPI spec for the exact request and
+response shapes — the spec is regenerated from the route registry on
+every build, so it is always in sync with the deployed binary.
 
-### Alerts
+## Agent control routes
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/alerts` | List SOC alerts |
-| GET | `/api/tc/alerts/counts` | Count alerts by level |
-
-### Skills & Config
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/skills/catalog` | List all skills (reads skill.json files) |
-| GET | `/api/tc/config/{skill_id}` | Get skill configuration |
-| POST | `/api/tc/config/{skill_id}` | Set skill configuration |
-| GET | `/api/tc/metrics` | Dashboard metrics |
-
-### Agent Control
-
-Agent control routes (mode, audit, HITL callback, integrity verification) are authenticated and documented in the runtime OpenAPI spec once logged in. They are not listed here to reduce unauthorized enumeration.
-
-### Endpoint Agents
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET  | `/api/tc/endpoint-agents` | List registered endpoint agents (id, hostname, last_seen) |
-| POST | `/api/tc/webhook/token/{source}` | Generate a webhook token for a source (e.g. `osquery`, `zeek`, `suricata`) |
-| GET  | `/api/tc/webhook/token/{source}` | Read the existing token without regenerating |
-| POST | `/api/tc/webhook/ingest/{source}` | Endpoint agents POST inventory snapshots here. Auth via `X-Webhook-Token` header. |
-
-### Incidents — bulk operations
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/tc/incidents/bulk-archive-stale` | Archive open incidents in `pending` verdict older than 24h (legacy artefacts) |
-| POST | `/api/tc/incidents/bulk-archive-perimeter-mitigated` | Archive open incidents whose evidence is fully blocked at the firewall. Add `?dry_run=true` to preview the count without mutating. |
-| POST | `/api/tc/incidents/{id}/archive` | Archive a single incident |
-| POST | `/api/tc/incidents/archive-resolved` | Archive every incident in resolved/closed/false_positive verdict |
-
-### Attack Prediction
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET  | `/api/tc/graph/attack-paths` | CVE-chain analyzer — paths from external IPs through vulnerable pivots to critical assets, derived from inventory + CVE findings |
-| GET  | `/api/tc/security/attack-paths` | Graph-walker — paths derived from observed authentication and detection events (LATERAL_PATH / ATTACKS edges) |
-| POST | `/api/tc/security/attack-paths/recompute` | Trigger a new computation cycle synchronously |
-| GET  | `/api/tc/security/choke-points` | Top assets whose hardening would break the most predicted paths |
-
-### Infrastructure
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tc/targets` | List configured targets |
-| POST | `/api/tc/targets` | Add a target |
-| DELETE | `/api/tc/targets/{id}` | Remove a target |
-
-### OpenAI-Compatible
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/chat/completions` | Send a message (OpenAI format) |
-| GET | `/v1/models` | List available models |
+Agent control routes (mode, audit, HITL callback, integrity verification,
+remediation actions) are authenticated and documented in the runtime
+OpenAPI spec once logged in. They are not enumerated here to keep the
+attack surface description small for unauthenticated readers.
 
 ## Python SDK
 
@@ -111,3 +77,8 @@ client.report_finding(Finding(
 # Get metrics
 metrics = client.get_dashboard_metrics()
 ```
+
+The SDK wraps the same endpoints described above with idiomatic types.
+For a one-off integration that does not justify the SDK, the REST
+endpoints are accessible from anything that can sign a header and POST
+JSON.

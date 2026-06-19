@@ -51,10 +51,14 @@ by tag (`sigma_alerts`, `osquery.sysmon`, `syslog.tcp.*`, ...) over
 any time window. That is the right place when you suspect an alert
 exists but does not show on a card.
 
-### The 5-minute cadence
+### The Intelligence Engine cadence
 
 The Intelligence Engine cycle is the heartbeat of the product. It
-runs every five minutes by default and, in one pass, it:
+runs **every five minutes by default**, and the interval is
+configurable from 60 seconds to 1800 seconds via the
+`tc_config_ie_cycle_secs` setting (Settings → System → Engine
+cadence on the dashboard, or the equivalent row in the `settings`
+table). In one pass, each cycle:
 
 1. Reads the recent log batch (per-tag quota, last 5 minutes).
 2. Matches every active sigma rule against every event.
@@ -66,7 +70,7 @@ runs every five minutes by default and, in one pass, it:
 The engine log shows every step in near-real-time (the raw alert
 appears within a second of the matching event), but the consolidated
 incident card only appears at the end of the cycle. Expect up to a
-five-minute delay between an attack and its appearance on the
+one-cycle delay between an attack and its appearance on the
 Incidents page.
 
 This is also why a single short attack and a long sustained one

@@ -43,6 +43,19 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 | `HEARTBEAT_ENABLED` | `false` | Enable proactive monitoring |
 | `HEARTBEAT_INTERVAL_SECS` | `1800` | Heartbeat interval (seconds) |
 
+### Installer & deployment
+
+These variables are read by `installer/install.sh` (one-liner) and by
+the Docker compose file. The installer persists them to
+`/opt/threatclaw/.env` on the first run; subsequent re-runs reuse the
+existing values so the deployment stays pinned across upgrades.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TC_VERSION` | (build-time) | Release tag baked into the installer (e.g. `1.0.47-beta`). The installer pulls images and writes assets pinned to this version. |
+| `TC_HTTPS_PORT` | `443` | Port the dashboard nginx publishes. Pinned across re-runs once the file exists so endpoint agents never lose connectivity after an `--update`. |
+| `TC_DEPLOY_MODE` | auto-detected | `standalone` (the host serves TLS on 443 directly), `custom-port` (TLS on `TC_HTTPS_PORT`), or `external-proxy` (an upstream reverse proxy fronts ThreatClaw). |
+
 ## Channels
 
 ### Slack
@@ -72,6 +85,42 @@ Set in `/opt/threatclaw/.env` (Docker install) or `.env` in project root (source
 
 1. Set up [WhatsApp Cloud API](https://developers.facebook.com/docs/whatsapp/cloud-api) on Meta Developer Portal
 2. Get a permanent access token and phone number ID
+
+### Signal
+
+ThreatClaw talks to a self-hosted [signal-cli-rest-api](https://github.com/bbernhard/signal-cli-rest-api)
+container. Configure the `httpUrl` (default `http://localhost:8080`)
+and the linked Signal `account` (E.164 number) in the setup wizard.
+
+### Email (SMTP)
+
+Configure `host`, `port` (typically `587` STARTTLS or `465` implicit
+TLS), `from` and `to` in the setup wizard. Authentication credentials
+go through the secrets store, not the .env file.
+
+### Mattermost
+
+Webhook-based. Create an incoming webhook in your Mattermost team and
+paste the URL into the channel configuration. No bot account required.
+
+### Ntfy
+
+Push notifications via [ntfy.sh](https://ntfy.sh) or a self-hosted ntfy
+server. Configure the server URL (default `https://ntfy.sh`) and a
+topic name; no token is needed for the public instance.
+
+### Gotify
+
+Push notifications via a self-hosted [Gotify](https://gotify.net)
+server. Configure the server `url` and an `appToken` created from the
+Gotify UI under **Apps**.
+
+### Olvid
+
+End-to-end encrypted enterprise messenger. ThreatClaw talks to a local
+[Olvid daemon](https://www.olvid.io) (`daemonUrl`, default
+`http://localhost:50051`); configure the `clientKey` and the target
+`discussionId` from the wizard.
 
 ## Data Retention
 
