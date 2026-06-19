@@ -43,7 +43,7 @@ in. The general shapes are:
 ### Linux
 
 ```bash
-curl -fsSL https://your-tc-server/api/tc/agent/install.sh | \
+curl -fsSL https://get.threatclaw.io/agent | \
   sudo bash -s -- --url https://your-tc-server --token <WEBHOOK_TOKEN>
 ```
 
@@ -51,7 +51,7 @@ Or, keeping the token out of `ps`/shell history:
 
 ```bash
 echo '<WEBHOOK_TOKEN>' > /run/tc-token && chmod 600 /run/tc-token
-curl -fsSL https://your-tc-server/api/tc/agent/install.sh | \
+curl -fsSL https://get.threatclaw.io/agent | \
   sudo bash -s -- --url https://your-tc-server --token-file /run/tc-token
 ```
 
@@ -65,7 +65,7 @@ PowerShell as Administrator:
 ```powershell
 $env:TC_URL='https://your-tc-server'
 $env:TC_TOKEN='<WEBHOOK_TOKEN>'
-irm https://your-tc-server/api/tc/agent/install.ps1 | iex
+irm https://get.threatclaw.io/agent/windows | iex
 ```
 
 The installer registers a scheduled task `ThreatClaw Agent Sync` that
