@@ -1002,10 +1002,38 @@ function AssetsPageInner() {
     loadData();
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm(tr("assets_confirmDelete", locale))) return;
-    await fetch(`/api/tc/assets/${id}`, { method: "DELETE" });
-    loadData();
+  // Asset deletion modal: impact preview + 3 levels + "prevent reappearance".
+  const [delAsset, setDelAsset] = useState<Asset | null>(null);
+  const [delImpact, setDelImpact] = useState<any>(null);
+  const [delScope, setDelScope] = useState<"reset" | "delete" | "purge">("delete");
+  const [delBlock, setDelBlock] = useState(false);
+  const [delBusy, setDelBusy] = useState(false);
+
+  const openDelete = (a: Asset) => {
+    setDelAsset(a);
+    setDelImpact(null);
+    setDelScope("delete");
+    setDelBlock(false);
+    fetch(`/api/tc/assets/${a.id}/impact`)
+      .then(r => r.json())
+      .then(setDelImpact)
+      .catch(() => setDelImpact({}));
+  };
+
+  const submitDelete = async () => {
+    if (!delAsset) return;
+    setDelBusy(true);
+    try {
+      await fetch(`/api/tc/assets/${delAsset.id}/purge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: delScope, block_reenrol: delScope === "delete" ? delBlock : false }),
+      }).catch(() => {});
+      setDelAsset(null);
+      loadData();
+    } finally {
+      setDelBusy(false);
+    }
   };
 
   // ── Filtered assets ──
@@ -1391,7 +1419,7 @@ function AssetsPageInner() {
                     )}
                     <button onClick={() => router.push(`/assets/${encodeURIComponent(a.id)}`)} style={{ background: "var(--tc-input)", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", cursor: "pointer", color: "var(--tc-text-sec)", padding: "4px 8px", fontSize: "9px", fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: "3px" }}><Eye size={11} /> {tr("assets_details", locale)}</button>
                     <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Settings size={13} /></button>
-                    <button onClick={() => handleDelete(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
+                    <button onClick={() => openDelete(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tc-text-muted)", padding: "4px" }}><Trash2 size={13} /></button>
                   </div>
 
                 </div>
@@ -1777,6 +1805,61 @@ function AssetsPageInner() {
           </div>
         );
       })()}
+
+      {delAsset && (
+        <div role="dialog" aria-modal="true" onClick={() => !delBusy && setDelAsset(null)}
+          style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} className="tc-card"
+            style={{ maxWidth: "560px", width: "92%", padding: "24px", background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderLeft: "4px solid var(--tc-red)" }}>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "10px" }}>
+              {locale === "fr" ? `Supprimer ${delAsset.name} ?` : `Delete ${delAsset.name}?`}
+            </div>
+            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "14px", lineHeight: 1.6 }}>
+              {locale === "fr" ? "Cet asset est lie a : " : "This asset is linked to: "}
+              {delImpact
+                ? <span style={{ color: "var(--tc-text)" }}>
+                    {(delImpact.incidents ?? 0)} incidents · {(delImpact.findings ?? 0)} findings · {(delImpact.alerts ?? 0)} {locale === "fr" ? "alertes" : "alerts"} · {(delImpact.logs ?? 0)} logs · {(delImpact.ml_scores ?? 0)} ML
+                  </span>
+                : <span style={{ fontStyle: "italic" }}>{locale === "fr" ? "calcul..." : "computing..."}</span>}
+            </div>
+            {[
+              { v: "reset", fr: "Reinitialiser", en: "Reset", descFr: "Efface findings, alertes et scores ML. Garde incidents et logs. L'asset reste actif et repart propre.", descEn: "Wipe findings, alerts and ML scores. Keep incidents and logs. The asset stays active and starts clean." },
+              { v: "delete", fr: "Supprimer", en: "Delete", descFr: "+ incidents. Retire l'asset de l'inventaire (corbeille, reversible). Garde les logs.", descEn: "+ incidents. Removes the asset from the inventory (trash, reversible). Keeps logs." },
+              { v: "purge", fr: "Purger (RGPD)", en: "Purge (GDPR)", descFr: "+ logs. Suppression definitive et irreversible de tout.", descEn: "+ logs. Permanent, irreversible deletion of everything." },
+            ].map(lvl => (
+              <label key={lvl.v} style={{ display: "block", padding: "8px 10px", marginBottom: "6px", border: `1px solid ${delScope === lvl.v ? "var(--tc-red)" : "var(--tc-border)"}`, borderRadius: "6px", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <input type="radio" name="delscope" checked={delScope === lvl.v} onChange={() => setDelScope(lvl.v as "reset" | "delete" | "purge")} />
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: lvl.v === "purge" ? "var(--tc-red)" : "var(--tc-text)" }}>{locale === "fr" ? lvl.fr : lvl.en}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginLeft: "24px", lineHeight: 1.4 }}>{locale === "fr" ? lvl.descFr : lvl.descEn}</div>
+              </label>
+            ))}
+            {delScope === "delete" && (
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", margin: "10px 2px", fontSize: "11px", color: "var(--tc-text)" }}>
+                <input type="checkbox" checked={delBlock} onChange={() => setDelBlock(!delBlock)} />
+                {locale === "fr" ? "Empecher la reapparition (machine declassee)" : "Prevent reappearance (decommissioned machine)"}
+              </label>
+            )}
+            {delScope === "purge" && (
+              <div style={{ fontSize: "11px", color: "var(--tc-red)", fontWeight: 600, margin: "10px 0" }}>
+                {locale === "fr" ? "Action irreversible — aucune recuperation possible." : "Irreversible — no recovery possible."}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "18px" }}>
+              <button onClick={() => setDelAsset(null)} disabled={delBusy} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "7px 14px" }}>
+                {locale === "fr" ? "Annuler" : "Cancel"}
+              </button>
+              <button onClick={submitDelete} disabled={delBusy} className="tc-btn-embossed"
+                style={{ fontSize: "11px", padding: "7px 14px", background: "var(--tc-red)", color: "#fff", border: "none", opacity: delBusy ? 0.6 : 1 }}>
+                {delBusy ? "..." : (locale === "fr"
+                  ? (delScope === "reset" ? "Reinitialiser" : delScope === "purge" ? "Purger" : "Supprimer")
+                  : (delScope === "reset" ? "Reset" : delScope === "purge" ? "Purge" : "Delete"))}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </PageShell>
   );
 }
