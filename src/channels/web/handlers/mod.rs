@@ -2,6 +2,7 @@
 //!
 //! Each module groups related endpoint handlers by domain.
 
+pub mod auth_users;
 pub mod channel_incoming;
 pub mod jobs;
 pub mod licensing_api;

@@ -239,6 +239,34 @@ pub async fn start_server(
         .route(
             "/api/auth/password",
             post(super::handlers::threatclaw_api::auth_change_password_handler),
+        )
+        // Dashboard user management (admin-only; each handler self-checks the
+        // session + users:manage) and the public token-based invitation accept.
+        .route(
+            "/api/auth/users",
+            get(super::handlers::auth_users::list_users)
+                .post(super::handlers::auth_users::create_user),
+        )
+        .route(
+            "/api/auth/users/{id}",
+            axum::routing::patch(super::handlers::auth_users::patch_user)
+                .delete(super::handlers::auth_users::delete_user),
+        )
+        .route(
+            "/api/auth/users/{id}/reinvite",
+            post(super::handlers::auth_users::reinvite_user),
+        )
+        .route(
+            "/api/auth/users/{id}/reset-password",
+            post(super::handlers::auth_users::reset_password_user),
+        )
+        .route(
+            "/api/auth/invitations/accept",
+            post(super::handlers::auth_users::accept_invitation),
+        )
+        .route(
+            "/api/auth/logout-all",
+            post(super::handlers::auth_users::logout_all),
         );
 
     // Protected routes (require auth)

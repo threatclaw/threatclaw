@@ -327,6 +327,33 @@ pub async fn delete_session(store: &Arc<dyn Database>, token: &str) {
         .await;
 }
 
+/// Public SHA-256 hex of a token — used to look up invitation tokens, which
+/// are stored hashed just like session tokens.
+pub fn token_hash(token: &str) -> String {
+    hash_token(token)
+}
+
+/// Invalidate every server-side session belonging to a user. Backs both
+/// "sign out everywhere" and the account-disable / delete flows.
+pub async fn delete_all_sessions_for_user(store: &Arc<dyn Database>, user_id: &str) {
+    let rows = match store.list_settings("_auth").await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for row in rows {
+        if !row.key.starts_with("session_") {
+            continue;
+        }
+        if let Ok(sess) = serde_json::from_value::<SessionRecord>(row.value.clone()) {
+            if sess.user_id == user_id {
+                let _ = store
+                    .set_setting("_auth", &row.key, &serde_json::json!(null))
+                    .await;
+            }
+        }
+    }
+}
+
 // ── Password Management ──
 
 /// Change a user's password.
