@@ -1711,6 +1711,13 @@ pub async fn start_server(
         .route_layer(middleware::from_fn_with_state(
             auth_state.clone(),
             auth_middleware,
+        ))
+        // User-level authorization: resolves the session cookie and enforces
+        // the route's required permission (deny-by-default). Non-/api/tc routes
+        // pass through untouched.
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            super::authz::require_permission_middleware,
         ));
 
     // Static file routes (no auth, served from embedded strings)

@@ -15,6 +15,7 @@
 //! ```
 
 pub mod auth;
+pub mod authz;
 pub mod dashboard_auth;
 pub(crate) mod handlers;
 pub mod permissions;
