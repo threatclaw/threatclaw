@@ -187,23 +187,30 @@ $SysmonMinConfig = @'
 </Sysmon>
 '@
 
-if (Get-Service Sysmon64 -ErrorAction SilentlyContinue) {
-    Write-TC "Sysmon already installed"
+# Always (re)fetch the config — this is just a file write, safe on reinstall.
+New-Item -ItemType Directory -Path (Split-Path $SysmonConf) -Force | Out-Null
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $SysmonConfUrl -OutFile $SysmonConf -UseBasicParsing -TimeoutSec 30
+    Write-TC "Fetched Sysmon config (SwiftOnSecurity)"
+} catch {
+    Write-TC "Could not fetch upstream Sysmon config, using minimal embedded config" -Color Yellow
+    Set-Content -Path $SysmonConf -Value $SysmonMinConfig -Encoding UTF8
+}
+
+# Detect an existing Sysmon: the service is named Sysmon64 (x64) or Sysmon
+# (x86), and on a reinstall the binary at $SysmonBin is LOCKED by the running
+# service. In that case we must NOT overwrite it (Copy-Item would fail with
+# "file in use") — just refresh the config in place with `-c`.
+$sysmonSvc = Get-Service -Name 'Sysmon64','Sysmon' -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($sysmonSvc -or (Test-Path $SysmonBin)) {
+    Write-TC "Sysmon already installed - updating config"
+    $proc = Start-Process -FilePath $SysmonBin -ArgumentList "-accepteula -c `"$SysmonConf`"" -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) {
+        Write-TC "Sysmon config update returned exit $($proc.ExitCode) - check manually" -Color Yellow
+    }
 } else {
     Write-TC "Installing Sysmon..."
-    New-Item -ItemType Directory -Path (Split-Path $SysmonConf) -Force | Out-Null
-
-    # Fetch SwiftOnSecurity config (or fall back to the minimal one above)
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $SysmonConfUrl -OutFile $SysmonConf -UseBasicParsing -TimeoutSec 30
-        Write-TC "Fetched Sysmon config (SwiftOnSecurity)"
-    } catch {
-        Write-TC "Could not fetch upstream Sysmon config, using minimal embedded config" -Color Yellow
-        Set-Content -Path $SysmonConf -Value $SysmonMinConfig -Encoding UTF8
-    }
-
-    # Download Sysmon zip
     $zipPath = Join-Path $env:TEMP "Sysmon.zip"
     $extractDir = Join-Path $env:TEMP "Sysmon"
     try {
