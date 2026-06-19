@@ -6,6 +6,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.48-beta] — 2026-06-19
+
+### Added
+- 2-asset merge wizard with side-by-side picker; identity fields always unioned so the auto-resolver keeps matching either side after the merge.
+- Asset deletion lifecycle: reset / delete / purge with an impact preview, Corbeille + Restore, one-click decommission, and a tombstone that blocks accidental re-enrolment.
+- Select-to-delete UI for stale endpoint agents.
+- Server-side uninstall one-liners for the endpoint agent: `get.threatclaw.io/agent/uninstall[/windows]` clean up the scheduled task / systemd unit, Sysmon, osquery and the on-disk agent script.
+- New docs: `endpoint-agent.md`, `asset-inventory.md`, `graph-intelligence.md`.
+
+### Changed
+- Graph IP → Asset edge renamed `OBSERVED` (was `ATTACKS`) with `severity_rank` + `internal` properties; benign LAN observations below medium severity are silently dropped and results are deduplicated by IP. Legacy edges are purged once on the first sync.
+- Hunt page rebranded "Recherche logs" / "Log search"; the incident pivot now auto-runs the search after React commits filters.
+- `install.sh --update` reclaims disk by removing only superseded ThreatClaw images.
+- Asset detail page exposes the impact + deletion modal and the agent's clean uninstall command.
+
+### Fixed
+- Asset merge: aliases stayed visible because `list_assets` did not exclude `status='merged'`.
+- Endpoint agent pre-flight no longer false-blocks installs on a 401 from a WAF, an older core, or any non-token rejection — the decision now reads a `tc_preflight` body marker.
+- Five React hydration mismatches (#418) across the root layout, the config page and the skills catalogue.
+- Asset detail "Modifier" button opens the edit modal instead of bouncing back to the inventory list.
+- 2-asset merge dialog is now opaque (two undefined CSS variables were inheriting the page background).
+- Dashboard proxy memoises `/api/auth/me` per cookie for 45 s and retries once on timeout, killing the 401 storms triggered by DB-write spikes during heavy IE cycles.
+- Stale Next.js chunks no longer surface as "This page couldn't load" after a redeploy.
+- Windows endpoint agent log rotates at 5 MB (one slot) so a host stays bounded around 10 MB even after years of operation.
+
 ## [1.0.47-beta] — 2026-06-18
 
 ### Fixed
