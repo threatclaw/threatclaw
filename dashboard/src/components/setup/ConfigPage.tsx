@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 
 import RemediationTab from "./RemediationTab";
+import AccountTab from "./AccountTab";
+import DashboardUsersTab from "./DashboardUsersTab";
 
 // ── Channel SVG icons (no emojis) ──
 function SlackIcon() {
@@ -670,6 +672,8 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
         )}
 
         {activeTab === "remediation" && (<RemediationTab />)}
+        {activeTab === "account" && (<AccountTab />)}
+        {activeTab === "dashboard-users" && (<DashboardUsersTab />)}
         {activeTab === "backup" && (<BackupTab />)}
         {activeTab === "logs" && (<LiveLogsTab />)}
         {activeTab === "sources" && (<LogSourcesTab />)}
