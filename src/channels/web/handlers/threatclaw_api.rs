@@ -6025,6 +6025,19 @@ pub async fn endpoint_agent_delete_handler(
     })))
 }
 
+/// GET /api/tc/assets/{id}/impact — how many rows a deletion would touch.
+/// Feeds the deletion modal's impact preview (incidents/findings/alerts/logs/ml).
+pub async fn asset_impact_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.asset_impact(&id).await {
+        Ok(v) => Ok(Json(v)),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════

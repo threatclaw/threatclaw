@@ -2587,6 +2587,45 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn asset_impact(&self, id: &str) -> Result<serde_json::Value, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Resolve the asset's identifiers first — tables reference an asset
+        // inconsistently: findings.asset / incidents.asset hold the id OR the
+        // name, sigma_alerts/logs key on hostname, ml_scores on asset_id. We
+        // match against all of them so the preview is honest.
+        let asset = match self.get_asset(id).await? {
+            Some(a) => a,
+            None => {
+                return Ok(serde_json::json!({
+                    "incidents": 0, "findings": 0, "alerts": 0, "logs": 0, "ml_scores": 0
+                }))
+            }
+        };
+        let host = asset.hostname.clone().unwrap_or_default();
+        // id + name cover the `asset`/`asset_id` text columns; host covers the
+        // hostname-keyed tables (case-insensitive).
+        let names: Vec<String> = vec![asset.id.clone(), asset.name.clone()];
+        let row = conn
+            .query_one(
+                "SELECT \
+                   (SELECT COUNT(*) FROM incidents   WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2)))::bigint, \
+                   (SELECT COUNT(*) FROM findings    WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2)))::bigint, \
+                   (SELECT COUNT(*) FROM sigma_alerts WHERE $2 <> '' AND LOWER(hostname) = LOWER($2))::bigint, \
+                   (SELECT COUNT(*) FROM logs        WHERE $2 <> '' AND LOWER(hostname) = LOWER($2))::bigint, \
+                   (SELECT COUNT(*) FROM ml_scores   WHERE asset_id = ANY($1) OR ($2 <> '' AND asset_id = $2))::bigint",
+                &[&names, &host],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(serde_json::json!({
+            "incidents": row.get::<_, i64>(0),
+            "findings": row.get::<_, i64>(1),
+            "alerts": row.get::<_, i64>(2),
+            "logs": row.get::<_, i64>(3),
+            "ml_scores": row.get::<_, i64>(4),
+        }))
+    }
+
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(

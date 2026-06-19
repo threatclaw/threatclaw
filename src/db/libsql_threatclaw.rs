@@ -307,6 +307,9 @@ impl ThreatClawStore for LibSqlBackend {
     async fn delete_asset(&self, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn asset_impact(&self, _: &str) -> Result<serde_json::Value, DatabaseError> {
+        Err(not_supported())
+    }
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         Err(not_supported())
     }

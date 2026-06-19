@@ -1105,6 +1105,11 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn delete_asset(&self, id: &str) -> Result<(), DatabaseError>;
 
+    /// Count the rows that a deletion would affect, so the UI can show an
+    /// impact preview before the operator picks a deletion level. Returns
+    /// `{ incidents, findings, alerts, logs, ml_scores }`.
+    async fn asset_impact(&self, id: &str) -> Result<serde_json::Value, DatabaseError>;
+
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
     async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError>;

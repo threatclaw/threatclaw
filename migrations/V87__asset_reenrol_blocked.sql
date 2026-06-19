@@ -1,0 +1,11 @@
+-- Tombstone flag for the asset deletion lifecycle.
+--
+-- When an operator deletes an asset and ticks "prevent reappearance"
+-- (decommissioned machine), the row is kept with status='deleted' and
+-- reenrol_blocked=true. resolve_asset checks this flag and refuses to
+-- re-create / re-activate the asset, so a still-reporting source can't
+-- resurrect a deliberately decommissioned host. Soft-deletes without the
+-- flag (reenrol_blocked=false) re-activate on the next sync — that is the
+-- "clean reset, let it come back fresh" path. A full RGPD purge hard-deletes
+-- the row instead, so this flag never applies there.
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS reenrol_blocked BOOLEAN NOT NULL DEFAULT false;
