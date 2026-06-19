@@ -1339,6 +1339,14 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::agent_install_ps1_handler),
         )
         .route(
+            "/api/tc/agent/uninstall.sh",
+            get(super::handlers::threatclaw_api::agent_uninstall_sh_handler),
+        )
+        .route(
+            "/api/tc/agent/uninstall.ps1",
+            get(super::handlers::threatclaw_api::agent_uninstall_ps1_handler),
+        )
+        .route(
             "/api/tc/endpoint-agents",
             get(super::handlers::threatclaw_api::endpoint_agents_handler),
         )

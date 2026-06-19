@@ -214,6 +214,10 @@ irm https://get.threatclaw.io/agent/windows | iex
 The installer creates a scheduled task that syncs every 5 minutes as
 SYSTEM.
 
+> See the [Endpoint Agent guide](endpoint-agent.md) for what the
+> agent actually collects, advanced install flags, day-to-day
+> operations, and the clean uninstall procedure.
+
 ### Verify the agent is registered
 
 The **Setup → Endpoints** page lists every registered agent with its

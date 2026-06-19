@@ -5901,6 +5901,8 @@ pub async fn webhook_get_token_handler(
 /// it can't drift out of sync.
 const INSTALL_AGENT_SH: &str = include_str!("../../../../installer/install-agent.sh");
 const INSTALL_AGENT_PS1: &str = include_str!("../../../../installer/install-agent.ps1");
+const UNINSTALL_AGENT_SH: &str = include_str!("../../../../installer/uninstall-agent.sh");
+const UNINSTALL_AGENT_PS1: &str = include_str!("../../../../installer/uninstall-agent.ps1");
 
 pub async fn agent_install_sh_handler() -> impl axum::response::IntoResponse {
     (
@@ -5913,6 +5915,27 @@ pub async fn agent_install_ps1_handler() -> impl axum::response::IntoResponse {
     (
         [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
         INSTALL_AGENT_PS1,
+    )
+}
+
+/// GET /api/tc/agent/uninstall.sh and /api/tc/agent/uninstall.ps1
+///
+/// Companion to the install handlers — serve the matching uninstall
+/// script so an operator can take the agent down with a single pipe
+/// (`curl ... | sudo bash` on Linux, `irm ... | iex` on Windows).
+/// Like the install scripts, these are bundled at compile time from
+/// `installer/` so they cannot drift away from the install payload.
+pub async fn agent_uninstall_sh_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")],
+        UNINSTALL_AGENT_SH,
+    )
+}
+
+pub async fn agent_uninstall_ps1_handler() -> impl axum::response::IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        UNINSTALL_AGENT_PS1,
     )
 }
 

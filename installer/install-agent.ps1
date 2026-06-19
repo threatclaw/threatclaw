@@ -551,5 +551,7 @@ Write-Host "  Useful commands:" -ForegroundColor Cyan
 Write-Host "    Check status:   Get-ScheduledTask -TaskName 'ThreatClaw Agent Sync'"
 Write-Host "    Manual sync:    powershell -File C:\ProgramData\ThreatClaw\agent-sync.ps1"
 Write-Host "    View logs:      Get-Content C:\ProgramData\ThreatClaw\agent-sync.log"
-Write-Host "    Uninstall:      Unregister-ScheduledTask -TaskName 'ThreatClaw Agent Sync'"
+Write-Host "    Uninstall:      irm get.threatclaw.io/agent/uninstall/windows | iex"
+Write-Host "                    (removes the scheduled task, Sysmon, osquery, and C:\ProgramData\ThreatClaw)"
+Write-Host "                    add -KeepSysmon / -KeepOsquery to keep either component"
 Write-Host ""

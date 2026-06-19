@@ -116,7 +116,9 @@ function isAgentIngressPath(pathname: string): boolean {
     pathname.startsWith("/api/tc/webhook/ingest/") ||
     pathname === "/api/tc/agent/manifest" ||
     pathname === "/api/tc/agent/install.sh" ||
-    pathname === "/api/tc/agent/install.ps1"
+    pathname === "/api/tc/agent/install.ps1" ||
+    pathname === "/api/tc/agent/uninstall.sh" ||
+    pathname === "/api/tc/agent/uninstall.ps1"
   );
 }
 
