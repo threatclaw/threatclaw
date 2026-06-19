@@ -37,6 +37,11 @@ function AgentPage() {
   const [token, setToken] = useState<string | null>(null);
   const [tokenExists, setTokenExists] = useState(false);
   const [agents, setAgents] = useState<any[]>([]);
+  // Agent removal: a select-to-delete mode mirroring the asset merge UI.
+  const [agentDelMode, setAgentDelMode] = useState(false);
+  const [agentDelSel, setAgentDelSel] = useState<Set<string>>(new Set());
+  const [agentDelConfirm, setAgentDelConfirm] = useState(false);
+  const [agentDeleting, setAgentDeleting] = useState(false);
   const [serverUrl, setServerUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -99,6 +104,30 @@ function AgentPage() {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Remote uninstall one-liners (run on the endpoint itself). Deleting an agent
+  // here only clears the registry row — a still-running agent re-registers on
+  // its next sync, so a real decommission means uninstalling on the machine.
+  const uninstallLinux = "curl -fsSL get.threatclaw.io/agent/uninstall | sudo bash";
+  const uninstallWindows = "irm get.threatclaw.io/agent/uninstall/windows | iex";
+
+  const agentKey = (agent: any, i: number) => agent.agent_id || `agent_${i}`;
+
+  const deleteSelectedAgents = async () => {
+    setAgentDeleting(true);
+    try {
+      for (const id of Array.from(agentDelSel)) {
+        await fetch(`/api/tc/endpoint-agents/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {});
+      }
+      const a = await fetch("/api/tc/endpoint-agents").then(r => r.json()).catch(() => ({ agents: [] }));
+      setAgents(a.agents || []);
+    } finally {
+      setAgentDelSel(new Set());
+      setAgentDelMode(false);
+      setAgentDelConfirm(false);
+      setAgentDeleting(false);
+    }
   };
 
   const linuxCmd = token
@@ -246,6 +275,28 @@ function AgentPage() {
           <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
             {locale === "fr" ? `Agents enregistres (${agents.length})` : `Registered agents (${agents.length})`}
           </div>
+          {agents.length > 0 && (
+            <div style={{ display: "flex", gap: "8px" }}>
+              {!agentDelMode ? (
+                <button onClick={() => setAgentDelMode(true)} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 12px" }}>
+                  {locale === "fr" ? "Supprimer" : "Delete"}
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => agentDelSel.size > 0 && setAgentDelConfirm(true)}
+                    disabled={agentDelSel.size === 0}
+                    className="tc-btn-embossed"
+                    style={{ fontSize: "11px", padding: "6px 12px", background: "var(--tc-red)", color: "#fff", border: "none", opacity: agentDelSel.size === 0 ? 0.5 : 1 }}>
+                    {locale === "fr" ? `Supprimer (${agentDelSel.size})` : `Delete (${agentDelSel.size})`}
+                  </button>
+                  <button onClick={() => { setAgentDelMode(false); setAgentDelSel(new Set()); }} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "6px 12px" }}>
+                    {locale === "fr" ? "Annuler" : "Cancel"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {agents.length === 0 ? (
@@ -258,6 +309,7 @@ function AgentPage() {
           <table style={{ width: "100%", fontSize: "11px", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--tc-border)" }}>
+                {agentDelMode && <th style={{ width: "28px", padding: "6px 8px" }} />}
                 <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--tc-text-muted)", fontWeight: 600 }}>Agent ID</th>
                 <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--tc-text-muted)", fontWeight: 600 }}>Hostname</th>
                 <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--tc-text-muted)", fontWeight: 600 }}>{locale === "fr" ? "Dernier sync" : "Last sync"}</th>
@@ -270,8 +322,24 @@ function AgentPage() {
                 const now = new Date();
                 const diffMin = lastSeen ? Math.floor((now.getTime() - lastSeen.getTime()) / 60000) : 999;
                 const isOnline = diffMin < 10;
+                const key = agentKey(agent, i);
                 return (
                   <tr key={i} style={{ borderBottom: "1px solid var(--tc-border)" }}>
+                    {agentDelMode && (
+                      <td style={{ padding: "8px", textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={agentDelSel.has(key)}
+                          onChange={() => {
+                            setAgentDelSel(prev => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key); else next.add(key);
+                              return next;
+                            });
+                          }}
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: "8px", color: "var(--tc-text)", fontFamily: "monospace", fontSize: "10px" }}>
                       {agent.agent_id || `agent_${i}`}
                     </td>
@@ -294,6 +362,66 @@ function AgentPage() {
           </table>
         )}
       </div>
+
+      {/* Agent removal confirmation — opened by the Delete (N) button. */}
+      {agentDelConfirm && (() => {
+        const selectedAgents = agents.filter((a, i) => agentDelSel.has(agentKey(a, i)));
+        const anyOnline = selectedAgents.some(a => {
+          const ls = a.last_seen ? new Date(a.last_seen) : null;
+          return ls ? (Date.now() - ls.getTime()) / 60000 < 10 : false;
+        });
+        return (
+          <div
+            role="dialog" aria-modal="true"
+            onClick={() => !agentDeleting && setAgentDelConfirm(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >
+            <div onClick={e => e.stopPropagation()} className="tc-card"
+              style={{ maxWidth: "560px", width: "92%", padding: "24px", background: "var(--tc-bg)", border: "1px solid var(--tc-border)", borderLeft: "4px solid var(--tc-red)" }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--tc-red)", marginBottom: "10px" }}>
+                {locale === "fr" ? `Supprimer ${agentDelSel.size} agent(s) ?` : `Delete ${agentDelSel.size} agent(s)?`}
+              </div>
+              <div style={{ fontSize: "12px", color: "var(--tc-text)", lineHeight: 1.55, marginBottom: "12px" }}>
+                {locale === "fr"
+                  ? "Ceci retire l'agent de la liste cote ThreatClaw. Cela NE desinstalle rien sur la machine."
+                  : "This removes the agent from the ThreatClaw list. It does NOT uninstall anything on the machine."}
+              </div>
+              <div style={{ fontSize: "12px", color: anyOnline ? "var(--tc-red)" : "var(--tc-text-muted)", lineHeight: 1.5, marginBottom: "14px", fontWeight: anyOnline ? 600 : 400 }}>
+                {anyOnline
+                  ? (locale === "fr"
+                    ? "Au moins un agent selectionne a synchronise recemment : s'il tourne encore sur la machine, il REAPPARAITRA au prochain cycle. Pour un retrait definitif, desinstallez-le d'abord sur le poste avec la commande ci-dessous."
+                    : "At least one selected agent synced recently: if it is still running on the machine it WILL reappear on the next cycle. For a permanent removal, uninstall it on the endpoint first with the command below.")
+                  : (locale === "fr"
+                    ? "Pour un retrait definitif (machine declassee), desinstallez aussi l'agent sur le poste avec la commande ci-dessous."
+                    : "For a permanent removal (decommissioned machine), also uninstall the agent on the endpoint with the command below.")}
+              </div>
+              <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>
+                {locale === "fr" ? "Desinstallation sur le poste" : "Uninstall on the endpoint"}
+              </div>
+              {[{ os: "Linux / macOS", cmd: uninstallLinux }, { os: "Windows", cmd: uninstallWindows }].map(({ os, cmd }) => (
+                <div key={os} style={{ marginBottom: "8px" }}>
+                  <div style={{ fontSize: "10px", color: "var(--tc-text-faint)", marginBottom: "2px" }}>{os}</div>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <code style={{ flex: 1, fontSize: "10px", padding: "6px 8px", background: "var(--tc-bg-deep, rgba(0,0,0,0.25))", borderRadius: "4px", color: "var(--tc-text)", overflowX: "auto", whiteSpace: "nowrap" }}>{cmd}</code>
+                    <button onClick={() => copyCmd(cmd)} className="tc-btn-embossed" style={{ fontSize: "10px", padding: "5px 9px" }}>
+                      {locale === "fr" ? "Copier" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "18px" }}>
+                <button onClick={() => setAgentDelConfirm(false)} disabled={agentDeleting} className="tc-btn-embossed" style={{ fontSize: "11px", padding: "7px 14px" }}>
+                  {locale === "fr" ? "Annuler" : "Cancel"}
+                </button>
+                <button onClick={deleteSelectedAgents} disabled={agentDeleting} className="tc-btn-embossed"
+                  style={{ fontSize: "11px", padding: "7px 14px", background: "var(--tc-red)", color: "#fff", border: "none", opacity: agentDeleting ? 0.6 : 1 }}>
+                  {agentDeleting ? (locale === "fr" ? "Suppression..." : "Deleting...") : (locale === "fr" ? `Supprimer (${agentDelSel.size})` : `Delete (${agentDelSel.size})`)}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Rotate confirmation modal — opened by the Regenerate button.
           The first-install Generate path never reaches this since there
