@@ -1342,6 +1342,10 @@ pub async fn start_server(
             "/api/tc/endpoint-agents",
             get(super::handlers::threatclaw_api::endpoint_agents_handler),
         )
+        .route(
+            "/api/tc/endpoint-agents/{id}",
+            axum::routing::delete(super::handlers::threatclaw_api::endpoint_agent_delete_handler),
+        )
         // New enrichment APIs (web security)
         .route(
             "/api/tc/enrichment/safebrowsing",

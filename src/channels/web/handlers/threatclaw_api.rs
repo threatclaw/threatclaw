@@ -5992,6 +5992,39 @@ pub async fn endpoint_agents_handler(
     })))
 }
 
+/// DELETE /api/tc/endpoint-agents/{id} — remove a stale agent from the registry.
+///
+/// This only deletes the `_osquery_agents` registry row (the entry shown on the
+/// Agents page). It does NOT uninstall anything on the endpoint: if the agent is
+/// still running on the machine it will re-register itself on its next sync
+/// (~5 min). The dashboard warns about this for recently-seen agents and offers
+/// the remote uninstall command for a real decommission. For long-dead agents
+/// (decommissioned machines) this is a clean, permanent cleanup.
+///
+/// The registry key is `agent_<id>`; the dashboard sends back the `agent_id` it
+/// was given, which for installer agents already carries an `agent-` prefix
+/// (`agent-host-serial` → key `agent_agent-host-serial`) and for the legacy
+/// indexed slots is the full `agent_N` key. Normalise both to the stored key.
+pub async fn endpoint_agent_delete_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(agent_id): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let key = if agent_id.starts_with("agent_") {
+        agent_id.clone()
+    } else {
+        format!("agent_{agent_id}")
+    };
+    let deleted = store
+        .delete_setting("_osquery_agents", &key)
+        .await
+        .unwrap_or(false);
+    Ok(Json(serde_json::json!({
+        "deleted": deleted,
+        "agent_id": agent_id,
+    })))
+}
+
 // ════════════════════════════════════════════════════════════════
 // ENRICHMENT — WEB SECURITY (Tier 1)
 // ════════════════════════════════════════════════════════════════
