@@ -230,10 +230,7 @@ impl IncidentDossier {
         ));
 
         if !self.sigma_alerts.is_empty() {
-            out.push_str(&format!(
-                "\nSigma alerts ({}):\n",
-                self.sigma_alerts.len()
-            ));
+            out.push_str(&format!("\nSigma alerts ({}):\n", self.sigma_alerts.len()));
             for a in &self.sigma_alerts {
                 let src = a
                     .source_ip
@@ -259,10 +256,7 @@ impl IncidentDossier {
         }
 
         if !self.findings.is_empty() {
-            out.push_str(&format!(
-                "\nFindings ({}):\n",
-                self.findings.len()
-            ));
+            out.push_str(&format!("\nFindings ({}):\n", self.findings.len()));
             for f in &self.findings {
                 let skill = f.skill_id.as_deref().unwrap_or("?");
                 let src_ip = f

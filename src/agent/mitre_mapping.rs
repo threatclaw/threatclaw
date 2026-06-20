@@ -73,12 +73,10 @@ pub fn baseline_for_rule(rule_id: &str, dominant_alert: Option<&DossierAlert>) -
         },
         "osquery-win-user-created" => Baseline {
             mitre: vec!["T1136.001 Create Account: Local Account".into()],
-            actions: vec![
-                action_lock_account(
-                    &user,
-                    "Verrouiller le compte nouvellement créé jusqu'à validation RSSI",
-                ),
-            ]
+            actions: vec![action_lock_account(
+                &user,
+                "Verrouiller le compte nouvellement créé jusqu'à validation RSSI",
+            )]
             .into_iter()
             .flatten()
             .collect(),
@@ -155,9 +153,9 @@ pub fn baseline_for_rule(rule_id: &str, dominant_alert: Option<&DossierAlert>) -
                 "T1078.003 Valid Accounts: Local Accounts".into(),
                 "T1548.003 Abuse Elevation Control Mechanism: Sudo and Sudo Caching".into(),
             ],
-            actions: vec![
-                ticket("Compte promu UID 0 — escalade post-compromis suspectée"),
-            ],
+            actions: vec![ticket(
+                "Compte promu UID 0 — escalade post-compromis suspectée",
+            )],
         },
 
         // Rule unknown to this catalog — caller keeps its own behavior.
@@ -219,7 +217,10 @@ pub fn merge_with_baseline(
 ) -> (Vec<String>, Vec<serde_json::Value>) {
     let mut mitre = parsed_mitre;
     for t in baseline.mitre {
-        if !mitre.iter().any(|existing| existing.starts_with(t.split(' ').next().unwrap_or(&t))) {
+        if !mitre
+            .iter()
+            .any(|existing| existing.starts_with(t.split(' ').next().unwrap_or(&t)))
+        {
             mitre.push(t);
         }
     }
@@ -287,7 +288,10 @@ mod tests {
     fn lsass_access_is_critical_mitre() {
         let a = alert("sysmon-lsass-access", None, None);
         let b = baseline_for_rule("sysmon-lsass-access", Some(&a));
-        assert_eq!(b.mitre, vec!["T1003.001 OS Credential Dumping: LSASS Memory"]);
+        assert_eq!(
+            b.mitre,
+            vec!["T1003.001 OS Credential Dumping: LSASS Memory"]
+        );
         assert!(!b.actions.is_empty());
     }
 

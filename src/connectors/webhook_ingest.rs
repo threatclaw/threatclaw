@@ -204,7 +204,10 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
     // for fairness so the 10k-host fleet does not share one bucket and a single
     // noisy host is still capped. Done after parse since the per-host key lives
     // in the payload; the body-size cap above bounds the cost.
-    if !check_bucket(&format!("__src/{source}"), MAX_REQUESTS_PER_SOURCE_PER_MINUTE) {
+    if !check_bucket(
+        &format!("__src/{source}"),
+        MAX_REQUESTS_PER_SOURCE_PER_MINUTE,
+    ) {
         tracing::warn!("WEBHOOK: source-level rate limit hit for {}", source);
         return 0;
     }

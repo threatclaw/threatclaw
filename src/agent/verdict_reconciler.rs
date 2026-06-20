@@ -1278,8 +1278,7 @@ mod tests {
         s.evidence_citations_total = 3;
         s.evidence_citations_verified = 0;
         s.sigma_critical_count = 0;
-        let m =
-            rule_j_confirmed_without_verified_citations(&llm, &s).expect("Rule J must fire");
+        let m = rule_j_confirmed_without_verified_citations(&llm, &s).expect("Rule J must fire");
         assert_eq!(m.new_verdict, "inconclusive");
         assert_eq!(m.reason_code, "rule_j_confirmed_without_verified_citations");
         assert!((m.new_confidence - 0.85 * 0.6).abs() < 1e-9);

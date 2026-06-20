@@ -75,9 +75,9 @@ pub fn build_process_lineage(
         .iter()
         .find(|ev| field(ev, "CommandLine").map(|c| c.to_lowercase() == needle) == Some(true))
         .or_else(|| {
-            events
-                .iter()
-                .find(|ev| field(ev, "CommandLine").map(|c| c.to_lowercase().contains(&needle)) == Some(true))
+            events.iter().find(|ev| {
+                field(ev, "CommandLine").map(|c| c.to_lowercase().contains(&needle)) == Some(true)
+            })
         });
     let Some(&leaf) = leaf else {
         return Vec::new();
@@ -104,7 +104,9 @@ pub fn build_process_lineage(
                 // from the child's own ParentImage/ParentCommandLine and stop.
                 let p = ProcessStep {
                     image: field(current, "ParentImage").unwrap_or("").to_string(),
-                    command_line: field(current, "ParentCommandLine").unwrap_or("").to_string(),
+                    command_line: field(current, "ParentCommandLine")
+                        .unwrap_or("")
+                        .to_string(),
                     user: String::new(),
                 };
                 if !p.image.is_empty() || !p.command_line.is_empty() {
@@ -193,12 +195,23 @@ mod tests {
     #[test]
     fn format_renders_root_first() {
         let chain = vec![
-            ProcessStep { image: "powershell.exe".into(), command_line: "powershell -enc x".into(), user: "alice".into() },
-            ProcessStep { image: "winword.exe".into(), command_line: "winword /n evil.docm".into(), user: "alice".into() },
+            ProcessStep {
+                image: "powershell.exe".into(),
+                command_line: "powershell -enc x".into(),
+                user: "alice".into(),
+            },
+            ProcessStep {
+                image: "winword.exe".into(),
+                command_line: "winword /n evil.docm".into(),
+                user: "alice".into(),
+            },
         ];
         let out = format_lineage(&chain);
         let winword_pos = out.find("winword").unwrap();
         let ps_pos = out.find("powershell").unwrap();
-        assert!(winword_pos < ps_pos, "root (winword) must render before leaf (powershell)");
+        assert!(
+            winword_pos < ps_pos,
+            "root (winword) must render before leaf (powershell)"
+        );
     }
 }

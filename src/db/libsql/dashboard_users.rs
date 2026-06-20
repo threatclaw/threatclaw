@@ -68,8 +68,7 @@ impl DashboardUserStore for LibSqlBackend {
 
     async fn dbu_upsert_full(&self, r: &DashboardUserRecord) -> Result<(), DatabaseError> {
         let conn = self.connect().await?;
-        let granted =
-            serde_json::to_string(&r.granted_permissions).unwrap_or_else(|_| "[]".into());
+        let granted = serde_json::to_string(&r.granted_permissions).unwrap_or_else(|_| "[]".into());
         let denied = serde_json::to_string(&r.denied_permissions).unwrap_or_else(|_| "[]".into());
         conn.execute(
             "INSERT INTO dashboard_users \

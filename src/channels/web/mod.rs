@@ -18,13 +18,13 @@ pub mod auth;
 pub mod authz;
 pub mod dashboard_auth;
 pub(crate) mod handlers;
-pub mod permissions;
-#[cfg(test)]
-mod tc_routes_snapshot;
 pub mod log_layer;
 pub mod openai_compat;
+pub mod permissions;
 pub mod server;
 pub mod sse;
+#[cfg(test)]
+mod tc_routes_snapshot;
 pub mod types;
 pub(crate) mod util;
 pub mod ws;

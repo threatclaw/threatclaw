@@ -71,10 +71,7 @@ pub struct SyncReport {
 }
 
 /// Walk `rules_dir` recursively and upsert every rule file.
-pub async fn sync_rules_from_disk(
-    store: &dyn Database,
-    rules_dir: &Path,
-) -> SyncReport {
+pub async fn sync_rules_from_disk(store: &dyn Database, rules_dir: &Path) -> SyncReport {
     let mut report = SyncReport::default();
     if !rules_dir.is_dir() {
         tracing::info!(
@@ -89,11 +86,7 @@ pub async fn sync_rules_from_disk(
         let entries = match std::fs::read_dir(&dir) {
             Ok(e) => e,
             Err(e) => {
-                tracing::warn!(
-                    "SIGMA FILE LOADER: cannot read {:?}: {}",
-                    dir,
-                    e
-                );
+                tracing::warn!("SIGMA FILE LOADER: cannot read {:?}: {}", dir, e);
                 continue;
             }
         };

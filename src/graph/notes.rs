@@ -208,12 +208,7 @@ pub async fn delete_note(store: &dyn Database, note_id: &str) -> bool {
 /// Validate a note id has the canonical `note--<uuid>` shape.
 fn is_valid_note_id(id: &str) -> bool {
     match id.strip_prefix("note--") {
-        Some(uuid) => {
-            uuid.len() == 36
-                && uuid
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() || c == '-')
-        }
+        Some(uuid) => uuid.len() == 36 && uuid.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
         None => false,
     }
 }

@@ -359,7 +359,14 @@ pub async fn reset_password_user(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Response {
-    regenerate_link(state, headers, id, "reset", "Réinitialisation du mot de passe ThreatClaw").await
+    regenerate_link(
+        state,
+        headers,
+        id,
+        "reset",
+        "Réinitialisation du mot de passe ThreatClaw",
+    )
+    .await
 }
 
 async fn regenerate_link(
@@ -428,8 +435,9 @@ async fn issue_invitation(
         let bodytext = format!(
             "Bonjour,\n\nUn compte ThreatClaw vous est ouvert. Pour definir votre mot de passe, ouvrez ce lien depuis le tableau de bord:\n\n{link}\n\nCe lien expire dans {INVITE_TTL_DAYS} jours.\n"
         );
-        let _ = notification_router::send_smtp_email(store.as_ref(), Some(email), subject, &bodytext)
-            .await;
+        let _ =
+            notification_router::send_smtp_email(store.as_ref(), Some(email), subject, &bodytext)
+                .await;
         Ok(Json(json!({ "ok": true, "emailed": true })).into_response())
     } else {
         Ok(Json(json!({ "ok": true, "emailed": false, "invite_link": link })).into_response())

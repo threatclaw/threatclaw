@@ -117,14 +117,26 @@ async fn deletion_lifecycle() {
     // ── reset: scrub A's findings, keep A active, leave B alone ──
     be.purge_asset(host_a, "reset", false).await.unwrap();
     assert_eq!(n_findings(&be, skill_a).await, 0, "reset wipes A findings");
-    assert_eq!(n_findings(&be, skill_b).await, 1, "B findings untouched (isolation)");
-    let a = be.get_asset(host_a).await.unwrap().expect("A still exists after reset");
+    assert_eq!(
+        n_findings(&be, skill_b).await,
+        1,
+        "B findings untouched (isolation)"
+    );
+    let a = be
+        .get_asset(host_a)
+        .await
+        .unwrap()
+        .expect("A still exists after reset");
     assert_eq!(a.status, "active", "reset keeps A active");
 
     // ── delete + block: soft-delete + tombstone ──
     be.insert_finding(&finding(skill_a, host_a)).await.unwrap();
     be.purge_asset(host_a, "delete", true).await.unwrap();
-    let a = be.get_asset(host_a).await.unwrap().expect("A row kept after soft delete");
+    let a = be
+        .get_asset(host_a)
+        .await
+        .unwrap()
+        .expect("A row kept after soft delete");
     assert_eq!(a.status, "deleted", "delete soft-deletes A");
     assert!(a.reenrol_blocked, "delete + block sets the tombstone");
     assert_eq!(n_findings(&be, skill_a).await, 0, "delete wipes A findings");
@@ -147,9 +159,19 @@ async fn deletion_lifecycle() {
 
     // ── purge: hard delete, B survives ──
     be.purge_asset(host_a, "purge", false).await.unwrap();
-    assert!(be.get_asset(host_a).await.unwrap().is_none(), "purge hard-deletes A");
-    assert!(be.get_asset(host_b).await.unwrap().is_some(), "B survives A's purge");
-    assert_eq!(n_findings(&be, skill_b).await, 1, "B findings survive A's purge");
+    assert!(
+        be.get_asset(host_a).await.unwrap().is_none(),
+        "purge hard-deletes A"
+    );
+    assert!(
+        be.get_asset(host_b).await.unwrap().is_some(),
+        "B survives A's purge"
+    );
+    assert_eq!(
+        n_findings(&be, skill_b).await,
+        1,
+        "B findings survive A's purge"
+    );
 
     // cleanup
     let _ = be.purge_asset(host_b, "purge", false).await;

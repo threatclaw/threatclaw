@@ -89,7 +89,9 @@ pub async fn run_forensic_enricher(db: Arc<dyn Database>, llm_config: LlmRouterC
                             if let Err(e) =
                                 db.mark_forensic_enriched(id, Some(&msg), None, None).await
                             {
-                                warn!("Forensic enricher: failed to stamp give-up incident #{id}: {e}");
+                                warn!(
+                                    "Forensic enricher: failed to stamp give-up incident #{id}: {e}"
+                                );
                             }
                         }
                     } else {
@@ -234,8 +236,10 @@ async fn enrich_one(
             .query_logs(120, Some(&asset), Some("osquery.sysmon"), 5000)
             .await
             .unwrap_or_default();
-        let events: Vec<&serde_json::Value> =
-            sysmon_logs.iter().filter_map(|l| l.data.get("data")).collect();
+        let events: Vec<&serde_json::Value> = sysmon_logs
+            .iter()
+            .filter_map(|l| l.data.get("data"))
+            .collect();
         let chain = crate::agent::process_lineage::build_process_lineage(&events, cmd, 8);
         if chain.len() > 1 {
             tracing::info!(
@@ -614,21 +618,20 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
     p.push_str("- ANY external service (Wazuh, GreyNoise, fail2ban, GoAccess, ELK, Splunk, ...) ");
     p.push_str("that is not in the dossier\n");
     p.push_str("- ANY MITRE ATT&CK technique that is not in the list provided\n");
-    p.push_str("- ANY executable, malware, or tool that is not explicitly cited in the findings\n\n");
     p.push_str(
-        "Every claim in your `analysis` MUST be traceable to a `finding_id` or `alert_id` ",
+        "- ANY executable, malware, or tool that is not explicitly cited in the findings\n\n",
     );
-    p.push_str("listed below. If the data is insufficient, say so clearly rather than inferring.\n\n");
+    p.push_str("Every claim in your `analysis` MUST be traceable to a `finding_id` or `alert_id` ");
+    p.push_str(
+        "listed below. If the data is insufficient, say so clearly rather than inferring.\n\n",
+    );
 
     // ── Factual dossier ──
     p.push_str("## FACTUAL DOSSIER\n\n");
     p.push_str(&format!("Incident ID: {}\n", ctx.incident_id));
     p.push_str(&format!("Asset: {}\n", ctx.asset));
     p.push_str(&format!("Severity: {}\n", ctx.severity));
-    p.push_str(&format!(
-        "Correlated alert count: {}\n\n",
-        ctx.alert_count
-    ));
+    p.push_str(&format!("Correlated alert count: {}\n\n", ctx.alert_count));
     p.push_str(&format!("IE-generated title: {}\n\n", ctx.title));
 
     // ── Findings (source de vérité) ──
@@ -668,9 +671,7 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
         }
     ));
     if findings_filtered.is_empty() {
-        p.push_str(
-            "(no relevant finding — the incident is driven by the SIGMA ALERTS below)\n\n",
-        );
+        p.push_str("(no relevant finding — the incident is driven by the SIGMA ALERTS below)\n\n");
     } else {
         for f in findings_filtered.iter().take(10) {
             let fid = f["id"].as_i64().unwrap_or(0);
@@ -696,7 +697,9 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
         ctx.sigma_alerts.len()
     ));
     if ctx.sigma_alerts.is_empty() {
-        p.push_str("(no linked sigma alert — the incident is probably based on static findings)\n\n");
+        p.push_str(
+            "(no linked sigma alert — the incident is probably based on static findings)\n\n",
+        );
     } else {
         for a in ctx.sigma_alerts.iter().take(10) {
             let aid = a["id"].as_i64().unwrap_or(0);
@@ -740,7 +743,9 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
              kill-chain narrative; cite only processes that appear here.\n\n",
         );
         p.push_str("```\n");
-        p.push_str(&crate::agent::process_lineage::format_lineage(&ctx.process_lineage));
+        p.push_str(&crate::agent::process_lineage::format_lineage(
+            &ctx.process_lineage,
+        ));
         p.push_str("```\n\n");
     }
 
@@ -783,23 +788,29 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
 
     // ── Output instructions ──
     p.push_str("## INSTRUCTIONS\n\n");
-    p.push_str("1. Write `analysis`: a 200-400 word forensic narrative readable by a non-technical CISO, ");
+    p.push_str(
+        "1. Write `analysis`: a 200-400 word forensic narrative readable by a non-technical CISO, ",
+    );
     p.push_str("grounded ONLY in the findings and sigma alerts above.\n");
-    p.push_str("   - DO NOT NAME any APT group (Lazarus, APT28, Carbanak, ...) unless it is attested ");
+    p.push_str(
+        "   - DO NOT NAME any APT group (Lazarus, APT28, Carbanak, ...) unless it is attested ",
+    );
     p.push_str("in a finding/alert above.\n");
-    p.push_str("   - DO NOT mention exfiltration, ransomware, C2, malware, or backdoor unless they are ");
+    p.push_str(
+        "   - DO NOT mention exfiltration, ransomware, C2, malware, or backdoor unless they are ",
+    );
     p.push_str("explicitly present in the sigma alerts above.\n");
     p.push_str("   - If the visible attack is an SSH brute force, simply say: ");
     p.push_str("\"Repeated SSH authentication attempts from <IP> against <asset>\". ");
     p.push_str("Do not speculate on undocumented attacker objectives.\n");
     p.push_str("   - If the FACTUAL DOSSIER contains a clear IE title, follow it for the nature of the incident.\n");
-    p.push_str(
-        "2. `mitre_techniques`: list ONLY the ATT&CK codes already attested above.\n",
-    );
+    p.push_str("2. `mitre_techniques`: list ONLY the ATT&CK codes already attested above.\n");
     p.push_str("3. `evidence_citations`: for each major claim in the analysis, cite the matching ");
     p.push_str("`finding_id` or `alert_id` (field `evidence_id`).\n");
     p.push_str("4. `proposed_actions`: if an external source IP is listed above, propose ");
-    p.push_str("ONE `opnsense_block_ip` action with params `{ip: \"<ip>\"}` and a short rationale ");
+    p.push_str(
+        "ONE `opnsense_block_ip` action with params `{ip: \"<ip>\"}` and a short rationale ",
+    );
     p.push_str("referring to the sigma alert.\n");
     p.push_str("5. If the data is insufficient to produce a clear narrative, ");
     p.push_str("respond with `analysis: \"Insufficient data — N findings and M alerts ");
@@ -811,7 +822,9 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
     p.push_str("evidence_citations (array of {claim, evidence_type, evidence_id, excerpt}), ");
     p.push_str("proposed_actions (array of {cmd_id, params, rationale}).\n");
 
-    p.push_str(&crate::agent::report_lang::output_language_directive(output_lang));
+    p.push_str(&crate::agent::report_lang::output_language_directive(
+        output_lang,
+    ));
 
     p
 }
@@ -1006,7 +1019,9 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
                 actions.push(IncidentAction::block_ip(ip, firewall_skill, rationale));
             } else {
                 actions.push(IncidentAction::manual(
-                    format!("Manually block IP {ip} at the firewall (no ThreatClaw firewall connected)"),
+                    format!(
+                        "Manually block IP {ip} at the firewall (no ThreatClaw firewall connected)"
+                    ),
                     rationale,
                 ));
             }
@@ -1106,8 +1121,7 @@ fn derive_response_actions(ctx: &ForensicContext, registry: &SkillRegistry) -> V
                 actions.push(IncidentAction::reset_krbtgt(skill, rationale))
             }
             _ => actions.push(IncidentAction::manual(
-                "Manually rotate the AD krbtgt twice (no AD connector)"
-                    .to_string(),
+                "Manually rotate the AD krbtgt twice (no AD connector)".to_string(),
                 rationale,
             )),
         }
@@ -1443,12 +1457,7 @@ pub(crate) fn validate_l2_response(parsed: &Value, ctx: &ForensicContext) -> Val
         let attested_ids: std::collections::HashSet<String> = ctx
             .mitre_existing
             .iter()
-            .map(|s| {
-                s.split_whitespace()
-                    .next()
-                    .unwrap_or(s)
-                    .to_string()
-            })
+            .map(|s| s.split_whitespace().next().unwrap_or(s).to_string())
             .collect();
         for t in mitre_arr {
             if let Some(s) = t.as_str() {
@@ -1700,13 +1709,22 @@ mod tests {
         // give up after MAX_FORENSIC_ATTEMPTS. See detection-chain audit 2026-06-20.
         let mut a = std::collections::HashMap::new();
         for _ in 0..(MAX_FORENSIC_ATTEMPTS - 1) {
-            assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::Retry);
+            assert_eq!(
+                register_transient_failure(&mut a, 42),
+                ForensicAction::Retry
+            );
         }
-        assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::GiveUp);
+        assert_eq!(
+            register_transient_failure(&mut a, 42),
+            ForensicAction::GiveUp
+        );
         // After give-up the entry is cleared (caller stamps → never re-selected).
         assert!(!a.contains_key(&42));
         // Distinct incidents are counted independently.
         assert_eq!(register_transient_failure(&mut a, 7), ForensicAction::Retry);
-        assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::Retry);
+        assert_eq!(
+            register_transient_failure(&mut a, 42),
+            ForensicAction::Retry
+        );
     }
 }

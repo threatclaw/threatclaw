@@ -1304,10 +1304,7 @@ fn parse_event_data(raw: &serde_json::Value) -> serde_json::Value {
         serde_json::Value::Object(_) => raw.clone(),
         _ => serde_json::json!({}),
     };
-    parsed
-        .get("EventData")
-        .cloned()
-        .unwrap_or(parsed)
+    parsed.get("EventData").cloned().unwrap_or(parsed)
 }
 
 fn extract_event_field<'a>(data: &'a serde_json::Value, keys: &[&str]) -> Option<&'a str> {
@@ -1420,10 +1417,8 @@ pub async fn check_windows_security_events(
 
     // In-batch brute force tracking: count 4625 by target user, also keep
     // the latest event datetime so we can dedup against the previous batch.
-    let mut failed_logon_counts: std::collections::HashMap<
-        String,
-        (u32, Option<String>, String),
-    > = std::collections::HashMap::new();
+    let mut failed_logon_counts: std::collections::HashMap<String, (u32, Option<String>, String)> =
+        std::collections::HashMap::new();
 
     // Canonical asset id of this host, resolved once per batch, used to attach
     // LOGGED_IN identity edges to the SAME asset node the graph sync upserts and
@@ -1484,9 +1479,11 @@ pub async fn check_windows_security_events(
                 let src_ip = extract_event_field(&data, &["IpAddress", "WorkstationName"])
                     .map(|s| s.to_string());
                 let evt_dt = datetime.to_string();
-                let entry = failed_logon_counts
-                    .entry(target)
-                    .or_insert((0, src_ip.clone(), evt_dt.clone()));
+                let entry = failed_logon_counts.entry(target).or_insert((
+                    0,
+                    src_ip.clone(),
+                    evt_dt.clone(),
+                ));
                 entry.0 += 1;
                 if entry.1.is_none() {
                     entry.1 = src_ip;
@@ -1668,13 +1665,13 @@ pub async fn check_windows_security_events(
 fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
     let s = script.to_lowercase();
     let mut hits = vec![];
-    if s.contains("iex(")
-        || s.contains("iex ")
-        || s.contains("invoke-expression")
-    {
+    if s.contains("iex(") || s.contains("iex ") || s.contains("invoke-expression") {
         hits.push("invoke-expression");
     }
-    if s.contains("downloadstring") || s.contains("downloadfile") || s.contains("invoke-webrequest -uri") {
+    if s.contains("downloadstring")
+        || s.contains("downloadfile")
+        || s.contains("invoke-webrequest -uri")
+    {
         hits.push("remote-download");
     }
     if s.contains("-encodedcommand") || s.contains(" -enc ") || s.contains(" -e ") {
@@ -1822,14 +1819,19 @@ pub async fn check_sysmon_events(
                 let image_l = image.to_lowercase();
 
                 let mut tags = vec![];
-                if cmd_l.contains("mimikatz") || cmd_l.contains("sekurlsa") || cmd_l.contains("invoke-mimikatz") {
+                if cmd_l.contains("mimikatz")
+                    || cmd_l.contains("sekurlsa")
+                    || cmd_l.contains("invoke-mimikatz")
+                {
                     tags.push("mimikatz");
                 }
                 if cmd_l.contains("bloodhound") || cmd_l.contains("sharphound") {
                     tags.push("ad-recon");
                 }
                 if image_l.contains("certutil.exe")
-                    && (cmd_l.contains("-urlcache") || cmd_l.contains("-decode") || cmd_l.contains("-encode"))
+                    && (cmd_l.contains("-urlcache")
+                        || cmd_l.contains("-decode")
+                        || cmd_l.contains("-encode"))
                 {
                     tags.push("certutil-living-off-the-land");
                 }
@@ -1839,7 +1841,9 @@ pub async fn check_sysmon_events(
                 if image_l.contains("rundll32.exe") && cmd_l.contains("javascript:") {
                     tags.push("rundll32-js");
                 }
-                if image_l.contains("mshta.exe") && (cmd_l.contains("http") || cmd_l.contains("javascript:")) {
+                if image_l.contains("mshta.exe")
+                    && (cmd_l.contains("http") || cmd_l.contains("javascript:"))
+                {
                     tags.push("mshta-remote");
                 }
                 if image_l.contains("regsvr32.exe") && cmd_l.contains("scrobj.dll") {

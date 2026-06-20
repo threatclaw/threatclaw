@@ -148,7 +148,11 @@ fn build_asset_name(discovered: &DiscoveredAsset) -> String {
 /// or genuinely distinct. Rather than silently fold them, tag both
 /// `possible-duplicate` and raise an alert so the operator decides via the merge
 /// UI. Never blocks ingestion — the MAC match still wins as the merge target.
-async fn flag_hostname_conflict(store: &dyn Database, target_id: &str, discovered: &DiscoveredAsset) {
+async fn flag_hostname_conflict(
+    store: &dyn Database,
+    target_id: &str,
+    discovered: &DiscoveredAsset,
+) {
     let Some(ref hostname) = discovered.hostname else {
         return;
     };
@@ -1105,7 +1109,10 @@ mod tests {
         // Agent sources carry a subtype + provenance tags, centralised here so an
         // asset is classified the same whichever connector funnels it through
         // resolve_asset.
-        assert_eq!(classification_for_source("osquery").0, Some("osquery-agent"));
+        assert_eq!(
+            classification_for_source("osquery").0,
+            Some("osquery-agent")
+        );
         assert!(classification_for_source("osquery").1.contains(&"observed"));
         assert_eq!(classification_for_source("syslog").0, Some("syslog-source"));
         assert!(classification_for_source("syslog").1.contains(&"observed"));

@@ -34,7 +34,14 @@ async fn set_incident_correlation_persists_related_assets() {
     let be = backend().await;
 
     let id = be
-        .create_incident("test-corr-primary", "e2e correlation test", "HIGH", &[], &[], 0)
+        .create_incident(
+            "test-corr-primary",
+            "e2e correlation test",
+            "HIGH",
+            &[],
+            &[],
+            0,
+        )
         .await
         .expect("create incident");
 

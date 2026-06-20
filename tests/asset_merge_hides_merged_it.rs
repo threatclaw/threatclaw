@@ -75,17 +75,32 @@ async fn merged_alias_hidden_from_default_listing() {
         .expect("insert alias");
 
     // Before the merge both are visible in the default listing.
-    let before = be.list_assets(None, None, 10000, 0).await.expect("list before");
-    assert!(before.iter().any(|a| a.id == canonical_id), "canonical visible before");
-    assert!(before.iter().any(|a| a.id == alias_id), "alias visible before");
+    let before = be
+        .list_assets(None, None, 10000, 0)
+        .await
+        .expect("list before");
+    assert!(
+        before.iter().any(|a| a.id == canonical_id),
+        "canonical visible before"
+    );
+    assert!(
+        before.iter().any(|a| a.id == alias_id),
+        "alias visible before"
+    );
 
     be.merge_assets(&alias_id, &canonical_id, "test", "regression")
         .await
         .expect("merge");
 
     // After the merge the alias is hidden, the canonical stays.
-    let after = be.list_assets(None, None, 10000, 0).await.expect("list after");
-    assert!(after.iter().any(|a| a.id == canonical_id), "canonical must remain");
+    let after = be
+        .list_assets(None, None, 10000, 0)
+        .await
+        .expect("list after");
+    assert!(
+        after.iter().any(|a| a.id == canonical_id),
+        "canonical must remain"
+    );
     assert!(
         !after.iter().any(|a| a.id == alias_id),
         "merged alias must be hidden from the default listing"

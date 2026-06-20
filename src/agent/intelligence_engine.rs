@@ -454,8 +454,8 @@ fn check_l2_grounding(
 
     // IPv4 check — only flag public/routable IPs to avoid false positives on
     // the L2 quoting a private range that's already implicit in the dossier.
-    let ipv4_re = regex::Regex::new(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
-        .expect("static regex");
+    let ipv4_re =
+        regex::Regex::new(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b").expect("static regex");
     for cap in ipv4_re.captures_iter(analysis) {
         let ip = cap.get(0).map(|m| m.as_str()).unwrap_or("");
         let octets: [u16; 4] = [1, 2, 3, 4].map(|i| {
@@ -2607,7 +2607,11 @@ pub async fn reinvestigate_incident(
             // whatever was set when the incident was first decided. When the
             // pending → inconclusive promotion fires we tag it so the audit
             // log shows the finalisation came from the re-investigate path.
-            if current_verdict == "pending" { Some("react") } else { None },
+            if current_verdict == "pending" {
+                Some("react")
+            } else {
+                None
+            },
         )
         .await
         .map_err(|e| format!("DB update failed: {e}"))?;
@@ -3490,8 +3494,8 @@ pub fn spawn_intelligence_ticker(
             // Phase C — sync on-disk rules before the engine compiles
             // from the DB so file content wins over any stale migration
             // copy of the same id.
-            let rules_dir = std::env::var("TC_SIGMA_RULES_DIR")
-                .unwrap_or_else(|_| "/app/rules".to_string());
+            let rules_dir =
+                std::env::var("TC_SIGMA_RULES_DIR").unwrap_or_else(|_| "/app/rules".to_string());
             let _ = crate::agent::sigma_file_loader::sync_rules_from_disk(
                 store_sync.as_ref(),
                 std::path::Path::new(&rules_dir),
@@ -3963,7 +3967,9 @@ pub fn spawn_intelligence_ticker(
                                                 .await;
                                             if !related.is_empty() {
                                                 match store
-                                                    .set_incident_correlation(new_id, &related, None)
+                                                    .set_incident_correlation(
+                                                        new_id, &related, None,
+                                                    )
                                                     .await
                                                 {
                                                     Ok(()) => tracing::info!(
@@ -4503,7 +4509,8 @@ pub fn spawn_intelligence_ticker(
                                             // makes decisions on it; we'd rather show a deterministic summary
                                             // than a confident lie.
                                             {
-                                                let violations = check_l2_grounding(&final_analysis, &dossier);
+                                                let violations =
+                                                    check_l2_grounding(&final_analysis, &dossier);
                                                 if !violations.is_empty() {
                                                     tracing::warn!(
                                                         "INVESTIGATION: L2 narrative rejected — {}",

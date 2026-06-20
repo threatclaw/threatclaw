@@ -49,7 +49,10 @@ fn read_perm(domain: &str) -> &'static str {
         "assets" | "targets" | "networks" | "network" | "company" => "assets:read",
         "skills" | "catalog" | "connectors" | "channel" | "channels" | "telegram" | "olvid"
         | "bot" | "notifications" => "skills:read",
-        "rules" | "sigma" | "suppression-rules" | "suppression-rules-preview"
+        "rules"
+        | "sigma"
+        | "suppression-rules"
+        | "suppression-rules-preview"
         | "threat-profiles" => "rules:read",
         "exclusions" => "exclusions:read",
         "graph" | "graphs" | "graph-executions" | "intelligence" => "graph:read",
@@ -187,7 +190,10 @@ pub fn role_permissions(role: &str) -> Vec<&'static str> {
 /// Effective permission set = role base, plus per-user `granted`, minus
 /// per-user `denied`. `denied` wins over both role and `granted`.
 pub fn effective_permissions(role: &str, granted: &[String], denied: &[String]) -> HashSet<String> {
-    let mut set: HashSet<String> = role_permissions(role).iter().map(|s| s.to_string()).collect();
+    let mut set: HashSet<String> = role_permissions(role)
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     for g in granted {
         set.insert(g.clone());
     }
@@ -237,11 +243,7 @@ mod tests {
 
     #[test]
     fn denied_wins_over_granted() {
-        let p = effective_permissions(
-            "viewer",
-            &["assets:purge".into()],
-            &["assets:purge".into()],
-        );
+        let p = effective_permissions("viewer", &["assets:purge".into()], &["assets:purge".into()]);
         assert!(!p.contains("assets:purge"));
     }
 

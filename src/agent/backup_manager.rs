@@ -204,7 +204,9 @@ pub async fn list_backups(store: &dyn Database) -> Vec<BackupInfo> {
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .and_then(|d| chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0))
+                .and_then(|d| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(d.as_secs() as i64, 0)
+                })
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
             out.push(BackupInfo {

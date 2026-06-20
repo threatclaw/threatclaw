@@ -332,10 +332,7 @@ pub async fn record_cve_affects(store: &dyn Database, cve_id: &str, asset_id: &s
 /// `find_attackers` returned one row per edge and the dashboard rendered
 /// the raw length, surfacing "4268 attackers" for a single chatty LAN
 /// peer on a customer install.
-pub async fn find_observed_sources(
-    store: &dyn Database,
-    asset_id: &str,
-) -> Vec<serde_json::Value> {
+pub async fn find_observed_sources(store: &dyn Database, asset_id: &str) -> Vec<serde_json::Value> {
     if !validate_id(asset_id) {
         return vec![];
     }
@@ -426,11 +423,7 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if !cleaned {
-        let _ = mutate(
-            store,
-            "MATCH ()-[r:ATTACKS]->() DELETE r",
-        )
-        .await;
+        let _ = mutate(store, "MATCH ()-[r:ATTACKS]->() DELETE r").await;
         let _ = store
             .set_setting(
                 "_system",
@@ -535,7 +528,11 @@ pub async fn sync_graph_from_db(store: &dyn Database) {
         });
 
         let source_ip_clean = parse_attacker_ip(a.source_ip.as_deref());
-        let alert_severity: &str = if a.level.is_empty() { "informational" } else { &a.level };
+        let alert_severity: &str = if a.level.is_empty() {
+            "informational"
+        } else {
+            &a.level
+        };
 
         if let Some(clean_ip) = source_ip_clean.as_deref() {
             let classification = ip_classifier::classify(clean_ip, &networks, &known_ips);

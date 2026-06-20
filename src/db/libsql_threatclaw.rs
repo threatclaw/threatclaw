@@ -183,9 +183,7 @@ impl ThreatClawStore for LibSqlBackend {
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
-    async fn list_sigma_rules_with_stats(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_sigma_rules_with_stats(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
     async fn get_sigma_rule_detail(
@@ -220,9 +218,7 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
-    async fn list_sigma_exceptions_all(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_sigma_exceptions_all(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
     async fn insert_sigma_rule_exception(
@@ -239,9 +235,7 @@ impl ThreatClawStore for LibSqlBackend {
     async fn delete_sigma_rule_exception(&self, _id: i64) -> Result<u64, DatabaseError> {
         Err(not_supported())
     }
-    async fn load_active_sigma_exceptions(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn load_active_sigma_exceptions(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
     async fn upsert_sigma_rule_from_file(

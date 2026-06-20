@@ -952,8 +952,14 @@ mod tests {
         let dossier = make_test_dossier("test-host", vec![]);
         let skills = collect_preflight_skills(&dossier);
         assert!(skills.iter().any(|s| s.skill_name == "asset_context"));
-        let ac = skills.iter().find(|s| s.skill_name == "asset_context").unwrap();
-        assert_eq!(ac.params.get("asset").and_then(|v| v.as_str()), Some("test-host"));
+        let ac = skills
+            .iter()
+            .find(|s| s.skill_name == "asset_context")
+            .unwrap();
+        assert_eq!(
+            ac.params.get("asset").and_then(|v| v.as_str()),
+            Some("test-host")
+        );
     }
 
     #[test]
@@ -963,8 +969,10 @@ mod tests {
             vec!["1.1.1.1", "2.2.2.2", "1.1.1.1"], // dup must collapse
         );
         let skills = collect_preflight_skills(&dossier);
-        let ip_skills: Vec<&SkillRequest> =
-            skills.iter().filter(|s| s.skill_name == "ip_reputation").collect();
+        let ip_skills: Vec<&SkillRequest> = skills
+            .iter()
+            .filter(|s| s.skill_name == "ip_reputation")
+            .collect();
         assert_eq!(ip_skills.len(), 2);
         let ips: std::collections::HashSet<&str> = ip_skills
             .iter()
@@ -978,10 +986,15 @@ mod tests {
     fn test_preflight_caps_ip_reputation_at_five() {
         let dossier = make_test_dossier(
             "test-host",
-            vec!["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5", "6.6.6.6", "7.7.7.7"],
+            vec![
+                "1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4", "5.5.5.5", "6.6.6.6", "7.7.7.7",
+            ],
         );
         let skills = collect_preflight_skills(&dossier);
-        let ip_count = skills.iter().filter(|s| s.skill_name == "ip_reputation").count();
+        let ip_count = skills
+            .iter()
+            .filter(|s| s.skill_name == "ip_reputation")
+            .count();
         assert_eq!(ip_count, 5, "must cap ip_reputation at 5 calls");
     }
 
@@ -989,7 +1002,13 @@ mod tests {
     fn test_preflight_skips_alerts_without_source_ip() {
         let dossier = make_test_dossier("test-host", vec!["", "1.1.1.1", ""]);
         let skills = collect_preflight_skills(&dossier);
-        let ip_count = skills.iter().filter(|s| s.skill_name == "ip_reputation").count();
-        assert_eq!(ip_count, 1, "alerts with no source_ip must not produce a skill call");
+        let ip_count = skills
+            .iter()
+            .filter(|s| s.skill_name == "ip_reputation")
+            .count();
+        assert_eq!(
+            ip_count, 1,
+            "alerts with no source_ip must not produce a skill call"
+        );
     }
 }
