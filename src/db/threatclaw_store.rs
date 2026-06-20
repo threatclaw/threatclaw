@@ -1302,6 +1302,17 @@ pub trait ThreatClawStore: Send + Sync {
         alert_count: i32,
     ) -> Result<i32, DatabaseError>;
 
+    /// Persist cross-asset correlation on an incident: the other assets touched
+    /// by the same attack (lateral movement / campaign) and an optional shared
+    /// campaign id. Lets a multi-host intrusion read as one story instead of N
+    /// disconnected incidents. See detection-chain audit 2026-06-20.
+    async fn set_incident_correlation(
+        &self,
+        id: i32,
+        related_assets: &[String],
+        campaign_id: Option<&str>,
+    ) -> Result<(), DatabaseError>;
+
     async fn update_incident_verdict(
         &self,
         id: i32,

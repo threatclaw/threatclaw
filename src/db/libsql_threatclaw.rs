@@ -448,6 +448,14 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<i32, DatabaseError> {
         Err(not_supported())
     }
+    async fn set_incident_correlation(
+        &self,
+        _: i32,
+        _: &[String],
+        _: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn update_incident_verdict(
         &self,
         _: i32,

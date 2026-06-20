@@ -3391,6 +3391,24 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get("id"))
     }
 
+    async fn set_incident_correlation(
+        &self,
+        id: i32,
+        related_assets: &[String],
+        campaign_id: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let related_json = serde_json::json!(related_assets);
+        let campaign_owned = campaign_id.map(String::from);
+        conn.execute(
+            "UPDATE incidents SET related_assets = $2, campaign_id = $3, updated_at = NOW() WHERE id = $1",
+            &[&id, &related_json, &campaign_owned],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn update_incident_verdict(
         &self,
         id: i32,
