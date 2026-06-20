@@ -24,20 +24,89 @@ use crate::db::Database;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(180);
 
+/// Max consecutive transient L2 errors on the SAME incident before we stamp it
+/// and stop re-selecting it every poll. Without this cap a single incident that
+/// reliably trips an LLM error (oversized prompt, model OOM, a payload the model
+/// chokes on) is re-picked forever — the runaway behind 6787 incident_ai_analyses
+/// for 110 incidents observed on cyb06. See detection-chain audit 2026-06-20.
+const MAX_FORENSIC_ATTEMPTS: u32 = 3;
+
+#[derive(Debug, PartialEq)]
+enum ForensicAction {
+    Retry,
+    GiveUp,
+}
+
+/// Register a transient failure for `id` and decide whether to keep retrying.
+/// On `GiveUp` the entry is removed (the caller stamps the incident, so it is
+/// never re-selected). Pure + testable.
+fn register_transient_failure(
+    attempts: &mut std::collections::HashMap<i32, u32>,
+    id: i32,
+) -> ForensicAction {
+    let n = attempts.entry(id).or_insert(0);
+    *n += 1;
+    if *n >= MAX_FORENSIC_ATTEMPTS {
+        attempts.remove(&id);
+        ForensicAction::GiveUp
+    } else {
+        ForensicAction::Retry
+    }
+}
+
+/// Outcome of one enrichment pass so the loop can manage the retry cap.
+struct EnrichResult {
+    /// The incident processed this pass, if any.
+    incident_id: Option<i32>,
+    /// True only when the L2 call failed transiently and the incident was NOT
+    /// stamped — the loop then decides retry vs give-up.
+    transient_failure: bool,
+}
+
 pub async fn run_forensic_enricher(db: Arc<dyn Database>, llm_config: LlmRouterConfig) {
     info!(
         "Forensic enricher started — polling every {}s",
         POLL_INTERVAL.as_secs()
     );
+    // Per-incident transient-failure counts, so a chronically-failing incident
+    // is given up on after MAX_FORENSIC_ATTEMPTS instead of looping forever.
+    let mut attempts: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     loop {
         tokio::time::sleep(POLL_INTERVAL).await;
-        if let Err(e) = enrich_one(&db, &llm_config).await {
-            warn!("Forensic enricher error: {e}");
+        match enrich_one(&db, &llm_config).await {
+            Ok(res) => {
+                if let Some(id) = res.incident_id {
+                    if res.transient_failure {
+                        if register_transient_failure(&mut attempts, id) == ForensicAction::GiveUp {
+                            warn!(
+                                "Forensic enricher: incident #{id} gave up after {MAX_FORENSIC_ATTEMPTS} transient L2 errors — stamping to stop the retry loop"
+                            );
+                            let msg = format!(
+                                "Forensic analysis unavailable: the L2 model returned transient errors on \
+                                 {MAX_FORENSIC_ATTEMPTS} consecutive attempts. Deterministic evidence is \
+                                 preserved on the incident; re-run after the next model/config change."
+                            );
+                            if let Err(e) =
+                                db.mark_forensic_enriched(id, Some(&msg), None, None).await
+                            {
+                                warn!("Forensic enricher: failed to stamp give-up incident #{id}: {e}");
+                            }
+                        }
+                    } else {
+                        // Stamped this pass — clear any prior transient count.
+                        attempts.remove(&id);
+                    }
+                }
+            }
+            Err(e) => warn!("Forensic enricher error: {e}"),
         }
     }
 }
 
-async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Result<(), String> {
+async fn enrich_one(
+    db: &Arc<dyn Database>,
+    llm_config: &LlmRouterConfig,
+) -> Result<EnrichResult, String> {
     let incidents = db
         .list_confirmed_unenriched_incidents()
         .await
@@ -45,10 +114,16 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
 
     let Some(inc) = incidents.into_iter().next() else {
         debug!("Forensic enricher: no confirmed incidents pending enrichment");
-        return Ok(());
+        return Ok(EnrichResult {
+            incident_id: None,
+            transient_failure: false,
+        });
     };
 
     let id = inc["id"].as_i64().unwrap_or(0) as i32;
+    // Set only on the transient-LLM-error path (the one branch that does NOT
+    // stamp); the loop uses it to cap retries on a chronically-failing incident.
+    let mut transient_failure = false;
     let title = inc["title"].as_str().unwrap_or("").to_string();
     let asset = inc["asset"].as_str().unwrap_or("").to_string();
     let severity = inc["severity"].as_str().unwrap_or("MEDIUM").to_string();
@@ -106,7 +181,10 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
         db.mark_forensic_enriched(id, Some(msg), None, None)
             .await
             .map_err(|e| format!("DB stamp failed: {e}"))?;
-        return Ok(());
+        return Ok(EnrichResult {
+            incident_id: Some(id),
+            transient_failure: false,
+        });
     }
 
     info!(
@@ -263,7 +341,9 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
             .payload(serde_json::json!({"error": e}))
             .record(db.as_ref(), id)
             .await;
-            // Do not stamp — will retry next pass (transient error)
+            // Transient error — do NOT stamp so we retry, but signal the loop so
+            // it can give up after MAX_FORENSIC_ATTEMPTS instead of looping forever.
+            transient_failure = true;
         }
         Ok(Ok(raw)) => {
             match parse_forensic_response(&raw) {
@@ -455,7 +535,10 @@ async fn enrich_one(db: &Arc<dyn Database>, llm_config: &LlmRouterConfig) -> Res
         }
     }
 
-    Ok(())
+    Ok(EnrichResult {
+        incident_id: Some(id),
+        transient_failure,
+    })
 }
 
 /// Données factuelles passées au prompt L2 forensic. Toutes proviennent de la
@@ -1549,5 +1632,23 @@ mod tests {
         assert!(s.contains("14.102.231.203"));
         assert!(!s.contains("88.88.88.88"));
         assert!(!s.contains("fail2ban"));
+    }
+
+    #[test]
+    fn forensic_retry_caps_after_max_attempts() {
+        // Regression: a transient L2 error left forensic_enriched_at NULL with no
+        // cap, so a chronically-failing incident was re-picked every 180s forever
+        // (6787 incident_ai_analyses for 110 incidents on cyb06). The counter must
+        // give up after MAX_FORENSIC_ATTEMPTS. See detection-chain audit 2026-06-20.
+        let mut a = std::collections::HashMap::new();
+        for _ in 0..(MAX_FORENSIC_ATTEMPTS - 1) {
+            assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::Retry);
+        }
+        assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::GiveUp);
+        // After give-up the entry is cleared (caller stamps → never re-selected).
+        assert!(!a.contains_key(&42));
+        // Distinct incidents are counted independently.
+        assert_eq!(register_transient_failure(&mut a, 7), ForensicAction::Retry);
+        assert_eq!(register_transient_failure(&mut a, 42), ForensicAction::Retry);
     }
 }
