@@ -91,10 +91,7 @@ pub fn alert_is_excepted(
                 }
             }
             "tag" => {
-                if rule_tags
-                    .iter()
-                    .any(|t| t.to_lowercase() == scope_lower)
-                {
+                if rule_tags.iter().any(|t| t.to_lowercase() == scope_lower) {
                     return true;
                 }
             }
@@ -381,7 +378,9 @@ fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
     // segments, but for simple two-token shapes we parse the trailing flag
     // here so callers don't have to special-case every combination.
     let (base, cased) = match modifier.split_once("|cased").or_else(|| {
-        modifier.strip_suffix("cased").map(|m| (m.trim_end_matches('|'), ""))
+        modifier
+            .strip_suffix("cased")
+            .map(|m| (m.trim_end_matches('|'), ""))
     }) {
         Some((m, _)) if !m.is_empty() => (m, true),
         _ if modifier == "cased" => ("", true),
@@ -396,7 +395,9 @@ fn make_matcher(field: &str, modifier: &str, value: &str) -> FieldMatcher {
 
         // ── case-sensitive (Sigma 2.0 `|cased`) ───────────────────────
         "contains" if cased => FieldMatcher::ContainsCased(field.to_string(), value.to_string()),
-        "startswith" if cased => FieldMatcher::StartsWithCased(field.to_string(), value.to_string()),
+        "startswith" if cased => {
+            FieldMatcher::StartsWithCased(field.to_string(), value.to_string())
+        }
         "endswith" if cased => FieldMatcher::EndsWithCased(field.to_string(), value.to_string()),
         "" if cased => FieldMatcher::ExactCased(field.to_string(), value.to_string()),
 
@@ -488,7 +489,10 @@ fn expand_value_modifier(modifier: &str, val: &Value) -> Option<Vec<String>> {
 
     let raw_values: Vec<String> = match val {
         Value::String(s) => vec![s.clone()],
-        Value::Array(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
         _ => return Some(Vec::new()),
     };
 
@@ -525,10 +529,7 @@ fn expand_value_modifier(modifier: &str, val: &Value) -> Option<Vec<String>> {
                 }
             }
             "utf16be" => {
-                let bytes: Vec<u8> = v
-                    .encode_utf16()
-                    .flat_map(|c| c.to_be_bytes())
-                    .collect();
+                let bytes: Vec<u8> = v.encode_utf16().flat_map(|c| c.to_be_bytes()).collect();
                 let s = String::from_utf8_lossy(&bytes).to_lowercase();
                 if !out.contains(&s) {
                     out.push(s);
@@ -545,8 +546,12 @@ fn expand_value_modifier(modifier: &str, val: &Value) -> Option<Vec<String>> {
                 be_bytes.extend(v.encode_utf16().flat_map(|c| c.to_be_bytes()));
                 let le = String::from_utf8_lossy(&le_bytes).to_lowercase();
                 let be = String::from_utf8_lossy(&be_bytes).to_lowercase();
-                if !out.contains(&le) { out.push(le); }
-                if !out.contains(&be) { out.push(be); }
+                if !out.contains(&le) {
+                    out.push(le);
+                }
+                if !out.contains(&be) {
+                    out.push(be);
+                }
             }
             _ => {}
         }
@@ -614,10 +619,7 @@ pub fn base64offset_variants(value: &str) -> Vec<String> {
 /// expects to find UTF-16 text inside a UTF-8 log line (e.g. PowerShell
 /// EncodedCommand payloads after decode-as-utf8 happened).
 pub fn utf16le_string(value: &str) -> String {
-    let bytes: Vec<u8> = value
-        .encode_utf16()
-        .flat_map(|c| c.to_le_bytes())
-        .collect();
+    let bytes: Vec<u8> = value.encode_utf16().flat_map(|c| c.to_le_bytes()).collect();
     String::from_utf8_lossy(&bytes).to_lowercase()
 }
 
@@ -1392,10 +1394,7 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
         }
 
         if let Some((matchers, condition)) = compile_detection(detection) {
-            let disposition = row["disposition"]
-                .as_str()
-                .unwrap_or("detect")
-                .to_string();
+            let disposition = row["disposition"].as_str().unwrap_or("detect").to_string();
             compiled.push(CompiledRule {
                 id,
                 title,
@@ -1471,16 +1470,20 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         return;
     }
 
-    // Cursor-based forward read. Each cycle resumes from the (time, id) of
-    // the last log it processed, so a fixed batch size that's too small for
+    // Cursor-based forward read. Each cycle resumes from the (created_at, id)
+    // of the last log it processed, so a fixed batch size that's too small for
     // the live rate no longer drops logs — the next cycle catches up. The
     // floor (minutes_back as a safety bound) keeps a stale cursor from
     // re-scanning hours of history after an outage: when we detect the cursor
     // would force a window wider than `minutes_back`, we accept the gap and
     // emit a `lag` warn so the operator knows some logs went past.
     //
+    // The cursor advances on `created_at` (DB insert time), not the event
+    // `time`, so an upstream clock-drifted source can never poison it. See
+    // query_logs_after_cursor for the full rationale.
+    //
     // Cursor format (persisted as a setting):
-    //   { "time": "2026-06-15T14:30:00Z", "id": 123456 }
+    //   { "created_at": "2026-06-15T14:30:00Z", "id": 123456 }
     // Cycle batch size. Pushed from 5000 to 10000 on 2026-06-15 after the
     // red-team simulation revealed a syslog burst of ~10 k rows per 5-min
     // tick drained too slowly under the old cap (cf. query_logs_after_cursor
@@ -1488,10 +1491,10 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     const SIGMA_LOG_BATCH: i64 = 10000;
     const SIGMA_CURSOR_KEY: &str = "sigma_log_cursor";
 
-    let (cursor_time, cursor_id) = load_sigma_cursor(store.as_ref()).await;
+    let (cursor_created_at, cursor_id) = load_sigma_cursor(store.as_ref()).await;
 
     let logs = match store
-        .query_logs_after_cursor(cursor_time, cursor_id, minutes_back, SIGMA_LOG_BATCH)
+        .query_logs_after_cursor(cursor_created_at, cursor_id, minutes_back, SIGMA_LOG_BATCH)
         .await
     {
         Ok(l) => l,
@@ -1860,79 +1863,20 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     // theoretical end of the window) because some upstream connectors backfill
     // out of order — pinning to "the last one we *saw*" guarantees we don't
     // skip a late arrival on the next tick.
-    if let (Some(last_time), Some(last_id)) = (
-        logs.last().map(|l| l.time.clone()),
+    if let (Some(last_created_at), Some(last_id)) = (
+        logs.last().map(|l| l.created_at.clone()),
         logs.last().map(|l| l.id),
     ) {
-        // Future-clamp the persisted cursor. Some upstream syslog
-        // producers ship timestamps that have already been adjusted to
-        // the local timezone of the host but get re-tagged as UTC at
-        // ingest (the rsyslog template defaulted to a TZ-naïve format on
-        // one of the cyb06 sources). A handful of those rows therefore
-        // land in the logs table with `time` an hour or two in the
-        // future. Without this clamp, the cursor leaps forward to that
-        // future value and every subsequent batch skips every log that
-        // arrives in the meantime — the engine looked alive but was
-        // actually starved. We never persist a cursor past `now()`.
-        //
-        // Rate-limited warning: the previous version logged "is in the
-        // future" on every cycle (~every 32 s on cyb06), filling the
-        // operator log with the same message hundreds of times a day.
-        // The drift is a known upstream NTP bug; we now emit the warn
-        // at most once every 5 minutes so the persistent
-        // misconfiguration is still visible without drowning the log.
-        let now = chrono::Utc::now();
-        let effective_time = match chrono::DateTime::parse_from_rfc3339(&last_time)
-            .or_else(|_| {
-                chrono::DateTime::parse_from_str(&last_time, "%Y-%m-%d %H:%M:%S%.f%#z")
-            })
-            .or_else(|_| {
-                chrono::DateTime::parse_from_str(&last_time, "%Y-%m-%d %H:%M:%S%#z")
-            }) {
-            Ok(parsed) => {
-                let parsed_utc = parsed.with_timezone(&chrono::Utc);
-                if parsed_utc > now {
-                    let last_warn = store
-                        .get_setting("_sigma_state", "future_clamp_last_warn")
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|v| v.as_str().map(String::from))
-                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                        .map(|t| t.with_timezone(&chrono::Utc));
-                    let should_warn = match last_warn {
-                        Some(t) => now.signed_duration_since(t)
-                            >= chrono::Duration::minutes(5),
-                        None => true,
-                    };
-                    if should_warn {
-                        tracing::warn!(
-                            "SIGMA: last-log time {} is in the future, clamping cursor to now (host clock drift — fix the upstream NTP)",
-                            last_time
-                        );
-                        let _ = store
-                            .set_setting(
-                                "_sigma_state",
-                                "future_clamp_last_warn",
-                                &serde_json::Value::String(now.to_rfc3339()),
-                            )
-                            .await;
-                    } else {
-                        tracing::debug!(
-                            "SIGMA: last-log time {} is in the future, clamping cursor to now (warn rate-limited)",
-                            last_time
-                        );
-                    }
-                    now.to_rfc3339()
-                } else {
-                    last_time
-                }
-            }
-            Err(_) => last_time,
-        };
-        save_sigma_cursor(store.as_ref(), &effective_time, last_id).await;
+        // Advance the cursor on `created_at` (DB insert time), NOT the event
+        // `time`. `created_at` is assigned by Postgres (`DEFAULT now()`) at
+        // INSERT, so it is monotonic and can never be in the future — no
+        // clamp is needed and an upstream clock-drifted `time` can no longer
+        // leap the cursor ahead of wall-clock and starve the engine (the
+        // multi-hour blind window seen on cyb06 2026-06-20). The query orders
+        // by (created_at ASC, id ASC), so the last row carries the max cursor.
+        save_sigma_cursor(store.as_ref(), &last_created_at, last_id).await;
     }
-    let _ = SIGMA_CURSOR_KEY;  // referenced for clarity in tests/audit
+    let _ = SIGMA_CURSOR_KEY; // referenced for clarity in tests/audit
 
     // Keep the sigma_rule_stats matview in lockstep with the cycle so the
     // dashboard never lags more than one tick. Cheap on ~75 rules; the
@@ -1942,40 +1886,47 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
     }
 }
 
-/// Read the persisted sigma cursor (time, id). Returns (None, 0) on first
+/// Read the persisted sigma cursor (created_at, id). Returns (None, 0) on first
 /// boot or after the setting was cleared — the caller treats that as "start
 /// from the floor of the safety window".
+///
+/// The cursor advances on `created_at` (DB insert time) now, not the event
+/// `time` (see query_logs_after_cursor). We deliberately read the `created_at`
+/// key only: a legacy cursor persisted under the old `time` key is treated as
+/// absent (returns None), which makes the engine resume from the floor on the
+/// first cycle after upgrade — that also self-heals an old `time`-cursor that
+/// had been poisoned by a future-dated row.
 async fn load_sigma_cursor(
     store: &dyn crate::db::Database,
 ) -> (Option<chrono::DateTime<chrono::Utc>>, i64) {
     let Ok(Some(val)) = store.get_setting("_system", "sigma_log_cursor").await else {
         return (None, 0);
     };
-    let time = val
-        .get("time")
+    let created_at = val
+        .get("created_at")
         .and_then(|t| t.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.with_timezone(&chrono::Utc));
-    let id = val.get("id").and_then(|i| i.as_i64()).unwrap_or(0);
-    (time, id)
+    // A cursor with no parseable created_at (first boot, or a legacy time-only
+    // cursor) must not carry over a stale id, or the keyset predicate
+    // `created_at = floor AND id > $2` would silently skip rows at the floor.
+    let id = if created_at.is_some() {
+        val.get("id").and_then(|i| i.as_i64()).unwrap_or(0)
+    } else {
+        0
+    };
+    (created_at, id)
 }
 
 /// Persist the sigma cursor after a successful batch consume. Failures here
 /// are non-fatal — on the next cycle we'd just re-read the last batch, which
 /// is wasteful but not unsafe (dedup keys prevent double alerting).
-async fn save_sigma_cursor(
-    store: &dyn crate::db::Database,
-    last_time: &str,
-    last_id: i64,
-) {
+async fn save_sigma_cursor(store: &dyn crate::db::Database, last_created_at: &str, last_id: i64) {
     let val = serde_json::json!({
-        "time": last_time,
+        "created_at": last_created_at,
         "id": last_id,
     });
-    if let Err(e) = store
-        .set_setting("_system", "sigma_log_cursor", &val)
-        .await
-    {
+    if let Err(e) = store.set_setting("_system", "sigma_log_cursor", &val).await {
         tracing::warn!("SIGMA ENGINE: failed to persist cursor — {e}");
     }
 }
@@ -2331,8 +2282,14 @@ mod tests {
     #[test]
     fn matcher_exact_lowercase_pattern() {
         let log = json!({ "username": "Alice" });
-        assert!(run_matcher(&FieldMatcher::Exact("username".into(), "alice".into()), &log));
-        assert!(!run_matcher(&FieldMatcher::Exact("username".into(), "bob".into()), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Exact("username".into(), "alice".into()),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::Exact("username".into(), "bob".into()),
+            &log
+        ));
     }
 
     #[test]
@@ -2352,15 +2309,24 @@ mod tests {
     fn matcher_contains_substring() {
         let log = json!({ "message": "Failed login from 10.0.0.1" });
         // Pattern stored lowercased per make_matcher invariant.
-        assert!(run_matcher(&FieldMatcher::Contains("message".into(), "failed login".into()), &log));
-        assert!(!run_matcher(&FieldMatcher::Contains("message".into(), "success".into()), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Contains("message".into(), "failed login".into()),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::Contains("message".into(), "success".into()),
+            &log
+        ));
     }
 
     #[test]
     fn matcher_contains_falls_back_to_body_scan() {
         // Symbolic alias (`message`) absent at top level — fallback to whole body.
         let log = json!({ "data": { "raw": "Failed login from 10.0.0.1" } });
-        assert!(run_matcher(&FieldMatcher::Contains("message".into(), "failed login".into()), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Contains("message".into(), "failed login".into()),
+            &log
+        ));
     }
 
     #[test]
@@ -2406,14 +2372,20 @@ mod tests {
     fn modifier_regex_matches_pattern() {
         let log = json!({ "commandline": "powershell.exe -EncodedCommand AAAA" });
         let re = regex::Regex::new(r"(?i)powershell.*-encodedcommand").unwrap();
-        assert!(run_matcher(&FieldMatcher::Regex("commandline".into(), re), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Regex("commandline".into(), re),
+            &log
+        ));
     }
 
     #[test]
     fn modifier_regex_fails_on_no_match() {
         let log = json!({ "commandline": "cmd.exe /c dir" });
         let re = regex::Regex::new(r"powershell").unwrap();
-        assert!(!run_matcher(&FieldMatcher::Regex("commandline".into(), re), &log));
+        assert!(!run_matcher(
+            &FieldMatcher::Regex("commandline".into(), re),
+            &log
+        ));
     }
 
     #[test]
@@ -2427,7 +2399,10 @@ mod tests {
     fn modifier_cidr_v4_out_of_range() {
         let log = json!({ "src_ip": "10.0.1.42" });
         let net = CidrNet::parse("10.0.0.0/24").unwrap();
-        assert!(!run_matcher(&FieldMatcher::Cidr("src_ip".into(), net), &log));
+        assert!(!run_matcher(
+            &FieldMatcher::Cidr("src_ip".into(), net),
+            &log
+        ));
     }
 
     #[test]
@@ -2440,24 +2415,48 @@ mod tests {
     #[test]
     fn modifier_exists_true_when_present() {
         let log = json!({ "EventID": 4624 });
-        assert!(run_matcher(&FieldMatcher::Exists("EventID".into(), true), &log));
-        assert!(!run_matcher(&FieldMatcher::Exists("EventID".into(), false), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Exists("EventID".into(), true),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::Exists("EventID".into(), false),
+            &log
+        ));
     }
 
     #[test]
     fn modifier_exists_false_when_absent() {
         let log = json!({ "EventID": 4624 });
-        assert!(run_matcher(&FieldMatcher::Exists("Missing".into(), false), &log));
-        assert!(!run_matcher(&FieldMatcher::Exists("Missing".into(), true), &log));
+        assert!(run_matcher(
+            &FieldMatcher::Exists("Missing".into(), false),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::Exists("Missing".into(), true),
+            &log
+        ));
     }
 
     #[test]
     fn modifier_numeric_lt_gt() {
         let log = json!({ "score": "85" });
-        assert!(run_matcher(&FieldMatcher::NumericGt("score".into(), 80.0), &log));
-        assert!(!run_matcher(&FieldMatcher::NumericLt("score".into(), 80.0), &log));
-        assert!(run_matcher(&FieldMatcher::NumericLte("score".into(), 85.0), &log));
-        assert!(run_matcher(&FieldMatcher::NumericGte("score".into(), 85.0), &log));
+        assert!(run_matcher(
+            &FieldMatcher::NumericGt("score".into(), 80.0),
+            &log
+        ));
+        assert!(!run_matcher(
+            &FieldMatcher::NumericLt("score".into(), 80.0),
+            &log
+        ));
+        assert!(run_matcher(
+            &FieldMatcher::NumericLte("score".into(), 85.0),
+            &log
+        ));
+        assert!(run_matcher(
+            &FieldMatcher::NumericGte("score".into(), 85.0),
+            &log
+        ));
     }
 
     #[test]
@@ -2490,7 +2489,10 @@ mod tests {
     #[test]
     fn base64offset_variants_emits_three_shifts() {
         let vs = base64offset_variants("admin");
-        assert!(vs.len() >= 3, "expected at least 3 shift variants, got {vs:?}");
+        assert!(
+            vs.len() >= 3,
+            "expected at least 3 shift variants, got {vs:?}"
+        );
     }
 
     #[test]
@@ -2645,7 +2647,10 @@ mod tests {
             &FieldMatcher::StartsWith("command".into(), "powershell".into()),
             &log
         ));
-        assert!(run_matcher(&FieldMatcher::EndsWith("command".into(), "abc".into()), &log));
+        assert!(run_matcher(
+            &FieldMatcher::EndsWith("command".into(), "abc".into()),
+            &log
+        ));
         assert!(!run_matcher(
             &FieldMatcher::StartsWith("command".into(), "cmd".into()),
             &log
@@ -2669,10 +2674,12 @@ mod tests {
     #[test]
     fn matcher_any_of_or() {
         let log = json!({ "event_id": "4625" });
-        let m = FieldMatcher::AnyOf("event_id".into(), vec!["4624".into(), "4625".into(), "4768".into()]);
+        let m = FieldMatcher::AnyOf(
+            "event_id".into(),
+            vec!["4624".into(), "4625".into(), "4768".into()],
+        );
         assert!(run_matcher(&m, &log));
-        let m_miss =
-            FieldMatcher::AnyOf("event_id".into(), vec!["4624".into(), "4768".into()]);
+        let m_miss = FieldMatcher::AnyOf("event_id".into(), vec!["4624".into(), "4768".into()]);
         assert!(!run_matcher(&m_miss, &log));
     }
 
@@ -2781,7 +2788,11 @@ mod tests {
 
     // ── match_rule (end-to-end) ────────────────────────────────────
 
-    fn rule(id: &str, selections: HashMap<String, Vec<FieldMatcher>>, cond: Condition) -> CompiledRule {
+    fn rule(
+        id: &str,
+        selections: HashMap<String, Vec<FieldMatcher>>,
+        cond: Condition,
+    ) -> CompiledRule {
         CompiledRule {
             id: id.into(),
             title: id.into(),
@@ -2898,6 +2909,7 @@ mod tests {
             id: 0,
             tag: Some(tag.into()),
             time: String::new(),
+            created_at: String::new(),
             hostname: None,
             data,
         }
@@ -2919,7 +2931,10 @@ mod tests {
         let mut s1 = HashMap::new();
         s1.insert(
             "selection".into(),
-            vec![FieldMatcher::Contains("nonexistent_field".into(), "x".into())],
+            vec![FieldMatcher::Contains(
+                "nonexistent_field".into(),
+                "x".into(),
+            )],
         );
         let mut broken = rule("broken-rule", s1, Condition::Ref("selection".into()));
         broken.logsource_product = Some("sysmon".into());
@@ -2928,7 +2943,10 @@ mod tests {
         let mut s2 = HashMap::new();
         s2.insert(
             "selection".into(),
-            vec![FieldMatcher::Contains("commandline".into(), "powershell".into())],
+            vec![FieldMatcher::Contains(
+                "commandline".into(),
+                "powershell".into(),
+            )],
         );
         let mut good = rule("good-rule", s2, Condition::Ref("selection".into()));
         good.logsource_product = Some("sysmon".into());
@@ -2937,7 +2955,10 @@ mod tests {
             .into_iter()
             .map(|w| w.rule_id)
             .collect();
-        assert!(ids.contains(&"broken-rule".to_string()), "dead rule must be flagged");
+        assert!(
+            ids.contains(&"broken-rule".to_string()),
+            "dead rule must be flagged"
+        );
         assert!(
             !ids.contains(&"good-rule".to_string()),
             "a rule whose fields resolve must NOT be flagged"
@@ -2948,7 +2969,12 @@ mod tests {
     fn health_audit_requires_minimum_sample() {
         // Only 3 matching logs (< MIN_SAMPLE_TO_JUDGE) → not enough evidence.
         let logs: Vec<_> = (0..3)
-            .map(|_| log_rec("osquery.sysmon", json!({"eventid":"1","data":{"CommandLine":"x"}})))
+            .map(|_| {
+                log_rec(
+                    "osquery.sysmon",
+                    json!({"eventid":"1","data":{"CommandLine":"x"}}),
+                )
+            })
             .collect();
         let mut s = HashMap::new();
         s.insert(
@@ -3013,8 +3039,7 @@ mod tests {
         ];
         for (path, cmdline) in cases {
             let full = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
-            let raw =
-                std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let raw = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {path}: {e}"));
             let rule_json: serde_json::Value =
                 serde_yaml_ng::from_str(&raw).unwrap_or_else(|e| panic!("yaml {path}: {e}"));
             let (matchers, condition) = compile_detection_for_tests(&rule_json["detection"])
@@ -3061,10 +3086,20 @@ mod tests {
     fn exception_hostname_exact() {
         let list = vec![exc("rid", "hostname", "srv-prod-01")];
         assert!(alert_is_excepted(
-            &list, "rid", Some("srv-prod-01"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-prod-01"),
+            None,
+            None,
+            &[]
         ));
         assert!(!alert_is_excepted(
-            &list, "rid", Some("srv-prod-02"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-prod-02"),
+            None,
+            None,
+            &[]
         ));
     }
 
@@ -3072,7 +3107,12 @@ mod tests {
     fn exception_hostname_case_insensitive() {
         let list = vec![exc("rid", "hostname", "Srv-Prod-01")];
         assert!(alert_is_excepted(
-            &list, "rid", Some("srv-PROD-01"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-PROD-01"),
+            None,
+            None,
+            &[]
         ));
     }
 
@@ -3080,13 +3120,28 @@ mod tests {
     fn exception_hostname_trailing_wildcard() {
         let list = vec![exc("rid", "hostname", "srv-prod-*")];
         assert!(alert_is_excepted(
-            &list, "rid", Some("srv-prod-01"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-prod-01"),
+            None,
+            None,
+            &[]
         ));
         assert!(alert_is_excepted(
-            &list, "rid", Some("srv-prod-42"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-prod-42"),
+            None,
+            None,
+            &[]
         ));
         assert!(!alert_is_excepted(
-            &list, "rid", Some("srv-staging-01"), None, None, &[]
+            &list,
+            "rid",
+            Some("srv-staging-01"),
+            None,
+            None,
+            &[]
         ));
     }
 
@@ -3094,10 +3149,20 @@ mod tests {
     fn exception_source_ip_exact() {
         let list = vec![exc("rid", "source_ip", "10.0.0.5")];
         assert!(alert_is_excepted(
-            &list, "rid", None, Some("10.0.0.5"), None, &[]
+            &list,
+            "rid",
+            None,
+            Some("10.0.0.5"),
+            None,
+            &[]
         ));
         assert!(!alert_is_excepted(
-            &list, "rid", None, Some("10.0.0.6"), None, &[]
+            &list,
+            "rid",
+            None,
+            Some("10.0.0.6"),
+            None,
+            &[]
         ));
     }
 
@@ -3105,21 +3170,39 @@ mod tests {
     fn exception_username() {
         let list = vec![exc("rid", "username", "svc-backup")];
         assert!(alert_is_excepted(
-            &list, "rid", None, None, Some("svc-backup"), &[]
+            &list,
+            "rid",
+            None,
+            None,
+            Some("svc-backup"),
+            &[]
         ));
         assert!(alert_is_excepted(
-            &list, "rid", None, None, Some("SVC-BACKUP"), &[]
+            &list,
+            "rid",
+            None,
+            None,
+            Some("SVC-BACKUP"),
+            &[]
         ));
     }
 
     #[test]
     fn exception_tag_match() {
         let list = vec![exc("rid", "tag", "attack.t1110")];
-        let tags = vec!["attack.t1110".to_string(), "attack.credential_access".into()];
+        let tags = vec![
+            "attack.t1110".to_string(),
+            "attack.credential_access".into(),
+        ];
         assert!(alert_is_excepted(&list, "rid", None, None, None, &tags));
         let other_tags = vec!["attack.t1059".to_string()];
         assert!(!alert_is_excepted(
-            &list, "rid", None, None, None, &other_tags
+            &list,
+            "rid",
+            None,
+            None,
+            None,
+            &other_tags
         ));
     }
 
@@ -3128,7 +3211,12 @@ mod tests {
         let list = vec![exc("rule-a", "hostname", "srv-prod-01")];
         // Exception belongs to a different rule — should not trip.
         assert!(!alert_is_excepted(
-            &list, "rule-b", Some("srv-prod-01"), None, None, &[]
+            &list,
+            "rule-b",
+            Some("srv-prod-01"),
+            None,
+            None,
+            &[]
         ));
     }
 

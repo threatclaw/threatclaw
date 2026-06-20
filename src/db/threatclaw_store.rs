@@ -136,7 +136,14 @@ pub struct DashboardMetrics {
 pub struct LogRecord {
     pub id: i64,
     pub tag: Option<String>,
+    /// Event time as reported by the source (clock-fragile: a drifted source
+    /// can stamp this hours into the future or past).
     pub time: String,
+    /// DB insertion time (`logs.created_at`, `DEFAULT now()`). Monotonic and
+    /// immune to upstream clock drift, so the Sigma scan cursor advances on
+    /// this field rather than `time`. Empty for non-cursor reads that do not
+    /// select it. See ADR-031-adjacent note / query_logs_after_cursor.
+    pub created_at: String,
     pub hostname: Option<String>,
     pub data: serde_json::Value,
 }
@@ -848,20 +855,26 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<Vec<LogRecord>, DatabaseError>;
 
     /// Cursor-based read of new log records — the variant used by the
-    /// sigma cycle. Returns logs whose `(time, id)` is strictly greater
-    /// than `(after_time, after_id)`, ordered ascending so the caller
+    /// sigma cycle. Returns logs whose `(created_at, id)` is strictly greater
+    /// than `(after_created_at, after_id)`, ordered ascending so the caller
     /// can advance the cursor to the last row consumed. A fair-share
     /// PARTITION-BY-tag quota is still applied so a single high-volume
     /// source cannot starve the others (same idea as `query_logs` with
     /// no filters, but oriented forward in time instead of "latest N").
     ///
-    /// `after_time` of None / `after_id` of 0 means "from the beginning
+    /// The cursor keys on `created_at` (DB insert time, `DEFAULT now()`), NOT
+    /// the event `time`: `time` is source-controlled and routinely drifts into
+    /// the future (TZ-naïve syslog), which poisoned a `time`-keyed cursor.
+    /// `created_at` is monotonic and clock-drift-immune. Each returned
+    /// `LogRecord.created_at` is RFC 3339 so the caller can persist it verbatim.
+    ///
+    /// `after_created_at` of None / `after_id` of 0 means "from the beginning
     /// of the configured window" — caller passes `minutes_back` as a
     /// safety bound to prevent a stale cursor from re-scanning days of
     /// history after an outage.
     async fn query_logs_after_cursor(
         &self,
-        after_time: Option<chrono::DateTime<chrono::Utc>>,
+        after_created_at: Option<chrono::DateTime<chrono::Utc>>,
         after_id: i64,
         minutes_back_floor: i64,
         limit: i64,
@@ -902,10 +915,7 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Delete a saved hunt query by id. Returns the number of rows removed
     /// (0 if the id did not exist).
-    async fn delete_saved_hunt_query(
-        &self,
-        id: i64,
-    ) -> Result<u64, DatabaseError>;
+    async fn delete_saved_hunt_query(&self, id: i64) -> Result<u64, DatabaseError>;
 
     /// Insert a log record directly (for testing/simulation).
     async fn insert_log(
@@ -960,9 +970,7 @@ pub trait ThreatClawStore: Send + Sync {
     /// status, enabled, logsource fields, tags, plus fire_count_7d/30d,
     /// last_fire_at, fp_count_7d, distinct_hosts_7d, top_hostname_7d.
     /// Used by the dashboard rules page.
-    async fn list_sigma_rules_with_stats(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn list_sigma_rules_with_stats(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     /// Fetch one Sigma rule by id with stats joined and the most recent
     /// matching alerts attached as `recent_alerts: [{matched_at, hostname,
@@ -980,11 +988,7 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Toggle a rule's `enabled` flag. Returns whether a row was updated
     /// (false when the id does not exist).
-    async fn set_sigma_rule_enabled(
-        &self,
-        id: &str,
-        enabled: bool,
-    ) -> Result<bool, DatabaseError>;
+    async fn set_sigma_rule_enabled(&self, id: &str, enabled: bool) -> Result<bool, DatabaseError>;
 
     /// Update the promotion ladder fields. Pass `None` to leave a field
     /// untouched. Each value is validated against the CHECK constraint
@@ -1007,9 +1011,7 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// List every active exception in the system, joined with the rule
     /// title. Powers the suppression audit page.
-    async fn list_sigma_exceptions_all(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn list_sigma_exceptions_all(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     /// Insert a new exception. Returns the new id.
     async fn insert_sigma_rule_exception(
@@ -1029,9 +1031,7 @@ pub trait ThreatClawStore: Send + Sync {
     /// Load every currently active exception so the engine can apply
     /// the allowlist at match time. Engine calls this at reload, not
     /// per log line.
-    async fn load_active_sigma_exceptions(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError>;
+    async fn load_active_sigma_exceptions(&self) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     /// Upsert a Sigma rule from the on-disk `rules/*.yaml` source. The
     /// content-derived fields (title, description, detection_json, tags,

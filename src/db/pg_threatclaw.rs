@@ -1353,6 +1353,9 @@ impl ThreatClawStore for PgBackend {
                 id: r.get(0),
                 tag: r.try_get(1).ok(),
                 time: r.get(2),
+                // Hunt-panel read does not scan via the cursor, so it does not
+                // select created_at; the cursor never consults this LogRecord.
+                created_at: String::new(),
                 hostname: r.try_get(3).ok(),
                 data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
             })
@@ -1386,32 +1389,45 @@ impl ThreatClawStore for PgBackend {
         // an outage — if the cursor's older than minutes_back_floor, we accept
         // the gap (a warn-once is logged by the caller) rather than melting the
         // database trying to catch up.
+        //
+        // The cursor advances on `created_at` (DB insert time, `DEFAULT now()`),
+        // NOT the event `time`. `time` is attacker/source-controlled and routinely
+        // drifts hours into the future (TZ-naïve syslog), which poisoned the old
+        // `ORDER BY time` cursor: one future-dated row pinned the cursor ahead of
+        // wall-clock and every real-time event landed *behind* it, invisible to
+        // the engine until the wall clock caught up — a multi-hour blind window.
+        // `created_at` is assigned by Postgres at INSERT, so it is monotonic and
+        // immune to upstream clock drift on every ingest path (webhook insert_log
+        // + the Fluent Bit staging trigger both leave it to the column default).
         let effective_after: chrono::DateTime<chrono::Utc> = match after_time {
             Some(t) => {
-                let floor = chrono::Utc::now()
-                    - chrono::Duration::minutes(minutes_back_floor);
+                let floor = chrono::Utc::now() - chrono::Duration::minutes(minutes_back_floor);
                 if t < floor { floor } else { t }
             }
-            None => chrono::Utc::now()
-                - chrono::Duration::minutes(minutes_back_floor),
+            None => chrono::Utc::now() - chrono::Duration::minutes(minutes_back_floor),
         };
 
         // Forward-paged read with the same fair-share per-tag quota as the
-        // legacy `query_logs`. Order is ASC on (time, id) so the caller can
+        // legacy `query_logs`. Order is ASC on (created_at, id) so the caller can
         // advance the cursor to the last row consumed without re-reading.
+        // NOTE the parentheses around the keyset predicate: `A OR (B AND C)` (the
+        // previous, unparenthesised form) bound as `A OR (B AND C)` only by luck
+        // of AND-precedence — the intended floor `AND created_at >= NOW() - itv`
+        // was actually swallowed into the second OR arm, so the `(created_at > $1)`
+        // arm scanned with NO floor at all. Explicit grouping fixes that.
         let rows = conn
             .query(
                 &format!(
-                    "SELECT id, tag, time, hostname, data \
+                    "SELECT id, tag, time, created_at, hostname, data \
                      FROM ( \
-                        SELECT id, tag, time::text AS time, hostname, data, \
-                               ROW_NUMBER() OVER (PARTITION BY tag ORDER BY time ASC, id ASC) AS rn \
+                        SELECT id, tag, time::text AS time, created_at, hostname, data, \
+                               ROW_NUMBER() OVER (PARTITION BY tag ORDER BY created_at ASC, id ASC) AS rn \
                         FROM logs WHERE \
-                            (time > $1) OR (time = $1 AND id > $2) \
-                            AND time >= NOW() - {} \
+                            ((created_at > $1) OR (created_at = $1 AND id > $2)) \
+                            AND created_at >= NOW() - {} \
                      ) ranked \
                      WHERE rn <= {} \
-                     ORDER BY time ASC, id ASC \
+                     ORDER BY created_at ASC, id ASC \
                      LIMIT {}",
                     interval_clause, per_tag, limit
                 ),
@@ -1426,8 +1442,14 @@ impl ThreatClawStore for PgBackend {
                 id: r.get(0),
                 tag: r.try_get(1).ok(),
                 time: r.get(2),
-                hostname: r.try_get(3).ok(),
-                data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
+                // Read created_at as a native timestamptz and re-serialise to
+                // RFC 3339 (`...T...Z`), NOT `::text` (which yields Postgres'
+                // space-separated form `2026-06-20 14:30:00+00` that
+                // chrono::parse_from_rfc3339 rejects). The cursor round-trips
+                // through this string, so the format must be parse-stable.
+                created_at: r.get::<_, chrono::DateTime<chrono::Utc>>(3).to_rfc3339(),
+                hostname: r.try_get(4).ok(),
+                data: r.try_get::<_, serde_json::Value>(5).unwrap_or_default(),
             })
             .collect())
     }
@@ -1621,9 +1643,7 @@ impl ThreatClawStore for PgBackend {
         Ok(results)
     }
 
-    async fn list_sigma_rules_with_stats(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_sigma_rules_with_stats(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         // Left join — a rule with zero matches still shows up with 0 counts
         // and NULL last_fire_at; the dashboard renders that as "no fire yet".
@@ -1782,17 +1802,16 @@ impl ThreatClawStore for PgBackend {
 
     async fn refresh_sigma_rule_stats(&self) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY sigma_rule_stats", &[])
-            .await
-            .map_err(query_err)?;
+        conn.execute(
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY sigma_rule_stats",
+            &[],
+        )
+        .await
+        .map_err(query_err)?;
         Ok(())
     }
 
-    async fn set_sigma_rule_enabled(
-        &self,
-        id: &str,
-        enabled: bool,
-    ) -> Result<bool, DatabaseError> {
+    async fn set_sigma_rule_enabled(&self, id: &str, enabled: bool) -> Result<bool, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let n = conn
             .execute(
@@ -1855,10 +1874,7 @@ impl ThreatClawStore for PgBackend {
             return Ok(false);
         }
         sets.push("updated_at = NOW()".to_string());
-        let sql = format!(
-            "UPDATE sigma_rules SET {} WHERE id = $1",
-            sets.join(", ")
-        );
+        let sql = format!("UPDATE sigma_rules SET {} WHERE id = $1", sets.join(", "));
         let refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
             params.iter().map(|p| p.as_ref() as _).collect();
         let n = conn.execute(&sql, &refs[..]).await.map_err(query_err)?;
@@ -1899,9 +1915,7 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
-    async fn list_sigma_exceptions_all(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn list_sigma_exceptions_all(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
             .query(
@@ -1974,9 +1988,7 @@ impl ThreatClawStore for PgBackend {
             .map_err(query_err)
     }
 
-    async fn load_active_sigma_exceptions(
-        &self,
-    ) -> Result<Vec<serde_json::Value>, DatabaseError> {
+    async fn load_active_sigma_exceptions(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
             .query(
@@ -2083,9 +2095,7 @@ impl ThreatClawStore for PgBackend {
         // Default time window: last 24 hours when caller didn't specify.
         // Without this the absent-filter case would scan the whole
         // hypertable; daily chunks make that bearable but not pleasant.
-        let to_ts = filters
-            .to
-            .unwrap_or_else(chrono::Utc::now);
+        let to_ts = filters.to.unwrap_or_else(chrono::Utc::now);
         let from_ts = filters
             .from
             .unwrap_or_else(|| to_ts - chrono::Duration::hours(24));
@@ -2110,10 +2120,8 @@ impl ThreatClawStore for PgBackend {
         // owned values living long enough — collect everything into
         // `Box<dyn ToSql + Sync>` to keep the borrow checker happy.
         let mut clauses: Vec<String> = vec!["time >= $1".into(), "time <= $2".into()];
-        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> = vec![
-            Box::new(from_ts),
-            Box::new(to_ts),
-        ];
+        let mut params: Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>> =
+            vec![Box::new(from_ts), Box::new(to_ts)];
         let mut next_idx = 3;
 
         if let Some(h) = filters.hostname.as_deref().filter(|s| !s.is_empty()) {
@@ -2176,6 +2184,8 @@ impl ThreatClawStore for PgBackend {
                 id: r.get(0),
                 tag: r.try_get(1).ok(),
                 time: r.get(2),
+                // search_logs paginates on (time, id), not the Sigma cursor.
+                created_at: String::new(),
                 hostname: r.try_get(3).ok(),
                 data: r.try_get::<_, serde_json::Value>(4).unwrap_or_default(),
             })
@@ -2602,7 +2612,7 @@ impl ThreatClawStore for PgBackend {
             None => {
                 return Ok(serde_json::json!({
                     "incidents": 0, "findings": 0, "alerts": 0, "logs": 0, "ml_scores": 0
-                }))
+                }));
             }
         };
         let host = asset.hostname.clone().unwrap_or_default();
@@ -2659,15 +2669,21 @@ impl ThreatClawStore for PgBackend {
         tx.execute(
             "DELETE FROM findings WHERE asset = ANY($1) OR ($2 <> '' AND LOWER(asset) = LOWER($2))",
             &[&names, &host],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         tx.execute(
             "DELETE FROM sigma_alerts WHERE $1 <> '' AND LOWER(hostname) = LOWER($1)",
             &[&host],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
         tx.execute(
             "DELETE FROM ml_scores WHERE asset_id = ANY($1) OR ($2 <> '' AND asset_id = $2)",
             &[&names, &host],
-        ).await.map_err(query_err)?;
+        )
+        .await
+        .map_err(query_err)?;
 
         if del_incidents {
             // Incident child rows (ai_analyses, investigation_steps, sentinel_*)
@@ -2800,8 +2816,9 @@ impl ThreatClawStore for PgBackend {
         // practice and the operator can override by setting an explicit
         // hostname on the asset record.
         let lower = hostname.to_lowercase();
-        let rows = conn.query(
-            "WITH n AS (SELECT $1::text AS h, SPLIT_PART($1::text, '.', 1) AS hs) \
+        let rows = conn
+            .query(
+                "WITH n AS (SELECT $1::text AS h, SPLIT_PART($1::text, '.', 1) AS hs) \
              SELECT a.* FROM assets a, n \
              WHERE LOWER(a.hostname) = n.h \
                 OR LOWER(a.name) = n.h \
@@ -2816,8 +2833,10 @@ impl ThreatClawStore for PgBackend {
                END, \
                a.created_at ASC \
              LIMIT 1",
-            &[&lower],
-        ).await.map_err(query_err)?;
+                &[&lower],
+            )
+            .await
+            .map_err(query_err)?;
         Ok(rows.first().map(parse_asset_row))
     }
 
@@ -3509,7 +3528,7 @@ impl ThreatClawStore for PgBackend {
             other => {
                 return Err(DatabaseError::Query(format!(
                     "apply_operator_decision: unknown decision {other:?}"
-                )))
+                )));
             }
         };
         let resolved_at_clause = if status == "resolved" {
