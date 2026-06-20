@@ -2989,6 +2989,64 @@ mod tests {
         );
     }
 
+    /// E2E anti-regression: load the real marquee Windows rule FILES, compile them
+    /// through the production path, and assert each fires on representative attack
+    /// telemetry in the REAL nested osquery.sysmon shape ({data:{CommandLine}}).
+    /// Locks fix #1 against future regressions in BOTH the engine and the rule
+    /// files — the exact silent-death class the detection-chain audit found. If a
+    /// marquee rule ever stops matching real telemetry, this fails the build.
+    #[test]
+    fn marquee_windows_rules_fire_on_real_shape_telemetry() {
+        let cases: &[(&str, &str)] = &[
+            (
+                "rules/windows/sysmon-ntds-extraction.yaml",
+                r"ntdsutil.exe ac i ntds ifm create full C:\temp",
+            ),
+            (
+                "rules/windows/sysmon-lsass-comsvcs.yaml",
+                r"rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump 1234 C:\lsass.dmp full",
+            ),
+            (
+                "rules/windows/ps-obfusc-001.yaml",
+                "powershell.exe -NoP -W Hidden -enc SQBFAFgAIAA",
+            ),
+        ];
+        for (path, cmdline) in cases {
+            let full = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), path);
+            let raw =
+                std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let rule_json: serde_json::Value =
+                serde_yaml_ng::from_str(&raw).unwrap_or_else(|e| panic!("yaml {path}: {e}"));
+            let (matchers, condition) = compile_detection_for_tests(&rule_json["detection"])
+                .unwrap_or_else(|| panic!("compile {path}"));
+            let rule = CompiledRule {
+                id: rule_json["id"].as_str().unwrap_or("").to_string(),
+                title: rule_json["title"].as_str().unwrap_or("").to_string(),
+                level: rule_json["level"].as_str().unwrap_or("high").to_string(),
+                logsource_category: rule_json["logsource"]["category"]
+                    .as_str()
+                    .map(String::from),
+                logsource_product: rule_json["logsource"]["product"].as_str().map(String::from),
+                logsource_service: rule_json["logsource"]["service"].as_str().map(String::from),
+                tags: vec![],
+                matchers,
+                condition,
+                disposition: "detect".into(),
+            };
+            // Real osquery.sysmon shape: the command line is nested under `data`.
+            let log = json!({
+                "eventid": "1",
+                "channel": "Microsoft-Windows-Sysmon/Operational",
+                "data": { "CommandLine": cmdline }
+            });
+            assert!(
+                match_rule_for_tests(&rule, &log, Some("osquery.sysmon")).is_some(),
+                "marquee rule {} must fire on real nested telemetry: {cmdline}",
+                rule.id
+            );
+        }
+    }
+
     // ── alert_is_excepted (Phase B exceptions) ─────────────────────
 
     fn exc(rule_id: &str, scope: &str, value: &str) -> ActiveException {
