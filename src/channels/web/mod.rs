@@ -15,8 +15,12 @@
 //! ```
 
 pub mod auth;
+pub mod authz;
 pub mod dashboard_auth;
 pub(crate) mod handlers;
+pub mod permissions;
+#[cfg(test)]
+mod tc_routes_snapshot;
 pub mod log_layer;
 pub mod openai_compat;
 pub mod server;

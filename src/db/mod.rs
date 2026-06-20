@@ -35,6 +35,11 @@ pub mod libsql_sentinel_store;
 #[cfg(feature = "libsql")]
 pub mod libsql_threatclaw;
 
+pub mod dashboard_user_store;
+
+#[cfg(feature = "postgres")]
+pub mod pg_dashboard_users;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -677,6 +682,7 @@ pub trait Database:
     + SettingsStore
     + WorkspaceStore
     + threatclaw_store::ThreatClawStore
+    + dashboard_user_store::DashboardUserStore
     + crate::connectors::microsoft_sentinel::SentinelStore
     + Send
     + Sync

@@ -146,6 +146,10 @@ impl AppBuilder {
             tracing::warn!("Disk-to-DB settings migration failed: {}", e);
         }
 
+        // Idempotent: move any legacy JSON-in-settings dashboard user into the
+        // dashboard_users table, preserving ids so active sessions survive.
+        crate::channels::web::dashboard_auth::migrate_legacy_admin(&db).await;
+
         let toml_path = self.toml_path.as_deref();
         match Config::from_db_with_toml(db.as_ref(), &self.config.owner_id, toml_path).await {
             Ok(db_config) => {

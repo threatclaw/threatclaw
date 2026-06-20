@@ -736,6 +736,37 @@ CREATE INDEX IF NOT EXISTS idx_routines_event_triggers
 PRAGMA foreign_keys=ON;
 "#,
     ),
+    (
+        14,
+        "dashboard_users",
+        // Dashboard user accounts (RBAC). Mirrors PG migration V88. SQLite has
+        // no array type, so granted/denied permissions are JSON TEXT and
+        // must_change_password is INTEGER 0/1.
+        r#"
+CREATE TABLE IF NOT EXISTS dashboard_users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL DEFAULT '',
+    password_hash TEXT,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    status TEXT NOT NULL DEFAULT 'active',
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    granted_permissions TEXT NOT NULL DEFAULT '[]',
+    denied_permissions TEXT NOT NULL DEFAULT '[]',
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE IF NOT EXISTS dashboard_invitations (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    purpose TEXT NOT NULL DEFAULT 'invite',
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+"#,
+    ),
 ];
 
 /// Run incremental migrations that haven't been applied yet.

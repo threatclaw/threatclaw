@@ -243,7 +243,7 @@ export const SECTIONS: Record<SectionKey, Section> = {
   setup: {
     key: "setup",
     label: () => "Config",
-    matches: ["/setup"],
+    matches: ["/setup", "/license"],
     // Flattened from the old two-level structure (/setup → ConfigPage
     // with its own inner sidebar): the 13 ConfigPage sub-tabs and the 3
     // top-level setup entries now live side by side in one menu, one
@@ -266,6 +266,8 @@ export const SECTIONS: Record<SectionKey, Section> = {
       { href: "/setup?tab=sources", labelFr: "Sources de logs", labelEn: "Log Sources", icon: Radio },
       { href: "/setup?tab=endpoints", labelFr: "Agents endpoint", labelEn: "Endpoint Agents", icon: Monitor },
       { href: "/setup?tab=tests", labelFr: "Simulation", labelEn: "Simulation", icon: Play },
+      { href: "/setup?tab=account", labelFr: "Mon compte", labelEn: "My account", icon: Lock },
+      { href: "/setup?tab=dashboard-users", labelFr: "Utilisateurs du dashboard", labelEn: "Dashboard users", icon: Users },
       {
         href: "/license",
         labelFr: "Licence & instance",

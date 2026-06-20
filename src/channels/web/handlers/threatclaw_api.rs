@@ -9993,9 +9993,22 @@ pub async fn auth_me_handler(
             if let Some(user) =
                 crate::channels::web::dashboard_auth::validate_session(store, &token).await
             {
+                // Expose the computed effective permissions so the frontend can
+                // gate UI on permissions (not role names) — same source of truth
+                // as the backend authorization layer.
+                let mut permissions: Vec<String> =
+                    crate::channels::web::permissions::effective_permissions(
+                        &user.role,
+                        &user.granted,
+                        &user.denied,
+                    )
+                    .into_iter()
+                    .collect();
+                permissions.sort();
                 return Json(serde_json::json!({
                     "authenticated": true,
                     "user": user,
+                    "permissions": permissions,
                 }))
                 .into_response();
             }

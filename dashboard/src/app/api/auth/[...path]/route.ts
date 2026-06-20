@@ -60,3 +60,5 @@ async function proxyAuth(req: NextRequest) {
 
 export async function GET(req: NextRequest) { return proxyAuth(req); }
 export async function POST(req: NextRequest) { return proxyAuth(req); }
+export async function PATCH(req: NextRequest) { return proxyAuth(req); }
+export async function DELETE(req: NextRequest) { return proxyAuth(req); }

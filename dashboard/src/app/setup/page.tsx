@@ -14,17 +14,17 @@ const TestsContent = dynamic(() => import("../test/page"), { ssr: false });
 const AboutContent = dynamic(() => Promise.resolve({ default: AboutPage }), { ssr: false });
 const LicensesContent = dynamic(() => Promise.resolve({ default: LicensesPage }), { ssr: false });
 
-// All tab keys are dispatched from `?tab=` in the URL. The first 13
-// live inside ConfigPage (which accepts `currentTab` and renders the
-// matching panel); `endpoints` renders the endpoint-agent installer,
-// `tests` the simulation harness, `licenses` the premium license
-// manager, `about` the technical instance info.
+// All tab keys are dispatched from `?tab=` in the URL. Most live inside
+// ConfigPage (which accepts `currentTab` and renders the matching panel);
+// `endpoints` renders the endpoint-agent installer, `tests` the simulation
+// harness, `licenses` the premium license manager, `about` the technical
+// instance info.
 // Keep this list in sync with sections.ts → setup.items so the left
 // sidebar exposes every option.
 const CONFIG_TAB_KEYS = [
   "general", "company", "llm", "channels", "security", "remediation",
   "agent", "notifications", "retention", "anonymizer", "backup",
-  "logs", "sources",
+  "logs", "sources", "account", "dashboard-users",
 ] as const;
 const EXTRA_TAB_KEYS = ["endpoints", "tests", "licenses", "about"] as const;
 const ALL_TAB_KEYS = [...CONFIG_TAB_KEYS, ...EXTRA_TAB_KEYS] as const;

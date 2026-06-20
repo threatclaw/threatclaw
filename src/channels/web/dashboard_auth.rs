@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 use crate::db::Database;
+use crate::db::dashboard_user_store::DashboardUserRecord;
 
 /// Max failed login attempts before lock.
 const MAX_FAILED_ATTEMPTS: i32 = 5;
@@ -51,13 +52,31 @@ pub struct SessionRecord {
     pub created_at: String,
 }
 
-/// Public user info (no password hash).
+/// Public user info (no password hash). Carries the per-user permission
+/// overrides so the authorization layer can compute the effective set.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserInfo {
     pub id: String,
     pub email: String,
     pub display_name: String,
     pub role: String,
+    #[serde(default)]
+    pub granted: Vec<String>,
+    #[serde(default)]
+    pub denied: Vec<String>,
+}
+
+impl UserInfo {
+    fn from_record(r: DashboardUserRecord) -> Self {
+        UserInfo {
+            id: r.id,
+            email: r.email,
+            display_name: r.display_name,
+            role: r.role,
+            granted: r.granted_permissions,
+            denied: r.denied_permissions,
+        }
+    }
 }
 
 /// Hash a password with argon2id (OWASP 2024 recommended).
@@ -108,56 +127,27 @@ fn hash_token(token: &str) -> String {
 /// Check if any user exists (first-run detection).
 pub async fn has_any_user(store: &Arc<dyn Database>) -> bool {
     store
-        .get_setting("_auth", "users_index")
+        .dbu_list()
         .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_array().map(|a| !a.is_empty()))
+        .map(|v| !v.is_empty())
         .unwrap_or(false)
 }
 
-/// Get user by email.
-async fn get_user(store: &Arc<dyn Database>, email: &str) -> Option<DashboardUser> {
-    let key = format!(
-        "user_{}",
-        email.to_lowercase().replace('@', "_at_").replace('.', "_")
-    );
+/// Get user by email (case-insensitive — emails are stored lowercased).
+async fn get_user(store: &Arc<dyn Database>, email: &str) -> Option<DashboardUserRecord> {
     store
-        .get_setting("_auth", &key)
-        .await
-        .ok()?
-        .and_then(|v| serde_json::from_value(v).ok())
-}
-
-/// Save user to store.
-async fn save_user(store: &Arc<dyn Database>, user: &DashboardUser) -> Result<(), String> {
-    let key = format!(
-        "user_{}",
-        user.email
-            .to_lowercase()
-            .replace('@', "_at_")
-            .replace('.', "_")
-    );
-    store
-        .set_setting("_auth", &key, &serde_json::to_value(user).unwrap())
-        .await
-        .map_err(|e| format!("DB error: {}", e))?;
-
-    // Update users index
-    let mut index: Vec<String> = store
-        .get_setting("_auth", "users_index")
+        .dbu_get_by_email(&email.to_lowercase())
         .await
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-    if !index.contains(&user.email) {
-        index.push(user.email.clone());
-        let _ = store
-            .set_setting("_auth", "users_index", &serde_json::json!(index))
-            .await;
-    }
-    Ok(())
+}
+
+/// Persist a full user record (insert or update, id-preserving).
+async fn save_user(store: &Arc<dyn Database>, user: &DashboardUserRecord) -> Result<(), String> {
+    store
+        .dbu_upsert_full(user)
+        .await
+        .map_err(|e| format!("DB error: {}", e))
 }
 
 /// Create the first admin user (first-run setup).
@@ -178,28 +168,28 @@ pub async fn create_admin(
     }
 
     let password_hash = hash_password(password)?;
-    let id = crate::config::license::generate_instance_id(); // reuse our UUID generator
+    let id = uuid::Uuid::new_v4().to_string(); // dashboard_users.id is a uuid column
 
-    let user = DashboardUser {
+    let user = DashboardUserRecord {
         id: id.clone(),
         email: email.to_lowercase(),
         display_name: display_name.to_string(),
-        password_hash,
+        password_hash: Some(password_hash),
         role: "admin".to_string(),
+        status: "active".to_string(),
+        must_change_password: false,
+        granted_permissions: Vec::new(),
+        denied_permissions: Vec::new(),
         failed_attempts: 0,
         locked_until: None,
+        created_by: None,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
     save_user(store, &user).await?;
     tracing::info!("AUTH: Admin user created: {}", email);
 
-    Ok(UserInfo {
-        id: user.id,
-        email: user.email,
-        display_name: user.display_name,
-        role: user.role,
-    })
+    Ok(UserInfo::from_record(user))
 }
 
 // ── Authentication ──
@@ -215,6 +205,13 @@ pub async fn authenticate(
     let mut user = get_user(store, email)
         .await
         .ok_or("Email ou mot de passe incorrect")?;
+
+    // Only active accounts can authenticate (invited = not yet accepted,
+    // disabled = deactivated by an admin). Generic message (anti-enumeration).
+    if user.status != "active" {
+        log_event(store, &user.email, "login_inactive", ip).await;
+        return Err("Email ou mot de passe incorrect".into());
+    }
 
     // Check lock
     if user.failed_attempts >= MAX_FAILED_ATTEMPTS {
@@ -232,8 +229,9 @@ pub async fn authenticate(
         let _ = save_user(store, &user).await;
     }
 
-    // Verify password
-    if !verify_password(password, &user.password_hash) {
+    // Verify password (None hash = invited account with no password set yet).
+    let stored_hash = user.password_hash.clone().unwrap_or_default();
+    if stored_hash.is_empty() || !verify_password(password, &stored_hash) {
         user.failed_attempts += 1;
         if user.failed_attempts >= MAX_FAILED_ATTEMPTS {
             let lock_until = chrono::Utc::now() + chrono::Duration::seconds(LOCK_DURATION_SECS);
@@ -274,15 +272,7 @@ pub async fn authenticate(
 
     log_event(store, &user.email, "login_success", ip).await;
 
-    Ok((
-        UserInfo {
-            id: user.id,
-            email: user.email,
-            display_name: user.display_name,
-            role: user.role,
-        },
-        raw_token,
-    ))
+    Ok((UserInfo::from_record(user), raw_token))
 }
 
 // ── Session Management ──
@@ -320,26 +310,12 @@ pub async fn validate_session(store: &Arc<dyn Database>, token: &str) -> Option<
     }
     let _ = store.set_setting("_auth", &session_key, &renewed).await;
 
-    // Load user
-    let index: Vec<String> = store
-        .get_setting("_auth", "users_index")
-        .await
-        .ok()?
-        .and_then(|v| serde_json::from_value(v).ok())?;
-
-    for email in &index {
-        if let Some(user) = get_user(store, email).await {
-            if user.id == session.user_id {
-                return Some(UserInfo {
-                    id: user.id,
-                    email: user.email,
-                    display_name: user.display_name,
-                    role: user.role,
-                });
-            }
-        }
+    // Load user by id. A disabled account invalidates the session.
+    let user = store.dbu_get(&session.user_id).await.ok().flatten()?;
+    if user.status != "active" {
+        return None;
     }
-    None
+    Some(UserInfo::from_record(user))
 }
 
 /// Delete a session (logout).
@@ -349,6 +325,33 @@ pub async fn delete_session(store: &Arc<dyn Database>, token: &str) {
     let _ = store
         .set_setting("_auth", &session_key, &serde_json::json!(null))
         .await;
+}
+
+/// Public SHA-256 hex of a token — used to look up invitation tokens, which
+/// are stored hashed just like session tokens.
+pub fn token_hash(token: &str) -> String {
+    hash_token(token)
+}
+
+/// Invalidate every server-side session belonging to a user. Backs both
+/// "sign out everywhere" and the account-disable / delete flows.
+pub async fn delete_all_sessions_for_user(store: &Arc<dyn Database>, user_id: &str) {
+    let rows = match store.list_settings("_auth").await {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for row in rows {
+        if !row.key.starts_with("session_") {
+            continue;
+        }
+        if let Ok(sess) = serde_json::from_value::<SessionRecord>(row.value.clone()) {
+            if sess.user_id == user_id {
+                let _ = store
+                    .set_setting("_auth", &row.key, &serde_json::json!(null))
+                    .await;
+            }
+        }
+    }
 }
 
 // ── Password Management ──
@@ -362,10 +365,70 @@ pub async fn change_password(
     let mut user = get_user(store, email)
         .await
         .ok_or("Utilisateur introuvable")?;
-    user.password_hash = hash_password(new_password)?;
+    user.password_hash = Some(hash_password(new_password)?);
+    user.must_change_password = false;
     save_user(store, &user).await?;
     log_event(store, email, "password_changed", "dashboard").await;
     Ok(())
+}
+
+// ── Legacy migration ──
+
+/// One-shot, idempotent migration of the legacy JSON-in-settings users
+/// (`_auth/users_index` + `_auth/user_<email>`) into the `dashboard_users`
+/// table. Preserves each user's id so active sessions (`session.user_id`)
+/// keep resolving. Safe to call on every boot: users already present in the
+/// table are skipped.
+pub async fn migrate_legacy_admin(store: &Arc<dyn Database>) {
+    let index: Vec<String> = match store.get_setting("_auth", "users_index").await {
+        Ok(Some(v)) => serde_json::from_value(v).unwrap_or_default(),
+        _ => return,
+    };
+    for email in index {
+        if store
+            .dbu_get_by_email(&email.to_lowercase())
+            .await
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            continue; // already migrated
+        }
+        let key = format!(
+            "user_{}",
+            email.to_lowercase().replace('@', "_at_").replace('.', "_")
+        );
+        let legacy: Option<DashboardUser> = store
+            .get_setting("_auth", &key)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| serde_json::from_value(v).ok());
+        let Some(legacy) = legacy else { continue };
+        // The legacy id was a sha256 hex string, incompatible with the uuid
+        // id column; assign a fresh uuid. The admin's existing settings-based
+        // session points at the old id and will simply require one re-login
+        // after the upgrade. No data is lost.
+        let rec = DashboardUserRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            email: legacy.email.to_lowercase(),
+            display_name: legacy.display_name,
+            password_hash: Some(legacy.password_hash),
+            role: legacy.role,
+            status: "active".to_string(),
+            must_change_password: false,
+            granted_permissions: Vec::new(),
+            denied_permissions: Vec::new(),
+            failed_attempts: legacy.failed_attempts,
+            locked_until: legacy.locked_until,
+            created_by: None,
+            created_at: legacy.created_at,
+        };
+        match store.dbu_upsert_full(&rec).await {
+            Ok(_) => tracing::info!("AUTH: migrated legacy user {} into dashboard_users", email),
+            Err(e) => tracing::warn!("AUTH: legacy migration failed for {}: {}", email, e),
+        }
+    }
 }
 
 // ── Cookie helpers ──

@@ -7,6 +7,7 @@
 //! - In-memory (for testing)
 
 mod conversations;
+mod dashboard_users;
 mod jobs;
 mod routines;
 mod sandbox;
