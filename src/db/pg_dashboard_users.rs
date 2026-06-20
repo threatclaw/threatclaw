@@ -16,7 +16,9 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
-const COLS: &str = "id, email, display_name, password_hash, role, status, \
+// id is a uuid column (from V28); expose it as text everywhere so the rest of
+// the code can treat ids as plain strings, and cast text -> uuid on the way in.
+const COLS: &str = "id::text AS id, email, display_name, password_hash, role, status, \
     must_change_password, granted_permissions, denied_permissions, \
     failed_attempts, locked_until, created_by, created_at";
 
@@ -30,6 +32,11 @@ fn parse_ts_opt(s: &Option<String>) -> Option<DateTime<Utc>> {
     s.as_ref()
         .and_then(|x| DateTime::parse_from_rfc3339(x).ok())
         .map(|d| d.with_timezone(&Utc))
+}
+
+/// Parse a string id into a uuid for binding to the uuid `id` column.
+fn uid(s: &str) -> Result<uuid::Uuid, DatabaseError> {
+    uuid::Uuid::parse_str(s).map_err(|e| DatabaseError::Query(format!("invalid uuid id: {e}")))
 }
 
 fn dbu_row(r: &tokio_postgres::Row) -> DashboardUserRecord {
@@ -56,29 +63,31 @@ fn dbu_row(r: &tokio_postgres::Row) -> DashboardUserRecord {
 impl DashboardUserStore for PgBackend {
     async fn dbu_create(&self, u: &NewDashboardUser) -> Result<String, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        let id = uuid::Uuid::new_v4().to_string();
-        conn.execute(
-            r#"INSERT INTO dashboard_users
-               (id, email, display_name, role, status,
-                granted_permissions, denied_permissions, created_by)
-               VALUES ($1, $2, $3, $4, 'invited', $5, $6, $7)"#,
-            &[
-                &id,
-                &u.email,
-                &u.display_name,
-                &u.role,
-                &u.granted,
-                &u.denied,
-                &u.created_by,
-            ],
-        )
-        .await
-        .map_err(query_err)?;
-        Ok(id)
+        // Let the DB generate the uuid (gen_random_uuid default) and return it.
+        let row = conn
+            .query_one(
+                r#"INSERT INTO dashboard_users
+                   (email, display_name, role, status,
+                    granted_permissions, denied_permissions, created_by)
+                   VALUES ($1, $2, $3, 'invited', $4, $5, $6)
+                   RETURNING id::text"#,
+                &[
+                    &u.email,
+                    &u.display_name,
+                    &u.role,
+                    &u.granted,
+                    &u.denied,
+                    &u.created_by,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get::<_, String>(0))
     }
 
     async fn dbu_upsert_full(&self, r: &DashboardUserRecord) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        let id_val = uid(&r.id)?;
         let created = parse_ts(&r.created_at);
         let locked = parse_ts_opt(&r.locked_until);
         conn.execute(
@@ -100,7 +109,7 @@ impl DashboardUserStore for PgBackend {
                  locked_until = EXCLUDED.locked_until,
                  created_by = EXCLUDED.created_by"#,
             &[
-                &r.id,
+                &id_val,
                 &r.email,
                 &r.display_name,
                 &r.password_hash,
@@ -122,10 +131,11 @@ impl DashboardUserStore for PgBackend {
 
     async fn dbu_get(&self, id: &str) -> Result<Option<DashboardUserRecord>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        let id_val = uid(id)?;
         let row = conn
             .query_opt(
                 &format!("SELECT {COLS} FROM dashboard_users WHERE id = $1"),
-                &[&id],
+                &[&id_val],
             )
             .await
             .map_err(query_err)?;
@@ -182,7 +192,8 @@ impl DashboardUserStore for PgBackend {
 
     async fn dbu_delete(&self, id: &str) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        conn.execute("DELETE FROM dashboard_users WHERE id = $1", &[&id])
+        let id_val = uid(id)?;
+        conn.execute("DELETE FROM dashboard_users WHERE id = $1", &[&id_val])
             .await
             .map_err(query_err)?;
         Ok(())
@@ -196,6 +207,7 @@ impl DashboardUserStore for PgBackend {
         expires_at: &str,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        let uid_val = uid(user_id)?;
         let exp = parse_ts(expires_at);
         conn.execute(
             r#"INSERT INTO dashboard_invitations (token_hash, user_id, purpose, expires_at)
@@ -204,7 +216,7 @@ impl DashboardUserStore for PgBackend {
                  user_id = EXCLUDED.user_id,
                  purpose = EXCLUDED.purpose,
                  expires_at = EXCLUDED.expires_at"#,
-            &[&token_hash, &user_id, &purpose, &exp],
+            &[&token_hash, &uid_val, &purpose, &exp],
         )
         .await
         .map_err(query_err)?;
@@ -220,7 +232,7 @@ impl DashboardUserStore for PgBackend {
             .query_opt(
                 "DELETE FROM dashboard_invitations \
                  WHERE token_hash = $1 AND expires_at > NOW() \
-                 RETURNING user_id, purpose",
+                 RETURNING user_id::text, purpose",
                 &[&token_hash],
             )
             .await

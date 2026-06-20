@@ -168,7 +168,7 @@ pub async fn create_admin(
     }
 
     let password_hash = hash_password(password)?;
-    let id = crate::config::license::generate_instance_id(); // reuse our UUID generator
+    let id = uuid::Uuid::new_v4().to_string(); // dashboard_users.id is a uuid column
 
     let user = DashboardUserRecord {
         id: id.clone(),
@@ -405,8 +405,12 @@ pub async fn migrate_legacy_admin(store: &Arc<dyn Database>) {
             .flatten()
             .and_then(|v| serde_json::from_value(v).ok());
         let Some(legacy) = legacy else { continue };
+        // The legacy id was a sha256 hex string, incompatible with the uuid
+        // id column; assign a fresh uuid. The admin's existing settings-based
+        // session points at the old id and will simply require one re-login
+        // after the upgrade. No data is lost.
         let rec = DashboardUserRecord {
-            id: legacy.id,
+            id: uuid::Uuid::new_v4().to_string(),
             email: legacy.email.to_lowercase(),
             display_name: legacy.display_name,
             password_hash: Some(legacy.password_hash),
