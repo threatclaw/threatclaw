@@ -215,6 +215,39 @@ async fn enrich_one(
         })
         .collect();
 
+    // Process lineage (A): the leaf is the command line the Sigma rule matched
+    // on; walk its ancestry from the host's Sysmon EID 1 telemetry so the L2
+    // narrative sees who spawned what — the parent is often the TP/FP
+    // discriminator. Empty for non-endpoint incidents (no commandline / no sysmon).
+    let leaf_cmdline = sigma_alerts.iter().find_map(|a| {
+        a.get("matched_fields").and_then(|m| {
+            m.get("commandline")
+                .or_else(|| m.get("CommandLine"))
+                .or_else(|| m.get("data.CommandLine"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        })
+    });
+    let process_lineage = if let Some(ref cmd) = leaf_cmdline {
+        let sysmon_logs = db
+            .query_logs(120, Some(&asset), Some("osquery.sysmon"), 5000)
+            .await
+            .unwrap_or_default();
+        let events: Vec<&serde_json::Value> =
+            sysmon_logs.iter().filter_map(|l| l.data.get("data")).collect();
+        let chain = crate::agent::process_lineage::build_process_lineage(&events, cmd, 8);
+        if chain.len() > 1 {
+            tracing::info!(
+                "Forensic enricher: incident #{id} — reconstructed {}-step process lineage",
+                chain.len()
+            );
+        }
+        chain
+    } else {
+        Vec::new()
+    };
+
     let context = ForensicContext {
         incident_id: id,
         asset: asset.clone(),
@@ -224,6 +257,7 @@ async fn enrich_one(
         findings,
         sigma_alerts,
         mitre_existing: mitre_existing.clone(),
+        process_lineage,
     };
 
     // Phase 9b — registry des skills connectés. Un seul probe DB par
@@ -560,6 +594,11 @@ pub(crate) struct ForensicContext {
     /// MITRE techniques déjà identifiés par l'IE (depuis le metadata.mitre
     /// des findings, pas inventés par un LLM).
     pub mitre_existing: Vec<String>,
+    /// Process ancestry (leaf -> root) of the alerting process, reconstructed
+    /// on demand from Sysmon EID 1 telemetry. The parent context is often THE
+    /// discriminator between a true positive (winword -> powershell) and a false
+    /// positive (explorer -> powershell). Empty for non-endpoint incidents.
+    pub process_lineage: Vec<crate::agent::process_lineage::ProcessStep>,
 }
 
 fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
@@ -570,7 +609,7 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
     // ── Absolute rule pinned at the top so it carries the most weight ──
     p.push_str("## ABSOLUTE RULE — anti-hallucination\n\n");
     p.push_str("You only have access to the data in the dossier below (sections FACTUAL DOSSIER, ");
-    p.push_str("FINDINGS and SIGMA ALERTS). You must not mention:\n");
+    p.push_str("FINDINGS, SIGMA ALERTS and PROCESS LINEAGE). You must not mention:\n");
     p.push_str("- ANY IP, CVE, signature, or hash that is not in the dossier\n");
     p.push_str("- ANY external service (Wazuh, GreyNoise, fail2ban, GoAccess, ELK, Splunk, ...) ");
     p.push_str("that is not in the dossier\n");
@@ -685,6 +724,24 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
             }
         }
         p.push('\n');
+    }
+
+    // ── Process lineage (who spawned the alerting process) ──
+    if !ctx.process_lineage.is_empty() {
+        p.push_str(&format!(
+            "## PROCESS LINEAGE ({} steps, root \u{2192} leaf)\n\n",
+            ctx.process_lineage.len()
+        ));
+        p.push_str(
+            "Reconstructed from Sysmon process-creation telemetry on the host. The PARENT is \
+             often the true-positive / false-positive discriminator (winword.exe -> powershell \
+             -enc is a macro payload; explorer.exe -> powershell is usually a user; \
+             w3wp.exe -> cmd -> powershell is a webshell). Use this chain to ground the \
+             kill-chain narrative; cite only processes that appear here.\n\n",
+        );
+        p.push_str("```\n");
+        p.push_str(&crate::agent::process_lineage::format_lineage(&ctx.process_lineage));
+        p.push_str("```\n\n");
     }
 
     // ── Existing MITRE techniques (already extracted by the IE from finding metadata.mitre) ──
@@ -1501,6 +1558,7 @@ mod tests {
                 "hostname": "srv-01",
             })],
             mitre_existing: vec!["T1190".into()],
+            process_lineage: vec![],
         }
     }
 

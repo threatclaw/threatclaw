@@ -68,6 +68,7 @@ pub mod ndr_tls;
 pub mod notification_router;
 pub mod observation_collector;
 pub mod path_risk;
+pub mod process_lineage;
 pub mod production_safeguards;
 pub mod prompt_builder;
 pub mod react_cycle;
