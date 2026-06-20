@@ -28,37 +28,59 @@ def get_conn(retries=3, backoff=5):
                 raise
 
 
-def get_alerts(hours_back=24, limit=5000):
-    """Get recent sigma alerts for feature extraction."""
+def get_alerts(hours_back=24, per_host=1000, max_total=100000):
+    """Get recent sigma alerts for feature extraction, sampled fairly per host.
+
+    Same fairness rationale as get_logs: a flat LIMIT biased features toward the
+    few hosts with the most alerts, leaving the rest of the parc empty.
+    """
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, rule_id, level, title, hostname,
-                       source_ip::text as source_ip, username,
+                SELECT id, rule_id, level, title, hostname, source_ip, username,
                        matched_at, status
-                FROM sigma_alerts
-                WHERE matched_at > NOW() - INTERVAL '%s hours'
-                ORDER BY matched_at DESC
+                FROM (
+                    SELECT id, rule_id, level, title, hostname,
+                           source_ip::text AS source_ip, username, matched_at, status,
+                           ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY matched_at DESC) AS rn
+                    FROM sigma_alerts
+                    WHERE matched_at > NOW() - INTERVAL '%s hours'
+                ) ranked
+                WHERE rn <= %s
                 LIMIT %s
-            """, (hours_back, limit))
+            """, (hours_back, per_host, max_total))
             return cur.fetchall()
     finally:
         conn.close()
 
 
-def get_logs(hours_back=24, limit=10000):
-    """Get recent logs for feature extraction."""
+def get_logs(hours_back=24, per_host=2000, max_total=200000):
+    """Get recent logs for feature extraction, sampled FAIRLY per host.
+
+    A flat `ORDER BY time DESC LIMIT` starved the fleet at scale: a few chatty
+    hosts filled the limit and every other asset got empty features, so the ML
+    model only ever saw the noisiest machines (detection-chain audit 2026-06-20).
+    PARTITION BY hostname keeps up to `per_host` recent rows for EACH host, so the
+    whole parc is represented. `per_host` is high enough that typical hosts are
+    uncapped — only pathological firehose hosts are bounded (and they were already
+    over-represented). `max_total` caps memory/transfer. The PARTITION+ORDER is
+    backed by idx_logs_hostname_time, so it stays an index scan, not a full sort.
+    """
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, tag, hostname, data, time
-                FROM logs
-                WHERE time > NOW() - INTERVAL '%s hours'
-                ORDER BY time DESC
+                FROM (
+                    SELECT id, tag, hostname, data, time,
+                           ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY time DESC) AS rn
+                    FROM logs
+                    WHERE time > NOW() - INTERVAL '%s hours'
+                ) ranked
+                WHERE rn <= %s
                 LIMIT %s
-            """, (hours_back, limit))
+            """, (hours_back, per_host, max_total))
             return cur.fetchall()
     finally:
         conn.close()
@@ -105,19 +127,27 @@ def get_company_profile():
         conn.close()
 
 
-def get_dns_queries(hours_back=24, limit=5000):
-    """Get DNS queries from logs (Pi-hole, syslog DNS)."""
+def get_dns_queries(hours_back=24, per_host=1000, max_total=100000):
+    """Get DNS queries from logs (Pi-hole, syslog DNS), sampled fairly per host.
+
+    Same fairness rationale as get_logs — every host that does DNS should get a
+    slice for the DGA/tunnel features, not just the busiest resolvers.
+    """
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, hostname, data, time
-                FROM logs
-                WHERE (tag LIKE '%%dns%%' OR data::text LIKE '%%query:%%' OR data::text LIKE '%%dns_query%%')
-                  AND time > NOW() - INTERVAL '%s hours'
-                ORDER BY time DESC
+                FROM (
+                    SELECT id, hostname, data, time,
+                           ROW_NUMBER() OVER (PARTITION BY hostname ORDER BY time DESC) AS rn
+                    FROM logs
+                    WHERE (tag LIKE '%%dns%%' OR data::text LIKE '%%query:%%' OR data::text LIKE '%%dns_query%%')
+                      AND time > NOW() - INTERVAL '%s hours'
+                ) ranked
+                WHERE rn <= %s
                 LIMIT %s
-            """, (hours_back, limit))
+            """, (hours_back, per_host, max_total))
             return cur.fetchall()
     finally:
         conn.close()
