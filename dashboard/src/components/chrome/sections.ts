@@ -243,7 +243,7 @@ export const SECTIONS: Record<SectionKey, Section> = {
   setup: {
     key: "setup",
     label: () => "Config",
-    matches: ["/setup"],
+    matches: ["/setup", "/license"],
     // Flattened from the old two-level structure (/setup → ConfigPage
     // with its own inner sidebar): the 13 ConfigPage sub-tabs and the 3
     // top-level setup entries now live side by side in one menu, one
