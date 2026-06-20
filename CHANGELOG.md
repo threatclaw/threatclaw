@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.49-beta] — 2026-06-20
+
+### Added
+- Dashboard user accounts with role-based access control: invite teammates as admin, analyst or viewer.
+- Per-analyst remediation right, set with a toggle at invite time; viewers are read-only across the product.
+- "Config → My account" to change your password and sign out of every session.
+- "Config → Dashboard users" (admin) to invite, change role, enable/disable, reset and remove accounts, with the last active admin protected from removal.
+- Invitation flow that falls back to a copyable link when SMTP is not configured, otherwise emails it.
+- Step-up confirmation: sensitive admin actions require re-entering your password.
+
+### Changed
+- Every dashboard action is now authorized server-side against the signed-in user's role.
+- The License & instance page is admin-only; the password change moved to Config → My account.
+
 ## [1.0.48-beta] — 2026-06-19
 
 ### Added
