@@ -176,6 +176,42 @@ pub async fn record_login(
     mutate(store, &cypher).await;
 }
 
+/// Idempotent successful-login edge for high-frequency sources (endpoint agents).
+///
+/// Unlike [`record_login`] — which `CREATE`s one edge per event so failed-login
+/// clustering can count attempts — this `MERGE`s a single
+/// `User-[:LOGGED_IN {success: true}]->Asset` edge and refreshes its `timestamp`.
+/// An osquery agent emitting Windows 4624 logons every cycle would otherwise bloat
+/// the graph with one edge per event (millions at 10k hosts). The `{success: true}`
+/// in the MERGE pattern means failed-login edges (`success: false`) are never
+/// touched. Refreshing `timestamp` keeps the relationship inside the 30-day window
+/// that `path_risk::derive_lateral_paths_from_logins` uses to build LATERAL_PATH.
+/// See detection-chain audit 2026-06-20.
+pub async fn record_host_login(
+    store: &dyn Database,
+    username: &str,
+    asset_id: &str,
+    source_ip: &str,
+    auth_protocol: &str,
+) {
+    touch_user(store, username).await;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let cypher = format!(
+        "MATCH (u:User {{username: '{}'}}), (a:Asset {{id: '{}'}}) \
+         MERGE (u)-[r:LOGGED_IN {{success: true}}]->(a) \
+         SET r.source_ip = '{}', r.protocol = '{}', r.timestamp = '{}', \
+             r.last_seen = '{}'",
+        esc(username),
+        esc(asset_id),
+        esc(source_ip),
+        esc(auth_protocol),
+        now,
+        now,
+    );
+    mutate(store, &cypher).await;
+}
+
 /// Record privilege escalation: User -[:ESCALATED]-> User
 pub async fn record_escalation(
     store: &dyn Database,

@@ -1380,6 +1380,36 @@ fn should_emit_burst(
     should
 }
 
+/// Machine/service/system accounts that produce 4624 noise rather than a real
+/// human-on-host identity signal. Lower-cased comparison.
+fn is_noise_logon_account(user: &str) -> bool {
+    let u = user.trim().to_lowercase();
+    if u.is_empty() || u == "-" {
+        return true;
+    }
+    if u.ends_with('$') {
+        return true; // computer account (DOMAIN\HOST$)
+    }
+    matches!(
+        u.as_str(),
+        "system" | "local service" | "network service" | "anonymous logon" | "iusr"
+    ) || u.starts_with("dwm-")
+        || u.starts_with("umfd-")
+}
+
+/// Windows logon types that represent a human/admin actually using the host
+/// (interactive, unlock, RDP, cached) — as opposed to the network/service/batch
+/// firehose (types 3/4/5/8/9) that would flood the identity graph.
+fn is_interactive_logon_type(logon_type: &str) -> bool {
+    matches!(logon_type.trim(), "2" | "7" | "10" | "11")
+}
+
+/// Whether a 4624 success logon is worth recording as a `User-[:LOGGED_IN]->Asset`
+/// identity edge (drives lateral-movement attack-path discovery).
+fn should_record_logon(user: &str, logon_type: &str) -> bool {
+    is_interactive_logon_type(logon_type) && !is_noise_logon_account(user)
+}
+
 pub async fn check_windows_security_events(
     store: &dyn Database,
     hostname: &str,
@@ -1394,6 +1424,17 @@ pub async fn check_windows_security_events(
         String,
         (u32, Option<String>, String),
     > = std::collections::HashMap::new();
+
+    // Canonical asset id of this host, resolved once per batch, used to attach
+    // LOGGED_IN identity edges to the SAME asset node the graph sync upserts and
+    // the Intelligence Engine correlates under. Falls back to the deterministic
+    // id (generate_asset_id semantics) when the asset is not yet enrolled.
+    let host_asset_id = match store.find_asset_by_hostname(hostname).await {
+        Ok(Some(a)) => a.id,
+        _ => crate::graph::asset_resolution::sanitize_id(&hostname.to_lowercase()),
+    };
+    // De-dupe identity edges within the batch: one per distinct interactive user.
+    let mut logon_recorded: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for event in events {
         let eventid = event["eventid"]
@@ -1555,8 +1596,31 @@ pub async fn check_windows_security_events(
                 .await;
                 alerts += 1;
             }
-            // Successful logon, special privileges, explicit creds — context only
-            "4624" | "4648" | "4672" => {}
+            // Successful interactive logon → User-[:LOGGED_IN]->Asset identity
+            // edge, the substrate for lateral-movement attack-path discovery.
+            // Only interactive/RDP logons by real accounts (filters the
+            // network/service firehose and machine accounts), de-duped per batch.
+            "4624" => {
+                let user = extract_event_field(&data, &["TargetUserName", "SubjectUserName"])
+                    .unwrap_or("");
+                let logon_type = extract_event_field(&data, &["LogonType"]).unwrap_or("");
+                if should_record_logon(user, logon_type)
+                    && logon_recorded.insert(user.to_lowercase())
+                {
+                    let src_ip =
+                        extract_event_field(&data, &["IpAddress", "WorkstationName"]).unwrap_or("");
+                    crate::graph::identity_graph::record_host_login(
+                        store,
+                        user,
+                        &host_asset_id,
+                        src_ip,
+                        "windows",
+                    )
+                    .await;
+                }
+            }
+            // Explicit-creds logon (4648) / special privileges (4672) — context only.
+            "4648" | "4672" => {}
             _ => {}
         }
     }
@@ -1848,4 +1912,39 @@ pub async fn check_sysmon_events(
     }
 
     (ingested, alerts)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn logon_filter_keeps_interactive_real_accounts() {
+        assert!(should_record_logon("alice", "2")); // interactive
+        assert!(should_record_logon("DOMAIN_admin", "10")); // RDP
+        assert!(should_record_logon("bob", "7")); // unlock
+        assert!(should_record_logon("carol", "11")); // cached interactive
+    }
+
+    #[test]
+    fn logon_filter_drops_network_and_service_types() {
+        // The network/service/batch firehose must not flood the identity graph.
+        assert!(!should_record_logon("alice", "3")); // network (SMB/share)
+        assert!(!should_record_logon("svc", "5")); // service
+        assert!(!should_record_logon("alice", "4")); // batch
+        assert!(!should_record_logon("alice", "8")); // network cleartext
+        assert!(!should_record_logon("alice", "")); // unknown type
+    }
+
+    #[test]
+    fn logon_filter_drops_machine_and_system_accounts() {
+        assert!(!should_record_logon("WORKSTATION$", "2")); // computer account
+        assert!(!should_record_logon("SYSTEM", "2"));
+        assert!(!should_record_logon("Network Service", "10"));
+        assert!(!should_record_logon("ANONYMOUS LOGON", "10"));
+        assert!(!should_record_logon("DWM-1", "2"));
+        assert!(!should_record_logon("UMFD-0", "2"));
+        assert!(!should_record_logon("", "2"));
+        assert!(!should_record_logon("-", "2"));
+    }
 }

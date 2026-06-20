@@ -595,10 +595,15 @@ async fn collect_cves_on_path(store: &dyn Database, path: &[String]) -> Vec<Stri
         .iter()
         .map(|s| format!("'{}'", s.replace('\'', "\\'")))
         .collect();
+    // The graph writes `(c:CVE {id})-[:AFFECTS]->(a:Asset)` (threat_graph::record_cve_affects).
+    // This query used to MATCH `(a)-[:AFFECTED_BY]->(c)` returning `c.cve_id` — a label,
+    // direction AND property that are never written, so it always returned empty and every
+    // attack-path score collapsed to the floor (no CVEs on path, no EPSS/KEV weighting).
+    // See detection-chain audit 2026-06-20.
     let cypher = format!(
-        "MATCH (a:Asset)-[:AFFECTED_BY]->(c:CVE) \
+        "MATCH (c:CVE)-[:AFFECTS]->(a:Asset) \
          WHERE a.id IN [{}] \
-         RETURN DISTINCT c.cve_id AS cve",
+         RETURN DISTINCT c.id AS cve",
         escaped.join(",")
     );
     let rows = store.execute_cypher(&cypher).await.unwrap_or_default();
