@@ -145,6 +145,44 @@ pub enum FieldMatcher {
     FieldRef(String, String),
 }
 
+impl FieldMatcher {
+    /// The primary event field this matcher reads, when the matcher requires the
+    /// field's value to be present to ever match. Returns `None` for `Exists`,
+    /// which deliberately tests presence/absence and is satisfiable without a
+    /// resolvable value. Used by the per-cycle field-resolution health audit so
+    /// a rule whose fields never resolve (a field-mapping error) is surfaced
+    /// loudly instead of dying silently. Exhaustive on purpose: a new variant
+    /// won't compile until it declares its audited field.
+    fn audited_field(&self) -> Option<&str> {
+        match self {
+            FieldMatcher::Exists(_, _) => None,
+            FieldMatcher::Exact(f, _)
+            | FieldMatcher::Contains(f, _)
+            | FieldMatcher::StartsWith(f, _)
+            | FieldMatcher::EndsWith(f, _)
+            | FieldMatcher::Wildcard(f, _)
+            | FieldMatcher::AnyOf(f, _)
+            | FieldMatcher::ContainsAny(f, _)
+            | FieldMatcher::StartsWithAny(f, _)
+            | FieldMatcher::EndsWithAny(f, _)
+            | FieldMatcher::ContainsAll(f, _)
+            | FieldMatcher::StartsWithAll(f, _)
+            | FieldMatcher::EndsWithAll(f, _)
+            | FieldMatcher::ExactCased(f, _)
+            | FieldMatcher::ContainsCased(f, _)
+            | FieldMatcher::StartsWithCased(f, _)
+            | FieldMatcher::EndsWithCased(f, _)
+            | FieldMatcher::Regex(f, _)
+            | FieldMatcher::Cidr(f, _)
+            | FieldMatcher::NumericLt(f, _)
+            | FieldMatcher::NumericLte(f, _)
+            | FieldMatcher::NumericGt(f, _)
+            | FieldMatcher::NumericGte(f, _)
+            | FieldMatcher::FieldRef(f, _) => Some(f.as_str()),
+        }
+    }
+}
+
 /// Lightweight CIDR network used by FieldMatcher::Cidr. We hand-roll the
 /// match logic instead of pulling in `ipnet` because the operation is
 /// trivial and Sigma rules carry at most a few hundred CIDR entries.
@@ -707,22 +745,34 @@ fn fold_and(names: Vec<String>) -> Condition {
 
 // ── Matching ──
 
-/// Match a log against a single compiled rule.
-fn match_rule(rule: &CompiledRule, log: &Value, log_tag: Option<&str>) -> Option<SigmaMatch> {
-    // Check logsource filter
+/// Whether a rule's logsource (category / product) is compatible with a log's
+/// `tag`. A missing tag is treated as compatible (the rule still evaluates) to
+/// preserve the long-standing behaviour for logs ingested without a tag.
+/// Shared by `match_rule` and the field-resolution health audit so both gate
+/// rules identically.
+fn logsource_matches(rule: &CompiledRule, log_tag: Option<&str>) -> bool {
     if let Some(ref cat) = rule.logsource_category {
         if let Some(tag) = log_tag {
-            if !tag.contains(cat) {
-                return None;
+            if !tag.contains(cat.as_str()) {
+                return false;
             }
         }
     }
     if let Some(ref prod) = rule.logsource_product {
         if let Some(tag) = log_tag {
-            if !tag.contains(prod) {
-                return None;
+            if !tag.contains(prod.as_str()) {
+                return false;
             }
         }
+    }
+    true
+}
+
+/// Match a log against a single compiled rule.
+fn match_rule(rule: &CompiledRule, log: &Value, log_tag: Option<&str>) -> Option<SigmaMatch> {
+    // Check logsource filter
+    if !logsource_matches(rule, log_tag) {
+        return None;
     }
 
     // Evaluate condition
@@ -1790,6 +1840,11 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
         }
     }
 
+    // Field-resolution health audit (once per cycle, warn-once per rule): surface
+    // any rule that is silently dead because its fields never resolve against its
+    // own logsource — the failure class behind the 50 dead Windows rules.
+    warn_unresolved_field_rules(&rules, &logs);
+
     if alerts_created > 0 || findings_created > 0 {
         tracing::info!(
             "SIGMA ENGINE: {} alerts, {} findings from {} logs ({} rules)",
@@ -2069,6 +2124,116 @@ async fn resolve_canonical_asset(store: &dyn crate::db::Database, raw: &str) -> 
         return asset.hostname.unwrap_or_else(|| asset.name);
     }
     raw.to_string()
+}
+
+// ── Field-resolution health audit ───────────────────────────────────────────
+// The 2026-06-20 detection-chain audit found ~50 marquee Windows rules silently
+// dead: they referenced a bare field (`commandline`) that did not resolve against
+// the nested osquery telemetry shape, with no warning anywhere. Fix #1 resolves
+// the bare field; this audit makes the *class* of failure loud so it can never
+// silently recur — a rule whose fields never resolve against its own logsource is
+// flagged in the logs.
+
+/// Rules already flagged this process lifetime, so we warn once per rule instead
+/// of every 5-minute cycle.
+static SIGMA_HEALTH_WARNED: LazyLock<std::sync::RwLock<std::collections::HashSet<String>>> =
+    LazyLock::new(|| std::sync::RwLock::new(std::collections::HashSet::new()));
+
+/// A rule whose referenced fields never resolved against any log of its own
+/// logsource in the sampled batch — almost always a field-mapping error.
+#[derive(Debug, Clone, PartialEq)]
+struct RuleFieldWarning {
+    rule_id: String,
+    logsource: String,
+    fields: Vec<String>,
+    sampled: usize,
+}
+
+/// Detect enabled rules that are silently dead because none of their referenced
+/// fields resolve against the log shape of their own logsource. Bounded and
+/// sampled: it early-exits on the first resolving log, so working rules cost ~one
+/// lookup and only suspect rules pay the sampling cost.
+fn detect_unresolved_field_rules(
+    rules: &[CompiledRule],
+    logs: &[crate::db::threatclaw_store::LogRecord],
+) -> Vec<RuleFieldWarning> {
+    const MAX_SAMPLE_PER_RULE: usize = 25;
+    const MIN_SAMPLE_TO_JUDGE: usize = 5;
+    let mut warnings = Vec::new();
+    for rule in rules {
+        // Auditable fields: skip presence-only (`exists`) matchers and symbolic
+        // aliases (`message`/`full_log`, which resolve via the whole-event body
+        // scan in eval_matcher, not via find_field — auditing them would
+        // false-positive).
+        let mut fields: Vec<&str> = rule
+            .matchers
+            .values()
+            .flatten()
+            .filter_map(|m| m.audited_field())
+            .filter(|f| !is_symbolic_log_alias(f))
+            .collect();
+        if fields.is_empty() {
+            continue;
+        }
+        fields.sort_unstable();
+        fields.dedup();
+
+        let mut sampled = 0usize;
+        let mut resolved_any = false;
+        for log in logs {
+            if !logsource_matches(rule, log.tag.as_deref()) {
+                continue;
+            }
+            if fields.iter().any(|f| find_field(&log.data, f).is_some()) {
+                resolved_any = true;
+                break;
+            }
+            sampled += 1;
+            if sampled >= MAX_SAMPLE_PER_RULE {
+                break;
+            }
+        }
+        if !resolved_any && sampled >= MIN_SAMPLE_TO_JUDGE {
+            warnings.push(RuleFieldWarning {
+                rule_id: rule.id.clone(),
+                logsource: rule
+                    .logsource_category
+                    .as_deref()
+                    .or(rule.logsource_product.as_deref())
+                    .unwrap_or("?")
+                    .to_string(),
+                fields: fields.iter().map(|s| s.to_string()).collect(),
+                sampled,
+            });
+        }
+    }
+    warnings
+}
+
+/// Run the field-resolution audit on the current batch and warn once per rule.
+fn warn_unresolved_field_rules(
+    rules: &[CompiledRule],
+    logs: &[crate::db::threatclaw_store::LogRecord],
+) {
+    let warnings = detect_unresolved_field_rules(rules, logs);
+    if warnings.is_empty() {
+        return;
+    }
+    let mut seen = SIGMA_HEALTH_WARNED
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    for w in warnings {
+        if seen.insert(w.rule_id.clone()) {
+            tracing::warn!(
+                target: "sigma_health",
+                rule_id = %w.rule_id,
+                logsource = %w.logsource,
+                sampled = w.sampled,
+                "SIGMA HEALTH: rule '{}' resolved NONE of its fields {:?} across {} '{}' logs — likely a field-mapping error (the rule is silently dead)",
+                w.rule_id, w.fields, w.sampled, w.logsource
+            );
+        }
+    }
 }
 
 // Phase 8b — La logique IDS multi-vendor (Suricata + futurs Fortinet,
@@ -2723,6 +2888,104 @@ mod tests {
         assert_eq!(
             find_field(&log, "commandline").as_deref(),
             Some("flat-value")
+        );
+    }
+
+    // ── field-resolution health audit ──────────────────────────────
+
+    fn log_rec(tag: &str, data: serde_json::Value) -> crate::db::threatclaw_store::LogRecord {
+        crate::db::threatclaw_store::LogRecord {
+            id: 0,
+            tag: Some(tag.into()),
+            time: String::new(),
+            hostname: None,
+            data,
+        }
+    }
+
+    #[test]
+    fn health_audit_flags_dead_rule_but_not_resolving_one() {
+        // 6 real-shaped osquery.sysmon logs (nested under `data`).
+        let logs: Vec<_> = (0..6)
+            .map(|_| {
+                log_rec(
+                    "osquery.sysmon",
+                    json!({"eventid":"1","channel":"x","data":{"CommandLine":"powershell.exe -enc AAA"}}),
+                )
+            })
+            .collect();
+
+        // Dead: references a field present in NO sysmon log.
+        let mut s1 = HashMap::new();
+        s1.insert(
+            "selection".into(),
+            vec![FieldMatcher::Contains("nonexistent_field".into(), "x".into())],
+        );
+        let mut broken = rule("broken-rule", s1, Condition::Ref("selection".into()));
+        broken.logsource_product = Some("sysmon".into());
+
+        // Healthy: bare `commandline` resolves under the data envelope (fix #1).
+        let mut s2 = HashMap::new();
+        s2.insert(
+            "selection".into(),
+            vec![FieldMatcher::Contains("commandline".into(), "powershell".into())],
+        );
+        let mut good = rule("good-rule", s2, Condition::Ref("selection".into()));
+        good.logsource_product = Some("sysmon".into());
+
+        let ids: Vec<String> = detect_unresolved_field_rules(&[broken, good], &logs)
+            .into_iter()
+            .map(|w| w.rule_id)
+            .collect();
+        assert!(ids.contains(&"broken-rule".to_string()), "dead rule must be flagged");
+        assert!(
+            !ids.contains(&"good-rule".to_string()),
+            "a rule whose fields resolve must NOT be flagged"
+        );
+    }
+
+    #[test]
+    fn health_audit_requires_minimum_sample() {
+        // Only 3 matching logs (< MIN_SAMPLE_TO_JUDGE) → not enough evidence.
+        let logs: Vec<_> = (0..3)
+            .map(|_| log_rec("osquery.sysmon", json!({"eventid":"1","data":{"CommandLine":"x"}})))
+            .collect();
+        let mut s = HashMap::new();
+        s.insert(
+            "selection".into(),
+            vec![FieldMatcher::Contains("nonexistent".into(), "x".into())],
+        );
+        let mut r = rule("r", s, Condition::Ref("selection".into()));
+        r.logsource_product = Some("sysmon".into());
+        assert!(detect_unresolved_field_rules(&[r], &logs).is_empty());
+    }
+
+    #[test]
+    fn health_audit_ignores_symbolic_alias_fields() {
+        // `message` resolves via the whole-event body scan, not find_field, so it
+        // must be excluded from the audit (else legitimate syslog rules false-flag).
+        let logs: Vec<_> = (0..6)
+            .map(|_| log_rec("linux.syslog", json!({"program":"sshd","raw":"…"})))
+            .collect();
+        let mut s = HashMap::new();
+        s.insert(
+            "selection".into(),
+            vec![FieldMatcher::Contains("message".into(), "failed".into())],
+        );
+        let mut r = rule("syslog-rule", s, Condition::Ref("selection".into()));
+        r.logsource_category = Some("syslog".into());
+        assert!(detect_unresolved_field_rules(&[r], &logs).is_empty());
+    }
+
+    #[test]
+    fn audited_field_skips_exists_matcher() {
+        assert_eq!(
+            FieldMatcher::Contains("CommandLine".into(), "x".into()).audited_field(),
+            Some("CommandLine")
+        );
+        assert_eq!(
+            FieldMatcher::Exists("CommandLine".into(), true).audited_field(),
+            None
         );
     }
 
