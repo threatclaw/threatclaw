@@ -160,160 +160,13 @@ pub async fn tc_health_handler(
 ) -> ApiResult<HealthResponse> {
     let db_ok = state.store.is_some();
 
-    // Auto-start Intelligence Engine + Bot on first health check
-    // This runs once after the gateway is fully ready.
-    if db_ok && !SERVICES_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+    // Auto-start background services. The primary start is at core boot
+    // (server.rs::start_server); this call is a defensive fallback for the case
+    // where the DB was not yet ready when boot ran. Idempotent — the
+    // SERVICES_STARTED guard inside makes the second caller a no-op.
+    if db_ok {
         if let Some(store) = state.store.as_ref() {
-            let store_clone = store.clone();
-            let nonce_mgr = Arc::clone(&state.hitl_nonce_manager);
-            tokio::spawn(async move {
-                // Wait a bit for all channels to initialize
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-                // ADR-044: Init remediation guard (boot-lock protected infrastructure)
-                crate::agent::remediation_guard::init_protected_infrastructure(
-                    store_clone.as_ref(),
-                )
-                .await;
-
-                // Start Intelligence Engine. The cycle interval is
-                // configurable via the `tc_config_ie_cycle_secs` setting
-                // so an operator with a noisy stack can dial it up (or
-                // down) without re-compiling. Bounded to [60, 1800] —
-                // below 60 s the LLM cycle would not finish before the
-                // next tick on a CPU-served Ollama, above 30 min the
-                // dedup window becomes the bottleneck. Default 300 s.
-                if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let cycle_secs = store_clone
-                        .get_setting("_system", "tc_config_ie_cycle_secs")
-                        .await
-                        .ok()
-                        .flatten()
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(300)
-                        .clamp(60, 1800) as u64;
-                    crate::agent::intelligence_engine::spawn_intelligence_ticker(
-                        store_clone.clone(),
-                        std::time::Duration::from_secs(cycle_secs),
-                        Some(nonce_mgr.clone()),
-                    );
-                    tracing::info!(
-                        "AUTO-START: Intelligence Engine started (cycle every {}s)",
-                        cycle_secs
-                    );
-                }
-
-                // Start Connector Sync Scheduler
-                static SCHEDULER_RUNNING: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !SCHEDULER_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    crate::connectors::sync_scheduler::spawn_sync_scheduler(store_clone.clone());
-                    tracing::info!("AUTO-START: Connector Sync Scheduler started");
-                }
-
-                // Start Scan Worker Pool + Schedule Tick (passive enrichment via scan_queue)
-                static SCAN_WORKERS_RUNNING: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !SCAN_WORKERS_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    crate::scans::spawn_scan_workers(store_clone.clone());
-                    crate::scans::spawn_schedule_tick(store_clone.clone());
-                    tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
-                }
-
-                // Start Investigation Graph task queue (Phase G1b) — recovery
-                // au boot puis 3 supervisors (LLM / skills / graph_step) qui
-                // pullent task_queue avec Semaphore pour borner la concurrence.
-                static TASK_QUEUE_RUNNING: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !TASK_QUEUE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let store_for_tq = store_clone.clone();
-                    // graphs/sigma/ est shipé dans le repo, à la racine du
-                    // projet quand on tourne en dev. En prod (Docker), on
-                    // monte le dossier ou on l'embarque dans l'image — le
-                    // path est résolu via $TC_GRAPHS_DIR avec fallback
-                    // sur ./graphs/sigma.
-                    let graphs_dir = std::env::var("TC_GRAPHS_DIR")
-                        .unwrap_or_else(|_| "graphs/sigma".to_string());
-                    tokio::spawn(async move {
-                        let path = std::path::PathBuf::from(&graphs_dir);
-                        crate::agent::task_queue::boot(store_for_tq, &path).await;
-                    });
-                }
-
-                // Phase G2 — predictive attack-path batch (toutes les 6h).
-                static PATH_RISK_RUNNING: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !PATH_RISK_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let interval_h = std::env::var("TC_PATH_RISK_INTERVAL_HOURS")
-                        .ok()
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(6);
-                    crate::agent::path_risk::spawn_attack_path_scheduler(
-                        store_clone.clone(),
-                        interval_h,
-                    );
-                    tracing::info!(
-                        "AUTO-START: Attack-path predictive scheduler online (every {} h)",
-                        interval_h
-                    );
-                }
-
-                // Phase A.2 — billing reclassify daily sweep. Flips
-                // `monitored` assets idle for >30 days to `inactive` so
-                // the billable count decays naturally as devices fall
-                // out of the parc. The opposite direction (any new
-                // event promotes back to `monitored`) is handled by
-                // the V66 trigger on findings/sigma_alerts/firewall_events.
-                static BILLING_RUNNING: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !BILLING_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    crate::agent::billing::spawn_reclassify_scheduler(store_clone.clone());
-                    tracing::info!("AUTO-START: Billing reclassify scheduler online (daily)");
-                }
-
-                // Seed MITRE Mitigation playbooks once at boot. Idempotent
-                // (upsert_coa keys on the explicit "coa--mitre-m####" id),
-                // so subsequent restarts are no-ops. The catalogue is
-                // quasi-static reference data — operators should never have
-                // to click a "Load playbooks" button to populate it.
-                static COA_SEEDED: std::sync::atomic::AtomicBool =
-                    std::sync::atomic::AtomicBool::new(false);
-                if !COA_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    let coa_store = store_clone.clone();
-                    tokio::spawn(async move {
-                        crate::graph::course_of_action::seed_default_mitigations(
-                            coa_store.as_ref(),
-                        )
-                        .await;
-                        tracing::info!("AUTO-START: MITRE Mitigation playbooks seeded into graph");
-                    });
-                }
-
-                // Start Telegram Bot (if configured)
-                if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    // Check if Telegram is configured
-                    if let Ok(Some(channels)) = store_clone
-                        .get_setting("_system", "tc_config_channels")
-                        .await
-                    {
-                        if channels["telegram"]["enabled"].as_bool() == Some(true)
-                            && channels["telegram"]["botToken"]
-                                .as_str()
-                                .map(|t| !t.is_empty())
-                                == Some(true)
-                        {
-                            crate::agent::conversational_bot::spawn_telegram_bot(
-                                store_clone.clone(),
-                                std::time::Duration::from_secs(1),
-                            );
-                            tracing::info!("AUTO-START: Telegram bot started (poll every 3s)");
-                        } else {
-                            BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
-                            tracing::debug!("AUTO-START: Telegram bot skipped (not configured)");
-                        }
-                    }
-                }
-            });
+            start_background_services(store.clone(), Arc::clone(&state.hitl_nonce_manager));
         }
     }
 
@@ -369,6 +222,164 @@ pub async fn tc_health_handler(
         disk_free,
         ml,
     }))
+}
+
+/// Idempotent launcher for every background service: Intelligence Engine,
+/// connector sync scheduler, scan worker pool, investigation task queue,
+/// predictive attack-path scheduler, billing reclassify sweep, MITRE COA
+/// seed, and the Telegram bot. Guarded by `SERVICES_STARTED` so it runs
+/// exactly once per process regardless of which caller wins the race.
+///
+/// Called from two sites: core boot (`server.rs::start_server`, the primary
+/// path so detection comes online without waiting for an authenticated
+/// `/api/tc/health`) and `tc_health_handler` (a defensive fallback).
+pub fn start_background_services(
+    store: Arc<dyn crate::db::Database>,
+    nonce_mgr: Arc<crate::agent::hitl_nonce::NonceManager>,
+) {
+    if SERVICES_STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let store_clone = store;
+    tokio::spawn(async move {
+        // Wait a bit for all channels to initialize
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        // ADR-044: Init remediation guard (boot-lock protected infrastructure)
+        crate::agent::remediation_guard::init_protected_infrastructure(store_clone.as_ref()).await;
+
+        // Start Intelligence Engine. The cycle interval is
+        // configurable via the `tc_config_ie_cycle_secs` setting
+        // so an operator with a noisy stack can dial it up (or
+        // down) without re-compiling. Bounded to [60, 1800] —
+        // below 60 s the LLM cycle would not finish before the
+        // next tick on a CPU-served Ollama, above 30 min the
+        // dedup window becomes the bottleneck. Default 300 s.
+        if !INTELLIGENCE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let cycle_secs = store_clone
+                .get_setting("_system", "tc_config_ie_cycle_secs")
+                .await
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_i64())
+                .unwrap_or(300)
+                .clamp(60, 1800) as u64;
+            crate::agent::intelligence_engine::spawn_intelligence_ticker(
+                store_clone.clone(),
+                std::time::Duration::from_secs(cycle_secs),
+                Some(nonce_mgr.clone()),
+            );
+            tracing::info!(
+                "AUTO-START: Intelligence Engine started (cycle every {}s)",
+                cycle_secs
+            );
+        }
+
+        // Start Connector Sync Scheduler
+        static SCHEDULER_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !SCHEDULER_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::connectors::sync_scheduler::spawn_sync_scheduler(store_clone.clone());
+            tracing::info!("AUTO-START: Connector Sync Scheduler started");
+        }
+
+        // Start Scan Worker Pool + Schedule Tick (passive enrichment via scan_queue)
+        static SCAN_WORKERS_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !SCAN_WORKERS_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::scans::spawn_scan_workers(store_clone.clone());
+            crate::scans::spawn_schedule_tick(store_clone.clone());
+            tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
+        }
+
+        // Start Investigation Graph task queue (Phase G1b) — recovery
+        // au boot puis 3 supervisors (LLM / skills / graph_step) qui
+        // pullent task_queue avec Semaphore pour borner la concurrence.
+        static TASK_QUEUE_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !TASK_QUEUE_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let store_for_tq = store_clone.clone();
+            // graphs/sigma/ est shipé dans le repo, à la racine du
+            // projet quand on tourne en dev. En prod (Docker), on
+            // monte le dossier ou on l'embarque dans l'image — le
+            // path est résolu via $TC_GRAPHS_DIR avec fallback
+            // sur ./graphs/sigma.
+            let graphs_dir =
+                std::env::var("TC_GRAPHS_DIR").unwrap_or_else(|_| "graphs/sigma".to_string());
+            tokio::spawn(async move {
+                let path = std::path::PathBuf::from(&graphs_dir);
+                crate::agent::task_queue::boot(store_for_tq, &path).await;
+            });
+        }
+
+        // Phase G2 — predictive attack-path batch (toutes les 6h).
+        static PATH_RISK_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !PATH_RISK_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let interval_h = std::env::var("TC_PATH_RISK_INTERVAL_HOURS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(6);
+            crate::agent::path_risk::spawn_attack_path_scheduler(store_clone.clone(), interval_h);
+            tracing::info!(
+                "AUTO-START: Attack-path predictive scheduler online (every {} h)",
+                interval_h
+            );
+        }
+
+        // Phase A.2 — billing reclassify daily sweep. Flips
+        // `monitored` assets idle for >30 days to `inactive` so
+        // the billable count decays naturally as devices fall
+        // out of the parc. The opposite direction (any new
+        // event promotes back to `monitored`) is handled by
+        // the V66 trigger on findings/sigma_alerts/firewall_events.
+        static BILLING_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !BILLING_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            crate::agent::billing::spawn_reclassify_scheduler(store_clone.clone());
+            tracing::info!("AUTO-START: Billing reclassify scheduler online (daily)");
+        }
+
+        // Seed MITRE Mitigation playbooks once at boot. Idempotent
+        // (upsert_coa keys on the explicit "coa--mitre-m####" id),
+        // so subsequent restarts are no-ops. The catalogue is
+        // quasi-static reference data — operators should never have
+        // to click a "Load playbooks" button to populate it.
+        static COA_SEEDED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !COA_SEEDED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            let coa_store = store_clone.clone();
+            tokio::spawn(async move {
+                crate::graph::course_of_action::seed_default_mitigations(coa_store.as_ref()).await;
+                tracing::info!("AUTO-START: MITRE Mitigation playbooks seeded into graph");
+            });
+        }
+
+        // Start Telegram Bot (if configured)
+        if !BOT_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            // Check if Telegram is configured
+            if let Ok(Some(channels)) = store_clone
+                .get_setting("_system", "tc_config_channels")
+                .await
+            {
+                if channels["telegram"]["enabled"].as_bool() == Some(true)
+                    && channels["telegram"]["botToken"]
+                        .as_str()
+                        .map(|t| !t.is_empty())
+                        == Some(true)
+                {
+                    crate::agent::conversational_bot::spawn_telegram_bot(
+                        store_clone.clone(),
+                        std::time::Duration::from_secs(1),
+                    );
+                    tracing::info!("AUTO-START: Telegram bot started (poll every 3s)");
+                } else {
+                    BOT_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    tracing::debug!("AUTO-START: Telegram bot skipped (not configured)");
+                }
+            }
+        }
+    });
 }
 
 // ── Findings ──
@@ -4944,10 +4955,10 @@ async fn dashboard_user_from_headers(
     state: &Arc<GatewayState>,
     headers: &HeaderMap,
 ) -> Result<(crate::channels::web::dashboard_auth::UserInfo, String), (StatusCode, String)> {
-    let store = state
-        .store
-        .as_ref()
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "db not initialised".into()))?;
+    let store = state.store.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "db not initialised".into(),
+    ))?;
     let cookie = headers
         .get("cookie")
         .and_then(|v| v.to_str().ok())
@@ -4983,10 +4994,7 @@ async fn apply_decision_inner(
                 })?
         } else if let Some(hours) = body.snooze_hours {
             if hours <= 0 {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    "snooze_hours must be > 0".into(),
-                ));
+                return Err((StatusCode::BAD_REQUEST, "snooze_hours must be > 0".into()));
             }
             chrono::Utc::now() + chrono::Duration::hours(hours)
         } else {
@@ -5053,7 +5061,12 @@ async fn apply_decision_inner(
         let incident = store
             .get_incident(id)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("get_incident: {e}")))?
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("get_incident: {e}"),
+                )
+            })?
             .ok_or((StatusCode::NOT_FOUND, format!("incident {id} not found")))?;
         let alert_ids: Vec<i64> = incident
             .get("alert_ids")
@@ -5078,10 +5091,7 @@ async fn apply_decision_inner(
                 format!("rule_id {rule_id} is not attached to incident {id}"),
             ));
         }
-        let incident_asset = incident
-            .get("asset")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let incident_asset = incident.get("asset").and_then(|v| v.as_str()).unwrap_or("");
         let value_matches = match exception_field {
             "hostname" => value.eq_ignore_ascii_case(incident_asset),
             "username" => alerts.iter().any(|a| {
@@ -5101,9 +5111,7 @@ async fn apply_decision_inner(
         if !value_matches {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "exception value {value} does not match the incident's {exception_field}"
-                ),
+                format!("exception value {value} does not match the incident's {exception_field}"),
             ));
         }
 
@@ -5201,10 +5209,12 @@ pub async fn admin_incident_delete_handler(
         ));
     }
     let store = state.store.as_ref().ok_or_else(no_db)?;
-    let snapshot = store
-        .admin_delete_incident(id, &actor)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("delete failed: {e}")))?;
+    let snapshot = store.admin_delete_incident(id, &actor).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("delete failed: {e}"),
+        )
+    })?;
     tracing::warn!(
         "INCIDENT DELETE: id={} by={} snapshot={}",
         id,
@@ -5906,14 +5916,20 @@ const UNINSTALL_AGENT_PS1: &str = include_str!("../../../../installer/uninstall-
 
 pub async fn agent_install_sh_handler() -> impl axum::response::IntoResponse {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/x-shellscript; charset=utf-8",
+        )],
         INSTALL_AGENT_SH,
     )
 }
 
 pub async fn agent_install_ps1_handler() -> impl axum::response::IntoResponse {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         INSTALL_AGENT_PS1,
     )
 }
@@ -5927,14 +5943,20 @@ pub async fn agent_install_ps1_handler() -> impl axum::response::IntoResponse {
 /// `installer/` so they cannot drift away from the install payload.
 pub async fn agent_uninstall_sh_handler() -> impl axum::response::IntoResponse {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/x-shellscript; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/x-shellscript; charset=utf-8",
+        )],
         UNINSTALL_AGENT_SH,
     )
 }
 
 pub async fn agent_uninstall_ps1_handler() -> impl axum::response::IntoResponse {
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
         UNINSTALL_AGENT_PS1,
     )
 }
@@ -6081,7 +6103,9 @@ pub async fn asset_purge_handler(
     }
     match store.purge_asset(&id, scope, block_reenrol).await {
         Ok(v) => Ok(Json(v)),
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -6094,7 +6118,9 @@ pub async fn asset_reactivate_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     match store.reactivate_asset(&id).await {
         Ok(()) => Ok(Json(serde_json::json!({ "ok": true, "id": id }))),
-        Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+        Err(e) => Ok(Json(
+            serde_json::json!({ "ok": false, "error": e.to_string() }),
+        )),
     }
 }
 
@@ -6931,7 +6957,9 @@ async fn compute_asset_coverage(
                     short_skill_label(sid)
                 ),
                 last_seen: None,
-                action_hint: Some("Check that the firewall is forwarding logs to ThreatClaw".into()),
+                action_hint: Some(
+                    "Check that the firewall is forwarding logs to ThreatClaw".into(),
+                ),
             },
             (None, _) => CoverageItem {
                 kind: "firewall",
@@ -7229,7 +7257,7 @@ pub async fn asset_merge_handler(
             _ => {
                 return Ok(Json(serde_json::json!({
                     "error": "canonical_id not found"
-                })))
+                })));
             }
         };
         let alias_record = match store.get_asset(alias).await {
@@ -7237,7 +7265,7 @@ pub async fn asset_merge_handler(
             _ => {
                 return Ok(Json(serde_json::json!({
                     "error": "alias_id not found"
-                })))
+                })));
             }
         };
 
@@ -7247,12 +7275,13 @@ pub async fn asset_merge_handler(
                 _ => can.to_string(),
             }
         };
-        let pick_opt = |field: &str, can: &Option<String>, ali: &Option<String>| -> Option<String> {
-            match patch.get(field).and_then(|v| v.as_str()) {
-                Some("alias") => ali.clone().or_else(|| can.clone()),
-                _ => can.clone().or_else(|| ali.clone()),
-            }
-        };
+        let pick_opt =
+            |field: &str, can: &Option<String>, ali: &Option<String>| -> Option<String> {
+                match patch.get(field).and_then(|v| v.as_str()) {
+                    Some("alias") => ali.clone().or_else(|| can.clone()),
+                    _ => can.clone().or_else(|| ali.clone()),
+                }
+            };
 
         // Identity fields — always union so the auto-resolver still
         // matches whichever hostname/MAC/IP a future sync surfaces.
@@ -7280,20 +7309,13 @@ pub async fn asset_merge_handler(
             .mac_address
             .clone()
             .or_else(|| alias_record.mac_address.clone());
-        let fqdn = canonical
-            .fqdn
-            .clone()
-            .or_else(|| alias_record.fqdn.clone());
+        let fqdn = canonical.fqdn.clone().or_else(|| alias_record.fqdn.clone());
 
         // Services: union by (port, proto). Cheap heuristic since the
         // shape is `[{port, proto, ...}, ...]`; we keep the canonical
         // entry on collision (it's the row the operator chose to keep).
         let services = {
-            let mut out = canonical
-                .services
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
+            let mut out = canonical.services.as_array().cloned().unwrap_or_default();
             let alias_services = alias_record
                 .services
                 .as_array()
@@ -7322,9 +7344,17 @@ pub async fn asset_merge_handler(
             id: canonical_id.clone(),
             name: pick_str("name", &canonical.name, &alias_record.name),
             category: pick_str("category", &canonical.category, &alias_record.category),
-            subcategory: pick_opt("subcategory", &canonical.subcategory, &alias_record.subcategory),
+            subcategory: pick_opt(
+                "subcategory",
+                &canonical.subcategory,
+                &alias_record.subcategory,
+            ),
             role: pick_opt("role", &canonical.role, &alias_record.role),
-            criticality: pick_str("criticality", &canonical.criticality, &alias_record.criticality),
+            criticality: pick_str(
+                "criticality",
+                &canonical.criticality,
+                &alias_record.criticality,
+            ),
             ip_addresses,
             mac_address,
             hostname,
@@ -9266,7 +9296,9 @@ pub async fn hunt_saved_list_handler(
         Ok(items) => Ok(Json(serde_json::json!({ "items": items }))),
         Err(e) => {
             tracing::warn!("HUNT_SAVED list failed: {e}");
-            Ok(Json(serde_json::json!({ "items": [], "error": e.to_string() })))
+            Ok(Json(
+                serde_json::json!({ "items": [], "error": e.to_string() }),
+            ))
         }
     }
 }

@@ -1839,6 +1839,20 @@ pub async fn start_server(
         }
     });
 
+    // Start background detection/intelligence services at boot, rather than
+    // lazily on the first authenticated `/api/tc/health`. The deploy smoke test
+    // only hits the *public* `/api/health`, so the old lazy path could leave the
+    // Intelligence Engine + Sigma cycle unstarted for hours after a restart —
+    // until a human happened to open the dashboard — a silent detection outage.
+    // The launcher is idempotent (SERVICES_STARTED guard), so the health-handler
+    // fallback below stays harmless.
+    if let Some(store) = state.store.clone() {
+        super::handlers::threatclaw_api::start_background_services(
+            store,
+            Arc::clone(&state.hitl_nonce_manager),
+        );
+    }
+
     Ok(bound_addr)
 }
 
