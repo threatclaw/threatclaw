@@ -3331,9 +3331,17 @@ impl ThreatClawStore for PgBackend {
         &self,
     ) -> Result<std::collections::HashMap<String, (f64, String)>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
+        // Freshness gate: the ML engine re-scores every active asset each cycle
+        // (~5 min). A row whose `computed_at` is older than a handful of cycles
+        // means the asset dropped out of the ML feature window (no recent
+        // activity) or the engine is down — either way the score is stale and
+        // must NOT keep boosting/penalising the incident score. Without this the
+        // Intelligence Engine applied month-old anomaly scores as if current.
+        // 30 min = 6 cycles of tolerance. See detection-chain audit 2026-06-20.
         let rows = conn
             .query(
-                "SELECT asset_id, score, COALESCE(reason, '') FROM ml_scores",
+                "SELECT asset_id, score, COALESCE(reason, '') FROM ml_scores \
+                 WHERE computed_at > NOW() - INTERVAL '30 minutes'",
                 &[],
             )
             .await
