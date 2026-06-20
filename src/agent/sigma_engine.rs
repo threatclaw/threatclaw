@@ -1142,13 +1142,38 @@ fn is_symbolic_log_alias(field: &str) -> bool {
 }
 
 /// Find a field value in a JSONB log. Supports dot notation and flat search.
+///
+/// Windows osquery telemetry (sysmon / powershell / windows_security) nests the
+/// event fields under a `data` envelope: `{eventid, channel, data:{CommandLine,…}}`.
+/// Sigma rules authored with a bare field name (`commandline`) — as most of the
+/// first-party Windows pack is — must still resolve against that shape. So when a
+/// single-segment field is absent at the top level we transparently retry under
+/// `data.<field>`. Without this, ~50 marquee rules (LSASS dump, NTDS, PowerShell
+/// obfuscation, APT) silently never matched real telemetry (they only matched the
+/// flat-field demo data). See detection-chain audit, 2026-06-20.
 fn find_field(log: &Value, field: &str) -> Option<String> {
-    // Try direct field access
+    if let Some(v) = resolve_path(log, field) {
+        return Some(v);
+    }
+    // Fallback: a bare field nested under the osquery `data` envelope.
+    // Only for single-segment names — dotted paths are taken as authoritative.
+    if !field.contains('.') {
+        if let Some(v) = resolve_path(log, &format!("data.{field}")) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+/// Resolve a (possibly dotted) field path against the log JSONB, with
+/// case-insensitive matching at each level.
+fn resolve_path(log: &Value, field: &str) -> Option<String> {
+    // Try direct field access (exact key, including literal dotted keys).
     if let Some(val) = log.get(field) {
         return value_to_string(val);
     }
 
-    // Try dot notation (e.g., "source.ip")
+    // Try dot notation (e.g., "source.ip", "data.CommandLine").
     let parts: Vec<&str> = field.split('.').collect();
     let mut current = log;
     for part in &parts {
@@ -2647,6 +2672,58 @@ mod tests {
         assert!(match_rule(&r, &log, Some("windows.security")).is_some());
         // Tag does not match — drops.
         assert!(match_rule(&r, &log, Some("linux.syslog")).is_none());
+    }
+
+    /// Regression (detection-chain audit 2026-06-20): first-party Windows rules
+    /// use a bare field (`commandline`) while real osquery.sysmon telemetry nests
+    /// it under `data.CommandLine`. `find_field` must resolve the bare field through
+    /// the `data` envelope, or the marquee rules (LSASS dump, NTDS extraction,
+    /// PowerShell obfuscation, APT) silently never match real telemetry — they only
+    /// fired on the flat-field demo data, which hid the bug for weeks.
+    #[test]
+    fn bare_field_resolves_under_data_envelope() {
+        // Real osquery.sysmon shape: {eventid, channel, data:{CommandLine}}.
+        let log = json!({
+            "eventid": "1",
+            "channel": "Microsoft-Windows-Sysmon/Operational",
+            "data": { "CommandLine": "ntdsutil.exe ac i ntds ifm create full C:\\temp" }
+        });
+        // find_field resolves the bare field through the data envelope...
+        assert_eq!(
+            find_field(&log, "commandline").as_deref(),
+            Some("ntdsutil.exe ac i ntds ifm create full C:\\temp")
+        );
+        // ...so a rule authored with a bare `commandline|contains` now fires.
+        let mut sels = HashMap::new();
+        sels.insert(
+            "selection".into(),
+            vec![FieldMatcher::Contains(
+                "commandline".into(),
+                "ntdsutil.exe".into(),
+            )],
+        );
+        let mut r = rule(
+            "sysmon-ntds-extraction",
+            sels,
+            Condition::Ref("selection".into()),
+        );
+        r.logsource_category = Some("osquery".into());
+        r.logsource_product = Some("sysmon".into());
+        assert!(match_rule(&r, &log, Some("osquery.sysmon")).is_some());
+    }
+
+    /// A flat top-level field must still win over the `data` envelope, so syslog /
+    /// osquery.process flat shapes (and the demo data) keep working unchanged.
+    #[test]
+    fn flat_field_takes_precedence_over_data_envelope() {
+        let log = json!({
+            "commandline": "flat-value",
+            "data": { "CommandLine": "nested-value" }
+        });
+        assert_eq!(
+            find_field(&log, "commandline").as_deref(),
+            Some("flat-value")
+        );
     }
 
     // ── alert_is_excepted (Phase B exceptions) ─────────────────────
