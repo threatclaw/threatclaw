@@ -88,7 +88,8 @@ interface BillingStatusResponse {
 
 interface AuthMe {
   authenticated: boolean;
-  user?: { email: string };
+  user?: { email: string; role: string };
+  permissions?: string[];
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ export default function LicensePage() {
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
   const [billing, setBilling] = useState<BillingStatusResponse | null>(null);
   const [user, setUser] = useState<AuthMe["user"] | null>(null);
+  const [perms, setPerms] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,8 +159,6 @@ export default function LicensePage() {
   const [activateKey, setActivateKey] = useState("");
   const [airgapOpen, setAirgapOpen] = useState(false);
   const [airgapCert, setAirgapCert] = useState("");
-  const [pwd, setPwd] = useState({ current: "", next: "" });
-  const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   // ── Polling ────────────────────────────────────────────────────────
 
@@ -174,6 +174,7 @@ export default function LicensePage() {
       setLicenseStatus(statusRes ?? null);
       setBilling(billingRes ?? null);
       setUser((meRes as AuthMe | null)?.user ?? null);
+      setPerms((meRes as AuthMe | null)?.permissions ?? []);
     } finally {
       setLoading(false);
     }
@@ -324,32 +325,6 @@ export default function LicensePage() {
     setBusy(null);
   };
 
-  const changePassword = async () => {
-    setPwdMsg(null);
-    if (!pwd.current || !pwd.next) {
-      setPwdMsg({ ok: false, text: fr ? "Champs requis" : "Both fields required" });
-      return;
-    }
-    setBusy("password");
-    try {
-      const res = await fetch("/api/auth/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: pwd.current, newPassword: pwd.next }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        setPwdMsg({ ok: false, text: data.error || (fr ? "Refus" : "Refused") });
-      } else {
-        setPwdMsg({ ok: true, text: fr ? "Mot de passe changé." : "Password changed." });
-        setPwd({ current: "", next: "" });
-      }
-    } catch (e: any) {
-      setPwdMsg({ ok: false, text: String(e?.message || e) });
-    }
-    setBusy(null);
-  };
-
   const openSupport = () => {
     const params = new URLSearchParams();
     const primary = licenseStatus?.licenses?.[0];
@@ -372,6 +347,31 @@ export default function LicensePage() {
   const overLimit = billing?.billing?.state?.kind === "over_limit";
 
   // ── Render ─────────────────────────────────────────────────────────
+
+  // License & billing is restricted to admins. Gate on a permission (same
+  // source of truth as the backend), not on the role name.
+  if (user && !perms.includes("settings:edit")) {
+    return (
+      <div
+        style={{
+          padding: "40px 28px",
+          maxWidth: "1100px",
+          margin: "0 auto",
+          color: "var(--tc-text)",
+          fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        }}
+      >
+        <h1 style={{ fontSize: "20px", fontWeight: 800, marginBottom: "8px" }}>
+          {fr ? "Licence & instance" : "License & instance"}
+        </h1>
+        <p style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>
+          {fr
+            ? "Cette section est réservée aux administrateurs."
+            : "This section is restricted to administrators."}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -693,50 +693,7 @@ export default function LicensePage() {
         )}
       </section>
 
-      {/* ── 5. Mon compte ── */}
-      {user && (
-        <section style={cardStyle()}>
-          <h2 style={sectionTitle()}>
-            <Lock size={14} /> {fr ? "Mon compte" : "My account"}
-          </h2>
-          <Row label={fr ? "Email" : "Email"}>
-            <span style={{ fontSize: "12px", fontFamily: "monospace" }}>{user.email}</span>
-          </Row>
-          <div style={{ marginTop: "12px" }}>
-            <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "6px" }}>
-              {fr ? "Changer le mot de passe" : "Change password"}
-            </div>
-            <input
-              type="password"
-              value={pwd.current}
-              onChange={(e) => setPwd({ ...pwd, current: e.target.value })}
-              placeholder={fr ? "Mot de passe actuel" : "Current password"}
-              style={inputStyle()}
-            />
-            <input
-              type="password"
-              value={pwd.next}
-              onChange={(e) => setPwd({ ...pwd, next: e.target.value })}
-              placeholder={fr ? "Nouveau mot de passe" : "New password"}
-              style={{ ...inputStyle(), marginTop: "6px" }}
-            />
-            <div style={{ marginTop: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
-              <ActionButton
-                onClick={changePassword}
-                busy={busy === "password"}
-                disabled={!pwd.current || !pwd.next}
-                icon={<RefreshCw size={12} />}
-                label={fr ? "Mettre à jour" : "Update"}
-              />
-              {pwdMsg && (
-                <span style={{ fontSize: "11px", color: pwdMsg.ok ? "var(--tc-green)" : "#e04040" }}>
-                  {pwdMsg.text}
-                </span>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* Account / password change moved to Config → My account. */}
 
       {/* ── 6. Support ── */}
       <section style={cardStyle()}>

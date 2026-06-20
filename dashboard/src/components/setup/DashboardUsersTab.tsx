@@ -43,7 +43,7 @@ const ROLES = ["admin", "analyst", "viewer"];
 export default function DashboardUsersTab() {
   const locale = useLocale();
   const fr = locale === "fr";
-  const [myRole, setMyRole] = useState<string | null>(null);
+  const [canManage, setCanManage] = useState<boolean | null>(null);
   const [users, setUsers] = useState<DashUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +66,10 @@ export default function DashboardUsersTab() {
     try {
       const meR = await fetch("/api/auth/me");
       const me = await meR.json();
-      setMyRole(me?.user?.role ?? null);
-      if (me?.user?.role !== "admin") {
+      const perms: string[] = me?.permissions ?? [];
+      const allowed = perms.includes("users:manage");
+      setCanManage(allowed);
+      if (!allowed) {
         setLoading(false);
         return;
       }
@@ -174,7 +176,7 @@ export default function DashboardUsersTab() {
     return <div style={{ padding: 40, textAlign: "center", color: "var(--tc-text-muted)", fontSize: 13 }}>{fr ? "Chargement…" : "Loading…"}</div>;
   }
 
-  if (myRole !== "admin") {
+  if (canManage === false) {
     return (
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
