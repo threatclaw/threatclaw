@@ -212,6 +212,44 @@ pub async fn record_host_login(
     mutate(store, &cypher).await;
 }
 
+/// Assets related to `asset_id` by an identity/lateral link: a user who logged
+/// into both hosts (`LOGGED_IN`, fed by the endpoint 4624 stream), or a derived
+/// `LATERAL_PATH` edge (path_risk batch). These are "the other hosts in the same
+/// attack" used to populate an incident's `related_assets` so a multi-host
+/// intrusion reads as one story instead of N disconnected incidents. Excludes
+/// the asset itself; bounded. See detection-chain audit 2026-06-20.
+pub async fn lateral_peers(store: &dyn Database, asset_id: &str) -> Vec<String> {
+    let a = esc(asset_id);
+    let mut peers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    // 1) Same user logged into this asset AND another (identity lateral).
+    let q_user = format!(
+        "MATCH (u:User)-[:LOGGED_IN]->(s:Asset {{id: '{a}'}}), \
+         (u)-[l:LOGGED_IN]->(o:Asset) \
+         WHERE o.id <> '{a}' AND l.success = true \
+         RETURN DISTINCT o.id AS id LIMIT 50"
+    );
+    // 2) Derived lateral-movement edge.
+    let q_lat = format!(
+        "MATCH (s:Asset {{id: '{a}'}})-[:LATERAL_PATH]->(o:Asset) \
+         WHERE o.id <> '{a}' \
+         RETURN DISTINCT o.id AS id LIMIT 50"
+    );
+
+    for q in [q_user, q_lat] {
+        if let Ok(rows) = store.execute_cypher(&q).await {
+            for r in rows {
+                if let Some(id) = r.get("id").and_then(|v| v.as_str()) {
+                    if !id.is_empty() && id != asset_id {
+                        peers.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    peers.into_iter().take(50).collect()
+}
+
 /// Record privilege escalation: User -[:ESCALATED]-> User
 pub async fn record_escalation(
     store: &dyn Database,

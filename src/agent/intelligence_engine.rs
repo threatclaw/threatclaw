@@ -3950,6 +3950,33 @@ pub fn spawn_intelligence_ticker(
                                                 worst_asset.asset
                                             );
 
+                                            // #5 — cross-asset correlation: link this
+                                            // incident to the other hosts touched by the
+                                            // same attack (shared interactive logon /
+                                            // derived lateral path) so a multi-host
+                                            // intrusion reads as ONE story instead of N.
+                                            let related =
+                                                crate::graph::identity_graph::lateral_peers(
+                                                    store.as_ref(),
+                                                    &worst_asset.asset,
+                                                )
+                                                .await;
+                                            if !related.is_empty() {
+                                                match store
+                                                    .set_incident_correlation(new_id, &related, None)
+                                                    .await
+                                                {
+                                                    Ok(()) => tracing::info!(
+                                                        "INTELLIGENCE: incident #{} linked to {} related asset(s)",
+                                                        new_id,
+                                                        related.len()
+                                                    ),
+                                                    Err(e) => tracing::warn!(
+                                                        "INTELLIGENCE: set_incident_correlation failed for #{new_id}: {e}"
+                                                    ),
+                                                }
+                                            }
+
                                             // Phase 9o — drain le buffer des steps
                                             // d'investigation pré-création (skill calls
                                             // GreyNoise / Spamhaus / ThreatFox / firewall
