@@ -21,6 +21,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 
 from . import db
 from .features import extract_dns_features
