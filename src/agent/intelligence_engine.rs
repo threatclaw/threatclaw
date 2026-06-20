@@ -1444,6 +1444,62 @@ async fn fetch_asset_graph_context(
 
 /// Run the intelligence engine cycle.
 /// Returns the current security situation and recommended notification level.
+/// Try to resolve a raw asset reference (hostname, FQDN, NetBIOS, IP, or a
+/// finding's stored asset string) to the canonical asset **id** of a known asset.
+/// Returns `None` when no asset matches, so callers can decide on a fallback.
+async fn try_resolve_asset_id(store: &dyn Database, raw: &str) -> Option<String> {
+    if raw.is_empty() || raw == "unknown" {
+        return None;
+    }
+    let looks_like_ipv4 =
+        raw.split('.').count() == 4 && raw.split('.').all(|p| p.parse::<u8>().is_ok());
+    if looks_like_ipv4 {
+        if let Ok(Some(a)) = store.find_asset_by_ip(raw).await {
+            return Some(a.id);
+        }
+    }
+    if let Ok(Some(a)) = store.find_asset_by_hostname(raw).await {
+        return Some(a.id);
+    }
+    None
+}
+
+/// Deterministic canonical key for a not-yet-enrolled host, matching
+/// `generate_asset_id` semantics (`sanitize_id(lowercase)`) so that once the
+/// asset IS enrolled its id equals the key we were already correlating under.
+fn canonical_asset_fallback(raw: &str) -> String {
+    if raw.is_empty() || raw == "unknown" {
+        return "unknown".to_string();
+    }
+    crate::graph::asset_resolution::sanitize_id(&raw.to_lowercase())
+}
+
+/// Single correlation key for an asset reference: the canonical asset id when the
+/// asset is known, else a deterministic lowercased fallback.
+///
+/// Both the findings pass and the alerts pass MUST funnel through this. Before
+/// this, findings were keyed by their raw `asset` string (often a lowercased id
+/// from ML) while alerts were keyed by the asset *display name* (original case) —
+/// so one host produced two `asset_map` entries → two fragmented incidents, and
+/// the `ml_scores` join (keyed by asset id) silently missed every alert-derived
+/// entry. Keying everything by the asset id collapses both and repairs the join.
+/// See detection-chain audit 2026-06-20.
+async fn resolve_asset_key(
+    store: &dyn Database,
+    raw: &str,
+    cache: &mut HashMap<String, String>,
+) -> String {
+    if let Some(hit) = cache.get(raw) {
+        return hit.clone();
+    }
+    let key = match try_resolve_asset_id(store, raw).await {
+        Some(id) => id,
+        None => canonical_asset_fallback(raw),
+    };
+    cache.insert(raw.to_string(), key.clone());
+    key
+}
+
 pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituation {
     // Check if paused
     if let Ok(Some(paused)) = store.get_setting("_system", "tc_paused").await {
@@ -1493,7 +1549,11 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
     let mut asset_map: HashMap<String, AssetSituation> = HashMap::new();
 
     for f in &findings {
-        let asset = f.asset.as_deref().unwrap_or("unknown").to_string();
+        // Canonical asset id — same resolver the alerts pass uses, so a host seen
+        // via a finding (often a lowercased id from ML) and via an alert (resolved
+        // from its hostname) collapse to ONE asset_map entry instead of two.
+        let raw_asset = f.asset.as_deref().unwrap_or("unknown");
+        let asset = resolve_asset_key(store.as_ref(), raw_asset, &mut asset_cache).await;
         let entry = asset_map
             .entry(asset.clone())
             .or_insert_with(|| AssetSituation {
@@ -1531,32 +1591,31 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
     for a in &alerts {
         let raw_host = a.hostname.as_deref().unwrap_or("unknown");
 
-        // Check per-cycle cache first (~0ns vs ~2ms DB query)
+        // Single canonical key (asset id), shared with the findings pass so the
+        // same host never splits into two asset_map entries — and so the
+        // ml_scores join (keyed by asset id) actually hits. Cached per cycle
+        // (~0ns vs ~2ms DB query).
         let asset_name = if let Some(cached) = asset_cache.get(raw_host) {
             cached.clone()
         } else {
-            // Cache miss → resolve via DB cascade
-            let resolved = if let Ok(Some(found)) = store.find_asset_by_ip(raw_host).await {
-                found.name.clone()
-            } else if let Ok(Some(found)) = store.find_asset_by_hostname(raw_host).await {
-                found.name.clone()
+            // Primary: the alert hostname. Fallback: the source IP (some network /
+            // IDS alerts carry the victim only in source_ip). Last resort: a
+            // deterministic lowercased key matching generate_asset_id semantics.
+            let key = if let Some(id) = try_resolve_asset_id(store.as_ref(), raw_host).await {
+                id
             } else if let Some(ref src_ip) = a.source_ip {
                 let clean_ip = src_ip.split('/').next().unwrap_or("").trim();
-                if !clean_ip.is_empty() {
-                    if let Ok(Some(found)) = store.find_asset_by_ip(clean_ip).await {
-                        found.name.clone()
-                    } else {
-                        raw_host.to_string()
-                    }
+                let via_src = if clean_ip.is_empty() {
+                    None
                 } else {
-                    raw_host.to_string()
-                }
+                    try_resolve_asset_id(store.as_ref(), clean_ip).await
+                };
+                via_src.unwrap_or_else(|| canonical_asset_fallback(raw_host))
             } else {
-                raw_host.to_string()
+                canonical_asset_fallback(raw_host)
             };
-            // Store in cache for this cycle
-            asset_cache.insert(raw_host.to_string(), resolved.clone());
-            resolved
+            asset_cache.insert(raw_host.to_string(), key.clone());
+            key
         };
 
         let entry = asset_map
@@ -5279,5 +5338,21 @@ mod tests {
         let mut d = mk_dossier(vec![mk_finding("software-vuln")]);
         d.ml_scores.anomaly_score = 0.5;
         assert!(is_predictive_only(&d));
+    }
+
+    #[test]
+    fn canonical_asset_fallback_collapses_case_and_whitespace() {
+        // An un-enrolled host seen under different spellings must collapse to ONE
+        // correlation key, matching generate_asset_id semantics
+        // (sanitize_id(lowercase)). Regression for the asset-key fragmentation
+        // proven in prod: SRV-CYBE06-001 vs srv-cybe06-001 produced two separate
+        // incident streams. See detection-chain audit 2026-06-20.
+        let a = canonical_asset_fallback("SRV-CYBE06-001");
+        assert_eq!(a, "srv-cybe06-001");
+        assert_eq!(a, canonical_asset_fallback("srv-cybe06-001"));
+        assert_eq!(a, canonical_asset_fallback("  SRV-CYBE06-001  "));
+        // The empty / unknown sentinel is preserved, never coerced to a real key.
+        assert_eq!(canonical_asset_fallback("unknown"), "unknown");
+        assert_eq!(canonical_asset_fallback(""), "unknown");
     }
 }

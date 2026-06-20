@@ -837,7 +837,11 @@ fn generate_asset_id(discovered: &DiscoveredAsset) -> String {
 /// Sanitize an asset ID: lowercase + replace spaces and disallowed characters
 /// with '-'. Keeps a-z, 0-9, '-', '_', '.'. Required because the graph layer
 /// (Apache AGE Cypher) rejects IDs containing whitespace or punctuation.
-fn sanitize_id(s: &str) -> String {
+///
+/// Exposed `pub(crate)` so the Intelligence Engine can derive the same canonical
+/// fallback key (`sanitize_id(raw.to_lowercase())`) it uses to correlate signals,
+/// matching `generate_asset_id` semantics for not-yet-enrolled hosts.
+pub(crate) fn sanitize_id(s: &str) -> String {
     let cleaned: String = s
         .trim()
         .chars()
