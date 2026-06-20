@@ -4,7 +4,7 @@
 // actions require step-up (re-entry of the admin's own password). The backend
 // enforces every check; this UI self-gates for a clean experience.
 import { useState, useEffect, useCallback } from "react";
-import { Users, UserPlus, Trash2, Loader2, ShieldAlert, Copy, RotateCcw, KeyRound } from "lucide-react";
+import { Users, UserPlus, Trash2, Loader2, ShieldAlert, Copy, CheckCircle, RotateCcw, KeyRound } from "lucide-react";
 import { useLocale } from "@/lib/useLocale";
 
 const cardStyle: React.CSSProperties = {
@@ -58,6 +58,7 @@ export default function DashboardUsersTab() {
   const [invBusy, setInvBusy] = useState(false);
   const [invLink, setInvLink] = useState<string | null>(null);
   const [invErr, setInvErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,6 +120,7 @@ export default function DashboardUsersTab() {
     setShowInvite(false);
     setInvEmail(""); setInvName(""); setInvRole("analyst");
     setInvRemediate(true); setInvPw(""); setInvLink(null); setInvErr(null);
+    setCopied(false);
   };
 
   // Step-up actions: prompt for the admin password inline.
@@ -278,8 +280,12 @@ export default function DashboardUsersTab() {
                   {fr ? "Email non configuré. Transmettez ce lien à la personne :" : "Email not configured. Share this link with the person:"}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <input readOnly style={inputStyle} value={`${window.location.origin}${invLink}`} />
-                  <button style={btnGhost} onClick={() => navigator.clipboard?.writeText(`${window.location.origin}${invLink}`)}><Copy size={14} /></button>
+                  <input readOnly style={inputStyle} value={`${window.location.origin}${invLink}`}
+                    onFocus={(e) => e.currentTarget.select()} />
+                  <button style={btnGhost} onClick={async () => { setCopied(await copyText(`${window.location.origin}${invLink}`)); }}>
+                    {copied ? <CheckCircle size={14} color="#30a050" /> : <Copy size={14} />}
+                    {copied ? (fr ? "Copié" : "Copied") : ""}
+                  </button>
                 </div>
                 <div style={{ marginTop: 16, textAlign: "right" }}>
                   <button style={btnPrimary} onClick={closeInvite}>{fr ? "Fermer" : "Close"}</button>
@@ -326,6 +332,33 @@ export default function DashboardUsersTab() {
       )}
     </div>
   );
+}
+
+// Robust copy: the Clipboard API needs a secure context and is often blocked
+// behind a self-signed cert, so fall back to a temporary textarea + execCommand.
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to legacy path */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function Th({ children }: { children: React.ReactNode }) {
