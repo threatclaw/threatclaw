@@ -1959,6 +1959,14 @@ async fn enrol_observed_hostnames(
         if looks_like_program_or_container_id(h) {
             continue;
         }
+        // A syslog `host` value that still carries key=value / quoted fragments
+        // (e.g. Stormshield's `fw="VMSNS…"` when fluent-bit's RFC3164 parser
+        // mis-splits its non-standard "Legacy" line) is not a real hostname.
+        // Enrolling it both creates a garbage asset and — lacking an IP —
+        // dodges dedup, duplicating a device already enrolled by its connector.
+        if h.contains('=') || h.contains('"') {
+            continue;
+        }
         if !seen.insert(h.to_string()) {
             continue;
         }

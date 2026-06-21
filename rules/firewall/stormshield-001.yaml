@@ -11,11 +11,14 @@ tags:
   - attack.discovery
   - attack.t1046
 logsource:
-  category: stormshield
-  product: stormshield
+  category: syslog
 detection:
+  # SNS logs arrive over syslog; fluent-bit's RFC3164 parser leaves the SNS
+  # key=value payload under `message`. `logtype="alarm"` (with the quoted
+  # value) is SNS-specific phrasing, so it identifies an SNS IPS alarm without
+  # a vendor-specific logsource/tag.
   selection:
-    'line|contains': 'logtype="alarm"'
+    'message|contains': 'logtype="alarm"'
   condition: selection
 falsepositives:
   - Benign IPS signatures (auto-updaters, policy probes) — filtered by the Stormshield IDS normalizer

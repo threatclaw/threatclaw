@@ -79,9 +79,12 @@ impl IdsAlertNormalizer for StormshieldNormalizer {
     }
 
     fn normalize(&self, raw: RawFields<'_>) -> Option<NormalizedAlert> {
+        // SNS logs ship over syslog: fluent-bit's RFC3164 parser drops the
+        // `id=firewall time=…` prefix and leaves the key=value tail under
+        // `message` (the legacy webhook path used `line`). Accept either.
         let line = raw
             .iter()
-            .find(|(k, _)| k == "line")
+            .find(|(k, _)| k == "message" || k == "line")
             .map(|(_, v)| v.as_str())?;
         let fields = parse_sns_fields(line);
         let get = |k: &str| {

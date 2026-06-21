@@ -251,11 +251,17 @@ fn parse_sessionid(xml: &str) -> Option<String> {
 /// For multi-section answers the trailing serverd node carries the final code,
 /// so we take the LAST `ret="…"` occurrence.
 fn parse_serverd_result(xml: &str) -> Option<(i32, String)> {
-    let idx = xml.rfind("ret=\"")?;
-    let tail = &xml[idx..];
-    let ret = attr(tail, "ret")?.parse().ok()?;
-    let msg = attr(tail, "msg").unwrap_or("").to_string();
-    Some((ret, msg))
+    if let Some(idx) = xml.rfind("ret=\"") {
+        let tail = &xml[idx..];
+        if let Some(ret) = attr(tail, "ret").and_then(|r| r.parse::<i32>().ok()) {
+            return Some((ret, attr(tail, "msg").unwrap_or("").to_string()));
+        }
+    }
+    // Fallback: a response with no `<serverd ret>` child (some commands return
+    // only the `<nws code=".." msg="..">` envelope). `code=100` == OK, mirroring
+    // serverd `ret=100`, so use it rather than failing as "undecodable".
+    let code = attr(xml, "code").and_then(|c| c.parse::<i32>().ok())?;
+    Some((code, attr(xml, "msg").unwrap_or("").to_string()))
 }
 
 // ── HITL remediation actions (validated live against SNS 5.0.6) ─────────────
@@ -325,7 +331,10 @@ async fn insert_block_rule(cfg: &SnsConfig, ip: &str, comment: &str) -> Result<S
         let new = session
             .command(&format!("CONFIG OBJECT HOST NEW name={obj} ip={ip}"))
             .await?;
-        if !new.is_ok() && !new.msg.to_lowercase().contains("already") {
+        if !new.is_ok()
+            && !new.msg.to_lowercase().contains("already")
+            && !new.msg.to_lowercase().contains("exist")
+        {
             return Err(SnsError::Server {
                 ret: new.ret,
                 msg: new.msg,
@@ -571,7 +580,10 @@ pub async fn configure_syslog(
         let new = session
             .command(&format!("CONFIG OBJECT HOST NEW name={obj} ip={dest_ip}"))
             .await?;
-        if !new.is_ok() && !new.msg.to_lowercase().contains("already") {
+        if !new.is_ok()
+            && !new.msg.to_lowercase().contains("already")
+            && !new.msg.to_lowercase().contains("exist")
+        {
             return Err(SnsError::Server {
                 ret: new.ret,
                 msg: new.msg,
