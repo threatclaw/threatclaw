@@ -1,0 +1,33 @@
+spec_version: cacao-2.0
+name: ps-remoting-lateral
+description: |
+  Sigma "PowerShell Remoting Lateral Movement" (ps-obfusc-015) : PowerShell remoting (Invoke-Command/Enter-PSSession) — mouvement lateral potentiel.
+  Triage : asset critique OU corrobore -> INCIDENT ; sinon -> LLM (pas d auto-archive PS).
+trigger:
+  sigma_rule: ps-obfusc-015
+steps:
+  start: { type: start, on_completion: check_criticality }
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: check_corroborated
+  check_corroborated:
+    type: if-condition
+    condition: "signals.corroborated"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - { cmd_id: velociraptor_isolate_host, rationale: "PowerShell suspect confirme/critique — isoler", requires_hitl: true }
+        - { cmd_id: velociraptor_collect_artifacts, rationale: "PS history + parent + script", requires_hitl: true }
+    on_completion: terminal
+  route_llm:
+    type: action
+    command: { type: threatclaw-investigate-llm, timeout_secs: 1500 }
+    on_completion: terminal
+  terminal: { type: end }

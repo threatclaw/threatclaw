@@ -1,0 +1,32 @@
+spec_version: cacao-2.0
+name: m365-device-code-auth
+description: |
+  Sigma "Device Code Authentication Flow Used" (m365-device-code-auth) : flux device-code (utilise en phishing mais aussi legitime).
+  Triage : asset critique OU corrobore -> INCIDENT identite ; sinon -> LLM.
+trigger:
+  sigma_rule: m365-device-code-auth
+steps:
+  start: { type: start, on_completion: check_criticality }
+  check_criticality:
+    type: if-condition
+    condition: "asset.criticality_score >= 7"
+    on_true: emit_incident
+    on_false: check_corroborated
+  check_corroborated:
+    type: if-condition
+    condition: "signals.corroborated"
+    on_true: emit_incident
+    on_false: route_llm
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: high
+      proposed_actions:
+        - { cmd_id: azuread_disable_user, rationale: "Suspendre le compte le temps de verifier", requires_hitl: true }
+    on_completion: terminal
+  route_llm:
+    type: action
+    command: { type: threatclaw-investigate-llm, timeout_secs: 1500 }
+    on_completion: terminal
+  terminal: { type: end }

@@ -1,0 +1,22 @@
+spec_version: cacao-2.0
+name: ntds-extraction
+description: |
+  Sigma "NTDS.dit Extraction via ntdsutil" (sysmon-ntds-extraction) : extraction
+  de la base AD (T1003.003) — TOUS les hash de domaine exposes. Compromission
+  totale du domaine. INCIDENT critical, reponse maximale (HITL) :
+  isoler le DC + collecter + rotation krbtgt (double) cote AD.
+trigger:
+  sigma_rule: sysmon-ntds-extraction
+steps:
+  start: { type: start, on_completion: emit_incident }
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - { cmd_id: velociraptor_isolate_host, rationale: "Isoler le DC — base AD exfiltree", requires_hitl: true }
+        - { cmd_id: velociraptor_collect_artifacts, rationale: "Collecter l'IFM/ntds.dit genere + chronologie", requires_hitl: true }
+        - { cmd_id: ad_reset_password, rationale: "Rotation des comptes a privilege (krbtgt x2 recommande)", requires_hitl: true }
+    on_completion: terminal
+  terminal: { type: end }

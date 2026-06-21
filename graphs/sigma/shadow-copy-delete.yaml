@@ -1,0 +1,22 @@
+spec_version: cacao-2.0
+name: shadow-copy-delete
+description: |
+  Sigma "Volume Shadow Copy Deletion" (sysmon-shadow-copy-delete) : vssadmin/
+  wmic delete shadows (T1490). Pre-encryption ransomware quasi-systematique —
+  l'attaquant detruit les sauvegardes avant de chiffrer. INCIDENT critical,
+  containment immediat (HITL).
+trigger:
+  sigma_rule: sysmon-shadow-copy-delete
+steps:
+  start: { type: start, on_completion: emit_incident }
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - { cmd_id: velociraptor_isolate_host, rationale: "Isoler — chiffrement ransomware imminent", requires_hitl: true }
+        - { cmd_id: velociraptor_kill_process, rationale: "Tuer le process supprimant les shadow copies", requires_hitl: true }
+        - { cmd_id: velociraptor_collect_artifacts, rationale: "Chronologie + binaire parent", requires_hitl: true }
+    on_completion: terminal
+  terminal: { type: end }
