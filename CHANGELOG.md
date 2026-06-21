@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.52-beta] — 2026-06-22
+
+### Added
+- Risk-Based Aggregation: repeated risk signals on the same host or account now build up into a single prioritised incident once they cross a risk threshold, instead of scattering into separate alerts.
+
+### Fixed
+- ThreatClaw no longer raises a suspicious-PowerShell alert against its own Windows agent installer.
+- Suspicious-PowerShell alerts no longer repeat on every monitoring cycle; a given script now alerts once per hour.
+
 ## [1.0.51-beta] — 2026-06-21
 
 ### Added
