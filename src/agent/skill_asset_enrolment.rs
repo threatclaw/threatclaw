@@ -80,6 +80,15 @@ fn template_for(skill_id: &str) -> Option<AssetTemplate> {
             criticality: "critical",
             tags: &["enrolled", "firewall"],
         }),
+        "skill-stormshield" | "skill-stormshield-actions" => Some(AssetTemplate {
+            id: "skill-stormshield-host",
+            name: "Stormshield SNS",
+            category: "network",
+            subcategory: "firewall",
+            os: Some("Stormshield NS-BSD"),
+            criticality: "critical",
+            tags: &["enrolled", "firewall"],
+        }),
         "skill-mikrotik" => Some(AssetTemplate {
             id: "skill-mikrotik-host",
             name: "MikroTik",

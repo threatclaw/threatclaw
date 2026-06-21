@@ -821,6 +821,37 @@ function SkillCard({
 // the wazuh extra panel and the freebox pairing flow as inline
 // addendums, plus Save / Run / Uninstall.
 // ─────────────────────────────────────────────────────────────────────
+// Stormshield-only: shows whether the firewall's syslog is actually reaching
+// ThreatClaw (so the operator can confirm log reception after setup).
+function StormshieldSyslogStatus({ locale }: { locale: "fr" | "en" }) {
+  const [st, setSt] = useState<any>(null);
+  useEffect(() => {
+    fetch("/api/tc/skills/stormshield/syslog-status", { signal: AbortSignal.timeout(5000) })
+      .then((r) => r.json())
+      .then(setSt)
+      .catch(() => {});
+  }, []);
+  if (!st) return null;
+  const ok = !!st.received_recently;
+  return (
+    <div
+      style={{
+        display: "flex", alignItems: "center", gap: "8px",
+        padding: "8px 12px", marginBottom: "12px", borderRadius: "var(--tc-radius-sm)",
+        background: ok ? "rgba(48,160,80,0.08)" : "rgba(200,140,20,0.10)",
+        border: ok ? "1px solid rgba(48,160,80,0.25)" : "1px solid rgba(200,140,20,0.25)",
+        fontSize: "11px", fontWeight: 700, color: ok ? "#30a050" : "#c88c14",
+      }}
+    >
+      {ok
+        ? locale === "fr" ? "Réception des logs OK" : "Logs received OK"
+        : locale === "fr"
+          ? "Aucun log reçu (30 min) — vérifie l'export syslog du pare-feu"
+          : "No logs received (30 min) — check the firewall's syslog export"}
+    </div>
+  );
+}
+
 function ConfigModal({
   skill, locale, configValues, activeHint, running, runResult, allSkills,
   setActiveHint, setConfig, setConfigValues, onOpenSkill,
@@ -890,6 +921,8 @@ function ConfigModal({
           </button>
         </div>
         <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: "1.6", marginBottom: "12px" }}>{skill.description}</p>
+
+        {skill.id === "skill-stormshield" && <StormshieldSyslogStatus locale={locale} />}
 
         {parentSkill && (
           <div style={{

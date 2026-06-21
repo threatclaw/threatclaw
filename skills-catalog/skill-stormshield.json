@@ -1,0 +1,89 @@
+{
+  "id": "skill-stormshield",
+  "name": "Stormshield SNS",
+  "version": "1.0.0",
+  "description": "Connecte un pare-feu Stormshield Network Security (SNS) : inventaire de l'équipement, recherche de logs filtre/IPS pour une IP, et blocage d'IP/URL avec validation humaine.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "network",
+  "help": "Stormshield Network Security (SNS) est un pare-feu UTM français, courant en PME et chez les acteurs publics. ThreatClaw s'y connecte via l'API serverd (HTTPS) pour :\n\n• inventorier l'équipement (modèle, version firmware, numéro de série) comme asset surveillé, avec veille CVE / avis CERT-FR ;\n• rechercher les logs filtre et alarmes IPS concernant une IP lors d'une investigation ;\n• en mode remédiation (validation humaine), bloquer ou débloquer une IP, isoler un hôte, ou bloquer une URL.\n\nPrérequis — créez un compte dédié à ThreatClaw sur le SNS avec ces droits :\n• SNS accessible en HTTPS (port 443 par défaut)\n• Administration : lecture de l'inventaire et de la configuration\n• Modification (write) : requis pour les actions de blocage (HITL)\n• Accès aux données personnelles / logs : requis pour la recherche de logs. Sans ce droit, le SNS refuse l'accès aux journaux (erreur « Private data access right required ») — à accorder explicitement au compte, ou configurer l'accès aux journaux sans restriction.",
+  "execution": {
+    "mode": "persistent",
+    "sync_interval_minutes": 5,
+    "protocol": "https"
+  },
+  "config": {
+    "url": {
+      "type": "string",
+      "description": "URL du pare-feu SNS",
+      "placeholder": "https://192.168.1.254",
+      "hint": "Adresse HTTPS de l'interface d'administration du SNS.",
+      "required": true
+    },
+    "auth_user": {
+      "type": "string",
+      "description": "Compte d'administration",
+      "placeholder": "admin",
+      "hint": "Login d'un compte d'administration SNS. Préférez un compte dédié à ThreatClaw.",
+      "required": true
+    },
+    "auth_secret": {
+      "type": "password",
+      "description": "Mot de passe",
+      "hint": "Mot de passe du compte d'administration. Stocké chiffré.",
+      "required": true
+    },
+    "no_tls_verify": {
+      "type": "boolean",
+      "description": "Ignorer le certificat TLS",
+      "hint": "Le SNS présente un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat de confiance.",
+      "default": true
+    },
+    "syslog_dest": {
+      "type": "string",
+      "description": "Adresse syslog de ThreatClaw",
+      "placeholder": "10.0.0.10",
+      "hint": "IP de ThreatClaw joignable depuis le pare-feu. Renseignée, ThreatClaw configure automatiquement l'export syslog du SNS (UDP 514, RFC3164) vers cette adresse — aucune manipulation sur le pare-feu.",
+      "required": false
+    }
+  },
+  "hitl_actions": {
+    "enabled": true,
+    "implemented": true,
+    "requires_separate_creds": false,
+    "credential_fields": {},
+    "actions": [
+      {
+        "name": "stormshield_block_ip",
+        "label": "Bloquer une IP",
+        "description": "Crée un objet hôte pour l'IP cible et insère une règle de filtrage block en tête de politique. Réversible (suppression de la règle et de l'objet)."
+      },
+      {
+        "name": "stormshield_unblock_ip",
+        "label": "Débloquer une IP",
+        "description": "Retire la règle de blocage et l'objet hôte précédemment créés par ThreatClaw pour cette IP."
+      },
+      {
+        "name": "stormshield_isolate_host",
+        "label": "Isoler un hôte",
+        "description": "Coupe tout le trafic d'un hôte interne compromis via une règle de filtrage block (source = hôte, destination = any). Réversible."
+      },
+      {
+        "name": "stormshield_block_url",
+        "label": "Bloquer une URL",
+        "description": "Ajoute le domaine/URL à un objet FQDN bloqué appliqué au filtrage sortant. Réversible. Nécessite une politique de filtrage URL active."
+      }
+    ]
+  },
+  "auto_sync": true,
+  "sync_interval": 5,
+  "outputs": {
+    "assets": "graph",
+    "topology": "graph"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "shield"
+}

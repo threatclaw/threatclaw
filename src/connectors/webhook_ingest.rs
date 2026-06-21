@@ -221,6 +221,7 @@ pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, bo
     match source {
         "zeek" => parse_zeek(store, &json).await,
         "suricata" => parse_suricata(store, &json).await,
+        "stormshield" => parse_stormshield(store, &json).await,
         "osquery" => {
             let hostname = json["hostname"]
                 .as_str()
@@ -646,6 +647,64 @@ fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
     }
     // Fallback
     "zeek.unknown".into()
+}
+
+/// Parse Stormshield SNS logs pushed from a remote Fluent-Bit agent (syslog,
+/// RFC3164/"Legacy"). The raw SNS line is space-separated `key=value` text; it
+/// may arrive as a bare string or under `message`/`log`/`line`. We store the
+/// raw line under `line` — so the `stormshield-001` sigma rule matches and the
+/// Stormshield IDS normalizer fires — plus the parsed src/dst/logtype for
+/// fast querying. Detection + false-positive filtering are handled downstream
+/// by the sigma engine; this only ingests.
+async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u32 {
+    let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
+        arr.iter().collect()
+    } else {
+        vec![json]
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut count = 0u32;
+    for entry in entries {
+        let raw = entry
+            .as_str()
+            .or_else(|| entry["message"].as_str())
+            .or_else(|| entry["log"].as_str())
+            .or_else(|| entry["line"].as_str())
+            .unwrap_or("");
+        // Guard against non-SNS noise reaching this endpoint.
+        if !raw.contains("id=firewall") {
+            continue;
+        }
+        let fields = crate::agent::ids_normalizer::stormshield::parse_sns_fields(raw);
+        let get = |k: &str| {
+            fields
+                .iter()
+                .find(|(kk, _)| kk == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default()
+        };
+        let logtype = {
+            let lt = get("logtype");
+            if lt.is_empty() { "unknown".to_string() } else { lt }
+        };
+        let src = get("src");
+        let dst = get("dst");
+        let fw = get("fw");
+        let data = serde_json::json!({
+            "line": raw,
+            "logtype": logtype,
+            "src": src,
+            "dst": dst,
+            "action": get("action"),
+            "msg": get("msg"),
+        });
+        let tag = format!("stormshield.{logtype}");
+        let hostname = if dst.is_empty() { fw.as_str() } else { dst.as_str() };
+        if store.insert_log(&tag, hostname, &data, &now).await.is_ok() {
+            count += 1;
+        }
+    }
+    count
 }
 
 /// Parse Suricata EVE JSON logs pushed from a remote Fluent-Bit agent.

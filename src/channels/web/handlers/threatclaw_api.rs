@@ -678,7 +678,69 @@ pub async fn skill_config_set_handler(
         ),
     }
 
+    // Stormshield: when the connector is enabled (or its syslog destination is
+    // set), push the syslog export config to the appliance itself — ThreatClaw
+    // configures the firewall's log forwarding, no manual step on the SNS.
+    // Best-effort + spawned: it talks to the firewall over the network and must
+    // never slow down or fail the config save.
+    if skill_id == "skill-stormshield" && matches!(req.key.as_str(), "enabled" | "syslog_dest") {
+        if let Ok(records) = store.get_skill_config(&skill_id).await {
+            let cfg: std::collections::HashMap<String, String> =
+                records.into_iter().map(|r| (r.key, r.value)).collect();
+            let enabled = cfg.get("enabled").map(|s| s == "true").unwrap_or(false);
+            let url = cfg.get("url").filter(|s| !s.is_empty()).cloned();
+            let dest = cfg.get("syslog_dest").filter(|s| !s.is_empty()).cloned();
+            if let (true, Some(url), Some(dest)) = (enabled, url, dest) {
+                let sns = crate::connectors::stormshield_sns::SnsConfig {
+                    url,
+                    user: cfg.get("auth_user").cloned().unwrap_or_default(),
+                    password: cfg.get("auth_secret").cloned().unwrap_or_default(),
+                    no_tls_verify: cfg.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
+                };
+                tokio::spawn(async move {
+                    match crate::connectors::stormshield_sns::configure_syslog(&sns, &dest, 514)
+                        .await
+                    {
+                        Ok(s) => tracing::info!("stormshield syslog auto-config: {s}"),
+                        Err(e) => tracing::warn!("stormshield syslog auto-config failed: {e}"),
+                    }
+                });
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({ "status": "saved" })))
+}
+
+/// Stormshield syslog reception status — are SNS logs actually arriving?
+/// Lets the operator confirm, after setup, that the firewall's syslog export
+/// reaches ThreatClaw (the lab flow can break on a network/route issue).
+pub async fn stormshield_syslog_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    const WINDOW_MIN: i64 = 30;
+    // SNS logs arrive over syslog (tag `syslog.*`); fluent-bit's RFC3164 parser
+    // drops the `id=firewall` prefix but keeps the SNS payload in the message —
+    // `slotlevel=` is a Stormshield-specific field present in every SNS log, so
+    // it identifies SNS reception without false positives from other syslog.
+    let filters = crate::db::threatclaw_store::LogSearchFilters {
+        hostname: None,
+        tag: Some("syslog.%".to_string()),
+        from: Some(chrono::Utc::now() - chrono::Duration::minutes(WINDOW_MIN)),
+        to: None,
+        q: Some("slotlevel=".to_string()),
+        limit: 1,
+        cursor: None,
+    };
+    let res = store.search_logs(&filters).await.map_err(db_err)?;
+    let last_seen = res.logs.first().map(|l| l.created_at.clone());
+    Ok(Json(serde_json::json!({
+        "received_recently": !res.logs.is_empty(),
+        "last_seen": last_seen,
+        "window_minutes": WINDOW_MIN,
+    })))
 }
 
 // ── Scan queue (V51 scan_queue) ──

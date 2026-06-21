@@ -135,8 +135,12 @@ pub async fn execute_incident_remediation_for(
         | Some("fortinet_block_ip")
         | Some("pfsense_block_ip")
         | Some("mikrotik_block_ip")
-        | Some("proxmox_block_ip") => {
+        | Some("proxmox_block_ip")
+        | Some("stormshield_block_ip") => {
             Some(execute_block_ip(store.as_ref(), asset, incident_id).await)
+        }
+        Some("stormshield_unblock_ip") => {
+            Some(execute_unblock_ip(store.as_ref(), asset, incident_id).await)
         }
         Some("velociraptor_isolate_host") | Some("edr_isolate_host") => {
             Some(execute_isolate_host(store.as_ref(), asset, incident_id).await)
@@ -339,6 +343,15 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
                         },
                     }
                 }
+                "stormshield" => {
+                    let cfg = crate::connectors::stormshield_sns::SnsConfig {
+                        url: url.clone(),
+                        user: user.clone(),
+                        password: secret.clone(),
+                        no_tls_verify: no_tls,
+                    };
+                    crate::connectors::stormshield_sns::block_ip(&cfg, &target_ip).await
+                }
                 _ => {
                     crate::connectors::remediation::pfsense_block_ip(
                         &url, &user, &secret, &target_ip, no_tls,
@@ -368,6 +381,51 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
             false,
             "Aucun firewall configure (pfSense / OPNsense / FortiGate)".into(),
         ),
+    }
+}
+
+/// Remove a firewall block previously placed by ThreatClaw for the attacker IP.
+/// Currently implemented for Stormshield (drops the filter rule + host object);
+/// other vendors don't expose a structured unblock yet.
+async fn execute_unblock_ip(store: &dyn Database, asset: &str, incident_id: i32) -> (bool, String) {
+    let target_ip = match extract_attacker_ip(store, asset, incident_id).await {
+        Some(ip) => ip,
+        None => {
+            return (
+                false,
+                format!("Impossible de determiner l'IP a debloquer pour {}", asset),
+            );
+        }
+    };
+    match load_firewall_config(store).await {
+        Some((fw_type, url, user, secret, no_tls)) => {
+            let result = match fw_type.as_str() {
+                "stormshield" => {
+                    let cfg = crate::connectors::stormshield_sns::SnsConfig {
+                        url: url.clone(),
+                        user: user.clone(),
+                        password: secret.clone(),
+                        no_tls_verify: no_tls,
+                    };
+                    crate::connectors::stormshield_sns::unblock_ip(&cfg, &target_ip).await
+                }
+                other => {
+                    return (
+                        false,
+                        format!("Deblocage non supporte pour le firewall '{}'", other),
+                    );
+                }
+            };
+            if result.success {
+                (true, format!("IP {} debloquee sur {}", target_ip, fw_type))
+            } else {
+                (
+                    false,
+                    format!("Echec deblocage {} : {}", target_ip, result.message),
+                )
+            }
+        }
+        None => (false, "Aucun firewall configure".into()),
     }
 }
 
@@ -765,6 +823,23 @@ pub(crate) async fn load_firewall_config(
                 user.into(),
                 secret.into(),
                 no_tls,
+            ));
+        }
+    }
+    // Stormshield: the dashboard skill form persists connector config into the
+    // `skill_configs` key/value store (not the legacy settings("config") blob
+    // the loop above reads), so resolve it from there.
+    if let Ok(records) = store.get_skill_config("skill-stormshield").await {
+        let map: std::collections::HashMap<String, String> =
+            records.into_iter().map(|r| (r.key, r.value)).collect();
+        let enabled = map.get("enabled").map(|s| s == "true").unwrap_or(false);
+        if let (true, Some(url)) = (enabled, map.get("url")) {
+            return Some((
+                "stormshield".into(),
+                url.clone(),
+                map.get("auth_user").cloned().unwrap_or_default(),
+                map.get("auth_secret").cloned().unwrap_or_default(),
+                map.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
             ));
         }
     }

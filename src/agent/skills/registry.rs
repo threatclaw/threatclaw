@@ -52,6 +52,9 @@ impl SkillRegistry {
         if let Some(fw) = try_build_mikrotik(store).await {
             firewalls.push(fw);
         }
+        if let Some(fw) = try_build_stormshield(store).await {
+            firewalls.push(fw);
+        }
 
         // ── SIEM ──────────────────────────────────────────────────
         if let Some(siem) = try_build_elastic_siem(store).await {
@@ -238,6 +241,25 @@ async fn try_build_mikrotik(store: &dyn Database) -> Option<Arc<dyn FirewallSkil
         password,
         no_tls_verify,
     }))
+}
+
+async fn try_build_stormshield(store: &dyn Database) -> Option<Arc<dyn FirewallSkill>> {
+    let cfg = read_skill_config_map(store, "skill-stormshield").await?;
+    let url = cfg.get("url").cloned()?;
+    let auth_user = cfg.get("auth_user").cloned()?;
+    let auth_secret = cfg.get("auth_secret").cloned()?;
+    let no_tls_verify = cfg
+        .get("no_tls_verify")
+        .map(|s| s == "true")
+        .unwrap_or(true);
+    Some(Arc::new(
+        crate::agent::skills::stormshield::StormshieldFirewall {
+            url,
+            auth_user,
+            auth_secret,
+            no_tls_verify,
+        },
+    ))
 }
 
 async fn try_build_graylog(store: &dyn Database) -> Option<Arc<dyn SiemSkill>> {

@@ -90,6 +90,7 @@ pub mod proxmox;
 pub mod proxmox_backup;
 pub mod remediation;
 pub mod shuffle;
+pub mod stormshield_sns;
 pub mod suricata;
 pub mod sync_scheduler;
 pub mod thehive;
