@@ -438,6 +438,10 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::skill_config_set_handler),
         )
         .route(
+            "/api/tc/skills/stormshield/syslog-status",
+            get(super::handlers::threatclaw_api::stormshield_syslog_status_handler),
+        )
+        .route(
             "/api/tc/metrics",
             get(super::handlers::threatclaw_api::dashboard_metrics_handler),
         )

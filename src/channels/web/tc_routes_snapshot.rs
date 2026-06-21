@@ -277,6 +277,7 @@ pub const TC_ROUTES: &[&str] = &[
     "/api/tc/sigma/rules/{id}/enabled",
     "/api/tc/sigma/rules/{id}/exceptions",
     "/api/tc/sigma/rules/{id}/promotion",
+    "/api/tc/skills/stormshield/syslog-status",
     "/api/tc/skills/{id}/install",
     "/api/tc/skills/{id}/test",
     "/api/tc/skills/run/{skill_id}",

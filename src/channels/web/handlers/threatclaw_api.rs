@@ -712,6 +712,33 @@ pub async fn skill_config_set_handler(
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
 
+/// Stormshield syslog reception status — are SNS logs actually arriving?
+/// Lets the operator confirm, after setup, that the firewall's syslog export
+/// reaches ThreatClaw (the lab flow can break on a network/route issue).
+pub async fn stormshield_syslog_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    const WINDOW_MIN: i64 = 30;
+    let filters = crate::db::threatclaw_store::LogSearchFilters {
+        hostname: None,
+        tag: Some("stormshield.%".to_string()),
+        from: Some(chrono::Utc::now() - chrono::Duration::minutes(WINDOW_MIN)),
+        to: None,
+        q: None,
+        limit: 1,
+        cursor: None,
+    };
+    let res = store.search_logs(&filters).await.map_err(db_err)?;
+    let last_seen = res.logs.first().map(|l| l.created_at.clone());
+    Ok(Json(serde_json::json!({
+        "received_recently": !res.logs.is_empty(),
+        "last_seen": last_seen,
+        "window_minutes": WINDOW_MIN,
+    })))
+}
+
 // ── Scan queue (V51 scan_queue) ──
 
 #[derive(Debug, Deserialize)]
