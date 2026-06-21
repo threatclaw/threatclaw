@@ -139,6 +139,9 @@ pub async fn execute_incident_remediation_for(
         | Some("stormshield_block_ip") => {
             Some(execute_block_ip(store.as_ref(), asset, incident_id).await)
         }
+        Some("stormshield_unblock_ip") => {
+            Some(execute_unblock_ip(store.as_ref(), asset, incident_id).await)
+        }
         Some("velociraptor_isolate_host") | Some("edr_isolate_host") => {
             Some(execute_isolate_host(store.as_ref(), asset, incident_id).await)
         }
@@ -378,6 +381,51 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
             false,
             "Aucun firewall configure (pfSense / OPNsense / FortiGate)".into(),
         ),
+    }
+}
+
+/// Remove a firewall block previously placed by ThreatClaw for the attacker IP.
+/// Currently implemented for Stormshield (drops the filter rule + host object);
+/// other vendors don't expose a structured unblock yet.
+async fn execute_unblock_ip(store: &dyn Database, asset: &str, incident_id: i32) -> (bool, String) {
+    let target_ip = match extract_attacker_ip(store, asset, incident_id).await {
+        Some(ip) => ip,
+        None => {
+            return (
+                false,
+                format!("Impossible de determiner l'IP a debloquer pour {}", asset),
+            );
+        }
+    };
+    match load_firewall_config(store).await {
+        Some((fw_type, url, user, secret, no_tls)) => {
+            let result = match fw_type.as_str() {
+                "stormshield" => {
+                    let cfg = crate::connectors::stormshield_sns::SnsConfig {
+                        url: url.clone(),
+                        user: user.clone(),
+                        password: secret.clone(),
+                        no_tls_verify: no_tls,
+                    };
+                    crate::connectors::stormshield_sns::unblock_ip(&cfg, &target_ip).await
+                }
+                other => {
+                    return (
+                        false,
+                        format!("Deblocage non supporte pour le firewall '{}'", other),
+                    );
+                }
+            };
+            if result.success {
+                (true, format!("IP {} debloquee sur {}", target_ip, fw_type))
+            } else {
+                (
+                    false,
+                    format!("Echec deblocage {} : {}", target_ip, result.message),
+                )
+            }
+        }
+        None => (false, "Aucun firewall configure".into()),
     }
 }
 
