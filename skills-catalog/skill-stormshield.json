@@ -39,6 +39,13 @@
       "description": "Ignorer le certificat TLS",
       "hint": "Le SNS présente un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat de confiance.",
       "default": true
+    },
+    "syslog_dest": {
+      "type": "string",
+      "description": "Adresse syslog de ThreatClaw",
+      "placeholder": "10.0.0.10",
+      "hint": "IP de ThreatClaw joignable depuis le pare-feu. Renseignée, ThreatClaw configure automatiquement l'export syslog du SNS (UDP 514, RFC3164) vers cette adresse — aucune manipulation sur le pare-feu.",
+      "required": false
     }
   },
   "hitl_actions": {

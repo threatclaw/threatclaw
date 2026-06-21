@@ -678,6 +678,37 @@ pub async fn skill_config_set_handler(
         ),
     }
 
+    // Stormshield: when the connector is enabled (or its syslog destination is
+    // set), push the syslog export config to the appliance itself — ThreatClaw
+    // configures the firewall's log forwarding, no manual step on the SNS.
+    // Best-effort + spawned: it talks to the firewall over the network and must
+    // never slow down or fail the config save.
+    if skill_id == "skill-stormshield" && matches!(req.key.as_str(), "enabled" | "syslog_dest") {
+        if let Ok(records) = store.get_skill_config(&skill_id).await {
+            let cfg: std::collections::HashMap<String, String> =
+                records.into_iter().map(|r| (r.key, r.value)).collect();
+            let enabled = cfg.get("enabled").map(|s| s == "true").unwrap_or(false);
+            let url = cfg.get("url").filter(|s| !s.is_empty()).cloned();
+            let dest = cfg.get("syslog_dest").filter(|s| !s.is_empty()).cloned();
+            if let (true, Some(url), Some(dest)) = (enabled, url, dest) {
+                let sns = crate::connectors::stormshield_sns::SnsConfig {
+                    url,
+                    user: cfg.get("auth_user").cloned().unwrap_or_default(),
+                    password: cfg.get("auth_secret").cloned().unwrap_or_default(),
+                    no_tls_verify: cfg.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
+                };
+                tokio::spawn(async move {
+                    match crate::connectors::stormshield_sns::configure_syslog(&sns, &dest, 514)
+                        .await
+                    {
+                        Ok(s) => tracing::info!("stormshield syslog auto-config: {s}"),
+                        Err(e) => tracing::warn!("stormshield syslog auto-config failed: {e}"),
+                    }
+                });
+            }
+        }
+    }
+
     Ok(Json(serde_json::json!({ "status": "saved" })))
 }
 
