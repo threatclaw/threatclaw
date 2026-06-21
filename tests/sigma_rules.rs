@@ -122,6 +122,8 @@ fn compile_rule(rule: &RuleYaml) -> CompiledRule {
         matchers,
         condition,
         disposition: "detect".into(),
+        tier: "queue".into(),
+        risk_score: None,
     }
 }
 

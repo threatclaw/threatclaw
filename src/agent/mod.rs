@@ -78,6 +78,7 @@ pub mod remediation_guard;
 pub mod remediation_whitelist;
 pub mod report_lang;
 pub mod retroact;
+pub mod risk_aggregator;
 mod router;
 pub mod routine;
 pub mod routine_engine;

@@ -1987,6 +1987,11 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
     // ── 5k. SIGMA ENGINE — native rule matching on recent logs ──
     crate::agent::sigma_engine::run_sigma_cycle(store.clone(), 5).await;
 
+    // ── 5k-RBA. RISK AGGREGATION (Phase D1) — `rba_only` rules wrote risk
+    // events above; surface a "risk notable" incident once accumulated risk
+    // crosses a threshold (score-sum/24h or tactic-diversity/7d). Non-fatal.
+    crate::agent::risk_aggregator::run_risk_aggregation(store.clone()).await;
+
     // ── 5k-bis. FIREWALL DETECTION — port scan / brute force on pf log ──
     let fw_result =
         crate::agent::firewall_detection::run_firewall_detection_cycle(store.clone(), 5).await;

@@ -38,6 +38,36 @@ pub struct NewFinding {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// RBA (Phase D1) — a risk event to persist: one `rba_only` rule match that
+/// contributes a weighted score to a risk object (asset or user) instead of
+/// raising a direct alert.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewRiskEvent {
+    pub risk_object: String,
+    pub object_type: String, // "asset" | "user"
+    pub score: i32,
+    pub source_rule: String,
+    pub mitre_tactic: Option<String>,
+    pub mitre_technique: Option<String>,
+    pub log_id: Option<i64>,
+    pub message: Option<String>,
+}
+
+/// RBA — a stored risk event read back for aggregation by `risk_aggregator`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskEvent {
+    pub id: i64,
+    pub risk_object: String,
+    pub object_type: String,
+    pub score: i32,
+    pub source_rule: String,
+    pub mitre_tactic: Option<String>,
+    pub mitre_technique: Option<String>,
+    pub log_id: Option<i64>,
+    pub message: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertRecord {
     pub id: i64,
@@ -1480,6 +1510,19 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<Vec<serde_json::Value>, DatabaseError>;
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
+
+    /// RBA (Phase D1) — persist a risk event for an `rba_only` rule match.
+    /// Non-fatal at the call site (a lost risk event must not break the cycle).
+    async fn insert_risk_event(&self, ev: &NewRiskEvent) -> Result<(), DatabaseError>;
+
+    /// RBA — all risk events created in the last `since_hours`, for the
+    /// aggregator. Grouping + scoring + the two Risk Incident Rules are done
+    /// in-process (`risk_aggregator`) so they stay unit-testable. At PME scale
+    /// the volume is small (a 7-day window = at most a few thousand rows).
+    async fn list_recent_risk_events(
+        &self,
+        since_hours: i64,
+    ) -> Result<Vec<RiskEvent>, DatabaseError>;
 
     /// Atomically claim an incident remediation action for execution
     /// (anti-replay / execute-once). Appends an

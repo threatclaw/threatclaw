@@ -32,6 +32,13 @@ pub struct CompiledRule {
     /// Promotion ladder disposition controlling how matches are surfaced
     /// (monitor / detect / block). Default 'detect'.
     pub disposition: String,
+    /// Alerting sphere (page / queue / rba_only). Default 'queue'. When
+    /// `rba_only`, a match writes a `risk_event` (RBA) instead of a direct
+    /// alert — see the routing in `run_sigma_cycle`. (Phase D1.)
+    pub tier: String,
+    /// Optional per-rule risk weight (0-100) for RBA. `None` → the score is
+    /// derived from `level` at routing time. (Phase D1.)
+    pub risk_score: Option<i32>,
 }
 
 /// Cached active exception. Comparison against alert fields happens
@@ -238,6 +245,43 @@ pub struct SigmaMatch {
     pub rule_title: String,
     pub level: String,
     pub matched_fields: Vec<(String, String)>,
+}
+
+/// RBA (Phase D1) — default risk weight derived from a rule's Sigma level when
+/// the rule has no explicit `risk_score`. Aligns the 0-100 risk scale with the
+/// severity ladder (cf. internal/PLAN_PHASE_D_RBA.md / Splunk RBA confidence 0-100).
+pub fn risk_score_from_level(level: &str) -> i32 {
+    match level.to_ascii_lowercase().as_str() {
+        "critical" => 100,
+        "high" => 50,
+        "medium" => 25,
+        "low" => 10,
+        _ => 5, // informational / unknown
+    }
+}
+
+/// RBA — extract the first MITRE tactic + technique from a rule's Sigma tags
+/// (`attack.t1003.001`, `attack.credential_access`, …). Populates the "risk
+/// annotations" used by the tactic-diversity Risk Incident Rule.
+pub fn mitre_from_tags(tags: &[String]) -> (Option<String>, Option<String>) {
+    let mut tactic = None;
+    let mut technique = None;
+    for t in tags {
+        let lt = t.to_ascii_lowercase();
+        let Some(rest) = lt.strip_prefix("attack.") else {
+            continue;
+        };
+        let is_technique =
+            rest.starts_with('t') && rest[1..].chars().next().is_some_and(|c| c.is_ascii_digit());
+        if is_technique {
+            if technique.is_none() {
+                technique = Some(rest.to_ascii_uppercase()); // t1003.001 -> T1003.001
+            }
+        } else if tactic.is_none() {
+            tactic = Some(rest.to_string()); // credential_access
+        }
+    }
+    (tactic, technique)
 }
 
 // ── Compilation ──
@@ -1395,6 +1439,8 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
 
         if let Some((matchers, condition)) = compile_detection(detection) {
             let disposition = row["disposition"].as_str().unwrap_or("detect").to_string();
+            let tier = row["tier"].as_str().unwrap_or("queue").to_string();
+            let risk_score = row["risk_score"].as_i64().map(|v| v as i32);
             compiled.push(CompiledRule {
                 id,
                 title,
@@ -1413,6 +1459,8 @@ async fn load_and_compile(store: &dyn crate::db::Database) -> Vec<CompiledRule> 
                 matchers,
                 condition,
                 disposition,
+                tier,
+                risk_score,
             });
         } else {
             tracing::debug!(
@@ -1710,6 +1758,36 @@ pub async fn run_sigma_cycle(store: Arc<dyn crate::db::Database>, minutes_back: 
                 for (k, v) in &m.matched_fields {
                     mf_obj.insert(k.clone(), serde_json::Value::String(v.clone()));
                 }
+                // Phase D1 — RBA routing. A rule tagged `tier='rba_only'`
+                // does NOT raise a direct alert: each match writes a weighted
+                // `risk_event` on the asset, and the aggregator surfaces an
+                // incident only when accumulated risk crosses a threshold.
+                // (cf. internal/PLAN_PHASE_D_RBA.md.)
+                if rule.tier == "rba_only" {
+                    let score = rule
+                        .risk_score
+                        .unwrap_or_else(|| risk_score_from_level(&m.level));
+                    let (mitre_tactic, mitre_technique) = mitre_from_tags(&rule.tags);
+                    let ev = crate::db::threatclaw_store::NewRiskEvent {
+                        risk_object: canonical_asset.clone(),
+                        object_type: "asset".into(),
+                        score,
+                        source_rule: m.rule_id.clone(),
+                        mitre_tactic,
+                        mitre_technique,
+                        log_id: Some(log.id),
+                        message: Some(m.rule_title.clone()),
+                    };
+                    if let Err(e) = store.insert_risk_event(&ev).await {
+                        tracing::warn!(
+                            "RBA: insert_risk_event failed for rule {} on {}: {e}",
+                            m.rule_id,
+                            canonical_asset
+                        );
+                    }
+                    continue; // no direct alert for rba_only rules
+                }
+
                 // Phase B — promotion ladder disposition. `block` tags the
                 // alert so the HITL panel surfaces an explicit "auto-action
                 // recommended" pill. `monitor` forces the alert level down
@@ -2812,6 +2890,8 @@ mod tests {
             matchers: selections,
             condition: cond,
             disposition: "detect".into(),
+            tier: "queue".into(),
+            risk_score: None,
         }
     }
 
@@ -3065,6 +3145,8 @@ mod tests {
                 matchers,
                 condition,
                 disposition: "detect".into(),
+                tier: "queue".into(),
+                risk_score: None,
             };
             // Real osquery.sysmon shape: the command line is nested under `data`.
             let log = json!({

@@ -1621,7 +1621,7 @@ impl ThreatClawStore for PgBackend {
     async fn list_sigma_rules_enabled(&self) -> Result<Vec<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn.query(
-            "SELECT id, title, level, logsource_category, logsource_product, logsource_service, tags, detection_json, disposition FROM sigma_rules WHERE enabled = true",
+            "SELECT id, title, level, logsource_category, logsource_product, logsource_service, tags, detection_json, disposition, tier, risk_score FROM sigma_rules WHERE enabled = true",
             &[],
         ).await.map_err(query_err)?;
         let mut results = Vec::new();
@@ -1638,6 +1638,8 @@ impl ThreatClawStore for PgBackend {
                 "tags": tags,
                 "detection_json": detection,
                 "disposition": row.try_get::<_, &str>(8).unwrap_or("detect"),
+                "tier": row.try_get::<_, &str>(9).unwrap_or("queue"),
+                "risk_score": row.try_get::<_, i32>(10).ok(),
             }));
         }
         Ok(results)
@@ -3997,6 +3999,69 @@ impl ThreatClawStore for PgBackend {
             })
         }).collect();
         Ok(results)
+    }
+
+    async fn insert_risk_event(&self, ev: &NewRiskEvent) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "INSERT INTO risk_events \
+                (risk_object, object_type, score, source_rule, mitre_tactic, mitre_technique, log_id, message) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            &[
+                &ev.risk_object,
+                &ev.object_type,
+                &ev.score,
+                &ev.source_rule,
+                &ev.mitre_tactic,
+                &ev.mitre_technique,
+                &ev.log_id,
+                &ev.message,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn list_recent_risk_events(
+        &self,
+        since_hours: i64,
+    ) -> Result<Vec<RiskEvent>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // since_hours is an internal i64 (never user input) — safe to interpolate,
+        // same pattern as the interval clauses in query_logs_after_cursor.
+        let interval = format!("INTERVAL '{} hours'", since_hours.max(1));
+        let rows = conn
+            .query(
+                &format!(
+                    "SELECT id, risk_object, object_type, score, source_rule, \
+                            mitre_tactic, mitre_technique, log_id, message, created_at \
+                     FROM risk_events \
+                     WHERE created_at > NOW() - {} \
+                     ORDER BY created_at DESC",
+                    interval
+                ),
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| RiskEvent {
+                id: r.get(0),
+                risk_object: r.get(1),
+                object_type: r.get(2),
+                score: r.get(3),
+                source_rule: r.get(4),
+                mitre_tactic: r.get::<_, Option<String>>(5),
+                mitre_technique: r.get::<_, Option<String>>(6),
+                log_id: r.get::<_, Option<i64>>(7),
+                message: r.get::<_, Option<String>>(8),
+                // RFC 3339 (not ::text) so the aggregator can parse_from_rfc3339
+                // reliably for the 24h/7d windowing.
+                created_at: r.get::<_, chrono::DateTime<chrono::Utc>>(9).to_rfc3339(),
+            })
+            .collect())
     }
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
