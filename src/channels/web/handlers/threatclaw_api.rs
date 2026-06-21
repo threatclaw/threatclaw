@@ -721,12 +721,16 @@ pub async fn stormshield_syslog_status_handler(
     use crate::db::threatclaw_store::ThreatClawStore;
     let store = state.store.as_ref().ok_or_else(no_db)?;
     const WINDOW_MIN: i64 = 30;
+    // SNS logs arrive over syslog (tag `syslog.*`); fluent-bit's RFC3164 parser
+    // drops the `id=firewall` prefix but keeps the SNS payload in the message —
+    // `slotlevel=` is a Stormshield-specific field present in every SNS log, so
+    // it identifies SNS reception without false positives from other syslog.
     let filters = crate::db::threatclaw_store::LogSearchFilters {
         hostname: None,
-        tag: Some("stormshield.%".to_string()),
+        tag: Some("syslog.%".to_string()),
         from: Some(chrono::Utc::now() - chrono::Duration::minutes(WINDOW_MIN)),
         to: None,
-        q: None,
+        q: Some("slotlevel=".to_string()),
         limit: 1,
         cursor: None,
     };
