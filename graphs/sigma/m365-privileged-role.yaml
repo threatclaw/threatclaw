@@ -1,0 +1,19 @@
+spec_version: cacao-2.0
+name: m365-privileged-role
+description: |
+  Sigma "Privileged Role Assigned Outside PIM" (m365-privileged-role-assigned) : role privilegie assigne hors PIM — escalade (revoquer le role).
+  Detection identite/cloud haute-fidelite -> INCIDENT critical, containment identite (HITL).
+trigger:
+  sigma_rule: m365-privileged-role-assigned
+steps:
+  start: { type: start, on_completion: emit_incident }
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - { cmd_id: azuread_disable_user, rationale: "Suspendre le compte implique le temps de l investigation", requires_hitl: true }
+        - { cmd_id: azuread_reset_password, rationale: "Revoquer les sessions + rotation du mot de passe", requires_hitl: true }
+    on_completion: terminal
+  terminal: { type: end }

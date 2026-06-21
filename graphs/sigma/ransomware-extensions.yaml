@@ -1,0 +1,22 @@
+spec_version: cacao-2.0
+name: ransomware-extensions
+description: |
+  Sigma "Ransomware File Extension Written" (sysmon-ransomware-extensions) :
+  ecriture massive d'extensions de ransomware connues (T1486). Chiffrement
+  probablement en cours. INCIDENT critical — containment IMMEDIAT (HITL) :
+  tuer le process + isoler avant propagation.
+trigger:
+  sigma_rule: sysmon-ransomware-extensions
+steps:
+  start: { type: start, on_completion: emit_incident }
+  emit_incident:
+    type: action
+    command:
+      type: threatclaw-emit-incident
+      severity: critical
+      proposed_actions:
+        - { cmd_id: velociraptor_kill_process, rationale: "Tuer le process de chiffrement immediatement", requires_hitl: true }
+        - { cmd_id: velociraptor_isolate_host, rationale: "Isoler avant propagation reseau", requires_hitl: true }
+        - { cmd_id: velociraptor_collect_artifacts, rationale: "Note de rancon + binaire + chronologie", requires_hitl: true }
+    on_completion: terminal
+  terminal: { type: end }

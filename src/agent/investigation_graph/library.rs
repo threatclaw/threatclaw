@@ -261,6 +261,23 @@ steps:
             "G1d acceptance: expected >=20 graphs, got {}",
             lib.len()
         );
+        // Strict: every top-level *.yaml MUST parse+compile (0 skipped). A
+        // broken playbook is skipped with only a warn at boot, so without this
+        // a malformed/duplicate file would ship silently dead. Count the
+        // top-level yaml files (fixtures live in a subdir, not recursed) and
+        // require a 1:1 load.
+        let yaml_files = std::fs::read_dir(&dir)
+            .expect("read graphs dir")
+            .flatten()
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("yaml"))
+            .count();
+        assert_eq!(
+            lib.len(),
+            yaml_files,
+            "every shipped playbook must compile: {} files but {} loaded (a YAML is broken or a trigger collides)",
+            yaml_files,
+            lib.len()
+        );
         // Chaque graph triggers un sigma_rule unique (pas de doublons)
         let names = lib.names();
         let mut sorted = names.clone();
