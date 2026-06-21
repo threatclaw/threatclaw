@@ -644,6 +644,24 @@ async fn run_connector_sync(
                 r.findings_created,
             ))
         }
+        "stormshield" => {
+            let url = config.get("url").cloned().unwrap_or_default();
+            let auth_user = config.get("auth_user").cloned().unwrap_or_default();
+            let auth_secret = config.get("auth_secret").cloned().unwrap_or_default();
+            if url.is_empty() || auth_user.is_empty() {
+                return Err("url or auth_user not configured".into());
+            }
+            let c = crate::connectors::stormshield_sns::SnsConfig {
+                url,
+                user: auth_user,
+                password: auth_secret,
+                no_tls_verify: config
+                    .get("no_tls_verify")
+                    .map(|v| v == "true")
+                    .unwrap_or(true),
+            };
+            crate::connectors::stormshield_sns::sync_stormshield(store, &c).await
+        }
         "opnsense" | "pfsense" => {
             let url = config.get("url").cloned().unwrap_or_default();
             let auth_user = config.get("auth_user").cloned().unwrap_or_default();

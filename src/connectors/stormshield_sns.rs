@@ -426,9 +426,88 @@ pub async fn unblock_ip(cfg: &SnsConfig, ip: &str) -> RemediationResult {
     }
 }
 
+// ── Periodic sync: firmware version → asset (CVE / CERT-FR matching) ────────
+
+/// Pull `SYSTEM PROPERTY` (model / firmware / serial) and record the firmware
+/// as the enrolled firewall asset's software inventory, so the precise SNS
+/// version flows into CVE + CERT-FR matching. Called by the connector sync
+/// scheduler. The asset (`skill-stormshield-host`) is created by skill
+/// auto-enrolment when the connector is configured.
+pub async fn sync_stormshield(
+    store: &dyn crate::db::Database,
+    cfg: &SnsConfig,
+) -> Result<String, String> {
+    use crate::db::threatclaw_store::ThreatClawStore;
+    let session = SnsSession::connect(cfg).await.map_err(|e| e.to_string())?;
+    let info = session.command_ok("SYSTEM PROPERTY").await;
+    session.logout().await;
+    let info = info.map_err(|e| e.to_string())?;
+
+    let model = property_value(&info.raw, "Model");
+    let version = property_value(&info.raw, "Version");
+    let serial = property_value(&info.raw, "SerialNumber");
+
+    if let Some(ver) = &version {
+        let software = serde_json::json!([{
+            "vendor": "Stormshield",
+            "product": "Stormshield Network Security",
+            "version": ver,
+        }]);
+        if let Err(e) = store
+            .update_asset_software("skill-stormshield-host", &software)
+            .await
+        {
+            tracing::warn!("stormshield sync: update_asset_software failed: {e}");
+        }
+    }
+
+    Ok(format!(
+        "SNS model={} firmware={} serial={}",
+        model.as_deref().unwrap_or("?"),
+        version.as_deref().unwrap_or("?"),
+        serial.as_deref().unwrap_or("?"),
+    ))
+}
+
+/// Read a property from a `SYSTEM PROPERTY` response. Handles both the
+/// `section` shape (`<key name="Model" value="EVA1"/>`) and the `raw` shape
+/// (`Model=EVA1` line text).
+fn property_value(xml: &str, name: &str) -> Option<String> {
+    let anchor = format!("name=\"{name}\"");
+    if let Some(pos) = xml.find(&anchor) {
+        let after = &xml[pos + anchor.len()..];
+        if let Some(vpos) = after.find("value=\"") {
+            let rest = &after[vpos + "value=\"".len()..];
+            if let Some(end) = rest.find('"') {
+                return Some(rest[..end].to_string());
+            }
+        }
+    }
+    let kv = format!("{name}=");
+    let pos = xml.find(&kv)? + kv.len();
+    let rest = &xml[pos..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '<' || c == '"')
+        .unwrap_or(rest.len());
+    let val = rest[..end].trim();
+    (!val.is_empty()).then(|| val.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_value_section_and_raw() {
+        let section = r#"<section title="Result"><key name="Model" value="EVA1"/><key name="Version" value="5.0.6"/></section>"#;
+        assert_eq!(property_value(section, "Model").as_deref(), Some("EVA1"));
+        assert_eq!(property_value(section, "Version").as_deref(), Some("5.0.6"));
+        let raw = "<line>Model=EVA1</line><line>Version=5.0.6</line>";
+        assert_eq!(property_value(raw, "Version").as_deref(), Some("5.0.6"));
+        // `Model=` must not be confused by `ModelSize=`
+        let raw2 = "<line>ModelSize=XL-VM</line><line>Model=EVA1</line>";
+        assert_eq!(property_value(raw2, "Model").as_deref(), Some("EVA1"));
+    }
 
     #[test]
     fn object_name_sanitizes_ip() {
