@@ -1693,6 +1693,24 @@ fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
     hits
 }
 
+/// SHA-256 of the exact Script Block Logging (event 4104) parts emitted by
+/// our own Windows agent installer (`install-agent.ps1`). A large script is
+/// split by PowerShell into several 4104 events; these are the byte-exact
+/// hashes of each part captured from a real install. The installer downloads
+/// the agent and embeds an lsass-monitoring Sysmon config, so it trips
+/// `is_suspicious_powershell` — without this exemption ThreatClaw flags its
+/// own rollout as an attack on every monitored host.
+///
+/// This is a provenance match, not a content heuristic: only a script block
+/// whose bytes are *identical* to our published installer is exempted, so it
+/// cannot be abused to smuggle malicious code — any tampering changes the
+/// hash and still alerts. Temporary stopgap: the durable fix reassembles
+/// multi-part blocks and derives these hashes from the bundled installer.
+const INSTALLER_SCRIPTBLOCK_SHA256: &[&str] = &[
+    "f14648d3693aef4883b395d72c63ffc910adcdbfc52c30e0393b1f0edeab2e9f",
+    "d0e9d005bf488d1dd99914ee8e522832702b242f88ee5815b7c9396b1f2b33e8",
+];
+
 pub async fn check_powershell_events(
     store: &dyn Database,
     hostname: &str,
@@ -1734,6 +1752,18 @@ pub async fn check_powershell_events(
             let user = extract_event_field(&data, &["UserId", "User"]);
             let hits = is_suspicious_powershell(script);
             if !hits.is_empty() {
+                // Provenance exemption: never flag our own agent installer.
+                // Match the exact bytes (SHA-256) of the installer's script
+                // block parts — never content substrings — so a tampered
+                // script hashes differently and still alerts. The log itself
+                // is already ingested above; we only skip the alert here.
+                let script_sha = {
+                    use sha2::{Digest, Sha256};
+                    hex::encode(Sha256::digest(script.as_bytes()))
+                };
+                if INSTALLER_SCRIPTBLOCK_SHA256.contains(&script_sha.as_str()) {
+                    continue;
+                }
                 // Dedup: the osquery sync re-feeds the same 4104 events every
                 // cycle, so without a window the same script re-alerts forever.
                 // Mirror the sigma engine's settings-backed dedup (60-min window)
