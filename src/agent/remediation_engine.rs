@@ -83,6 +83,39 @@ pub async fn execute_incident_remediation_for(
         return (false, msg);
     }
 
+    // Anti-replay / execute-once guard. Every approval surface (dashboard
+    // execute-action, conversational-bot reply, channel button callback)
+    // funnels through this function, so claiming here covers them ALL: the
+    // same approved action cannot be executed twice, whether the second
+    // attempt comes from the same surface or a different one (an HITL request
+    // is shown on the dashboard AND on the comms channels). The claim is
+    // atomic, released on failure (retry stays possible), and finalized into a
+    // permanent tombstone on success. Audit 2026-06-19 (HITL).
+    match store
+        .try_claim_incident_action(incident_id, guard_subject)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
+            let msg = format!(
+                "Action '{}' déjà exécutée (ou en cours) pour l'incident #{} — rejeu refusé.",
+                guard_subject, incident_id
+            );
+            tracing::warn!("REMEDIATION BLOCKED (replay): {}", msg);
+            return (false, msg);
+        }
+        Err(e) => {
+            // Fail-safe: if we cannot take the claim, do NOT fire a write
+            // action blindly — a missing replay guard is worse than a refusal.
+            let msg = format!(
+                "Impossible de réserver l'action '{}' (incident #{}) : {} — exécution annulée par sécurité.",
+                guard_subject, incident_id, e
+            );
+            tracing::error!("REMEDIATION BLOCKED (claim error): {}", msg);
+            return (false, msg);
+        }
+    }
+
     tracing::info!(
         "REMEDIATION: Executing action='{}' cmd_id={:?} on {} (incident #{})",
         action,
@@ -177,6 +210,21 @@ pub async fn execute_incident_remediation_for(
             }
         }
     };
+
+    // Finalize the anti-replay claim: a permanent tombstone on success (blocks
+    // any future replay of this action), or release on failure so the operator
+    // can retry. Non-fatal — a finalize error must not mask the action result.
+    if let Err(e) = store
+        .finalize_incident_action(incident_id, guard_subject, result.0, &result.1)
+        .await
+    {
+        tracing::warn!(
+            "REMEDIATION: finalize_incident_action failed for #{} ('{}'): {}",
+            incident_id,
+            guard_subject,
+            e
+        );
+    }
 
     // Update incident with executed action
     let executed = json!({

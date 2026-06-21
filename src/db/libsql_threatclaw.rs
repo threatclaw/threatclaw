@@ -591,6 +591,18 @@ impl ThreatClawStore for LibSqlBackend {
     async fn get_incident(&self, _: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         Err(not_supported())
     }
+    async fn try_claim_incident_action(&self, _: i32, _: &str) -> Result<bool, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn finalize_incident_action(
+        &self,
+        _: i32,
+        _: &str,
+        _: bool,
+        _: &str,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn find_open_incident_for_asset(&self, _: &str) -> Result<Option<i32>, DatabaseError> {
         Err(not_supported())
     }

@@ -1481,6 +1481,36 @@ pub trait ThreatClawStore: Send + Sync {
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError>;
 
+    /// Atomically claim an incident remediation action for execution
+    /// (anti-replay / execute-once). Appends an
+    /// `{subject, status:"in_progress", at}` marker to `executed_actions`
+    /// **iff** no live marker for `subject` already exists — i.e. neither a
+    /// permanent `done` tombstone nor a fresh `in_progress` claim younger than
+    /// the 10-minute crash-recovery window. Returns `true` when the claim was
+    /// taken (the caller may execute the action), `false` when the action was
+    /// already executed or is in flight on another surface (the caller MUST
+    /// refuse). The conditional `UPDATE` is a single statement, so it is safe
+    /// against two operators approving the same action concurrently from the
+    /// dashboard and a chat channel — exactly one wins the claim.
+    async fn try_claim_incident_action(
+        &self,
+        incident_id: i32,
+        subject: &str,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Finalize a claim taken by [`try_claim_incident_action`]. On `success`
+    /// the `in_progress` marker for `subject` becomes a permanent `done`
+    /// record — the execute-once tombstone the replay guard checks. On failure
+    /// the marker is removed so the operator can retry. Idempotent if no
+    /// matching `in_progress` marker is present.
+    async fn finalize_incident_action(
+        &self,
+        incident_id: i32,
+        subject: &str,
+        success: bool,
+        message: &str,
+    ) -> Result<(), DatabaseError>;
+
     /// Find an open or investigating incident on the same asset AND
     /// the same pattern_key within the 4 h dedup window. A new attack
     /// pattern on a host that already has an open incident must create

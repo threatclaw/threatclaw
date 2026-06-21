@@ -4040,6 +4040,80 @@ impl ThreatClawStore for PgBackend {
         })))
     }
 
+    async fn try_claim_incident_action(
+        &self,
+        incident_id: i32,
+        subject: &str,
+    ) -> Result<bool, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Append an in_progress marker for `subject` iff no LIVE marker exists:
+        // - a `done` tombstone (action already executed), or
+        // - a fresh `in_progress` claim (younger than the 10-minute window —
+        //   an older one is treated as abandoned, e.g. a crash mid-execution,
+        //   so the operator is never permanently locked out).
+        // The whole thing is one conditional UPDATE: two concurrent approvals
+        // (dashboard + chat) race on the same row and exactly one appends.
+        let rows = conn
+            .execute(
+                "UPDATE incidents \
+                 SET executed_actions = executed_actions || jsonb_build_array( \
+                         jsonb_build_object('subject', $2::text, 'status', 'in_progress', 'at', now()::text)), \
+                     updated_at = now() \
+                 WHERE id = $1 \
+                   AND NOT EXISTS ( \
+                     SELECT 1 FROM jsonb_array_elements(executed_actions) e \
+                     WHERE e->>'subject' = $2 \
+                       AND ( e->>'status' = 'done' \
+                          OR (e->>'status' = 'in_progress' \
+                              AND (e->>'at')::timestamptz > now() - interval '10 minutes') ) \
+                   )",
+                &[&incident_id, &subject],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows > 0)
+    }
+
+    async fn finalize_incident_action(
+        &self,
+        incident_id: i32,
+        subject: &str,
+        success: bool,
+        message: &str,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        if success {
+            // Promote the in_progress marker for `subject` to a permanent done
+            // tombstone (carries the outcome message for the dashboard).
+            conn.execute(
+                "UPDATE incidents SET executed_actions = ( \
+                     SELECT coalesce(jsonb_agg( \
+                         CASE WHEN e->>'subject' = $2 AND e->>'status' = 'in_progress' \
+                              THEN jsonb_build_object('subject', $2::text, 'status', 'done', \
+                                                      'success', true, 'message', $3::text, 'at', now()::text) \
+                              ELSE e END), '[]'::jsonb) \
+                     FROM jsonb_array_elements(executed_actions) e \
+                 ), updated_at = now() WHERE id = $1",
+                &[&incident_id, &subject, &message],
+            )
+            .await
+            .map_err(query_err)?;
+        } else {
+            // Release the in_progress marker so the operator can retry.
+            conn.execute(
+                "UPDATE incidents SET executed_actions = ( \
+                     SELECT coalesce(jsonb_agg(e), '[]'::jsonb) \
+                     FROM jsonb_array_elements(executed_actions) e \
+                     WHERE NOT (e->>'subject' = $2 AND e->>'status' = 'in_progress') \
+                 ), updated_at = now() WHERE id = $1",
+                &[&incident_id, &subject],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+        Ok(())
+    }
+
     async fn find_open_incident_for_asset_with_pattern(
         &self,
         asset: &str,
