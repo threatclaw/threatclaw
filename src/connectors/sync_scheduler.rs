@@ -34,6 +34,7 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-fortinet", "fortinet"),
     ("skill-opnsense", "opnsense"),
     ("skill-pfsense", "pfsense"),
+    ("skill-stormshield", "stormshield"),
     ("skill-velociraptor", "velociraptor"),
     ("skill-microsoft-graph", "microsoft_graph"),
     ("skill-microsoft-sentinel", "microsoft_sentinel"),
