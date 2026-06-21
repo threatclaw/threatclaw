@@ -1,0 +1,22 @@
+title: Stormshield SNS IPS alarm
+id: stormshield-001
+status: stable
+description: |
+  Stormshield SNS raised an IPS/IDS alarm on traffic crossing the firewall. Investigate the alarm class and the src/dst pair.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: ThreatClaw
+date: 2026-06-21
+tags:
+  - attack.discovery
+  - attack.t1046
+logsource:
+  category: stormshield
+  product: stormshield
+detection:
+  selection:
+    'line|contains': 'logtype="alarm"'
+  condition: selection
+falsepositives:
+  - Benign IPS signatures (auto-updaters, policy probes) — filtered by the Stormshield IDS normalizer
+level: high

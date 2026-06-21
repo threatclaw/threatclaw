@@ -48,10 +48,14 @@ impl FirewallSkill for StormshieldFirewall {
         _since: DateTime<Utc>,
         _until: DateTime<Utc>,
     ) -> Result<Vec<FirewallLogEntry>, FirewallError> {
-        // Pending personal-data-access wiring (see module note). Build the
-        // config so the connector path is exercised, then return no entries
-        // rather than inventing them.
-        let _cfg = self.sns_config();
+        // SNS logs reach ThreatClaw by PUSH (syslog → fluent-bit →
+        // `webhook/ingest/stormshield` → `logs` table → sigma detection), not
+        // by an on-demand pull: the serverd LOG API is gated behind SNS's
+        // personal-data-access (RGPD) right. They are therefore queryable via
+        // the Hunt / log search (tag `stormshield.*`). This on-demand
+        // per-IP enrichment hook would need a DB handle the `FirewallSkill`
+        // trait does not carry, so it returns empty rather than inventing
+        // entries. The detection path is unaffected.
         Ok(Vec::new())
     }
 }
