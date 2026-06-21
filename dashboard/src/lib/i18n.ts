@@ -897,6 +897,8 @@ const T: Record<string, Record<Locale, string>> = {
   cfg_currentVersion: { fr: "Version actuelle :", en: "Current version:" },
   cfg_newVersion: { fr: "Nouvelle version :", en: "New version:" },
   cfg_upToDate: { fr: "À jour", en: "Up to date" },
+  cfg_checkFailed: { fr: "Vérification impossible", en: "Check unavailable" },
+  cfg_viewReleases: { fr: "Voir les releases", en: "View releases" },
   cfg_updateOnelinerComment: { fr: "# Mise à jour en une commande (recommandé) :", en: "# One-line update (recommended):" },
   cfg_updateDockerComment: { fr: "# Ou mise à jour Docker manuelle :", en: "# Or manual Docker update:" },
   cfg_updateBinaryComment: { fr: "# Pour mettre à jour (binaire) :", en: "# To update (binary):" },

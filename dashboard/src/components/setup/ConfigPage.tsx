@@ -2775,12 +2775,24 @@ function BackupTab() {
               {tr("cfg_newVersion", locale)} {versionInfo.latest}
             </span>
           )}
-          {versionInfo && !versionInfo.update_available && (
+          {versionInfo && !versionInfo.update_available && !versionInfo.check_failed && (
             <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
               background: "rgba(48,160,80,0.08)", color: "#30a050", fontWeight: 700 }}>
               {tr("cfg_upToDate", locale)}
             </span>
           )}
+          {versionInfo?.check_failed && (
+            <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
+              background: "rgba(200,140,20,0.10)", color: "#c88c14", fontWeight: 700 }}>
+              {tr("cfg_checkFailed", locale)}
+            </span>
+          )}
+          <a href="https://github.com/threatclaw/threatclaw/releases" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)", marginLeft: "auto",
+              background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)",
+              fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
+            {tr("cfg_viewReleases", locale)} ↗
+          </a>
         </div>
 
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", padding: "10px", background: "var(--tc-input)",
