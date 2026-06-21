@@ -135,7 +135,8 @@ pub async fn execute_incident_remediation_for(
         | Some("fortinet_block_ip")
         | Some("pfsense_block_ip")
         | Some("mikrotik_block_ip")
-        | Some("proxmox_block_ip") => {
+        | Some("proxmox_block_ip")
+        | Some("stormshield_block_ip") => {
             Some(execute_block_ip(store.as_ref(), asset, incident_id).await)
         }
         Some("velociraptor_isolate_host") | Some("edr_isolate_host") => {
@@ -338,6 +339,15 @@ async fn execute_block_ip(store: &dyn Database, asset: &str, incident_id: i32) -
                             undo_info: None,
                         },
                     }
+                }
+                "stormshield" => {
+                    let cfg = crate::connectors::stormshield_sns::SnsConfig {
+                        url: url.clone(),
+                        user: user.clone(),
+                        password: secret.clone(),
+                        no_tls_verify: no_tls,
+                    };
+                    crate::connectors::stormshield_sns::block_ip(&cfg, &target_ip).await
                 }
                 _ => {
                     crate::connectors::remediation::pfsense_block_ip(
@@ -765,6 +775,23 @@ pub(crate) async fn load_firewall_config(
                 user.into(),
                 secret.into(),
                 no_tls,
+            ));
+        }
+    }
+    // Stormshield: the dashboard skill form persists connector config into the
+    // `skill_configs` key/value store (not the legacy settings("config") blob
+    // the loop above reads), so resolve it from there.
+    if let Ok(records) = store.get_skill_config("skill-stormshield").await {
+        let map: std::collections::HashMap<String, String> =
+            records.into_iter().map(|r| (r.key, r.value)).collect();
+        let enabled = map.get("enabled").map(|s| s == "true").unwrap_or(false);
+        if let (true, Some(url)) = (enabled, map.get("url")) {
+            return Some((
+                "stormshield".into(),
+                url.clone(),
+                map.get("auth_user").cloned().unwrap_or_default(),
+                map.get("auth_secret").cloned().unwrap_or_default(),
+                map.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
             ));
         }
     }

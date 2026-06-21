@@ -113,12 +113,17 @@ impl ActionKind {
     pub fn from_cmd_id(cmd_id: &str) -> Self {
         match cmd_id {
             "opnsense_block_ip" | "fortinet_block_ip" | "pfsense_block_ip"
-            | "mikrotik_block_ip" | "proxmox_block_ip" => ActionKind::BlockIp,
+            | "mikrotik_block_ip" | "proxmox_block_ip" | "stormshield_block_ip" => {
+                ActionKind::BlockIp
+            }
             "opnsense_unblock_ip"
             | "fortinet_unblock_ip"
             | "pfsense_unblock_ip"
-            | "mikrotik_unblock_ip" => ActionKind::UnblockIp,
-            "velociraptor_isolate_host" | "edr_isolate_host" => ActionKind::IsolateHost,
+            | "mikrotik_unblock_ip"
+            | "stormshield_unblock_ip" => ActionKind::UnblockIp,
+            "velociraptor_isolate_host" | "edr_isolate_host" | "stormshield_isolate_host" => {
+                ActionKind::IsolateHost
+            }
             "velociraptor_release_host" | "edr_release_host" => ActionKind::ReleaseHost,
             "velociraptor_kill_process" | "edr_kill_process" => ActionKind::KillProcess,
             "velociraptor_collect_artifacts" | "edr_collect_artifacts" => {
@@ -152,6 +157,8 @@ pub fn skill_id_from_cmd_id(cmd_id: &str) -> &'static str {
         "skill-pfsense"
     } else if cmd_id.starts_with("mikrotik_") {
         "skill-mikrotik"
+    } else if cmd_id.starts_with("stormshield_") {
+        "skill-stormshield"
     } else if cmd_id.starts_with("proxmox_") {
         "skill-proxmox"
     } else if cmd_id.starts_with("velociraptor_") || cmd_id.starts_with("edr_") {
@@ -226,6 +233,7 @@ impl IncidentAction {
             "skill-fortinet" => "fortinet_block_ip",
             "skill-pfsense" => "pfsense_block_ip",
             "skill-mikrotik" => "mikrotik_block_ip",
+            "skill-stormshield" => "stormshield_block_ip",
             "skill-proxmox" => "proxmox_block_ip",
             _ => "opnsense_block_ip", // OPNsense default — covers the bundled stack
         };

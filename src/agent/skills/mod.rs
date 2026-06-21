@@ -26,5 +26,6 @@ pub mod opnsense;
 pub mod pfsense;
 pub mod registry;
 pub mod siem;
+pub mod stormshield;
 pub mod velociraptor;
 pub mod wazuh;
