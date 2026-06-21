@@ -7963,8 +7963,13 @@ pub async fn version_check_handler(
     // comparing so we never flag a spurious update.
     let current_normalised = format!("v{current}");
 
-    let latest = match reqwest::Client::new()
-        .get("https://api.github.com/repos/threatclaw/threatclaw/releases/latest")
+    // NB: GitHub's `/releases/latest` EXCLUDES prereleases, so for a
+    // beta-only project it returns 404 and the check would silently fall
+    // back to "up to date" forever. List releases instead (newest first,
+    // prereleases included) and read the top tag. On any failure we flag
+    // `check_failed` rather than pretending the instance is current.
+    let (latest, check_failed) = match reqwest::Client::new()
+        .get("https://api.github.com/repos/threatclaw/threatclaw/releases?per_page=1")
         .header("User-Agent", "ThreatClaw")
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -7972,20 +7977,25 @@ pub async fn version_check_handler(
     {
         Ok(resp) if resp.status().is_success() => {
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
-            body["tag_name"]
-                .as_str()
-                .unwrap_or(&current_normalised)
-                .to_string()
+            match body
+                .as_array()
+                .and_then(|a| a.first())
+                .and_then(|r| r["tag_name"].as_str())
+            {
+                Some(tag) => (tag.to_string(), false),
+                None => (current_normalised.clone(), true),
+            }
         }
-        _ => current_normalised.clone(),
+        _ => (current_normalised.clone(), true),
     };
 
-    let update_available = latest != current_normalised && !latest.is_empty();
+    let update_available = !check_failed && latest != current_normalised && !latest.is_empty();
 
     Ok(Json(serde_json::json!({
         "current": current,
-        "latest": latest,
+        "latest": if check_failed { serde_json::Value::Null } else { serde_json::Value::String(latest) },
         "update_available": update_available,
+        "check_failed": check_failed,
     })))
 }
 
