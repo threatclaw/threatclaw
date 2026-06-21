@@ -24,6 +24,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod stormshield;
 pub mod suricata;
 
 /// Canonical severity ladder used across vendors. Internal mapping is
@@ -101,7 +102,10 @@ pub trait IdsAlertNormalizer: Send + Sync {
 /// a single rule_id could be claimed by multiple vendors — first match
 /// wins, so put the more specific impls earlier.
 pub fn registry() -> Vec<Box<dyn IdsAlertNormalizer>> {
-    vec![Box::new(suricata::SuricataNormalizer::default())]
+    vec![
+        Box::new(suricata::SuricataNormalizer::default()),
+        Box::new(stormshield::StormshieldNormalizer::default()),
+    ]
 }
 
 /// Try to normalize an alert via the first registered normalizer that
