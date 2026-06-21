@@ -6,6 +6,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.50-beta] — 2026-06-21
+
+### Added
+- Cross-asset incident correlation: incidents record their related assets and a campaign id to group activity that spans several machines.
+- Incident dossiers now include reconstructed process ancestry.
+- Detection-rule health audit that surfaces rules which have silently stopped firing.
+
+### Changed
+- The attack graph now incorporates endpoint logon activity, with corrected vulnerability-on-path mapping.
+- Incident correlation and risk scoring key on the canonical asset, so one host no longer splits into several incidents or inherits stale scores.
+
+### Fixed
+- Approved remediations can no longer run twice: a central execute-once guard blocks replay across every action surface.
+- The global pause now also halts already-approved remediations, not just new detections.
+- Detection services start at boot instead of waiting for the first health check, fixing zero detections after a redeploy.
+- The detection cursor advances on ingestion time and future-dated timestamps are clamped on the way in, so a single mis-dated event can no longer stall detection.
+- Detection rules resolve their fields correctly when telemetry arrives wrapped in the endpoint query envelope.
+- Machine-learning feature extraction samples each host fairly, so the whole fleet is scored, not just the busiest machines.
+- Deep investigation no longer loops on hard cases, and a startup error in the malicious-domain detector is resolved.
+- Legacy incidents fragmented across case variants of the same asset are reconciled onto one canonical asset.
+
 ## [1.0.49-beta] — 2026-06-20
 
 ### Added
