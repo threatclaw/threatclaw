@@ -493,9 +493,127 @@ fn property_value(xml: &str, name: &str) -> Option<String> {
     (!val.is_empty()).then(|| val.to_string())
 }
 
+// ── Syslog export configuration (push logs to ThreatClaw, RFC3164/Legacy) ───
+//
+// Validated live against SNS 5.0.6. Gotchas baked in: the destination must be a
+// host OBJECT (SNS rejects a raw IP on `Server=`); the profile is enabled
+// (`State=1`) only AFTER the server is set (else "Invalid Host"); RFC3164 is
+// called `Legacy` in SNS — which is what ThreatClaw's fluent-bit parser expects.
+
+struct SyslogProfile {
+    index: u32,
+    name: String,
+    server: String,
+}
+
+/// Parse `CONFIG COMMUNICATION SYSLOG PROFILE SHOW` (section XML, the section
+/// title is the profile index) into (index, name, server) tuples.
+fn parse_syslog_profiles(xml: &str) -> Vec<SyslogProfile> {
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(s) = rest.find("<section title=\"") {
+        let after = &rest[s + "<section title=\"".len()..];
+        let Some(tend) = after.find('"') else { break };
+        let title = &after[..tend];
+        let body_start = &after[tend..];
+        let body_end = body_start.find("</section>").unwrap_or(body_start.len());
+        let body = &body_start[..body_end];
+        if let Ok(index) = title.parse::<u32>() {
+            out.push(SyslogProfile {
+                index,
+                name: property_value(body, "Name").unwrap_or_default(),
+                server: property_value(body, "Server").unwrap_or_default(),
+            });
+        }
+        rest = &body_start[body_end..];
+    }
+    out
+}
+
+/// Choose the profile slot: reuse an existing "ThreatClaw" profile (idempotent
+/// re-config), else the first slot with no server configured.
+fn pick_syslog_profile(profiles: &[SyslogProfile]) -> Option<u32> {
+    profiles
+        .iter()
+        .find(|p| p.name.contains("ThreatClaw"))
+        .or_else(|| profiles.iter().find(|p| p.server.is_empty()))
+        .map(|p| p.index)
+}
+
+/// Configure (idempotently) an SNS syslog profile to push all log types to
+/// ThreatClaw over UDP in RFC3164/"Legacy" format. ThreatClaw can therefore set
+/// up the firewall's log export itself — no manual step on the appliance.
+pub async fn configure_syslog(
+    cfg: &SnsConfig,
+    dest_ip: &str,
+    dest_port: u16,
+) -> Result<String, SnsError> {
+    if dest_ip.parse::<std::net::IpAddr>().is_err() {
+        return Err(SnsError::Server {
+            ret: 0,
+            msg: format!("invalid syslog destination IP: {dest_ip}"),
+        });
+    }
+    let session = SnsSession::connect(cfg).await?;
+    let outcome = async {
+        session.modify_on().await?;
+        let show = session
+            .command_ok("CONFIG COMMUNICATION SYSLOG PROFILE SHOW")
+            .await?;
+        let idx = pick_syslog_profile(&parse_syslog_profiles(&show.raw)).ok_or_else(|| {
+            SnsError::Server {
+                ret: 0,
+                msg: "no free syslog profile slot on the appliance".into(),
+            }
+        })?;
+        // Server takes a host object, not a raw IP.
+        let obj = "tc-syslog-threatclaw";
+        let new = session
+            .command(&format!("CONFIG OBJECT HOST NEW name={obj} ip={dest_ip}"))
+            .await?;
+        if !new.is_ok() && !new.msg.to_lowercase().contains("already") {
+            return Err(SnsError::Server {
+                ret: new.ret,
+                msg: new.msg,
+            });
+        }
+        session.command_ok("CONFIG OBJECT ACTIVATE").await?;
+        // Configure the profile (server first)…
+        session
+            .command_ok(&format!(
+                "CONFIG COMMUNICATION SYSLOG PROFILE UPDATE Index={idx} Name=\"ThreatClaw\" \
+                 Server={obj} Port={dest_port} Protocol=UDP SyslogProtocol=Legacy"
+            ))
+            .await?;
+        // …then enable it (requires the server to already be set).
+        session
+            .command_ok(&format!(
+                "CONFIG COMMUNICATION SYSLOG PROFILE UPDATE Index={idx} State=1"
+            ))
+            .await?;
+        session.command_ok("CONFIG COMMUNICATION ACTIVATE").await?;
+        Ok::<u32, SnsError>(idx)
+    }
+    .await;
+    session.logout().await;
+    outcome.map(|idx| format!("syslog profile {idx} -> {dest_ip}:{dest_port} (RFC3164)"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn syslog_profiles_parsed_and_picked() {
+        let xml = r#"<data format="section">
+<section title="0"><key name="Name" value="Syslog Profile 0"/><key name="Server" value="existing-srv"/></section>
+<section title="1"><key name="Name" value="Syslog Profile 1"/><key name="Server" value=""/></section></data>"#;
+        let profiles = parse_syslog_profiles(xml);
+        assert_eq!(profiles.len(), 2);
+        assert_eq!(pick_syslog_profile(&profiles), Some(1));
+        let xml2 = r#"<section title="3"><key name="Name" value="ThreatClaw"/><key name="Server" value="tc"/></section><section title="4"><key name="Name" value="x"/><key name="Server" value=""/></section>"#;
+        assert_eq!(pick_syslog_profile(&parse_syslog_profiles(xml2)), Some(3));
+    }
 
     #[test]
     fn property_value_section_and_raw() {
