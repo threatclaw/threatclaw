@@ -43,6 +43,27 @@ pub async fn execute_incident_remediation_for(
     let asset = incident["asset"].as_str().unwrap_or("");
     let title = incident["title"].as_str().unwrap_or("");
 
+    // ADR-010/ADR-044 Layer 0 — global kill-switch / pause gate.
+    // When the operator has halted the system (`_system/tc_paused`), refuse
+    // EVERY remediation, including an already-approved one. A kill switch that
+    // stops analysis but still lets queued write-actions fire is a half-measure:
+    // the detection cycle already honours this flag (see intelligence_engine
+    // run cycle), so the dangerous side — the write actions — must honour it
+    // too. Audit 2026-06-19 P0 (HITL): "le kill switch ne coupe pas la
+    // remédiation approuvée". This closes that gap. Checked first, before the
+    // target/rate-limit guards, so a frozen system blocks unconditionally.
+    if system_is_paused(store.as_ref()).await {
+        let subject = cmd_id.unwrap_or(action);
+        let msg = format!(
+            "Remédiation refusée : kill-switch global actif (système en pause) — \
+             action '{}' sur '{}' non exécutée. Levez la pause (_system/tc_paused) \
+             pour ré-autoriser les actions write.",
+            subject, asset
+        );
+        tracing::warn!("REMEDIATION BLOCKED (kill-switch/pause): {}", msg);
+        return (false, msg);
+    }
+
     // ADR-044 Layer 2+3: validate target through remediation guard
     let guard_subject = cmd_id.unwrap_or(action);
     if let Err(e) = crate::agent::remediation_guard::validate_remediation(guard_subject, asset) {
@@ -872,9 +893,44 @@ fn normalize_account_name(raw: &str) -> Option<String> {
     Some(lc)
 }
 
+/// Pure predicate for the global pause flag: the system is paused only when
+/// `_system/tc_paused` is the JSON boolean `true`. A missing flag, a non-bool
+/// value (e.g. the string `"true"`), or `false` all mean "not paused" — this
+/// mirrors exactly how the detection cycle reads the flag
+/// (`intelligence_engine`: `paused.as_bool() == Some(true)`), so the kill
+/// switch behaves identically on both the analysis and remediation sides.
+fn paused_from_setting(v: Option<&serde_json::Value>) -> bool {
+    v.and_then(|x| x.as_bool()) == Some(true)
+}
+
+/// Whether the operator has engaged the global kill-switch / pause
+/// (`_system/tc_paused`). Fail-open on a read error (treated as "not paused"),
+/// consistent with the detection cycle — remediation still has the per-action
+/// guard + HITL rate limit behind this gate.
+async fn system_is_paused(store: &dyn Database) -> bool {
+    let setting = store
+        .get_setting("_system", "tc_paused")
+        .await
+        .ok()
+        .flatten();
+    paused_from_setting(setting.as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pause_gate_only_trips_on_json_true() {
+        // The exact JSON boolean true → paused (blocks remediation).
+        assert!(paused_from_setting(Some(&serde_json::json!(true))));
+        // Everything else → not paused, matching the IE's `as_bool() == Some(true)`.
+        assert!(!paused_from_setting(Some(&serde_json::json!(false))));
+        assert!(!paused_from_setting(None)); // flag never set
+        assert!(!paused_from_setting(Some(&serde_json::json!("true")))); // string, not bool
+        assert!(!paused_from_setting(Some(&serde_json::json!(1)))); // int, not bool
+        assert!(!paused_from_setting(Some(&serde_json::Value::Null)));
+    }
 
     #[test]
     fn normalize_strips_domain_and_realm() {
