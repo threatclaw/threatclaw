@@ -13,8 +13,20 @@ use crate::graph::investigation::{
     InvestigationGraph, InvestigationResult, InvestigationStep, StepResult,
 };
 
-/// Execute a complete investigation graph for an alert.
-pub async fn run_investigation(
+/// Run the deterministic graph-enrichment pipeline for an alert: walks the
+/// hard-coded enrichment patterns (EnrichIp/Cve/Hash, QueryHistory,
+/// CorrelateAlerts, MapMitre, FindAttackPaths…), upserting facts into the
+/// threat graph (`threat_graph::upsert_ip`) and returning the collected
+/// `InvestigationResult` (steps + facts) for logging.
+///
+/// NOTE: despite the historical name, this does NOT produce an incident
+/// verdict — it is fire-and-forget graph ENRICHMENT for the top alerts. The
+/// verdict-producing paths are the CACAO graph engine (`investigation_graph`)
+/// and the ReAct loop (`agent::investigation::run_investigation`). Renamed
+/// from `run_investigation` to remove the name collision with the ReAct entry
+/// point and reflect what it actually does. Its graph upserts feed the
+/// confidence scoring and lateral-movement analysis, so it is NOT dead code.
+pub async fn enrich_graph_from_alert(
     store: Arc<dyn Database>,
     graph: &InvestigationGraph,
     alert_title: &str,

@@ -1690,8 +1690,12 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
         (100.0 - (worst_asset * 0.6 + avg_score * 0.4)).max(0.0)
     };
 
-    // ── 5b. RUN INVESTIGATION GRAPHS for each alert ──
-    // Match alerts to investigation graphs and run deterministic investigation.
+    // ── 5b. GRAPH ENRICHMENT from top alerts ──
+    // Fire-and-forget: feed the threat graph (IP upserts, KEV/EPSS, MITRE,
+    // attack-path facts) from the top alerts. This is ENRICHMENT, not incident
+    // investigation — the verdict paths are the CACAO engine + ReAct (see
+    // graph::executor::enrich_graph_from_alert doc). Its upserts feed the
+    // confidence scoring and lateral analysis downstream.
     let all_graphs = crate::graph::investigation::get_investigation_graphs();
     for a in alerts.iter().take(3) {
         if let Some(graph_id) =
@@ -1703,7 +1707,7 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
                     .as_deref()
                     .map(|s| s.split('/').next().unwrap_or(s));
                 let host = a.hostname.as_deref();
-                let result = crate::graph::executor::run_investigation(
+                let result = crate::graph::executor::enrich_graph_from_alert(
                     store.clone(),
                     graph,
                     &a.title,
@@ -1712,7 +1716,7 @@ pub async fn run_intelligence_cycle(store: Arc<dyn Database>) -> SecuritySituati
                 )
                 .await;
                 tracing::info!(
-                    "INVESTIGATION: '{}' → {} steps, {} ms",
+                    "GRAPH ENRICH: '{}' → {} steps, {} ms",
                     graph_id,
                     result.steps_completed.len(),
                     result.total_duration_ms
