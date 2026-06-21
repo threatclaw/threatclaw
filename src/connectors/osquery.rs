@@ -1734,6 +1734,34 @@ pub async fn check_powershell_events(
             let user = extract_event_field(&data, &["UserId", "User"]);
             let hits = is_suspicious_powershell(script);
             if !hits.is_empty() {
+                // Dedup: the osquery sync re-feeds the same 4104 events every
+                // cycle, so without a window the same script re-alerts forever.
+                // Mirror the sigma engine's settings-backed dedup (60-min window)
+                // keyed on host + script fingerprint, so one script alerts once.
+                let fp = {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    script.hash(&mut h);
+                    h.finish()
+                };
+                let dedup_key =
+                    format!("osquery-win-powershell-suspicious_{}_{:x}", hostname, fp);
+                let recently_alerted =
+                    if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
+                        prev["at"]
+                            .as_str()
+                            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                            .map(|ts| {
+                                chrono::Utc::now().signed_duration_since(ts)
+                                    < chrono::Duration::minutes(60)
+                            })
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    };
+                if recently_alerted {
+                    continue;
+                }
                 let snippet: String = script.chars().take(120).collect();
                 let title = format!(
                     "PowerShell suspect sur {} ({}): {}",
@@ -1753,6 +1781,13 @@ pub async fn check_powershell_events(
                     ),
                 )
                 .await;
+                let _ = store
+                    .set_setting(
+                        "_sigma_dedup",
+                        &dedup_key,
+                        &serde_json::json!({ "at": chrono::Utc::now().to_rfc3339() }),
+                    )
+                    .await;
                 alerts += 1;
             }
         }
