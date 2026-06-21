@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.51-beta] — 2026-06-21
+
+### Added
+- Stormshield SNS firewall connector: enrolls the appliance as a monitored asset, tracks its firmware for vulnerability and CERT-FR advisory matching, ingests its logs into detection, and — with human approval — blocks/unblocks an IP or isolates a host. ThreatClaw configures the firewall's log export itself, no manual step on the appliance.
+- 43 deterministic investigation playbooks for the marquee detection rules, so a given alert always produces the same structured incident dossier.
+- Threat-intelligence enrichment of observed indicators in the investigation graph.
+
+### Fixed
+- The update check now detects new beta releases: it queried an endpoint that excluded pre-releases and silently reported "up to date". It now shows an honest "check unavailable" state when GitHub is unreachable, plus a link to the releases page.
+
 ## [1.0.50-beta] — 2026-06-21
 
 ### Added
