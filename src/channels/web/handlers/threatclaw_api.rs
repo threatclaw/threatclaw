@@ -10512,6 +10512,23 @@ pub async fn incident_full_handler(
         .map_err(db_err)
         .unwrap_or_default();
 
+    // Per-incident attack graph (Phase 3) — host root + timeline chain + lateral peers.
+    let inc_asset = incident.get("asset").and_then(|v| v.as_str()).unwrap_or("");
+    let related_assets: Vec<String> = incident
+        .get("related_assets")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let attack_graph = crate::agent::dfir_triage::build_attack_graph(
+        inc_asset,
+        &forensic_timeline,
+        &related_assets,
+    );
+
     Ok(Json(serde_json::json!({
         "incident": incident,
         "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
@@ -10522,6 +10539,7 @@ pub async fn incident_full_handler(
         "attack_events": attack_events,
         "investigation_steps": serde_json::to_value(&investigation_steps).unwrap_or(serde_json::json!([])),
         "forensic_timeline": serde_json::to_value(&forensic_timeline).unwrap_or(serde_json::json!([])),
+        "attack_graph": serde_json::to_value(&attack_graph).unwrap_or(serde_json::json!({"nodes":[],"edges":[]})),
     })))
 }
 

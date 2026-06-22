@@ -18,10 +18,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::Database;
-use crate::db::threatclaw_store::NewTimelineEvent;
+use crate::db::threatclaw_store::{NewTimelineEvent, TimelineEvent};
 
 /// Poll cadence of the background DFIR collector.
 const DFIR_POLL_INTERVAL: Duration = Duration::from_secs(180);
@@ -444,6 +445,102 @@ pub async fn run_dfir_collector(store: Arc<dyn Database>) {
     }
 }
 
+// ── Per-incident attack graph (Phase 3 / option C) ─────────────────────────
+
+/// A node in the per-incident attack graph.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub label: String,
+    /// host | process_spawn | net_connect | logon | …
+    pub kind: String,
+    pub severity: String,
+    pub mitre: Option<String>,
+}
+
+/// A directed edge in the per-incident attack graph.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphEdge {
+    pub source: String,
+    pub target: String,
+    pub label: String,
+}
+
+/// Focused attack graph for ONE incident: the affected host at the root, its
+/// forensic timeline as a chronological chain (the attack story), and lateral
+/// edges to related assets.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct AttackGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        let t: String = s.chars().take(n).collect();
+        format!("{t}…")
+    }
+}
+
+/// Pure: build the per-incident attack graph from its forensic timeline. Host is
+/// the root; events form a chronological chain; related assets attach as
+/// lateral-movement branches.
+pub fn build_attack_graph(
+    asset: &str,
+    timeline: &[TimelineEvent],
+    related: &[String],
+) -> AttackGraph {
+    let mut g = AttackGraph::default();
+    let host_id = format!("host:{asset}");
+    g.nodes.push(GraphNode {
+        id: host_id.clone(),
+        label: asset.to_string(),
+        kind: "host".into(),
+        severity: "info".into(),
+        mitre: None,
+    });
+
+    let mut prev = host_id.clone();
+    for ev in timeline {
+        let nid = format!("ev:{}", ev.id);
+        g.nodes.push(GraphNode {
+            id: nid.clone(),
+            label: truncate(&ev.description, 60),
+            kind: ev.event_type.clone(),
+            severity: ev.severity.clone(),
+            mitre: ev.mitre_technique.clone(),
+        });
+        g.edges.push(GraphEdge {
+            source: prev,
+            target: nid.clone(),
+            label: ev.mitre_technique.clone().unwrap_or_default(),
+        });
+        prev = nid;
+    }
+
+    for r in related {
+        if r == asset {
+            continue;
+        }
+        let rid = format!("host:{r}");
+        g.nodes.push(GraphNode {
+            id: rid.clone(),
+            label: r.clone(),
+            kind: "host".into(),
+            severity: "info".into(),
+            mitre: None,
+        });
+        g.edges.push(GraphEdge {
+            source: host_id.clone(),
+            target: rid,
+            label: "lateral".into(),
+        });
+    }
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,6 +619,47 @@ mod tests {
         assert!(findings.iter().all(|f| f.severity == "high"));
         assert!(findings.iter().any(|f| f.mitre_technique == "T1098.004"));
         assert!(findings.iter().any(|f| f.mitre_technique == "T1136.001"));
+    }
+
+    fn tev(id: i64, etype: &str, tech: &str) -> TimelineEvent {
+        TimelineEvent {
+            id,
+            incident_id: 1,
+            ts: "2026-06-22T19:20:00+00:00".into(),
+            event_type: etype.into(),
+            asset: "WIN-01".into(),
+            actor: None,
+            description: format!("{etype} detail"),
+            severity: "high".into(),
+            mitre_tactic: None,
+            mitre_technique: Some(tech.into()),
+            ioc: None,
+            source_artifact: Some("osquery.sysmon".into()),
+            created_at: "2026-06-22T19:26:00+00:00".into(),
+        }
+    }
+
+    #[test]
+    fn attack_graph_chains_timeline_under_host_with_lateral() {
+        let tl = vec![
+            tev(1, "logon", "T1021"),
+            tev(2, "process_spawn", "T1059.001"),
+            tev(3, "net_connect", "T1071"),
+        ];
+        // related includes the asset itself (must be skipped) + a real peer
+        let g = build_attack_graph("WIN-01", &tl, &["WIN-01".into(), "WIN-02".into()]);
+        // host + 3 events + 1 lateral peer (self skipped) = 5 nodes
+        assert_eq!(g.nodes.len(), 5);
+        assert_eq!(g.nodes[0].kind, "host");
+        // chain host->ev1->ev2->ev3 (3) + 1 lateral = 4 edges
+        assert_eq!(g.edges.len(), 4);
+        assert_eq!(g.edges[0].source, "host:WIN-01");
+        assert_eq!(g.edges[0].target, "ev:1");
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.label == "lateral" && e.target == "host:WIN-02")
+        );
     }
 
     #[test]
