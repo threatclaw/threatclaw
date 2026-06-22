@@ -24,6 +24,23 @@ jobs:
       - name: Public docs leak check
         run: bash scripts/check-public-docs.sh
 
+      - name: Version consistency gate
+        env:
+          TAG_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          # A release must not ship with version drift. First pin the git tag to
+          # Cargo.toml, then run the cross-file consistency check (README badge,
+          # installer TC_VERSION, CHANGELOG) — the same check ci.yml runs, now
+          # blocking the release itself so drift can never reach a published tag.
+          # TAG_VERSION comes via env (not inlined) to avoid shell injection from
+          # a crafted tag name.
+          cargo_version="$(grep -m1 '^version = "' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          if [ "$TAG_VERSION" != "$cargo_version" ]; then
+            echo "::error::Tag v$TAG_VERSION does not match Cargo.toml version $cargo_version"
+            exit 1
+          fi
+          bash scripts/check-consistency.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
