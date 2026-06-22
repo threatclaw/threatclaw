@@ -38,8 +38,8 @@ pub async fn scan_asset_software(
 
     result.software_checked = software.len();
 
-    // Dedup against this asset's existing CVE findings. A CVE can legitimately
-    // affect several packages, so the key is cve+package (not cve alone).
+    // Dedup against this asset's existing vuln findings. Findings are grouped per
+    // outdated component, so the key is software+version (not per-CVE).
     let existing_findings = store
         .list_findings(None, None, Some(asset_name), 1000, 0)
         .await
@@ -47,13 +47,13 @@ pub async fn scan_asset_software(
     let mut seen: std::collections::HashSet<String> = existing_findings
         .iter()
         .filter_map(|f| {
-            let cve = f.metadata.get("cve")?.as_str()?;
-            let pkg = f
+            let pkg = f.metadata.get("software")?.as_str()?;
+            let ver = f
                 .metadata
-                .get("software")
+                .get("version")
                 .and_then(|s| s.as_str())
                 .unwrap_or("");
-            Some(format!("{cve}|{pkg}"))
+            Some(format!("{pkg}|{ver}"))
         })
         .collect();
 
@@ -81,81 +81,126 @@ pub async fn scan_asset_software(
     let matches = crate::enrichment::grype::scan_sbom(&sbom_path.to_string_lossy());
     let _ = std::fs::remove_file(&sbom_path);
 
+    // Filter to what an operator must act on, then group survivors by outdated
+    // component (software+version): one stale Chrome with 21 CVEs becomes ONE
+    // actionable finding ("update to X"), not 21 lines saying the same thing.
+    let mut groups: std::collections::BTreeMap<
+        (String, String),
+        Vec<&crate::enrichment::grype::GrypeMatch>,
+    > = std::collections::BTreeMap::new();
     for m in &matches {
-        // Prioritise: surface what an operator must act on — actively exploited
-        // (CISA KEV) or high/critical severity. Medium/low/negligible and
-        // won't-fix are real but kept out of the alert stream so we don't drown
-        // the SOC (exactly the noise the old scanner produced).
+        // Prioritise: actively exploited (CISA KEV) or high/critical. Medium/low/
+        // negligible are real but kept out of the alert stream so we don't drown the SOC.
         let rank = severity_rank(&m.severity);
         if !(m.known_exploited || rank >= 3) {
             continue;
         }
         // CPE-matched platforms (Windows/other): require a fix version. NVD CPE
-        // configs frequently have no upper version bound and match every release of
-        // a product (a current Edge flagged for a 2015 Flash CVE, even tagged KEV),
-        // which is pure noise. A reported fix version means grype actually computed
-        // installed < fixed — a trustworthy match (e.g. "Chrome 149.0.7827.116 →
-        // fixed 149.0.7827.155", one patch behind). Distro (Linux) matching is
-        // precise, so not-yet-fixed vulns there are legitimately surfaced.
+        // configs frequently have no upper version bound and match every release of a
+        // product (a current Edge flagged for a 2015 Flash CVE, even tagged KEV) —
+        // pure noise. A fix version means grype actually computed installed < fixed.
+        // Distro (Linux) matching is precise, so not-yet-fixed vulns stay surfaced.
         if cpe_path && m.fixed_version.is_none() {
             continue;
         }
-        if !seen.insert(format!("{}|{}", m.cve_id, m.package)) {
+        groups
+            .entry((m.package.clone(), m.version.clone()))
+            .or_default()
+            .push(m);
+    }
+
+    for ((package, version), ms) in &groups {
+        if !seen.insert(format!("{package}|{version}")) {
             continue;
         }
-
-        // KEV is urgent regardless of base severity.
-        let severity = if m.known_exploited || rank >= 4 {
+        // Aggregate the group: highest severity drives the finding, KEV → CRITICAL.
+        let any_kev = ms.iter().any(|m| m.known_exploited);
+        let max_rank = ms.iter().map(|m| severity_rank(&m.severity)).max().unwrap_or(0);
+        let severity = if any_kev || max_rank >= 4 {
             "CRITICAL"
         } else {
             "HIGH"
         };
-        let kev_tag = if m.known_exploited {
-            " (CISA KEV: exploit actif)"
-        } else {
-            ""
-        };
-        let fix_hint = m
+        let crit_count = ms
+            .iter()
+            .filter(|m| m.known_exploited || severity_rank(&m.severity) >= 4)
+            .count();
+        let max_cvss = ms
+            .iter()
+            .filter_map(|m| m.cvss)
+            .fold(None, |acc, x| Some(acc.map_or(x, |a: f64| a.max(x))));
+        // The highest-CVSS match leads — it drives the recommended fix version.
+        let lead = ms
+            .iter()
+            .max_by(|a, b| {
+                a.cvss
+                    .unwrap_or(0.0)
+                    .partial_cmp(&b.cvss.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        let cves: Vec<&str> = ms.iter().map(|m| m.cve_id.as_str()).collect();
+        let n = cves.len();
+        let kev_tag = if any_kev { " (CISA KEV: exploit actif)" } else { "" };
+        let fix_hint = lead
             .fixed_version
             .as_deref()
-            .map(|v| format!(", corrigé en {v}"))
+            .map(|v| format!(", corriger en {v}"))
             .unwrap_or_default();
+
+        let title = if n == 1 {
+            format!("{package} {version} — {}{kev_tag}", cves[0])
+        } else {
+            let crit = if crit_count > 0 {
+                format!(", dont {crit_count} critical")
+            } else {
+                String::new()
+            };
+            format!("{package} {version} — {n} CVE{crit}{kev_tag}")
+        };
+        let description = if n == 1 {
+            format!(
+                "Le logiciel {package} version {version} sur {asset_name} est affecté par {}{}{fix_hint}.",
+                cves[0],
+                max_cvss.map(|c| format!(" (CVSS {c:.1})")).unwrap_or_default()
+            )
+        } else {
+            format!(
+                "Le logiciel {package} version {version} sur {asset_name} est affecté par {n} vulnérabilités{}{fix_hint}. CVE : {}.",
+                max_cvss.map(|c| format!(" (CVSS max {c:.1})")).unwrap_or_default(),
+                cves.join(", ")
+            )
+        };
 
         let _ = store
             .insert_finding(&crate::db::threatclaw_store::NewFinding {
                 skill_id: "software-vuln".into(),
-                title: format!("{} {} — {}{}", m.package, m.version, m.cve_id, kev_tag),
-                description: Some(format!(
-                    "Le logiciel {} version {} sur {} est affecté par {}{}{}.",
-                    m.package,
-                    m.version,
-                    asset_name,
-                    m.cve_id,
-                    m.cvss.map(|c| format!(" (CVSS {c:.1})")).unwrap_or_default(),
-                    fix_hint
-                )),
+                title,
+                description: Some(description),
                 severity: severity.into(),
                 category: Some("software-vuln".into()),
                 asset: Some(asset_name.to_string()),
                 source: Some("Grype × osquery".into()),
                 metadata: Some(serde_json::json!({
-                    "cve": m.cve_id,
-                    "software": m.package,
-                    "version": m.version,
+                    "cve": lead.cve_id,         // representative (highest CVSS), for back-compat
+                    "cves": cves,
+                    "cve_count": n,
+                    "software": package,
+                    "version": version,
                     "platform": platform,
                     "ecosystem": ecosystem,
-                    "cvss": m.cvss,
-                    "epss": m.epss,
-                    "exploited_in_wild": m.known_exploited,
-                    "fix_state": m.fix_state,
-                    "fixed_version": m.fixed_version,
-                    "data_source": m.data_source,
+                    "cvss": max_cvss,
+                    "epss": lead.epss,
+                    "exploited_in_wild": any_kev,
+                    "fix_state": lead.fix_state,
+                    "fixed_version": lead.fixed_version,
+                    "data_source": lead.data_source,
                     "detection": "software-vuln-grype",
                     "mitre": ["T1190"]
                 })),
             })
             .await;
-        result.cves_found += 1;
+        result.cves_found += n;
         result.findings_created += 1;
         if severity == "CRITICAL" {
             result.critical_count += 1;
