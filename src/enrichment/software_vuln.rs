@@ -64,8 +64,17 @@ pub async fn scan_asset_software(
     // on Windows, with CVSS / EPSS / CISA-KEV / fix enrichment per CVE. This
     // replaces the old name-substring + version-ignored matching (~73/75 FP).
     let sbom = crate::enrichment::grype::build_sbom(platform, software);
-    let sbom_path = std::env::temp_dir().join(format!("tc-sbom-{asset_id}.json"));
-    if std::fs::write(&sbom_path, sbom.to_string()).is_err() {
+    // TMPDIR (set to the writable data volume in the image — the container's /tmp
+    // is root-owned 0700). Create it so a fresh install doesn't fail the first
+    // scan, and surface a write failure instead of silently producing no findings.
+    let tmp_dir = std::env::temp_dir();
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let sbom_path = tmp_dir.join(format!("tc-sbom-{asset_id}.json"));
+    if let Err(e) = std::fs::write(&sbom_path, sbom.to_string()) {
+        tracing::warn!(
+            "SOFTWARE-VULN: cannot write SBOM to {} ({e}) — scan skipped for {asset_name}",
+            sbom_path.display()
+        );
         return result;
     }
     let matches = crate::enrichment::grype::scan_sbom(&sbom_path.to_string_lossy());

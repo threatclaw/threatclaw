@@ -174,10 +174,15 @@ WORKDIR /app
 EXPOSE 18789
 
 # Runtime environment defaults
+# TMPDIR → the data volume: the container's /tmp is root-owned 0700, so the
+# non-root runtime user can't write there. Grype's DB-update listing file and our
+# CycloneDX SBOM both land in TMPDIR, so it must be writable. grype (a child
+# process) inherits this env, so its temp files follow too.
 ENV RUST_LOG=threatclaw=info \
     TC_PERMISSION_LEVEL=ALERT_ONLY \
     GRYPE_DB_CACHE_DIR=/app/data/grype-db \
-    GRYPE_CHECK_FOR_APP_UPDATE=false
+    GRYPE_CHECK_FOR_APP_UPDATE=false \
+    TMPDIR=/app/data/tmp
 
 # Health check — hit the core API health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
