@@ -252,6 +252,11 @@ async fn enrich_one(
         Vec::new()
     };
 
+    // Native DFIR timeline (assembled by the DFIR collector). Best-effort: if it
+    // hasn't run yet for this incident the list is empty and the L2 falls back to
+    // the rest of the dossier.
+    let forensic_timeline = db.list_timeline_for_incident(id).await.unwrap_or_default();
+
     let context = ForensicContext {
         incident_id: id,
         asset: asset.clone(),
@@ -262,6 +267,7 @@ async fn enrich_one(
         sigma_alerts,
         mitre_existing: mitre_existing.clone(),
         process_lineage,
+        forensic_timeline,
     };
 
     // Phase 9b — registry des skills connectés. Un seul probe DB par
@@ -603,6 +609,10 @@ pub(crate) struct ForensicContext {
     /// discriminator between a true positive (winword -> powershell) and a false
     /// positive (explorer -> powershell). Empty for non-endpoint incidents.
     pub process_lineage: Vec<crate::agent::process_lineage::ProcessStep>,
+    /// Native DFIR forensic timeline (chronological, MITRE-labelled events
+    /// assembled by `dfir_triage` from endpoint telemetry). Grounds the L2
+    /// kill-chain narrative in the actual sequence of observed actions.
+    pub forensic_timeline: Vec<crate::db::threatclaw_store::TimelineEvent>,
 }
 
 fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
@@ -613,7 +623,9 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
     // ── Absolute rule pinned at the top so it carries the most weight ──
     p.push_str("## ABSOLUTE RULE — anti-hallucination\n\n");
     p.push_str("You only have access to the data in the dossier below (sections FACTUAL DOSSIER, ");
-    p.push_str("FINDINGS, SIGMA ALERTS and PROCESS LINEAGE). You must not mention:\n");
+    p.push_str(
+        "FINDINGS, SIGMA ALERTS, PROCESS LINEAGE and FORENSIC TIMELINE). You must not mention:\n",
+    );
     p.push_str("- ANY IP, CVE, signature, or hash that is not in the dossier\n");
     p.push_str("- ANY external service (Wazuh, GreyNoise, fail2ban, GoAccess, ELK, Splunk, ...) ");
     p.push_str("that is not in the dossier\n");
@@ -746,6 +758,29 @@ fn build_forensic_prompt(ctx: &ForensicContext, output_lang: &str) -> String {
         p.push_str(&crate::agent::process_lineage::format_lineage(
             &ctx.process_lineage,
         ));
+        p.push_str("```\n\n");
+    }
+
+    // ── Native DFIR forensic timeline (chronological attack story) ──
+    if !ctx.forensic_timeline.is_empty() {
+        p.push_str(&format!(
+            "## FORENSIC TIMELINE ({} events, chronological, UTC)\n\n",
+            ctx.forensic_timeline.len()
+        ));
+        p.push_str(
+            "Assembled by native DFIR triage from endpoint telemetry (Sysmon / PowerShell / \
+             Security logs) on the host. This is the ground-truth sequence of observed actions — \
+             use it to order the kill-chain narrative. Cite only events that appear here.\n\n",
+        );
+        p.push_str("```\n");
+        for ev in &ctx.forensic_timeline {
+            let tech = ev.mitre_technique.as_deref().unwrap_or("-");
+            let ts = ev.ts.get(11..19).unwrap_or(ev.ts.as_str());
+            p.push_str(&format!(
+                "{ts} [{}] {tech} {}\n",
+                ev.event_type, ev.description
+            ));
+        }
         p.push_str("```\n\n");
     }
 
@@ -1568,6 +1603,7 @@ mod tests {
             })],
             mitre_existing: vec!["T1190".into()],
             process_lineage: vec![],
+            forensic_timeline: vec![],
         }
     }
 
