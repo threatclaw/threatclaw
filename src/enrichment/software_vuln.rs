@@ -1,118 +1,13 @@
-// See ADR-044: Auto-CVE correlation for software inventory
+// See ADR-044: Auto-CVE correlation for software inventory.
 //
-// Quand l'agent (osquery) remonte la liste des logiciels d'un asset,
-// on croise avec : 1) findings CVE existants en DB, 2) CISA KEV, 3) NVD keyword search.
-// Résultat : finding automatique pour chaque logiciel vulnérable.
+// When the agent (osquery) reports an asset's installed software, we build a
+// CycloneDX SBOM and let Grype match it (src/enrichment/grype.rs): distro-aware
+// on Linux (backport-aware) and CPE on Windows, with CVSS/EPSS/CISA-KEV/fix
+// enrichment per CVE. Findings surface only what an operator must act on (KEV or
+// high/critical). Replaces the old naive name-substring + version-ignored matcher
+// that produced ~73/75 false positives.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::ThreatClawStore;
-
-/// Critical software that warrants NVD lookup even without existing CVE findings.
-/// Substring matching against the lower-cased inventory entry — keep entries
-/// short so `microsoft sql server 2019` matches both `microsoft` and `sql server`.
-const CRITICAL_SOFTWARE: &[&str] = &[
-    // ── Linux/Unix server stack ─────────────────────────────────────
-    "openssh",
-    "openssl",
-    "nginx",
-    "apache",
-    "httpd",
-    "php",
-    "python",
-    "node",
-    "java",
-    "tomcat",
-    "postgresql",
-    "mysql",
-    "mariadb",
-    "redis",
-    "mongodb",
-    "docker",
-    "containerd",
-    "kubernetes",
-    "kubelet",
-    "samba",
-    "bind",
-    "named",
-    "postfix",
-    "exim",
-    "sudo",
-    "polkit",
-    "systemd",
-    "kernel",
-    "linux-image",
-    "curl",
-    "wget",
-    "git",
-    // ── Browsers and desktop ───────────────────────────────────────
-    "vscode",
-    "chrome",
-    "firefox",
-    "edge",
-    "safari",
-    "thunderbird",
-    "outlook",
-    "office",
-    "adobe",
-    "acrobat",
-    "reader",
-    "java runtime",
-    "jre",
-    // ── CMS / web apps ─────────────────────────────────────────────
-    "wordpress",
-    "drupal",
-    "joomla",
-    // ── Microsoft server stack ─────────────────────────────────────
-    "microsoft",
-    "windows",
-    "exchange",
-    "iis",
-    "rdp",
-    "smb",
-    "lsass",
-    "sql server",
-    "mssql",
-    "sharepoint",
-    "skype for business",
-    "hyper-v",
-    "active directory",
-    "powershell",
-    ".net framework",
-    "dotnet",
-    "remote desktop",
-    "windows defender",
-    "defender",
-    "wsus",
-    "rdp gateway",
-    // ── Cross-platform admin / monitoring ──────────────────────────
-    "vmware",
-    "hyperv",
-    "vsphere",
-    "vcenter",
-    "virtualbox",
-    "qemu",
-    "libvirt",
-    "openvpn",
-    "wireguard",
-    "fortiguard",
-    "fortinet",
-    "palo alto",
-    "panos",
-    "cisco",
-    "juniper",
-    "checkpoint",
-    "pulse secure",
-    "veeam",
-    "tenable",
-    "nessus",
-    "splunk",
-    "zabbix",
-    "nagios",
-    "grafana",
-    "elastic",
-    "logstash",
-    "kibana",
-];
 
 pub struct VulnScanResult {
     pub software_checked: usize,
@@ -141,132 +36,119 @@ pub async fn scan_asset_software(
         return result;
     }
 
-    // Load existing CVE findings for this asset (avoid duplicates).
-    // Track inserts that happen during this very scan too — without this,
-    // a CVE that matches several sub-packages (e.g. CVE-2026-42897 hitting
-    // 5 Visual C++ runtime variants installed side-by-side) would be
-    // written once per package because `existing_cves` is only seeded
-    // before the loop and never refreshed.
+    result.software_checked = software.len();
+
+    // Dedup against this asset's existing CVE findings. A CVE can legitimately
+    // affect several packages, so the key is cve+package (not cve alone).
     let existing_findings = store
-        .list_findings(None, None, Some(asset_name), 500, 0)
+        .list_findings(None, None, Some(asset_name), 1000, 0)
         .await
         .unwrap_or_default();
-    let mut seen_cves: std::collections::HashSet<String> = existing_findings
+    let mut seen: std::collections::HashSet<String> = existing_findings
         .iter()
-        .filter_map(|f| f.metadata.get("cve")?.as_str().map(String::from))
+        .filter_map(|f| {
+            let cve = f.metadata.get("cve")?.as_str()?;
+            let pkg = f
+                .metadata
+                .get("software")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            Some(format!("{cve}|{pkg}"))
+        })
         .collect();
 
-    // Distro/ecosystem hint for the Phase 2 distro-aware matcher (Debian package
-    // version comparison vs Windows CPE). Recorded on every finding so the data is
-    // already in place when the matcher replaces the naive name-substring logic.
     let ecosystem = ecosystem_for_platform(platform);
 
-    for sw in software {
-        let name = sw["name"].as_str().unwrap_or("").trim().to_lowercase();
-        let version = sw["version"].as_str().unwrap_or("").trim();
-        if name.is_empty() || version.is_empty() {
+    // Build a CycloneDX SBOM and let Grype do the matching — distro-aware on Linux
+    // (backport-aware, so a +debXuY patched package is correctly NOT flagged), CPE
+    // on Windows, with CVSS / EPSS / CISA-KEV / fix enrichment per CVE. This
+    // replaces the old name-substring + version-ignored matching (~73/75 FP).
+    let sbom = crate::enrichment::grype::build_sbom(platform, software);
+    let sbom_path = std::env::temp_dir().join(format!("tc-sbom-{asset_id}.json"));
+    if std::fs::write(&sbom_path, sbom.to_string()).is_err() {
+        return result;
+    }
+    let matches = crate::enrichment::grype::scan_sbom(&sbom_path.to_string_lossy());
+    let _ = std::fs::remove_file(&sbom_path);
+
+    for m in &matches {
+        // Prioritise: surface what an operator must act on — actively exploited
+        // (CISA KEV) or high/critical severity. Medium/low/negligible and
+        // won't-fix are real but kept out of the alert stream so we don't drown
+        // the SOC (exactly the noise the old scanner produced).
+        let rank = severity_rank(&m.severity);
+        if !(m.known_exploited || rank >= 3) {
+            continue;
+        }
+        if !seen.insert(format!("{}|{}", m.cve_id, m.package)) {
             continue;
         }
 
-        result.software_checked += 1;
+        // KEV is urgent regardless of base severity.
+        let severity = if m.known_exploited || rank >= 4 {
+            "CRITICAL"
+        } else {
+            "HIGH"
+        };
+        let kev_tag = if m.known_exploited {
+            " (CISA KEV: exploit actif)"
+        } else {
+            ""
+        };
+        let fix_hint = m
+            .fixed_version
+            .as_deref()
+            .map(|v| format!(", corrigé en {v}"))
+            .unwrap_or_default();
 
-        // Check CISA KEV for this software (fast, local DB)
-        let kev_cves = check_kev_for_software(store, &name, version).await;
-        for cve_id in &kev_cves {
-            if !seen_cves.insert(cve_id.clone()) {
-                continue;
-            }
-
-            let _ = store
-                .insert_finding(&crate::db::threatclaw_store::NewFinding {
-                    skill_id: "software-vuln".into(),
-                    title: format!(
-                        "{} {} — {} (CISA KEV: exploit actif)",
-                        name, version, cve_id
-                    ),
-                    description: Some(format!(
-                        "Le logiciel {} version {} installé sur {} est affecté par {}. \
-                     Cette CVE est dans la liste CISA KEV — exploitation active confirmée. \
-                     Mise à jour immédiate requise.",
-                        name, version, asset_name, cve_id
-                    )),
-                    severity: "CRITICAL".into(),
-                    category: Some("software-vuln".into()),
-                    asset: Some(asset_name.to_string()),
-                    source: Some("CISA KEV × osquery".into()),
-                    metadata: Some(serde_json::json!({
-                        "cve": cve_id,
-                        "software": name,
-                        "version": version,
-                        "platform": platform,
-                        "ecosystem": ecosystem,
-                        "exploited_in_wild": true,
-                        "detection": "software-vuln-kev",
-                        "mitre": ["T1190"]
-                    })),
-                })
-                .await;
-            result.cves_found += 1;
-            result.findings_created += 1;
+        let _ = store
+            .insert_finding(&crate::db::threatclaw_store::NewFinding {
+                skill_id: "software-vuln".into(),
+                title: format!("{} {} — {}{}", m.package, m.version, m.cve_id, kev_tag),
+                description: Some(format!(
+                    "Le logiciel {} version {} sur {} est affecté par {}{}{}.",
+                    m.package,
+                    m.version,
+                    asset_name,
+                    m.cve_id,
+                    m.cvss.map(|c| format!(" (CVSS {c:.1})")).unwrap_or_default(),
+                    fix_hint
+                )),
+                severity: severity.into(),
+                category: Some("software-vuln".into()),
+                asset: Some(asset_name.to_string()),
+                source: Some("Grype × osquery".into()),
+                metadata: Some(serde_json::json!({
+                    "cve": m.cve_id,
+                    "software": m.package,
+                    "version": m.version,
+                    "platform": platform,
+                    "ecosystem": ecosystem,
+                    "cvss": m.cvss,
+                    "epss": m.epss,
+                    "exploited_in_wild": m.known_exploited,
+                    "fix_state": m.fix_state,
+                    "fixed_version": m.fixed_version,
+                    "data_source": m.data_source,
+                    "detection": "software-vuln-grype",
+                    "mitre": ["T1190"]
+                })),
+            })
+            .await;
+        result.cves_found += 1;
+        result.findings_created += 1;
+        if severity == "CRITICAL" {
             result.critical_count += 1;
-        }
-
-        // For critical software, check NVD cache
-        let name_lower = name.to_lowercase();
-        if CRITICAL_SOFTWARE.iter().any(|cs| name_lower.contains(cs)) {
-            let cached_cves = check_nvd_cache_for_software(store, &name, version).await;
-            for (cve_id, cvss, severity) in &cached_cves {
-                if !seen_cves.insert(cve_id.clone()) {
-                    continue;
-                }
-
-                let sev = if *cvss >= 9.0 {
-                    "CRITICAL"
-                } else if *cvss >= 7.0 {
-                    "HIGH"
-                } else {
-                    "MEDIUM"
-                };
-                let _ = store.insert_finding(&crate::db::threatclaw_store::NewFinding {
-                    skill_id: "software-vuln".into(),
-                    title: format!("{} {} — {} (CVSS {:.1})", name, version, cve_id, cvss),
-                    description: Some(format!(
-                        "Le logiciel {} version {} installé sur {} est affecté par {} (CVSS {:.1}, {}).",
-                        name, version, asset_name, cve_id, cvss, severity
-                    )),
-                    severity: sev.into(),
-                    category: Some("software-vuln".into()),
-                    asset: Some(asset_name.to_string()),
-                    source: Some("NVD × osquery".into()),
-                    metadata: Some(serde_json::json!({
-                        "cve": cve_id,
-                        "software": name,
-                        "version": version,
-                        "platform": platform,
-                        "ecosystem": ecosystem,
-                        "cvss": cvss,
-                        "severity": severity,
-                        "detection": "software-vuln-nvd",
-                        "mitre": ["T1190"]
-                    })),
-                }).await;
-                result.cves_found += 1;
-                result.findings_created += 1;
-                if sev == "CRITICAL" {
-                    result.critical_count += 1;
-                }
-            }
         }
     }
 
     if result.findings_created > 0 {
         tracing::info!(
-            "SOFTWARE-VULN: {} on {} — {}/{} software checked, {} CVEs, {} findings ({} critical)",
+            "SOFTWARE-VULN: {} on {} — {} packages, {} grype matches, {} surfaced ({} critical)",
             asset_name,
             asset_id,
-            result.software_checked,
             software.len(),
-            result.cves_found,
+            matches.len(),
             result.findings_created,
             result.critical_count
         );
@@ -275,58 +157,17 @@ pub async fn scan_asset_software(
     result
 }
 
-/// Check CISA KEV database for CVEs affecting a given software name+version.
-async fn check_kev_for_software(store: &dyn Database, name: &str, version: &str) -> Vec<String> {
-    let mut matches = vec![];
-
-    if let Ok(entries) = store.list_settings("_kev").await {
-        for row in &entries {
-            if !row.key.starts_with("CVE-") {
-                continue;
-            }
-            let product = row.value["product"].as_str().unwrap_or("").to_lowercase();
-            let vendor = row.value["vendor"].as_str().unwrap_or("").to_lowercase();
-
-            // Match software name against KEV product/vendor
-            if product.contains(name) || vendor.contains(name) || name.contains(&product) {
-                // Version check: KEV stores affected versions in description
-                // Simple heuristic — if the product matches, flag it
-                matches.push(row.key.clone());
-            }
-        }
+/// Rank a Grype severity string for prioritisation. Negligible/Unknown = 0.
+fn severity_rank(sev: &str) -> u8 {
+    match sev.to_lowercase().as_str() {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
     }
-
-    matches
 }
 
-/// Check local NVD cache (cve_cache table) for CVEs matching software.
-async fn check_nvd_cache_for_software(
-    store: &dyn Database,
-    name: &str,
-    _version: &str,
-) -> Vec<(String, f64, String)> {
-    let mut matches = vec![];
-
-    // Search enrichment cache for CVEs related to this software
-    let search_key = format!("cpe:*{}*", name.to_lowercase());
-    if let Ok(Some(cached)) = store
-        .get_enrichment_cache("nvd_software", &name.to_lowercase())
-        .await
-    {
-        if let Some(cves) = cached["cves"].as_array() {
-            for cve in cves {
-                let id = cve["id"].as_str().unwrap_or("");
-                let cvss = cve["cvss"].as_f64().unwrap_or(0.0);
-                let severity = cve["severity"].as_str().unwrap_or("MEDIUM");
-                if !id.is_empty() && cvss >= 5.0 {
-                    matches.push((id.to_string(), cvss, severity.to_string()));
-                }
-            }
-        }
-    }
-
-    matches
-}
 
 /// Map an OS string (osquery `platform` or `asset.os`) to a matching ecosystem
 /// for the Phase 2 distro-aware matcher. Linux distros map to their OSV ecosystem
