@@ -58,12 +58,11 @@ pub enum Channel {
 ///   ORDER BY 1;
 /// Replace the values below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
 ///
-/// PENDING RE-CAPTURE: the values below are for the pre-Expand-ZipCompat installer
-/// (file sha a4d829c3…); the current installer is bc80f50b… and will not match
-/// until re-captured from a fresh install.
+/// Captured 2026-06-22 from a fresh install on cyb06, for install-agent.ps1 at
+/// file sha bc80f50b… (the Expand-ZipCompat build). Two 4104 parts.
 const INSTALLER_OSQUERY_PS_SHA256: &[&str] = &[
-    "f14648d3693aef4883b395d72c63ffc910adcdbfc52c30e0393b1f0edeab2e9f",
-    "d0e9d005bf488d1dd99914ee8e522832702b242f88ee5815b7c9396b1f2b33e8",
+    "6c002ea43da6f86a42bc04a01146520109bba7dd4c52792ee2a05a9072bd526e",
+    "47d7d67d27c51a1de0d6af112caa9a9e705719e1b6affcbd7747758afa412e00",
 ];
 
 fn installer_hashes(channel: Channel) -> &'static [&'static str] {
