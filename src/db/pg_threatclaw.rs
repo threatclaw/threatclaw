@@ -4177,6 +4177,27 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn list_incidents_needing_dfir(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i32, String)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, asset FROM incidents \
+                 WHERE dfir_collected_at IS NULL \
+                   AND status NOT IN ('closed', 'archived', 'resolved', 'dismissed') \
+                 ORDER BY created_at DESC LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get::<_, i32>(0), r.get::<_, String>(1)))
+            .collect())
+    }
+
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(

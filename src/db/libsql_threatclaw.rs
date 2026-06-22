@@ -616,6 +616,12 @@ impl ThreatClawStore for LibSqlBackend {
     async fn mark_dfir_collected(&self, _: i32) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn list_incidents_needing_dfir(
+        &self,
+        _: i64,
+    ) -> Result<Vec<(i32, String)>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn try_claim_incident_action(&self, _: i32, _: &str) -> Result<bool, DatabaseError> {
         Err(not_supported())
     }

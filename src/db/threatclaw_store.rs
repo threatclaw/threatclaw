@@ -1592,6 +1592,14 @@ pub trait ThreatClawStore: Send + Sync {
     /// same pattern as `forensic_enriched_at`).
     async fn mark_dfir_collected(&self, incident_id: i32) -> Result<(), DatabaseError>;
 
+    /// DFIR — open incidents that don't have a forensic timeline yet
+    /// (`dfir_collected_at IS NULL`). Returns `(id, asset)`. Drives the DFIR
+    /// collector poll loop.
+    async fn list_incidents_needing_dfir(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i32, String)>, DatabaseError>;
+
     /// Atomically claim an incident remediation action for execution
     /// (anti-replay / execute-once). Appends an
     /// `{subject, status:"in_progress", at}` marker to `executed_actions`

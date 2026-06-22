@@ -769,6 +769,15 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
+    // DFIR collector: background task that assembles a forensic timeline for each
+    // incident from already-ingested telemetry (native DFIR triage, Phase 1).
+    if let Some(ref dfir_db) = components.db {
+        let dfir_db = Arc::clone(dfir_db) as Arc<dyn threatclaw::db::Database>;
+        tokio::spawn(async move {
+            threatclaw::agent::dfir_triage::run_dfir_collector(dfir_db).await;
+        });
+    }
+
     let deps = AgentDeps {
         owner_id: config.owner_id.clone(),
         store: components.db,

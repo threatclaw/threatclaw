@@ -14,9 +14,19 @@
 //!
 //! See internal/PLAN_NATIVE_DFIR.md / PLAN_NATIVE_DFIR_BUILD.md.
 
-use chrono::{DateTime, Utc};
+use std::sync::Arc;
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
+use serde_json::Value;
+
+use crate::db::Database;
 use crate::db::threatclaw_store::NewTimelineEvent;
+
+/// Poll cadence of the background DFIR collector.
+const DFIR_POLL_INTERVAL: Duration = Duration::from_secs(180);
+/// Lookback window for assembling an incident's timeline (24h).
+const DFIR_WINDOW_MIN: i64 = 1440;
 
 /// Category of a raw forensic observation pulled from ingested telemetry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +232,142 @@ pub fn detect_standalone_findings(obs: &[RawObservation]) -> Vec<StandaloneFindi
     out
 }
 
+// ── Edge: collect observations from already-ingested telemetry ──────────────
+
+/// Non-empty string field on a JSON object.
+fn jstr<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+}
+
+/// Parse a log timestamp into UTC. Handles the formats `query_logs` actually
+/// yields: PostgreSQL `timestamptz::text` ("2026-06-22 19:20:00[.ffffff]+00",
+/// space separator, short "+00" offset) as well as RFC 3339. A naive form
+/// (assumed UTC) is the last resort. Getting this right is what keeps the
+/// timeline chronological — a parse miss falls back to "now" and flattens it.
+fn parse_log_ts(s: &str) -> Option<DateTime<Utc>> {
+    // RFC 3339 ("...T...+00:00").
+    if let Ok(d) = DateTime::parse_from_rfc3339(s) {
+        return Some(d.with_timezone(&Utc));
+    }
+    // PostgreSQL timestamptz::text — space separator, "%#z" accepts "+00".
+    if let Ok(d) = DateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f%#z") {
+        return Some(d.with_timezone(&Utc));
+    }
+    // Naive (no offset) — assume UTC.
+    chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f")
+        .map(|n| n.and_utc())
+        .ok()
+}
+
+/// Pure: map a Sysmon event (EventData object `inner`) to an observation.
+/// Covers ProcessCreate (1) and NetworkConnect (3) — the timeline backbone.
+pub fn obs_from_sysmon(
+    eventid: &str,
+    inner: &Value,
+    asset: &str,
+    ts: DateTime<Utc>,
+) -> Option<RawObservation> {
+    match eventid {
+        "1" => {
+            let cmd = jstr(inner, "CommandLine").or_else(|| jstr(inner, "Image"))?;
+            Some(RawObservation {
+                ts,
+                kind: ObsKind::ProcessCreate,
+                asset: asset.into(),
+                actor: jstr(inner, "ParentImage").map(String::from),
+                detail: cmd.into(),
+                ioc: jstr(inner, "Hashes").map(String::from),
+                source: "osquery.sysmon".into(),
+            })
+        }
+        "3" => {
+            let dip = jstr(inner, "DestinationIp")?;
+            let dport = jstr(inner, "DestinationPort").unwrap_or("");
+            Some(RawObservation {
+                ts,
+                kind: ObsKind::NetworkConnect,
+                asset: asset.into(),
+                actor: jstr(inner, "Image").map(String::from),
+                detail: format!("{dip}:{dport}"),
+                ioc: Some(dip.into()),
+                source: "osquery.sysmon".into(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Edge (I/O): read recent osquery/sysmon logs for an asset and map them to
+/// observations. Server-side parsing — only rows, never raw artifacts.
+pub async fn collect_observations_from_logs(
+    store: &dyn Database,
+    asset: &str,
+    minutes_back: i64,
+) -> Vec<RawObservation> {
+    let mut out = Vec::new();
+    let logs = store
+        .query_logs(minutes_back, Some(asset), Some("osquery.sysmon"), 5000)
+        .await
+        .unwrap_or_default();
+    for l in &logs {
+        let eventid = l.data.get("eventid").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(inner) = l.data.get("data") else {
+            continue;
+        };
+        let ts = parse_log_ts(&l.time)
+            .or_else(|| parse_log_ts(&l.created_at))
+            .unwrap_or_else(Utc::now);
+        if let Some(o) = obs_from_sysmon(eventid, inner, asset, ts) {
+            out.push(o);
+        }
+    }
+    out
+}
+
+/// Run DFIR triage for one incident: assemble the forensic timeline from ingested
+/// telemetry and persist it. Idempotent — stamps `dfir_collected_at` so it runs
+/// once per incident. Non-fatal (never breaks the caller).
+pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: &str) {
+    let obs = collect_observations_from_logs(store.as_ref(), asset, DFIR_WINDOW_MIN).await;
+    if !obs.is_empty() {
+        let events = assemble_timeline(obs);
+        match store.insert_timeline_events(incident_id, &events).await {
+            Ok(n) => tracing::info!(
+                "DFIR: incident #{incident_id} — {n} timeline events assembled for {asset}"
+            ),
+            Err(e) => {
+                tracing::warn!("DFIR: insert_timeline_events failed for #{incident_id}: {e}")
+            }
+        }
+    }
+    // Stamp even when empty so the incident isn't re-polled forever (the
+    // triggering telemetry is already ingested by the time we run).
+    if let Err(e) = store.mark_dfir_collected(incident_id).await {
+        tracing::warn!("DFIR: mark_dfir_collected failed for #{incident_id}: {e}");
+    }
+}
+
+/// Background loop: assemble a forensic timeline for incidents that don't have
+/// one yet. Mirrors the `forensic_enricher` poll pattern. Enriches every
+/// incident (IE, RBA notable, graph) without touching each create site.
+pub async fn run_dfir_collector(store: Arc<dyn Database>) {
+    loop {
+        tokio::time::sleep(DFIR_POLL_INTERVAL).await;
+        let pending = match store.list_incidents_needing_dfir(20).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::debug!("DFIR collector: list failed (or unsupported): {e}");
+                continue;
+            }
+        };
+        for (id, asset) in pending {
+            run_dfir_triage(store.clone(), id, &asset).await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -309,5 +455,63 @@ mod tests {
             obs(ObsKind::Logon, "logon type 2 alice", 1),
         ];
         assert!(detect_standalone_findings(&observations).is_empty());
+    }
+
+    fn ts() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-06-22T12:00:00+00:00")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn sysmon_process_create_maps_with_parent_and_cmdline() {
+        let inner = serde_json::json!({
+            "CommandLine": "powershell.exe -EncodedCommand AAA",
+            "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "ParentImage": "C:\\Program Files\\Office\\outlook.exe"
+        });
+        let o = obs_from_sysmon("1", &inner, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::ProcessCreate);
+        assert_eq!(
+            o.actor.as_deref(),
+            Some("C:\\Program Files\\Office\\outlook.exe")
+        );
+        assert!(o.detail.contains("-EncodedCommand"));
+        // and it labels as T1059.001 downstream
+        let ev = to_timeline_event(&o);
+        assert_eq!(ev.mitre_technique.as_deref(), Some("T1059.001"));
+    }
+
+    #[test]
+    fn sysmon_network_connect_carries_ip_ioc() {
+        let inner = serde_json::json!({
+            "DestinationIp": "185.1.2.3", "DestinationPort": "443", "Image": "x.exe"
+        });
+        let o = obs_from_sysmon("3", &inner, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::NetworkConnect);
+        assert_eq!(o.ioc.as_deref(), Some("185.1.2.3"));
+        assert_eq!(o.detail, "185.1.2.3:443");
+    }
+
+    #[test]
+    fn sysmon_unhandled_eventid_is_skipped() {
+        let inner = serde_json::json!({"TargetFilename": "C:\\x"});
+        assert!(obs_from_sysmon("11", &inner, "WIN-01", ts()).is_none());
+        // eventid 1 with no cmdline/image → also skipped (no usable detail)
+        assert!(obs_from_sysmon("1", &serde_json::json!({"User": "x"}), "WIN-01", ts()).is_none());
+    }
+
+    #[test]
+    fn parse_log_ts_handles_pg_timestamptz_text_and_rfc3339() {
+        // The real format query_logs yields (time::text) — regression for the
+        // e2e bug where this fell back to now() and flattened the timeline.
+        let a = parse_log_ts("2026-06-22 19:20:00+00").expect("PG ::text");
+        assert_eq!(a.to_rfc3339(), "2026-06-22T19:20:00+00:00");
+        let b = parse_log_ts("2026-06-22 19:20:00.123456+00").expect("PG ::text w/ micros");
+        assert_eq!(b.to_rfc3339(), "2026-06-22T19:20:00.123456+00:00");
+        // RFC 3339 and naive (assumed UTC) still work; junk is rejected.
+        assert!(parse_log_ts("2026-06-22T12:00:00+00:00").is_some());
+        assert!(parse_log_ts("2026-06-22 12:00:00").is_some());
+        assert!(parse_log_ts("not-a-date").is_none());
     }
 }
