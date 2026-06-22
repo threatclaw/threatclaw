@@ -6,6 +6,7 @@ pub mod cve_lookup;
 pub mod epss;
 pub mod google_safebrowsing;
 pub mod greynoise;
+pub mod grype;
 pub mod hibp_lookup;
 pub mod ioc_extractor;
 pub mod ipinfo;

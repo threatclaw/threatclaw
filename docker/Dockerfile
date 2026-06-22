@@ -122,6 +122,15 @@ RUN curl -sSfL https://github.com/typst/typst/releases/download/v0.13.1/typst-x8
     && rm /tmp/typst.tar.xz \
     && typst --version
 
+# Install Grype (Apache-2.0) — the software-vulnerability matcher. We feed it a
+# CycloneDX SBOM built from the osquery inventory; it returns distro-aware (Linux)
+# and CPE (Windows) CVE matches with CVSS/EPSS/KEV enrichment. Its ~1GB DB is NOT
+# baked into the image — it lives on the data volume (GRYPE_DB_CACHE_DIR) and is
+# refreshed at runtime, like our other vuln feeds.
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+       | sh -s -- -b /usr/local/bin v0.114.0 \
+    && grype version
+
 # Copy the compiled binary
 COPY --from=builder /app/target/release/threatclaw /usr/local/bin/threatclaw
 
@@ -165,8 +174,15 @@ WORKDIR /app
 EXPOSE 18789
 
 # Runtime environment defaults
+# TMPDIR → the data volume: the container's /tmp is root-owned 0700, so the
+# non-root runtime user can't write there. Grype's DB-update listing file and our
+# CycloneDX SBOM both land in TMPDIR, so it must be writable. grype (a child
+# process) inherits this env, so its temp files follow too.
 ENV RUST_LOG=threatclaw=info \
-    TC_PERMISSION_LEVEL=ALERT_ONLY
+    TC_PERMISSION_LEVEL=ALERT_ONLY \
+    GRYPE_DB_CACHE_DIR=/app/data/grype-db \
+    GRYPE_CHECK_FOR_APP_UPDATE=false \
+    TMPDIR=/app/data/tmp
 
 # Health check — hit the core API health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
