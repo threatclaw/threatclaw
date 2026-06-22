@@ -695,7 +695,10 @@ pub async fn skill_config_set_handler(
                     url,
                     user: cfg.get("auth_user").cloned().unwrap_or_default(),
                     password: cfg.get("auth_secret").cloned().unwrap_or_default(),
-                    no_tls_verify: cfg.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
+                    no_tls_verify: cfg
+                        .get("no_tls_verify")
+                        .map(|s| s == "true")
+                        .unwrap_or(true),
                 };
                 tokio::spawn(async move {
                     match crate::connectors::stormshield_sns::configure_syslog(&sns, &dest, 514)
@@ -10502,6 +10505,13 @@ pub async fn incident_full_handler(
         .map_err(db_err)
         .unwrap_or_default();
 
+    // Native DFIR forensic timeline (Phase 1). Never 5xx-s the /full endpoint.
+    let forensic_timeline = store
+        .list_timeline_for_incident(id)
+        .await
+        .map_err(db_err)
+        .unwrap_or_default();
+
     Ok(Json(serde_json::json!({
         "incident": incident,
         "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
@@ -10511,6 +10521,7 @@ pub async fn incident_full_handler(
         "choke_points": serde_json::to_value(&choke_points).unwrap_or(serde_json::json!([])),
         "attack_events": attack_events,
         "investigation_steps": serde_json::to_value(&investigation_steps).unwrap_or(serde_json::json!([])),
+        "forensic_timeline": serde_json::to_value(&forensic_timeline).unwrap_or(serde_json::json!([])),
     })))
 }
 

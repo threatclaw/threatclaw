@@ -138,6 +138,23 @@ interface FullData {
   attack_events: AttackEvent[];
   /** Phase 9o — investigation timeline (skill calls, LLM, derive, …). */
   investigation_steps?: InvestigationStep[];
+  /** Native DFIR — forensic timeline assembled from endpoint telemetry. */
+  forensic_timeline?: ForensicEvent[];
+}
+
+/** Native DFIR forensic timeline event (matches TimelineEvent on the backend). */
+interface ForensicEvent {
+  id: number;
+  ts: string;
+  event_type: string;
+  asset: string;
+  actor: string | null;
+  description: string;
+  severity: string;
+  mitre_tactic: string | null;
+  mitre_technique: string | null;
+  ioc: string | null;
+  source_artifact: string | null;
 }
 
 interface RelatedIncident {
@@ -1255,6 +1272,55 @@ export default function InvestigatePage() {
               <section className="inv-sec">
                 <InvestigationTimeline steps={data?.investigation_steps} />
               </section>
+
+              {/* Native DFIR — chronologie forensique assemblée depuis la
+                  télémétrie endpoint (osquery/sysmon/powershell). */}
+              {(data?.forensic_timeline?.length ?? 0) > 0 && (
+                <section className="inv-sec">
+                  <div className="inv-card">
+                    <div className="inv-card-head">
+                      <div className="inv-card-head-left">
+                        <strong>{tr("investigate_dfirTimeline", locale)}</strong> · DFIR
+                      </div>
+                      <div className="inv-card-head-right">
+                        {data!.forensic_timeline!.length} {tr("investigate_dfirEvents", locale)}
+                      </div>
+                    </div>
+                    <div className="inv-ai-body" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {data!.forensic_timeline!.map((ev) => (
+                        <div
+                          key={ev.id}
+                          style={{
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "baseline",
+                            fontSize: 12,
+                            fontFamily: "ui-monospace, 'JetBrains Mono', monospace",
+                            padding: "3px 7px",
+                            borderLeft: `2px solid ${
+                              ev.severity === "high" || ev.severity === "critical"
+                                ? "#903020"
+                                : ev.severity === "medium"
+                                  ? "#c08820"
+                                  : "#445"
+                            }`,
+                          }}
+                        >
+                          <span style={{ color: "var(--tc-text-muted)", whiteSpace: "nowrap" }}>
+                            {fmtTime(ev.ts, locale)}
+                          </span>
+                          <span style={{ color: "var(--tc-text-muted)", minWidth: 120 }}>{ev.event_type}</span>
+                          {ev.mitre_technique && <span style={{ color: "#7090c0" }}>{ev.mitre_technique}</span>}
+                          <span style={{ color: "var(--tc-text)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {ev.description}
+                          </span>
+                          {ev.ioc && <span style={{ color: "#c08820", whiteSpace: "nowrap" }}>{ev.ioc}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* Forensic L2 enrichment section */}
               <section className="inv-sec">
