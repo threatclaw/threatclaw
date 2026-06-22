@@ -54,6 +54,7 @@ interface FullPayload {
     severity: string;
     status: string;
     detected_at: string;
+    category?: string | null;
     asset?: string | null;
     source?: string | null;
     metadata?: Record<string, unknown>;
@@ -363,7 +364,10 @@ export default function AssetDetailPage() {
             ).map((s) => {
               const count =
                 s.id === "findings"
-                  ? data.findings.length
+                  ? // The "Vulnérabilités" tab is CVE findings only — sigma
+                    // detections and ML/behavioral findings belong in Incidents.
+                    data.findings.filter((f) => f.category === "software-vuln")
+                      .length
                   : s.id === "incidents"
                     ? data.incidents.length
                     : s.id === "software"
@@ -717,7 +721,11 @@ function SectionFindings({
   findings: FullPayload["findings"];
 }) {
   const locale = useLocale();
-  if (findings.length === 0) {
+  // This tab is the asset's software VULNERABILITIES — CVE findings only. Sigma
+  // detections (PowerShell, reflective loader, ...) and ML/behavioral findings are
+  // not vulnerabilities and belong in Incidents, so they are filtered out here.
+  const vulns = findings.filter((f) => f.category === "software-vuln");
+  if (vulns.length === 0) {
     return (
       <div className="inv-card">
         <div className="inv-card-head">
@@ -733,7 +741,7 @@ function SectionFindings({
   }
   // Sort: severity desc → date desc.
   const order = { critical: 0, high: 1, medium: 2, low: 3, info: 4 } as const;
-  const sorted = [...findings].sort((a, b) => {
+  const sorted = [...vulns].sort((a, b) => {
     const sa = order[(a.severity?.toLowerCase() as keyof typeof order)] ?? 5;
     const sb = order[(b.severity?.toLowerCase() as keyof typeof order)] ?? 5;
     if (sa !== sb) return sa - sb;
@@ -743,8 +751,8 @@ function SectionFindings({
     <div className="inv-card">
       <div className="inv-card-head">
         <div className="inv-card-head-left">
-          <strong>{tr("assetDetail_findings", locale)}</strong> · {findings.length}{" "}
-          {findings.length > 1
+          <strong>{tr("assetDetail_findings", locale)}</strong> · {sorted.length}{" "}
+          {sorted.length > 1
             ? tr("assetDetail_entriesPlural", locale)
             : tr("assetDetail_entry", locale)}
         </div>
