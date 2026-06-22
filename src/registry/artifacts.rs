@@ -254,63 +254,95 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use std::sync::Mutex;
+
+    // The wasm-artifact lookups resolve their target dir from CARGO_TARGET_DIR,
+    // which is shared across the workspace and populated by real builds. Serialise
+    // the tests that touch it and point each at its own empty target, so they are
+    // hermetic: otherwise "not found" sees real artifacts and "found" pollutes the
+    // live target. See resolve_target_dir.
+    static TARGET_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_isolated_target<T>(crate_dir: &Path, f: impl FnOnce() -> T) -> T {
+        let _guard = TARGET_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var_os("CARGO_TARGET_DIR");
+        // Safe: the lock serialises every test that reads CARGO_TARGET_DIR, so no
+        // other thread observes the env mid-mutation.
+        unsafe { std::env::set_var("CARGO_TARGET_DIR", crate_dir.join("target")) };
+        let out = f();
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("CARGO_TARGET_DIR", v),
+                None => std::env::remove_var("CARGO_TARGET_DIR"),
+            }
+        }
+        out
+    }
 
     #[test]
     fn test_resolve_target_dir_default() {
-        // When CARGO_TARGET_DIR is not set, should return <crate_dir>/target
         let dir = Path::new("/some/crate");
-        let result = resolve_target_dir(dir);
-        assert!(result.ends_with("target"));
+        with_isolated_target(dir, || {
+            assert!(resolve_target_dir(dir).ends_with("target"));
+        });
     }
 
     #[test]
     fn test_find_wasm_artifact_not_found() {
         let dir = TempDir::new().unwrap();
-        assert!(find_wasm_artifact(dir.path(), "nonexistent", "release").is_none());
+        with_isolated_target(dir.path(), || {
+            assert!(find_wasm_artifact(dir.path(), "nonexistent", "release").is_none());
+        });
     }
 
     #[test]
     fn test_find_wasm_artifact_found() {
         let dir = TempDir::new().unwrap();
-        let target_base = resolve_target_dir(dir.path());
-        let wasm_dir = target_base.join("wasm32-wasip2/release");
-        std::fs::create_dir_all(&wasm_dir).unwrap();
-        std::fs::File::create(wasm_dir.join("my_tool.wasm")).unwrap();
+        with_isolated_target(dir.path(), || {
+            let target_base = resolve_target_dir(dir.path());
+            let wasm_dir = target_base.join("wasm32-wasip2/release");
+            std::fs::create_dir_all(&wasm_dir).unwrap();
+            std::fs::File::create(wasm_dir.join("my_tool.wasm")).unwrap();
 
-        let result = find_wasm_artifact(dir.path(), "my_tool", "release");
-        assert!(result.is_some());
-        assert!(result.unwrap().ends_with("my_tool.wasm"));
+            let result = find_wasm_artifact(dir.path(), "my_tool", "release");
+            assert!(result.is_some());
+            assert!(result.unwrap().ends_with("my_tool.wasm"));
+        });
     }
 
     #[test]
     fn test_find_wasm_artifact_hyphen_to_underscore() {
         let dir = TempDir::new().unwrap();
-        let target_base = resolve_target_dir(dir.path());
-        let wasm_dir = target_base.join("wasm32-wasip1/release");
-        std::fs::create_dir_all(&wasm_dir).unwrap();
-        std::fs::File::create(wasm_dir.join("my_tool.wasm")).unwrap();
+        with_isolated_target(dir.path(), || {
+            let target_base = resolve_target_dir(dir.path());
+            let wasm_dir = target_base.join("wasm32-wasip1/release");
+            std::fs::create_dir_all(&wasm_dir).unwrap();
+            std::fs::File::create(wasm_dir.join("my_tool.wasm")).unwrap();
 
-        // Search with hyphens, should find underscore version
-        let result = find_wasm_artifact(dir.path(), "my-tool", "release");
-        assert!(result.is_some());
+            // Search with hyphens, should find underscore version
+            assert!(find_wasm_artifact(dir.path(), "my-tool", "release").is_some());
+        });
     }
 
     #[test]
     fn test_find_any_wasm_artifact_found() {
         let dir = TempDir::new().unwrap();
-        let target_base = resolve_target_dir(dir.path());
-        let wasm_dir = target_base.join("wasm32-wasip2/release");
-        std::fs::create_dir_all(&wasm_dir).unwrap();
-        std::fs::File::create(wasm_dir.join("something.wasm")).unwrap();
+        with_isolated_target(dir.path(), || {
+            let target_base = resolve_target_dir(dir.path());
+            let wasm_dir = target_base.join("wasm32-wasip2/release");
+            std::fs::create_dir_all(&wasm_dir).unwrap();
+            std::fs::File::create(wasm_dir.join("something.wasm")).unwrap();
 
-        let result = find_any_wasm_artifact(dir.path(), "release");
-        assert!(result.is_some());
+            assert!(find_any_wasm_artifact(dir.path(), "release").is_some());
+        });
     }
 
     #[test]
     fn test_find_any_wasm_artifact_not_found() {
         let dir = TempDir::new().unwrap();
-        assert!(find_any_wasm_artifact(dir.path(), "release").is_none());
+        with_isolated_target(dir.path(), || {
+            assert!(find_any_wasm_artifact(dir.path(), "release").is_none());
+        });
     }
 
     #[tokio::test]
