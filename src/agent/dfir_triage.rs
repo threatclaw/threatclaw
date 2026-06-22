@@ -299,28 +299,104 @@ pub fn obs_from_sysmon(
     }
 }
 
-/// Edge (I/O): read recent osquery/sysmon logs for an asset and map them to
-/// observations. Server-side parsing — only rows, never raw artifacts.
+/// Pure: map a PowerShell/Operational event. EID 4104 (ScriptBlock logging)
+/// carries the **deobfuscated** script text — the highest-value PowerShell
+/// artifact. Only the first part of a multi-part script is kept (dedup by
+/// `MessageNumber`) so one script = one timeline entry.
+pub fn obs_from_powershell(
+    eventid: &str,
+    inner: &Value,
+    asset: &str,
+    ts: DateTime<Utc>,
+) -> Option<RawObservation> {
+    if eventid != "4104" {
+        return None;
+    }
+    // Skip continuation parts of a chunked script block.
+    if let Some(n) = jstr(inner, "MessageNumber")
+        && n != "1"
+    {
+        return None;
+    }
+    let script = jstr(inner, "ScriptBlockText")?;
+    Some(RawObservation {
+        ts,
+        kind: ObsKind::ProcessCreate,
+        asset: asset.into(),
+        actor: jstr(inner, "Path").map(String::from),
+        detail: format!("PowerShell ScriptBlock: {script}"),
+        ioc: None,
+        source: "osquery.powershell".into(),
+    })
+}
+
+/// Pure: map a Security logon event. 4624 (success) / 4625 (failure) → a Logon
+/// observation; type 3/10 (network/RDP) is the lateral-movement signal. Skips
+/// noisy service/system logons (SYSTEM, ANONYMOUS, accounts ending in `$`).
+pub fn obs_from_winsec(
+    eventid: &str,
+    inner: &Value,
+    asset: &str,
+    ts: DateTime<Utc>,
+) -> Option<RawObservation> {
+    if eventid != "4624" && eventid != "4625" {
+        return None;
+    }
+    let user = jstr(inner, "TargetUserName").or_else(|| jstr(inner, "SubjectUserName"))?;
+    let ulow = user.to_ascii_lowercase();
+    if user.ends_with('$') || ulow == "system" || ulow == "anonymous logon" {
+        return None;
+    }
+    let logon_type = jstr(inner, "LogonType").unwrap_or("?");
+    let src_ip = jstr(inner, "IpAddress").filter(|s| *s != "-");
+    let outcome = if eventid == "4625" {
+        "échec"
+    } else {
+        "succès"
+    };
+    let from = src_ip.map(|ip| format!(" depuis {ip}")).unwrap_or_default();
+    Some(RawObservation {
+        ts,
+        kind: ObsKind::Logon,
+        asset: asset.into(),
+        actor: Some(user.to_string()),
+        detail: format!("Logon {outcome} type {logon_type} — {user}{from}"),
+        ioc: src_ip.map(String::from),
+        source: "osquery.windows_security".into(),
+    })
+}
+
+/// Edge (I/O): read recent osquery telemetry for an asset across the relevant
+/// tags and map each event to an observation. Server-side parsing — only rows,
+/// never raw artifacts, cross the wire.
 pub async fn collect_observations_from_logs(
     store: &dyn Database,
     asset: &str,
     minutes_back: i64,
 ) -> Vec<RawObservation> {
+    type Mapper = fn(&str, &Value, &str, DateTime<Utc>) -> Option<RawObservation>;
+    let sources: [(&str, Mapper); 3] = [
+        ("osquery.sysmon", obs_from_sysmon),
+        ("osquery.powershell", obs_from_powershell),
+        ("osquery.windows_security", obs_from_winsec),
+    ];
     let mut out = Vec::new();
-    let logs = store
-        .query_logs(minutes_back, Some(asset), Some("osquery.sysmon"), 5000)
-        .await
-        .unwrap_or_default();
-    for l in &logs {
-        let eventid = l.data.get("eventid").and_then(|v| v.as_str()).unwrap_or("");
-        let Some(inner) = l.data.get("data") else {
-            continue;
-        };
-        let ts = parse_log_ts(&l.time)
-            .or_else(|| parse_log_ts(&l.created_at))
-            .unwrap_or_else(Utc::now);
-        if let Some(o) = obs_from_sysmon(eventid, inner, asset, ts) {
-            out.push(o);
+    for (tag, map) in sources {
+        let logs = store
+            .query_logs(minutes_back, Some(asset), Some(tag), 5000)
+            .await
+            .unwrap_or_default();
+        for l in &logs {
+            let eventid = l.data.get("eventid").and_then(|v| v.as_str()).unwrap_or("");
+            let Some(inner) = l.data.get("data") else {
+                continue;
+            };
+            let ts = parse_log_ts(&l.time)
+                .or_else(|| parse_log_ts(&l.created_at))
+                .unwrap_or_else(Utc::now);
+            if let Some(o) = map(eventid, inner, asset, ts) {
+                out.push(o);
+            }
         }
     }
     out
@@ -499,6 +575,51 @@ mod tests {
         assert!(obs_from_sysmon("11", &inner, "WIN-01", ts()).is_none());
         // eventid 1 with no cmdline/image → also skipped (no usable detail)
         assert!(obs_from_sysmon("1", &serde_json::json!({"User": "x"}), "WIN-01", ts()).is_none());
+    }
+
+    #[test]
+    fn powershell_4104_maps_first_part_only() {
+        let p1 = serde_json::json!({"ScriptBlockText": "IEX (New-Object Net.WebClient)...", "MessageNumber": "1"});
+        let o = obs_from_powershell("4104", &p1, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::ProcessCreate);
+        assert_eq!(o.source, "osquery.powershell");
+        assert!(o.detail.contains("ScriptBlock"));
+        // continuation part is skipped
+        let p2 = serde_json::json!({"ScriptBlockText": "...rest", "MessageNumber": "2"});
+        assert!(obs_from_powershell("4104", &p2, "WIN-01", ts()).is_none());
+        // other PS event ids ignored
+        assert!(obs_from_powershell("4103", &p1, "WIN-01", ts()).is_none());
+    }
+
+    #[test]
+    fn winsec_logon_maps_and_filters_noise() {
+        let rdp =
+            serde_json::json!({"TargetUserName":"alice","LogonType":"10","IpAddress":"10.0.0.9"});
+        let o = obs_from_winsec("4624", &rdp, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::Logon);
+        assert_eq!(o.ioc.as_deref(), Some("10.0.0.9"));
+        assert!(o.detail.contains("type 10"));
+        // machine/service/system logons are noise → skipped
+        assert!(
+            obs_from_winsec(
+                "4624",
+                &serde_json::json!({"TargetUserName":"WIN-01$"}),
+                "WIN-01",
+                ts()
+            )
+            .is_none()
+        );
+        assert!(
+            obs_from_winsec(
+                "4624",
+                &serde_json::json!({"TargetUserName":"SYSTEM"}),
+                "WIN-01",
+                ts()
+            )
+            .is_none()
+        );
+        // non-logon event ignored
+        assert!(obs_from_winsec("4688", &rdp, "WIN-01", ts()).is_none());
     }
 
     #[test]
