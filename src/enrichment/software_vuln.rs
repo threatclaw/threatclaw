@@ -58,6 +58,7 @@ pub async fn scan_asset_software(
         .collect();
 
     let ecosystem = ecosystem_for_platform(platform);
+    let cpe_path = crate::enrichment::grype::uses_cpe(platform);
 
     // Build a CycloneDX SBOM and let Grype do the matching — distro-aware on Linux
     // (backport-aware, so a +debXuY patched package is correctly NOT flagged), CPE
@@ -87,6 +88,16 @@ pub async fn scan_asset_software(
         // the SOC (exactly the noise the old scanner produced).
         let rank = severity_rank(&m.severity);
         if !(m.known_exploited || rank >= 3) {
+            continue;
+        }
+        // CPE-matched platforms (Windows/other): require a fix version. NVD CPE
+        // configs frequently have no upper version bound and match every release of
+        // a product (a current Edge flagged for a 2015 Flash CVE, even tagged KEV),
+        // which is pure noise. A reported fix version means grype actually computed
+        // installed < fixed — a trustworthy match (e.g. "Chrome 149.0.7827.116 →
+        // fixed 149.0.7827.155", one patch behind). Distro (Linux) matching is
+        // precise, so not-yet-fixed vulns there are legitimately surfaced.
+        if cpe_path && m.fixed_version.is_none() {
             continue;
         }
         if !seen.insert(format!("{}|{}", m.cve_id, m.package)) {

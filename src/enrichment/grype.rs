@@ -227,6 +227,15 @@ fn cpe_for(name: &str, version: &str) -> Option<String> {
         .map(|(_, vendor, product)| format!("cpe:2.3:a:{vendor}:{product}:{ver}:*:*:*:*:*:*:*"))
 }
 
+/// True when an asset is matched by CPE rather than a distro PURL (Windows / macOS
+/// / unknown). CPE matching is fed by NVD configs that are often imprecise — some
+/// have no upper version bound and match every version of a product (e.g. a current
+/// Edge flagged for a 2015 Flash CVE) — so the caller applies extra filtering on
+/// this path. Distro (PURL) matching is precise and exempt.
+pub fn uses_cpe(platform: &str) -> bool {
+    distro_of(platform).2.is_none()
+}
+
 /// Map an os/platform string to `(os_id, os_version, distro_package_type)`.
 /// `pkg_type` is `None` for Windows/unknown → Grype matches by CPE on name+version.
 fn distro_of(platform: &str) -> (String, String, Option<&'static str>) {
