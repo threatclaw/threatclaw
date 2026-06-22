@@ -727,6 +727,21 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    async fn count_timeline_events_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT COUNT(*)::bigint FROM forensic_timeline WHERE created_at >= $1",
+                &[&since],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
     async fn list_finding_titles_since(
         &self,
         since: chrono::DateTime<chrono::Utc>,

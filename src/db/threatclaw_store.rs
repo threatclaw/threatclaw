@@ -602,6 +602,14 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<i64, DatabaseError> {
         Ok(0)
     }
+    /// DFIR — count forensic timeline events assembled since a timestamp (shift
+    /// report). Default 0 so non-PG backends don't need to implement it.
+    async fn count_timeline_events_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
     /// List finding titles by severity since a timestamp.
     async fn list_finding_titles_since(
         &self,

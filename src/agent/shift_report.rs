@@ -64,6 +64,8 @@ pub struct ShiftData {
     pub active_assets: Vec<String>,
     pub ml_anomalies: Vec<String>,
     pub global_score: f64,
+    /// DFIR — forensic timeline events assembled this period (native triage).
+    pub forensic_events_count: i64,
 }
 
 /// Structured shift report produced by L2.
@@ -102,6 +104,7 @@ async fn collect_shift_data(store: &dyn Database, since: DateTime<Utc>) -> Shift
         .await
         .unwrap_or_default();
     let ml_anomalies = store.list_ml_anomalies(0.7, 10).await.unwrap_or_default();
+    let forensic_events_count = store.count_timeline_events_since(since).await.unwrap_or(0);
 
     let global_score = match store.get_setting("_system", "ie_last_score").await {
         Ok(Some(v)) => v.as_f64().unwrap_or(0.0),
@@ -119,6 +122,7 @@ async fn collect_shift_data(store: &dyn Database, since: DateTime<Utc>) -> Shift
         active_assets,
         ml_anomalies,
         global_score,
+        forensic_events_count,
     }
 }
 
@@ -134,6 +138,7 @@ async fn analyze_shift(store: &dyn Database, data: &ShiftData) -> Result<ShiftRe
          - Nouveaux findings : {}\n\
          - Nouvelles alertes Sigma : {}\n\
          - Nouveaux incidents : {}\n\
+         - Événements forensiques DFIR : {}\n\
          - Score de situation global : {:.0}/100\n\n\
          FINDINGS CRITIQUES :\n{}\n\n\
          FINDINGS HIGH :\n{}\n\n\
@@ -153,6 +158,7 @@ async fn analyze_shift(store: &dyn Database, data: &ShiftData) -> Result<ShiftRe
         data.new_findings_count,
         data.new_alerts_count,
         data.new_incidents_count,
+        data.forensic_events_count,
         data.global_score,
         format_list(&data.critical_findings),
         format_list(&data.high_findings),
