@@ -139,6 +139,26 @@ cmd_uninstall() {
     echo "$volumes" | xargs -r docker volume rm -f 2>/dev/null || true
   fi
 
+  # Remove project networks. The `docker compose down` above only runs when the
+  # compose file is still present in TC_DIR; on a partial or repeated uninstall
+  # it is gone, and the fallback otherwise cleans containers and volumes but NOT
+  # networks. Leaked bridges (and their iptables rules) then pile up across
+  # install/uninstall cycles and corrupt Docker's networking state — e.g.
+  # "DOCKER-FORWARD: No chain/target/match by that name" on the next `up`.
+  # Match by compose label first, then by the `threatclaw_` name prefix for
+  # networks that lost their label.
+  local networks
+  networks=$(
+    {
+      docker network ls --filter "label=com.docker.compose.project=${project}" --format "{{.Name}}" 2>/dev/null
+      docker network ls --format "{{.Name}}" 2>/dev/null | grep "^${project}_"
+    } | sort -u
+  ) || true
+  if [ -n "$networks" ]; then
+    log_info "Removing networks..."
+    echo "$networks" | xargs -r docker network rm 2>/dev/null || true
+  fi
+
   # Remove ThreatClaw images — only ghcr.io/threatclaw/* (safe, unique to us)
   log_info "Removing ThreatClaw images..."
   for img in ghcr.io/threatclaw/core ghcr.io/threatclaw/dashboard ghcr.io/threatclaw/db ghcr.io/threatclaw/ml-engine; do
