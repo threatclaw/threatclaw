@@ -236,6 +236,28 @@ if [ -f Dockerfile ]; then
   done
 fi
 
+# ── 8. Agent-installer FP exemption freshness ─────────────────────────────────
+
+section "8. Agent-installer FP exemption is current"
+
+# The PowerShell detector exempts our own agent installer by the exact SHA-256 of
+# its 4104 Script Block Logging parts (INSTALLER_SCRIPTBLOCK_SHA256 in
+# src/connectors/osquery.rs). PowerShell logs the script under the host ANSI
+# codepage, not the UTF-8 source, so those hashes CANNOT be derived from the file
+# — they are captured from a real run. If install-agent.ps1 changes they go stale
+# and ThreatClaw would flag its own installer as an attack again. Pin the file to
+# the capture; on mismatch, re-capture the 4104 hashes (procedure in osquery.rs)
+# and update both INSTALLER_SCRIPTBLOCK_SHA256 and EXPECTED_INSTALLER_SHA below.
+EXPECTED_INSTALLER_SHA="a4d829c32dfe2aca6da3e41e50c8db1269ee14cae7adb3c10a82d02aa5d2a8e8"
+if [ -f installer/install-agent.ps1 ]; then
+  ACTUAL_INSTALLER_SHA=$(sha256sum installer/install-agent.ps1 | awk '{print $1}')
+  if [ "$ACTUAL_INSTALLER_SHA" = "$EXPECTED_INSTALLER_SHA" ]; then
+    ok "install-agent.ps1 matches the FP-exemption capture"
+  else
+    fail "install-agent.ps1 changed ($ACTUAL_INSTALLER_SHA) — re-capture the 4104 part hashes (INSTALLER_SCRIPTBLOCK_SHA256 in src/connectors/osquery.rs, procedure in its doc comment) and update EXPECTED_INSTALLER_SHA in this script"
+  fi
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 section "Summary"

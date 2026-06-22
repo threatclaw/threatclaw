@@ -1704,8 +1704,26 @@ fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
 /// This is a provenance match, not a content heuristic: only a script block
 /// whose bytes are *identical* to our published installer is exempted, so it
 /// cannot be abused to smuggle malicious code — any tampering changes the
-/// hash and still alerts. Temporary stopgap: the durable fix reassembles
-/// multi-part blocks and derives these hashes from the bundled installer.
+/// hash and still alerts.
+///
+/// These hashes are CAPTURED, not derived. PowerShell logs the script under the
+/// host's ANSI codepage rather than the UTF-8 source encoding, so the 4104 bytes
+/// do not match install-agent.ps1 and cannot be reproduced from the bundled file
+/// (verified: reassembled 4104 = 30876 bytes vs 27204 in the file). They go stale
+/// if the installer changes, so `scripts/check-consistency.sh` pins
+/// install-agent.ps1 to its capture and fails the build on any change — a signal
+/// to re-capture here.
+///
+/// Re-capture (on a host running the new installer with Script Block Logging on,
+/// e.g. cyb06), then in the ThreatClaw DB:
+///   SELECT DISTINCT (data->'data'->>'MessageNumber'),
+///     encode(digest(data->'data'->>'ScriptBlockText','sha256'),'hex')
+///   FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
+///     AND data->'data'->>'ScriptBlockId' = (SELECT data->'data'->>'ScriptBlockId'
+///       FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
+///       AND data->'data'->>'ScriptBlockText' LIKE '%ThreatClaw Agent Installer%' LIMIT 1)
+///   ORDER BY 1;
+/// Replace the hashes below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
 const INSTALLER_SCRIPTBLOCK_SHA256: &[&str] = &[
     "f14648d3693aef4883b395d72c63ffc910adcdbfc52c30e0393b1f0edeab2e9f",
     "d0e9d005bf488d1dd99914ee8e522832702b242f88ee5815b7c9396b1f2b33e8",
