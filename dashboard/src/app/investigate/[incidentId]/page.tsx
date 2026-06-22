@@ -16,6 +16,7 @@ import { OperatorDecisionMenu } from "@/components/incidents/OperatorDecisionMen
 import AttackTimeline from "@/components/incidents/AttackTimeline";
 import InvestigationTimeline from "@/components/incidents/InvestigationTimeline";
 import type { InvestigationStep } from "@/components/incidents/InvestigationTimeline";
+import IncidentAttackGraph, { type AttackGraphNode, type AttackGraphEdge } from "@/components/incidents/IncidentAttackGraph";
 import type { IncidentAction } from "@/types/incident_action";
 import { kindShortLabel } from "@/types/incident_action";
 import { displayAsset, displayAssetVerbose } from "@/types/asset_display";
@@ -140,6 +141,8 @@ interface FullData {
   investigation_steps?: InvestigationStep[];
   /** Native DFIR — forensic timeline assembled from endpoint telemetry. */
   forensic_timeline?: ForensicEvent[];
+  /** Native DFIR — per-incident attack graph (host + timeline chain + lateral). */
+  attack_graph?: { nodes: AttackGraphNode[]; edges: AttackGraphEdge[] };
 }
 
 /** Native DFIR forensic timeline event (matches TimelineEvent on the backend). */
@@ -1272,6 +1275,29 @@ export default function InvestigatePage() {
               <section className="inv-sec">
                 <InvestigationTimeline steps={data?.investigation_steps} />
               </section>
+
+              {/* Native DFIR — graphe d'attaque par incident (host + chaîne
+                  chronologique + mouvements latéraux), rendu cytoscape. */}
+              {(data?.attack_graph?.nodes?.length ?? 0) > 1 && (
+                <section className="inv-sec">
+                  <div className="inv-card">
+                    <div className="inv-card-head">
+                      <div className="inv-card-head-left">
+                        <strong>{tr("investigate_dfirAttackGraph", locale)}</strong> · DFIR
+                      </div>
+                      <div className="inv-card-head-right">
+                        {data!.attack_graph!.nodes.length} {tr("nodes", locale)}
+                      </div>
+                    </div>
+                    <div className="inv-ai-body">
+                      <IncidentAttackGraph
+                        nodes={data!.attack_graph!.nodes}
+                        edges={data!.attack_graph!.edges}
+                      />
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* Native DFIR — chronologie forensique assemblée depuis la
                   télémétrie endpoint (osquery/sysmon/powershell). */}

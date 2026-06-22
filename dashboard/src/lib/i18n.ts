@@ -1005,6 +1005,7 @@ const T: Record<string, Record<Locale, string>> = {
   investigate_detected: { fr: "Détecté", en: "Detected" },
   investigate_forensicEnrichment: { fr: "Enrichissement forensique", en: "Forensic enrichment" },
   investigate_dfirTimeline: { fr: "Chronologie forensique", en: "Forensic timeline" },
+  investigate_dfirAttackGraph: { fr: "Graphe d'attaque (incident)", en: "Attack graph (incident)" },
   investigate_dfirEvents: { fr: "événement(s)", en: "event(s)" },
   investigate_pending: { fr: "en attente", en: "pending" },
   investigate_forensicQueued: { fr: "Analyse forensique en file d'attente...", en: "Forensic analysis queued..." },
