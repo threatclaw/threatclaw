@@ -1145,6 +1145,7 @@ pub async fn process_osquery_webhook(
                     store,
                     &asset.id,
                     &asset.name,
+                    asset.os.as_deref().unwrap_or(""),
                     software,
                 )
                 .await;

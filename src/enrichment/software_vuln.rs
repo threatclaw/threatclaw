@@ -127,6 +127,7 @@ pub async fn scan_asset_software(
     store: &dyn Database,
     asset_id: &str,
     asset_name: &str,
+    platform: &str,
     software: &[serde_json::Value],
 ) -> VulnScanResult {
     let mut result = VulnScanResult {
@@ -154,6 +155,11 @@ pub async fn scan_asset_software(
         .iter()
         .filter_map(|f| f.metadata.get("cve")?.as_str().map(String::from))
         .collect();
+
+    // Distro/ecosystem hint for the Phase 2 distro-aware matcher (Debian package
+    // version comparison vs Windows CPE). Recorded on every finding so the data is
+    // already in place when the matcher replaces the naive name-substring logic.
+    let ecosystem = ecosystem_for_platform(platform);
 
     for sw in software {
         let name = sw["name"].as_str().unwrap_or("").trim().to_lowercase();
@@ -192,6 +198,8 @@ pub async fn scan_asset_software(
                         "cve": cve_id,
                         "software": name,
                         "version": version,
+                        "platform": platform,
+                        "ecosystem": ecosystem,
                         "exploited_in_wild": true,
                         "detection": "software-vuln-kev",
                         "mitre": ["T1190"]
@@ -234,6 +242,8 @@ pub async fn scan_asset_software(
                         "cve": cve_id,
                         "software": name,
                         "version": version,
+                        "platform": platform,
+                        "ecosystem": ecosystem,
                         "cvss": cvss,
                         "severity": severity,
                         "detection": "software-vuln-nvd",
@@ -318,6 +328,34 @@ async fn check_nvd_cache_for_software(
     matches
 }
 
+/// Map an OS string (osquery `platform` or `asset.os`) to a matching ecosystem
+/// for the Phase 2 distro-aware matcher. Linux distros map to their OSV ecosystem
+/// (Debian/Ubuntu/Red Hat/Alpine — backport-aware version comparison); Windows
+/// maps to CPE-based matching. Empty when unknown so the matcher can fall back to
+/// CPE rather than guess.
+fn ecosystem_for_platform(platform: &str) -> &'static str {
+    let p = platform.to_lowercase();
+    if p.contains("debian") {
+        "Debian"
+    } else if p.contains("ubuntu") {
+        "Ubuntu"
+    } else if p.contains("red hat")
+        || p.contains("rhel")
+        || p.contains("centos")
+        || p.contains("rocky")
+        || p.contains("almalinux")
+        || p.contains("fedora")
+    {
+        "Red Hat"
+    } else if p.contains("alpine") {
+        "Alpine"
+    } else if p.contains("windows") {
+        "Windows"
+    } else {
+        ""
+    }
+}
+
 /// Scan all assets that have software data. Run periodically (e.g., daily).
 pub async fn scan_all_assets(store: std::sync::Arc<dyn Database>) -> usize {
     let assets = store
@@ -332,8 +370,14 @@ pub async fn scan_all_assets(store: std::sync::Arc<dyn Database>) -> usize {
             if sw_array.is_empty() {
                 continue;
             }
-            let result =
-                scan_asset_software(store.as_ref(), &asset.id, &asset.name, sw_array).await;
+            let result = scan_asset_software(
+                store.as_ref(),
+                &asset.id,
+                &asset.name,
+                asset.os.as_deref().unwrap_or(""),
+                sw_array,
+            )
+            .await;
             total_findings += result.findings_created;
         }
     }
