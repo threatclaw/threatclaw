@@ -33,6 +33,26 @@ function Write-TCError {
     exit 1
 }
 
+# Unzip that also works on Windows PowerShell 3.0/4.0 (Server 2012/R2), where
+# Expand-Archive (PS 5.0+) does not exist. Falls back to .NET 4.5 then the
+# Shell.Application COM object so extraction never hard-fails on an old host.
+function Expand-ZipCompat {
+    param([string]$Zip, [string]$Dest)
+    if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
+        Expand-Archive -Path $Zip -DestinationPath $Dest -Force
+        return
+    }
+    if (Test-Path $Dest) { Remove-Item $Dest -Recurse -Force -ErrorAction SilentlyContinue }
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $Dest)
+    } catch {
+        New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+        $shell = New-Object -ComObject Shell.Application
+        $shell.NameSpace($Dest).CopyHere($shell.NameSpace($Zip).Items(), 0x14)
+    }
+}
+
 # ── Banner ───────────────────────────────────────────────────────────────────
 
 Write-Host ""
@@ -221,16 +241,22 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
     }
 
     if ($zipPath -and (Test-Path $zipPath)) {
-        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-        $sysmonExe = Join-Path $extractDir "Sysmon64.exe"
-        if (Test-Path $sysmonExe) {
-            Copy-Item $sysmonExe $SysmonBin -Force
-            $proc = Start-Process -FilePath $SysmonBin -ArgumentList "-accepteula -i `"$SysmonConf`"" -Wait -PassThru -NoNewWindow
-            if ($proc.ExitCode -eq 0) {
-                Write-TC "Sysmon installed and running"
-            } else {
-                Write-TC "Sysmon install returned exit $($proc.ExitCode) - check manually" -Color Yellow
+        # Sysmon is an enhancement; osquery (the core agent) is already installed
+        # above. Never let a Sysmon hiccup fail the whole agent install.
+        try {
+            Expand-ZipCompat -Zip $zipPath -Dest $extractDir
+            $sysmonExe = Join-Path $extractDir "Sysmon64.exe"
+            if (Test-Path $sysmonExe) {
+                Copy-Item $sysmonExe $SysmonBin -Force
+                $proc = Start-Process -FilePath $SysmonBin -ArgumentList "-accepteula -i `"$SysmonConf`"" -Wait -PassThru -NoNewWindow
+                if ($proc.ExitCode -eq 0) {
+                    Write-TC "Sysmon installed and running"
+                } else {
+                    Write-TC "Sysmon install returned exit $($proc.ExitCode) - check manually" -Color Yellow
+                }
             }
+        } catch {
+            Write-TC "Sysmon setup skipped ($($_.Exception.Message)) - osquery agent is installed and active; re-run later to add Sysmon" -Color Yellow
         }
         Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
         Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
