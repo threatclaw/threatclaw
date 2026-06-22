@@ -610,27 +610,22 @@ export function AssetFindings({ asset }: { asset: any }) {
   const load = async () => {
     setLoading(true);
     try {
-      // Search findings by asset name or IP
+      // This section is the asset's software VULNERABILITIES — only CVE findings
+      // from the software-vuln scanner. Sigma detections (PowerShell, reflective
+      // loader, ...) and ML/behavioral findings (DBSCAN clustering) are NOT
+      // vulnerabilities and belong in Incidents, so they are filtered out here.
+      // One fetch with a generous limit (the previous per-query loop re-fetched the
+      // same unfiltered page and capped at 50, dropping an asset's vulns past it).
       const queries = [asset.name, ...(asset.ip_addresses || [])].filter(Boolean);
       const allFindings: any[] = [];
-      const seen = new Set<number>();
-      for (const q of queries) {
-        const res = await fetch(`/api/tc/findings?limit=50`);
-        if (res.ok) {
-          const data = await res.json();
-          for (const f of data.findings || []) {
-            if (seen.has(f.id)) continue;
-            // Match by asset field or by IP in metadata
-            const matchAsset = f.asset && (f.asset === q || f.asset.includes(q));
-            const matchIp = f.metadata?.agent_ip === q || f.metadata?.src_ip === q;
-            // This section is the asset's software VULNERABILITIES — only CVE
-            // findings from the software-vuln scanner, never sigma detections
-            // (PowerShell, reflective-loader, etc.), which belong in Incidents.
-            if ((matchAsset || matchIp) && f.category === "software-vuln") {
-              seen.add(f.id);
-              allFindings.push(f);
-            }
-          }
+      const res = await fetch(`/api/tc/findings?limit=500`);
+      if (res.ok) {
+        const data = await res.json();
+        for (const f of data.findings || []) {
+          if (f.category !== "software-vuln") continue;
+          const matchAsset = f.asset && queries.some((q) => f.asset === q || f.asset.includes(q));
+          const matchIp = queries.some((q) => f.metadata?.agent_ip === q || f.metadata?.src_ip === q);
+          if (matchAsset || matchIp) allFindings.push(f);
         }
       }
       setFindings(allFindings);
