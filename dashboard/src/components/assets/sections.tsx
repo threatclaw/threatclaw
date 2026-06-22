@@ -623,7 +623,10 @@ export function AssetFindings({ asset }: { asset: any }) {
             // Match by asset field or by IP in metadata
             const matchAsset = f.asset && (f.asset === q || f.asset.includes(q));
             const matchIp = f.metadata?.agent_ip === q || f.metadata?.src_ip === q;
-            if (matchAsset || matchIp) {
+            // This section is the asset's software VULNERABILITIES — only CVE
+            // findings from the software-vuln scanner, never sigma detections
+            // (PowerShell, reflective-loader, etc.), which belong in Incidents.
+            if ((matchAsset || matchIp) && f.category === "software-vuln") {
               seen.add(f.id);
               allFindings.push(f);
             }
