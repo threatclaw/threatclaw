@@ -141,6 +141,10 @@ pub fn build_sbom(platform: &str, software: &[serde_json::Value]) -> serde_json:
                 comp["purl"] = serde_json::Value::String(format!(
                     "pkg:{pt}/{os_id}/{name}@{version}?distro={os_id}-{os_version}"
                 ));
+            } else if let Some(cpe) = cpe_for(name, version) {
+                // Windows/other: no distro PURL, so Grype matches by CPE — but only
+                // the CPE we provide. Emit one for software in the curated map.
+                comp["cpe"] = serde_json::Value::String(cpe);
             }
             Some(comp)
         })
@@ -159,6 +163,68 @@ pub fn build_sbom(platform: &str, software: &[serde_json::Value]) -> serde_json:
         });
     }
     sbom
+}
+
+/// Curated Windows/other software → NVD CPE `(name_substring, vendor, product)`.
+/// osquery reports display names (often with the version or arch embedded), so we
+/// match a lowercased name by substring against these keys. Every pair here was
+/// verified to resolve in Grype's vulnerability DB — an unverified guess is left
+/// OUT, so unknown software gets no CPE and simply doesn't match (a safe false
+/// negative) rather than a wrong CPE that could match the wrong product (a false
+/// positive). Keys are intentionally specific to avoid cross-matching.
+///
+/// Deliberately omitted in v1 (need dedicated name/version handling, not a plain
+/// substring): Oracle/Open JDK (osquery's "1.8.0_311" ≠ the CPE's "1.8.0:update311"),
+/// .NET Framework, standalone Git (the "git" substring also hits GitHub Desktop /
+/// TortoiseGit), and FileZilla (no resolvable vendor:product found).
+const WINDOWS_CPE: &[(&str, &str, &str)] = &[
+    ("google chrome", "google", "chrome"),
+    ("microsoft edge", "microsoft", "edge"),
+    ("mozilla firefox", "mozilla", "firefox"),
+    ("firefox", "mozilla", "firefox"),
+    ("mozilla thunderbird", "mozilla", "thunderbird"),
+    ("thunderbird", "mozilla", "thunderbird"),
+    ("7-zip", "7-zip", "7-zip"),
+    ("notepad++", "notepad-plus-plus", "notepad-plus-plus"),
+    ("wireshark", "wireshark", "wireshark"),
+    ("winrar", "rarlab", "winrar"),
+    ("openvpn", "openvpn", "openvpn"),
+    ("vlc media player", "videolan", "vlc_media_player"),
+    ("openssl", "openssl", "openssl"),
+    ("apache tomcat", "apache", "tomcat"),
+    ("postgresql", "postgresql", "postgresql"),
+    ("mysql server", "oracle", "mysql"),
+    ("virtualbox", "oracle", "vm_virtualbox"),
+    ("vmware tools", "vmware", "tools"),
+    ("adobe acrobat", "adobe", "acrobat_reader"),
+    ("teamviewer", "teamviewer", "teamviewer"),
+    ("anydesk", "anydesk", "anydesk"),
+    ("node.js", "nodejs", "node.js"),
+    ("putty", "putty", "putty"),
+    ("zoom", "zoom", "zoom"),
+    ("libreoffice", "libreoffice", "libreoffice"),
+];
+
+/// Names that share a curated key but are a distinct product — skip them so they
+/// don't inherit the wrong CPE. "Microsoft Edge WebView2 Runtime" contains
+/// "microsoft edge" but is serviced separately from the Edge browser.
+const CPE_EXCLUDE: &[&str] = &["webview"];
+
+/// Build an NVD CPE for a Windows/other component from the curated map, or None
+/// when the software isn't mapped (→ no match, the safe side of no-false-positive).
+fn cpe_for(name: &str, version: &str) -> Option<String> {
+    let n = name.to_lowercase();
+    if CPE_EXCLUDE.iter().any(|x| n.contains(x)) {
+        return None;
+    }
+    let ver = version.trim();
+    if ver.is_empty() {
+        return None;
+    }
+    WINDOWS_CPE
+        .iter()
+        .find(|(key, _, _)| n.contains(key))
+        .map(|(_, vendor, product)| format!("cpe:2.3:a:{vendor}:{product}:{ver}:*:*:*:*:*:*:*"))
 }
 
 /// Map an os/platform string to `(os_id, os_version, distro_package_type)`.
@@ -258,12 +324,44 @@ mod tests {
     }
 
     #[test]
-    fn windows_sbom_has_no_distro_no_purl() {
+    fn windows_sbom_has_no_distro_no_purl_but_cpe_when_mapped() {
         let sw = vec![serde_json::json!({"name":"Google Chrome","version":"146.0"})];
         let sbom = build_sbom("Microsoft Windows Server 2022", &sw);
         assert!(sbom["metadata"].is_null());
         assert!(sbom["components"][0]["purl"].is_null());
         assert_eq!(sbom["components"][0]["name"], "Google Chrome");
+        // Mapped software → a CPE Grype can match on (Windows has no distro PURL).
+        assert_eq!(
+            sbom["components"][0]["cpe"].as_str().unwrap(),
+            "cpe:2.3:a:google:chrome:146.0:*:*:*:*:*:*:*"
+        );
+    }
+
+    #[test]
+    fn cpe_for_maps_verified_pairs_and_skips_the_rest() {
+        // Verified vendor:product, version embedded in the display name is ignored
+        // (the version field is authoritative).
+        assert_eq!(
+            cpe_for("FileZilla", "3.69.1").as_deref(),
+            None, // deliberately unmapped → no false positive
+        );
+        assert_eq!(
+            cpe_for("Mozilla Firefox", "100.0").as_deref(),
+            Some("cpe:2.3:a:mozilla:firefox:100.0:*:*:*:*:*:*:*")
+        );
+        assert_eq!(
+            cpe_for("Apache Tomcat 9.0", "9.0.1").as_deref(),
+            Some("cpe:2.3:a:apache:tomcat:9.0.1:*:*:*:*:*:*:*")
+        );
+        // Distinct product sharing a key is excluded (WebView2 ≠ Edge browser).
+        assert_eq!(cpe_for("Microsoft Edge WebView2 Runtime", "149.0").as_deref(), None);
+        assert_eq!(
+            cpe_for("Microsoft Edge", "149.0").as_deref(),
+            Some("cpe:2.3:a:microsoft:edge:149.0:*:*:*:*:*:*:*")
+        );
+        // Unknown software and empty versions never produce a CPE.
+        assert_eq!(cpe_for("TSplus", "17.30").as_deref(), None);
+        assert_eq!(cpe_for("Google Chrome", "").as_deref(), None);
     }
 
     #[test]
