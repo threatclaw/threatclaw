@@ -115,6 +115,93 @@ fn parse(bytes: &[u8]) -> Vec<GrypeMatch> {
     out
 }
 
+/// Build a CycloneDX SBOM (as JSON) from an osquery software inventory for the
+/// given platform, ready for `grype sbom:`. The OS component **and** the distro
+/// PURL qualifier are what make Grype use its distro matcher (Debian/Ubuntu/RHEL/
+/// Alpine — backport-aware) instead of falling back to CPE. Validated on cyb06:
+/// with the distro present, Grype returned 39 real CVEs vs 75 garbage, and
+/// correctly reported the patched packages as not-affected.
+///
+/// Windows / unknown platforms carry no distro: packages are emitted as plain
+/// name+version and Grype matches them by CPE.
+pub fn build_sbom(platform: &str, software: &[serde_json::Value]) -> serde_json::Value {
+    let (os_id, os_version, pkg_type) = distro_of(platform);
+    let components: Vec<serde_json::Value> = software
+        .iter()
+        .filter_map(|sw| {
+            let name = sw["name"].as_str()?.trim();
+            let version = sw["version"].as_str()?.trim();
+            if name.is_empty() || version.is_empty() {
+                return None;
+            }
+            let mut comp = serde_json::json!({
+                "type": "library", "name": name, "version": version
+            });
+            if let Some(pt) = pkg_type {
+                comp["purl"] = serde_json::Value::String(format!(
+                    "pkg:{pt}/{os_id}/{name}@{version}?distro={os_id}-{os_version}"
+                ));
+            }
+            Some(comp)
+        })
+        .collect();
+
+    let mut sbom = serde_json::json!({
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "version": 1,
+        "components": components,
+    });
+    // Linux distro → declare the OS so Grype picks the distro matcher.
+    if pkg_type.is_some() && !os_id.is_empty() {
+        sbom["metadata"] = serde_json::json!({
+            "component": { "type": "operating-system", "name": os_id, "version": os_version }
+        });
+    }
+    sbom
+}
+
+/// Map an os/platform string to `(os_id, os_version, distro_package_type)`.
+/// `pkg_type` is `None` for Windows/unknown → Grype matches by CPE on name+version.
+fn distro_of(platform: &str) -> (String, String, Option<&'static str>) {
+    let p = platform.to_lowercase();
+    let version = extract_version(&p);
+    let (id, pkg): (&str, Option<&'static str>) = if p.contains("debian") {
+        ("debian", Some("deb"))
+    } else if p.contains("ubuntu") {
+        ("ubuntu", Some("deb"))
+    } else if p.contains("alpine") {
+        ("alpine", Some("apk"))
+    } else if p.contains("almalinux") || p.contains("alma") {
+        ("almalinux", Some("rpm"))
+    } else if p.contains("rocky") {
+        ("rocky", Some("rpm"))
+    } else if p.contains("centos") {
+        ("centos", Some("rpm"))
+    } else if p.contains("fedora") {
+        ("fedora", Some("rpm"))
+    } else if p.contains("red hat") || p.contains("rhel") {
+        ("rhel", Some("rpm"))
+    } else {
+        ("", None) // windows / macOS / unknown → CPE
+    };
+    (id.to_string(), version, pkg)
+}
+
+/// First version-like token in a lowercased os string: "debian gnu/linux 12
+/// (bookworm)" → "12", "ubuntu 22.04" → "22.04".
+fn extract_version(p: &str) -> String {
+    let mut cur = String::new();
+    for ch in p.chars() {
+        if ch.is_ascii_digit() || (ch == '.' && !cur.is_empty()) {
+            cur.push(ch);
+        } else if !cur.is_empty() {
+            break;
+        }
+    }
+    cur.trim_end_matches('.').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +243,36 @@ mod tests {
         assert!(parse(b"not json").is_empty());
         assert!(parse(br#"{"matches":[]}"#).is_empty());
         assert!(parse(br#"{}"#).is_empty());
+    }
+
+    #[test]
+    fn debian_sbom_declares_distro_and_purl() {
+        let sw = vec![serde_json::json!({"name":"openssl","version":"3.0.18-1~deb12u2"})];
+        let sbom = build_sbom("Debian GNU/Linux 12 (bookworm)", &sw);
+        assert_eq!(sbom["metadata"]["component"]["name"], "debian");
+        assert_eq!(sbom["metadata"]["component"]["version"], "12");
+        assert_eq!(
+            sbom["components"][0]["purl"].as_str().unwrap(),
+            "pkg:deb/debian/openssl@3.0.18-1~deb12u2?distro=debian-12"
+        );
+    }
+
+    #[test]
+    fn windows_sbom_has_no_distro_no_purl() {
+        let sw = vec![serde_json::json!({"name":"Google Chrome","version":"146.0"})];
+        let sbom = build_sbom("Microsoft Windows Server 2022", &sw);
+        assert!(sbom["metadata"].is_null());
+        assert!(sbom["components"][0]["purl"].is_null());
+        assert_eq!(sbom["components"][0]["name"], "Google Chrome");
+    }
+
+    #[test]
+    fn distro_and_version_parsing() {
+        assert_eq!(extract_version("debian gnu/linux 12 (bookworm)"), "12");
+        assert_eq!(extract_version("ubuntu 22.04"), "22.04");
+        assert_eq!(extract_version("windows"), "");
+        assert_eq!(distro_of("Ubuntu 22.04.3 LTS").2, Some("deb"));
+        assert_eq!(distro_of("Red Hat Enterprise Linux 9").2, Some("rpm"));
+        assert_eq!(distro_of("Microsoft Windows 11").2, None);
     }
 }
