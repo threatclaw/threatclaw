@@ -254,7 +254,7 @@ if [ -f installer/install-agent.ps1 ]; then
   if [ "$ACTUAL_INSTALLER_SHA" = "$EXPECTED_INSTALLER_SHA" ]; then
     ok "install-agent.ps1 matches the FP-exemption capture"
   else
-    fail "install-agent.ps1 changed ($ACTUAL_INSTALLER_SHA) — re-capture the 4104 part hashes (INSTALLER_SCRIPTBLOCK_SHA256 in src/connectors/osquery.rs, procedure in its doc comment) and update EXPECTED_INSTALLER_SHA in this script"
+    fail "install-agent.ps1 changed ($ACTUAL_INSTALLER_SHA) — re-capture the 4104 part hashes (INSTALLER_OSQUERY_PS_SHA256 in src/agent/detection_provenance.rs, procedure in its doc comment) and update EXPECTED_INSTALLER_SHA in this script"
   fi
 fi
 

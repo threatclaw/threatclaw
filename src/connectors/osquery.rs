@@ -1693,42 +1693,6 @@ fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
     hits
 }
 
-/// SHA-256 of the exact Script Block Logging (event 4104) parts emitted by
-/// our own Windows agent installer (`install-agent.ps1`). A large script is
-/// split by PowerShell into several 4104 events; these are the byte-exact
-/// hashes of each part captured from a real install. The installer downloads
-/// the agent and embeds an lsass-monitoring Sysmon config, so it trips
-/// `is_suspicious_powershell` — without this exemption ThreatClaw flags its
-/// own rollout as an attack on every monitored host.
-///
-/// This is a provenance match, not a content heuristic: only a script block
-/// whose bytes are *identical* to our published installer is exempted, so it
-/// cannot be abused to smuggle malicious code — any tampering changes the
-/// hash and still alerts.
-///
-/// These hashes are CAPTURED, not derived. PowerShell logs the script under the
-/// host's ANSI codepage rather than the UTF-8 source encoding, so the 4104 bytes
-/// do not match install-agent.ps1 and cannot be reproduced from the bundled file
-/// (verified: reassembled 4104 = 30876 bytes vs 27204 in the file). They go stale
-/// if the installer changes, so `scripts/check-consistency.sh` pins
-/// install-agent.ps1 to its capture and fails the build on any change — a signal
-/// to re-capture here.
-///
-/// Re-capture (on a host running the new installer with Script Block Logging on,
-/// e.g. cyb06), then in the ThreatClaw DB:
-///   SELECT DISTINCT (data->'data'->>'MessageNumber'),
-///     encode(digest(data->'data'->>'ScriptBlockText','sha256'),'hex')
-///   FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
-///     AND data->'data'->>'ScriptBlockId' = (SELECT data->'data'->>'ScriptBlockId'
-///       FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
-///       AND data->'data'->>'ScriptBlockText' LIKE '%ThreatClaw Agent Installer%' LIMIT 1)
-///   ORDER BY 1;
-/// Replace the hashes below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
-const INSTALLER_SCRIPTBLOCK_SHA256: &[&str] = &[
-    "f14648d3693aef4883b395d72c63ffc910adcdbfc52c30e0393b1f0edeab2e9f",
-    "d0e9d005bf488d1dd99914ee8e522832702b242f88ee5815b7c9396b1f2b33e8",
-];
-
 pub async fn check_powershell_events(
     store: &dyn Database,
     hostname: &str,
@@ -1770,16 +1734,15 @@ pub async fn check_powershell_events(
             let user = extract_event_field(&data, &["UserId", "User"]);
             let hits = is_suspicious_powershell(script);
             if !hits.is_empty() {
-                // Provenance exemption: never flag our own agent installer.
-                // Match the exact bytes (SHA-256) of the installer's script
-                // block parts — never content substrings — so a tampered
-                // script hashes differently and still alerts. The log itself
-                // is already ingested above; we only skip the alert here.
-                let script_sha = {
-                    use sha2::{Digest, Sha256};
-                    hex::encode(Sha256::digest(script.as_bytes()))
-                };
-                if INSTALLER_SCRIPTBLOCK_SHA256.contains(&script_sha.as_str()) {
+                // Provenance exemption: never flag our own agent installer. The
+                // shared registry matches the exact bytes of the installer's 4104
+                // script-block parts (never substrings), so a tampered script
+                // hashes differently and still alerts. The log itself is already
+                // ingested above; we only skip the alert here.
+                if crate::agent::detection_provenance::is_self_generated(
+                    script,
+                    crate::agent::detection_provenance::Channel::OsqueryPowershell,
+                ) {
                     continue;
                 }
                 // Dedup: the osquery sync re-feeds the same 4104 events every
