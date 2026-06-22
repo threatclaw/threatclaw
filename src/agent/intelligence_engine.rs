@@ -3518,7 +3518,11 @@ pub fn spawn_intelligence_ticker(
         // See ADR-041: dynamic cycle interval based on situation score
         let mut next_interval = interval;
         let mut last_misp_sync = chrono::Utc::now();
-        let mut last_daily_sync = chrono::Utc::now();
+        // Seed 24h in the past so the daily re-sync (KEV/CERT-FR/OpenPhish feeds +
+        // the Grype software-vuln scan) runs shortly after startup instead of only
+        // 24h later — a fresh install must surface vulnerabilities promptly, not on
+        // the second day.
+        let mut last_daily_sync = chrono::Utc::now() - chrono::Duration::hours(24);
         // Phase G4: continuous investigation monitoring (every ~15 min = 3 × 5min cycles)
         let mut last_investigation_check = chrono::Utc::now();
         let mut cycle_count: u64 = 0;
