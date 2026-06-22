@@ -1701,6 +1701,17 @@ pub async fn check_powershell_events(
     let mut ingested = 0usize;
     let mut alerts = 0usize;
 
+    // PowerShell splits a large script across several 4104 events, and the split
+    // boundary VARIES between runs (we saw part 1 at 12756 / 22434 / 22464 bytes
+    // for three installs of the same script). Detecting on a single part is both
+    // unstable for provenance (the hash differs per run) and unsound for detection
+    // (a payload could be split across parts to dodge a per-part match). So we
+    // ingest every event as-is, bucket the 4104 parts by ScriptBlockId, then
+    // reassemble each block and detect on the WHOLE script.
+    use std::collections::{BTreeMap, HashMap};
+    // ScriptBlockId -> (MessageNumber -> part text, user)
+    let mut blocks: HashMap<String, (BTreeMap<i64, String>, Option<String>)> = HashMap::new();
+
     for event in events {
         let eventid = event["eventid"]
             .as_str()
@@ -1730,78 +1741,97 @@ pub async fn check_powershell_events(
         }
 
         if eventid == "4104" {
-            let script = extract_event_field(&data, &["ScriptBlockText", "Path"]).unwrap_or("");
-            let user = extract_event_field(&data, &["UserId", "User"]);
-            let hits = is_suspicious_powershell(script);
-            if !hits.is_empty() {
-                // Provenance exemption: never flag our own agent installer. The
-                // shared registry matches the exact bytes of the installer's 4104
-                // script-block parts (never substrings), so a tampered script
-                // hashes differently and still alerts. The log itself is already
-                // ingested above; we only skip the alert here.
-                if crate::agent::detection_provenance::is_self_generated(
-                    script,
-                    crate::agent::detection_provenance::Channel::OsqueryPowershell,
-                ) {
-                    continue;
-                }
-                // Dedup: the osquery sync re-feeds the same 4104 events every
-                // cycle, so without a window the same script re-alerts forever.
-                // Mirror the sigma engine's settings-backed dedup (60-min window)
-                // keyed on host + script fingerprint, so one script alerts once.
-                let fp = {
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    script.hash(&mut h);
-                    h.finish()
-                };
-                let dedup_key =
-                    format!("osquery-win-powershell-suspicious_{}_{:x}", hostname, fp);
-                let recently_alerted =
-                    if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
-                        prev["at"]
-                            .as_str()
-                            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
-                            .map(|ts| {
-                                chrono::Utc::now().signed_duration_since(ts)
-                                    < chrono::Duration::minutes(60)
-                            })
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    };
-                if recently_alerted {
-                    continue;
-                }
-                let snippet: String = script.chars().take(120).collect();
-                let title = format!(
-                    "PowerShell suspect sur {} ({}): {}",
-                    hostname,
-                    hits.join(", "),
-                    snippet
-                );
-                crate::connectors::log_db_write(
-                    "osquery:insert_sigma_alert",
-                    store.insert_sigma_alert(
-                        "osquery-win-powershell-suspicious",
-                        "high",
-                        &title,
-                        hostname,
-                        None,
-                        user,
-                    ),
-                )
-                .await;
-                let _ = store
-                    .set_setting(
-                        "_sigma_dedup",
-                        &dedup_key,
-                        &serde_json::json!({ "at": chrono::Utc::now().to_rfc3339() }),
-                    )
-                    .await;
-                alerts += 1;
+            let part = extract_event_field(&data, &["ScriptBlockText", "Path"])
+                .unwrap_or("")
+                .to_string();
+            // Bucket by ScriptBlockId (groups the parts of one script). Fall back to
+            // the part text itself when the id is missing, so an un-split block is
+            // still handled as its own single-part block.
+            let key = match extract_event_field(&data, &["ScriptBlockId"]) {
+                Some(id) if !id.is_empty() => id.to_string(),
+                _ => part.clone(),
+            };
+            let msg_num = data
+                .get("MessageNumber")
+                .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .unwrap_or(1);
+            let user = extract_event_field(&data, &["UserId", "User"]).map(|s| s.to_string());
+            let entry = blocks.entry(key).or_insert_with(|| (BTreeMap::new(), None));
+            entry.0.insert(msg_num, part);
+            if entry.1.is_none() {
+                entry.1 = user;
             }
         }
+    }
+
+    // ── Pass 2: reassemble each block (MessageNumber order) and detect on the
+    // whole script ──
+    for (parts, user) in blocks.values() {
+        let script: String = parts.values().map(String::as_str).collect();
+        let hits = is_suspicious_powershell(&script);
+        if hits.is_empty() {
+            continue;
+        }
+        // Provenance exemption: never flag our own agent installer. The shared
+        // registry matches the exact bytes of the REASSEMBLED installer (never
+        // substrings), so a tampered script hashes differently and still alerts.
+        if crate::agent::detection_provenance::is_self_generated(
+            &script,
+            crate::agent::detection_provenance::Channel::OsqueryPowershell,
+        ) {
+            continue;
+        }
+        // Dedup keyed on the reassembled script (stable across runs) so the same
+        // script alerts once per 60-min window even as osquery re-feeds it.
+        let fp = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            script.hash(&mut h);
+            h.finish()
+        };
+        let dedup_key = format!("osquery-win-powershell-suspicious_{}_{:x}", hostname, fp);
+        let recently_alerted =
+            if let Ok(Some(prev)) = store.get_setting("_sigma_dedup", &dedup_key).await {
+                prev["at"]
+                    .as_str()
+                    .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                    .map(|ts| {
+                        chrono::Utc::now().signed_duration_since(ts) < chrono::Duration::minutes(60)
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+        if recently_alerted {
+            continue;
+        }
+        let snippet: String = script.chars().take(120).collect();
+        let title = format!(
+            "PowerShell suspect sur {} ({}): {}",
+            hostname,
+            hits.join(", "),
+            snippet
+        );
+        crate::connectors::log_db_write(
+            "osquery:insert_sigma_alert",
+            store.insert_sigma_alert(
+                "osquery-win-powershell-suspicious",
+                "high",
+                &title,
+                hostname,
+                None,
+                user.as_deref(),
+            ),
+        )
+        .await;
+        let _ = store
+            .set_setting(
+                "_sigma_dedup",
+                &dedup_key,
+                &serde_json::json!({ "at": chrono::Utc::now().to_rfc3339() }),
+            )
+            .await;
+        alerts += 1;
     }
 
     (ingested, alerts)

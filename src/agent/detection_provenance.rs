@@ -43,26 +43,34 @@ pub enum Channel {
     // syslog line. Add a `Syslog` arm only for genuinely syslog-only Windows estates.
 }
 
-/// SHA-256 of the exact Script Block Logging parts emitted for the agent installer
-/// in the osquery channel, captured from a real install (the installer splits into
-/// several 4104 parts).
+/// SHA-256 of the installer's **fully reassembled** Script Block Logging text in
+/// the osquery channel — i.e. all 4104 parts of a block concatenated in
+/// MessageNumber order.
+///
+/// Why the whole, not the parts: PowerShell splits a large script across several
+/// 4104 events and the split boundary **varies between runs** (we observed part 1
+/// at 12756 / 22434 / 22464 bytes on three installs of the *same* script). Per-part
+/// hashes are therefore not stable; the reassembled whole is (all three reassembled
+/// to the identical 32187-byte text). The caller must reassemble before calling
+/// [`is_self_generated`].
 ///
 /// RE-CAPTURE when `install-agent.ps1` changes (check-consistency.sh enforces it):
-/// run the new installer on a host with Script Block Logging on, then in the DB:
-///   SELECT DISTINCT (data->'data'->>'MessageNumber'),
-///     encode(digest(data->'data'->>'ScriptBlockText','sha256'),'hex')
-///   FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
-///     AND data->'data'->>'ScriptBlockId' = (SELECT data->'data'->>'ScriptBlockId'
-///       FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
-///       AND data->'data'->>'ScriptBlockText' LIKE '%ThreatClaw Agent Installer%' LIMIT 1)
-///   ORDER BY 1;
-/// Replace the values below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
+/// run the new installer on a host with Script Block Logging on, then in the DB
+/// reassemble per block and hash the whole:
+///   WITH p AS (SELECT DISTINCT data->'data'->>'ScriptBlockId' sbid,
+///       (data->'data'->>'MessageNumber')::int n, data->'data'->>'ScriptBlockText' t
+///     FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
+///       AND data->'data'->>'ScriptBlockId' IN (SELECT DISTINCT data->'data'->>'ScriptBlockId'
+///         FROM logs WHERE tag='osquery.powershell' AND data->>'eventid'='4104'
+///         AND data->'data'->>'ScriptBlockText' LIKE '%ThreatClaw Agent Installer%'))
+///   SELECT encode(digest(string_agg(t,'' ORDER BY n),'sha256'),'hex')
+///   FROM p GROUP BY sbid LIMIT 1;
+/// Replace the value below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
 ///
-/// Captured 2026-06-22 from a fresh install on cyb06, for install-agent.ps1 at
-/// file sha bc80f50b… (the Expand-ZipCompat build). Two 4104 parts.
+/// Captured 2026-06-22 on cyb06 (stable across 3 installs), for install-agent.ps1
+/// at file sha bc80f50b… (the Expand-ZipCompat build).
 const INSTALLER_OSQUERY_PS_SHA256: &[&str] = &[
-    "6c002ea43da6f86a42bc04a01146520109bba7dd4c52792ee2a05a9072bd526e",
-    "47d7d67d27c51a1de0d6af112caa9a9e705719e1b6affcbd7747758afa412e00",
+    "6b41888aa3c8873c675c52d15bf5e309fc0bb90d3ec7d6e4e63e3e8d17377d5f",
 ];
 
 fn installer_hashes(channel: Channel) -> &'static [&'static str] {
