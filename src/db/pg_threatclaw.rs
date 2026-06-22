@@ -4037,7 +4037,7 @@ impl ThreatClawStore for PgBackend {
                     "SELECT id, risk_object, object_type, score, source_rule, \
                             mitre_tactic, mitre_technique, log_id, message, created_at \
                      FROM risk_events \
-                     WHERE created_at > NOW() - {} \
+                     WHERE created_at > NOW() - {} AND consumed_at IS NULL \
                      ORDER BY created_at DESC",
                     interval
                 ),
@@ -4062,6 +4062,26 @@ impl ThreatClawStore for PgBackend {
                 created_at: r.get::<_, chrono::DateTime<chrono::Utc>>(9).to_rfc3339(),
             })
             .collect())
+    }
+
+    async fn mark_risk_events_consumed(
+        &self,
+        event_ids: &[i64],
+        incident_id: i32,
+    ) -> Result<u64, DatabaseError> {
+        if event_ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute(
+                "UPDATE risk_events SET consumed_at = NOW(), incident_id = $1 \
+                 WHERE id = ANY($2) AND consumed_at IS NULL",
+                &[&incident_id, &event_ids],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
     }
 
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {

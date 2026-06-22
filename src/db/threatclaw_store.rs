@@ -1524,6 +1524,18 @@ pub trait ThreatClawStore: Send + Sync {
         since_hours: i64,
     ) -> Result<Vec<RiskEvent>, DatabaseError>;
 
+    /// RBA re-fire fix — mark the given risk events as consumed by `incident_id`.
+    /// Once an event has funded a risk notable it must never fund a second one
+    /// (otherwise the same stale signals re-fire incident after incident every
+    /// cycle). The aggregator only ever reads un-consumed events, so flipping
+    /// these takes them permanently out of the pool. Idempotent: only rows still
+    /// `consumed_at IS NULL` are updated; returns how many were claimed.
+    async fn mark_risk_events_consumed(
+        &self,
+        event_ids: &[i64],
+        incident_id: i32,
+    ) -> Result<u64, DatabaseError>;
+
     /// Atomically claim an incident remediation action for execution
     /// (anti-replay / execute-once). Appends an
     /// `{subject, status:"in_progress", at}` marker to `executed_actions`

@@ -78,6 +78,9 @@ pub struct ObjectRisk {
     pub distinct_tactics_7d: usize,
     pub tactics_7d: Vec<String>,
     pub rules_24h: Vec<String>,
+    /// Ids of every event (full 7d window) that contributed to this object. When
+    /// a notable fires, these are marked consumed so they can't re-fire it.
+    pub event_ids: Vec<i64>,
 }
 
 /// Which Risk Incident Rule fired for an object (if any).
@@ -108,6 +111,7 @@ pub fn aggregate_by_object(events: &[RiskEvent], now: DateTime<Utc>) -> Vec<Obje
         n_events_24h: usize,
         rules_24h: HashSet<String>,
         tactics_7d: HashSet<String>,
+        event_ids: Vec<i64>,
     }
     let mut map: HashMap<String, Acc> = HashMap::new();
 
@@ -118,7 +122,12 @@ pub fn aggregate_by_object(events: &[RiskEvent], now: DateTime<Utc>) -> Vec<Obje
             n_events_24h: 0,
             rules_24h: HashSet::new(),
             tactics_7d: HashSet::new(),
+            event_ids: Vec::new(),
         });
+        // Every contributing event (whole window) is banked for consumption, so a
+        // fired notable takes ALL of an object's accumulated risk out of the pool
+        // — an older 7d event can't survive to re-fire the tactic-diversity RIR.
+        acc.event_ids.push(e.id);
         // 7d window (all fetched events) — feeds the tactic-diversity RIR.
         if let Some(t) = &e.mitre_tactic
             && !t.is_empty()
@@ -148,6 +157,7 @@ pub fn aggregate_by_object(events: &[RiskEvent], now: DateTime<Utc>) -> Vec<Obje
                 distinct_tactics_7d: tactics.len(),
                 tactics_7d: tactics,
                 rules_24h: rules,
+                event_ids: a.event_ids,
             }
         })
         .collect()
@@ -285,6 +295,19 @@ pub async fn run_risk_aggregation(store: Arc<dyn Database>) {
             tracing::warn!("RBA: set_incident_enrichment failed for #{incident_id}: {e}");
         }
 
+        // Bank the contributing events into this notable so they can never fund a
+        // second one (the re-fire loop). New events accumulate fresh from here.
+        match store
+            .mark_risk_events_consumed(&obj.event_ids, incident_id)
+            .await
+        {
+            Ok(n) => tracing::debug!("RBA: consumed {n} risk events into #{incident_id}"),
+            Err(e) => tracing::warn!(
+                "RBA: mark_risk_events_consumed failed for #{incident_id} ({} events): {e}",
+                obj.event_ids.len()
+            ),
+        }
+
         tracing::info!(
             "RBA: risk notable #{} created for {} — {} ({})",
             incident_id,
@@ -390,6 +413,28 @@ mod tests {
             min_tactics: 3,
         };
         assert_eq!(evaluate_rirs(&objs[0], &cfg), None);
+    }
+
+    #[test]
+    fn object_collects_all_contributing_event_ids() {
+        // Re-fire fix: the consumer must learn EVERY event that funded an object
+        // — the 24h scorers AND the older 7d events — so none survive to re-fire
+        // a notable on the next cycle. This is the mechanism that breaks the loop.
+        let mut e1 = ev("h", 50, "r1", Some("a"), 1); // <24h
+        e1.id = 11;
+        let mut e2 = ev("h", 60, "r2", Some("b"), 2); // <24h
+        e2.id = 22;
+        let mut e3 = ev("h", 5, "r3", Some("c"), 100); // 4d old — outside 24h score
+        e3.id = 33;
+        let objs = aggregate_by_object(&[e1, e2, e3], now());
+        let o = objs.iter().find(|o| o.object == "h").unwrap();
+        let mut ids = o.event_ids.clone();
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec![11, 22, 33],
+            "all contributing events (incl. >24h) must be banked for consumption"
+        );
     }
 
     #[test]
