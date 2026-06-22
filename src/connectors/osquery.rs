@@ -1139,18 +1139,11 @@ pub async fn process_osquery_webhook(
         result.software_items = count;
         if count > 0 {
             result.assets_enriched += 1;
-            // Auto-CVE correlation: cross-reference software with NVD/KEV
-            if let Ok(Some(asset)) = store.find_asset_by_hostname(hostname).await {
-                let vuln_result = crate::enrichment::software_vuln::scan_asset_software(
-                    store,
-                    &asset.id,
-                    &asset.name,
-                    asset.os.as_deref().unwrap_or(""),
-                    software,
-                )
-                .await;
-                result.alerts_created += vuln_result.findings_created;
-            }
+            // Software→CVE matching is NOT done here: it runs in the daily
+            // scan_all_assets (intelligence_engine), which feeds the inventory to
+            // Grype. Grype spawns a process and reads a ~1GB DB, so it must not run
+            // on every osquery sync nor block this ingestion webhook. The inventory
+            // is persisted above and picked up by that daily scan.
         }
     }
 
