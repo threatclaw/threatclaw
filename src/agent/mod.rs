@@ -29,6 +29,7 @@ pub mod conversational_bot;
 pub mod cost_guard;
 pub mod cyber_scheduler;
 pub mod detection_provenance;
+pub mod dfir_triage;
 mod dispatcher;
 pub mod dossier_enrichment;
 pub mod evidence_tracker;

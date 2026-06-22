@@ -68,6 +68,43 @@ pub struct RiskEvent {
     pub created_at: String,
 }
 
+/// DFIR (Phase 1) — a forensic timeline event to persist, scoped to an incident.
+/// Built by `dfir_triage` from already-ingested telemetry. `ts` is RFC 3339 (UTC).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewTimelineEvent {
+    pub ts: String,
+    pub tz_origin: Option<String>,
+    pub event_type: String,
+    pub asset: String,
+    pub actor: Option<String>,
+    pub description: String,
+    pub severity: String,
+    pub mitre_tactic: Option<String>,
+    pub mitre_technique: Option<String>,
+    pub ioc: Option<String>,
+    pub related_artifacts: Vec<String>,
+    pub source_artifact: Option<String>,
+    pub collected_hash: Option<String>,
+}
+
+/// DFIR — a stored timeline event read back (dossier / report / graph).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineEvent {
+    pub id: i64,
+    pub incident_id: i32,
+    pub ts: String,
+    pub event_type: String,
+    pub asset: String,
+    pub actor: Option<String>,
+    pub description: String,
+    pub severity: String,
+    pub mitre_tactic: Option<String>,
+    pub mitre_technique: Option<String>,
+    pub ioc: Option<String>,
+    pub source_artifact: Option<String>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertRecord {
     pub id: i64,
@@ -1535,6 +1572,25 @@ pub trait ThreatClawStore: Send + Sync {
         event_ids: &[i64],
         incident_id: i32,
     ) -> Result<u64, DatabaseError>;
+
+    /// DFIR (Phase 1) — persist a batch of forensic timeline events for an
+    /// incident (atomic). Built by `dfir_triage` from ingested telemetry.
+    /// Returns the number of rows inserted. Non-fatal at the call site.
+    async fn insert_timeline_events(
+        &self,
+        incident_id: i32,
+        events: &[NewTimelineEvent],
+    ) -> Result<u64, DatabaseError>;
+
+    /// DFIR — read an incident's forensic timeline, oldest event first.
+    async fn list_timeline_for_incident(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<TimelineEvent>, DatabaseError>;
+
+    /// DFIR — stamp `dfir_collected_at` on an incident (idempotent poll marker,
+    /// same pattern as `forensic_enriched_at`).
+    async fn mark_dfir_collected(&self, incident_id: i32) -> Result<(), DatabaseError>;
 
     /// Atomically claim an incident remediation action for execution
     /// (anti-replay / execute-once). Appends an

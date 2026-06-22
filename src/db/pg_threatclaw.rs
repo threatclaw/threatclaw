@@ -4084,6 +4084,99 @@ impl ThreatClawStore for PgBackend {
         Ok(n)
     }
 
+    async fn insert_timeline_events(
+        &self,
+        incident_id: i32,
+        events: &[NewTimelineEvent],
+    ) -> Result<u64, DatabaseError> {
+        if events.is_empty() {
+            return Ok(0);
+        }
+        let mut conn = self.pool().get().await.map_err(pool_err)?;
+        let tx = conn.transaction().await.map_err(query_err)?;
+        let mut n: u64 = 0;
+        for e in events {
+            let related = serde_json::to_value(&e.related_artifacts)
+                .unwrap_or_else(|_| serde_json::json!([]));
+            let ts = chrono::DateTime::parse_from_rfc3339(&e.ts)
+                .map(|d| d.with_timezone(&chrono::Utc))
+                .unwrap_or_else(|_| chrono::Utc::now());
+            tx.execute(
+                "INSERT INTO forensic_timeline \
+                    (incident_id, ts, tz_origin, event_type, asset, actor, description, \
+                     severity, mitre_tactic, mitre_technique, ioc, related_artifacts, \
+                     source_artifact, collected_hash) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+                &[
+                    &incident_id,
+                    &ts,
+                    &e.tz_origin,
+                    &e.event_type,
+                    &e.asset,
+                    &e.actor,
+                    &e.description,
+                    &e.severity,
+                    &e.mitre_tactic,
+                    &e.mitre_technique,
+                    &e.ioc,
+                    &related,
+                    &e.source_artifact,
+                    &e.collected_hash,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+            n += 1;
+        }
+        tx.commit().await.map_err(query_err)?;
+        Ok(n)
+    }
+
+    async fn list_timeline_for_incident(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<TimelineEvent>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, ts, event_type, asset, actor, description, severity, \
+                        mitre_tactic, mitre_technique, ioc, source_artifact, created_at \
+                 FROM forensic_timeline WHERE incident_id = $1 ORDER BY ts ASC, id ASC",
+                &[&incident_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| TimelineEvent {
+                id: r.get(0),
+                incident_id: r.get(1),
+                ts: r.get::<_, chrono::DateTime<chrono::Utc>>(2).to_rfc3339(),
+                event_type: r.get(3),
+                asset: r.get(4),
+                actor: r.get::<_, Option<String>>(5),
+                description: r.get(6),
+                severity: r.get(7),
+                mitre_tactic: r.get::<_, Option<String>>(8),
+                mitre_technique: r.get::<_, Option<String>>(9),
+                ioc: r.get::<_, Option<String>>(10),
+                source_artifact: r.get::<_, Option<String>>(11),
+                created_at: r.get::<_, chrono::DateTime<chrono::Utc>>(12).to_rfc3339(),
+            })
+            .collect())
+    }
+
+    async fn mark_dfir_collected(&self, incident_id: i32) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE incidents SET dfir_collected_at = NOW() WHERE id = $1",
+            &[&incident_id],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(

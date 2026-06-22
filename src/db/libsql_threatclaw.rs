@@ -600,6 +600,22 @@ impl ThreatClawStore for LibSqlBackend {
     async fn mark_risk_events_consumed(&self, _: &[i64], _: i32) -> Result<u64, DatabaseError> {
         Err(not_supported())
     }
+    async fn insert_timeline_events(
+        &self,
+        _: i32,
+        _: &[NewTimelineEvent],
+    ) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_timeline_for_incident(
+        &self,
+        _: i32,
+    ) -> Result<Vec<TimelineEvent>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn mark_dfir_collected(&self, _: i32) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn try_claim_incident_action(&self, _: i32, _: &str) -> Result<bool, DatabaseError> {
         Err(not_supported())
     }
