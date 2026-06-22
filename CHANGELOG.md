@@ -6,6 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.53-beta] — 2026-06-22
+
+### Added
+- Software vulnerability detection: ThreatClaw cross-references each asset's installed software against known CVEs — distribution-aware on Linux and by product on Windows — and surfaces only actionable vulnerabilities (actively exploited or high/critical), grouped per outdated component with the version to upgrade to.
+
+### Fixed
+- ThreatClaw no longer raises a suspicious-PowerShell alert against its own Windows agent installer.
+- Risk-Based Aggregation no longer re-opens a fresh incident from the same older signals once the original has been resolved.
+- The Windows agent installer now works on older PowerShell versions and treats an optional Sysmon setup failure as non-fatal.
+
 ## [1.0.52-beta] — 2026-06-22
 
 ### Added
