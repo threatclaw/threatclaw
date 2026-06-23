@@ -9,6 +9,7 @@
     "api_key_required": false,
     "icon": "fish",
     "help": "Feed communautaire d'URLs de phishing detectees automatiquement par OpenPhish. Contient environ 500 URLs, mis a jour toutes les 6 heures. Permet de verifier si une URL visitee par un utilisateur est un site de phishing connu. Aucune cle API requise.",
+    "help_en": "Community feed of phishing URLs automatically detected by OpenPhish. Contains about 500 URLs, updated every 6 hours. Lets you check whether a URL visited by a user is a known phishing site. No API key required.",
     "execution": {
         "mode": "api",
         "base_url": "https://openphish.com/feed.txt"

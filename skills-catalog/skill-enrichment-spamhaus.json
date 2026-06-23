@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "threat-intel",
     "help": "Spamhaus verifie si une adresse IP est listee dans les bases de reputation (SBL, XBL, PBL) via des requetes DNS (DNSBL). Detecte les IPs associees au spam, botnets et espaces IP detournes. Aucune cle API requise. Attention : les resolveurs DNS publics (8.8.8.8, 1.1.1.1) sont bloques par Spamhaus, utilisez un resolveur local.",
+    "help_en": "Spamhaus checks whether an IP address is listed in its reputation databases (SBL, XBL, PBL) via DNS queries (DNSBL). It detects IPs associated with spam, botnets and hijacked IP space. No API key required. Note: public DNS resolvers (8.8.8.8, 1.1.1.1) are blocked by Spamhaus — use a local resolver.",
     "execution": {
         "mode": "dns",
         "base_url": "zen.spamhaus.org",

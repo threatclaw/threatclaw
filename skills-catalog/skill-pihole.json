@@ -9,6 +9,7 @@
   "type": "connector",
   "category": "network",
   "help": "Pi-hole est un bloqueur DNS réseau qui filtre les publicités, trackers et domaines malveillants. En l'intégrant à ThreatClaw, vous obtenez une visibilité sur :\n\n• Les domaines bloqués par catégorie (malware, ads, tracking)\n• Les clients qui génèrent beaucoup de requêtes bloquées (potentiel malware)\n• Les tendances DNS de votre réseau\n\nPrérequis :\n• Pi-hole v6 avec l'API REST activée (port 80 par défaut)\n• Le mot de passe admin Pi-hole\n• Pi-hole accessible depuis le serveur ThreatClaw",
+  "help_en": "Pi-hole is a network DNS blocker that filters ads, trackers and malicious domains. By integrating it with ThreatClaw, you gain visibility into:\n\n• Blocked domains by category (malware, ads, tracking)\n• Clients generating many blocked requests (potential malware)\n• Your network's DNS trends\n\nPrerequisites:\n• Pi-hole v6 with the REST API enabled (port 80 by default)\n• The Pi-hole admin password\n• Pi-hole reachable from the ThreatClaw server",
   "execution": {
     "mode": "connector",
     "sync_interval_minutes": 5

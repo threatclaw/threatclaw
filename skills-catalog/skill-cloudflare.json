@@ -9,6 +9,7 @@
   "type": "connector",
   "category": "web",
   "help": "Cloudflare protège vos sites web via son WAF (Web Application Firewall), sa protection DDoS et son système de détection de bots. L'API GraphQL expose les événements de sécurité en temps quasi-réel.\n\nThreatClaw récupère les événements WAF (injections SQL, XSS, etc.), les attaques DDoS et les scores de bots pour créer des findings. Les IP attaquantes sont corrélées avec les autres sources (CrowdSec, Suricata, etc.) dans le graphe de menaces.\n\nPrérequis :\n• Un compte Cloudflare avec au moins une zone configurée\n• Un API Token avec la permission Analytics:Read (Dashboard > My Profile > API Tokens)\n• Le Zone ID de votre domaine (visible sur la page Overview de la zone)",
+  "help_en": "Cloudflare protects your websites through its WAF (Web Application Firewall), DDoS protection and bot-detection system. The GraphQL API exposes security events in near real time.\n\nThreatClaw pulls WAF events (SQL injection, XSS, etc.), DDoS attacks and bot scores to create findings. Attacking IPs are correlated with other sources (CrowdSec, Suricata, etc.) in the threat graph.\n\nPrerequisites:\n• A Cloudflare account with at least one configured zone\n• An API Token with the Analytics:Read permission (Dashboard > My Profile > API Tokens)\n• Your domain's Zone ID (shown on the zone's Overview page)",
   "execution": {
     "mode": "connector",
     "sync_interval_minutes": 5

@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "Google Safe Browsing verifie si une URL est connue pour heberger du malware, du phishing ou du social engineering. Cle API Google obligatoire (gratuite). Creez un projet sur Google Cloud Console, activez l'API Safe Browsing, puis generez une cle API. Limite : 10 000 requetes/jour gratuites.",
+    "help_en": "Google Safe Browsing checks whether a URL is known to host malware, phishing or social engineering. A Google API key is required (free). Create a project in the Google Cloud Console, enable the Safe Browsing API, then generate an API key. Limit: 10,000 free requests/day.",
     "execution": {
         "mode": "api",
         "base_url": "https://safebrowsing.googleapis.com/v4/threatMatches:find",

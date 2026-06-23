@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "Mozilla Observatory analyse les en-tetes HTTP de securite d'un site (CSP, HSTS, X-Frame-Options, etc.) et attribue une note de A+ a F. Ideal pour verifier la configuration securite d'un serveur web. Aucune cle API requise, service public gratuit de Mozilla.",
+    "help_en": "Mozilla Observatory analyzes a site's HTTP security headers (CSP, HSTS, X-Frame-Options, etc.) and assigns a grade from A+ to F. Ideal for checking a web server's security configuration. No API key required, free public service from Mozilla.",
     "execution": {
         "mode": "api",
         "base_url": "https://observatory-api.mdn.mozilla.net/api/v2/scan",

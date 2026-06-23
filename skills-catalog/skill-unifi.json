@@ -9,6 +9,7 @@
   "type": "connector",
   "category": "inventory",
   "help": "UniFi Controller (Ubiquiti) gère vos bornes WiFi, switches et routeurs UniFi. Il maintient un inventaire complet des clients connectés avec leurs adresses MAC, IP, hostname, SSID et temps de connexion.\n\nThreatClaw interroge l'API REST du contrôleur pour découvrir automatiquement tous les appareils de votre réseau. Ces assets alimentent le graphe et permettent de détecter les appareils inconnus, les connexions suspectes et les changements de topologie.\n\nPrérequis :\n• UniFi Controller (Network Application) accessible (port 8443 par défaut)\n• Un compte local avec les droits de lecture (un compte admin limité suffit)\n• Le nom du site UniFi (par défaut : 'default')",
+  "help_en": "UniFi Controller (Ubiquiti) manages your UniFi WiFi access points, switches and routers. It maintains a complete inventory of connected clients with their MAC addresses, IPs, hostnames, SSIDs and connection times.\n\nThreatClaw queries the controller's REST API to auto-discover every device on your network. These assets feed the graph and help detect unknown devices, suspicious connections and topology changes.\n\nPrerequisites:\n• UniFi Controller (Network Application) reachable (port 8443 by default)\n• A local account with read rights (a limited admin account is enough)\n• The UniFi site name (default: 'default')",
   "execution": {
     "mode": "connector",
     "sync_interval_minutes": 5

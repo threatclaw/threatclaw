@@ -9,6 +9,7 @@
   "type": "connector",
   "category": "inventory",
   "help": "Proxmox VE est un hyperviseur open-source (KVM + LXC) très utilisé en PME. Il gère vos machines virtuelles et containers avec une API REST complète.\n\nThreatClaw récupère l'inventaire de toutes vos VMs, containers LXC et noeuds physiques pour les intégrer au graphe d'infrastructure. Cela permet de cartographier votre parc virtualisé, détecter les VMs orphelines et corréler les alertes avec l'hôte physique.\n\nPrérequis :\n• Proxmox VE accessible (port 8006 par défaut)\n• Un API Token : Datacenter > Permissions > API Tokens > Add\n• Créez un utilisateur dédié (ex: tc-audit@pam) avec le rôle PVEAuditor (lecture seule)",
+  "help_en": "Proxmox VE is an open-source hypervisor (KVM + LXC) widely used in SMBs. It manages your virtual machines and containers with a full REST API.\n\nThreatClaw pulls the inventory of all your VMs, LXC containers and physical nodes to integrate them into the infrastructure graph. This maps your virtualized estate, detects orphan VMs and correlates alerts with the physical host.\n\nPrerequisites:\n• Proxmox VE reachable (port 8006 by default)\n• An API Token: Datacenter > Permissions > API Tokens > Add\n• Create a dedicated user (e.g. tc-audit@pam) with the PVEAuditor role (read-only)",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 30,

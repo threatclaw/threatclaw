@@ -9,6 +9,7 @@
     "api_key_required": false,
     "icon": "trending-up",
     "help": "Exploit Prediction Scoring System (FIRST.org). Fournit la probabilite qu'une CVE soit exploitee dans les 30 prochains jours (score de 0 a 100%). Utilise conjointement avec le CVSS pour prioriser les patchs. Aucune cle API requise, API publique gratuite.",
+    "help_en": "Exploit Prediction Scoring System (FIRST.org). Provides the probability that a CVE will be exploited within the next 30 days (score from 0 to 100%). Used alongside CVSS to prioritize patching. No API key required, free public API.",
     "execution": {
         "mode": "api",
         "base_url": "https://api.first.org/data/v1/epss"

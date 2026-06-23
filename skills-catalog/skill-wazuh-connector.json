@@ -9,6 +9,7 @@
   "type": "connector",
   "category": "endpoints",
   "help": "Wazuh est un SIEM open-source qui surveille vos machines via des agents installés sur chaque poste (Windows, Linux, Mac). Il détecte les intrusions, modifications de fichiers critiques, vulnérabilités (CVE), rootkits et non-conformités.\n\nThreatClaw se connecte à l'API Wazuh Manager pour importer vos agents comme assets, puis récupère les alertes de sécurité depuis l'indexer OpenSearch pour créer des findings.\n\nPrérequis :\n• Wazuh Manager accessible (port 55000 par défaut)\n• Credentials API (utilisateur wazuh par défaut)\n• Pour les alertes : Wazuh Indexer (OpenSearch) accessible (port 9200)",
+  "help_en": "Wazuh is an open-source SIEM that monitors your machines via agents installed on each host (Windows, Linux, Mac). It detects intrusions, changes to critical files, vulnerabilities (CVEs), rootkits and non-compliance.\n\nThreatClaw connects to the Wazuh Manager API to import your agents as assets, then fetches security alerts from the OpenSearch indexer to create findings.\n\nPrerequisites:\n• Wazuh Manager reachable (port 55000 by default)\n• API credentials (the default wazuh user)\n• For alerts: Wazuh Indexer (OpenSearch) reachable (port 9200)",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,

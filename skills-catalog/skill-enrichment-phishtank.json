@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "PhishTank est une base communautaire d'URLs de phishing verifiees. Permet de controler si une URL ou un domaine est repertorie comme site de phishing. Cle API optionnelle : sans cle, les requetes sont limitees. Avec une App Key gratuite, vous obtenez des limites plus elevees.",
+    "help_en": "PhishTank is a community database of verified phishing URLs. Lets you check whether a URL or domain is listed as a phishing site. API key optional: without a key, requests are limited; with a free App Key, you get higher limits.",
     "execution": {
         "mode": "api",
         "base_url": "https://checkurl.phishtank.com/checkurl/",

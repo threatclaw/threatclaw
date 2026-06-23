@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "SecurityTrails fournit de l'intelligence DNS avancee : enumeration de sous-domaines, historique des enregistrements DNS, changements detectes et donnees WHOIS. Cle API obligatoire. Le plan gratuit offre 50 requetes par mois. Le cache est configure a 30 jours pour economiser le quota.",
+    "help_en": "SecurityTrails provides advanced DNS intelligence: subdomain enumeration, DNS record history, detected changes and WHOIS data. API key required. The free plan offers 50 requests per month. The cache is set to 30 days to save quota.",
     "execution": {
         "mode": "api",
         "base_url": "https://api.securitytrails.com/v1",

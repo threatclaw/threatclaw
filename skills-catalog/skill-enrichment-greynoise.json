@@ -9,6 +9,7 @@
     "api_key_required": false,
     "icon": "radio",
     "help": "GreyNoise classe les adresses IP entre bruit internet de fond (scanners, crawlers) et attaques ciblees. Permet de reduire les faux positifs en ignorant le trafic opportuniste. Cle API optionnelle : l'API Community gratuite fonctionne sans cle (limite a des lookups IP basiques). Avec une cle Community, vous obtenez des metadonnees enrichies.",
+    "help_en": "GreyNoise classifies IP addresses between internet background noise (scanners, crawlers) and targeted attacks. It reduces false positives by ignoring opportunistic traffic. API key optional: the free Community API works without a key (limited to basic IP lookups). With a Community key, you get enriched metadata.",
     "execution": {
         "mode": "api",
         "base_url": "https://api.greynoise.io/v3/community/"

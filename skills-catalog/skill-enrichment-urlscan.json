@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "URLScan.io analyse une URL dans un sandbox : capture d'ecran, detection de scripts malveillants, suivi des redirections, identification de malware. Cle API optionnelle : sans cle, vous pouvez consulter les scans publics existants. Avec une cle gratuite, vous pouvez lancer vos propres scans (limites genereses).",
+    "help_en": "URLScan.io analyzes a URL in a sandbox: screenshot, malicious-script detection, redirect tracking, malware identification. API key optional: without a key, you can browse existing public scans; with a free key, you can launch your own scans (generous limits).",
     "execution": {
         "mode": "api",
         "base_url": "https://urlscan.io/api/v1",

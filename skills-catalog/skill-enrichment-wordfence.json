@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "web",
     "help": "Wordfence Intelligence fournit une base de vulnerabilites WordPress en temps reel couvrant le core, les plugins et les themes. Feed complet et gratuit, aucune cle API requise. Mis a jour en continu par l'equipe Wordfence Threat Intelligence.",
+    "help_en": "Wordfence Intelligence provides a real-time WordPress vulnerability database covering core, plugins and themes. Full, free feed, no API key required. Continuously updated by the Wordfence Threat Intelligence team.",
     "execution": {
         "mode": "api",
         "base_url": "https://www.wordfence.com/api/intelligence/v2/vulnerabilities/production",

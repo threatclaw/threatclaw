@@ -9,6 +9,7 @@
     "type": "enrichment",
     "category": "threat-intel",
     "help": "Vulnerability-Lookup est une plateforme de correlation de vulnerabilites operee par le CIRCL (Luxembourg). Un seul appel API retourne les donnees de 40+ sources : NVD, CERT-FR, GitHub Advisories, CSAF vendeurs (Siemens, Cisco, Microsoft...), KEV europeens (ENISA/CNW). Les sightings indiquent si un exploit public existe (Metasploit, Nuclei, ExploitDB, MISP). Aucune cle API requise, aucun rate limit en lecture.",
+    "help_en": "Vulnerability-Lookup is a vulnerability-correlation platform operated by CIRCL (Luxembourg). A single API call returns data from 40+ sources: NVD, CERT-FR, GitHub Advisories, vendor CSAF (Siemens, Cisco, Microsoft...), European KEVs (ENISA/CNW). Sightings indicate whether a public exploit exists (Metasploit, Nuclei, ExploitDB, MISP). No API key required, no read rate limit.",
     "execution": {
         "mode": "api",
         "base_url": "https://vulnerability.circl.lu/api",
