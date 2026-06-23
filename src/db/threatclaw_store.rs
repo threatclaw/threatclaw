@@ -1680,6 +1680,15 @@ pub trait ThreatClawStore: Send + Sync {
         Ok(Vec::new())
     }
 
+    /// All VR collections for an incident (any status), newest first — drives the
+    /// incident DFIR panel.
+    async fn list_dfir_collections_for_incident(
+        &self,
+        _incident_id: i32,
+    ) -> Result<Vec<DfirCollection>, DatabaseError> {
+        Ok(Vec::new())
+    }
+
     /// Mark a VR collection terminal: done | failed | no_client | skipped,
     /// with the ingested row count (or an error message).
     async fn mark_dfir_collection(

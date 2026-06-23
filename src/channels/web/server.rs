@@ -876,6 +876,11 @@ pub async fn start_server(
             "/api/tc/incidents/{id}/reinvestigate",
             post(super::handlers::threatclaw_api::incident_reinvestigate_handler),
         )
+        // Incident → on-demand Velociraptor DFIR collection (read-only artifact)
+        .route(
+            "/api/tc/incidents/{id}/dfir/collect",
+            post(super::handlers::threatclaw_api::incident_dfir_collect_handler),
+        )
         // Backups (full DB snapshots, auto + manual)
         .route(
             "/api/tc/backups",

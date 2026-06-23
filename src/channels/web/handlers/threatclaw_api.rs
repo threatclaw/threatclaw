@@ -5490,6 +5490,96 @@ pub async fn incident_add_note_handler(
     Ok(Json(serde_json::json!({ "status": "added" })))
 }
 
+/// Read-only Velociraptor artifacts an analyst may collect on-demand from the
+/// incident DFIR panel. Whitelisted (defence-in-depth on top of the connector's
+/// investigator role): nothing here mutates the endpoint. Heavy ones (triage,
+/// CatScale) are large uploads — the operator chooses to pay the cost.
+const MANUAL_DFIR_ARTIFACTS: &[&str] = &[
+    "Windows.Triage.Targets",
+    "Linux.Triage.UAC",
+    "Linux.Collection.CatScale",
+    "Windows.Sysinternals.Autoruns",
+    "Windows.System.Pslist",
+    "Windows.Network.Netstat",
+    "Linux.Sys.Pslist",
+    "Linux.Network.NetstatEnriched",
+    "Linux.Sys.Crontab",
+];
+
+/// POST /api/tc/incidents/{id}/dfir/collect — schedule an on-demand Velociraptor
+/// collection on the incident's host (RBAC incidents:triage). Read-only artifact
+/// (whitelisted). The async flow is folded into the timeline by the ingester,
+/// exactly like the T0 auto-collect.
+pub async fn incident_dfir_collect_handler(
+    State(state): State<Arc<GatewayState>>,
+    axum::extract::Path(id): axum::extract::Path<i32>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let artifact = body["artifact"].as_str().unwrap_or("").trim();
+    if !MANUAL_DFIR_ARTIFACTS.contains(&artifact) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "artefact non autorisé (collecte read-only uniquement)".to_string(),
+        ));
+    }
+    let mut incident = store
+        .get_incident(id)
+        .await
+        .map_err(db_err)?
+        .ok_or((StatusCode::NOT_FOUND, "Incident not found".to_string()))?;
+    hydrate_asset_fields(store.as_ref(), &mut incident).await;
+    let asset = incident.get("asset").and_then(|v| v.as_str()).unwrap_or("");
+    let hostname = incident
+        .get("asset_hostname")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(asset);
+
+    match crate::connectors::velociraptor::resolve_client(store.as_ref(), hostname).await {
+        Ok(Some((client_id, _os))) => {
+            match crate::connectors::velociraptor::tool_collect(
+                store.as_ref(),
+                &client_id,
+                artifact,
+            )
+            .await
+            {
+                Ok(resp) => {
+                    let flow_id = resp.get("flow_id").and_then(|v| v.as_str());
+                    store
+                        .insert_dfir_collection(
+                            id,
+                            Some(&client_id),
+                            artifact,
+                            flow_id,
+                            "collecting",
+                            "manual",
+                        )
+                        .await
+                        .map_err(db_err)?;
+                    let _ = store
+                        .add_incident_note(
+                            id,
+                            &format!("Collecte DFIR manuelle lancée → Velociraptor : {artifact}"),
+                            "dfir",
+                        )
+                        .await;
+                    Ok(Json(
+                        serde_json::json!({ "status": "scheduled", "artifact": artifact, "flow_id": flow_id }),
+                    ))
+                }
+                Err(e) => Err((StatusCode::BAD_GATEWAY, format!("collecte échouée : {e}"))),
+            }
+        }
+        Ok(None) => Err((
+            StatusCode::CONFLICT,
+            "Asset non enrôlé sur Velociraptor".to_string(),
+        )),
+        Err(e) => Err((StatusCode::BAD_GATEWAY, format!("résolution client : {e}"))),
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // BACKUPS — list, create, download, delete, settings
 // ════════════════════════════════════════════════════════════════
@@ -10529,6 +10619,13 @@ pub async fn incident_full_handler(
         &related_assets,
     );
 
+    // DFIR Velociraptor collections for this incident (auto T0 + manual). The
+    // dashboard derives vr_client from whether any row carries a client_id.
+    let dfir_collections = store
+        .list_dfir_collections_for_incident(id)
+        .await
+        .unwrap_or_default();
+
     Ok(Json(serde_json::json!({
         "incident": incident,
         "graph_executions": serde_json::to_value(&graph_execs).unwrap_or(serde_json::json!([])),
@@ -10540,6 +10637,7 @@ pub async fn incident_full_handler(
         "investigation_steps": serde_json::to_value(&investigation_steps).unwrap_or(serde_json::json!([])),
         "forensic_timeline": serde_json::to_value(&forensic_timeline).unwrap_or(serde_json::json!([])),
         "attack_graph": serde_json::to_value(&attack_graph).unwrap_or(serde_json::json!({"nodes":[],"edges":[]})),
+        "dfir_collections": serde_json::to_value(&dfir_collections).unwrap_or(serde_json::json!([])),
     })))
 }
 

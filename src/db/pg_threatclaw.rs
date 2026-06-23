@@ -4341,6 +4341,34 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn list_dfir_collections_for_incident(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::DfirCollection>, DatabaseError> {
+        use crate::db::threatclaw_store::DfirCollection;
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, client_id, artifact, flow_id, status, requested_at \
+                 FROM dfir_collections WHERE incident_id = $1 ORDER BY id DESC",
+                &[&incident_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| DfirCollection {
+                id: r.get::<_, i64>(0),
+                incident_id: r.get::<_, i32>(1),
+                client_id: r.get::<_, Option<String>>(2),
+                artifact: r.get::<_, String>(3),
+                flow_id: r.get::<_, Option<String>>(4),
+                status: r.get::<_, String>(5),
+                requested_at: r.get::<_, chrono::DateTime<chrono::Utc>>(6).to_rfc3339(),
+            })
+            .collect())
+    }
+
     async fn mark_dfir_collection(
         &self,
         id: i64,
