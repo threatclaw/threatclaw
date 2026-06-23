@@ -354,6 +354,14 @@ fn jstr<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
+/// Parse an integer that osquery may emit as a JSON number OR a string
+/// (uid, port, … — osquery serialises most columns as strings).
+fn jint(v: Option<&Value>) -> Option<i64> {
+    let v = v?;
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
 /// Parse a log timestamp into UTC. Handles the formats `query_logs` actually
 /// yields: PostgreSQL `timestamptz::text` ("2026-06-22 19:20:00[.ffffff]+00",
 /// space separator, short "+00" offset) as well as RFC 3339. A naive form
@@ -565,51 +573,103 @@ pub fn obs_from_winsec(
     }
 }
 
-/// Pure: map a "snapshot" persistence log (the whole `data` object, no eventid)
-/// to a Persistence observation. Covers the list-shaped / formerly alert-only
-/// sources the connector now also logs: scheduled tasks, startup items, and
-/// authorized_keys — the mid/late kill-chain (persistence) signals that were
-/// missing from the timeline.
-pub fn obs_from_persistence_log(
+/// Known reverse-shell / backdoor listener ports. A LISTEN on one of these is
+/// high-signal regardless of the owning process (low FP), so we surface it even
+/// without a per-host baseline.
+// Superset of the connector's alert list (check_listening_ports) so anything it
+// alerts on also lands on the timeline, plus a few more reverse-shell defaults.
+const SUSPICIOUS_LISTEN_PORTS: &[i64] = &[
+    1234, 1337, 4444, 4445, 5554, 5555, 6666, 7777, 8888, 9001, 9002, 9999, 12345, 31337, 54321,
+];
+
+/// Pure: map a "snapshot" log (the whole `data` object IS the artifact, no
+/// eventid) to **0..N** observations. These sources are list-shaped and
+/// re-emitted every sync, so the caller dedups by `detail`. High-precision
+/// filters only — we deliberately surface the low-FP subset, not the full list:
+/// - scheduled tasks / startup / authorized_keys → Persistence (mid/late chain),
+/// - uid-0 non-root accounts → AccountChange (backdoor root, T1136),
+/// - known reverse-shell listener ports → NetworkConnect (C2 channel ready).
+///
+/// `osquery.dns` (dns_cache) is intentionally NOT mapped: the whole cache is
+/// noise without a DGA verdict (which lives in the connector/ML, not the log),
+/// and Sysmon 22 already gives per-process DNS with attribution.
+pub fn obs_from_snapshot_log(
     tag: &str,
     data: &Value,
     asset: &str,
     ts: DateTime<Utc>,
-) -> Option<RawObservation> {
-    let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+) -> Vec<RawObservation> {
+    let mut out = Vec::new();
     match tag {
         "osquery.scheduled_tasks" => {
             let name = jstr(data, "name").unwrap_or("?");
             let path = jstr(data, "path").unwrap_or("?");
+            let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
             // English token so label_mitre maps it to T1053.005.
             o.detail = format!("Tâche planifiée (scheduled task) : {name} → {path}");
             o.related_to = Some(path.into());
+            out.push(o);
         }
         "osquery.startup" => {
             let name = jstr(data, "name").unwrap_or("?");
             let path = jstr(data, "path").unwrap_or("?");
+            let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
             o.detail = format!("Élément de démarrage (startup) : {name} → {path}");
             o.related_to = Some(path.into());
+            out.push(o);
         }
         "osquery.ssh_keys" => {
-            let keys = data.get("keys").and_then(|k| k.as_array())?;
-            if keys.is_empty() {
-                return None;
+            if let Some(keys) = data.get("keys").and_then(|k| k.as_array())
+                && !keys.is_empty()
+            {
+                let files: Vec<&str> = keys
+                    .iter()
+                    .filter_map(|k| k.get("key_file").and_then(|v| v.as_str()))
+                    .collect();
+                let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+                o.detail = format!(
+                    "authorized_keys ({} clé(s)) : {}",
+                    keys.len(),
+                    files.join(", ")
+                );
+                o.related_to = files.first().map(|s| (*s).to_string());
+                out.push(o);
             }
-            let files: Vec<&str> = keys
-                .iter()
-                .filter_map(|k| k.get("key_file").and_then(|v| v.as_str()))
-                .collect();
-            o.detail = format!(
-                "authorized_keys ({} clé(s)) : {}",
-                keys.len(),
-                files.join(", ")
-            );
-            o.related_to = files.first().map(|s| (*s).to_string());
         }
-        _ => return None,
+        "osquery.users" => {
+            // Backdoor root: any account with uid 0 that isn't `root`.
+            if let Some(users) = data.get("users").and_then(|u| u.as_array()) {
+                for u in users {
+                    let name = jstr(u, "username").unwrap_or("?");
+                    if jint(u.get("uid")) == Some(0) && !name.eq_ignore_ascii_case("root") {
+                        let mut o = RawObservation::base(ts, ObsKind::AccountChange, asset, tag);
+                        o.actor = Some(name.to_string());
+                        o.detail = format!("Compte UID 0 non-root : {name} (backdoor root)");
+                        out.push(o);
+                    }
+                }
+            }
+        }
+        "osquery.ports" => {
+            if let Some(ports) = data.get("ports").and_then(|p| p.as_array()) {
+                for p in ports {
+                    let Some(port) = jint(p.get("port")) else {
+                        continue;
+                    };
+                    if SUSPICIOUS_LISTEN_PORTS.contains(&port) {
+                        let name = jstr(p, "name").unwrap_or("?");
+                        let addr = jstr(p, "address").unwrap_or("0.0.0.0");
+                        let mut o = RawObservation::base(ts, ObsKind::NetworkConnect, asset, tag);
+                        o.detail = format!("Port en écoute suspect : {addr}:{port} ({name})");
+                        o.ioc = Some(port.to_string());
+                        out.push(o);
+                    }
+                }
+            }
+        }
+        _ => {}
     }
-    Some(o)
+    out
 }
 
 /// Edge (I/O): read recent osquery telemetry for an asset across the relevant
@@ -648,12 +708,15 @@ pub async fn collect_observations_from_logs(
     }
 
     // Snapshot sources: the whole `data` is the artifact, re-logged every sync,
-    // so DEDUP by detail (one entry per distinct persistence) to avoid flooding
-    // the timeline with the same task/key every 5 minutes.
+    // so DEDUP by detail (one entry per distinct finding) to avoid flooding the
+    // timeline with the same task/key/account/port every 5 minutes. Each source
+    // can yield several findings (a users/ports list), hence the Vec mapper.
     let snapshot_tags = [
         "osquery.scheduled_tasks",
         "osquery.startup",
         "osquery.ssh_keys",
+        "osquery.users",
+        "osquery.ports",
     ];
     let mut seen = std::collections::HashSet::new();
     for tag in snapshot_tags {
@@ -665,10 +728,10 @@ pub async fn collect_observations_from_logs(
             let ts = parse_log_ts(&l.time)
                 .or_else(|| parse_log_ts(&l.created_at))
                 .unwrap_or_else(Utc::now);
-            if let Some(o) = obs_from_persistence_log(tag, &l.data, asset, ts)
-                && seen.insert(o.detail.clone())
-            {
-                out.push(o);
+            for o in obs_from_snapshot_log(tag, &l.data, asset, ts) {
+                if seen.insert(o.detail.clone()) {
+                    out.push(o);
+                }
             }
         }
     }
@@ -1298,38 +1361,83 @@ mod tests {
         assert!(obs_from_winsec("4688", &rdp, "WIN-01", ts()).is_none());
     }
 
+    fn one(tag: &str, data: serde_json::Value) -> RawObservation {
+        obs_from_snapshot_log(tag, &data, "WIN-01", ts())
+            .into_iter()
+            .next()
+            .expect("expected one observation")
+    }
+
     #[test]
-    fn persistence_snapshot_logs_map_and_label() {
+    fn snapshot_persistence_logs_map_and_label() {
         // scheduled task → Persistence, labelled T1053.005
-        let task = serde_json::json!({"name":"Updater","path":"C:\\Temp\\evil.exe"});
-        let o = obs_from_persistence_log("osquery.scheduled_tasks", &task, "WIN-01", ts()).unwrap();
+        let o = one(
+            "osquery.scheduled_tasks",
+            serde_json::json!({"name":"Updater","path":"C:\\Temp\\evil.exe"}),
+        );
         assert_eq!(o.kind, ObsKind::Persistence);
         assert_eq!(o.related_to.as_deref(), Some("C:\\Temp\\evil.exe"));
         assert_eq!(label_mitre(&o).1.as_deref(), Some("T1053.005"));
         // authorized_keys → Persistence T1098.004
-        let keys =
-            serde_json::json!({"keys_count":1,"keys":[{"key_file":"/root/.ssh/authorized_keys"}]});
-        let o = obs_from_persistence_log("osquery.ssh_keys", &keys, "WIN-01", ts()).unwrap();
+        let o = one(
+            "osquery.ssh_keys",
+            serde_json::json!({"keys_count":1,"keys":[{"key_file":"/root/.ssh/authorized_keys"}]}),
+        );
         assert!(o.detail.contains("authorized_keys"));
         assert_eq!(label_mitre(&o).1.as_deref(), Some("T1098.004"));
         // startup → Persistence
-        let s = serde_json::json!({"name":"x","path":"C:\\Temp\\x.exe","source":"Registry"});
         assert_eq!(
-            obs_from_persistence_log("osquery.startup", &s, "WIN-01", ts())
-                .unwrap()
-                .kind,
+            one(
+                "osquery.startup",
+                serde_json::json!({"name":"x","path":"C:\\Temp\\x.exe","source":"Registry"})
+            )
+            .kind,
             ObsKind::Persistence
         );
         // empty key list → no observation
         assert!(
-            obs_from_persistence_log(
+            obs_from_snapshot_log(
                 "osquery.ssh_keys",
                 &serde_json::json!({"keys":[]}),
                 "WIN-01",
                 ts()
             )
-            .is_none()
+            .is_empty()
         );
+    }
+
+    #[test]
+    fn snapshot_users_and_ports_high_precision_only() {
+        // uid-0 non-root → AccountChange (backdoor root, T1136); root + normal skipped.
+        let obs = obs_from_snapshot_log(
+            "osquery.users",
+            &serde_json::json!({"users":[
+                {"username":"root","uid":"0"},
+                {"username":"backdoor","uid":"0"},
+                {"username":"alice","uid":"1000"}
+            ]}),
+            "WIN-01",
+            ts(),
+        );
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].kind, ObsKind::AccountChange);
+        assert_eq!(obs[0].actor.as_deref(), Some("backdoor"));
+        assert_eq!(label_mitre(&obs[0]).1.as_deref(), Some("T1136"));
+        // ports: only known reverse-shell ports surface; 443/22 are ignored.
+        let obs = obs_from_snapshot_log(
+            "osquery.ports",
+            &serde_json::json!({"ports":[
+                {"port":"443","name":"nginx","address":"0.0.0.0"},
+                {"port":4444,"name":"nc","address":"0.0.0.0"},
+                {"port":"22","name":"sshd","address":"0.0.0.0"}
+            ]}),
+            "WIN-01",
+            ts(),
+        );
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].kind, ObsKind::NetworkConnect);
+        assert_eq!(obs[0].ioc.as_deref(), Some("4444"));
+        assert!(obs[0].detail.contains("4444"));
     }
 
     #[test]
