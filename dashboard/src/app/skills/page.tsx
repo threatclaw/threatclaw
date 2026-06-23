@@ -60,15 +60,12 @@ const TYPE_UI_BASE: Record<string, { labelKey: string; icon: React.ElementType; 
 // Render a manifest field in the active locale: the `<base>_en` value in EN when
 // present, otherwise the stored French. Keeps the catalog bilingual without breaking
 // anything — a missing translation falls back to French.
-function enField(
-  obj: Record<string, unknown> | null | undefined,
-  base: string,
-  locale: Locale,
-): string {
-  if (!obj) return "";
-  const en = obj[`${base}_en`];
+function enField(obj: unknown, base: string, locale: Locale): string {
+  const o = obj as Record<string, unknown> | null | undefined;
+  if (!o) return "";
+  const en = o[`${base}_en`];
   if (locale === "en" && typeof en === "string" && en.length > 0) return en;
-  const fr = obj[base];
+  const fr = o[base];
   return typeof fr === "string" ? fr : "";
 }
 
