@@ -247,6 +247,38 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("jira", "atlassian", "jira_server"),
     ("grafana", "grafana", "grafana"),
     ("zabbix", "zabbix", "zabbix"),
+    // VPN clients.
+    ("forticlient", "fortinet", "forticlient"),
+    ("anyconnect", "cisco", "anyconnect_secure_mobility_client"),
+    ("globalprotect", "paloaltonetworks", "globalprotect"),
+    ("ivanti secure access", "ivanti", "secure_access_client"),
+    ("netextender", "sonicwall", "netextender"),
+    ("citrix workspace", "citrix", "workspace_app"),
+    // Backup agents (consumer Acronis keys precede the enterprise one).
+    ("acronis cyber protect home", "acronis", "cyber_protect_home_office"),
+    ("acronis cyber protect", "acronis", "cyber_protect"),
+    ("acronis true image", "acronis", "true_image"),
+    ("netbackup", "veritas", "netbackup"),
+    ("arcserve udp", "arcserve", "udp"),
+    ("commvault", "commvault", "commvault"),
+    // Antivirus / EDR. (CrowdStrike Falcon & SentinelOne are cloud-delivered with
+    // no version-tracked NVD CPE, so they can't be mapped.)
+    ("apex one", "trendmicro", "apex_one"),
+    ("officescan", "trendmicro", "officescan"),
+    ("symantec endpoint", "symantec", "endpoint_protection"),
+    ("mcafee agent", "mcafee", "agent"),
+    ("mcafee endpoint security", "mcafee", "endpoint_security"),
+    ("bitdefender gravityzone", "bitdefender", "gravityzone"),
+    ("bitdefender endpoint security", "bitdefender", "endpoint_security_tools"),
+    ("eset endpoint security", "eset", "endpoint_security"),
+    ("eset nod32", "eset", "nod32_antivirus"),
+    ("kaspersky endpoint security", "kaspersky", "endpoint_security"),
+    ("avast antivirus", "avast", "antivirus"),
+    ("avg antivirus", "avg", "antivirus"),
+    ("sophos anti-virus", "sophos", "sophos_anti-virus"),
+    ("sophos endpoint", "sophos", "endpoint_protection"),
+    ("malwarebytes", "malwarebytes", "malwarebytes"),
+    ("carbon black", "vmware", "carbon_black_cloud"),
 ];
 
 /// Names that share a curated key but are a distinct product — skip them so they
@@ -440,6 +472,20 @@ mod tests {
         assert_eq!(
             cpe_for("Splunk Universal Forwarder", "9.0.0").as_deref(),
             Some("cpe:2.3:a:splunk:universal_forwarder:9.0.0:*:*:*:*:*:*:*")
+        );
+        // VPN / backup / AV.
+        assert_eq!(
+            cpe_for("FortiClient VPN", "6.4.0").as_deref(),
+            Some("cpe:2.3:a:fortinet:forticlient:6.4.0:*:*:*:*:*:*:*")
+        );
+        assert_eq!(
+            cpe_for("Cisco Secure Client - AnyConnect VPN", "5.0.0").as_deref(),
+            Some("cpe:2.3:a:cisco:anyconnect_secure_mobility_client:5.0.0:*:*:*:*:*:*:*")
+        );
+        // Consumer Acronis must not inherit the enterprise Cyber Protect CPE.
+        assert_eq!(
+            cpe_for("Acronis Cyber Protect Home Office", "2021").as_deref(),
+            Some("cpe:2.3:a:acronis:cyber_protect_home_office:2021:*:*:*:*:*:*:*")
         );
         // Unknown software and empty versions never produce a CPE.
         assert_eq!(cpe_for("TSplus", "17.30").as_deref(), None);
