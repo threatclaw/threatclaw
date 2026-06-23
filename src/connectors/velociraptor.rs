@@ -785,6 +785,90 @@ pub async fn tool_collect(
     }))
 }
 
+/// Strict whitelist for ids/artifact names interpolated into VQL (anti-injection):
+/// Velociraptor client/flow ids are `C.`/`F.` + base-32, artifacts are dotted
+/// identifiers. Refuse anything with quotes, spaces, `;`, parens, etc.
+fn vql_safe_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Read a collection flow's state: "RUNNING" | "FINISHED" | "ERROR" | … .
+/// Read-only (`flows()` plugin) — the DFIR ingester polls it to know when a
+/// scheduled collection has results ready.
+pub async fn flow_state(
+    store: &dyn Database,
+    client_id: &str,
+    flow_id: &str,
+) -> Result<String, String> {
+    if !vql_safe_token(client_id) || !vql_safe_token(flow_id) {
+        return Err("flow_state: invalid client_id/flow_id".into());
+    }
+    let vql =
+        format!("SELECT state FROM flows(client_id='{client_id}', flow_id='{flow_id}') LIMIT 1");
+    let res = tool_query(store, &vql).await?;
+    Ok(res["rows"]
+        .as_array()
+        .and_then(|a| a.first())
+        .and_then(|r| r.get("state"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("UNKNOWN")
+        .to_string())
+}
+
+/// Read the rows a finished collection produced for one artifact source.
+/// Read-only (`source()` plugin). The caller maps these into RawObservations.
+pub async fn read_flow_source(
+    store: &dyn Database,
+    client_id: &str,
+    flow_id: &str,
+    artifact: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    if !vql_safe_token(client_id) || !vql_safe_token(flow_id) || !vql_safe_token(artifact) {
+        return Err("read_flow_source: invalid id/artifact".into());
+    }
+    let vql = format!(
+        "SELECT * FROM source(client_id='{client_id}', flow_id='{flow_id}', artifact='{artifact}')"
+    );
+    let res = tool_query(store, &vql).await?;
+    Ok(res["rows"].as_array().cloned().unwrap_or_default())
+}
+
+/// Cheap gate: is the Velociraptor skill configured (valid API creds present)?
+pub async fn is_configured(store: &dyn Database) -> bool {
+    load_config(store).await.is_ok()
+}
+
+/// Resolve an asset hostname to its Velociraptor `(client_id, os_lowercased)` if
+/// the host is enrolled. Case-insensitive match on hostname / fqdn / short name.
+pub async fn resolve_client(
+    store: &dyn Database,
+    hostname: &str,
+) -> Result<Option<(String, String)>, String> {
+    let target = hostname.to_ascii_lowercase();
+    if target.is_empty() {
+        return Ok(None);
+    }
+    let listing = tool_list_clients(store).await?;
+    if let Some(arr) = listing["clients"].as_array() {
+        for c in arr {
+            let h = c["hostname"].as_str().unwrap_or("").to_ascii_lowercase();
+            let fqdn = c["fqdn"].as_str().unwrap_or("").to_ascii_lowercase();
+            let short = h.split('.').next().unwrap_or("");
+            if h == target || fqdn == target || short == target {
+                let cid = c["client_id"].as_str().unwrap_or("").to_string();
+                let os = c["os"].as_str().unwrap_or("").to_ascii_lowercase();
+                if !cid.is_empty() {
+                    return Ok(Some((cid, os)));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub fn validate_vql_readonly(vql: &str) -> Result<(), String> {
     let lower = vql.to_lowercase();
     for forbidden in [

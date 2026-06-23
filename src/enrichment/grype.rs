@@ -229,8 +229,16 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     // must precede "splunk" so the forwarder gets its own product.
     ("exchange server", "microsoft", "exchange_server"),
     ("sharepoint", "microsoft", "sharepoint_server"),
-    ("azure ad connect", "microsoft", "azure_active_directory_connect"),
-    ("entra connect", "microsoft", "azure_active_directory_connect"),
+    (
+        "azure ad connect",
+        "microsoft",
+        "azure_active_directory_connect",
+    ),
+    (
+        "entra connect",
+        "microsoft",
+        "azure_active_directory_connect",
+    ),
     ("powershell", "microsoft", "powershell"),
     ("vcenter", "vmware", "vcenter_server"),
     ("mongodb", "mongodb", "mongodb"),
@@ -255,7 +263,11 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("netextender", "sonicwall", "netextender"),
     ("citrix workspace", "citrix", "workspace_app"),
     // Backup agents (consumer Acronis keys precede the enterprise one).
-    ("acronis cyber protect home", "acronis", "cyber_protect_home_office"),
+    (
+        "acronis cyber protect home",
+        "acronis",
+        "cyber_protect_home_office",
+    ),
     ("acronis cyber protect", "acronis", "cyber_protect"),
     ("acronis true image", "acronis", "true_image"),
     ("netbackup", "veritas", "netbackup"),
@@ -269,10 +281,18 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("mcafee agent", "mcafee", "agent"),
     ("mcafee endpoint security", "mcafee", "endpoint_security"),
     ("bitdefender gravityzone", "bitdefender", "gravityzone"),
-    ("bitdefender endpoint security", "bitdefender", "endpoint_security_tools"),
+    (
+        "bitdefender endpoint security",
+        "bitdefender",
+        "endpoint_security_tools",
+    ),
     ("eset endpoint security", "eset", "endpoint_security"),
     ("eset nod32", "eset", "nod32_antivirus"),
-    ("kaspersky endpoint security", "kaspersky", "endpoint_security"),
+    (
+        "kaspersky endpoint security",
+        "kaspersky",
+        "endpoint_security",
+    ),
     ("avast antivirus", "avast", "antivirus"),
     ("avg antivirus", "avg", "antivirus"),
     ("sophos anti-virus", "sophos", "sophos_anti-virus"),
@@ -439,7 +459,10 @@ mod tests {
             Some("cpe:2.3:a:apache:tomcat:9.0.1:*:*:*:*:*:*:*")
         );
         // Distinct product sharing a key is excluded (WebView2 ≠ Edge browser).
-        assert_eq!(cpe_for("Microsoft Edge WebView2 Runtime", "149.0").as_deref(), None);
+        assert_eq!(
+            cpe_for("Microsoft Edge WebView2 Runtime", "149.0").as_deref(),
+            None
+        );
         assert_eq!(
             cpe_for("Microsoft Edge", "149.0").as_deref(),
             Some("cpe:2.3:a:microsoft:edge:149.0:*:*:*:*:*:*:*")

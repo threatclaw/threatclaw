@@ -53,8 +53,6 @@ export default function RemediationTab() {
   const [newApprover, setNewApprover] = useState({ channel: "telegram", id: "", label: "" });
   const [saved, setSaved] = useState(false);
   const [configuredChannels, setConfiguredChannels] = useState<string[]>([]);
-  const [veloUrl, setVeloUrl] = useState("");
-  const [veloTemplate, setVeloTemplate] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -91,15 +89,6 @@ export default function RemediationTab() {
           setConfiguredChannels(channels);
         }
       }
-      // Load Velociraptor deep-forensics config
-      const r5 = await fetch(`${API}/settings/_system/tc_config_velociraptor`);
-      if (r5.ok) {
-        const d = await r5.json();
-        if (d.value && typeof d.value === "object") {
-          setVeloUrl(d.value.url || "");
-          setVeloTemplate(d.value.link_template || "");
-        }
-      }
       // Load connector status
       const skills = ["skill-pfsense", "skill-opnsense", "skill-active-directory", "skill-glpi"];
       const conns: ConnectorStatus[] = [];
@@ -128,7 +117,6 @@ export default function RemediationTab() {
         tc_hitl_approvers_config: approvers,
         tc_hitl_approvers: approvers.filter(a => a.channel === "telegram").map(a => parseInt(a.id) || 0),
         tc_hitl_limits: limits,
-        velociraptor: { url: veloUrl.trim(), link_template: veloTemplate.trim() },
       }),
     });
     setSaved(true);
@@ -260,36 +248,6 @@ export default function RemediationTab() {
         <div style={{ fontSize: 10, color: "var(--tc-text-muted)", marginTop: 8 }}>
           <AlertTriangle size={10} style={{ display: "inline", marginRight: 4 }} />
           Changements pris en compte au prochain redemarrage (valeurs verrouillees en memoire au boot)
-        </div>
-      </div>
-
-      {/* Velociraptor — deep-forensics hand-off */}
-      <div style={cardStyle}>
-        <div style={labelStyle}>Forensique approfondie — Velociraptor</div>
-        <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginBottom: 12 }}>
-          Le DFIR natif couvre la kill-chain depuis la telemetrie. Pour les artefacts disque bruts
-          ($MFT, .evtx complets, prefetch), un bouton sur chaque incident ouvre Velociraptor sur l'hote.
-          Renseignez l'URL de la console Velociraptor pour activer ce relais.
-        </div>
-        <div style={{ fontSize: 12, marginBottom: 4 }}>URL de la console Velociraptor</div>
-        <input
-          style={inputStyle}
-          placeholder="https://velociraptor.interne:8889"
-          value={veloUrl}
-          onChange={e => setVeloUrl(e.target.value)}
-        />
-        <div style={{ fontSize: 12, margin: "10px 0 4px" }}>
-          Gabarit de lien par hote (optionnel)
-        </div>
-        <input
-          style={inputStyle}
-          placeholder="{base}/app/index.html#/search/{hostname}"
-          value={veloTemplate}
-          onChange={e => setVeloTemplate(e.target.value)}
-        />
-        <div style={{ fontSize: 10, color: "var(--tc-text-muted)", marginTop: 4 }}>
-          Placeholders : <code>{"{base}"}</code> (URL ci-dessus) et <code>{"{hostname}"}</code>.
-          Vide = ouverture de la racine de la console (l'analyste recherche l'hote).
         </div>
       </div>
 

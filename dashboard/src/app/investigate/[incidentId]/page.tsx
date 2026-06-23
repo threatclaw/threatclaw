@@ -143,8 +143,19 @@ interface FullData {
   forensic_timeline?: ForensicEvent[];
   /** Native DFIR — per-incident attack graph (host + timeline chain + lateral). */
   attack_graph?: { nodes: AttackGraphNode[]; edges: AttackGraphEdge[] };
-  /** Deep-forensics hand-off (delegated to Velociraptor). */
-  velociraptor?: { configured: boolean; base_url?: string | null; host_url?: string | null };
+  /** Velociraptor collections for this incident (auto T0 + manual). */
+  dfir_collections?: DfirCollection[];
+}
+
+/** A Velociraptor collection scheduled for the incident's host. */
+interface DfirCollection {
+  id: number;
+  incident_id: number;
+  client_id: string | null;
+  artifact: string;
+  flow_id: string | null;
+  status: string; // collecting | done | failed | no_client | skipped
+  requested_at: string;
 }
 
 /** Native DFIR forensic timeline event (matches TimelineEvent on the backend). */
@@ -474,7 +485,7 @@ export default function InvestigatePage() {
   const [hitlExecuting, setHitlExecuting] = useState(false);
   const [noteInput, setNoteInput] = useState("");
   const [notePosting, setNotePosting] = useState(false);
-  const [veloPosting, setVeloPosting] = useState(false);
+  const [collecting, setCollecting] = useState<string | null>(null);
   const [confirmFp, setConfirmFp] = useState(false);
   const [suppressingIncident, setSuppressingIncident] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -569,6 +580,20 @@ export default function InvestigatePage() {
     setNotePosting(false);
   };
 
+  // On-demand Velociraptor collection (read-only artifact) on the incident host.
+  const collectArtifact = async (artifact: string) => {
+    setCollecting(artifact);
+    try {
+      await fetch(`/api/tc/incidents/${incidentId}/dfir/collect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artifact }),
+      });
+      await load();
+    } catch {}
+    setCollecting(null);
+  };
+
   const markFalsePositive = async () => {
     await fetch(`/api/tc/incidents/${incidentId}/hitl`, {
       method: "POST",
@@ -591,21 +616,6 @@ export default function InvestigatePage() {
       if (res.ok) await load();
     } finally {
       setReinvestigating(false);
-    }
-  };
-
-  // Deep-forensics hand-off: records a HITL note, opens Velociraptor for the host.
-  const handoffToVelociraptor = async () => {
-    setVeloPosting(true);
-    try {
-      const res = await fetch(`/api/tc/incidents/${incidentId}/forensics/velociraptor`, { method: "POST" });
-      if (res.ok) {
-        const d = await res.json();
-        if (d.url) window.open(d.url, "_blank", "noopener,noreferrer");
-        await load();
-      }
-    } finally {
-      setVeloPosting(false);
     }
   };
 
@@ -1294,28 +1304,64 @@ export default function InvestigatePage() {
                 <InvestigationTimeline steps={data?.investigation_steps} />
               </section>
 
-              {/* Deep-forensics hand-off — native DFIR covers the live kill-chain;
-                  raw-disk artifacts ($MFT, full .evtx, prefetch) are delegated to
-                  Velociraptor. Shown only when a Velociraptor URL is configured. */}
-              {data?.velociraptor?.configured && (
-                <section className="inv-sec">
-                  <div className="inv-card">
-                    <div className="inv-card-head">
-                      <div className="inv-card-head-left">
-                        <strong>{tr("investigate_velociraptor", locale)}</strong> · DFIR
+              {/* DFIR Velociraptor — collectes auto (T0) + à la demande. Visible
+                  dès qu'au moins une collecte existe pour l'incident. */}
+              {(data?.dfir_collections?.length ?? 0) > 0 && (() => {
+                const cols = data!.dfir_collections!;
+                const vrClient = cols.some((c) => !!c.client_id);
+                const stColor = (s: string) =>
+                  s === "done" ? "#30a050" : s === "collecting" ? "#4090ff" : s === "no_client" ? "#888" : "#d03020";
+                const MANUAL = [
+                  { id: "Linux.Triage.UAC", label: "Triage Linux (UAC)" },
+                  { id: "Linux.Collection.CatScale", label: "Collecte Linux (CatScale)" },
+                  { id: "Windows.Triage.Targets", label: "Triage Windows (KAPE)" },
+                  { id: "Windows.Sysinternals.Autoruns", label: "Autoruns (Windows)" },
+                ];
+                return (
+                  <section className="inv-sec">
+                    <div className="inv-card">
+                      <div className="inv-card-head">
+                        <div className="inv-card-head-left">
+                          <strong>{tr("investigate_dfirCollect", locale)}</strong> · Velociraptor
+                        </div>
+                        <div className="inv-card-head-right">{cols.length}</div>
+                      </div>
+                      <div className="inv-ai-body" style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {cols.map((c) => (
+                          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                            <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, color: stColor(c.status), border: `1px solid ${stColor(c.status)}55` }}>
+                              {c.status}
+                            </span>
+                            <span style={{ fontFamily: "monospace" }}>{c.artifact === "-" ? "—" : c.artifact}</span>
+                          </div>
+                        ))}
+                        {vrClient ? (
+                          <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            <span style={{ fontSize: 11, color: "var(--tc-text-muted)", width: "100%" }}>
+                              {tr("investigate_dfirCollectMore", locale)}
+                            </span>
+                            {MANUAL.map((m) => (
+                              <button
+                                key={m.id}
+                                className="inv-ghost-btn"
+                                disabled={collecting === m.id}
+                                onClick={() => collectArtifact(m.id)}
+                                style={{ fontSize: 11 }}
+                              >
+                                {collecting === m.id ? "…" : m.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: "var(--tc-text-muted)", marginTop: 6 }}>
+                            {tr("investigate_dfirNoClient", locale)}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="inv-ai-body">
-                      <p style={{ fontSize: 12, color: "var(--tc-text-muted)", margin: "0 0 8px" }}>
-                        {tr("investigate_velociraptorHint", locale)}
-                      </p>
-                      <button className="inv-act-btn" onClick={handoffToVelociraptor} disabled={veloPosting}>
-                        {veloPosting ? "…" : tr("investigate_velociraptorOpen", locale)}
-                      </button>
-                    </div>
-                  </div>
-                </section>
-              )}
+                  </section>
+                );
+              })()}
 
               {/* Native DFIR — graphe d'attaque par incident (host + chaîne
                   chronologique + mouvements latéraux), rendu cytoscape. */}

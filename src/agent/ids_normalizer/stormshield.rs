@@ -112,7 +112,9 @@ impl IdsAlertNormalizer for StormshieldNormalizer {
             _ => SeverityLevel::Medium,
         };
 
-        let category = get("class").or_else(|| get("classification")).unwrap_or_default();
+        let category = get("class")
+            .or_else(|| get("classification"))
+            .unwrap_or_default();
         let signature = get("msg").unwrap_or_default();
         let source_ip = get("src");
         let dest_ip = get("dst");

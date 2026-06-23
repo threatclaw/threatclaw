@@ -4252,6 +4252,155 @@ impl ThreatClawStore for PgBackend {
             .collect())
     }
 
+    async fn list_incidents_needing_vr_preservation(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(i32, String, String)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT i.id, i.asset, COALESCE(i.severity, '') \
+                 FROM incidents i \
+                 WHERE upper(COALESCE(i.severity, '')) IN ('HIGH', 'CRITICAL') \
+                   AND i.status NOT IN ('closed', 'archived', 'resolved', 'dismissed') \
+                   AND NOT EXISTS ( \
+                       SELECT 1 FROM dfir_collections d \
+                       WHERE d.incident_id = i.id AND d.trigger_kind = 'auto') \
+                 ORDER BY i.created_at DESC LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get::<_, i32>(0),
+                    r.get::<_, String>(1),
+                    r.get::<_, String>(2),
+                )
+            })
+            .collect())
+    }
+
+    async fn insert_dfir_collection(
+        &self,
+        incident_id: i32,
+        client_id: Option<&str>,
+        artifact: &str,
+        flow_id: Option<&str>,
+        status: &str,
+        trigger: &str,
+    ) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO dfir_collections \
+                    (incident_id, client_id, artifact, flow_id, status, trigger_kind) \
+                 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+                &[
+                    &incident_id,
+                    &client_id,
+                    &artifact,
+                    &flow_id,
+                    &status,
+                    &trigger,
+                ],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get::<_, i64>(0))
+    }
+
+    async fn list_dfir_collections_collecting(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<crate::db::threatclaw_store::DfirCollection>, DatabaseError> {
+        use crate::db::threatclaw_store::DfirCollection;
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, client_id, artifact, flow_id, status, requested_at \
+                 FROM dfir_collections WHERE status = 'collecting' \
+                 ORDER BY requested_at ASC LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| DfirCollection {
+                id: r.get::<_, i64>(0),
+                incident_id: r.get::<_, i32>(1),
+                client_id: r.get::<_, Option<String>>(2),
+                artifact: r.get::<_, String>(3),
+                flow_id: r.get::<_, Option<String>>(4),
+                status: r.get::<_, String>(5),
+                requested_at: r.get::<_, chrono::DateTime<chrono::Utc>>(6).to_rfc3339(),
+            })
+            .collect())
+    }
+
+    async fn list_dfir_collections_for_incident(
+        &self,
+        incident_id: i32,
+    ) -> Result<Vec<crate::db::threatclaw_store::DfirCollection>, DatabaseError> {
+        use crate::db::threatclaw_store::DfirCollection;
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT id, incident_id, client_id, artifact, flow_id, status, requested_at \
+                 FROM dfir_collections WHERE incident_id = $1 ORDER BY id DESC",
+                &[&incident_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| DfirCollection {
+                id: r.get::<_, i64>(0),
+                incident_id: r.get::<_, i32>(1),
+                client_id: r.get::<_, Option<String>>(2),
+                artifact: r.get::<_, String>(3),
+                flow_id: r.get::<_, Option<String>>(4),
+                status: r.get::<_, String>(5),
+                requested_at: r.get::<_, chrono::DateTime<chrono::Utc>>(6).to_rfc3339(),
+            })
+            .collect())
+    }
+
+    async fn mark_dfir_collection(
+        &self,
+        id: i64,
+        status: &str,
+        row_count: Option<i32>,
+        error: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        conn.execute(
+            "UPDATE dfir_collections \
+             SET status = $2, row_count = $3, error = $4, completed_at = NOW() \
+             WHERE id = $1",
+            &[&id, &status, &row_count, &error],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn count_recent_dfir_collections(&self, since_secs: i64) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT count(*) FROM dfir_collections \
+                 WHERE requested_at > NOW() - make_interval(secs => $1::double precision)",
+                &[&(since_secs as f64)],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get::<_, i64>(0))
+    }
+
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(

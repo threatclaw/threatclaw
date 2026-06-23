@@ -68,6 +68,23 @@ pub struct RiskEvent {
     pub created_at: String,
 }
 
+/// DFIR (Chantier 2) — a Velociraptor collection in flight for an incident.
+/// One row = one artifact collected on one host. The trigger inserts it
+/// `collecting` with a `flow_id`; the ingester reads the finished flow and
+/// folds the results into `forensic_timeline`, then marks it `done`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DfirCollection {
+    pub id: i64,
+    pub incident_id: i32,
+    pub client_id: Option<String>,
+    pub artifact: String,
+    pub flow_id: Option<String>,
+    pub status: String,
+    /// RFC 3339 (UTC) — used by the ingester to time out a stuck collection
+    /// (host wiped/offline → flow never FINISHED).
+    pub requested_at: String,
+}
+
 /// DFIR (Phase 1) — a forensic timeline event to persist, scoped to an incident.
 /// Built by `dfir_triage` from already-ingested telemetry. `ts` is RFC 3339 (UTC).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1627,6 +1644,68 @@ pub trait ThreatClawStore: Send + Sync {
         &self,
         limit: i64,
     ) -> Result<Vec<(i32, String)>, DatabaseError>;
+
+    // ── DFIR Velociraptor auto-collect (Chantier 2) — default impls return
+    //    empty/0/unit so the libSQL backend (DFIR is PG-only) inherits no-ops;
+    //    PG overrides them. ──
+
+    /// Open HIGH/CRITICAL incidents that have NOT yet had an auto VR collection
+    /// triggered (no `dfir_collections` row with trigger='auto'). Returns
+    /// `(incident_id, asset, severity)`. Drives the T0 preservation trigger.
+    async fn list_incidents_needing_vr_preservation(
+        &self,
+        _limit: i64,
+    ) -> Result<Vec<(i32, String, String)>, DatabaseError> {
+        Ok(Vec::new())
+    }
+
+    /// Record a scheduled (or skipped) VR collection. Returns the new row id.
+    async fn insert_dfir_collection(
+        &self,
+        _incident_id: i32,
+        _client_id: Option<&str>,
+        _artifact: &str,
+        _flow_id: Option<&str>,
+        _status: &str,
+        _trigger: &str,
+    ) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
+    /// VR collections still in flight (`status='collecting'`), for the ingester.
+    async fn list_dfir_collections_collecting(
+        &self,
+        _limit: i64,
+    ) -> Result<Vec<DfirCollection>, DatabaseError> {
+        Ok(Vec::new())
+    }
+
+    /// All VR collections for an incident (any status), newest first — drives the
+    /// incident DFIR panel.
+    async fn list_dfir_collections_for_incident(
+        &self,
+        _incident_id: i32,
+    ) -> Result<Vec<DfirCollection>, DatabaseError> {
+        Ok(Vec::new())
+    }
+
+    /// Mark a VR collection terminal: done | failed | no_client | skipped,
+    /// with the ingested row count (or an error message).
+    async fn mark_dfir_collection(
+        &self,
+        _id: i64,
+        _status: &str,
+        _row_count: Option<i32>,
+        _error: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    /// Count VR collections requested in the last `since_secs` (global rate-limit
+    /// guard so a mass-incident event can't trigger a collection storm).
+    async fn count_recent_dfir_collections(&self, _since_secs: i64) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
 
     /// Atomically claim an incident remediation action for execution
     /// (anti-replay / execute-once). Appends an

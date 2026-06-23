@@ -778,6 +778,20 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
+    // DFIR Velociraptor auto-collect (Chantier 2): T0 evidence-preservation
+    // trigger (fires volatile collections on VR-enrolled hosts at incident time)
+    // + the ingester that folds finished flows into the forensic timeline.
+    if let Some(ref vr_db) = components.db {
+        let trig_db = Arc::clone(vr_db) as Arc<dyn threatclaw::db::Database>;
+        tokio::spawn(async move {
+            threatclaw::agent::vr_collector::run_vr_preservation_trigger(trig_db).await;
+        });
+        let ingest_db = Arc::clone(vr_db) as Arc<dyn threatclaw::db::Database>;
+        tokio::spawn(async move {
+            threatclaw::agent::vr_collector::run_vr_collection_ingest(ingest_db).await;
+        });
+    }
+
     let deps = AgentDeps {
         owner_id: config.owner_id.clone(),
         store: components.db,

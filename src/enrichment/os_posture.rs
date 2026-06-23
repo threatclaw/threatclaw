@@ -289,7 +289,10 @@ mod tests {
             eol_assessment(&serde_json::json!("2026-07-11"), today),
             Some(EolStatus::Approaching(_))
         ));
-        assert_eq!(eol_assessment(&serde_json::json!("2030-01-01"), today), None);
+        assert_eq!(
+            eol_assessment(&serde_json::json!("2030-01-01"), today),
+            None
+        );
         assert!(matches!(
             eol_assessment(&serde_json::json!(true), today),
             Some(EolStatus::Eol(_))

@@ -115,7 +115,11 @@ pub async fn scan_asset_software(
         }
         // Aggregate the group: highest severity drives the finding, KEV → CRITICAL.
         let any_kev = ms.iter().any(|m| m.known_exploited);
-        let max_rank = ms.iter().map(|m| severity_rank(&m.severity)).max().unwrap_or(0);
+        let max_rank = ms
+            .iter()
+            .map(|m| severity_rank(&m.severity))
+            .max()
+            .unwrap_or(0);
         let severity = if any_kev || max_rank >= 4 {
             "CRITICAL"
         } else {
@@ -141,7 +145,11 @@ pub async fn scan_asset_software(
             .unwrap();
         let cves: Vec<&str> = ms.iter().map(|m| m.cve_id.as_str()).collect();
         let n = cves.len();
-        let kev_tag = if any_kev { " (CISA KEV: exploit actif)" } else { "" };
+        let kev_tag = if any_kev {
+            " (CISA KEV: exploit actif)"
+        } else {
+            ""
+        };
         let fix_hint = lead
             .fixed_version
             .as_deref()
@@ -162,12 +170,16 @@ pub async fn scan_asset_software(
             format!(
                 "Le logiciel {package} version {version} sur {asset_name} est affecté par {}{}{fix_hint}.",
                 cves[0],
-                max_cvss.map(|c| format!(" (CVSS {c:.1})")).unwrap_or_default()
+                max_cvss
+                    .map(|c| format!(" (CVSS {c:.1})"))
+                    .unwrap_or_default()
             )
         } else {
             format!(
                 "Le logiciel {package} version {version} sur {asset_name} est affecté par {n} vulnérabilités{}{fix_hint}. CVE : {}.",
-                max_cvss.map(|c| format!(" (CVSS max {c:.1})")).unwrap_or_default(),
+                max_cvss
+                    .map(|c| format!(" (CVSS max {c:.1})"))
+                    .unwrap_or_default(),
                 cves.join(", ")
             )
         };
@@ -257,7 +269,6 @@ fn software_vuln_i18n_key(n: usize, any_kev: bool, has_crit: bool) -> &'static s
     }
 }
 
-
 /// Map an OS string (osquery `platform` or `asset.os`) to a matching ecosystem
 /// for the Phase 2 distro-aware matcher. Linux distros map to their OSV ecosystem
 /// (Debian/Ubuntu/Red Hat/Alpine — backport-aware version comparison); Windows
@@ -330,11 +341,29 @@ mod tests {
     #[test]
     fn i18n_key_selection() {
         // args: (n, any_kev, has_crit)
-        assert_eq!(software_vuln_i18n_key(1, false, false), "finding.software_vuln.cve_single");
-        assert_eq!(software_vuln_i18n_key(1, true, false), "finding.software_vuln.cve_single_kev");
-        assert_eq!(software_vuln_i18n_key(3, false, false), "finding.software_vuln.cve_group");
-        assert_eq!(software_vuln_i18n_key(3, true, false), "finding.software_vuln.cve_group_kev");
-        assert_eq!(software_vuln_i18n_key(3, false, true), "finding.software_vuln.cve_group_crit");
-        assert_eq!(software_vuln_i18n_key(3, true, true), "finding.software_vuln.cve_group_crit_kev");
+        assert_eq!(
+            software_vuln_i18n_key(1, false, false),
+            "finding.software_vuln.cve_single"
+        );
+        assert_eq!(
+            software_vuln_i18n_key(1, true, false),
+            "finding.software_vuln.cve_single_kev"
+        );
+        assert_eq!(
+            software_vuln_i18n_key(3, false, false),
+            "finding.software_vuln.cve_group"
+        );
+        assert_eq!(
+            software_vuln_i18n_key(3, true, false),
+            "finding.software_vuln.cve_group_kev"
+        );
+        assert_eq!(
+            software_vuln_i18n_key(3, false, true),
+            "finding.software_vuln.cve_group_crit"
+        );
+        assert_eq!(
+            software_vuln_i18n_key(3, true, true),
+            "finding.software_vuln.cve_group_crit_kev"
+        );
     }
 }

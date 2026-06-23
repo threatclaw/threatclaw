@@ -112,10 +112,12 @@ impl ActionKind {
     /// pick it up automatically.
     pub fn from_cmd_id(cmd_id: &str) -> Self {
         match cmd_id {
-            "opnsense_block_ip" | "fortinet_block_ip" | "pfsense_block_ip"
-            | "mikrotik_block_ip" | "proxmox_block_ip" | "stormshield_block_ip" => {
-                ActionKind::BlockIp
-            }
+            "opnsense_block_ip"
+            | "fortinet_block_ip"
+            | "pfsense_block_ip"
+            | "mikrotik_block_ip"
+            | "proxmox_block_ip"
+            | "stormshield_block_ip" => ActionKind::BlockIp,
             "opnsense_unblock_ip"
             | "fortinet_unblock_ip"
             | "pfsense_unblock_ip"

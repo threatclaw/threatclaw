@@ -12,7 +12,10 @@ mod tests {
 
     #[test]
     fn i18n_builds_key_and_params() {
-        let v = i18n("finding.os_posture.eol", serde_json::json!({"os": "Debian 12"}));
+        let v = i18n(
+            "finding.os_posture.eol",
+            serde_json::json!({"os": "Debian 12"}),
+        );
         assert_eq!(v["key"], "finding.os_posture.eol");
         assert_eq!(v["params"]["os"], "Debian 12");
     }

@@ -1072,12 +1072,15 @@ const T: Record<string, Record<Locale, string>> = {
   investigate_dfirTimeline: { fr: "Chronologie forensique", en: "Forensic timeline" },
   investigate_dfirAttackGraph: { fr: "Graphe d'attaque (incident)", en: "Attack graph (incident)" },
   investigate_dfirEvents: { fr: "événement(s)", en: "event(s)" },
-  investigate_velociraptor: { fr: "Forensique approfondie (Velociraptor)", en: "Deep forensics (Velociraptor)" },
-  investigate_velociraptorHint: {
-    fr: "Le DFIR natif couvre la kill-chain à partir de la télémétrie. Pour les artefacts disque bruts ($MFT, .evtx complets, prefetch), lance une collecte Velociraptor sur cet hôte. La demande est tracée dans les notes de l'incident.",
-    en: "Native DFIR covers the kill-chain from telemetry. For raw-disk artifacts ($MFT, full .evtx, prefetch), launch a Velociraptor collection on this host. The request is logged in the incident notes.",
+  investigate_dfirCollect: { fr: "Collecte DFIR", en: "DFIR collection" },
+  investigate_dfirCollectMore: {
+    fr: "Collecte approfondie à la demande (lecture seule, repliée dans la chronologie) :",
+    en: "On-demand deep collection (read-only, folded into the timeline):",
   },
-  investigate_velociraptorOpen: { fr: "Ouvrir dans Velociraptor", en: "Open in Velociraptor" },
+  investigate_dfirNoClient: {
+    fr: "Hôte non enrôlé sur Velociraptor — collecte approfondie indisponible.",
+    en: "Host not enrolled in Velociraptor — deep collection unavailable.",
+  },
   investigate_pending: { fr: "en attente", en: "pending" },
   investigate_forensicQueued: { fr: "Analyse forensique en file d'attente...", en: "Forensic analysis queued..." },
   investigate_evidence: { fr: "Preuves", en: "Evidence" },
