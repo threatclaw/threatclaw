@@ -161,6 +161,108 @@ pub fn build_eol_finding(
     }
 }
 
+/// endoflife.date products we map assets to.
+const EOL_PRODUCTS: &[&str] = &[
+    "windows-server",
+    "debian",
+    "ubuntu",
+    "rhel",
+    "almalinux",
+    "rocky",
+    "centos",
+    "alpine",
+    "fedora",
+    "sles",
+];
+
+/// Fetch every product feed once and flatten to `(product, cycle) → eol`. Any
+/// product that fails to fetch is skipped (logged); empty map = no findings.
+pub async fn fetch_eol_map() -> std::collections::HashMap<(String, String), serde_json::Value> {
+    let mut map = std::collections::HashMap::new();
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("OS-POSTURE: HTTP client build failed ({e})");
+            return map;
+        }
+    };
+    for product in EOL_PRODUCTS {
+        let url = format!("https://endoflife.date/api/{product}.json");
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.json::<serde_json::Value>().await {
+                    Ok(json) => {
+                        for (cycle, eol) in parse_eol_feed(&json) {
+                            map.insert((product.to_string(), cycle), eol);
+                        }
+                    }
+                    Err(e) => tracing::warn!("OS-POSTURE: {product} JSON failed ({e})"),
+                }
+            }
+            Ok(resp) => tracing::warn!("OS-POSTURE: {product} returned {}", resp.status()),
+            Err(e) => tracing::warn!("OS-POSTURE: {product} fetch failed ({e})"),
+        }
+    }
+    map
+}
+
+/// Daily EOL pass over all active assets. Best-effort; returns findings created.
+pub async fn scan_all_assets_eol(store: std::sync::Arc<dyn crate::db::Database>) -> usize {
+    let eol_map = fetch_eol_map().await;
+    if eol_map.is_empty() {
+        return 0;
+    }
+    let today = chrono::Utc::now().date_naive();
+    let assets = store
+        .list_assets(None, Some("active"), 500, 0)
+        .await
+        .unwrap_or_default();
+
+    let mut created = 0usize;
+    for asset in &assets {
+        let os = match asset.os.as_deref() {
+            Some(o) if !o.trim().is_empty() => o,
+            _ => continue,
+        };
+        let Some((product, cycle)) = parse_os(os) else {
+            continue;
+        };
+        let Some(eol) = eol_map.get(&(product.to_string(), cycle.clone())) else {
+            continue;
+        };
+        let Some(status) = eol_assessment(eol, today) else {
+            continue;
+        };
+
+        // Dedup: skip if this asset already has an os-posture EOL finding for this product.
+        let existing = store
+            .list_findings(None, None, Some(&asset.name), 1000, 0)
+            .await
+            .unwrap_or_default();
+        let already = existing.iter().any(|f| {
+            f.category.as_deref() == Some("os-posture")
+                && f.metadata.get("product").and_then(|p| p.as_str()) == Some(product)
+        });
+        if already {
+            continue;
+        }
+
+        let finding = build_eol_finding(&asset.name, os, product, &cycle, &status);
+        let _ = store.insert_finding(&finding).await;
+        created += 1;
+    }
+    if created > 0 {
+        tracing::info!(
+            "OS-POSTURE: EOL scan complete — {created} findings across {} assets",
+            assets.len()
+        );
+    }
+    created
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
