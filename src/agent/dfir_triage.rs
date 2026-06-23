@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{NewTimelineEvent, TimelineEvent};
+use crate::db::threatclaw_store::{NewRiskEvent, NewTimelineEvent, TimelineEvent};
 
 /// Poll cadence of the background DFIR collector.
 const DFIR_POLL_INTERVAL: Duration = Duration::from_secs(180);
@@ -741,6 +741,106 @@ pub async fn collect_observations_from_logs(
 /// Run DFIR triage for one incident: assemble the forensic timeline from ingested
 /// telemetry and persist it. Idempotent — stamps `dfir_collected_at` so it runs
 /// once per incident. Non-fatal (never breaks the caller).
+/// Map a kill-chain severity to a CAPPED RBA score. Deliberately below RBA's
+/// single-fire score threshold (100) so ONE investigation can never raise a risk
+/// notable on its own — only repeated DFIR-confirmed activity on the same asset
+/// (or accumulation with other risk sources) crosses it. That's the slow-APT /
+/// sustained-attack signal, and it is re-fire-safe by construction.
+fn dfir_risk_score(severity: &str) -> i32 {
+    match severity {
+        "CRITICAL" => 50,
+        "HIGH" => 25,
+        _ => 0,
+    }
+}
+
+/// Pick a representative `(tactic, technique)` for the investigation: the most
+/// advanced / most severe stage present, so the risk_event feeds RBA's tactic
+/// diversity rule (RIR-b) meaningfully when several incidents stack on an asset.
+fn dominant_tactic(events: &[NewTimelineEvent]) -> (Option<String>, Option<String>) {
+    const PRIORITY: &[&str] = &[
+        "credential_access",
+        "persistence_install",
+        "account_change",
+        "privilege_escalation",
+        "injection",
+        "defense_evasion",
+        "net_connect",
+        "logon",
+        "process_spawn",
+    ];
+    for want in PRIORITY {
+        if let Some(ev) = events.iter().find(|e| e.event_type == *want) {
+            return (ev.mitre_tactic.clone(), ev.mitre_technique.clone());
+        }
+    }
+    (None, None)
+}
+
+/// Edge (I/O): feed the RBA engine from a completed DFIR triage. Two producers,
+/// both non-fatal and both capped below the single-fire threshold:
+/// - **own asset**: a kill-chain-scored event → sustained, multi-incident
+///   activity on one asset accumulates into a "under sustained attack" notable;
+/// - **lateral targets** (the incident's `related_assets`): a modest event each
+///   → a campaign spreading across machines accumulates on hosts that don't yet
+///   have their own incident.
+async fn feed_rba_from_dfir(
+    store: &dyn Database,
+    incident_id: i32,
+    asset: &str,
+    events: &[NewTimelineEvent],
+    killchain: Option<&(&'static str, String)>,
+) {
+    if let Some((sev, reason)) = killchain {
+        let score = dfir_risk_score(sev);
+        if score > 0 {
+            let (mitre_tactic, mitre_technique) = dominant_tactic(events);
+            let ev = NewRiskEvent {
+                risk_object: asset.to_string(),
+                object_type: "asset".into(),
+                score,
+                source_rule: "dfir:killchain".into(),
+                mitre_tactic,
+                mitre_technique,
+                log_id: None,
+                message: Some(format!("DFIR #{incident_id} : {reason}")),
+            };
+            if let Err(e) = store.insert_risk_event(&ev).await {
+                tracing::debug!(
+                    "DFIR: insert_risk_event (killchain) failed for #{incident_id}: {e}"
+                );
+            }
+        }
+    }
+
+    // Cross-asset: the graph-derived lateral targets carried on the incident.
+    if let Ok(Some(inc)) = store.get_incident(incident_id).await
+        && let Some(related) = inc.get("related_assets").and_then(|v| v.as_array())
+    {
+        for r in related {
+            let Some(target) = r.as_str() else { continue };
+            if target.is_empty() || target.eq_ignore_ascii_case(asset) {
+                continue;
+            }
+            let ev = NewRiskEvent {
+                risk_object: target.to_string(),
+                object_type: "asset".into(),
+                score: 25,
+                source_rule: "dfir:lateral".into(),
+                mitre_tactic: Some("lateral-movement".into()),
+                mitre_technique: Some("T1021".into()),
+                log_id: None,
+                message: Some(format!(
+                    "Cible de mouvement latéral depuis {asset} (incident #{incident_id})"
+                )),
+            };
+            if let Err(e) = store.insert_risk_event(&ev).await {
+                tracing::debug!("DFIR: insert_risk_event (lateral) failed for #{incident_id}: {e}");
+            }
+        }
+    }
+}
+
 pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: &str) {
     let obs = collect_observations_from_logs(store.as_ref(), asset, DFIR_WINDOW_MIN).await;
     if !obs.is_empty() {
@@ -754,12 +854,14 @@ pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: 
             }
         }
 
+        let killchain = assess_killchain(&events);
+
         // 2b-bis — corroboration: if the timeline reveals a multi-stage intrusion,
         // escalate the incident severity (upgrade-only, audited). No new incident,
         // no second alert — it strengthens the one the detection layer created.
-        if let Some((sev, reason)) = assess_killchain(&events) {
+        if let Some((sev, reason)) = &killchain {
             match store
-                .escalate_incident_severity(incident_id, sev, &reason)
+                .escalate_incident_severity(incident_id, sev, reason)
                 .await
             {
                 Ok(n) if n > 0 => {
@@ -773,6 +875,20 @@ pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: 
                 }
             }
         }
+
+        // 2b-bis (a) — feed RBA so DFIR-confirmed activity accumulates ACROSS
+        // incidents and ACROSS assets: the low-and-slow / lateral campaigns a
+        // single incident can't see. Each emission is capped below RBA's
+        // single-fire threshold, so one investigation never raises a notable on
+        // its own — only sustained accumulation does (re-fire-safe by design).
+        feed_rba_from_dfir(
+            store.as_ref(),
+            incident_id,
+            asset,
+            &events,
+            killchain.as_ref(),
+        )
+        .await;
     }
     // Stamp even when empty so the incident isn't re-polled forever (the
     // triggering telemetry is already ingested by the time we run).
@@ -1158,6 +1274,40 @@ mod tests {
             parent_guid: None,
             related_to: None,
         }
+    }
+
+    fn nte_t(event_type: &str, tactic: &str, tech: &str) -> NewTimelineEvent {
+        let mut e = nte(event_type);
+        e.mitre_tactic = Some(tactic.into());
+        e.mitre_technique = Some(tech.into());
+        e
+    }
+
+    #[test]
+    fn dfir_risk_score_is_capped_below_single_fire_threshold() {
+        assert_eq!(dfir_risk_score("CRITICAL"), 50);
+        assert_eq!(dfir_risk_score("HIGH"), 25);
+        assert_eq!(dfir_risk_score("MEDIUM"), 0);
+        // one investigation must NEVER alone cross RBA's score threshold (100)
+        assert!(dfir_risk_score("CRITICAL") < 100);
+    }
+
+    #[test]
+    fn dominant_tactic_prefers_most_advanced_stage() {
+        // exec + C2 + credential theft present → credential theft wins (highest priority)
+        let evs = vec![
+            nte_t("process_spawn", "execution", "T1059"),
+            nte_t("net_connect", "command-and-control", "T1071"),
+            nte_t("credential_access", "credential-access", "T1003.001"),
+        ];
+        let (tac, tech) = dominant_tactic(&evs);
+        assert_eq!(tac.as_deref(), Some("credential-access"));
+        assert_eq!(tech.as_deref(), Some("T1003.001"));
+        // nothing recognised → no tactic
+        assert_eq!(
+            dominant_tactic(&[nte_t("file_event", "x", "y")]),
+            (None, None)
+        );
     }
 
     #[test]
