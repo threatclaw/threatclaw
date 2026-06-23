@@ -173,10 +173,12 @@ pub fn build_sbom(platform: &str, software: &[serde_json::Value]) -> serde_json:
 /// negative) rather than a wrong CPE that could match the wrong product (a false
 /// positive). Keys are intentionally specific to avoid cross-matching.
 ///
-/// Deliberately omitted in v1 (need dedicated name/version handling, not a plain
+/// Deliberately omitted (need dedicated name/version handling, not a plain
 /// substring): Oracle/Open JDK (osquery's "1.8.0_311" ≠ the CPE's "1.8.0:update311"),
 /// .NET Framework, standalone Git (the "git" substring also hits GitHub Desktop /
-/// TortoiseGit), and FileZilla (no resolvable vendor:product found).
+/// TortoiseGit), FileZilla (no resolvable vendor:product), SQL Server & SCCM (NVD
+/// versions them by year "2019"/"2103", osquery by build number), and Veeam
+/// (vendor:product not resolvable against the DB).
 const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("google chrome", "google", "chrome"),
     ("microsoft edge", "microsoft", "edge"),
@@ -221,6 +223,30 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("keepass", "keepass", "keepass"),
     ("greenshot", "greenshot", "greenshot"),
     ("mremoteng", "mremoteng", "mremoteng"),
+    // Enterprise server software. Microsoft server products (Exchange, SharePoint)
+    // are PARTIAL: NVD mixes build-number and year ("2019") versions, so osquery's
+    // build version only matches the build-versioned CVEs. "universal forwarder"
+    // must precede "splunk" so the forwarder gets its own product.
+    ("exchange server", "microsoft", "exchange_server"),
+    ("sharepoint", "microsoft", "sharepoint_server"),
+    ("azure ad connect", "microsoft", "azure_active_directory_connect"),
+    ("entra connect", "microsoft", "azure_active_directory_connect"),
+    ("powershell", "microsoft", "powershell"),
+    ("vcenter", "vmware", "vcenter_server"),
+    ("mongodb", "mongodb", "mongodb"),
+    ("mariadb", "mariadb", "mariadb"),
+    ("redis", "redis", "redis"),
+    ("universal forwarder", "splunk", "universal_forwarder"),
+    ("splunk", "splunk", "splunk"),
+    ("elasticsearch", "elastic", "elasticsearch"),
+    ("apache solr", "apache", "solr"),
+    ("weblogic", "oracle", "weblogic_server"),
+    ("websphere", "ibm", "websphere_application_server"),
+    ("jenkins", "jenkins", "jenkins"),
+    ("confluence", "atlassian", "confluence_server"),
+    ("jira", "atlassian", "jira_server"),
+    ("grafana", "grafana", "grafana"),
+    ("zabbix", "zabbix", "zabbix"),
 ];
 
 /// Names that share a curated key but are a distinct product — skip them so they
@@ -399,6 +425,21 @@ mod tests {
         assert_eq!(
             cpe_for("KeePass Password Safe", "2.40").as_deref(),
             Some("cpe:2.3:a:keepass:keepass:2.40:*:*:*:*:*:*:*")
+        );
+        // Enterprise server software (incl. the explicitly-requested Exchange and
+        // Azure AD Connect).
+        assert_eq!(
+            cpe_for("Microsoft Exchange Server 2019", "15.2.1544.4").as_deref(),
+            Some("cpe:2.3:a:microsoft:exchange_server:15.2.1544.4:*:*:*:*:*:*:*")
+        );
+        assert_eq!(
+            cpe_for("Microsoft Azure AD Connect", "2.1.1.0").as_deref(),
+            Some("cpe:2.3:a:microsoft:azure_active_directory_connect:2.1.1.0:*:*:*:*:*:*:*")
+        );
+        // "universal forwarder" must win over the broader "splunk" key.
+        assert_eq!(
+            cpe_for("Splunk Universal Forwarder", "9.0.0").as_deref(),
+            Some("cpe:2.3:a:splunk:universal_forwarder:9.0.0:*:*:*:*:*:*:*")
         );
         // Unknown software and empty versions never produce a CPE.
         assert_eq!(cpe_for("TSplus", "17.30").as_deref(), None);
