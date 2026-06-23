@@ -764,6 +764,11 @@ async fn get_channel_field(store: &dyn Database, channel: &str, field: &str) -> 
         .map(String::from)
 }
 
+/// The configured dashboard base URL (general.dashboardUrl), if set.
+pub async fn dashboard_url(store: &dyn Database) -> Option<String> {
+    get_channel_field(store, "general", "dashboardUrl").await
+}
+
 /// Whether the SMTP email channel has a host configured. Callers (e.g. the
 /// user-invitation flow) use this to decide between emailing a link and
 /// returning it for manual delivery.

@@ -2072,19 +2072,43 @@ pub async fn config_test_channel_handler(
     let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("");
 
     // Email is multi-field (host/port/from/to/user/password) and has no single
-    // token — it tests the SAVED channel config by actually sending a mail.
+    // token — it tests the SAVED channel config by actually sending a mail. The
+    // test mail uses the real branded template (in the configured language) so it
+    // doubles as a preview of what notifications will look like.
     if channel == "email" {
         let store = state.store.as_ref().ok_or_else(no_db)?;
         let to = body
             .get("to")
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty());
-        let result = match crate::agent::notification_router::send_smtp_email(
+        let lang = crate::agent::report_lang::report_language(store.as_ref()).await;
+        let fr = crate::agent::email_template::is_fr(&lang);
+        let (subject, title, body) = if fr {
+            (
+                "ThreatClaw — test de configuration email",
+                "Test de configuration",
+                "Cet email confirme que le canal email est correctement configuré \
+                 (TLS + authentification). Les notifications d'incident et les digests \
+                 arriveront dans ce format.",
+            )
+        } else {
+            (
+                "ThreatClaw — email configuration test",
+                "Configuration test",
+                "This email confirms the email channel is correctly configured \
+                 (TLS + authentication). Incident notifications and digests will \
+                 arrive in this format.",
+            )
+        };
+        let dashboard_url = crate::agent::notification_router::dashboard_url(store.as_ref()).await;
+        let (txt, html) =
+            crate::agent::email_template::wrap_email(&lang, title, body, dashboard_url.as_deref());
+        let result = match crate::agent::notification_router::send_smtp_email_rich(
             store.as_ref(),
             to,
-            "ThreatClaw — test SMTP",
-            "Ceci est un email de test envoyé par ThreatClaw. Si vous le recevez, \
-             le canal email est correctement configuré (TLS + authentification).",
+            subject,
+            &txt,
+            Some(&html),
         )
         .await
         {
