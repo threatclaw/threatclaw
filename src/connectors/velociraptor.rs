@@ -836,6 +836,39 @@ pub async fn read_flow_source(
     Ok(res["rows"].as_array().cloned().unwrap_or_default())
 }
 
+/// Cheap gate: is the Velociraptor skill configured (valid API creds present)?
+pub async fn is_configured(store: &dyn Database) -> bool {
+    load_config(store).await.is_ok()
+}
+
+/// Resolve an asset hostname to its Velociraptor `(client_id, os_lowercased)` if
+/// the host is enrolled. Case-insensitive match on hostname / fqdn / short name.
+pub async fn resolve_client(
+    store: &dyn Database,
+    hostname: &str,
+) -> Result<Option<(String, String)>, String> {
+    let target = hostname.to_ascii_lowercase();
+    if target.is_empty() {
+        return Ok(None);
+    }
+    let listing = tool_list_clients(store).await?;
+    if let Some(arr) = listing["clients"].as_array() {
+        for c in arr {
+            let h = c["hostname"].as_str().unwrap_or("").to_ascii_lowercase();
+            let fqdn = c["fqdn"].as_str().unwrap_or("").to_ascii_lowercase();
+            let short = h.split('.').next().unwrap_or("");
+            if h == target || fqdn == target || short == target {
+                let cid = c["client_id"].as_str().unwrap_or("").to_string();
+                let os = c["os"].as_str().unwrap_or("").to_ascii_lowercase();
+                if !cid.is_empty() {
+                    return Ok(Some((cid, os)));
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub fn validate_vql_readonly(vql: &str) -> Result<(), String> {
     let lower = vql.to_lowercase();
     for forbidden in [

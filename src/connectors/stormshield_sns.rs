@@ -227,7 +227,9 @@ fn parse_auth_msg(xml: &str) -> AuthOutcome {
     match attr(xml, "msg") {
         Some("AUTH_SUCCESS") => AuthOutcome::Success,
         Some("ERR_BRUTEFORCE") => {
-            let delay = attr(xml, "delay").and_then(|d| d.parse().ok()).unwrap_or(600);
+            let delay = attr(xml, "delay")
+                .and_then(|d| d.parse().ok())
+                .unwrap_or(600);
             AuthOutcome::BruteForce(delay)
         }
         Some(_) => AuthOutcome::Failed,
@@ -656,10 +658,7 @@ mod tests {
     #[test]
     fn rule_position_found_by_object() {
         let xml = "<data format=\"list\"><line>position=2; ruleid=1: block from tc-block-203-0-113-66 to any # ThreatClaw</line></data>";
-        assert_eq!(
-            find_rule_position(xml, "tc-block-203-0-113-66"),
-            Some(2)
-        );
+        assert_eq!(find_rule_position(xml, "tc-block-203-0-113-66"), Some(2));
         assert_eq!(find_rule_position(xml, "tc-block-10-0-0-9"), None);
     }
 

@@ -80,6 +80,9 @@ pub struct DfirCollection {
     pub artifact: String,
     pub flow_id: Option<String>,
     pub status: String,
+    /// RFC 3339 (UTC) — used by the ingester to time out a stuck collection
+    /// (host wiped/offline → flow never FINISHED).
+    pub requested_at: String,
 }
 
 /// DFIR (Phase 1) — a forensic timeline event to persist, scoped to an incident.
@@ -1691,10 +1694,7 @@ pub trait ThreatClawStore: Send + Sync {
 
     /// Count VR collections requested in the last `since_secs` (global rate-limit
     /// guard so a mass-incident event can't trigger a collection storm).
-    async fn count_recent_dfir_collections(
-        &self,
-        _since_secs: i64,
-    ) -> Result<i64, DatabaseError> {
+    async fn count_recent_dfir_collections(&self, _since_secs: i64) -> Result<i64, DatabaseError> {
         Ok(0)
     }
 

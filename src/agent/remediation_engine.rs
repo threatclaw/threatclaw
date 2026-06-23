@@ -839,7 +839,9 @@ pub(crate) async fn load_firewall_config(
                 url.clone(),
                 map.get("auth_user").cloned().unwrap_or_default(),
                 map.get("auth_secret").cloned().unwrap_or_default(),
-                map.get("no_tls_verify").map(|s| s == "true").unwrap_or(true),
+                map.get("no_tls_verify")
+                    .map(|s| s == "true")
+                    .unwrap_or(true),
             ));
         }
     }

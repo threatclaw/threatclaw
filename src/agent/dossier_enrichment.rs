@@ -781,7 +781,8 @@ mod tests {
         assert!(
             iocs.hashes
                 .iter()
-                .any(|h| h.contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")),
+                .any(|h| h
+                    .contains("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")),
             "le SHA256 doit être extrait, got {:?}",
             iocs.hashes
         );

@@ -685,7 +685,11 @@ async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u3
         };
         let logtype = {
             let lt = get("logtype");
-            if lt.is_empty() { "unknown".to_string() } else { lt }
+            if lt.is_empty() {
+                "unknown".to_string()
+            } else {
+                lt
+            }
         };
         let src = get("src");
         let dst = get("dst");
@@ -699,7 +703,11 @@ async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u3
             "msg": get("msg"),
         });
         let tag = format!("stormshield.{logtype}");
-        let hostname = if dst.is_empty() { fw.as_str() } else { dst.as_str() };
+        let hostname = if dst.is_empty() {
+            fw.as_str()
+        } else {
+            dst.as_str()
+        };
         if store.insert_log(&tag, hostname, &data, &now).await.is_ok() {
             count += 1;
         }

@@ -83,7 +83,7 @@ pub struct RawObservation {
 impl RawObservation {
     /// Base observation with all causal/optional fields empty — keeps the mappers
     /// terse (set only the fields a given source provides).
-    fn base(ts: DateTime<Utc>, kind: ObsKind, asset: &str, source: &str) -> Self {
+    pub(crate) fn base(ts: DateTime<Utc>, kind: ObsKind, asset: &str, source: &str) -> Self {
         RawObservation {
             ts,
             kind,

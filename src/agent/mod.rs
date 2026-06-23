@@ -109,6 +109,7 @@ pub mod validation_mode;
 pub mod validators;
 pub mod verdict;
 pub mod verdict_reconciler;
+pub mod vr_collector;
 
 pub(crate) use agent_loop::truncate_for_preview;
 pub use agent_loop::{Agent, AgentDeps};

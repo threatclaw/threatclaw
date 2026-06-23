@@ -4298,7 +4298,14 @@ impl ThreatClawStore for PgBackend {
                 "INSERT INTO dfir_collections \
                     (incident_id, client_id, artifact, flow_id, status, trigger_kind) \
                  VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-                &[&incident_id, &client_id, &artifact, &flow_id, &status, &trigger],
+                &[
+                    &incident_id,
+                    &client_id,
+                    &artifact,
+                    &flow_id,
+                    &status,
+                    &trigger,
+                ],
             )
             .await
             .map_err(query_err)?;
@@ -4313,7 +4320,7 @@ impl ThreatClawStore for PgBackend {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let rows = conn
             .query(
-                "SELECT id, incident_id, client_id, artifact, flow_id, status \
+                "SELECT id, incident_id, client_id, artifact, flow_id, status, requested_at \
                  FROM dfir_collections WHERE status = 'collecting' \
                  ORDER BY requested_at ASC LIMIT $1",
                 &[&limit],
@@ -4329,6 +4336,7 @@ impl ThreatClawStore for PgBackend {
                 artifact: r.get::<_, String>(3),
                 flow_id: r.get::<_, Option<String>>(4),
                 status: r.get::<_, String>(5),
+                requested_at: r.get::<_, chrono::DateTime<chrono::Utc>>(6).to_rfc3339(),
             })
             .collect())
     }

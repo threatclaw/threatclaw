@@ -69,9 +69,8 @@ pub enum Channel {
 ///
 /// Captured 2026-06-22 on cyb06 (stable across 3 installs), for install-agent.ps1
 /// at file sha bc80f50b… (the Expand-ZipCompat build).
-const INSTALLER_OSQUERY_PS_SHA256: &[&str] = &[
-    "6b41888aa3c8873c675c52d15bf5e309fc0bb90d3ec7d6e4e63e3e8d17377d5f",
-];
+const INSTALLER_OSQUERY_PS_SHA256: &[&str] =
+    &["6b41888aa3c8873c675c52d15bf5e309fc0bb90d3ec7d6e4e63e3e8d17377d5f"];
 
 fn installer_hashes(channel: Channel) -> &'static [&'static str] {
     match channel {
