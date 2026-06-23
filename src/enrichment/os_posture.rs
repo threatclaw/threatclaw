@@ -70,9 +70,164 @@ pub fn parse_os(os: &str) -> Option<(&'static str, String)> {
     None
 }
 
+/// Outcome of an EOL check. Carries the EOL date string for the finding text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EolStatus {
+    Eol(String),
+    Approaching(String),
+}
+
+/// Interpret an endoflife.date `eol` field (ISO date string, or a bool) against
+/// `today`. Past/true → `Eol`; within 90 days → `Approaching`; else `None`.
+pub fn eol_assessment(eol: &serde_json::Value, today: chrono::NaiveDate) -> Option<EolStatus> {
+    match eol {
+        serde_json::Value::Bool(true) => Some(EolStatus::Eol("past".into())),
+        serde_json::Value::String(s) => {
+            let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()?;
+            if date <= today {
+                Some(EolStatus::Eol(s.clone()))
+            } else if (date - today).num_days() <= 90 {
+                Some(EolStatus::Approaching(s.clone()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Flatten an endoflife.date product feed (array of `{cycle, eol, ...}`) into
+/// `cycle → eol`.
+pub fn parse_eol_feed(
+    json: &serde_json::Value,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut map = std::collections::HashMap::new();
+    if let Some(arr) = json.as_array() {
+        for row in arr {
+            if let Some(cycle) = row["cycle"].as_str() {
+                map.insert(cycle.to_string(), row["eol"].clone());
+            }
+        }
+    }
+    map
+}
+
+/// Construct the finding for an EOL status. HIGH when past EOL, MEDIUM when EOL
+/// is approaching. The OS string is kept verbatim for the operator.
+pub fn build_eol_finding(
+    asset_name: &str,
+    os: &str,
+    product: &str,
+    cycle: &str,
+    status: &EolStatus,
+) -> crate::db::threatclaw_store::NewFinding {
+    let (severity, signal, date, title, desc) = match status {
+        EolStatus::Eol(date) => (
+            "HIGH",
+            "eol",
+            date.clone(),
+            format!("{os} — système en fin de vie (EOL)"),
+            format!(
+                "{asset_name} fait tourner {os}, qui ne reçoit plus de mises à jour de sécurité (EOL : {date}). Migrer vers une version supportée."
+            ),
+        ),
+        EolStatus::Approaching(date) => (
+            "MEDIUM",
+            "eol-approaching",
+            date.clone(),
+            format!("{os} — fin de vie imminente"),
+            format!(
+                "{asset_name} fait tourner {os}, dont le support de sécurité se termine le {date} (< 90 jours). Planifier la migration."
+            ),
+        ),
+    };
+    crate::db::threatclaw_store::NewFinding {
+        skill_id: "os-posture".into(),
+        title,
+        description: Some(desc),
+        severity: severity.into(),
+        category: Some("os-posture".into()),
+        asset: Some(asset_name.to_string()),
+        source: Some("OS posture".into()),
+        metadata: Some(serde_json::json!({
+            "signal": signal,
+            "os": os,
+            "product": product,
+            "cycle": cycle,
+            "eol_date": date,
+            "detection": "os-posture-eol",
+            "mitre": ["T1190"]
+        })),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
+
+    fn d(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn eol_assessment_classifies_dates() {
+        let today = d("2026-06-23");
+        assert!(matches!(
+            eol_assessment(&serde_json::json!("2024-08-14"), today),
+            Some(EolStatus::Eol(_))
+        ));
+        assert!(matches!(
+            eol_assessment(&serde_json::json!("2026-07-11"), today),
+            Some(EolStatus::Approaching(_))
+        ));
+        assert_eq!(eol_assessment(&serde_json::json!("2030-01-01"), today), None);
+        assert!(matches!(
+            eol_assessment(&serde_json::json!(true), today),
+            Some(EolStatus::Eol(_))
+        ));
+        assert_eq!(eol_assessment(&serde_json::json!(false), today), None);
+        assert_eq!(eol_assessment(&serde_json::Value::Null, today), None);
+    }
+
+    #[test]
+    fn parse_eol_feed_maps_cycle_to_eol() {
+        let feed = serde_json::json!([
+            {"cycle": "12", "eol": "2026-07-11", "latest": "12.5"},
+            {"cycle": "11", "eol": "2024-08-14"},
+            {"cycle": "10", "eol": true}
+        ]);
+        let m = parse_eol_feed(&feed);
+        assert_eq!(m.get("12"), Some(&serde_json::json!("2026-07-11")));
+        assert_eq!(m.get("10"), Some(&serde_json::json!(true)));
+        assert_eq!(m.len(), 3);
+    }
+
+    #[test]
+    fn build_eol_finding_sets_category_and_severity() {
+        let f = build_eol_finding(
+            "srv-old",
+            "Debian GNU/Linux 11",
+            "debian",
+            "11",
+            &EolStatus::Eol("2024-08-14".into()),
+        );
+        assert_eq!(f.category.as_deref(), Some("os-posture"));
+        assert_eq!(f.source.as_deref(), Some("OS posture"));
+        assert_eq!(f.severity, "HIGH");
+        assert_eq!(f.metadata.as_ref().unwrap()["signal"], "eol");
+        assert_eq!(f.metadata.as_ref().unwrap()["os"], "Debian GNU/Linux 11");
+
+        let a = build_eol_finding(
+            "srv-soon",
+            "Debian GNU/Linux 12",
+            "debian",
+            "12",
+            &EolStatus::Approaching("2026-07-11".into()),
+        );
+        assert_eq!(a.severity, "MEDIUM");
+        assert_eq!(a.metadata.as_ref().unwrap()["signal"], "eol-approaching");
+    }
 
     #[test]
     fn parses_windows_server_and_linux() {
