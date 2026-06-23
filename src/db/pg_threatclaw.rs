@@ -4255,7 +4255,7 @@ impl ThreatClawStore for PgBackend {
     async fn get_incident(&self, id: i32) -> Result<Option<serde_json::Value>, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let row = conn.query_opt(
-            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, forensic_enriched_at, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, enrichment, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
+            "SELECT id, asset, title, summary, verdict, verdict_source, confidence, severity, alert_ids, finding_ids, alert_count, investigation_log, mitre_techniques, proposed_actions, executed_actions, status, hitl_status, hitl_nonce, hitl_responded_at, hitl_responded_by, hitl_response, notified_channels, notes, evidence_citations, forensic_enriched_at, blast_radius_snapshot, blast_radius_score, blast_radius_computed_at, enrichment, related_assets, created_at, updated_at, resolved_at FROM incidents WHERE id = $1",
             &[&id],
         ).await.map_err(query_err)?;
         Ok(row.map(|r| serde_json::json!({
@@ -4287,6 +4287,7 @@ impl ThreatClawStore for PgBackend {
             "blast_radius_score": r.get::<_, Option<i16>>("blast_radius_score"),
             "blast_radius_computed_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("blast_radius_computed_at").map(|t| t.to_rfc3339()),
             "enrichment": r.try_get::<_, serde_json::Value>("enrichment").unwrap_or(serde_json::json!({})),
+            "related_assets": r.try_get::<_, serde_json::Value>("related_assets").unwrap_or(serde_json::json!([])),
             "created_at": r.get::<_, chrono::DateTime<chrono::Utc>>("created_at").to_rfc3339(),
             "updated_at": r.get::<_, chrono::DateTime<chrono::Utc>>("updated_at").to_rfc3339(),
             "resolved_at": r.get::<_, Option<chrono::DateTime<chrono::Utc>>>("resolved_at").map(|t| t.to_rfc3339()),

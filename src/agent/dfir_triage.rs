@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{NewTimelineEvent, TimelineEvent};
+use crate::db::threatclaw_store::{NewRiskEvent, NewTimelineEvent, TimelineEvent};
 
 /// Poll cadence of the background DFIR collector.
 const DFIR_POLL_INTERVAL: Duration = Duration::from_secs(180);
@@ -354,6 +354,14 @@ fn jstr<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
+/// Parse an integer that osquery may emit as a JSON number OR a string
+/// (uid, port, … — osquery serialises most columns as strings).
+fn jint(v: Option<&Value>) -> Option<i64> {
+    let v = v?;
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
 /// Parse a log timestamp into UTC. Handles the formats `query_logs` actually
 /// yields: PostgreSQL `timestamptz::text` ("2026-06-22 19:20:00[.ffffff]+00",
 /// space separator, short "+00" offset) as well as RFC 3339. A naive form
@@ -565,6 +573,105 @@ pub fn obs_from_winsec(
     }
 }
 
+/// Known reverse-shell / backdoor listener ports. A LISTEN on one of these is
+/// high-signal regardless of the owning process (low FP), so we surface it even
+/// without a per-host baseline.
+// Superset of the connector's alert list (check_listening_ports) so anything it
+// alerts on also lands on the timeline, plus a few more reverse-shell defaults.
+const SUSPICIOUS_LISTEN_PORTS: &[i64] = &[
+    1234, 1337, 4444, 4445, 5554, 5555, 6666, 7777, 8888, 9001, 9002, 9999, 12345, 31337, 54321,
+];
+
+/// Pure: map a "snapshot" log (the whole `data` object IS the artifact, no
+/// eventid) to **0..N** observations. These sources are list-shaped and
+/// re-emitted every sync, so the caller dedups by `detail`. High-precision
+/// filters only — we deliberately surface the low-FP subset, not the full list:
+/// - scheduled tasks / startup / authorized_keys → Persistence (mid/late chain),
+/// - uid-0 non-root accounts → AccountChange (backdoor root, T1136),
+/// - known reverse-shell listener ports → NetworkConnect (C2 channel ready).
+///
+/// `osquery.dns` (dns_cache) is intentionally NOT mapped: the whole cache is
+/// noise without a DGA verdict (which lives in the connector/ML, not the log),
+/// and Sysmon 22 already gives per-process DNS with attribution.
+pub fn obs_from_snapshot_log(
+    tag: &str,
+    data: &Value,
+    asset: &str,
+    ts: DateTime<Utc>,
+) -> Vec<RawObservation> {
+    let mut out = Vec::new();
+    match tag {
+        "osquery.scheduled_tasks" => {
+            let name = jstr(data, "name").unwrap_or("?");
+            let path = jstr(data, "path").unwrap_or("?");
+            let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+            // English token so label_mitre maps it to T1053.005.
+            o.detail = format!("Tâche planifiée (scheduled task) : {name} → {path}");
+            o.related_to = Some(path.into());
+            out.push(o);
+        }
+        "osquery.startup" => {
+            let name = jstr(data, "name").unwrap_or("?");
+            let path = jstr(data, "path").unwrap_or("?");
+            let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+            o.detail = format!("Élément de démarrage (startup) : {name} → {path}");
+            o.related_to = Some(path.into());
+            out.push(o);
+        }
+        "osquery.ssh_keys" => {
+            if let Some(keys) = data.get("keys").and_then(|k| k.as_array())
+                && !keys.is_empty()
+            {
+                let files: Vec<&str> = keys
+                    .iter()
+                    .filter_map(|k| k.get("key_file").and_then(|v| v.as_str()))
+                    .collect();
+                let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+                o.detail = format!(
+                    "authorized_keys ({} clé(s)) : {}",
+                    keys.len(),
+                    files.join(", ")
+                );
+                o.related_to = files.first().map(|s| (*s).to_string());
+                out.push(o);
+            }
+        }
+        "osquery.users" => {
+            // Backdoor root: any account with uid 0 that isn't `root`.
+            if let Some(users) = data.get("users").and_then(|u| u.as_array()) {
+                for u in users {
+                    let name = jstr(u, "username").unwrap_or("?");
+                    if jint(u.get("uid")) == Some(0) && !name.eq_ignore_ascii_case("root") {
+                        let mut o = RawObservation::base(ts, ObsKind::AccountChange, asset, tag);
+                        o.actor = Some(name.to_string());
+                        o.detail = format!("Compte UID 0 non-root : {name} (backdoor root)");
+                        out.push(o);
+                    }
+                }
+            }
+        }
+        "osquery.ports" => {
+            if let Some(ports) = data.get("ports").and_then(|p| p.as_array()) {
+                for p in ports {
+                    let Some(port) = jint(p.get("port")) else {
+                        continue;
+                    };
+                    if SUSPICIOUS_LISTEN_PORTS.contains(&port) {
+                        let name = jstr(p, "name").unwrap_or("?");
+                        let addr = jstr(p, "address").unwrap_or("0.0.0.0");
+                        let mut o = RawObservation::base(ts, ObsKind::NetworkConnect, asset, tag);
+                        o.detail = format!("Port en écoute suspect : {addr}:{port} ({name})");
+                        o.ioc = Some(port.to_string());
+                        out.push(o);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
 /// Edge (I/O): read recent osquery telemetry for an asset across the relevant
 /// tags and map each event to an observation. Server-side parsing — only rows,
 /// never raw artifacts, cross the wire.
@@ -574,13 +681,14 @@ pub async fn collect_observations_from_logs(
     minutes_back: i64,
 ) -> Vec<RawObservation> {
     type Mapper = fn(&str, &Value, &str, DateTime<Utc>) -> Option<RawObservation>;
-    let sources: [(&str, Mapper); 3] = [
+    // Event sources: one log row = one event, keyed on `eventid` + nested `data`.
+    let event_sources: [(&str, Mapper); 3] = [
         ("osquery.sysmon", obs_from_sysmon),
         ("osquery.powershell", obs_from_powershell),
         ("osquery.windows_security", obs_from_winsec),
     ];
     let mut out = Vec::new();
-    for (tag, map) in sources {
+    for (tag, map) in event_sources {
         let logs = store
             .query_logs(minutes_back, Some(asset), Some(tag), 5000)
             .await
@@ -598,12 +706,141 @@ pub async fn collect_observations_from_logs(
             }
         }
     }
+
+    // Snapshot sources: the whole `data` is the artifact, re-logged every sync,
+    // so DEDUP by detail (one entry per distinct finding) to avoid flooding the
+    // timeline with the same task/key/account/port every 5 minutes. Each source
+    // can yield several findings (a users/ports list), hence the Vec mapper.
+    let snapshot_tags = [
+        "osquery.scheduled_tasks",
+        "osquery.startup",
+        "osquery.ssh_keys",
+        "osquery.users",
+        "osquery.ports",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for tag in snapshot_tags {
+        let logs = store
+            .query_logs(minutes_back, Some(asset), Some(tag), 5000)
+            .await
+            .unwrap_or_default();
+        for l in &logs {
+            let ts = parse_log_ts(&l.time)
+                .or_else(|| parse_log_ts(&l.created_at))
+                .unwrap_or_else(Utc::now);
+            for o in obs_from_snapshot_log(tag, &l.data, asset, ts) {
+                if seen.insert(o.detail.clone()) {
+                    out.push(o);
+                }
+            }
+        }
+    }
     out
 }
 
 /// Run DFIR triage for one incident: assemble the forensic timeline from ingested
 /// telemetry and persist it. Idempotent — stamps `dfir_collected_at` so it runs
 /// once per incident. Non-fatal (never breaks the caller).
+/// Map a kill-chain severity to a CAPPED RBA score. Deliberately below RBA's
+/// single-fire score threshold (100) so ONE investigation can never raise a risk
+/// notable on its own — only repeated DFIR-confirmed activity on the same asset
+/// (or accumulation with other risk sources) crosses it. That's the slow-APT /
+/// sustained-attack signal, and it is re-fire-safe by construction.
+fn dfir_risk_score(severity: &str) -> i32 {
+    match severity {
+        "CRITICAL" => 50,
+        "HIGH" => 25,
+        _ => 0,
+    }
+}
+
+/// Pick a representative `(tactic, technique)` for the investigation: the most
+/// advanced / most severe stage present, so the risk_event feeds RBA's tactic
+/// diversity rule (RIR-b) meaningfully when several incidents stack on an asset.
+fn dominant_tactic(events: &[NewTimelineEvent]) -> (Option<String>, Option<String>) {
+    const PRIORITY: &[&str] = &[
+        "credential_access",
+        "persistence_install",
+        "account_change",
+        "privilege_escalation",
+        "injection",
+        "defense_evasion",
+        "net_connect",
+        "logon",
+        "process_spawn",
+    ];
+    for want in PRIORITY {
+        if let Some(ev) = events.iter().find(|e| e.event_type == *want) {
+            return (ev.mitre_tactic.clone(), ev.mitre_technique.clone());
+        }
+    }
+    (None, None)
+}
+
+/// Edge (I/O): feed the RBA engine from a completed DFIR triage. Two producers,
+/// both non-fatal and both capped below the single-fire threshold:
+/// - **own asset**: a kill-chain-scored event → sustained, multi-incident
+///   activity on one asset accumulates into a "under sustained attack" notable;
+/// - **lateral targets** (the incident's `related_assets`): a modest event each
+///   → a campaign spreading across machines accumulates on hosts that don't yet
+///   have their own incident.
+async fn feed_rba_from_dfir(
+    store: &dyn Database,
+    incident_id: i32,
+    asset: &str,
+    events: &[NewTimelineEvent],
+    killchain: Option<&(&'static str, String)>,
+) {
+    if let Some((sev, reason)) = killchain {
+        let score = dfir_risk_score(sev);
+        if score > 0 {
+            let (mitre_tactic, mitre_technique) = dominant_tactic(events);
+            let ev = NewRiskEvent {
+                risk_object: asset.to_string(),
+                object_type: "asset".into(),
+                score,
+                source_rule: "dfir:killchain".into(),
+                mitre_tactic,
+                mitre_technique,
+                log_id: None,
+                message: Some(format!("DFIR #{incident_id} : {reason}")),
+            };
+            if let Err(e) = store.insert_risk_event(&ev).await {
+                tracing::debug!(
+                    "DFIR: insert_risk_event (killchain) failed for #{incident_id}: {e}"
+                );
+            }
+        }
+    }
+
+    // Cross-asset: the graph-derived lateral targets carried on the incident.
+    if let Ok(Some(inc)) = store.get_incident(incident_id).await
+        && let Some(related) = inc.get("related_assets").and_then(|v| v.as_array())
+    {
+        for r in related {
+            let Some(target) = r.as_str() else { continue };
+            if target.is_empty() || target.eq_ignore_ascii_case(asset) {
+                continue;
+            }
+            let ev = NewRiskEvent {
+                risk_object: target.to_string(),
+                object_type: "asset".into(),
+                score: 25,
+                source_rule: "dfir:lateral".into(),
+                mitre_tactic: Some("lateral-movement".into()),
+                mitre_technique: Some("T1021".into()),
+                log_id: None,
+                message: Some(format!(
+                    "Cible de mouvement latéral depuis {asset} (incident #{incident_id})"
+                )),
+            };
+            if let Err(e) = store.insert_risk_event(&ev).await {
+                tracing::debug!("DFIR: insert_risk_event (lateral) failed for #{incident_id}: {e}");
+            }
+        }
+    }
+}
+
 pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: &str) {
     let obs = collect_observations_from_logs(store.as_ref(), asset, DFIR_WINDOW_MIN).await;
     if !obs.is_empty() {
@@ -617,12 +854,14 @@ pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: 
             }
         }
 
+        let killchain = assess_killchain(&events);
+
         // 2b-bis — corroboration: if the timeline reveals a multi-stage intrusion,
         // escalate the incident severity (upgrade-only, audited). No new incident,
         // no second alert — it strengthens the one the detection layer created.
-        if let Some((sev, reason)) = assess_killchain(&events) {
+        if let Some((sev, reason)) = &killchain {
             match store
-                .escalate_incident_severity(incident_id, sev, &reason)
+                .escalate_incident_severity(incident_id, sev, reason)
                 .await
             {
                 Ok(n) if n > 0 => {
@@ -636,6 +875,20 @@ pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: 
                 }
             }
         }
+
+        // 2b-bis (a) — feed RBA so DFIR-confirmed activity accumulates ACROSS
+        // incidents and ACROSS assets: the low-and-slow / lateral campaigns a
+        // single incident can't see. Each emission is capped below RBA's
+        // single-fire threshold, so one investigation never raises a notable on
+        // its own — only sustained accumulation does (re-fire-safe by design).
+        feed_rba_from_dfir(
+            store.as_ref(),
+            incident_id,
+            asset,
+            &events,
+            killchain.as_ref(),
+        )
+        .await;
     }
     // Stamp even when empty so the incident isn't re-polled forever (the
     // triggering telemetry is already ingested by the time we run).
@@ -1023,6 +1276,40 @@ mod tests {
         }
     }
 
+    fn nte_t(event_type: &str, tactic: &str, tech: &str) -> NewTimelineEvent {
+        let mut e = nte(event_type);
+        e.mitre_tactic = Some(tactic.into());
+        e.mitre_technique = Some(tech.into());
+        e
+    }
+
+    #[test]
+    fn dfir_risk_score_is_capped_below_single_fire_threshold() {
+        assert_eq!(dfir_risk_score("CRITICAL"), 50);
+        assert_eq!(dfir_risk_score("HIGH"), 25);
+        assert_eq!(dfir_risk_score("MEDIUM"), 0);
+        // one investigation must NEVER alone cross RBA's score threshold (100)
+        assert!(dfir_risk_score("CRITICAL") < 100);
+    }
+
+    #[test]
+    fn dominant_tactic_prefers_most_advanced_stage() {
+        // exec + C2 + credential theft present → credential theft wins (highest priority)
+        let evs = vec![
+            nte_t("process_spawn", "execution", "T1059"),
+            nte_t("net_connect", "command-and-control", "T1071"),
+            nte_t("credential_access", "credential-access", "T1003.001"),
+        ];
+        let (tac, tech) = dominant_tactic(&evs);
+        assert_eq!(tac.as_deref(), Some("credential-access"));
+        assert_eq!(tech.as_deref(), Some("T1003.001"));
+        // nothing recognised → no tactic
+        assert_eq!(
+            dominant_tactic(&[nte_t("file_event", "x", "y")]),
+            (None, None)
+        );
+    }
+
     #[test]
     fn killchain_persistence_plus_c2_is_critical() {
         let r = assess_killchain(&[nte("persistence_install"), nte("net_connect")]);
@@ -1222,6 +1509,85 @@ mod tests {
         );
         // non-logon event ignored
         assert!(obs_from_winsec("4688", &rdp, "WIN-01", ts()).is_none());
+    }
+
+    fn one(tag: &str, data: serde_json::Value) -> RawObservation {
+        obs_from_snapshot_log(tag, &data, "WIN-01", ts())
+            .into_iter()
+            .next()
+            .expect("expected one observation")
+    }
+
+    #[test]
+    fn snapshot_persistence_logs_map_and_label() {
+        // scheduled task → Persistence, labelled T1053.005
+        let o = one(
+            "osquery.scheduled_tasks",
+            serde_json::json!({"name":"Updater","path":"C:\\Temp\\evil.exe"}),
+        );
+        assert_eq!(o.kind, ObsKind::Persistence);
+        assert_eq!(o.related_to.as_deref(), Some("C:\\Temp\\evil.exe"));
+        assert_eq!(label_mitre(&o).1.as_deref(), Some("T1053.005"));
+        // authorized_keys → Persistence T1098.004
+        let o = one(
+            "osquery.ssh_keys",
+            serde_json::json!({"keys_count":1,"keys":[{"key_file":"/root/.ssh/authorized_keys"}]}),
+        );
+        assert!(o.detail.contains("authorized_keys"));
+        assert_eq!(label_mitre(&o).1.as_deref(), Some("T1098.004"));
+        // startup → Persistence
+        assert_eq!(
+            one(
+                "osquery.startup",
+                serde_json::json!({"name":"x","path":"C:\\Temp\\x.exe","source":"Registry"})
+            )
+            .kind,
+            ObsKind::Persistence
+        );
+        // empty key list → no observation
+        assert!(
+            obs_from_snapshot_log(
+                "osquery.ssh_keys",
+                &serde_json::json!({"keys":[]}),
+                "WIN-01",
+                ts()
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn snapshot_users_and_ports_high_precision_only() {
+        // uid-0 non-root → AccountChange (backdoor root, T1136); root + normal skipped.
+        let obs = obs_from_snapshot_log(
+            "osquery.users",
+            &serde_json::json!({"users":[
+                {"username":"root","uid":"0"},
+                {"username":"backdoor","uid":"0"},
+                {"username":"alice","uid":"1000"}
+            ]}),
+            "WIN-01",
+            ts(),
+        );
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].kind, ObsKind::AccountChange);
+        assert_eq!(obs[0].actor.as_deref(), Some("backdoor"));
+        assert_eq!(label_mitre(&obs[0]).1.as_deref(), Some("T1136"));
+        // ports: only known reverse-shell ports surface; 443/22 are ignored.
+        let obs = obs_from_snapshot_log(
+            "osquery.ports",
+            &serde_json::json!({"ports":[
+                {"port":"443","name":"nginx","address":"0.0.0.0"},
+                {"port":4444,"name":"nc","address":"0.0.0.0"},
+                {"port":"22","name":"sshd","address":"0.0.0.0"}
+            ]}),
+            "WIN-01",
+            ts(),
+        );
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].kind, ObsKind::NetworkConnect);
+        assert_eq!(obs[0].ioc.as_deref(), Some("4444"));
+        assert!(obs[0].detail.contains("4444"));
     }
 
     #[test]
