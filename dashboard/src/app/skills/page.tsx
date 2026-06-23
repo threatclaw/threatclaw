@@ -1378,12 +1378,12 @@ function HitlActionsPanel({
                 </code>
                 {a.label && (
                   <span style={{ marginLeft: "8px", fontWeight: 600, color: "var(--tc-text)" }}>
-                    {enField(a as Record<string, unknown>, "label", locale)}
+                    {enField(a,"label", locale)}
                   </span>
                 )}
                 {a.description && (
                   <div style={{ marginTop: "2px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-                    {enField(a as Record<string, unknown>, "description", locale)}
+                    {enField(a,"description", locale)}
                   </div>
                 )}
               </div>
