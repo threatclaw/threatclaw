@@ -2048,10 +2048,34 @@ pub async fn config_set_handler(
 
 /// POST /api/tc/config/test-channel — test a channel connection.
 pub async fn config_test_channel_handler(
+    State(state): State<Arc<GatewayState>>,
     Json(body): Json<serde_json::Value>,
 ) -> ApiResult<serde_json::Value> {
     let channel = body.get("channel").and_then(|v| v.as_str()).unwrap_or("");
     let token = body.get("token").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Email is multi-field (host/port/from/to/user/password) and has no single
+    // token — it tests the SAVED channel config by actually sending a mail.
+    if channel == "email" {
+        let store = state.store.as_ref().ok_or_else(no_db)?;
+        let to = body
+            .get("to")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+        let result = match crate::agent::notification_router::send_smtp_email(
+            store.as_ref(),
+            to,
+            "ThreatClaw — test SMTP",
+            "Ceci est un email de test envoyé par ThreatClaw. Si vous le recevez, \
+             le canal email est correctement configuré (TLS + authentification).",
+        )
+        .await
+        {
+            Ok(()) => serde_json::json!({ "ok": true }),
+            Err(e) => serde_json::json!({ "ok": false, "error": e }),
+        };
+        return Ok(Json(result));
+    }
 
     if token.is_empty() {
         return Ok(Json(

@@ -730,15 +730,27 @@ pub async fn is_email_configured(store: &dyn Database) -> bool {
 /// Send a plain-text email via the configured SMTP channel
 /// (`_system/tc_config_channels[email]`). `to_override` targets a specific
 /// recipient (e.g. an invited user) instead of the configured default `to`.
-/// Minimal raw-SMTP implementation (no STARTTLS/auth) — matches the existing
-/// notification path. Returns Err if the channel is unconfigured or the
-/// exchange fails to connect.
+/// Send a mail via SMTP with proper TLS + auth (lettre over rustls).
+///
+/// - Port **465** → implicit TLS (wrapper); any other port (587/25) → **STARTTLS**.
+/// - **AUTH** is used when `user`/`password` are configured (omitted for an
+///   unauthenticated internal relay).
+/// - Returns a **real error** (TLS/auth/relay refusal) — unlike the old raw-TCP
+///   path that swallowed every server response and always reported success.
+///
+/// Reads `host/port/from/to` plus the new `user/password` from the email channel
+/// config. `to_override` lets transactional senders (e.g. password reset) target
+/// a specific recipient.
 pub async fn send_smtp_email(
     store: &dyn Database,
     to_override: Option<&str>,
     subject: &str,
     body: &str,
 ) -> Result<(), String> {
+    use lettre::message::header::ContentType;
+    use lettre::transport::smtp::authentication::Credentials;
+    use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+
     let host = get_channel_field(store, "email", "host")
         .await
         .ok_or("Email SMTP host not configured")?;
@@ -755,38 +767,43 @@ pub async fn send_smtp_email(
             .await
             .ok_or("Email to address not configured")?,
     };
+    let user = get_channel_field(store, "email", "user").await;
+    let password = get_channel_field(store, "email", "password").await;
 
-    use std::io::{Read, Write};
-    let addr = format!("{}:{}", host, port);
-    match std::net::TcpStream::connect_timeout(
-        &addr
+    let email = Message::builder()
+        .from(
+            format!("ThreatClaw <{from}>")
+                .parse()
+                .map_err(|e| format!("adresse 'from' invalide ({from}): {e}"))?,
+        )
+        .to(to
             .parse()
-            .map_err(|e: std::net::AddrParseError| e.to_string())?,
-        std::time::Duration::from_secs(10),
-    ) {
-        Ok(mut stream) => {
-            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
-            let mut buf = [0u8; 512];
-            let _ = stream.read(&mut buf); // greeting
-            let commands = [
-                "EHLO threatclaw\r\n".to_string(),
-                format!("MAIL FROM:<{}>\r\n", from),
-                format!("RCPT TO:<{}>\r\n", to),
-                "DATA\r\n".to_string(),
-                format!(
-                    "From: ThreatClaw <{}>\r\nTo: {}\r\nSubject: {}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n.\r\n",
-                    from, to, subject, body
-                ),
-                "QUIT\r\n".to_string(),
-            ];
-            for cmd in &commands {
-                let _ = stream.write_all(cmd.as_bytes());
-                let _ = stream.read(&mut buf);
-            }
-            Ok(())
-        }
-        Err(e) => Err(format!("SMTP connection to {} failed: {}", addr, e)),
+            .map_err(|e| format!("adresse 'to' invalide ({to}): {e}"))?)
+        .subject(subject)
+        .header(ContentType::TEXT_PLAIN)
+        .body(body.to_string())
+        .map_err(|e| format!("construction du message: {e}"))?;
+
+    // 465 = implicit TLS (wrapper); everything else = STARTTLS upgrade.
+    let builder = if port == 465 {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&host)
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&host)
     }
+    .map_err(|e| format!("configuration TLS SMTP ({host}:{port}): {e}"))?
+    .port(port);
+
+    let builder = match (user, password) {
+        (Some(u), Some(p)) if !u.is_empty() => builder.credentials(Credentials::new(u, p)),
+        _ => builder, // unauthenticated relay
+    };
+
+    builder
+        .build()
+        .send(email)
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("envoi SMTP échoué ({host}:{port}): {e}"))
 }
 
 // ── V3: Route investigation verdict notifications ──

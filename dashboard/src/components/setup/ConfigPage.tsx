@@ -96,7 +96,7 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
     discord: { enabled: false, botToken: "", publicKey: "" },
     whatsapp: { enabled: false, accessToken: "", phoneNumberId: "" },
     signal: { enabled: false, httpUrl: "http://localhost:8080", account: "" },
-    email: { enabled: false, host: "", port: "587", from: "", to: "" },
+    email: { enabled: false, host: "", port: "587", from: "", to: "", user: "", password: "" },
     mattermost: { enabled: false, webhookUrl: "" },
     ntfy: { enabled: false, server: "https://ntfy.sh", topic: "" },
     gotify: { enabled: false, url: "", appToken: "" },
@@ -120,6 +120,9 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
   const [telegramTestMsg, setTelegramTestMsg] = useState("");
   const [telegramSending, setTelegramSending] = useState(false);
   const [telegramSent, setTelegramSent] = useState(false);
+  // Email (SMTP) test
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailTestResult, setEmailTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   // LLM model details
   const [llmModels, setLlmModels] = useState<{ name: string; size: string }[]>([]);
@@ -310,6 +313,21 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
     } catch { return { ok: false, error: tr("connectionFailed", locale) }; }
   };
 
+  // Email test = save the current config (the backend test reads the stored
+  // channel config), then actually send a mail and surface the real result.
+  const sendEmailTest = async () => {
+    setEmailTesting(true);
+    setEmailTestResult(null);
+    try {
+      await handleSave();
+      const r = await testChannel("email", "");
+      setEmailTestResult({ ok: !!r.ok, error: r.error ? String(r.error) : undefined });
+    } catch {
+      setEmailTestResult({ ok: false, error: tr("connectionFailed", locale) });
+    }
+    setEmailTesting(false);
+  };
+
   const sendTelegramTest = async () => {
     const chatId = channels.telegram.chatId as string;
     if (!chatId || !telegramTestMsg) return;
@@ -364,7 +382,7 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
     { key: "discord", label: "Discord", icon: <DiscordIcon />, fields: [{ id: "botToken", label: "Bot Token", secret: true }, { id: "publicKey", label: "Public Key", secret: false }] },
     { key: "whatsapp", label: "WhatsApp", icon: <MessageSquare size={18} color="#30a050" />, fields: [{ id: "accessToken", label: "Access Token", secret: true }, { id: "phoneNumberId", label: "Phone Number ID", secret: false }] },
     { key: "signal", label: "Signal", icon: <Shield size={18} color="#3080d0" />, fields: [{ id: "httpUrl", labelKey: "signalUrl", secret: false }, { id: "account", labelKey: "phoneNumber", secret: false }] },
-    { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", labelKey: "from", secret: false }, { id: "to", labelKey: "toField", secret: false }] },
+    { key: "email", label: "Email", icon: <Mail size={18} color="var(--tc-text-sec)" />, fields: [{ id: "host", label: "SMTP", secret: false }, { id: "port", label: "Port", secret: false }, { id: "from", labelKey: "from", secret: false }, { id: "to", labelKey: "toField", secret: false }, { id: "user", labelKey: "smtpUser", secret: false }, { id: "password", labelKey: "smtpPassword", secret: true }] },
     { key: "mattermost", label: "Mattermost (on-premise)", icon: <MessageSquare size={18} color="#0058cc" />, fields: [{ id: "webhookUrl", label: "Incoming Webhook URL", secret: false }] },
     { key: "ntfy", label: "Ntfy (on-premise)", icon: <Bell size={18} color="#30a050" />, fields: [{ id: "server", labelKey: "ntfyServer", secret: false }, { id: "topic", label: "Topic", secret: false }] },
     { key: "gotify", label: tr("cfg_gotifyLabel", locale), icon: <Bell size={18} color="#d09020" />, fields: [{ id: "url", labelKey: "gotifyUrl", secret: false }, { id: "appToken", label: "App Token", secret: true }] },
@@ -594,6 +612,29 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
                             {telegramSent ? tr("sent", locale) : tr("send", locale)}
                           </ChromeButton>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Email special: save + send a real test mail */}
+                    {ch.key === "email" && (
+                      <div style={{ borderTop: "1px solid var(--tc-border-light)", paddingTop: "16px" }}>
+                        <ChromeButton onClick={sendEmailTest} disabled={emailTesting} variant="primary">
+                          {emailTesting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                          {tr("smtpTest", locale)}
+                        </ChromeButton>
+                        {emailTestResult && (
+                          <div style={{
+                            marginTop: "12px", display: "flex", alignItems: "center", gap: "8px",
+                            padding: "10px 14px", borderRadius: "var(--tc-radius-md)", fontSize: "13px",
+                            background: emailTestResult.ok ? "rgba(48,160,80,0.06)" : "rgba(208,48,32,0.06)",
+                            border: `1px solid ${emailTestResult.ok ? "rgba(48,160,80,0.15)" : "rgba(208,48,32,0.15)"}`,
+                            color: emailTestResult.ok ? "#30a050" : "#d03020",
+                          }}>
+                            {emailTestResult.ok
+                              ? <><CheckCircle2 size={14} /> {tr("smtpTestOk", locale)}</>
+                              : <><span>✕</span> {emailTestResult.error || tr("connectionFailed", locale)}</>}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

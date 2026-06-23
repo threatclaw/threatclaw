@@ -583,6 +583,10 @@ const T: Record<string, Record<Locale, string>> = {
   phoneNumber: { fr: "Numéro (+33...)", en: "Number (+33...)" },
   from: { fr: "De", en: "From" },
   toField: { fr: "À", en: "To" },
+  smtpUser: { fr: "Utilisateur SMTP", en: "SMTP user" },
+  smtpPassword: { fr: "Mot de passe SMTP", en: "SMTP password" },
+  smtpTest: { fr: "Enregistrer + envoyer un test", en: "Save + send a test" },
+  smtpTestOk: { fr: "Email de test envoyé avec succès.", en: "Test email sent successfully." },
   ntfyServer: { fr: "Serveur Ntfy", en: "Ntfy server" },
   gotifyUrl: { fr: "URL Gotify", en: "Gotify URL" },
 
