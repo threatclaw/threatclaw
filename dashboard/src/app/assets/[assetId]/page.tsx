@@ -364,10 +364,12 @@ export default function AssetDetailPage() {
             ).map((s) => {
               const count =
                 s.id === "findings"
-                  ? // The "Vulnérabilités" tab is CVE findings only — sigma
-                    // detections and ML/behavioral findings belong in Incidents.
-                    data.findings.filter((f) => f.category === "software-vuln")
-                      .length
+                  ? // The "Vulnérabilités" tab shows software CVEs and OS posture
+                    // (EOL / missing OS patches); sigma & ML findings are Incidents.
+                    data.findings.filter(
+                      (f) =>
+                        f.category === "software-vuln" || f.category === "os-posture",
+                    ).length
                   : s.id === "incidents"
                     ? data.incidents.length
                     : s.id === "software"
@@ -721,10 +723,12 @@ function SectionFindings({
   findings: FullPayload["findings"];
 }) {
   const locale = useLocale();
-  // This tab is the asset's software VULNERABILITIES — CVE findings only. Sigma
-  // detections (PowerShell, reflective loader, ...) and ML/behavioral findings are
-  // not vulnerabilities and belong in Incidents, so they are filtered out here.
-  const vulns = findings.filter((f) => f.category === "software-vuln");
+  // This tab is the asset's VULNERABILITIES & exposures — software CVEs and OS
+  // posture (EOL / missing OS patches). Sigma detections and ML/behavioral
+  // findings are not vulnerabilities and belong in Incidents.
+  const vulns = findings.filter(
+    (f) => f.category === "software-vuln" || f.category === "os-posture",
+  );
   if (vulns.length === 0) {
     return (
       <div className="inv-card">
