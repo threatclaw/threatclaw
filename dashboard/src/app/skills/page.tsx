@@ -57,6 +57,21 @@ const TYPE_UI_BASE: Record<string, { labelKey: string; icon: React.ElementType; 
   "tool":       { labelKey: "actions",            icon: Zap,    color: "var(--tc-amber)" },
 };
 
+// Render a manifest field in the active locale: the `<base>_en` value in EN when
+// present, otherwise the stored French. Keeps the catalog bilingual without breaking
+// anything — a missing translation falls back to French.
+function enField(
+  obj: Record<string, unknown> | null | undefined,
+  base: string,
+  locale: Locale,
+): string {
+  if (!obj) return "";
+  const en = obj[`${base}_en`];
+  if (locale === "en" && typeof en === "string" && en.length > 0) return en;
+  const fr = obj[base];
+  return typeof fr === "string" ? fr : "";
+}
+
 // ── Category definitions for UI ──
 const CATEGORY_UI: Record<string, { label: string; labelEn: string; icon: React.ElementType; color: string }> = {
   "network":      { label: "Réseau",       labelEn: "Network",      icon: Network,   color: "#d03020" },
@@ -730,7 +745,7 @@ function SkillCard({
         fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: "1.55",
         margin: 0, flex: 1,
       }}>
-        {skill.description}
+        {enField(skill, "description", locale)}
       </p>
 
       {/* Meta */}
@@ -920,7 +935,7 @@ function ConfigModal({
             <X size={18} />
           </button>
         </div>
-        <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: "1.6", marginBottom: "12px" }}>{skill.description}</p>
+        <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: "1.6", marginBottom: "12px" }}>{enField(skill, "description", locale)}</p>
 
         {skill.id === "skill-stormshield" && <StormshieldSyslogStatus locale={locale} />}
 
@@ -974,7 +989,7 @@ function ConfigModal({
               fontSize: "11px", color: "var(--tc-text-sec)", lineHeight: "1.7",
               padding: "0 14px 12px", whiteSpace: "pre-line",
             }}>
-              {skill.help}
+              {enField(skill, "help", locale)}
             </div>
           </details>
         )}

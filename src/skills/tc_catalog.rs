@@ -45,6 +45,9 @@ pub struct TcSkillManifest {
     pub version: String,
     #[serde(default)]
     pub description: String,
+    /// English description (dashboard renders it in EN locale; falls back to FR).
+    #[serde(default)]
+    pub description_en: String,
     #[serde(default)]
     pub author: String,
     #[serde(default)]
@@ -69,6 +72,9 @@ pub struct TcSkillManifest {
     pub icon: String,
     #[serde(default)]
     pub help: Option<String>,
+    /// English help text (EN locale; falls back to FR).
+    #[serde(default)]
+    pub help_en: Option<String>,
     /// Commercial tier. Absent → `free` (see [`SkillTier::default`]).
     #[serde(default)]
     pub tier: SkillTier,

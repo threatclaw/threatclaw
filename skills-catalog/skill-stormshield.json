@@ -3,11 +3,13 @@
   "name": "Stormshield SNS",
   "version": "1.0.0",
   "description": "Connecte un pare-feu Stormshield Network Security (SNS) : inventaire de l'équipement, recherche de logs filtre/IPS pour une IP, et blocage d'IP/URL avec validation humaine.",
+  "description_en": "Connects a Stormshield Network Security (SNS) firewall: device inventory, filter/IPS log search for an IP, and IP/URL blocking with human approval.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",
   "category": "network",
   "help": "Stormshield Network Security (SNS) est un pare-feu UTM français, courant en PME et chez les acteurs publics. ThreatClaw s'y connecte via l'API serverd (HTTPS) pour :\n\n• inventorier l'équipement (modèle, version firmware, numéro de série) comme asset surveillé, avec veille CVE / avis CERT-FR ;\n• rechercher les logs filtre et alarmes IPS concernant une IP lors d'une investigation ;\n• en mode remédiation (validation humaine), bloquer ou débloquer une IP, isoler un hôte, ou bloquer une URL.\n\nPrérequis — créez un compte dédié à ThreatClaw sur le SNS avec ces droits :\n• SNS accessible en HTTPS (port 443 par défaut)\n• Administration : lecture de l'inventaire et de la configuration\n• Modification (write) : requis pour les actions de blocage (HITL)\n• Accès aux données personnelles / logs : requis pour la recherche de logs. Sans ce droit, le SNS refuse l'accès aux journaux (erreur « Private data access right required ») — à accorder explicitement au compte, ou configurer l'accès aux journaux sans restriction.",
+  "help_en": "Stormshield Network Security (SNS) is a French UTM firewall, common in SMBs and the public sector. ThreatClaw connects to it via the serverd API (HTTPS) to:\n\n• inventory the device (model, firmware version, serial number) as a monitored asset, with CVE / CERT-FR advisory tracking;\n• search filter logs and IPS alarms for an IP during an investigation;\n• in remediation mode (human approval), block or unblock an IP, isolate a host, or block a URL.\n\nPrerequisites — create a dedicated ThreatClaw account on the SNS with these rights:\n• SNS reachable over HTTPS (port 443 by default)\n• Administration: read inventory and configuration\n• Modification (write): required for blocking actions (HITL)\n• Personal data / log access: required for log search. Without it, the SNS denies access to the logs (\"Private data access right required\" error) — grant it explicitly to the account, or configure unrestricted log access.",
   "execution": {
     "mode": "persistent",
     "sync_interval_minutes": 5,
