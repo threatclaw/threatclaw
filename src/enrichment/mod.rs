@@ -16,6 +16,7 @@ pub mod misp_circl;
 pub mod mitre_attack;
 pub mod mozilla_observatory;
 pub mod openphish;
+pub mod os_posture;
 pub mod otx;
 pub mod phishtank;
 pub mod priority_score;
