@@ -196,7 +196,17 @@ pub async fn scan_asset_software(
                     "fixed_version": lead.fixed_version,
                     "data_source": lead.data_source,
                     "detection": "software-vuln-grype",
-                    "mitre": ["T1190"]
+                    "mitre": ["T1190"],
+                    "i18n": crate::enrichment::finding_i18n::i18n(
+                        software_vuln_i18n_key(n, any_kev, crit_count > 0),
+                        serde_json::json!({
+                            "package": package,
+                            "version": version,
+                            "cve": lead.cve_id,
+                            "n": n,
+                            "crit": crit_count,
+                        }),
+                    ),
                 })),
             })
             .await;
@@ -230,6 +240,20 @@ fn severity_rank(sev: &str) -> u8 {
         "medium" => 2,
         "low" => 1,
         _ => 0,
+    }
+}
+
+/// Pick the precomposed i18n key for a grouped software-vuln finding title. The
+/// French conditional fragments (KEV / "dont N critical") can't be passed as
+/// params — each shape gets its own key so the catalog translates the whole title.
+fn software_vuln_i18n_key(n: usize, any_kev: bool, has_crit: bool) -> &'static str {
+    match (n > 1, has_crit, any_kev) {
+        (false, _, false) => "finding.software_vuln.cve_single",
+        (false, _, true) => "finding.software_vuln.cve_single_kev",
+        (true, false, false) => "finding.software_vuln.cve_group",
+        (true, false, true) => "finding.software_vuln.cve_group_kev",
+        (true, true, false) => "finding.software_vuln.cve_group_crit",
+        (true, true, true) => "finding.software_vuln.cve_group_crit_kev",
     }
 }
 
@@ -297,4 +321,20 @@ pub async fn scan_all_assets(store: std::sync::Arc<dyn Database>) -> usize {
     }
 
     total_findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn i18n_key_selection() {
+        // args: (n, any_kev, has_crit)
+        assert_eq!(software_vuln_i18n_key(1, false, false), "finding.software_vuln.cve_single");
+        assert_eq!(software_vuln_i18n_key(1, true, false), "finding.software_vuln.cve_single_kev");
+        assert_eq!(software_vuln_i18n_key(3, false, false), "finding.software_vuln.cve_group");
+        assert_eq!(software_vuln_i18n_key(3, true, false), "finding.software_vuln.cve_group_kev");
+        assert_eq!(software_vuln_i18n_key(3, false, true), "finding.software_vuln.cve_group_crit");
+        assert_eq!(software_vuln_i18n_key(3, true, true), "finding.software_vuln.cve_group_crit_kev");
+    }
 }
