@@ -32,6 +32,7 @@ pub mod detection_provenance;
 pub mod dfir_triage;
 mod dispatcher;
 pub mod dossier_enrichment;
+pub mod email_template;
 pub mod evidence_tracker;
 pub mod executor;
 pub mod executor_ssh;

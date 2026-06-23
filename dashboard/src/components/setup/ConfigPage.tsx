@@ -108,6 +108,8 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
   // value between the server render and the first client render
   // (the source of React error #418).
   const [general, setGeneral] = useState({ instanceName: "threatclaw-dev", language: "fr", nvdApiKey: "" });
+  // Output language for reports + email notifications (system/report.language).
+  const [reportLanguage, setReportLanguage] = useState("en");
   useEffect(() => {
     try {
       const stored = localStorage.getItem("tc-language");
@@ -147,6 +149,7 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
         });
         if (cfg.permissions) setPermLevel(cfg.permissions);
         if (cfg.general) setGeneral(p => ({ ...p, ...cfg.general }));
+        if (cfg.report_language) setReportLanguage(String(cfg.report_language).toLowerCase().startsWith("fr") ? "fr" : "en");
         if (cfg.shift_report) setShiftReport(p => ({ ...p, ...cfg.shift_report }));
         if (cfg.llm_validation_mode && ["off", "lenient", "strict"].includes(cfg.llm_validation_mode)) {
           setGroundingMode(cfg.llm_validation_mode as "off" | "lenient" | "strict");
@@ -227,6 +230,7 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
       config.cloud = { backend: cloud.backend, model: cloud.model, apiKey: cloud.apiKey, escalation: cloud.escalation };
     }
     config.shift_report = shiftReport;
+    config.report_language = reportLanguage;
     config.llm_validation_mode = groundingMode;
     try {
       const res = await fetch("/api/tc/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) });
@@ -428,6 +432,13 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
                 <GlassSelect value={general.language} onChange={v => { setGeneral(p => ({ ...p, language: v })); localStorage.setItem("tc-language", v); window.dispatchEvent(new Event("tc-locale-change")); }} options={[
                   { value: "fr", label: tr("french", locale) }, { value: "en", label: tr("english", locale) },
                 ]} />
+              </div>
+              <div>
+                <div style={labelStyle}>{tr("reportLanguage", locale)}</div>
+                <GlassSelect value={reportLanguage} onChange={v => setReportLanguage(v)} options={[
+                  { value: "fr", label: tr("french", locale) }, { value: "en", label: tr("english", locale) },
+                ]} />
+                <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "4px" }}>{tr("reportLanguageHint", locale)}</div>
               </div>
               {/* NVD API key moved to Config > Enrichissement */}
             </div>

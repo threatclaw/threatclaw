@@ -270,10 +270,26 @@ pub async fn route_incident_notification(
             continue;
         }
 
-        // Plain text on every channel — no inline buttons.
-        // The RSSI replies in the same chat; conversational_bot parses the response.
-        let result =
-            send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await;
+        // Email gets a dynamic subject + branded HTML body (it's an inbox, not a
+        // chat). Chat channels keep the plain text with the inline reply actions.
+        let result = if channel == "email" {
+            let lang = crate::agent::report_lang::report_language(store).await;
+            let subject =
+                crate::agent::email_template::incident_subject(&lang, severity, asset, summary);
+            let (txt, html) = crate::agent::email_template::incident_email(
+                &lang,
+                severity,
+                asset,
+                summary,
+                alert_count,
+                Some(&dashboard_url),
+            );
+            send_smtp_email_rich(store, None, &subject, &txt, Some(&html)).await
+        } else {
+            // Plain text on every chat channel — no inline buttons.
+            // The RSSI replies in the same chat; conversational_bot parses the response.
+            send_to_channel(store, channel, &text_with_link, NotificationLevel::Alert).await
+        };
 
         if let Err(ref e) = result {
             tracing::warn!("INCIDENT_NOTIF: Failed to send to {}: {}", channel, e);
@@ -470,7 +486,7 @@ async fn send_to_channel(
     store: &dyn Database,
     channel: &str,
     message: &str,
-    _level: NotificationLevel,
+    level: NotificationLevel,
 ) -> Result<(), String> {
     match channel {
         "telegram" => {
@@ -618,7 +634,35 @@ async fn send_to_channel(
                 Err(format!("Discord HTTP {}", resp.status()))
             }
         }
-        "email" => send_smtp_email(store, None, "ThreatClaw Security Alert", message).await,
+        "email" => {
+            // Branded HTML wrap + a level-appropriate, localised subject.
+            let lang = crate::agent::report_lang::report_language(store).await;
+            let fr = crate::agent::email_template::is_fr(&lang);
+            let (subject, title) = match (level, fr) {
+                (NotificationLevel::Digest, true) => {
+                    ("ThreatClaw — Digest sécurité", "Digest sécurité")
+                }
+                (NotificationLevel::Digest, false) => {
+                    ("ThreatClaw — Security digest", "Security digest")
+                }
+                (NotificationLevel::Critical, true) => {
+                    ("ThreatClaw — Alerte critique", "Alerte critique")
+                }
+                (NotificationLevel::Critical, false) => {
+                    ("ThreatClaw — Critical alert", "Critical alert")
+                }
+                (_, true) => ("ThreatClaw — Alerte sécurité", "Alerte sécurité"),
+                (_, false) => ("ThreatClaw — Security alert", "Security alert"),
+            };
+            let dashboard_url = get_channel_field(store, "general", "dashboardUrl").await;
+            let (txt, html) = crate::agent::email_template::wrap_email(
+                &lang,
+                title,
+                message,
+                dashboard_url.as_deref(),
+            );
+            send_smtp_email_rich(store, None, subject, &txt, Some(&html)).await
+        }
         "signal" => {
             let http_url = get_channel_field(store, "signal", "httpUrl")
                 .await
@@ -747,7 +791,21 @@ pub async fn send_smtp_email(
     subject: &str,
     body: &str,
 ) -> Result<(), String> {
+    send_smtp_email_rich(store, to_override, subject, body, None).await
+}
+
+/// As [`send_smtp_email`], but with an optional branded **HTML** alternative.
+/// When `html` is `Some`, the mail is multipart (text + HTML) so rich clients
+/// render the branded template while text-only clients fall back to `body`.
+pub async fn send_smtp_email_rich(
+    store: &dyn Database,
+    to_override: Option<&str>,
+    subject: &str,
+    body: &str,
+    html: Option<&str>,
+) -> Result<(), String> {
     use lettre::message::header::ContentType;
+    use lettre::message::{MultiPart, SinglePart};
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
@@ -770,7 +828,7 @@ pub async fn send_smtp_email(
     let user = get_channel_field(store, "email", "user").await;
     let password = get_channel_field(store, "email", "password").await;
 
-    let email = Message::builder()
+    let base = Message::builder()
         .from(
             format!("ThreatClaw <{from}>")
                 .parse()
@@ -779,10 +837,20 @@ pub async fn send_smtp_email(
         .to(to
             .parse()
             .map_err(|e| format!("adresse 'to' invalide ({to}): {e}"))?)
-        .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body.to_string())
-        .map_err(|e| format!("construction du message: {e}"))?;
+        .subject(subject);
+
+    let email = match html {
+        Some(h) => base
+            .multipart(MultiPart::alternative_plain_html(
+                body.to_string(),
+                h.to_string(),
+            ))
+            .map_err(|e| format!("construction du message: {e}"))?,
+        None => base
+            .header(ContentType::TEXT_PLAIN)
+            .body(body.to_string())
+            .map_err(|e| format!("construction du message: {e}"))?,
+    };
 
     // 465 = implicit TLS (wrapper); everything else = STARTTLS upgrade.
     let builder = if port == 465 {

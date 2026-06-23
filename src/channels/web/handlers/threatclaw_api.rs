@@ -1952,6 +1952,10 @@ pub async fn config_get_handler(
     }
     config["model_catalog"] = catalog_json;
 
+    // Output language for reports + email notifications (system/report.language).
+    config["report_language"] =
+        serde_json::json!(crate::agent::report_lang::report_language(store.as_ref()).await);
+
     Ok(Json(config))
 }
 
@@ -2011,6 +2015,19 @@ pub async fn config_set_handler(
             let setting_key = format!("tc_config_{}", key);
             store
                 .set_setting("_system", &setting_key, val)
+                .await
+                .map_err(db_err)?;
+        }
+    }
+
+    // Output language for generated content (reports + email notifications).
+    // Stored under the report_lang module's key (system/report.language) so a
+    // single setting governs both. Accept "fr"/"en" (or any language string).
+    if let Some(rl) = body.get("report_language").and_then(|v| v.as_str()) {
+        let rl = rl.trim();
+        if !rl.is_empty() {
+            store
+                .set_setting("system", "report.language", &serde_json::json!(rl))
                 .await
                 .map_err(db_err)?;
         }

@@ -587,6 +587,8 @@ const T: Record<string, Record<Locale, string>> = {
   smtpPassword: { fr: "Mot de passe SMTP", en: "SMTP password" },
   smtpTest: { fr: "Enregistrer + envoyer un test", en: "Save + send a test" },
   smtpTestOk: { fr: "Email de test envoyé avec succès.", en: "Test email sent successfully." },
+  reportLanguage: { fr: "Langue des rapports & notifications", en: "Reports & notifications language" },
+  reportLanguageHint: { fr: "Langue du contenu généré (emails, rapports forensic, shift report).", en: "Language of generated content (emails, forensic reports, shift report)." },
   ntfyServer: { fr: "Serveur Ntfy", en: "Ntfy server" },
   gotifyUrl: { fr: "URL Gotify", en: "Gotify URL" },
 
