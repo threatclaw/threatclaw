@@ -1492,6 +1492,13 @@ function VelociraptorPastePanel({ onParsed }: { onParsed: (fields: Record<string
       if (ca) { out.ca_pem = ca; filled.push("ca_pem"); }
       if (cert) { out.client_cert_pem = cert; filled.push("client_cert_pem"); }
       if (key) { out.client_key_pem = key; filled.push("client_key_pem"); }
+      // Enable background sync out of the box: without auto_sync="true" the
+      // scheduler silently skips this connector, and without sync_interval it
+      // falls back to 60 min. Pasting the config should "just work".
+      if (apiUrl) {
+        out.auto_sync = "true"; filled.push("auto_sync");
+        out.sync_interval = "5"; filled.push("sync_interval");
+      }
 
       if (filled.length === 0) {
         setStatus("error");

@@ -69,6 +69,22 @@
       "hint": "Plafond souple pour éviter qu'un gros backlog de hunts terminés ne bloque la sync de 5 minutes. À 500 par défaut, les hunts non ingérés dans un cycle sont repris au suivant (un curseur de progression est sauvegardé). À augmenter seulement si tu as un retard d'ingestion important après une coupure.",
       "hint_en": "Soft cap to prevent a large backlog of finished hunts from blocking the 5-minute sync. At 500 by default, hunts not ingested in one cycle are resumed in the next (a progress cursor is saved). Increase only if you have a large ingestion backlog after an outage.",
       "default": 500
+    },
+    "auto_sync": {
+      "type": "boolean",
+      "description": "Synchronisation automatique (clients → assets, hunts → findings)",
+      "description_en": "Automatic synchronization (clients → assets, hunts → findings)",
+      "hint": "Active la sync périodique en arrière-plan. Rempli automatiquement à 'true' par le panneau bleu. Si désactivé, seul le bouton « Tester la connexion » fait une sync ponctuelle — rien ne remonte tout seul.",
+      "hint_en": "Enables periodic background sync. Auto-set to 'true' by the blue panel. If disabled, only the 'Test connection' button performs a one-shot sync — nothing is imported automatically.",
+      "default": true
+    },
+    "sync_interval": {
+      "type": "number",
+      "description": "Intervalle de synchronisation (minutes)",
+      "description_en": "Synchronization interval (minutes)",
+      "hint": "Fréquence de la sync automatique en minutes. 5 par défaut. Sans cette valeur, le planificateur retombe sur 60 minutes.",
+      "hint_en": "Automatic sync frequency in minutes. Defaults to 5. Without this value, the scheduler falls back to 60 minutes.",
+      "default": 5
     }
   },
   "hitl_actions": {
