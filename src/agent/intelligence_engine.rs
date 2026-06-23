@@ -3560,7 +3560,9 @@ pub fn spawn_intelligence_ticker(
                     crate::agent::ioc_bloom::refresh(store_resync.as_ref()).await;
                     crate::agent::sigma_engine::reload(store_resync.as_ref()).await;
                     // Daily software vulnerability scan across all assets
-                    crate::enrichment::software_vuln::scan_all_assets(store_resync).await;
+                    crate::enrichment::software_vuln::scan_all_assets(store_resync.clone()).await;
+                    // Daily OS posture scan (end-of-life detection)
+                    crate::enrichment::os_posture::scan_all_assets_eol(store_resync).await;
                 });
             }
 
