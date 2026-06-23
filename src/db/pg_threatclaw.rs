@@ -4152,8 +4152,8 @@ impl ThreatClawStore for PgBackend {
                 "INSERT INTO forensic_timeline \
                     (incident_id, ts, tz_origin, event_type, asset, actor, description, \
                      severity, mitre_tactic, mitre_technique, ioc, related_artifacts, \
-                     source_artifact, collected_hash) \
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+                     source_artifact, collected_hash, proc_guid, parent_guid, related_to) \
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
                 &[
                     &incident_id,
                     &ts,
@@ -4169,6 +4169,9 @@ impl ThreatClawStore for PgBackend {
                     &related,
                     &e.source_artifact,
                     &e.collected_hash,
+                    &e.proc_guid,
+                    &e.parent_guid,
+                    &e.related_to,
                 ],
             )
             .await
@@ -4187,7 +4190,8 @@ impl ThreatClawStore for PgBackend {
         let rows = conn
             .query(
                 "SELECT id, incident_id, ts, event_type, asset, actor, description, severity, \
-                        mitre_tactic, mitre_technique, ioc, source_artifact, created_at \
+                        mitre_tactic, mitre_technique, ioc, source_artifact, created_at, \
+                        proc_guid, parent_guid, related_to \
                  FROM forensic_timeline WHERE incident_id = $1 ORDER BY ts ASC, id ASC",
                 &[&incident_id],
             )
@@ -4209,6 +4213,9 @@ impl ThreatClawStore for PgBackend {
                 ioc: r.get::<_, Option<String>>(10),
                 source_artifact: r.get::<_, Option<String>>(11),
                 created_at: r.get::<_, chrono::DateTime<chrono::Utc>>(12).to_rfc3339(),
+                proc_guid: r.get::<_, Option<String>>(13),
+                parent_guid: r.get::<_, Option<String>>(14),
+                related_to: r.get::<_, Option<String>>(15),
             })
             .collect())
     }

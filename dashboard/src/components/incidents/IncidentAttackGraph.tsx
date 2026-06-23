@@ -61,7 +61,7 @@ export default function IncidentAttackGraph({
           source: e.source,
           target: e.target,
           label: e.label,
-          lateral: e.label === "lateral" ? "yes" : "no",
+          lateral: e.label === "LATERAL" ? "yes" : "no",
         },
       }));
 

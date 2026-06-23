@@ -85,6 +85,10 @@ pub struct NewTimelineEvent {
     pub related_artifacts: Vec<String>,
     pub source_artifact: Option<String>,
     pub collected_hash: Option<String>,
+    /// Causal-graph keys (V96): stable process identity + parent + edge target.
+    pub proc_guid: Option<String>,
+    pub parent_guid: Option<String>,
+    pub related_to: Option<String>,
 }
 
 /// DFIR — a stored timeline event read back (dossier / report / graph).
@@ -103,6 +107,10 @@ pub struct TimelineEvent {
     pub ioc: Option<String>,
     pub source_artifact: Option<String>,
     pub created_at: String,
+    /// Causal-graph keys (V96).
+    pub proc_guid: Option<String>,
+    pub parent_guid: Option<String>,
+    pub related_to: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

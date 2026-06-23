@@ -30,28 +30,40 @@ const DFIR_POLL_INTERVAL: Duration = Duration::from_secs(180);
 const DFIR_WINDOW_MIN: i64 = 1440;
 
 /// Category of a raw forensic observation pulled from ingested telemetry.
+/// Each kind maps to a typed edge in the attack graph — high-signal events make
+/// an edge; edgeless self-references (e.g. signed DLL loads) are not collected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObsKind {
     ProcessCreate,
     NetworkConnect,
+    /// Per-process DNS query (Sysmon 22) → `RESOLVED` edge.
+    DnsQuery,
+    /// Cross-process injection (Sysmon 8 CreateRemoteThread) → `INJECTED_INTO`.
+    Injection,
+    /// Handle opened to LSASS (Sysmon 10, scoped) → `ACCESSED_LSASS` (T1003).
+    CredentialAccess,
     /// Run key, service, scheduled task, cron, systemd unit, authorized_keys, …
     Persistence,
     Logon,
     FileEvent,
     /// New user, group add, UID-0 creation, sudoers change.
     AccountChange,
+    /// Added to a privileged group (4732/4756), SUID, sudoers NOPASSWD.
+    PrivilegeEscalation,
     /// Log clear, history wipe, AV/EDR disable, timestomp.
     DefenseEvasion,
 }
 
 /// A minimal, source-agnostic observation. The pure timeline/labelling logic
-/// works on this so it never touches a DB or a clock.
+/// works on this so it never touches a DB or a clock. The `*_guid` / `related_to`
+/// keys carry the **causal** structure (process tree + typed edges) so the
+/// attack graph is a provenance graph, not a flat list.
 #[derive(Debug, Clone)]
 pub struct RawObservation {
     pub ts: DateTime<Utc>,
     pub kind: ObsKind,
     pub asset: String,
-    /// User / parent process / source IP.
+    /// User / parent process / source IP (display).
     pub actor: Option<String>,
     /// Cmdline / "Run\\X = Y" / "authorized_keys += <key>" / …
     pub detail: String,
@@ -59,6 +71,32 @@ pub struct RawObservation {
     pub ioc: Option<String>,
     /// "osquery.sysmon", "osquery.windows_security", "osquery.process", …
     pub source: String,
+    /// Stable identity of the process this event belongs to (Sysmon ProcessGuid).
+    pub proc_guid: Option<String>,
+    /// Parent process GUID — the `SPAWNED` edge (process-tree spine).
+    pub parent_guid: Option<String>,
+    /// Target of a non-spawn edge: injected process / lsass / dest IP / domain /
+    /// file path, depending on `kind`.
+    pub related_to: Option<String>,
+}
+
+impl RawObservation {
+    /// Base observation with all causal/optional fields empty — keeps the mappers
+    /// terse (set only the fields a given source provides).
+    fn base(ts: DateTime<Utc>, kind: ObsKind, asset: &str, source: &str) -> Self {
+        RawObservation {
+            ts,
+            kind,
+            asset: asset.into(),
+            actor: None,
+            detail: String::new(),
+            ioc: None,
+            source: source.into(),
+            proc_guid: None,
+            parent_guid: None,
+            related_to: None,
+        }
+    }
 }
 
 /// A high-precision finding worth raising as its own incident (low FP rate).
@@ -75,21 +113,31 @@ pub fn event_type_str(kind: &ObsKind) -> &'static str {
     match kind {
         ObsKind::ProcessCreate => "process_spawn",
         ObsKind::NetworkConnect => "net_connect",
+        ObsKind::DnsQuery => "dns_query",
+        ObsKind::Injection => "injection",
+        ObsKind::CredentialAccess => "credential_access",
         ObsKind::Persistence => "persistence_install",
         ObsKind::Logon => "logon",
         ObsKind::FileEvent => "file_event",
         ObsKind::AccountChange => "account_change",
+        ObsKind::PrivilegeEscalation => "privilege_escalation",
         ObsKind::DefenseEvasion => "defense_evasion",
     }
 }
 
-/// Default severity by category (persistence / evasion / account changes are the
-/// load-bearing signals → high; the rest is contextual timeline → medium/info).
+/// Default severity by category. The "active intrusion" signals (injection,
+/// credential theft, persistence, evasion, privesc, account change) are high;
+/// process/network/logon are contextual timeline (medium); DNS/file are info.
 pub fn severity_for(kind: &ObsKind) -> &'static str {
     match kind {
-        ObsKind::Persistence | ObsKind::DefenseEvasion | ObsKind::AccountChange => "high",
+        ObsKind::Injection
+        | ObsKind::CredentialAccess
+        | ObsKind::Persistence
+        | ObsKind::DefenseEvasion
+        | ObsKind::PrivilegeEscalation
+        | ObsKind::AccountChange => "high",
         ObsKind::ProcessCreate | ObsKind::NetworkConnect | ObsKind::Logon => "medium",
-        ObsKind::FileEvent => "info",
+        ObsKind::DnsQuery | ObsKind::FileEvent => "info",
     }
 }
 
@@ -126,12 +174,22 @@ pub fn label_mitre(obs: &RawObservation) -> (Option<String>, Option<String>) {
             }
         }
         ObsKind::NetworkConnect => ("command-and-control", "T1071"),
+        ObsKind::DnsQuery => ("command-and-control", "T1071.004"),
+        ObsKind::Injection => ("defense-evasion", "T1055"),
+        ObsKind::CredentialAccess => ("credential-access", "T1003.001"),
         ObsKind::Logon => ("lateral-movement", "T1021"),
         ObsKind::AccountChange => {
             if d.contains("sudoers") || d.contains("nopasswd") {
                 ("privilege-escalation", "T1548.003")
             } else {
                 ("persistence", "T1136")
+            }
+        }
+        ObsKind::PrivilegeEscalation => {
+            if d.contains("group") || d.contains("4732") || d.contains("4756") {
+                ("privilege-escalation", "T1098")
+            } else {
+                ("privilege-escalation", "T1548")
             }
         }
         ObsKind::DefenseEvasion => {
@@ -163,6 +221,9 @@ pub fn to_timeline_event(obs: &RawObservation) -> NewTimelineEvent {
         related_artifacts: Vec::new(),
         source_artifact: Some(obs.source.clone()),
         collected_hash: None,
+        proc_guid: obs.proc_guid.clone(),
+        parent_guid: obs.parent_guid.clone(),
+        related_to: obs.related_to.clone(),
     }
 }
 
@@ -186,9 +247,13 @@ pub fn assess_killchain(events: &[NewTimelineEvent]) -> Option<(&'static str, St
             "process_spawn" => "exécution",
             "persistence_install" => "persistance",
             "net_connect" => "C2",
+            "injection" => "injection",
+            "credential_access" => "vol de creds",
+            "privilege_escalation" => "escalade priv",
             "logon" => "accès/latéral",
             "defense_evasion" => "évasion",
             "account_change" => "manipulation de compte",
+            // dns_query / file_event = contexte timeline, pas un déclencheur.
             _ => continue,
         };
         stages.insert(stage);
@@ -197,9 +262,15 @@ pub fn assess_killchain(events: &[NewTimelineEvent]) -> Option<(&'static str, St
         return None;
     }
     let has = |s: &str| stages.contains(s);
-    // "Strong" stages are the ones that, on their own, signal an active intrusion
-    // rather than benign activity (a logon + a process spawn is not enough).
-    let strong = has("persistance") || has("C2") || has("évasion");
+    // "Strong" stages signal an active intrusion on their own (a logon + a process
+    // spawn is not enough). Injection / credential theft / persistence / evasion /
+    // privesc are all individually strong.
+    let strong = has("persistance")
+        || has("C2")
+        || has("évasion")
+        || has("injection")
+        || has("vol de creds")
+        || has("escalade priv");
     let n = stages.len();
     let reason = format!(
         "Chaîne d'attaque DFIR multi-étapes confirmée : {}",
@@ -303,42 +374,85 @@ fn parse_log_ts(s: &str) -> Option<DateTime<Utc>> {
         .ok()
 }
 
-/// Pure: map a Sysmon event (EventData object `inner`) to an observation.
-/// Covers ProcessCreate (1) and NetworkConnect (3) — the timeline backbone.
+/// Pure: map a Sysmon event to an observation, carrying the causal keys
+/// (ProcessGuid spine). Covers the must-have attack-map set: 1 ProcessCreate,
+/// 3 NetworkConnect, 8 CreateRemoteThread (injection), 10 ProcessAccess (scoped
+/// to LSASS = credential theft), 11 FileCreate, 22 DnsQuery. EID 7 (ImageLoad)
+/// is intentionally NOT mapped — it's a volume bomb with no useful edge.
 pub fn obs_from_sysmon(
     eventid: &str,
     inner: &Value,
     asset: &str,
     ts: DateTime<Utc>,
 ) -> Option<RawObservation> {
+    let mut o = RawObservation::base(ts, ObsKind::ProcessCreate, asset, "osquery.sysmon");
     match eventid {
         "1" => {
             let cmd = jstr(inner, "CommandLine").or_else(|| jstr(inner, "Image"))?;
-            Some(RawObservation {
-                ts,
-                kind: ObsKind::ProcessCreate,
-                asset: asset.into(),
-                actor: jstr(inner, "ParentImage").map(String::from),
-                detail: cmd.into(),
-                ioc: jstr(inner, "Hashes").map(String::from),
-                source: "osquery.sysmon".into(),
-            })
+            o.kind = ObsKind::ProcessCreate;
+            o.actor = jstr(inner, "ParentImage").map(String::from);
+            o.detail = cmd.into();
+            o.ioc = jstr(inner, "Hashes").map(String::from);
+            o.proc_guid = jstr(inner, "ProcessGuid").map(String::from);
+            o.parent_guid = jstr(inner, "ParentProcessGuid").map(String::from);
         }
         "3" => {
             let dip = jstr(inner, "DestinationIp")?;
             let dport = jstr(inner, "DestinationPort").unwrap_or("");
-            Some(RawObservation {
-                ts,
-                kind: ObsKind::NetworkConnect,
-                asset: asset.into(),
-                actor: jstr(inner, "Image").map(String::from),
-                detail: format!("{dip}:{dport}"),
-                ioc: Some(dip.into()),
-                source: "osquery.sysmon".into(),
-            })
+            o.kind = ObsKind::NetworkConnect;
+            o.actor = jstr(inner, "Image").map(String::from);
+            o.detail = format!("{dip}:{dport}");
+            o.ioc = Some(dip.into());
+            o.proc_guid = jstr(inner, "ProcessGuid").map(String::from);
+            o.related_to = Some(dip.into());
         }
-        _ => None,
+        "8" => {
+            // CreateRemoteThread → cross-process injection (rare, high-signal).
+            let src = jstr(inner, "SourceImage").unwrap_or("?");
+            let tgt = jstr(inner, "TargetImage").unwrap_or("?");
+            o.kind = ObsKind::Injection;
+            o.actor = Some(src.into());
+            o.detail = format!("Injection {src} → {tgt}");
+            o.proc_guid = jstr(inner, "SourceProcessGuid").map(String::from);
+            o.related_to = jstr(inner, "TargetProcessGuid")
+                .or(Some(tgt))
+                .map(String::from);
+        }
+        "10" => {
+            // ProcessAccess: only LSASS handle opens are high-signal (cred theft).
+            let tgt = jstr(inner, "TargetImage").unwrap_or("");
+            if !tgt.to_ascii_lowercase().contains("lsass") {
+                return None;
+            }
+            let src = jstr(inner, "SourceImage").unwrap_or("?");
+            let access = jstr(inner, "GrantedAccess").unwrap_or("");
+            o.kind = ObsKind::CredentialAccess;
+            o.actor = Some(src.into());
+            o.detail = format!("Accès LSASS par {src} (GrantedAccess {access})");
+            o.proc_guid = jstr(inner, "SourceProcessGuid").map(String::from);
+            o.related_to = Some("lsass.exe".into());
+        }
+        "11" => {
+            let f = jstr(inner, "TargetFilename")?;
+            o.kind = ObsKind::FileEvent;
+            o.actor = jstr(inner, "Image").map(String::from);
+            o.detail = format!("Fichier créé : {f}");
+            o.ioc = Some(f.into());
+            o.proc_guid = jstr(inner, "ProcessGuid").map(String::from);
+            o.related_to = Some(f.into());
+        }
+        "22" => {
+            let q = jstr(inner, "QueryName")?;
+            o.kind = ObsKind::DnsQuery;
+            o.actor = jstr(inner, "Image").map(String::from);
+            o.detail = format!("DNS : {q}");
+            o.ioc = Some(q.into());
+            o.proc_guid = jstr(inner, "ProcessGuid").map(String::from);
+            o.related_to = Some(q.into());
+        }
+        _ => return None,
     }
+    Some(o)
 }
 
 /// Pure: map a PowerShell/Operational event. EID 4104 (ScriptBlock logging)
@@ -361,51 +475,94 @@ pub fn obs_from_powershell(
         return None;
     }
     let script = jstr(inner, "ScriptBlockText")?;
-    Some(RawObservation {
-        ts,
-        kind: ObsKind::ProcessCreate,
-        asset: asset.into(),
-        actor: jstr(inner, "Path").map(String::from),
-        detail: format!("PowerShell ScriptBlock: {script}"),
-        ioc: None,
-        source: "osquery.powershell".into(),
-    })
+    let mut o = RawObservation::base(ts, ObsKind::ProcessCreate, asset, "osquery.powershell");
+    o.actor = jstr(inner, "Path").map(String::from);
+    o.detail = format!("PowerShell ScriptBlock: {script}");
+    Some(o)
 }
 
-/// Pure: map a Security logon event. 4624 (success) / 4625 (failure) → a Logon
-/// observation; type 3/10 (network/RDP) is the lateral-movement signal. Skips
-/// noisy service/system logons (SYSTEM, ANONYMOUS, accounts ending in `$`).
+/// Pure: map a Security event to an observation. Covers the attack-map set:
+/// logon (4624 success / 4625 failure — kept only for **lateral** types 3/9/10
+/// and failures; interactive/service/machine logons are dropped as noise),
+/// account changes (4720/4726), privileged group adds (4732/4756), and audit-log
+/// clearing (1102, the near-zero-FP defense-evasion signal).
 pub fn obs_from_winsec(
     eventid: &str,
     inner: &Value,
     asset: &str,
     ts: DateTime<Utc>,
 ) -> Option<RawObservation> {
-    if eventid != "4624" && eventid != "4625" {
-        return None;
+    let user = || jstr(inner, "TargetUserName").or_else(|| jstr(inner, "SubjectUserName"));
+    match eventid {
+        "4624" | "4625" => {
+            let u = user()?;
+            let ulow = u.to_ascii_lowercase();
+            if u.ends_with('$') || ulow == "system" || ulow == "anonymous logon" {
+                return None;
+            }
+            let logon_type = jstr(inner, "LogonType").unwrap_or("?");
+            // Keep only lateral-relevant logons (3 network, 9 runas/netonly,
+            // 10 RDP) and all failures; drop interactive/service baseline noise.
+            if eventid == "4624" && !matches!(logon_type, "3" | "9" | "10") {
+                return None;
+            }
+            let src_ip = jstr(inner, "IpAddress").filter(|s| *s != "-");
+            let outcome = if eventid == "4625" {
+                "échec"
+            } else {
+                "succès"
+            };
+            let from = src_ip.map(|ip| format!(" depuis {ip}")).unwrap_or_default();
+            let mut o = RawObservation::base(ts, ObsKind::Logon, asset, "osquery.windows_security");
+            o.actor = Some(u.to_string());
+            o.detail = format!("Logon {outcome} type {logon_type} — {u}{from}");
+            o.ioc = src_ip.map(String::from);
+            Some(o)
+        }
+        "4720" | "4726" => {
+            let u = jstr(inner, "TargetUserName").unwrap_or("?");
+            let verb = if eventid == "4720" {
+                "créé"
+            } else {
+                "supprimé"
+            };
+            let mut o = RawObservation::base(
+                ts,
+                ObsKind::AccountChange,
+                asset,
+                "osquery.windows_security",
+            );
+            o.actor = jstr(inner, "SubjectUserName").map(String::from);
+            o.detail = format!("Compte {verb} : {u}");
+            Some(o)
+        }
+        "4732" | "4756" => {
+            let grp = jstr(inner, "TargetUserName")
+                .or_else(|| jstr(inner, "GroupName"))
+                .unwrap_or("?");
+            let mut o = RawObservation::base(
+                ts,
+                ObsKind::PrivilegeEscalation,
+                asset,
+                "osquery.windows_security",
+            );
+            o.actor = jstr(inner, "SubjectUserName").map(String::from);
+            o.detail = format!("Ajout au groupe privilégié : {grp} (4732/4756)");
+            Some(o)
+        }
+        "1102" => {
+            let mut o = RawObservation::base(
+                ts,
+                ObsKind::DefenseEvasion,
+                asset,
+                "osquery.windows_security",
+            );
+            o.actor = jstr(inner, "SubjectUserName").map(String::from);
+            o.detail = "Journal de sécurité effacé (1102)".into();
+            Some(o)
+        }
+        _ => None,
     }
-    let user = jstr(inner, "TargetUserName").or_else(|| jstr(inner, "SubjectUserName"))?;
-    let ulow = user.to_ascii_lowercase();
-    if user.ends_with('$') || ulow == "system" || ulow == "anonymous logon" {
-        return None;
-    }
-    let logon_type = jstr(inner, "LogonType").unwrap_or("?");
-    let src_ip = jstr(inner, "IpAddress").filter(|s| *s != "-");
-    let outcome = if eventid == "4625" {
-        "échec"
-    } else {
-        "succès"
-    };
-    let from = src_ip.map(|ip| format!(" depuis {ip}")).unwrap_or_default();
-    Some(RawObservation {
-        ts,
-        kind: ObsKind::Logon,
-        asset: asset.into(),
-        actor: Some(user.to_string()),
-        detail: format!("Logon {outcome} type {logon_type} — {user}{from}"),
-        ioc: src_ip.map(String::from),
-        source: "osquery.windows_security".into(),
-    })
 }
 
 /// Edge (I/O): read recent osquery telemetry for an asset across the relevant
@@ -545,14 +702,38 @@ fn truncate(s: &str, n: usize) -> String {
     }
 }
 
-/// Pure: build the per-incident attack graph from its forensic timeline. Host is
-/// the root; events form a chronological chain; related assets attach as
-/// lateral-movement branches.
+/// Edge type for an event kind (the relationship the event represents).
+fn edge_type(event_type: &str) -> &'static str {
+    match event_type {
+        "process_spawn" => "SPAWNED",
+        "net_connect" => "CONNECTED_TO",
+        "dns_query" => "RESOLVED",
+        "injection" => "INJECTED_INTO",
+        "credential_access" => "ACCESSED_LSASS",
+        "file_event" => "CREATED_FILE",
+        "logon" => "AUTHENTICATED",
+        "persistence_install" => "PERSISTS_VIA",
+        "account_change" => "ACCOUNT_CHANGE",
+        "privilege_escalation" => "PRIVESC",
+        "defense_evasion" => "EVASION",
+        _ => "RELATED",
+    }
+}
+
+/// Pure: build the per-incident **provenance graph** from its forensic timeline.
+/// The spine is the **process tree keyed on ProcessGuid** (never PID): each
+/// `process_spawn` is a process node, wired parent→child via `parent_guid`.
+/// Every other event hangs off its owning process (by `proc_guid`) as a typed
+/// edge (CONNECTED_TO / INJECTED_INTO / ACCESSED_LSASS / CREATED_FILE / …) so the
+/// graph reconstructs *causality* (who did what to what), not a flat chain.
+/// Related assets attach as lateral-movement branches. Events with no GUID fall
+/// back to the host root so nothing is lost.
 pub fn build_attack_graph(
     asset: &str,
     timeline: &[TimelineEvent],
     related: &[String],
 ) -> AttackGraph {
+    use std::collections::HashMap;
     let mut g = AttackGraph::default();
     let host_id = format!("host:{asset}");
     g.nodes.push(GraphNode {
@@ -563,24 +744,86 @@ pub fn build_attack_graph(
         mitre: None,
     });
 
-    let mut prev = host_id.clone();
+    // Pass 1 — process nodes, keyed by ProcessGuid (the spine).
+    let mut proc_node: HashMap<&str, String> = HashMap::new();
     for ev in timeline {
-        let nid = format!("ev:{}", ev.id);
-        g.nodes.push(GraphNode {
-            id: nid.clone(),
-            label: truncate(&ev.description, 60),
-            kind: ev.event_type.clone(),
-            severity: ev.severity.clone(),
-            mitre: ev.mitre_technique.clone(),
-        });
-        g.edges.push(GraphEdge {
-            source: prev,
-            target: nid.clone(),
-            label: ev.mitre_technique.clone().unwrap_or_default(),
-        });
-        prev = nid;
+        if ev.event_type == "process_spawn"
+            && let Some(guid) = ev.proc_guid.as_deref()
+            && !proc_node.contains_key(guid)
+        {
+            let nid = format!("proc:{guid}");
+            proc_node.insert(guid, nid.clone());
+            g.nodes.push(GraphNode {
+                id: nid,
+                label: truncate(&ev.description, 60),
+                kind: "process".into(),
+                severity: ev.severity.clone(),
+                mitre: ev.mitre_technique.clone(),
+            });
+        }
     }
 
+    // The node that "owns" an event: its process (by proc_guid) else the host.
+    let owner = |ev: &TimelineEvent| -> String {
+        ev.proc_guid
+            .as_deref()
+            .and_then(|gd| proc_node.get(gd).cloned())
+            .unwrap_or_else(|| host_id.clone())
+    };
+
+    // Pass 2 — edges (+ action/artifact nodes for non-process events).
+    for ev in timeline {
+        let etype = edge_type(&ev.event_type);
+        if ev.event_type == "process_spawn" {
+            // SPAWNED: parent process (by parent_guid) → this process; root at host.
+            let child = ev
+                .proc_guid
+                .as_deref()
+                .and_then(|gd| proc_node.get(gd).cloned())
+                .unwrap_or_else(|| format!("ev:{}", ev.id));
+            let parent = ev
+                .parent_guid
+                .as_deref()
+                .and_then(|gd| proc_node.get(gd).cloned())
+                .unwrap_or_else(|| host_id.clone());
+            // Guid-less process: still materialise a node so it's not lost.
+            if !ev
+                .proc_guid
+                .as_deref()
+                .is_some_and(|gd| proc_node.contains_key(gd))
+            {
+                g.nodes.push(GraphNode {
+                    id: child.clone(),
+                    label: truncate(&ev.description, 60),
+                    kind: "process".into(),
+                    severity: ev.severity.clone(),
+                    mitre: ev.mitre_technique.clone(),
+                });
+            }
+            g.edges.push(GraphEdge {
+                source: parent,
+                target: child,
+                label: etype.into(),
+            });
+        } else {
+            // Action node hanging off the owning process (or host).
+            let nid = format!("ev:{}", ev.id);
+            g.nodes.push(GraphNode {
+                id: nid.clone(),
+                label: truncate(&ev.description, 60),
+                kind: ev.event_type.clone(),
+                severity: ev.severity.clone(),
+                mitre: ev.mitre_technique.clone(),
+            });
+            g.edges.push(GraphEdge {
+                source: owner(ev),
+                target: nid,
+                label: etype.into(),
+            });
+        }
+    }
+
+    // Lateral movement to related assets.
     for r in related {
         if r == asset {
             continue;
@@ -596,7 +839,7 @@ pub fn build_attack_graph(
         g.edges.push(GraphEdge {
             source: host_id.clone(),
             target: rid,
-            label: "lateral".into(),
+            label: "LATERAL".into(),
         });
     }
     g
@@ -610,15 +853,14 @@ mod tests {
         let base = DateTime::parse_from_rfc3339("2026-06-22T12:00:00+00:00")
             .unwrap()
             .with_timezone(&Utc);
-        RawObservation {
-            ts: base - chrono::Duration::seconds(age_secs),
+        let mut o = RawObservation::base(
+            base - chrono::Duration::seconds(age_secs),
             kind,
-            asset: "WIN-01".into(),
-            actor: None,
-            detail: detail.into(),
-            ioc: None,
-            source: "osquery.sysmon".into(),
-        }
+            "WIN-01",
+            "osquery.sysmon",
+        );
+        o.detail = detail.into();
+        o
     }
 
     #[test]
@@ -697,29 +939,66 @@ mod tests {
             ioc: None,
             source_artifact: Some("osquery.sysmon".into()),
             created_at: "2026-06-22T19:26:00+00:00".into(),
+            proc_guid: None,
+            parent_guid: None,
+            related_to: None,
         }
     }
 
     #[test]
-    fn attack_graph_chains_timeline_under_host_with_lateral() {
+    fn attack_graph_hangs_events_off_host_when_guidless_with_lateral() {
         let tl = vec![
             tev(1, "logon", "T1021"),
             tev(2, "process_spawn", "T1059.001"),
             tev(3, "net_connect", "T1071"),
         ];
-        // related includes the asset itself (must be skipped) + a real peer
         let g = build_attack_graph("WIN-01", &tl, &["WIN-01".into(), "WIN-02".into()]);
-        // host + 3 events + 1 lateral peer (self skipped) = 5 nodes
+        // host + 3 event nodes + 1 lateral peer (self skipped) = 5 nodes
         assert_eq!(g.nodes.len(), 5);
         assert_eq!(g.nodes[0].kind, "host");
-        // chain host->ev1->ev2->ev3 (3) + 1 lateral = 4 edges
+        // no proc_guid → every event hangs off the host; +1 lateral = 4 edges
         assert_eq!(g.edges.len(), 4);
-        assert_eq!(g.edges[0].source, "host:WIN-01");
-        assert_eq!(g.edges[0].target, "ev:1");
+        assert!(g.edges.iter().all(|e| e.source == "host:WIN-01"));
         assert!(
             g.edges
                 .iter()
-                .any(|e| e.label == "lateral" && e.target == "host:WIN-02")
+                .any(|e| e.label == "LATERAL" && e.target == "host:WIN-02")
+        );
+    }
+
+    #[test]
+    fn attack_graph_builds_causal_process_tree() {
+        // Outlook(guid A) → powershell(guid B) which connects out and touches lsass.
+        let mut p_outlook = tev(1, "process_spawn", "T1566");
+        p_outlook.proc_guid = Some("A".into());
+        let mut p_ps = tev(2, "process_spawn", "T1059.001");
+        p_ps.proc_guid = Some("B".into());
+        p_ps.parent_guid = Some("A".into());
+        let mut net = tev(3, "net_connect", "T1071");
+        net.proc_guid = Some("B".into());
+        let mut cred = tev(4, "credential_access", "T1003.001");
+        cred.proc_guid = Some("B".into());
+
+        let g = build_attack_graph("WIN-01", &[p_outlook, p_ps, net, cred], &[]);
+        // 2 process nodes (proc:A, proc:B) deduped by guid
+        assert!(g.nodes.iter().any(|n| n.id == "proc:A"));
+        assert!(g.nodes.iter().any(|n| n.id == "proc:B"));
+        // SPAWNED edge A → B (causal parent→child, NOT host→child)
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.source == "proc:A" && e.target == "proc:B" && e.label == "SPAWNED")
+        );
+        // the network + lsass actions hang off powershell (proc:B), not the host
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.source == "proc:B" && e.label == "CONNECTED_TO")
+        );
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.source == "proc:B" && e.label == "ACCESSED_LSASS")
         );
     }
 
@@ -738,6 +1017,9 @@ mod tests {
             related_artifacts: vec![],
             source_artifact: None,
             collected_hash: None,
+            proc_guid: None,
+            parent_guid: None,
+            related_to: None,
         }
     }
 
@@ -817,10 +1099,84 @@ mod tests {
 
     #[test]
     fn sysmon_unhandled_eventid_is_skipped() {
-        let inner = serde_json::json!({"TargetFilename": "C:\\x"});
-        assert!(obs_from_sysmon("11", &inner, "WIN-01", ts()).is_none());
-        // eventid 1 with no cmdline/image → also skipped (no usable detail)
+        // EID 2 (FileCreateTime) / 12 (registry) are not in the attack-map set.
+        assert!(obs_from_sysmon("2", &serde_json::json!({"x": "y"}), "WIN-01", ts()).is_none());
+        assert!(obs_from_sysmon("12", &serde_json::json!({"x": "y"}), "WIN-01", ts()).is_none());
+        // eventid 1 with no cmdline/image → skipped (no usable detail)
         assert!(obs_from_sysmon("1", &serde_json::json!({"User": "x"}), "WIN-01", ts()).is_none());
+    }
+
+    #[test]
+    fn sysmon_injection_credaccess_dns_file_mapped_with_guids() {
+        // EID 8 CreateRemoteThread → injection, carries source guid + target.
+        let inj = serde_json::json!({
+            "SourceImage": "a.exe", "TargetImage": "lsass.exe",
+            "SourceProcessGuid": "G1", "TargetProcessGuid": "G2"
+        });
+        let o = obs_from_sysmon("8", &inj, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::Injection);
+        assert_eq!(o.proc_guid.as_deref(), Some("G1"));
+        assert_eq!(o.related_to.as_deref(), Some("G2"));
+        // EID 10 → only LSASS access is kept (credential theft).
+        let lsass = serde_json::json!({"SourceImage":"mimi.exe","TargetImage":"C:\\...\\lsass.exe","SourceProcessGuid":"G3"});
+        let o = obs_from_sysmon("10", &lsass, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::CredentialAccess);
+        // non-lsass ProcessAccess is dropped as noise
+        assert!(
+            obs_from_sysmon(
+                "10",
+                &serde_json::json!({"TargetImage":"chrome.exe"}),
+                "WIN-01",
+                ts()
+            )
+            .is_none()
+        );
+        // EID 22 DNS → DnsQuery, domain as ioc
+        let dns = serde_json::json!({"QueryName":"evil.com","Image":"ps.exe","ProcessGuid":"G4"});
+        let o = obs_from_sysmon("22", &dns, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::DnsQuery);
+        assert_eq!(o.ioc.as_deref(), Some("evil.com"));
+        // EID 11 FileCreate → FileEvent
+        let fc = serde_json::json!({"TargetFilename":"C:\\Temp\\evil.exe","Image":"ps.exe"});
+        assert_eq!(
+            obs_from_sysmon("11", &fc, "WIN-01", ts()).unwrap().kind,
+            ObsKind::FileEvent
+        );
+    }
+
+    #[test]
+    fn winsec_account_group_and_logclear_mapped() {
+        // 4720 account created
+        let o = obs_from_winsec(
+            "4720",
+            &serde_json::json!({"TargetUserName":"backdoor","SubjectUserName":"adm"}),
+            "WIN-01",
+            ts(),
+        )
+        .unwrap();
+        assert_eq!(o.kind, ObsKind::AccountChange);
+        // 4732 privileged group add → PrivilegeEscalation
+        let o = obs_from_winsec(
+            "4732",
+            &serde_json::json!({"TargetUserName":"Administrators","SubjectUserName":"adm"}),
+            "WIN-01",
+            ts(),
+        )
+        .unwrap();
+        assert_eq!(o.kind, ObsKind::PrivilegeEscalation);
+        // 1102 log cleared → DefenseEvasion
+        let o = obs_from_winsec("1102", &serde_json::json!({}), "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::DefenseEvasion);
+        // 4624 interactive (type 2) is dropped; only lateral types 3/9/10 kept
+        assert!(
+            obs_from_winsec(
+                "4624",
+                &serde_json::json!({"TargetUserName":"alice","LogonType":"2"}),
+                "WIN-01",
+                ts()
+            )
+            .is_none()
+        );
     }
 
     #[test]
