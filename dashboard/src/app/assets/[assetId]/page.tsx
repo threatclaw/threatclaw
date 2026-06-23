@@ -24,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { PageShell } from "@/components/chrome/PageShell";
-import { t as tr, type Locale } from "@/lib/i18n";
+import { t as tr, localizeFinding, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import {
   Asset,
@@ -765,6 +765,7 @@ function SectionFindings({
         {sorted.map((f) => {
           const sev = (f.severity || "info").toLowerCase();
           const sevColor = SEV_COLORS[sev] || "#888";
+          const loc = localizeFinding(f, locale);
           return (
             <a key={f.id} href={`/findings`} className="ad-list-row">
               <span
@@ -777,7 +778,7 @@ function SectionFindings({
               >
                 {sev}
               </span>
-              <span className="ad-list-title">{f.title}</span>
+              <span className="ad-list-title">{loc.title}</span>
               <span className="ad-list-meta">{f.source || f.skill_id}</span>
               <span className="ad-list-date">{fmtDate(f.detected_at, locale)}</span>
             </a>

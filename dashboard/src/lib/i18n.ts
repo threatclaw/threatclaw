@@ -9,6 +9,47 @@
 export type Locale = "fr" | "en";
 
 const T: Record<string, Record<Locale, string>> = {
+  // ── Findings (i18n) — FR strings byte-match the backend format! output ──
+  "finding.os_posture.eol": {
+    fr: "{os} — système en fin de vie (EOL)",
+    en: "{os} — operating system end-of-life",
+  },
+  "finding.os_posture.eol.desc": {
+    fr: "{asset} fait tourner {os}, qui ne reçoit plus de mises à jour de sécurité (EOL : {date}). Migrer vers une version supportée.",
+    en: "{asset} runs {os}, which no longer receives security updates (EOL: {date}). Migrate to a supported version.",
+  },
+  "finding.os_posture.eol_approaching": {
+    fr: "{os} — fin de vie imminente",
+    en: "{os} — end-of-life approaching",
+  },
+  "finding.os_posture.eol_approaching.desc": {
+    fr: "{asset} fait tourner {os}, dont le support de sécurité se termine le {date} (< 90 jours). Planifier la migration.",
+    en: "{asset} runs {os}; security support ends on {date} (< 90 days). Plan the migration.",
+  },
+  "finding.software_vuln.cve_single": {
+    fr: "{package} {version} — {cve}",
+    en: "{package} {version} — {cve}",
+  },
+  "finding.software_vuln.cve_single_kev": {
+    fr: "{package} {version} — {cve} (CISA KEV: exploit actif)",
+    en: "{package} {version} — {cve} (CISA KEV: actively exploited)",
+  },
+  "finding.software_vuln.cve_group": {
+    fr: "{package} {version} — {n} CVE",
+    en: "{package} {version} — {n} CVEs",
+  },
+  "finding.software_vuln.cve_group_kev": {
+    fr: "{package} {version} — {n} CVE (CISA KEV: exploit actif)",
+    en: "{package} {version} — {n} CVEs (CISA KEV: actively exploited)",
+  },
+  "finding.software_vuln.cve_group_crit": {
+    fr: "{package} {version} — {n} CVE, dont {crit} critical",
+    en: "{package} {version} — {n} CVEs, incl. {crit} critical",
+  },
+  "finding.software_vuln.cve_group_crit_kev": {
+    fr: "{package} {version} — {n} CVE, dont {crit} critical (CISA KEV: exploit actif)",
+    en: "{package} {version} — {n} CVEs, incl. {crit} critical (CISA KEV: actively exploited)",
+  },
   // ── General ──
   refresh: { fr: "Actualiser", en: "Refresh" },
   save: { fr: "Enregistrer", en: "Save" },
@@ -1576,6 +1617,46 @@ const T: Record<string, Record<Locale, string>> = {
 /** Get a translated string. Falls back to French if key missing. */
 export function t(key: string, locale: Locale): string {
   return T[key]?.[locale] || T[key]?.["fr"] || key;
+}
+
+/** Replace {name} placeholders in `s` with String(params[name]); unknown names stay literal. */
+export function interpolate(s: string, params?: Record<string, unknown>): string {
+  if (!params) return s;
+  return s.replace(/\{(\w+)\}/g, (m, name) =>
+    name in params ? String(params[name]) : m,
+  );
+}
+
+/**
+ * Localize a finding's title/description. When metadata.i18n.{key,params} is present
+ * and the key exists in the catalog, render from the catalog (interpolated); otherwise
+ * fall back to the stored French title/description. Title and description fall back
+ * independently, so a title-only key keeps the stored French description.
+ */
+export function localizeFinding(
+  f: {
+    title: string;
+    description?: string | null;
+    metadata?: Record<string, unknown> | null;
+  },
+  locale: Locale,
+): { title: string; description: string } {
+  const i18n = (f.metadata as Record<string, unknown> | undefined)?.["i18n"] as
+    | { key?: string; params?: Record<string, unknown> }
+    | undefined;
+  if (i18n?.key) {
+    const titleTr = t(i18n.key, locale);
+    const title =
+      titleTr === i18n.key ? f.title : interpolate(titleTr, i18n.params);
+    const descKey = `${i18n.key}.desc`;
+    const descTr = t(descKey, locale);
+    const description =
+      descTr === descKey
+        ? (f.description ?? "")
+        : interpolate(descTr, i18n.params);
+    return { title, description };
+  }
+  return { title: f.title, description: f.description ?? "" };
 }
 
 /** Get all translations for a given locale (useful for debugging). */

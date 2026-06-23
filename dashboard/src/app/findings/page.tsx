@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { t as tr } from "@/lib/i18n";
+import { t as tr, localizeFinding } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard as ChromeInsetCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
@@ -64,7 +64,7 @@ export default function FindingsPage() {
   };
 
   const filtered = search
-    ? findings.filter(f => f.title.toLowerCase().includes(search.toLowerCase()) || f.asset?.toLowerCase().includes(search.toLowerCase()))
+    ? findings.filter(f => localizeFinding(f, locale).title.toLowerCase().includes(search.toLowerCase()) || f.asset?.toLowerCase().includes(search.toLowerCase()))
     : findings;
 
   const total = counts.reduce((s, c) => s + c.count, 0);
@@ -140,7 +140,7 @@ export default function FindingsPage() {
                     {f.severity.toUpperCase()}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.title}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{localizeFinding(f, locale).title}</div>
                     <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", display: "flex", gap: "12px", marginTop: "2px", alignItems: "center" }}>
                       {f.asset && <a href={`/assets?search=${encodeURIComponent(f.asset)}`} style={{ color: "var(--tc-blue)", textDecoration: "none" }}>{f.asset}</a>}
                       {f.metadata?.agent_ip && <span style={{ fontFamily: "monospace", color: "var(--tc-blue)" }}>{String(f.metadata.agent_ip)}</span>}
