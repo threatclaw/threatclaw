@@ -203,6 +203,24 @@ const WINDOWS_CPE: &[(&str, &str, &str)] = &[
     ("putty", "putty", "putty"),
     ("zoom", "zoom", "zoom"),
     ("libreoffice", "libreoffice", "libreoffice"),
+    ("python", "python", "python"),
+    ("curl", "haxx", "curl"),
+    ("nginx", "f5", "nginx"),
+    ("apache http", "apache", "http_server"),
+    ("visual studio code", "microsoft", "visual_studio_code"),
+    ("docker desktop", "docker", "docker_desktop"),
+    ("foxit reader", "foxitsoftware", "foxit_reader"),
+    ("irfanview", "irfanview", "irfanview"),
+    ("microsoft teams", "microsoft", "teams"),
+    ("gimp", "gimp", "gimp"),
+    ("brave", "brave", "brave"),
+    ("winscp", "winscp", "winscp"),
+    // KeePassXC shares the "keepass" substring but is a distinct product, so its
+    // key MUST precede "keepass".
+    ("keepassxc", "keepassxc", "keepassxc"),
+    ("keepass", "keepass", "keepass"),
+    ("greenshot", "greenshot", "greenshot"),
+    ("mremoteng", "mremoteng", "mremoteng"),
 ];
 
 /// Names that share a curated key but are a distinct product — skip them so they
@@ -367,6 +385,20 @@ mod tests {
         assert_eq!(
             cpe_for("Microsoft Edge", "149.0").as_deref(),
             Some("cpe:2.3:a:microsoft:edge:149.0:*:*:*:*:*:*:*")
+        );
+        // Newly added entries.
+        assert_eq!(
+            cpe_for("Microsoft Visual Studio Code", "1.50.0").as_deref(),
+            Some("cpe:2.3:a:microsoft:visual_studio_code:1.50.0:*:*:*:*:*:*:*")
+        );
+        // KeePassXC must NOT inherit KeePass's CPE (its key precedes "keepass").
+        assert_eq!(
+            cpe_for("KeePassXC", "2.6.0").as_deref(),
+            Some("cpe:2.3:a:keepassxc:keepassxc:2.6.0:*:*:*:*:*:*:*")
+        );
+        assert_eq!(
+            cpe_for("KeePass Password Safe", "2.40").as_deref(),
+            Some("cpe:2.3:a:keepass:keepass:2.40:*:*:*:*:*:*:*")
         );
         // Unknown software and empty versions never produce a CPE.
         assert_eq!(cpe_for("TSplus", "17.30").as_deref(), None);
