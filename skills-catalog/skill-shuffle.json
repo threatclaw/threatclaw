@@ -3,6 +3,7 @@
   "name": "Shuffle SOAR",
   "version": "1.0.0",
   "description": "Supervise l'exécution de vos workflows Shuffle. Remonte les échecs et interruptions comme findings pour éviter qu'un incident SOAR passe silencieusement.",
+  "description_en": "Monitors the execution of your Shuffle workflows. Surfaces failures and interruptions as findings so a SOAR incident never passes silently.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

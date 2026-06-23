@@ -3,6 +3,7 @@
     "name": "Mozilla Observatory",
     "version": "1.0.0",
     "description": "Score securite des headers HTTP (CSP, HSTS, X-Frame-Options) avec note A+ a F",
+    "description_en": "HTTP header security score (CSP, HSTS, X-Frame-Options) graded A+ to F.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

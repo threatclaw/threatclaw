@@ -3,6 +3,7 @@
   "name": "Fortinet FortiGate",
   "version": "1.0.0",
   "description": "Synchronise la table ARP, les interfaces et VLANs depuis FortiGate. Peut bloquer des IPs via l'API.",
+  "description_en": "Syncs the ARP table, interfaces and VLANs from FortiGate. Can block IPs via the API.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

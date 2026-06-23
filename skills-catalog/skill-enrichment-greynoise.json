@@ -2,6 +2,7 @@
     "id": "skill-enrichment-greynoise",
     "name": "GreyNoise",
     "description": "Bruit internet vs attaque ciblee. Reduit les faux positifs.",
+    "description_en": "Internet noise vs targeted attack. Reduces false positives.",
     "type": "enrichment",
     "category": "threat-intel",
     "default_active": false,

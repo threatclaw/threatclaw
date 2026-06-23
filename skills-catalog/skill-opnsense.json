@@ -3,6 +3,7 @@
   "name": "OPNsense",
   "version": "1.0.0",
   "description": "Connecte ThreatClaw à OPNsense en lecture seule et en fait une vraie source SIEM. Récupère ARP, DHCP, logs firewall live (block/pass), états PF actifs, sessions VPN (OpenVPN/WireGuard/IPsec), gateways, aliases, audit log UI. Alimente /assets, l'identity_graph et un buffer roulant 24 h de pf log pour la corrélation L2 forensic.",
+  "description_en": "Connects ThreatClaw to OPNsense read-only and turns it into a real SIEM source. Pulls ARP, DHCP, live firewall logs (block/pass), active PF states, VPN sessions (OpenVPN/WireGuard/IPsec), gateways, aliases, UI audit log. Feeds /assets, the identity graph and a rolling 24h pf-log buffer for L2 forensic correlation.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

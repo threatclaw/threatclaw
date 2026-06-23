@@ -3,6 +3,7 @@
   "name": "Syslog / Fluent Bit",
   "version": "1.0.0",
   "description": "Collecte de logs depuis vos serveurs via syslog (UDP/TCP). Fluent Bit écoute et injecte les logs dans PostgreSQL pour analyse par l'Intelligence Engine.",
+  "description_en": "Collects logs from your servers via syslog (UDP/TCP). Fluent Bit listens and injects the logs into PostgreSQL for analysis by the Intelligence Engine.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

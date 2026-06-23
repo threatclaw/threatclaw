@@ -3,6 +3,7 @@
     "name": "SSL Labs Audit",
     "version": "1.0.0",
     "description": "Audit SSL/TLS complet avec note (A+ a F), protocoles, expiration certificat",
+    "description_en": "Full SSL/TLS audit with a grade (A+ to F), protocols, certificate expiry.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

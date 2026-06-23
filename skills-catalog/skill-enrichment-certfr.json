@@ -2,6 +2,7 @@
     "id": "skill-enrichment-certfr",
     "name": "CERT-FR",
     "description": "Alertes et avis de securite de l ANSSI. Sync RSS quotidienne.",
+    "description_en": "Security alerts and advisories from France's ANSSI. Daily RSS sync.",
     "type": "enrichment",
     "category": "threat-intel",
     "default_active": true,

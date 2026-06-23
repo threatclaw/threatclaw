@@ -3,6 +3,7 @@
     "name": "WPScan Vulnerabilities",
     "version": "1.0.0",
     "description": "Vulnerabilites WordPress : plugins, themes et core (25 req/jour gratuit)",
+    "description_en": "WordPress vulnerabilities: plugins, themes and core (25 req/day free).",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

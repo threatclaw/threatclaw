@@ -2,6 +2,7 @@
     "id": "skill-enrichment-openphish",
     "name": "OpenPhish",
     "description": "URLs de phishing (feed gratuit, ~500 URLs, sync 6h).",
+    "description_en": "Phishing URLs (free feed, ~500 URLs, 6h sync).",
     "type": "enrichment",
     "category": "threat-intel",
     "default_active": true,

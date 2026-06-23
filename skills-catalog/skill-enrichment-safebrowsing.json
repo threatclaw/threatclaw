@@ -3,6 +3,7 @@
     "name": "Google Safe Browsing",
     "version": "1.0.0",
     "description": "Verifie si une URL est blacklistee par Google (malware, phishing, social engineering)",
+    "description_en": "Checks whether a URL is blacklisted by Google (malware, phishing, social engineering).",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

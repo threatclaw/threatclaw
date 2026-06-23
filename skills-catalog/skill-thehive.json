@@ -3,6 +3,7 @@
   "name": "TheHive",
   "version": "1.0.0",
   "description": "Importe les alertes et observables IOC de TheHive 5 comme findings. Lecture seule — TC ne crée pas de cases dans TheHive.",
+  "description_en": "Imports alerts and IOC observables from TheHive 5 as findings. Read-only — TC does not create cases in TheHive.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

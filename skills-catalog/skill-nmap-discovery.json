@@ -3,6 +3,7 @@
   "name": "Nmap Network Discovery",
   "version": "1.0.0",
   "description": "Decouverte automatique du reseau : hotes actifs, ports ouverts, OS fingerprint. Alimente le graphe d'assets.",
+  "description_en": "Automatic network discovery: live hosts, open ports, OS fingerprint. Feeds the asset graph.",
   "help": "Nmap decouvre automatiquement les machines actives sur votre reseau, identifie les ports ouverts et les services qui tournent (SSH, HTTP, RDP, SMB...), et tente de detecter le systeme d'exploitation. Les resultats alimentent le graphe d'assets de ThreatClaw pour visualiser votre surface d'attaque interne. Utile pour detecter les machines non inventoriees, les ports inattendus, ou les services obsoletes. Configurez les sous-reseaux a scanner et la frequence souhaitee.",
   "author": "ThreatClaw",
   "trust": "official",

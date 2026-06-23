@@ -3,6 +3,7 @@
   "name": "ThreatClaw Agent (osquery)",
   "version": "1.0.0",
   "description": "Réception des données de l'agent endpoint ThreatClaw (basé osquery) : inventaire logiciels + CVE, connexions réseau par process, cache DNS, intégrité fichiers, kill chain.",
+  "description_en": "Ingests data from the ThreatClaw endpoint agent (osquery-based): software inventory + CVEs, per-process network connections, DNS cache, file integrity, kill chain.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

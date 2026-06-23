@@ -2,6 +2,7 @@
     "id": "skill-enrichment-mitre",
     "name": "MITRE ATT&CK",
     "description": "700+ techniques d attaque. Sync mensuelle depuis STIX bundle GitHub.",
+    "description_en": "700+ attack techniques. Monthly sync from the STIX bundle on GitHub.",
     "type": "enrichment",
     "category": "threat-intel",
     "default_active": true,

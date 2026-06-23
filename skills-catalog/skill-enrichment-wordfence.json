@@ -3,6 +3,7 @@
     "name": "Wordfence Intelligence",
     "version": "1.0.0",
     "description": "Base de vulnerabilites WordPress temps reel (gratuit, sans cle API, feed complet)",
+    "description_en": "Real-time WordPress vulnerability database (free, no API key, full feed).",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

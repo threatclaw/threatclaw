@@ -3,6 +3,7 @@
   "name": "GLPI CMDB",
   "version": "1.1.0",
   "description": "Importe les assets depuis GLPI (ordinateurs, équipements réseau) et permet de créer des tickets d'incident depuis les findings ThreatClaw.",
+  "description_en": "Imports assets from GLPI (computers, network equipment) and can create incident tickets from ThreatClaw findings.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

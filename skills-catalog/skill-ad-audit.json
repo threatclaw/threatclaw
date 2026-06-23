@@ -3,6 +3,7 @@
   "name": "Active Directory Audit",
   "version": "1.0.0",
   "description": "Audit de securite Active Directory — comptes admin en trop, delegations Kerberos dangereuses, politiques de mots de passe faibles, comptes inactifs, GPO a risque. Via PowerShell Core + module AD.",
+  "description_en": "Active Directory security audit — excess admin accounts, dangerous Kerberos delegations, weak password policies, stale accounts, risky GPOs. Via PowerShell Core + the AD module.",
   "help": "Cet outil audite la securite de votre Active Directory pour detecter les faiblesses courantes : comptes administrateurs excessifs, delegations Kerberos non contraintes (risque de Golden Ticket), politique de mots de passe trop permissive, comptes inactifs non desactives, GPO vulnerables, comptes de service avec SPN exploitables (Kerberoasting). Necessite uniquement un compte de lecture AD (pas besoin de droits admin). Les utilisateurs et groupes detectes alimentent le graphe ThreatClaw pour visualiser les chemins d'attaque.",
   "author": "ThreatClaw",
   "trust": "official",

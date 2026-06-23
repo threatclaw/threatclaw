@@ -3,6 +3,7 @@
   "name": "Elastic Security",
   "version": "1.0.0",
   "description": "Importe les signals de détection Elastic Security (Kibana Detection Engine) comme findings. Ne touche pas directement Elasticsearch.",
+  "description_en": "Imports Elastic Security detection signals (Kibana Detection Engine) as findings. Does not touch Elasticsearch directly.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

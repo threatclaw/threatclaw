@@ -3,6 +3,7 @@
   "name": "Zeek Network Monitor",
   "version": "2.0.0",
   "description": "Analyse réseau passive — ingère les logs JSON Zeek (conn, dns, http, ssl, ssh). Détecte les C2 (JA3, beacon timing), exfiltration, certificats suspects.",
+  "description_en": "Passive network analysis — ingests Zeek JSON logs (conn, dns, http, ssl, ssh). Detects C2 (JA3, beacon timing), exfiltration, suspicious certificates.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

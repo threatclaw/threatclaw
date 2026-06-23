@@ -3,6 +3,7 @@
   "name": "CrowdSec LAPI",
   "version": "1.0.0",
   "description": "Importe les décisions de ban IP et réputation collaborative depuis CrowdSec",
+  "description_en": "Imports IP ban decisions and collaborative reputation from CrowdSec.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

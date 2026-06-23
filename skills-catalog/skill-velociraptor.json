@@ -3,6 +3,7 @@
   "name": "Velociraptor DFIR",
   "version": "0.1.0",
   "description": "Connecte ThreatClaw à un serveur Velociraptor existant pour aller chercher l'évidence sur l'endpoint pendant un incident (DFIR — Digital Forensics & Incident Response). Importe les clients et hunts comme assets/findings, et donne à l'investigator L2 quatre outils VQL lecture seule.",
+  "description_en": "Connects ThreatClaw to an existing Velociraptor server to pull evidence from the endpoint during an incident (DFIR — Digital Forensics & Incident Response). Imports clients and hunts as assets/findings, and gives the L2 investigator four read-only VQL tools.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

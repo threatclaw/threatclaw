@@ -3,6 +3,7 @@
   "name": "Suricata IDS",
   "version": "2.0.0",
   "description": "IDS/IPS réseau — ingère eve.json de Suricata (alertes signatures, DNS, flows, TLS). 40K+ règles de détection Emerging Threats.",
+  "description_en": "Network IDS/IPS — ingests Suricata's eve.json (signature alerts, DNS, flows, TLS). 40K+ Emerging Threats detection rules.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

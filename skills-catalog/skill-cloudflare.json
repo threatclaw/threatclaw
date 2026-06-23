@@ -3,6 +3,7 @@
   "name": "Cloudflare WAF",
   "version": "1.0.0",
   "description": "Importe les événements WAF, DDoS et bot scores depuis Cloudflare (GraphQL API)",
+  "description_en": "Imports WAF, DDoS and bot-score events from Cloudflare (GraphQL API).",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

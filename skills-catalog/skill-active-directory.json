@@ -3,6 +3,7 @@
   "name": "Active Directory",
   "version": "1.0.0",
   "description": "Synchronise utilisateurs, groupes, ordinateurs et admins depuis Active Directory via LDAP. Alimente le graphe d'identité.",
+  "description_en": "Syncs users, groups, computers and admins from Active Directory via LDAP. Feeds the identity graph.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

@@ -3,6 +3,7 @@
   "name": "Authentik IAM",
   "version": "1.0.0",
   "description": "Importe les events Authentik (échecs login, brute force, création d'utilisateurs, consultation de secrets) comme findings.",
+  "description_en": "Imports Authentik events (login failures, brute force, user creation, secret access) as findings.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

@@ -3,6 +3,7 @@
   "name": "Proxmox Backup Server",
   "version": "1.0.0",
   "description": "Supervise Proxmox Backup Server : jobs échoués, échecs de vérification, saturation des datastores. Remonte les incidents comme findings.",
+  "description_en": "Monitors Proxmox Backup Server: failed jobs, verification failures, datastore saturation. Surfaces incidents as findings.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

@@ -3,6 +3,7 @@
   "name": "Veeam Backup & Replication",
   "version": "1.0.0",
   "description": "Supervise les sauvegardes Veeam : jobs échoués, détection ransomware (v12+), saturation des repositories. Alimente les findings.",
+  "description_en": "Monitors Veeam backups: failed jobs, ransomware detection (v12+), repository saturation. Feeds findings.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

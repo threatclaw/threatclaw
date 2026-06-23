@@ -3,6 +3,7 @@
   "name": "UniFi Controller",
   "version": "1.0.0",
   "description": "Importe l'inventaire des clients WiFi/réseau depuis UniFi Controller (MAC, IP, hostname, SSID)",
+  "description_en": "Imports the WiFi/network client inventory from the UniFi Controller (MAC, IP, hostname, SSID).",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

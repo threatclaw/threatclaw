@@ -3,6 +3,7 @@
   "name": "pfSense",
   "version": "1.0.0",
   "description": "Connecte ThreatClaw au firewall pfSense en lecture seule (via le paquet pfSense-pkg-API v2). Importe ARP, baux DHCP, interfaces, VLANs et règles. Alimente automatiquement /assets : chaque machine vue par pfSense apparaît avec son MAC + hostname, puis se fait fingerprinter par Nmap dans la foulée.",
+  "description_en": "Connects ThreatClaw to the pfSense firewall read-only (via the pfSense-pkg-API v2 package). Imports ARP, DHCP leases, interfaces, VLANs and rules. Automatically feeds /assets: every host seen by pfSense appears with its MAC + hostname, then gets fingerprinted by Nmap right after.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

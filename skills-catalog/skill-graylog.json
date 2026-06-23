@@ -3,6 +3,7 @@
   "name": "Graylog SIEM",
   "version": "1.0.0",
   "description": "Importe les Events Graylog (alertes déclenchées par Event Definitions) comme findings ThreatClaw. Priorité Graylog mappée sur la sévérité.",
+  "description_en": "Imports Graylog Events (alerts triggered by Event Definitions) as ThreatClaw findings. Graylog priority is mapped to severity.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

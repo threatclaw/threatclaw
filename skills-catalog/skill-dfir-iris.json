@@ -3,6 +3,7 @@
   "name": "DFIR-IRIS",
   "version": "1.0.0",
   "description": "Importe les cases ouverts de DFIR-IRIS et leurs IOCs comme findings. Lecture seule — ThreatClaw ne crée jamais de case dans IRIS.",
+  "description_en": "Imports open DFIR-IRIS cases and their IOCs as findings. Read-only — ThreatClaw never creates a case in IRIS.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

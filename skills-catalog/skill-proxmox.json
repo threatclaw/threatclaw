@@ -3,6 +3,7 @@
   "name": "Proxmox VE",
   "version": "1.0.0",
   "description": "Synchronise VMs, containers et noeuds depuis Proxmox VE. Alimente le graphe d'infrastructure.",
+  "description_en": "Syncs VMs, containers and nodes from Proxmox VE. Feeds the infrastructure graph.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

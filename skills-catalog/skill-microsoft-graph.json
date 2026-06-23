@@ -3,6 +3,7 @@
   "name": "Microsoft 365 / Entra ID",
   "version": "0.1.0",
   "description": "Connecteur Microsoft Graph lecture seule — ingère signIns + audit logs + users + devices du tenant M365 du client et détecte les 5 signaux top de compromission : règle mail auto-forward, consent OAuth illicite, impossible travel, MFA fatigue, Global Admin ajouté.",
+  "description_en": "Read-only Microsoft Graph connector — ingests sign-ins + audit logs + users + devices from the client's M365 tenant and detects the top 5 compromise signals: auto-forward mail rule, illicit OAuth consent, impossible travel, MFA fatigue, Global Admin added.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

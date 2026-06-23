@@ -3,6 +3,7 @@
   "name": "Wazuh SIEM",
   "version": "1.1.0",
   "description": "Importe les agents et alertes de sécurité depuis Wazuh SIEM — brute force, rootkits, file integrity, CVE, avec mapping MITRE ATT&CK automatique.",
+  "description_en": "Imports agents and security alerts from Wazuh SIEM — brute force, rootkits, file integrity, CVEs, with automatic MITRE ATT&CK mapping.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

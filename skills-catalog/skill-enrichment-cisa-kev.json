@@ -2,6 +2,7 @@
     "id": "skill-enrichment-cisa-kev",
     "name": "CISA KEV",
     "description": "CVEs activement exploitees — auto-escalade CRITICAL",
+    "description_en": "Actively exploited CVEs — auto-escalates to CRITICAL.",
     "type": "enrichment",
     "category": "threat-intel",
     "default_active": true,

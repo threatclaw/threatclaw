@@ -3,6 +3,7 @@
     "name": "SecurityTrails DNS Intelligence",
     "version": "1.0.0",
     "description": "Sous-domaines, historique DNS, changements, WHOIS (50 req/mois gratuit)",
+    "description_en": "Subdomains, DNS history, changes, WHOIS (50 req/month free).",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

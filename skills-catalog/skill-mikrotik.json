@@ -3,6 +3,7 @@
   "name": "MikroTik RouterOS",
   "version": "1.0.0",
   "description": "Supervise vos routeurs MikroTik : drops firewall, pression CPU/mémoire, scans DDoS, DHCP pour découverte d'assets. Alimente le graphe réseau.",
+  "description_en": "Monitors your MikroTik routers: firewall drops, CPU/memory pressure, DDoS scans, DHCP for asset discovery. Feeds the network graph.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

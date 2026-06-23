@@ -3,6 +3,7 @@
     "name": "PhishTank",
     "version": "1.0.0",
     "description": "Verifie si une URL est connue comme phishing dans la base PhishTank",
+    "description_en": "Checks whether a URL is known as phishing in the PhishTank database.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

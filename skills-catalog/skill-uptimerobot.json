@@ -3,6 +3,7 @@
   "name": "UptimeRobot",
   "version": "1.0.0",
   "description": "Importe le statut des monitors UptimeRobot (uptime, latence, SSL expiry)",
+  "description_en": "Imports the status of UptimeRobot monitors (uptime, latency, SSL expiry).",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

@@ -3,6 +3,7 @@
   "name": "Freebox",
   "version": "1.0.0",
   "description": "Connecteur Freebox OS — découverte automatique de tous les appareils du réseau local via l'API REST. MAC, IP, hostname, fabricant, type d'appareil, statut en ligne/hors ligne.",
+  "description_en": "Freebox OS connector — auto-discovers every device on the local network via the REST API. MAC, IP, hostname, vendor, device type, online/offline status.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

@@ -3,6 +3,7 @@
     "name": "NVD NIST",
     "version": "1.0.0",
     "description": "Base de donnees CVE du NIST. CVSS score, description, patches. Cache 7 jours.",
+    "description_en": "NIST CVE database. CVSS score, description, patches. 7-day cache.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

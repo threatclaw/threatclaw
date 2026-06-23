@@ -3,6 +3,7 @@
     "name": "Certificate Transparency (crt.sh)",
     "version": "1.0.0",
     "description": "Surveille les certificats emis pour un domaine, detecte les sous-domaines et rogue certs",
+    "description_en": "Monitors certificates issued for a domain, detects subdomains and rogue certs.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

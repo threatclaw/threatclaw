@@ -3,6 +3,7 @@
   "name": "Keycloak IAM",
   "version": "1.0.0",
   "description": "Importe les events de login Keycloak (échecs, brute force, registrations) et les actions admin (création/suppression d'utilisateurs, rôles). Alimente les findings IAM.",
+  "description_en": "Imports Keycloak login events (failures, brute force, registrations) and admin actions (user creation/deletion, roles). Feeds IAM findings.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

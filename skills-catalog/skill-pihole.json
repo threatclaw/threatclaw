@@ -3,6 +3,7 @@
   "name": "Pi-hole DNS",
   "version": "1.0.0",
   "description": "Analyse les requêtes DNS depuis Pi-hole v6 — détecte les domaines bloqués, clients suspects et comportements DNS anormaux.",
+  "description_en": "Analyzes DNS queries from Pi-hole v6 — detects blocked domains, suspicious clients and abnormal DNS behavior.",
   "author": "ThreatClaw",
   "trust": "official",
   "type": "connector",

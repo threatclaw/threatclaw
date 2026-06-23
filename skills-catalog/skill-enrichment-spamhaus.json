@@ -3,6 +3,7 @@
     "name": "Spamhaus Blacklist",
     "version": "1.0.0",
     "description": "Verifie si une IP est blacklistee (spam, botnet, espace IP hijacke) via DNSBL",
+    "description_en": "Checks whether an IP is blacklisted (spam, botnet, hijacked IP space) via DNSBL.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",

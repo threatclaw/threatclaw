@@ -3,6 +3,7 @@
     "name": "Vulnerability-Lookup (CIRCL)",
     "version": "1.0.0",
     "description": "Base de vulnerabilites multi-sources CIRCL. Agrege 40+ sources (NVD, CERT-FR, GitHub, CSAF vendeurs). Sightings (Metasploit, Nuclei, ExploitDB). Regles de detection Sigma/YARA par CVE. Pas de rate limit, pas de cle API requise.",
+    "description_en": "Multi-source vulnerability database from CIRCL. Aggregates 40+ sources (NVD, CERT-FR, GitHub, vendor CSAF). Sightings (Metasploit, Nuclei, ExploitDB). Sigma/YARA detection rules per CVE. No rate limit, no API key required.",
     "author": "ThreatClaw",
     "trust": "official",
     "type": "enrichment",
