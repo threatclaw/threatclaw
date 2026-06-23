@@ -143,6 +143,8 @@ interface FullData {
   forensic_timeline?: ForensicEvent[];
   /** Native DFIR — per-incident attack graph (host + timeline chain + lateral). */
   attack_graph?: { nodes: AttackGraphNode[]; edges: AttackGraphEdge[] };
+  /** Deep-forensics hand-off (delegated to Velociraptor). */
+  velociraptor?: { configured: boolean; base_url?: string | null; host_url?: string | null };
 }
 
 /** Native DFIR forensic timeline event (matches TimelineEvent on the backend). */
@@ -472,6 +474,7 @@ export default function InvestigatePage() {
   const [hitlExecuting, setHitlExecuting] = useState(false);
   const [noteInput, setNoteInput] = useState("");
   const [notePosting, setNotePosting] = useState(false);
+  const [veloPosting, setVeloPosting] = useState(false);
   const [confirmFp, setConfirmFp] = useState(false);
   const [suppressingIncident, setSuppressingIncident] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -588,6 +591,21 @@ export default function InvestigatePage() {
       if (res.ok) await load();
     } finally {
       setReinvestigating(false);
+    }
+  };
+
+  // Deep-forensics hand-off: records a HITL note, opens Velociraptor for the host.
+  const handoffToVelociraptor = async () => {
+    setVeloPosting(true);
+    try {
+      const res = await fetch(`/api/tc/incidents/${incidentId}/forensics/velociraptor`, { method: "POST" });
+      if (res.ok) {
+        const d = await res.json();
+        if (d.url) window.open(d.url, "_blank", "noopener,noreferrer");
+        await load();
+      }
+    } finally {
+      setVeloPosting(false);
     }
   };
 
@@ -1275,6 +1293,29 @@ export default function InvestigatePage() {
               <section className="inv-sec">
                 <InvestigationTimeline steps={data?.investigation_steps} />
               </section>
+
+              {/* Deep-forensics hand-off — native DFIR covers the live kill-chain;
+                  raw-disk artifacts ($MFT, full .evtx, prefetch) are delegated to
+                  Velociraptor. Shown only when a Velociraptor URL is configured. */}
+              {data?.velociraptor?.configured && (
+                <section className="inv-sec">
+                  <div className="inv-card">
+                    <div className="inv-card-head">
+                      <div className="inv-card-head-left">
+                        <strong>{tr("investigate_velociraptor", locale)}</strong> · DFIR
+                      </div>
+                    </div>
+                    <div className="inv-ai-body">
+                      <p style={{ fontSize: 12, color: "var(--tc-text-muted)", margin: "0 0 8px" }}>
+                        {tr("investigate_velociraptorHint", locale)}
+                      </p>
+                      <button className="inv-act-btn" onClick={handoffToVelociraptor} disabled={veloPosting}>
+                        {veloPosting ? "…" : tr("investigate_velociraptorOpen", locale)}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
 
               {/* Native DFIR — graphe d'attaque par incident (host + chaîne
                   chronologique + mouvements latéraux), rendu cytoscape. */}
