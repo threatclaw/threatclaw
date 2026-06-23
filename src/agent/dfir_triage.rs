@@ -173,6 +173,47 @@ pub fn assemble_timeline(mut obs: Vec<RawObservation>) -> Vec<NewTimelineEvent> 
     obs.iter().map(to_timeline_event).collect()
 }
 
+/// Pure (2b-bis): assess the kill-chain breadth of an incident's timeline and,
+/// if the DFIR evidence reveals a more serious multi-stage intrusion than the
+/// base alert implied, recommend a severity to **escalate** to. Returns
+/// `(SEVERITY, reason)` or None. DFIR only ever escalates UP — it corroborates,
+/// it never downgrades (that stays the L2 verdict's job for false positives).
+pub fn assess_killchain(events: &[NewTimelineEvent]) -> Option<(&'static str, String)> {
+    use std::collections::BTreeSet;
+    let mut stages: BTreeSet<&'static str> = BTreeSet::new();
+    for ev in events {
+        let stage = match ev.event_type.as_str() {
+            "process_spawn" => "exécution",
+            "persistence_install" => "persistance",
+            "net_connect" => "C2",
+            "logon" => "accès/latéral",
+            "defense_evasion" => "évasion",
+            "account_change" => "manipulation de compte",
+            _ => continue,
+        };
+        stages.insert(stage);
+    }
+    if stages.is_empty() {
+        return None;
+    }
+    let has = |s: &str| stages.contains(s);
+    // "Strong" stages are the ones that, on their own, signal an active intrusion
+    // rather than benign activity (a logon + a process spawn is not enough).
+    let strong = has("persistance") || has("C2") || has("évasion");
+    let n = stages.len();
+    let reason = format!(
+        "Chaîne d'attaque DFIR multi-étapes confirmée : {}",
+        stages.iter().copied().collect::<Vec<_>>().join(" + ")
+    );
+    if (has("persistance") && has("C2")) || n >= 3 {
+        Some(("CRITICAL", reason))
+    } else if n >= 2 && strong {
+        Some(("HIGH", reason))
+    } else {
+        None
+    }
+}
+
 /// Pure: extract high-precision standalone findings (the create-an-incident-on-
 /// its-own set). Deliberately narrow to keep the false-positive rate near zero.
 pub fn detect_standalone_findings(obs: &[RawObservation]) -> Vec<StandaloneFinding> {
@@ -418,6 +459,26 @@ pub async fn run_dfir_triage(store: Arc<dyn Database>, incident_id: i32, asset: 
                 tracing::warn!("DFIR: insert_timeline_events failed for #{incident_id}: {e}")
             }
         }
+
+        // 2b-bis — corroboration: if the timeline reveals a multi-stage intrusion,
+        // escalate the incident severity (upgrade-only, audited). No new incident,
+        // no second alert — it strengthens the one the detection layer created.
+        if let Some((sev, reason)) = assess_killchain(&events) {
+            match store
+                .escalate_incident_severity(incident_id, sev, &reason)
+                .await
+            {
+                Ok(n) if n > 0 => {
+                    tracing::info!("DFIR: incident #{incident_id} escalated to {sev} — {reason}")
+                }
+                Ok(_) => {} // already at or above this severity — no change
+                Err(e) => {
+                    tracing::warn!(
+                        "DFIR: escalate_incident_severity failed for #{incident_id}: {e}"
+                    )
+                }
+            }
+        }
     }
     // Stamp even when empty so the incident isn't re-polled forever (the
     // triggering telemetry is already ingested by the time we run).
@@ -660,6 +721,53 @@ mod tests {
                 .iter()
                 .any(|e| e.label == "lateral" && e.target == "host:WIN-02")
         );
+    }
+
+    fn nte(event_type: &str) -> NewTimelineEvent {
+        NewTimelineEvent {
+            ts: "2026-06-22T19:20:00+00:00".into(),
+            tz_origin: Some("UTC".into()),
+            event_type: event_type.into(),
+            asset: "WIN-01".into(),
+            actor: None,
+            description: format!("{event_type} detail"),
+            severity: "medium".into(),
+            mitre_tactic: None,
+            mitre_technique: None,
+            ioc: None,
+            related_artifacts: vec![],
+            source_artifact: None,
+            collected_hash: None,
+        }
+    }
+
+    #[test]
+    fn killchain_persistence_plus_c2_is_critical() {
+        let r = assess_killchain(&[nte("persistence_install"), nte("net_connect")]);
+        assert_eq!(r.map(|(s, _)| s), Some("CRITICAL"));
+    }
+
+    #[test]
+    fn killchain_three_distinct_stages_is_critical() {
+        let r = assess_killchain(&[nte("logon"), nte("process_spawn"), nte("net_connect")]);
+        assert_eq!(r.map(|(s, _)| s), Some("CRITICAL"));
+    }
+
+    #[test]
+    fn killchain_two_stages_with_a_strong_one_is_high() {
+        // exécution + persistance (2 distinctes, persistance = forte) → HIGH
+        let r = assess_killchain(&[nte("process_spawn"), nte("persistence_install")]);
+        assert_eq!(r.map(|(s, _)| s), Some("HIGH"));
+    }
+
+    #[test]
+    fn killchain_weak_combos_do_not_escalate() {
+        // une seule étape (exécution)
+        assert!(assess_killchain(&[nte("process_spawn"), nte("process_spawn")]).is_none());
+        // deux étapes faibles (logon + exécution, aucune forte)
+        assert!(assess_killchain(&[nte("logon"), nte("process_spawn")]).is_none());
+        // vide
+        assert!(assess_killchain(&[]).is_none());
     }
 
     #[test]

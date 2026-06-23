@@ -610,6 +610,18 @@ pub trait ThreatClawStore: Send + Sync {
     ) -> Result<i64, DatabaseError> {
         Ok(0)
     }
+    /// DFIR (2b-bis) — escalate an incident's severity UP only (corroboration
+    /// from the forensic timeline), appending a `dfir` audit note. No-op if the
+    /// incident is already at or above `new_severity`. Returns rows changed.
+    /// Default 0 so non-PG backends don't need it.
+    async fn escalate_incident_severity(
+        &self,
+        _incident_id: i32,
+        _new_severity: &str,
+        _reason: &str,
+    ) -> Result<u64, DatabaseError> {
+        Ok(0)
+    }
     /// List finding titles by severity since a timestamp.
     async fn list_finding_titles_since(
         &self,

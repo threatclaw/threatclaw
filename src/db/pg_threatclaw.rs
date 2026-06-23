@@ -742,6 +742,38 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    async fn escalate_incident_severity(
+        &self,
+        incident_id: i32,
+        new_severity: &str,
+        reason: &str,
+    ) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let note = serde_json::json!([{
+            "text": reason,
+            "author": "dfir",
+            "at": chrono::Utc::now().to_rfc3339(),
+        }]);
+        // Upgrade-only: the WHERE clause compares severity ranks (case-insensitive)
+        // so we never downgrade and the update is a no-op if already >= new level.
+        let n = conn
+            .execute(
+                "UPDATE incidents \
+                 SET severity = $2, \
+                     notes = COALESCE(notes, '[]'::jsonb) || $3::jsonb, \
+                     updated_at = NOW() \
+                 WHERE id = $1 \
+                   AND (CASE upper(severity) WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 \
+                          WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END) \
+                     < (CASE upper($2) WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 \
+                          WHEN 'MEDIUM' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END)",
+                &[&incident_id, &new_severity, &note],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
     async fn list_finding_titles_since(
         &self,
         since: chrono::DateTime<chrono::Utc>,
