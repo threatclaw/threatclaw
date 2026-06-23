@@ -203,7 +203,7 @@ pub fn wrap_email(
     body_text: &str,
     dashboard_url: Option<&str>,
 ) -> (String, String) {
-    let accent = "#30a050";
+    let accent = "#d03020"; // ThreatClaw brand red (neutral/digest mails)
     let inner = format!(
         "<div style=\"font-size:15px;font-weight:700;color:{TEXT};margin-bottom:10px;\">{}</div>\
          <div style=\"color:{TEXT_SEC};font-size:13px;line-height:1.55;white-space:pre-wrap;\">{}</div>",
