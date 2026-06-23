@@ -876,11 +876,6 @@ pub async fn start_server(
             "/api/tc/incidents/{id}/reinvestigate",
             post(super::handlers::threatclaw_api::incident_reinvestigate_handler),
         )
-        // Incident → Velociraptor deep-forensics hand-off (HITL note + deep-link)
-        .route(
-            "/api/tc/incidents/{id}/forensics/velociraptor",
-            post(super::handlers::threatclaw_api::incident_velociraptor_handoff_handler),
-        )
         // Backups (full DB snapshots, auto + manual)
         .route(
             "/api/tc/backups",
