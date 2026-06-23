@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.54-beta] — 2026-06-23
+
+### Added
+- Operating-system end-of-life detection: ThreatClaw flags assets running an OS that has reached, or is within 90 days of, the end of its security support, so migrations can be planned before patches stop.
+- Automatic forensic collection: on a confirmed incident, ThreatClaw can collect evidence from the affected host through your Velociraptor connector and attach the results to the investigation.
+- English dashboard for findings and the connector catalog: vulnerabilities, end-of-life notices and the full skill catalog — descriptions, help, configuration fields and actions — now display in English as well as French.
+
 ## [1.0.53-beta] — 2026-06-22
 
 ### Added
