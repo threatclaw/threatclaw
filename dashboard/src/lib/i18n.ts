@@ -50,6 +50,30 @@ const T: Record<string, Record<Locale, string>> = {
     fr: "{package} {version} — {n} CVE, dont {crit} critical (CISA KEV: exploit actif)",
     en: "{package} {version} — {n} CVEs, incl. {crit} critical (CISA KEV: actively exploited)",
   },
+  "finding.software_vuln.cve_single.desc": {
+    fr: "{package} {version} est affecté par une vulnérabilité connue. Mettre à jour vers une version corrigée.",
+    en: "{package} {version} is affected by a known vulnerability. Update to a fixed version.",
+  },
+  "finding.software_vuln.cve_single_kev.desc": {
+    fr: "{package} {version} est affecté par une vulnérabilité activement exploitée (CISA KEV). Corriger en priorité.",
+    en: "{package} {version} is affected by an actively exploited vulnerability (CISA KEV). Patch as a priority.",
+  },
+  "finding.software_vuln.cve_group.desc": {
+    fr: "{package} {version} est affecté par {n} vulnérabilités connues. Mettre à jour vers une version corrigée.",
+    en: "{package} {version} is affected by {n} known vulnerabilities. Update to a fixed version.",
+  },
+  "finding.software_vuln.cve_group_kev.desc": {
+    fr: "{package} {version} est affecté par {n} vulnérabilités, dont au moins une activement exploitée (CISA KEV). Corriger en priorité.",
+    en: "{package} {version} is affected by {n} vulnerabilities, at least one actively exploited (CISA KEV). Patch as a priority.",
+  },
+  "finding.software_vuln.cve_group_crit.desc": {
+    fr: "{package} {version} est affecté par {n} vulnérabilités, dont {crit} critiques. Mettre à jour vers une version corrigée.",
+    en: "{package} {version} is affected by {n} vulnerabilities, including {crit} critical. Update to a fixed version.",
+  },
+  "finding.software_vuln.cve_group_crit_kev.desc": {
+    fr: "{package} {version} est affecté par {n} vulnérabilités ({crit} critiques), dont au moins une activement exploitée (CISA KEV). Corriger en priorité.",
+    en: "{package} {version} is affected by {n} vulnerabilities ({crit} critical), at least one actively exploited (CISA KEV). Patch as a priority.",
+  },
   // ── General ──
   refresh: { fr: "Actualiser", en: "Refresh" },
   save: { fr: "Enregistrer", en: "Save" },
@@ -1601,6 +1625,7 @@ const T: Record<string, Record<Locale, string>> = {
   findings_sourceLabel: { fr: "Source :", en: "Source:" },
   findings_categoryLabel: { fr: "Catégorie :", en: "Category:" },
   findings_detectedLabel: { fr: "Détecté :", en: "Detected:" },
+  findings_fixLabel: { fr: "Corriger en", en: "Fix:" },
   findings_resolvedLabel: { fr: "Résolu :", en: "Resolved:" },
   findings_markResolved: { fr: "Résolu", en: "Resolved" },
   findings_markInProgress: { fr: "En cours", en: "In progress" },

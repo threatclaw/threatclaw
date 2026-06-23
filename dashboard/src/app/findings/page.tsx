@@ -157,7 +157,7 @@ export default function FindingsPage() {
 
                 {isExpanded && (
                   <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border-light)", paddingTop: "14px" }}>
-                    {f.description && <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "12px", whiteSpace: "pre-line" }}>{f.description}</div>}
+                    {(() => { const d = localizeFinding(f, locale).description; return d ? <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "12px", whiteSpace: "pre-line" }}>{d}</div> : null; })()}
 
                     {/* Key metadata: IPs, target, MITRE, CVE */}
                     {f.metadata && (
@@ -180,6 +180,16 @@ export default function FindingsPage() {
                         {f.metadata.cve && typeof f.metadata.cve === "string" && (
                           <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,48,32,0.08)", color: "var(--tc-red)", border: "1px solid rgba(208,48,32,0.15)", fontFamily: "monospace" }}>
                             {f.metadata.cve}
+                          </span>
+                        )}
+                        {typeof f.metadata.cvss === "number" && (
+                          <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(208,144,32,0.08)", color: "var(--tc-amber)", border: "1px solid rgba(208,144,32,0.15)", fontFamily: "monospace" }}>
+                            CVSS {(f.metadata.cvss as number).toFixed(1)}
+                          </span>
+                        )}
+                        {f.metadata.fixed_version && typeof f.metadata.fixed_version === "string" && (
+                          <span style={{ fontSize: "10px", padding: "3px 8px", borderRadius: "var(--tc-radius-sm)", background: "rgba(32,160,64,0.08)", color: "var(--tc-green)", border: "1px solid rgba(32,160,64,0.15)", fontFamily: "monospace" }}>
+                            {tr("findings_fixLabel", locale)} {f.metadata.fixed_version}
                           </span>
                         )}
                         {f.metadata.mitre && Array.isArray(f.metadata.mitre) && f.metadata.mitre.length > 0 && (

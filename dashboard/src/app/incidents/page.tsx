@@ -2,7 +2,7 @@
 // Unified Incidents page — Incidents (confirmed) + Findings (vulns) + Alerts (sigma)
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { t as tr, type Locale } from "@/lib/i18n";
+import { t as tr, localizeFinding, type Locale } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
@@ -1024,7 +1024,7 @@ function FindingsTab({ locale }: { locale: Locale }) {
                 <div style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }} onClick={() => setExpandedId(isExpanded ? null : f.id)}>
                   <span style={{ fontSize: "10px", fontWeight: 700, padding: "3px 8px", background: sev.bg, color: sev.color, border: `1px solid ${sev.border}`, textTransform: "uppercase", flexShrink: 0, fontFamily: "ui-monospace, 'JetBrains Mono', monospace" }}>{f.severity.toUpperCase()}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.title}</div>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{localizeFinding(f, locale).title}</div>
                     <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", display: "flex", gap: "12px", marginTop: "2px" }}>
                       {f.asset && <span style={{ color: "var(--tc-blue)" }}>{f.asset}</span>}
                       <span>{f.source || f.skill_id}</span>
@@ -1035,7 +1035,7 @@ function FindingsTab({ locale }: { locale: Locale }) {
                 </div>
                 {isExpanded && (
                   <div style={{ marginTop: "14px", borderTop: "1px solid var(--tc-border)", paddingTop: "14px" }}>
-                    {f.description && <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "12px", whiteSpace: "pre-line" }}>{f.description}</div>}
+                    {(() => { const d = localizeFinding(f, locale).description; return d ? <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", lineHeight: 1.6, marginBottom: "12px", whiteSpace: "pre-line" }}>{d}</div> : null; })()}
                     {f.metadata && (
                       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
                         {f.metadata.src_ip && <span style={{ fontSize: "10px", padding: "3px 8px", background: "rgba(232,64,64,0.08)", color: "var(--tc-red)", border: "1px solid rgba(232,64,64,0.15)", fontFamily: "monospace" }}>src: {String(f.metadata.src_ip)}</span>}
