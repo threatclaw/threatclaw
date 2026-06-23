@@ -659,6 +659,18 @@ pub async fn check_scheduled_tasks(
                 ),
             )
             .await;
+            // Also store a queryable log so native DFIR can fold this persistence
+            // into the incident's forensic timeline (not just an alert).
+            crate::connectors::log_db_write(
+                "osquery:insert_log",
+                store.insert_log(
+                    "osquery.scheduled_tasks",
+                    hostname,
+                    &serde_json::json!({"name": name, "path": path}),
+                    &chrono::Utc::now().to_rfc3339(),
+                ),
+            )
+            .await;
             alerts += 1;
         }
     }
@@ -830,6 +842,16 @@ pub async fn check_startup_items(
                     hostname,
                     None,
                     None,
+                ),
+            )
+            .await;
+            crate::connectors::log_db_write(
+                "osquery:insert_log",
+                store.insert_log(
+                    "osquery.startup",
+                    hostname,
+                    &serde_json::json!({"name": name, "path": path, "source": source}),
+                    &chrono::Utc::now().to_rfc3339(),
                 ),
             )
             .await;
@@ -1747,7 +1769,10 @@ pub async fn check_powershell_events(
             };
             let msg_num = data
                 .get("MessageNumber")
-                .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                })
                 .unwrap_or(1);
             let user = extract_event_field(&data, &["UserId", "User"]).map(|s| s.to_string());
             let entry = blocks.entry(key).or_insert_with(|| (BTreeMap::new(), None));

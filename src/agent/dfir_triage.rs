@@ -565,6 +565,53 @@ pub fn obs_from_winsec(
     }
 }
 
+/// Pure: map a "snapshot" persistence log (the whole `data` object, no eventid)
+/// to a Persistence observation. Covers the list-shaped / formerly alert-only
+/// sources the connector now also logs: scheduled tasks, startup items, and
+/// authorized_keys — the mid/late kill-chain (persistence) signals that were
+/// missing from the timeline.
+pub fn obs_from_persistence_log(
+    tag: &str,
+    data: &Value,
+    asset: &str,
+    ts: DateTime<Utc>,
+) -> Option<RawObservation> {
+    let mut o = RawObservation::base(ts, ObsKind::Persistence, asset, tag);
+    match tag {
+        "osquery.scheduled_tasks" => {
+            let name = jstr(data, "name").unwrap_or("?");
+            let path = jstr(data, "path").unwrap_or("?");
+            // English token so label_mitre maps it to T1053.005.
+            o.detail = format!("Tâche planifiée (scheduled task) : {name} → {path}");
+            o.related_to = Some(path.into());
+        }
+        "osquery.startup" => {
+            let name = jstr(data, "name").unwrap_or("?");
+            let path = jstr(data, "path").unwrap_or("?");
+            o.detail = format!("Élément de démarrage (startup) : {name} → {path}");
+            o.related_to = Some(path.into());
+        }
+        "osquery.ssh_keys" => {
+            let keys = data.get("keys").and_then(|k| k.as_array())?;
+            if keys.is_empty() {
+                return None;
+            }
+            let files: Vec<&str> = keys
+                .iter()
+                .filter_map(|k| k.get("key_file").and_then(|v| v.as_str()))
+                .collect();
+            o.detail = format!(
+                "authorized_keys ({} clé(s)) : {}",
+                keys.len(),
+                files.join(", ")
+            );
+            o.related_to = files.first().map(|s| (*s).to_string());
+        }
+        _ => return None,
+    }
+    Some(o)
+}
+
 /// Edge (I/O): read recent osquery telemetry for an asset across the relevant
 /// tags and map each event to an observation. Server-side parsing — only rows,
 /// never raw artifacts, cross the wire.
@@ -574,13 +621,14 @@ pub async fn collect_observations_from_logs(
     minutes_back: i64,
 ) -> Vec<RawObservation> {
     type Mapper = fn(&str, &Value, &str, DateTime<Utc>) -> Option<RawObservation>;
-    let sources: [(&str, Mapper); 3] = [
+    // Event sources: one log row = one event, keyed on `eventid` + nested `data`.
+    let event_sources: [(&str, Mapper); 3] = [
         ("osquery.sysmon", obs_from_sysmon),
         ("osquery.powershell", obs_from_powershell),
         ("osquery.windows_security", obs_from_winsec),
     ];
     let mut out = Vec::new();
-    for (tag, map) in sources {
+    for (tag, map) in event_sources {
         let logs = store
             .query_logs(minutes_back, Some(asset), Some(tag), 5000)
             .await
@@ -594,6 +642,32 @@ pub async fn collect_observations_from_logs(
                 .or_else(|| parse_log_ts(&l.created_at))
                 .unwrap_or_else(Utc::now);
             if let Some(o) = map(eventid, inner, asset, ts) {
+                out.push(o);
+            }
+        }
+    }
+
+    // Snapshot sources: the whole `data` is the artifact, re-logged every sync,
+    // so DEDUP by detail (one entry per distinct persistence) to avoid flooding
+    // the timeline with the same task/key every 5 minutes.
+    let snapshot_tags = [
+        "osquery.scheduled_tasks",
+        "osquery.startup",
+        "osquery.ssh_keys",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for tag in snapshot_tags {
+        let logs = store
+            .query_logs(minutes_back, Some(asset), Some(tag), 5000)
+            .await
+            .unwrap_or_default();
+        for l in &logs {
+            let ts = parse_log_ts(&l.time)
+                .or_else(|| parse_log_ts(&l.created_at))
+                .unwrap_or_else(Utc::now);
+            if let Some(o) = obs_from_persistence_log(tag, &l.data, asset, ts)
+                && seen.insert(o.detail.clone())
+            {
                 out.push(o);
             }
         }
@@ -1222,6 +1296,40 @@ mod tests {
         );
         // non-logon event ignored
         assert!(obs_from_winsec("4688", &rdp, "WIN-01", ts()).is_none());
+    }
+
+    #[test]
+    fn persistence_snapshot_logs_map_and_label() {
+        // scheduled task → Persistence, labelled T1053.005
+        let task = serde_json::json!({"name":"Updater","path":"C:\\Temp\\evil.exe"});
+        let o = obs_from_persistence_log("osquery.scheduled_tasks", &task, "WIN-01", ts()).unwrap();
+        assert_eq!(o.kind, ObsKind::Persistence);
+        assert_eq!(o.related_to.as_deref(), Some("C:\\Temp\\evil.exe"));
+        assert_eq!(label_mitre(&o).1.as_deref(), Some("T1053.005"));
+        // authorized_keys → Persistence T1098.004
+        let keys =
+            serde_json::json!({"keys_count":1,"keys":[{"key_file":"/root/.ssh/authorized_keys"}]});
+        let o = obs_from_persistence_log("osquery.ssh_keys", &keys, "WIN-01", ts()).unwrap();
+        assert!(o.detail.contains("authorized_keys"));
+        assert_eq!(label_mitre(&o).1.as_deref(), Some("T1098.004"));
+        // startup → Persistence
+        let s = serde_json::json!({"name":"x","path":"C:\\Temp\\x.exe","source":"Registry"});
+        assert_eq!(
+            obs_from_persistence_log("osquery.startup", &s, "WIN-01", ts())
+                .unwrap()
+                .kind,
+            ObsKind::Persistence
+        );
+        // empty key list → no observation
+        assert!(
+            obs_from_persistence_log(
+                "osquery.ssh_keys",
+                &serde_json::json!({"keys":[]}),
+                "WIN-01",
+                ts()
+            )
+            .is_none()
+        );
     }
 
     #[test]
