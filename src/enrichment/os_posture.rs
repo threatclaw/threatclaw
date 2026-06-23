@@ -121,10 +121,11 @@ pub fn build_eol_finding(
     cycle: &str,
     status: &EolStatus,
 ) -> crate::db::threatclaw_store::NewFinding {
-    let (severity, signal, date, title, desc) = match status {
+    let (severity, signal, i18n_key, date, title, desc) = match status {
         EolStatus::Eol(date) => (
             "HIGH",
             "eol",
+            "finding.os_posture.eol",
             date.clone(),
             format!("{os} — système en fin de vie (EOL)"),
             format!(
@@ -134,6 +135,7 @@ pub fn build_eol_finding(
         EolStatus::Approaching(date) => (
             "MEDIUM",
             "eol-approaching",
+            "finding.os_posture.eol_approaching",
             date.clone(),
             format!("{os} — fin de vie imminente"),
             format!(
@@ -156,7 +158,11 @@ pub fn build_eol_finding(
             "cycle": cycle,
             "eol_date": date,
             "detection": "os-posture-eol",
-            "mitre": ["T1190"]
+            "mitre": ["T1190"],
+            "i18n": crate::enrichment::finding_i18n::i18n(
+                i18n_key,
+                serde_json::json!({ "os": os, "date": date, "asset": asset_name }),
+            ),
         })),
     }
 }
@@ -329,6 +335,34 @@ mod tests {
         );
         assert_eq!(a.severity, "MEDIUM");
         assert_eq!(a.metadata.as_ref().unwrap()["signal"], "eol-approaching");
+    }
+
+    #[test]
+    fn finding_carries_i18n_key_and_params() {
+        let f = build_eol_finding(
+            "srv",
+            "Debian GNU/Linux 12",
+            "debian",
+            "12",
+            &EolStatus::Approaching("2026-07-11".into()),
+        );
+        let i = &f.metadata.as_ref().unwrap()["i18n"];
+        assert_eq!(i["key"], "finding.os_posture.eol_approaching");
+        assert_eq!(i["params"]["os"], "Debian GNU/Linux 12");
+        assert_eq!(i["params"]["date"], "2026-07-11");
+        assert_eq!(i["params"]["asset"], "srv");
+
+        let e = build_eol_finding(
+            "srv",
+            "Debian GNU/Linux 11",
+            "debian",
+            "11",
+            &EolStatus::Eol("2024-08-14".into()),
+        );
+        assert_eq!(
+            e.metadata.as_ref().unwrap()["i18n"]["key"],
+            "finding.os_posture.eol"
+        );
     }
 
     #[test]

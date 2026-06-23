@@ -4,6 +4,7 @@ pub mod crt_sh;
 pub mod cti_feed;
 pub mod cve_lookup;
 pub mod epss;
+pub mod finding_i18n;
 pub mod google_safebrowsing;
 pub mod greynoise;
 pub mod grype;
