@@ -2710,12 +2710,19 @@ function BackupTab() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
   const [versionInfo, setVersionInfo] = useState<any>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+
+  const checkForUpdates = () => {
+    setCheckingUpdate(true);
+    fetch("/api/tc/version/check", { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json())
+      .then(d => setVersionInfo(d))
+      .catch(() => setVersionInfo({ check_failed: true }))
+      .finally(() => setCheckingUpdate(false));
+  };
   const [exportMode, setExportMode] = useState<"light" | "full">("light");
 
-  useEffect(() => {
-    fetch("/api/tc/version/check", { signal: AbortSignal.timeout(8000) })
-      .then(r => r.json()).then(d => setVersionInfo(d)).catch(() => {});
-  }, []);
+  useEffect(() => { checkForUpdates(); }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -2839,6 +2846,13 @@ function BackupTab() {
               {tr("cfg_checkFailed", locale)}
             </span>
           )}
+          <button onClick={checkForUpdates} disabled={checkingUpdate} style={{
+            fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)",
+            background: "var(--tc-input)", color: "var(--tc-text-sec)",
+            border: "1px solid var(--tc-border)", fontWeight: 700, cursor: "pointer",
+          }}>
+            {checkingUpdate ? tr("cfg_checking", locale) : `🔄 ${tr("cfg_checkNow", locale)}`}
+          </button>
           <a href="https://github.com/threatclaw/threatclaw/releases" target="_blank" rel="noopener noreferrer"
             style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "var(--tc-radius-sm)", marginLeft: "auto",
               background: "var(--tc-input)", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)",

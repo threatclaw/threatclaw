@@ -973,6 +973,8 @@ const T: Record<string, Record<Locale, string>> = {
   cfg_updateOnelinerComment: { fr: "# Mise à jour en une commande (recommandé) :", en: "# One-line update (recommended):" },
   cfg_updateDockerComment: { fr: "# Ou mise à jour Docker manuelle :", en: "# Or manual Docker update:" },
   cfg_updateBinaryComment: { fr: "# Pour mettre à jour (binaire) :", en: "# To update (binary):" },
+  cfg_checkNow: { fr: "Vérifier les mises à jour", en: "Check for updates" },
+  cfg_checking: { fr: "Vérification…", en: "Checking…" },
   cfg_saveError: { fr: "Erreur enregistrement", en: "Error saving" },
   cfg_backupCreated: { fr: "Sauvegarde créée :", en: "Backup created:" },
   cfg_createError: { fr: "Erreur création", en: "Error creating" },
