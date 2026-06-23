@@ -29,7 +29,7 @@
 set -eo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-readonly TC_VERSION="1.0.54-beta"
+readonly TC_VERSION="1.0.55-beta"
 readonly DEFAULT_DIR="/opt/threatclaw"
 # Pin config fetches to the release tag, not the moving `main` tip — a force-push
 # or account compromise on main otherwise lands arbitrary content in a root install.

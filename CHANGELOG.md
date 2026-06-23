@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.55-beta] — 2026-06-23
+
+### Added
+- Email over SMTP: ThreatClaw sends reports and notifications through your own authenticated SMTP server (STARTTLS or implicit TLS), with a branded bilingual HTML template and a setting to choose the language of reports and notifications.
+
 ## [1.0.54-beta] — 2026-06-23
 
 ### Added
